@@ -16,7 +16,7 @@
 
 | Тема | Решение |
 |------|---------|
-| Платформа | Android; форк `amneziawg-android` + bypass из WDTT |
+| Платформа | Android; форк `amneziawg-android` + RAW bypass из qWDTT / SpaceNeuroX |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
 | Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
 | WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
