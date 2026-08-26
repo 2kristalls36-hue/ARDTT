@@ -1,5 +1,7 @@
 package com.nonamevpn.app.ui.tunnel
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -77,15 +79,65 @@ fun TunnelScreen(
     var showImport by remember { mutableStateOf(false) }
     var showHash by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
+    var importBusy by remember { mutableStateOf(false) }
     var callBusy by remember { mutableStateOf(false) }
     var callMessage by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
+
+    fun applyImported() {
+        showImport = false
+        importError = null
+        importBusy = false
+    }
+
+    val pickProfileFile = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) {
+            AppLog.w("Import", "File pick cancelled")
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            importBusy = true
+            importError = null
+            runCatching {
+                // Persist read access across reboots if the provider allows it.
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+                profiles.importUri(uri)
+            }.onSuccess { p ->
+                AppLog.i("Import", "Profile from file: ${p.name} hostId=${p.hostId}")
+                applyImported()
+            }.onFailure { e ->
+                AppLog.e("Import", e.message ?: "import failed")
+                importBusy = false
+                importError = e.message ?: "Не удалось импортировать файл"
+                showImport = true
+            }
+        }
+    }
+
+    fun launchFilePicker() {
+        AppLog.i("Import", "Opening file picker")
+        pickProfileFile.launch(
+            arrayOf(
+                "application/json",
+                "text/plain",
+                "text/*",
+                "application/octet-stream",
+                "*/*",
+            ),
+        )
+    }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
         if (profile != null) {
             settings.setProfileName(profile!!.name)
-            // Never force Hide-IP from profile while WARP is stub
             if (profile!!.hideIp) {
                 AppLog.w("Tunnel", "Profile hideIp=true ignored (WARP stub)")
             }
@@ -143,21 +195,30 @@ fun TunnelScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (profile == null) {
-                OutlinedButton(
-                    onClick = { showImport = true },
+                Button(
+                    onClick = { launchFilePicker() },
+                    enabled = !importBusy && !connected,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.22f),
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                 ) {
                     Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Импорт профиля…", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (importBusy) "Читаем файл…" else "Выбрать файл профиля…",
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                OutlinedButton(
+                    onClick = { showImport = true },
+                    enabled = !importBusy && !connected,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text("Вставить JSON вручную…")
                 }
             } else {
                 Text(
@@ -378,15 +439,27 @@ fun TunnelScreen(
         }
 
         if (profile != null) {
-            OutlinedButton(
-                onClick = { showImport = true },
-                enabled = !connected,
+            Button(
+                onClick = { launchFilePicker() },
+                enabled = !connected && !importBusy,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                Text("Импорт другого профиля…")
+                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (importBusy) "Читаем файл…" else "Импорт из файла…", fontWeight = FontWeight.SemiBold)
+            }
+            OutlinedButton(
+                onClick = { showImport = true },
+                enabled = !connected && !importBusy,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text("Вставить JSON вручную…")
             }
             TextButton(
                 onClick = {
@@ -406,23 +479,30 @@ fun TunnelScreen(
     if (showImport) {
         ImportDialog(
             error = importError,
+            busy = importBusy,
             onDismiss = {
                 showImport = false
                 importError = null
             },
+            onPickFile = { launchFilePicker() },
             onPaste = { text ->
                 scope.launch {
+                    importBusy = true
                     runCatching { profiles.importJson(text) }
                         .onSuccess {
-                            showImport = false
-                            importError = null
-                        }.onFailure { importError = it.message ?: "Неверный JSON профиля" }
+                            AppLog.i("Import", "Profile from paste: ${it.name}")
+                            applyImported()
+                        }.onFailure {
+                            importBusy = false
+                            importError = it.message ?: "Неверный JSON профиля"
+                        }
                 }
             },
             onDemo = {
                 scope.launch {
                     profiles.importDemo()
-                    showImport = false
+                    AppLog.w("Import", "Demo profile loaded (fake IP)")
+                    applyImported()
                 }
             },
         )
@@ -449,23 +529,42 @@ fun TunnelScreen(
 @Composable
 private fun ImportDialog(
     error: String?,
+    busy: Boolean,
     onDismiss: () -> Unit,
+    onPickFile: () -> Unit,
     onPaste: (String) -> Unit,
     onDemo: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("Импорт профиля") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Вставьте JSON профиля (provision / smoke).")
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Выберите JSON с телефона (Downloads / Files) или вставьте текст.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Button(
+                    onClick = onPickFile,
+                    enabled = !busy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (busy) "Читаем…" else "Выбрать файл…", fontWeight = FontWeight.Bold)
+                }
+                Text("Или вставьте JSON:", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
+                    enabled = !busy,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 120.dp),
+                        .heightIn(min = 100.dp),
                     shape = RoundedCornerShape(16.dp),
                 )
                 error?.let {
@@ -474,12 +573,15 @@ private fun ImportDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onPaste(text) }, enabled = text.isNotBlank()) { Text("Импортировать") }
+            TextButton(
+                onClick = { onPaste(text) },
+                enabled = text.isNotBlank() && !busy,
+            ) { Text("Импортировать текст") }
         },
         dismissButton = {
             Column {
-                TextButton(onClick = onDemo) { Text("Демо-профиль") }
-                TextButton(onClick = onDismiss) { Text("Отмена") }
+                TextButton(onClick = onDemo, enabled = !busy) { Text("Демо (фейковый IP)") }
+                TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") }
             }
         },
         shape = RoundedCornerShape(24.dp),
