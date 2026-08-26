@@ -1,4 +1,4 @@
-# AWDTT server stack
+# ARDTT server stack
 # Usage:
 #   export NVPN_PUBLIC_HOST=1.2.3.4
 #   docker compose -f server/docker-compose.yml up -d --build

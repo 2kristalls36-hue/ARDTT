@@ -1,6 +1,6 @@
-# Android-клиент AWDTT
+# Android-клиент ARDTT
 
-Jetpack Compose. Отображаемое имя: **AWDTT** (Amnezia + WDTT).  
+Jetpack Compose. Отображаемое имя: **ARDTT** (Amnezia + RAW Dial via TURN).  
 `applicationId` пока `com.nonamevpn.app` (совместимость / установка рядом с официальной AmneziaWG), minSdk 28.
 
 Легенда: [../docs/LEGEND.md](../docs/LEGEND.md).

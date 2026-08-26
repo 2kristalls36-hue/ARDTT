@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Slim AmneziaWG userspace build for AWDTT (libwg-go only).
+# Slim AmneziaWG userspace build for ARDTT (libwg-go only).
 cmake_minimum_required(VERSION 3.4.1)
 project("AmneziaWG")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
