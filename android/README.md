@@ -23,6 +23,9 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 2. Host, SSH user/port, пароль или PEM-ключ, публичный host.
 3. «Установить на VPS» загружает актуальный `assets/deploy/stack.tar.gz` и гоняет `install.sh`.
 
+После успеха на VPS остаётся только `/opt/nonamevpn/stack/` (+ data) и рабочие образы:
+`stack.tar.gz`, Docker build cache и apt-кэш установщик удаляет сам.
+
 Обновить архив стека после правок `server/`:
 
 ```bash
