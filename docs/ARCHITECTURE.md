@@ -246,11 +246,13 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 
 ## Лицензии GPL × Apache (#9)
 
-WDTT ≈ **GPL-3.0**, amneziawg-android ≈ **Apache-2.0**.
+- amneziawg-android / AmneziaWG ≈ **Apache-2.0**
+- Path B RAW (qWDTT / SpaceNeuroX) ≈ **GPL-3.0** — см. [NOTICE](../NOTICE), [LEGEND.md](LEGEND.md)
+- Классический WDTT (amurcanov) — идейный предок (WG/TURN/DTLS), не источник RAW
 
 **Сделать:**
 
-1. В репо: `LICENSE` (решение для **всего APK** — практично **GPL-3.0**), `NOTICE` с атрибуцией Amnezia (Apache) и WDTT (GPL).
+1. В репо: `LICENSE` (решение для **всего APK** — практично **GPL-3.0**), `NOTICE` с атрибуцией Amnezia (Apache) и SpaceNeuroX/qWDTT RAW (GPL).
 2. Не удалять copyright headers из форкнутых файлов.
 3. README: откуда код, что продукт — комбинированное произведение под GPL-3.
 4. Play/распространение: готовность отдать corresponding source (GPL).
