@@ -35,6 +35,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
+import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
@@ -65,7 +66,7 @@ fun AppRoot(
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
-    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
@@ -92,11 +93,6 @@ fun AppRoot(
 
     fun requestVpnThenConnect() {
         scope.launch {
-            if (hideIp) {
-                AppLog.w("VpnPrep", "Turning off Hide-IP (WARP stub) before Connect")
-                settings.setHideIp(false)
-                conn.setHideIp(false)
-            }
             val prep = runCatching { VpnService.prepare(activity ?: context) }.getOrNull()
             if (prep != null) {
                 AppLog.i("VpnPrep", "Launching system VPN consent")
@@ -112,7 +108,7 @@ fun AppRoot(
         AppLog.i("App", "UI ready")
     }
 
-    LaunchedEffect(silent, economy, dial) {
+    LaunchedEffect(silent, economy, dial, pathModeSetting) {
         conn.setSilentRecreate(silent)
         conn.setWorkers(if (economy) 1 else 3)
         conn.setDialPath(
@@ -122,6 +118,7 @@ fun AppRoot(
                 else -> DialPath.Auto
             },
         )
+        conn.setPathMode(ConnPathMode.fromSetting(pathModeSetting))
     }
 
     LaunchedEffect(admin, currentRoute) {

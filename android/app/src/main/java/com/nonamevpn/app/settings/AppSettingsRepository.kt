@@ -21,6 +21,7 @@ class AppSettingsRepository(private val context: Context) {
     private val silentRecreate = booleanPreferencesKey("silent_recreate")
     private val economyWorkers = booleanPreferencesKey("economy_workers")
     private val dialPath = stringPreferencesKey("dial_path")
+    private val pathMode = stringPreferencesKey("conn_path_mode")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
@@ -31,6 +32,10 @@ class AppSettingsRepository(private val context: Context) {
     /** `auto` | `vkcalls` | `legacy` — Path B TURN dial. */
     val dialPathName: Flow<String> = context.dataStore.data.map {
         normalizeDialPath(it[dialPath])
+    }
+    /** `auto` | `direct` | `bypass` — tunnel path override. */
+    val pathModeName: Flow<String> = context.dataStore.data.map {
+        normalizePathMode(it[pathMode])
     }
 
     suspend fun setHideIp(enabled: Boolean) {
@@ -51,6 +56,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setDialPath(name: String) {
         context.dataStore.edit { it[dialPath] = normalizeDialPath(name) }
+    }
+
+    suspend fun setPathMode(name: String) {
+        context.dataStore.edit { it[pathMode] = normalizePathMode(name) }
     }
 
     suspend fun setAdminPin(pin: String) {
@@ -89,6 +98,12 @@ class AppSettingsRepository(private val context: Context) {
         fun normalizeDialPath(raw: String?): String = when (raw?.lowercase()?.trim()) {
             "vkcalls" -> "vkcalls"
             "legacy" -> "legacy"
+            else -> "auto"
+        }
+
+        fun normalizePathMode(raw: String?): String = when (raw?.lowercase()?.trim()) {
+            "direct", "awg" -> "direct"
+            "bypass", "wdtt" -> "bypass"
             else -> "auto"
         }
     }
