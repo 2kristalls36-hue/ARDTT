@@ -1,0 +1,55 @@
+nonameVPN
+==========
+
+This product combines code and ideas from multiple upstream projects.
+Copyright notices in individual source files take precedence where present.
+
+---------------------------------------------------------------------------
+AmneziaWG / WireGuard-related components
+---------------------------------------------------------------------------
+
+Portions derived from AmneziaWG for Android and related AmneziaWG / WireGuard
+works, typically licensed under the Apache License, Version 2.0.
+
+  https://github.com/amnezia-vpn/amneziawg-android
+  https://github.com/amnezia-vpn/amnezia-wg
+
+Copyright (c) AmneziaVPN contributors and WireGuard project authors
+(see upstream repositories for full copyright lists).
+
+Licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at:
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+---------------------------------------------------------------------------
+WDTT / qWDTT (TURN / WRAP / RAW bypass)
+---------------------------------------------------------------------------
+
+Portions derived from WDTT and qWDTT (WireGuard / RAW over VK TURN),
+typically licensed under the GNU General Public License v3.0.
+
+  https://github.com/amurcanov/proxy-turn-vk-android  (original WDTT, archived)
+  https://github.com/SpaceNeuroX/proxy-turn-vk-android  (qWDTT)
+
+Copyright (c) WDTT / qWDTT contributors
+(see upstream repositories for full copyright lists).
+
+Licensed under the GNU General Public License, version 3.
+See the LICENSE file in this repository.
+
+---------------------------------------------------------------------------
+Other dependencies
+---------------------------------------------------------------------------
+
+Additional third-party libraries (Go modules, Android libraries, Cloudflare
+WARP-related tooling such as wireproxy / tun2socks / wgcf, etc.) will be listed
+here and/or in module manifests as they are vendored into the tree.
+
+---------------------------------------------------------------------------
+Combined work
+---------------------------------------------------------------------------
+
+The nonameVPN application and server packaging, as a combined work that
+includes GPL-licensed bypass components, are distributed under the
+GNU General Public License, version 3 (see LICENSE).

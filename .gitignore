@@ -1,0 +1,41 @@
+# Сборка и артефакты
+.gradle/
+**/build/
+**/local.properties
+*.apk
+*.aab
+*.iml
+.idea/
+*.keystore
+*.jks
+
+# Go / native
+**/vendor/
+*.so
+*.o
+bin/
+dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*~
+*.swp
+.vscode/
+.cursor/
+
+# Secrets (никогда не коммитить)
+.env
+.env.*
+!.env.example
+**/passwords.json
+**/privatekey*
+**/*.pem
+**/wgcf-account.toml
+server/data/
+android/app/release/
+
+# Python / tools
+__pycache__/
+*.pyc
+.venv/
