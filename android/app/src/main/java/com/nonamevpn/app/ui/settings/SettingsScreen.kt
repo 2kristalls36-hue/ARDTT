@@ -12,6 +12,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,17 +23,30 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.Switch
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import com.nonamevpn.app.BuildConfig
+import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.settings.AppSettingsRepository
 import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(settings: AppSettingsRepository) {
+    val context = LocalContext.current
+    val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val hasPin by settings.hasAdminPin.collectAsStateWithLifecycle(initialValue = false)
+    val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val scope = rememberCoroutineScope()
     var pin by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(silent, economy) {
+        conn.setSilentRecreate(silent)
+        conn.setWorkers(if (economy) 1 else 3)
+    }
 
     Column(
         modifier = Modifier
@@ -49,6 +63,20 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             "Версия ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+        )
+
+        Text("Обход", style = MaterialTheme.typography.titleMedium)
+        RowSetting(
+            title = "Тихий recreate звонка",
+            subtitle = "Без диалога, если hash «умер» (нужна сессия VK)",
+            checked = silent,
+            onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
+        )
+        RowSetting(
+            title = "Экономия workers",
+            subtitle = "1 вместо 3 (медленнее, стабильнее на слабых сетях)",
+            checked = economy,
+            onCheckedChange = { scope.launch { settings.setEconomyWorkers(it) } },
         )
 
         Text("Для администратора", style = MaterialTheme.typography.titleMedium)
@@ -108,9 +136,29 @@ fun SettingsScreen(settings: AppSettingsRepository) {
         }
 
         Text(
-            "Пользовательский режим намеренно минимален. AWG/RAW/probe появятся в следующих итерациях.",
+            "Path A/B backends подключены в VpnService. Native AWG и TURN/vkcalls HTTP — следующие слои.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
         )
+    }
+}
+
+@Composable
+private fun RowSetting(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
