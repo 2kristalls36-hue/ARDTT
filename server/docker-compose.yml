@@ -8,6 +8,8 @@
 # - provision exposes TCP :9100 /health and generates AWG keypairs.
 # - direct: amneziawg-go + awg (AmneziaWG 2.0 userspace).
 # - bypass: wdtt-server -listen-raw (WDTT, GPL-3).
+# - dns: dnsmasq on 10.8.0.1 / 10.9.0.1 (client DNS; upstream 1.1.1.1 via main).
+# - warp: hideIp → table 51820; DNS :53 stays on main (or hits local dnsmasq).
 
 services:
   provision:
@@ -50,11 +52,21 @@ services:
     environment:
       NVPN_BYPASS_PORT: ${NVPN_BYPASS_PORT:-56003}
       NVPN_DATA: /data
+      NVPN_BYPASS_DNS: ${NVPN_BYPASS_DNS:-10.9.0.1}
     volumes:
       - ./data:/data:ro
       - bypass-config:/etc/wdtt
     depends_on:
       - provision
+    restart: unless-stopped
+
+  dns:
+    build: ./dns
+    container_name: nvpn-dns
+    network_mode: host
+    depends_on:
+      - direct
+      - bypass
     restart: unless-stopped
 
   warp:
@@ -68,11 +80,13 @@ services:
     environment:
       GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-400MiB}
       NVPN_DATA: /data
+      NVPN_WARP_STATE: /var/lib/nvpn-warp
     volumes:
       - ./data:/data:ro
+      - ./data/warp:/var/lib/nvpn-warp
     depends_on:
       - provision
-    # Intentionally avoid restart-on-OOM loops — soft memory policy in-process
+      - dns
     restart: unless-stopped
 
 volumes:

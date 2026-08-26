@@ -83,7 +83,7 @@ object VpnProfileJson {
                 privateKey = direct.optString("privateKey", ""),
                 peerPublicKey = direct.optString("peerPublicKey", ""),
                 address = direct.optString("address", ""),
-                dns = dns.ifEmpty { listOf("1.1.1.1") },
+                dns = dns.ifEmpty { listOf("10.8.0.1") },
                 mtu = direct.optInt("mtu", 1280),
                 awg = awg,
             ),
@@ -149,7 +149,7 @@ object VpnProfileJson {
             "privateKey": "",
             "peerPublicKey": "",
             "address": "10.8.0.2/32",
-            "dns": ["1.1.1.1"],
+            "dns": ["10.8.0.1"],
             "mtu": 1280,
             "awg": {"Jc": 4, "Jmin": 40, "Jmax": 70}
           },

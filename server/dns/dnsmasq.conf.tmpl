@@ -1,0 +1,10 @@
+# nonameVPN gateway DNS — filled by entrypoint from live iface addresses.
+# Upstream stays on host main (1.1.1.1), not WARP.
+user=root
+no-resolv
+no-hosts
+bogus-priv
+domain-needed
+cache-size=1000
+# Keep DNS off the VPN path for the resolver process itself.
+bind-interfaces

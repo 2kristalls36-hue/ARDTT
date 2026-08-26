@@ -5,11 +5,13 @@ DATA="${NVPN_DATA:-/data}"
 USERS="${DATA}/users.json"
 CFG_DIR="${NVPN_WDTT_CONFIG:-/etc/wdtt}"
 PORT="${NVPN_BYPASS_PORT:-56003}"
+# DNS pushed to Path B clients via RAWCONF — gateway dnsmasq (nvpn-dns).
+DNS="${NVPN_BYPASS_DNS:-10.9.0.1}"
 # Internal DTLS listen (required by upstream wdtt-server); Path B clients use -listen-raw only.
 DTLS_PORT="${NVPN_WDTT_DTLS_PORT:-127.0.0.1:56000}"
 WG_PORT="${NVPN_WDTT_WG_PORT:-56001}"
 
-echo "[bypass] RAW/WRAP -listen-raw 0.0.0.0:${PORT} (wdtt-server, NoDTLS path)"
+echo "[bypass] RAW/WRAP -listen-raw 0.0.0.0:${PORT} (wdtt-server, NoDTLS path) dns=${DNS}"
 
 mkdir -p "${CFG_DIR}"
 
@@ -53,7 +55,7 @@ fi
   -listen-raw "0.0.0.0:${PORT}" \
   -config-dir "${CFG_DIR}" \
   -password-file "${CFG_DIR}/main.password" \
-  -dns "1.1.1.1" &
+  -dns "${DNS}" &
 SERVER_PID=$!
 
 (
