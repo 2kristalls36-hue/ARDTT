@@ -35,8 +35,16 @@ setup_forwarding() {
     echo 1 >/proc/sys/net/ipv4/ip_forward || true
   fi
   if command -v iptables >/dev/null 2>&1; then
-    iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -j MASQUERADE 2>/dev/null \
-      || iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE || true
+    # Docker/host default FORWARD policy is often DROP — without ACCEPT,
+    # AWG handshakes work but client internet (DNS/TCP) is blackholed.
+    # Same pattern as WDTT_MANAGED for bypass.
+    iptables -C FORWARD -i "${IFACE}" -m comment --comment AWG_DIRECT_MANAGED -j ACCEPT 2>/dev/null \
+      || iptables -I FORWARD 1 -i "${IFACE}" -m comment --comment AWG_DIRECT_MANAGED -j ACCEPT || true
+    iptables -C FORWARD -o "${IFACE}" -m comment --comment AWG_DIRECT_MANAGED -j ACCEPT 2>/dev/null \
+      || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment AWG_DIRECT_MANAGED -j ACCEPT || true
+    iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -o eth0 -m comment --comment AWG_DIRECT_MANAGED -j MASQUERADE 2>/dev/null \
+      || iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -j MASQUERADE 2>/dev/null \
+      || iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -m comment --comment AWG_DIRECT_MANAGED -j MASQUERADE || true
   fi
 }
 
