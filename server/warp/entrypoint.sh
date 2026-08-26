@@ -117,7 +117,7 @@ sync_rules() {
     [[ "${guard}" -gt 64 ]] && break
   done
 
-  local desired count=0
+  local desired count=0 prio=100
   desired="$(jq -r '
     (.config.directSubnet // "10.8.0.0/24") as $d
     | (.config.bypassSubnet // "10.9.0.0/24") as $b
@@ -132,8 +132,12 @@ sync_rules() {
     local dip bip
     dip="$(echo "${pair}" | awk '{print $1}')"
     bip="$(echo "${pair}" | awk '{print $2}')"
-    ip rule add from "${dip}" lookup "${TABLE}" priority 100 2>/dev/null || true
-    ip rule add from "${bip}" lookup "${TABLE}" priority 100 2>/dev/null || true
+    ip rule add from "${dip}" lookup "${TABLE}" priority "${prio}" 2>/dev/null || \
+      ip rule add from "${dip}" lookup "${TABLE}" || true
+    prio=$((prio + 1))
+    ip rule add from "${bip}" lookup "${TABLE}" priority "${prio}" 2>/dev/null || \
+      ip rule add from "${bip}" lookup "${TABLE}" || true
+    prio=$((prio + 1))
     count=$((count + 1))
     echo "[warp] hideIp route ${dip} + ${bip} → table ${TABLE}"
   done <<< "${desired}"
