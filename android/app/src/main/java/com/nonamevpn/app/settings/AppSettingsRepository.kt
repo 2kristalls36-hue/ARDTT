@@ -29,6 +29,7 @@ class AppSettingsRepository(private val context: Context) {
     private val vpnNotificationVisible = booleanPreferencesKey("vpn_notification_visible")
     private val excludedApps = stringPreferencesKey("excluded_apps")
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
+    private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
@@ -61,6 +62,9 @@ class AppSettingsRepository(private val context: Context) {
     val excludedHostsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         parseLineSet(prefs[excludedHosts]).map { normalizeHost(it) }.filter { it.isNotBlank() }.toSet()
     }
+    /** true = БС (только выбранные через VPN), false = ЧС (выбранные мимо VPN). */
+    val appsWhitelistModeFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[appsWhitelistMode] == true }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -120,6 +124,15 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setVpnNotificationVisible(visible: Boolean) {
         context.dataStore.edit { it[vpnNotificationVisible] = visible }
+    }
+
+    suspend fun setAppsWhitelistMode(whitelist: Boolean) {
+        context.dataStore.edit { it[appsWhitelistMode] = whitelist }
+    }
+
+    suspend fun appsWhitelistModeSnapshot(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[appsWhitelistMode] == true
     }
 
     suspend fun setExcludedApps(packages: Set<String>) {

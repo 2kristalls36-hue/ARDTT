@@ -180,8 +180,6 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             )
         }
 
-        ExclusionsSettingsCard(settings = settings)
-
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.ListAlt
@@ -47,6 +48,7 @@ import com.nonamevpn.app.ui.admin.LogsScreen
 import com.nonamevpn.app.ui.admin.ServersScreen
 import com.nonamevpn.app.ui.components.NavBarItem
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
+import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import kotlinx.coroutines.launch
@@ -160,6 +162,9 @@ fun AppRoot(
                     onRequestConnect = { requestVpnThenConnect() },
                 )
             }
+            composable(AppDestination.Exceptions.route) {
+                ExceptionsScreen(settings = settings)
+            }
             composable(AppDestination.Settings.route) {
                 SettingsScreen(settings = settings)
             }
@@ -203,6 +208,7 @@ fun AppRoot(
 
 private fun AppDestination.icon(): ImageVector = when (this) {
     AppDestination.Tunnel -> Icons.Outlined.VpnKey
+    AppDestination.Exceptions -> Icons.Outlined.Block
     AppDestination.Settings -> Icons.Outlined.Settings
     AppDestination.Servers -> Icons.Outlined.Dns
     AppDestination.Deploy -> Icons.Outlined.CloudUpload
