@@ -1,0 +1,24 @@
+--- a/core.go
++++ b/core.go
+@@ -11,8 +11,8 @@ const (
+ 	// Raw-IP роутер (без WireGuard) — отдельный TUN/подсеть/NAT, полностью
+ 	// параллельно WG-пути. Подсеть намеренно не пересекается с wgServerCIDR.
+ 	rawIfaceName  = "wdttraw0"
+-	rawServerAddr = "10.70.66.1"
+-	rawServerCIDR = rawServerAddr + "/16"
++	rawServerAddr = "10.9.0.1"
++	rawServerCIDR = rawServerAddr + "/24"
+ 	// Raw-режим не несёт WG data header (~32 байта) — только RTP-obfs (12 байт
+ 	// заголовок + 16 байт AEAD tag + до 60 байт padding в video-режиме) и TURN
+ 	// ChannelData/Send Indication framing (4-24 байта). Даже в худшем случае
+--- a/database_bot.go
++++ b/database_bot.go
+@@ -673,7 +673,7 @@ func getNextRawIP() string {
+ 	}
+ 	for b3 := 0; b3 <= 255; b3++ {
+ 		for b4 := 1; b4 <= 254; b4++ {
+-			ip := fmt.Sprintf("10.70.%d.%d", b3, b4)
++			ip := fmt.Sprintf("10.9.0.%d", b4)
+ 			if ip == rawServerAddr {
+ 				continue
+ 			}
