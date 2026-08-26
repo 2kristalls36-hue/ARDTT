@@ -47,6 +47,10 @@ class VpnTunnelService : VpnService() {
         val path = runCatching {
             VpnPath.valueOf(intent?.getStringExtra(EXTRA_PATH) ?: VpnPath.Direct.name)
         }.getOrDefault(VpnPath.Direct)
+        val address = intent?.getStringExtra(EXTRA_TUN_ADDRESS)
+            ?.substringBefore('/')
+            ?.takeIf { it.isNotBlank() }
+            ?: "10.8.0.2"
 
         startForeground(NOTIF_ID, buildNotification(path))
         ConnectionManager.getOrNull()?.onServiceStarted(path)
@@ -55,7 +59,7 @@ class VpnTunnelService : VpnService() {
             tun = Builder()
                 .setSession("nonameVPN")
                 .setMtu(1280)
-                .addAddress("10.8.0.2", 32)
+                .addAddress(address, 32)
                 .addDnsServer("1.1.1.1")
                 .addRoute("0.0.0.0", 0)
                 .establish()
@@ -121,6 +125,7 @@ class VpnTunnelService : VpnService() {
         const val ACTION_STOP = "com.nonamevpn.app.action.STOP"
         const val EXTRA_PATH = "path"
         const val EXTRA_HIDE_IP = "hide_ip"
+        const val EXTRA_TUN_ADDRESS = "tun_address"
         private const val NOTIF_ID = 42
     }
 }
