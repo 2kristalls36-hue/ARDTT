@@ -15,8 +15,8 @@
 |------|---------|
 | Платформа | Android; форк `amneziawg-android` + bypass из WDTT |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
-| Деплой | Compose: `direct` + `bypass` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
-| WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 200 → `main`, остальной трафик prio 300+ → table `51820` |
+| Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
+| WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
 
 | Call hash | **1 hash на пользователя VPN**, только на телефоне (не в серверном `nvpn` как обязательное поле) |
 | Дозвон | **`vkcalls` по умолчанию** + **`legacy` (капча) как fallback** |
@@ -115,12 +115,12 @@ UI перед Connect: чекбокс **«Скрыть свой IP адрес»*
 **DNS не через WARP.** Иначе резолв ломается (таймауты, «IP есть — сайты нет»), особенно на tun2socks/SOCKS и часто на WARP-пути.
 
 ```
-prio 200: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → lookup main   # DNS → WAN
+prio 100: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → lookup main   # DNS → WAN
 prio 300+: from 10.8.0.x / 10.9.0.x → lookup 51820 → warp0         # остальное
 + MASQUERADE :53 на eth0 для 10.8/10.9/10.66
 ```
 
-Клиентский DNS — **шлюз туннеля** (`10.8.0.1` Direct / `10.9.0.1` Bypass) → **dnsmasq** (`nvpn-dns`) → upstream `1.1.1.1`/`1.0.0.1` по `main`. Запросы на внешний `:53` (старые профили) по-прежнему уводятся `ip rule` prio 200 → main.
+Клиентский DNS — **шлюз туннеля** (`10.8.0.1` Direct / `10.9.0.1` Bypass) → **dnsmasq** (`nvpn-dns`) → upstream `1.1.1.1`/`1.0.0.1` по `main`. Запросы на внешний `:53` (старые профили) по-прежнему уводятся `ip rule` prio 100 → main.
 
 На клиенте **нет** отдельного `10.10.0.{id}` как path подключения.
 
@@ -338,7 +338,7 @@ Call hash — **локально на устройстве**, не обязан 
 1. Форк AmneziaWG Android + AWG direct.
 2. Bypass RAW + TCP + dial auto (vkcalls→legacy).
 3. Hash на телефоне; VK только create/recreate call.
-4. Compose: direct + bypass + warp (hide-IP egress) + provision.
+4. Compose: direct + bypass + dns + warp (hide-IP egress) + provision.
 5. Лёгкий parallel probe + re-probe на Connect; без hard-block OpenNoVps.
 6. LICENSE/NOTICE (GPL-3 + атрибуции).
 7. warp без restart-on-OOM; GOMEMLIMIT/soft recycle.

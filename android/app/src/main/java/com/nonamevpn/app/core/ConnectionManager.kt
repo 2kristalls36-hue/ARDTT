@@ -527,7 +527,11 @@ class ConnectionManager(
             return
         }
         val cur = _ui.value
-        if (cur.state == ConnState.Connected || cur.state == ConnState.Connecting) {
+        if (
+            cur.state == ConnState.Connected ||
+            cur.state == ConnState.Connecting ||
+            cur.state == ConnState.PausedTrustedWifi
+        ) {
             _ui.value = cur.copy(
                 state = ConnState.Ready,
                 activePath = null,
