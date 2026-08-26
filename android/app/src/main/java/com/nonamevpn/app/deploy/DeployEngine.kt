@@ -3,7 +3,6 @@ package com.nonamevpn.app.deploy
 import android.content.Context
 import android.util.Log
 import com.jcraft.jsch.Session
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
