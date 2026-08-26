@@ -26,6 +26,9 @@ class AppSettingsRepository(private val context: Context) {
     private val pathMode = stringPreferencesKey("conn_path_mode")
     private val trustedWifiEnabled = booleanPreferencesKey("trusted_wifi_enabled")
     private val trustedWifiSsids = stringPreferencesKey("trusted_wifi_ssids")
+    private val vpnNotificationVisible = booleanPreferencesKey("vpn_notification_visible")
+    private val excludedApps = stringPreferencesKey("excluded_apps")
+    private val excludedHosts = stringPreferencesKey("excluded_hosts")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
@@ -46,6 +49,17 @@ class AppSettingsRepository(private val context: Context) {
     /** Newline-separated SSIDs. */
     val trustedWifiSsidsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         parseSsidSet(prefs[trustedWifiSsids])
+    }
+    /** Default true — show VPN status in notification shade. */
+    val vpnNotificationVisibleFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[vpnNotificationVisible] != false }
+    /** Package names that bypass the VPN (disallowed applications). */
+    val excludedAppsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        parseLineSet(prefs[excludedApps])
+    }
+    /** Hostnames / IPv4 that should leave the tunnel (API 33+ excludeRoute). */
+    val excludedHostsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        parseLineSet(prefs[excludedHosts]).map { normalizeHost(it) }.filter { it.isNotBlank() }.toSet()
     }
 
     suspend fun setHideIp(enabled: Boolean) {
@@ -104,10 +118,88 @@ class AppSettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun setVpnNotificationVisible(visible: Boolean) {
+        context.dataStore.edit { it[vpnNotificationVisible] = visible }
+    }
+
+    suspend fun setExcludedApps(packages: Set<String>) {
+        context.dataStore.edit {
+            it[excludedApps] = packages
+                .map { p -> p.trim() }
+                .filter { p -> p.isNotBlank() }
+                .distinct()
+                .sorted()
+                .joinToString("\n")
+        }
+    }
+
+    suspend fun addExcludedApp(packageName: String) {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val current = parseLineSet(prefs[excludedApps]).toMutableSet()
+            current.add(clean)
+            prefs[excludedApps] = current.sorted().joinToString("\n")
+        }
+    }
+
+    suspend fun removeExcludedApp(packageName: String) {
+        context.dataStore.edit { prefs ->
+            val current = parseLineSet(prefs[excludedApps]).toMutableSet()
+            current.remove(packageName.trim())
+            prefs[excludedApps] = current.sorted().joinToString("\n")
+        }
+    }
+
+    suspend fun setExcludedHosts(hosts: Set<String>) {
+        context.dataStore.edit {
+            it[excludedHosts] = hosts
+                .map { h -> normalizeHost(h) }
+                .filter { h -> h.isNotBlank() }
+                .distinct()
+                .sorted()
+                .joinToString("\n")
+        }
+    }
+
+    suspend fun addExcludedHost(host: String) {
+        val clean = normalizeHost(host)
+        if (clean.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val current = parseLineSet(prefs[excludedHosts]).map { normalizeHost(it) }.toMutableSet()
+            current.add(clean)
+            prefs[excludedHosts] = current.filter { it.isNotBlank() }.sorted().joinToString("\n")
+        }
+    }
+
+    suspend fun removeExcludedHost(host: String) {
+        val clean = normalizeHost(host)
+        context.dataStore.edit { prefs ->
+            val current = parseLineSet(prefs[excludedHosts]).map { normalizeHost(it) }.toMutableSet()
+            current.remove(clean)
+            prefs[excludedHosts] = current.filter { it.isNotBlank() }.sorted().joinToString("\n")
+        }
+    }
+
     /** Snapshot for VpnService (call from IO/coroutine). */
     suspend fun trustedWifiSnapshot(): Pair<Boolean, Set<String>> {
         val prefs = context.dataStore.data.first()
         return (prefs[trustedWifiEnabled] == true) to parseSsidSet(prefs[trustedWifiSsids])
+    }
+
+    suspend fun vpnNotificationVisibleSnapshot(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[vpnNotificationVisible] != false
+    }
+
+    suspend fun excludedAppsSnapshot(): Set<String> {
+        val prefs = context.dataStore.data.first()
+        return parseLineSet(prefs[excludedApps])
+    }
+
+    suspend fun excludedHostsSnapshot(): Set<String> {
+        val prefs = context.dataStore.data.first()
+        return parseLineSet(prefs[excludedHosts]).map { normalizeHost(it) }.filter { it.isNotBlank() }.toSet()
     }
 
     suspend fun unlockAdmin() {
@@ -148,10 +240,24 @@ class AppSettingsRepository(private val context: Context) {
         }
 
         fun parseSsidSet(raw: String?): Set<String> =
-            raw.orEmpty()
-                .lineSequence()
+            parseLineSet(raw)
                 .map { sanitizeTrustedWifiSsid(it) }
                 .filter { it.isNotBlank() }
                 .toSet()
+
+        fun parseLineSet(raw: String?): Set<String> =
+            raw.orEmpty()
+                .lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .toSet()
+
+        fun normalizeHost(value: String): String {
+            var h = value.trim().lowercase()
+            if (h.startsWith("http://")) h = h.removePrefix("http://")
+            if (h.startsWith("https://")) h = h.removePrefix("https://")
+            h = h.substringBefore('/').substringBefore(':').trim()
+            return h
+        }
     }
 }

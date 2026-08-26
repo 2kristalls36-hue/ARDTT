@@ -96,6 +96,9 @@ class ConnectionManager(
 
     fun setHideIp(enabled: Boolean) {
         val cur = _ui.value
+        if (provisionUrl.isNullOrBlank()) {
+            provisionUrl = profile?.provisionBaseUrl
+        }
         val status = if (cur.state == ConnState.Connected) {
             when (cur.activePath) {
                 VpnPath.Direct -> "Подключено: прямое" + if (enabled) " · IP скрыт (WARP)" else ""
@@ -112,12 +115,44 @@ class ConnectionManager(
         )
         if (cur.state == ConnState.Connected || cur.state == ConnState.Connecting) {
             scope.launch {
-                val r = HideIpApi.setHideIp(provisionUrl, profile?.deviceId, enabled)
+                val base = provisionUrl ?: profile?.provisionBaseUrl
+                val r = HideIpApi.setHideIp(base, profile?.deviceId, enabled)
                 if (r.isFailure) {
                     AppLog.e(TAG, "live hide-ip failed: ${r.exceptionOrNull()?.message}")
                 }
             }
         }
+    }
+
+    /** Soft-restart transport if a session is up (exclusions / network / manual). */
+    fun requestTransportRestart(reason: String) {
+        val state = _ui.value.state
+        if (
+            state != ConnState.Connected &&
+            state != ConnState.PausedTrustedWifi &&
+            state != ConnState.Connecting
+        ) {
+            return
+        }
+        val intent = Intent(appContext, VpnTunnelService::class.java)
+            .setAction(VpnTunnelService.ACTION_RESTART_TRANSPORT)
+            .putExtra(VpnTunnelService.EXTRA_RESTART_REASON, reason)
+        runCatching { appContext.startService(intent) }
+            .onFailure { AppLog.e(TAG, "restart transport failed: ${it.message}") }
+    }
+
+    fun refreshVpnNotification() {
+        val state = _ui.value.state
+        if (
+            state != ConnState.Connected &&
+            state != ConnState.PausedTrustedWifi &&
+            state != ConnState.Connecting
+        ) {
+            return
+        }
+        val intent = Intent(appContext, VpnTunnelService::class.java)
+            .setAction(VpnTunnelService.ACTION_REFRESH_NOTIFICATION)
+        runCatching { appContext.startService(intent) }
     }
 
     fun setWorkers(workers: Int) {

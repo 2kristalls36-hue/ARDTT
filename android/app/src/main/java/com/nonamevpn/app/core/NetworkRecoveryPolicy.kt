@@ -25,9 +25,10 @@ data class TransportRecoveryPolicy(
 
 fun transportRecoveryPolicy(): TransportRecoveryPolicy =
     TransportRecoveryPolicy(
-        networkSettleDelayMs = 8_000L,
-        reconnectMinIntervalMs = 45_000L,
-        processRestartDelayMs = 800L,
+        // Fast enough for Wi‑Fi↔LTE; still lets DHCP/VALIDATED settle.
+        networkSettleDelayMs = 2_000L,
+        reconnectMinIntervalMs = 12_000L,
+        processRestartDelayMs = 400L,
     )
 
 fun classifyValidatedNetworkTransition(
@@ -71,7 +72,7 @@ fun softRestartCooldownMs(
     minIntervalMs: Long,
     softRestartCount: Int,
 ): Long =
-    (minIntervalMs + softRestartCount.coerceAtMost(4) * 15_000L).coerceAtMost(5 * 60_000L)
+    (minIntervalMs + softRestartCount.coerceAtMost(4) * 8_000L).coerceAtMost(90_000L)
 
 fun shouldAttemptSoftRestartNow(
     nowMs: Long,
@@ -86,18 +87,30 @@ fun shouldAttemptSoftRestartNow(
 }
 
 /** Delay after SCREEN_ON before deciding whether to soft-restart. */
-const val WAKE_RESCUE_GRACE_MS = 60_000L
+const val WAKE_RESCUE_GRACE_MS = 25_000L
 
 /** Suppress zero-worker watchdog briefly after wake / soft restart. */
-const val WAKE_RECOVERY_GRACE_MS = 90_000L
+const val WAKE_RECOVERY_GRACE_MS = 35_000L
 
 /** Path B: soft-restart if Активных stays 0 this long while screen is on. */
-const val ZERO_WORKERS_GRACE_MS = 5 * 60_000L
+const val ZERO_WORKERS_GRACE_MS = 20_000L
 
 /** Soft-restart if backend process/job is dead this long. */
-const val PROCESS_DEAD_GRACE_MS = 60_000L
+const val PROCESS_DEAD_GRACE_MS = 20_000L
 
-const val WATCHDOG_POLL_MS = 5_000L
+/**
+ * Path B: workers > 0 but traffic counter flat this long after a handoff
+ * (zombie TCP sockets until broken-pipe).
+ */
+const val TRAFFIC_STALL_AFTER_HANDOFF_MS = 18_000L
+
+/** Same stall detection without a recent handoff (slower threshold). */
+const val TRAFFIC_STALL_IDLE_MS = 45_000L
+
+/** How long after a network handoff we treat stalls as urgent. */
+const val HANDOFF_STALL_WINDOW_MS = 120_000L
+
+const val WATCHDOG_POLL_MS = 3_000L
 
 const val TRUSTED_WIFI_ENTER_DELAY_MS = 2_000L
 const val TRUSTED_WIFI_EXIT_DELAY_MS = 5_000L
@@ -130,3 +143,21 @@ fun shouldSoftRestartForZeroWorkers(
     nowMs: Long,
     graceMs: Long = ZERO_WORKERS_GRACE_MS,
 ): Boolean = activeWorkers <= 0 && zeroSinceMs > 0L && nowMs - zeroSinceMs >= graceMs
+
+fun shouldSoftRestartForTrafficStall(
+    activeWorkers: Int,
+    trafficBytes: Long,
+    lastTrafficGrowthAtMs: Long,
+    nowMs: Long,
+    handoffAtMs: Long,
+    afterHandoffGraceMs: Long = TRAFFIC_STALL_AFTER_HANDOFF_MS,
+    idleGraceMs: Long = TRAFFIC_STALL_IDLE_MS,
+    handoffWindowMs: Long = HANDOFF_STALL_WINDOW_MS,
+): Boolean {
+    if (activeWorkers <= 0) return false
+    if (trafficBytes <= 0L || lastTrafficGrowthAtMs <= 0L) return false
+    val stalledFor = nowMs - lastTrafficGrowthAtMs
+    val inHandoffWindow = handoffAtMs > 0L && nowMs - handoffAtMs <= handoffWindowMs
+    val grace = if (inHandoffWindow) afterHandoffGraceMs else idleGraceMs
+    return stalledFor >= grace
+}
