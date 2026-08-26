@@ -17,13 +17,19 @@
 
 ### Почему не «WDTT» и не «AWDTT»
 
-Исторический upstream обхода часто называют **WDTT**, где **W** отсылало к **WireGuard**.  
-В этом продукте Path B — **RAW поверх WRAP/TURN**, без вложенного WG/AWG и без DTLS.  
-Поэтому продуктовое имя — **ARDTT** (R = RAW), а не AWDTT/WDTT.
+**Классический WDTT** ([amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android)) — это **WireGuard over TURN/DTLS**; буква **W** как раз про WireGuard.
 
-Код и репозитории upstream по-прежнему могут называться WDTT — это происхождение реализации; **имя продукта** отражает фактический режим.
+Режим **RAW** (`-listen-raw`, сырые IP-пакеты без вложенного WG/AWG и без DTLS на этом listener) появился в линии **qWDTT / SpaceNeuroX**:
 
-Ранние черновики репозитория назывались `nonameVPN`, затем коротко `AWDTT`. Внутренние пути (`com.nonamevpn.app`, `/opt/nonamevpn/`, каталоги `wdtt-server`) могут ещё встречаться — это совместимость и вендорные имена, не отдельный продукт.
+- https://github.com/SpaceNeuroX/proxy-turn-vk-android
+
+Именно оттуда в ARDTT вендорятся `server/bypass/wdtt-server/` и идеи Path B клиента (`android/go_client/`).  
+Поэтому продуктовое имя — **ARDTT** (R = RAW), а не AWDTT/WDTT: имя отражает фактический обход, а не классический WG-поверх-TURN.
+
+Каталоги upstream в дереве могут по-прежнему называться `wdtt-*` — это вендорные/исторические имена кода, не название продукта.
+
+Ранние черновики репозитория: `nonameVPN` → коротко `AWDTT` → **ARDTT**.  
+Внутренние пути (`com.nonamevpn.app`, `/opt/nonamevpn/`) могут ещё встречаться как совместимость.
 
 Знак приложения — стилизованная **A** Amnezia (белый фрагментированный глиф) на тёмно-синем круге с тонкой белой обводкой: буква «A» в имени и наследие прямого пути.
 
@@ -105,8 +111,9 @@
 ## Происхождение кода
 
 - Path A — линии [AmneziaWG](https://github.com/amnezia-vpn/amneziawg-android) / amneziawg-go (в основном Apache-2.0).
-- Path B — линии [proxy-turn-vk-android / WDTT](https://github.com/amurcanov/proxy-turn-vk-android) (GPL-3.0), режим **RAW** (не WG-внутри-TURN).
-- Общая упаковка, UX, provision, DNS, WARP-policy, soft-reconnect — обвязка этого репозитория.
+- Path B (RAW) — линия **qWDTT / SpaceNeuroX** ([SpaceNeuroX/proxy-turn-vk-android](https://github.com/SpaceNeuroX/proxy-turn-vk-android), GPL-3.0): `-listen-raw`, WRAP/TURN без вложенного WireGuard.
+- Классический [WDTT amurcanov](https://github.com/amurcanov/proxy-turn-vk-android) — идейный предок (WG over TURN/DTLS); **не** источник RAW-режима ARDTT.
+- Общая упаковка, UX (в т.ч. вкладка «Обход»), provision, DNS, WARP-policy, soft-reconnect — обвязка этого репозитория.
 
 Комбинированная работа — **GPL-3.0**: [LICENSE](../LICENSE), [NOTICE](../NOTICE).
 
