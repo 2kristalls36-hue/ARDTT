@@ -88,13 +88,13 @@ class NetworkRecoveryPolicyTest {
 
     @Test
     fun softRestartCooldownBacksOff() {
-        assertEquals(45_000L, softRestartCooldownMs(45_000L, 0))
-        assertEquals(60_000L, softRestartCooldownMs(45_000L, 1))
-        assertEquals(105_000L, softRestartCooldownMs(45_000L, 4))
-        assertEquals(105_000L, softRestartCooldownMs(45_000L, 20)) // count capped at 4
-        assertTrue(shouldAttemptSoftRestartNow(100_000L, 0L, 45_000L, 0, force = false))
-        assertFalse(shouldAttemptSoftRestartNow(50_000L, 40_000L, 45_000L, 0, force = false))
-        assertTrue(shouldAttemptSoftRestartNow(50_000L, 40_000L, 45_000L, 0, force = true))
+        assertEquals(12_000L, softRestartCooldownMs(12_000L, 0))
+        assertEquals(20_000L, softRestartCooldownMs(12_000L, 1))
+        assertEquals(44_000L, softRestartCooldownMs(12_000L, 4))
+        assertEquals(44_000L, softRestartCooldownMs(12_000L, 20)) // count capped at 4
+        assertTrue(shouldAttemptSoftRestartNow(100_000L, 0L, 12_000L, 0, force = false))
+        assertFalse(shouldAttemptSoftRestartNow(20_000L, 15_000L, 12_000L, 0, force = false))
+        assertTrue(shouldAttemptSoftRestartNow(20_000L, 15_000L, 12_000L, 0, force = true))
     }
 
     @Test
@@ -134,6 +134,64 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun trafficStallAfterHandoffUsesShorterGrace() {
+        assertTrue(
+            shouldSoftRestartForTrafficStall(
+                activeWorkers = 3,
+                trafficBytes = 1000L,
+                lastTrafficGrowthAtMs = 80_000L,
+                nowMs = 100_000L,
+                handoffAtMs = 85_000L,
+                afterHandoffGraceMs = 18_000L,
+                idleGraceMs = 45_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForTrafficStall(
+                activeWorkers = 3,
+                trafficBytes = 1000L,
+                lastTrafficGrowthAtMs = 90_000L,
+                nowMs = 100_000L,
+                handoffAtMs = 85_000L,
+                afterHandoffGraceMs = 18_000L,
+                idleGraceMs = 45_000L,
+            ),
+        )
+        // Outside handoff window — need longer stall.
+        assertFalse(
+            shouldSoftRestartForTrafficStall(
+                activeWorkers = 3,
+                trafficBytes = 1000L,
+                lastTrafficGrowthAtMs = 70_000L,
+                nowMs = 100_000L,
+                handoffAtMs = 0L,
+                afterHandoffGraceMs = 18_000L,
+                idleGraceMs = 45_000L,
+            ),
+        )
+        assertTrue(
+            shouldSoftRestartForTrafficStall(
+                activeWorkers = 3,
+                trafficBytes = 1000L,
+                lastTrafficGrowthAtMs = 50_000L,
+                nowMs = 100_000L,
+                handoffAtMs = 0L,
+                afterHandoffGraceMs = 18_000L,
+                idleGraceMs = 45_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForTrafficStall(
+                activeWorkers = 0,
+                trafficBytes = 1000L,
+                lastTrafficGrowthAtMs = 50_000L,
+                nowMs = 100_000L,
+                handoffAtMs = 90_000L,
+            ),
+        )
+    }
+
+    @Test
     fun healthObserveGatesOnInteractiveAndGrace() {
         assertTrue(
             shouldObserveTunnelHealth(
@@ -159,5 +217,13 @@ class NetworkRecoveryPolicyTest {
                 softRestartInProgress = false,
             ),
         )
+    }
+
+    @Test
+    fun parseTrafficFromStatsLine() {
+        val line =
+            "[СТАТИСТИКА] Активных: 3 | Трафик: 29.30 МБ | ↓24.89 МБ / ↑4.41 МБ"
+        val kb = TransportHealth.parseTrafficKb(line)
+        assertTrue(kb != null && kb!! > 29_000L)
     }
 }

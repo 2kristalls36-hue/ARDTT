@@ -65,6 +65,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
     val scope = rememberCoroutineScope()
     var adminHint by remember { mutableStateOf<String?>(null) }
 
@@ -161,7 +162,25 @@ fun SettingsScreen(settings: AppSettingsRepository) {
                     }
                 },
             )
+            RowSetting(
+                title = "Уведомление VPN",
+                subtitle = if (notifVisible) {
+                    "В шторке: статус и кнопка «Остановить»"
+                } else {
+                    "Скрыто насколько позволяет Android (служба всё равно нужна)"
+                },
+                checked = notifVisible,
+                enabled = true,
+                onCheckedChange = {
+                    scope.launch {
+                        settings.setVpnNotificationVisible(it)
+                        conn.refreshVpnNotification()
+                    }
+                },
+            )
         }
+
+        ExclusionsSettingsCard(settings = settings)
 
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),

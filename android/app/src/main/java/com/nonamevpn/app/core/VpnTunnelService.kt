@@ -75,6 +75,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var watchdogJob: Job? = null
     @Volatile private var zeroWorkersSinceMs = 0L
     @Volatile private var processDeadSinceMs = 0L
+    @Volatile private var lastHandoffAtMs = 0L
 
     @Volatile private var trustedWifiWaiting = false
     @Volatile private var trustedWifiWaitingSsid = ""
@@ -104,6 +105,17 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         )
                     }
                 }
+                return START_STICKY
+            }
+            ACTION_REFRESH_NOTIFICATION -> {
+                val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
+                val text = when {
+                    trustedWifiWaiting -> "VPN выключен в доверенной сети"
+                    softRestartInProgress -> "Переподключение транспорта…"
+                    tunnelSessionActive -> getString(R.string.notif_running)
+                    else -> getString(R.string.notif_running)
+                }
+                updateNotification(path, text)
                 return START_STICKY
             }
             ACTION_START, null -> {
@@ -400,12 +412,32 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         AppLog.w(TAG, "watchdog: zero workers for ${now - zeroWorkersSinceMs}ms")
                         requestSoftRestart(
                             reason = "[ЗДОРОВЬЕ] Нет активных TURN-воркеров — переподключаем обход",
-                            force = false,
+                            force = true,
                         )
                         zeroWorkersSinceMs = 0L
                     }
                 } else {
                     zeroWorkersSinceMs = 0L
+                    if (
+                        shouldSoftRestartForTrafficStall(
+                            activeWorkers = workers,
+                            trafficBytes = TransportHealth.trafficKb,
+                            lastTrafficGrowthAtMs = TransportHealth.lastTrafficGrowthAtMs,
+                            nowMs = now,
+                            handoffAtMs = lastHandoffAtMs,
+                        )
+                    ) {
+                        AppLog.w(
+                            TAG,
+                            "watchdog: traffic stall workers=$workers " +
+                                "stalled=${now - TransportHealth.lastTrafficGrowthAtMs}ms " +
+                                "sinceHandoff=${if (lastHandoffAtMs > 0) now - lastHandoffAtMs else -1}",
+                        )
+                        requestSoftRestart(
+                            reason = "[СЕТЬ] Трафик встал после смены сети — мягкий рестарт обхода",
+                            force = true,
+                        )
+                    }
                 }
             }
         }
@@ -616,6 +648,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         stableNetworkWasLost = false
         stableNetworkReconnectPending = true
         handoverPreviousNetworkId = previousNetworkId
+        lastHandoffAtMs = System.currentTimeMillis()
         AppLog.i(TAG, "$reason — settle ${recoveryPolicy.networkSettleDelayMs}ms")
 
         networkChangeJob?.cancel()
@@ -633,7 +666,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     AppLog.i(TAG, "skip reconnect: session state changed")
                     return@launch
                 }
-                requestSoftRestart(reason = "[СЕТЬ] $reason", force = false)
+                requestSoftRestart(reason = "[СЕТЬ] $reason", force = true)
             } finally {
                 stableNetworkReconnectPending = false
                 handoverPreviousNetworkId = null
@@ -674,15 +707,66 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         dnsCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { d ->
             runCatching { builder.addDnsServer(d) }
         }
+        // Always exclude ourselves; plus user app exclusions (split tunnel).
+        val excludedApps = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.excludedAppsSnapshot() }
+        }.getOrDefault(emptySet())
         runCatching { builder.addDisallowedApplication(packageName) }
+        for (pkg in excludedApps) {
+            if (pkg == packageName) continue
+            runCatching { builder.addDisallowedApplication(pkg) }
+                .onFailure { Log.w(TAG, "skip disallowed app $pkg: ${it.message}") }
+        }
+        // Domain → IP excludeRoute (API 33+). Best-effort; fails soft on older OS.
+        val excludedHosts = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.excludedHostsSnapshot() }
+        }.getOrDefault(emptySet())
+        applyExcludedHostRoutes(builder, excludedHosts)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
         builder.setBlocking(true)
         val pfd = builder.establish()
         tun = pfd
-        Log.i(TAG, "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd}")
+        Log.i(
+            TAG,
+            "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd} " +
+                "apps=${excludedApps.size} hosts=${excludedHosts.size}",
+        )
         return pfd
+    }
+
+    private fun applyExcludedHostRoutes(builder: Builder, hosts: Set<String>) {
+        if (hosts.isEmpty()) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Log.i(TAG, "host exclusions need API 33+; stored ${hosts.size} but not applied")
+            return
+        }
+        for (host in hosts) {
+            val ips = resolveHostIps(host)
+            for (ip in ips) {
+                runCatching {
+                    val prefix = android.net.IpPrefix(java.net.InetAddress.getByName(ip), 32)
+                    builder.excludeRoute(prefix)
+                    Log.i(TAG, "excludeRoute $host → $ip/32")
+                }.onFailure { Log.w(TAG, "excludeRoute $host/$ip: ${it.message}") }
+            }
+        }
+    }
+
+    private fun resolveHostIps(host: String): List<String> {
+        val clean = host.trim().lowercase().removePrefix("http://").removePrefix("https://")
+            .substringBefore('/').substringBefore(':')
+        if (clean.isBlank()) return emptyList()
+        // Literal IPv4
+        if (clean.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))) return listOf(clean)
+        return runCatching {
+            java.net.InetAddress.getAllByName(clean)
+                .mapNotNull { it.hostAddress }
+                .filter { !it.contains(':') } // IPv4 only for now
+                .distinct()
+                .take(8)
+        }.getOrDefault(emptyList())
     }
 
     private fun stopSession(keepService: Boolean) {
@@ -717,15 +801,30 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     }
 
     private fun buildNotification(path: VpnPath, text: String): Notification {
-        val channelId = "nvpn_tunnel"
+        val showInShade = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.vpnNotificationVisibleSnapshot() }
+        }.getOrDefault(true)
+        val channelId = if (showInShade) "nvpn_tunnel" else "nvpn_tunnel_min"
+        val importance = if (showInShade) {
+            NotificationManager.IMPORTANCE_DEFAULT
+        } else {
+            NotificationManager.IMPORTANCE_MIN
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(
                 NotificationChannel(
                     channelId,
                     getString(R.string.notif_channel_tunnel),
-                    NotificationManager.IMPORTANCE_LOW,
-                ),
+                    importance,
+                ).apply {
+                    setShowBadge(showInShade)
+                    description = if (showInShade) {
+                        "Статус VPN и кнопка Остановить"
+                    } else {
+                        "Минимальное уведомление службы (Android требует FGS)"
+                    }
+                },
             )
         }
         val open = PendingIntent.getActivity(
@@ -734,18 +833,33 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val stopPi = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, VpnTunnelService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val title = when {
             trustedWifiWaiting -> "nonameVPN · доверенная сеть"
             path == VpnPath.Direct -> getString(R.string.notif_direct)
             else -> getString(R.string.notif_bypass)
         }
-        return NotificationCompat.Builder(this, channelId)
+        val builder = NotificationCompat.Builder(this, channelId)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_vpn_key)
             .setContentIntent(open)
             .setOngoing(true)
-            .build()
+            .setOnlyAlertOnce(true)
+            .setSilent(!showInShade)
+            .setPriority(
+                if (showInShade) NotificationCompat.PRIORITY_DEFAULT
+                else NotificationCompat.PRIORITY_MIN,
+            )
+        if (showInShade && !trustedWifiWaiting) {
+            builder.addAction(0, getString(R.string.notif_stop), stopPi)
+        }
+        return builder.build()
     }
 
     companion object {
@@ -753,6 +867,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val ACTION_START = "com.nonamevpn.app.action.START"
         const val ACTION_STOP = "com.nonamevpn.app.action.STOP"
         const val ACTION_RESTART_TRANSPORT = "com.nonamevpn.app.action.RESTART_TRANSPORT"
+        const val ACTION_REFRESH_NOTIFICATION = "com.nonamevpn.app.action.REFRESH_NOTIFICATION"
         const val EXTRA_PATH = "path"
         const val EXTRA_HIDE_IP = "hide_ip"
         const val EXTRA_TUN_ADDRESS = "tun_address"
