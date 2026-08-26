@@ -21,12 +21,16 @@ class DirectBackend : TunnelBackend {
 
     override suspend fun start(
         service: VpnService,
-        tun: ParcelFileDescriptor,
+        tun: ParcelFileDescriptor?,
         config: TunnelSessionConfig,
         onState: (TunnelBackendState) -> Unit,
     ) {
         stopped = false
         onState(TunnelBackendState.Starting)
+        if (tun == null) {
+            onState(TunnelBackendState.Failed("Нет TUN для Direct"))
+            return
+        }
         val direct = config.profile?.direct
         if (direct == null ||
             direct.privateKey.isBlank() ||

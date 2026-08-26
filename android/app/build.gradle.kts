@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0-awg-direct"
+        versionCode = 4
+        versionName = "0.4.0-phone-integrate"
     }
 
     ndkVersion = "27.0.12077973"
@@ -42,6 +42,9 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }

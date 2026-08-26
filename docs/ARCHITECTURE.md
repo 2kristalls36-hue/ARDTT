@@ -354,5 +354,6 @@ Call hash — **локально на устройстве**, не обязан 
 7. ~~Bypass scaffold на Android: WRAP, hash-on-device, dial Auto, TunnelBackend wiring.~~
 8. ~~Админ-деплой с приложения: SSH + upload Compose stack + install.sh.~~
 9. ~~Native Direct (AWG GoBackend / libwg-go).~~ (`android/tunnel` → `DirectBackend`)
-10. Native Bypass (TURN TCP / vkcalls HTTP / RAW pump) + WebView create-call / legacy captcha.
-11. WARP egress (не stub) + сверить UX с SmartVPN, когда репозиторий будет доступен.
+10. ~~Native Bypass (TURN TCP / vkcalls / RAW via go_client).~~ (`libclient.so` + `BypassSession`)
+11. WebView create-call / dial path UI / legacy captcha bridge.
+12. WARP egress (не stub) + сверить UX с SmartVPN, когда репозиторий будет доступен.

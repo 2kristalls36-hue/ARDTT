@@ -16,6 +16,8 @@
 *.o
 bin/
 dist/
+android/app/src/main/jniLibs/
+android/**/.cxx/
 
 # OS / editor
 .DS_Store

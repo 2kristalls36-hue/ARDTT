@@ -14,6 +14,7 @@ import com.nonamevpn.app.MainActivity
 import com.nonamevpn.app.R
 import com.nonamevpn.app.tunnel.BypassBackend
 import com.nonamevpn.app.tunnel.DirectBackend
+import com.nonamevpn.app.tunnel.TunEstablisher
 import com.nonamevpn.app.tunnel.TunnelBackend
 import com.nonamevpn.app.tunnel.TunnelBackendState
 import com.nonamevpn.app.tunnel.TunnelSessionHolder
@@ -27,7 +28,7 @@ import kotlinx.coroutines.launch
 /**
  * Single VpnService for Path A (AWG) and Path B (RAW/WRAP). Backends are mutually exclusive.
  */
-class VpnTunnelService : VpnService() {
+class VpnTunnelService : VpnService(), TunEstablisher {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tun: ParcelFileDescriptor? = null
@@ -50,38 +51,9 @@ class VpnTunnelService : VpnService() {
     private fun startSession() {
         val config = TunnelSessionHolder.config
         val path = config?.path ?: VpnPath.Direct
-        val address = config?.tunAddress?.substringBefore('/')?.takeIf { it.isNotBlank() }
-            ?: "10.8.0.2"
-        val mtu = when (path) {
-            VpnPath.Direct -> config?.profile?.direct?.mtu ?: 1280
-            VpnPath.Bypass -> 1300
-        }
-        val dns = config?.profile?.direct?.dns?.firstOrNull() ?: "1.1.1.1"
 
         startForeground(NOTIF_ID, buildNotification(path))
         ConnectionManager.getOrNull()?.onServiceStarted(path)
-
-        if (tun == null) {
-            val builder = Builder()
-                .setSession("nonameVPN")
-                .setMtu(mtu)
-                .addAddress(address, 32)
-                .addDnsServer(dns)
-                .addRoute("0.0.0.0", 0)
-            // Keep our sockets off the VPN (SSH deploy, probe, TURN dial).
-            runCatching { builder.addDisallowedApplication(packageName) }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                builder.setMetered(false)
-            }
-            builder.setBlocking(true)
-            tun = builder.establish()
-        }
-        val fd = tun
-        if (fd == null) {
-            ConnectionManager.getOrNull()?.onTunnelFailed("Не удалось создать TUN (отклонён VPN?)")
-            stopSelf()
-            return
-        }
 
         backend?.stop()
         val chosen: TunnelBackend = when (path) {
@@ -89,6 +61,25 @@ class VpnTunnelService : VpnService() {
             VpnPath.Bypass -> BypassBackend()
         }
         backend = chosen
+
+        // Path A: TUN now. Path B: go_client dials first, then establishTun() after RAWCONF.
+        val fd: ParcelFileDescriptor? = when (path) {
+            VpnPath.Direct -> {
+                val address = config?.tunAddress?.substringBefore('/')?.takeIf { it.isNotBlank() }
+                    ?: config?.profile?.direct?.address?.substringBefore('/')
+                    ?: "10.8.0.2"
+                val mtu = config?.profile?.direct?.mtu ?: 1280
+                val dns = config?.profile?.direct?.dns?.firstOrNull() ?: "1.1.1.1"
+                establishTun(address, dns, mtu).also { created ->
+                    if (created == null) {
+                        ConnectionManager.getOrNull()?.onTunnelFailed("Не удалось создать TUN (отклонён VPN?)")
+                        stopSelf()
+                    }
+                }
+            }
+            VpnPath.Bypass -> null
+        }
+        if (path == VpnPath.Direct && fd == null) return
 
         sessionJob?.cancel()
         sessionJob = scope.launch {
@@ -106,6 +97,29 @@ class VpnTunnelService : VpnService() {
                 }
             }
         }
+    }
+
+    override fun establishTun(ip: String, dnsCsv: String, mtu: Int): ParcelFileDescriptor? {
+        runCatching { tun?.close() }
+        tun = null
+        val builder = Builder()
+            .setSession("nonameVPN")
+            .setMtu(mtu.coerceIn(576, 1500))
+            .addAddress(ip.substringBefore('/'), 32)
+            .addRoute("0.0.0.0", 0)
+        dnsCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { d ->
+            runCatching { builder.addDnsServer(d) }
+        }
+        // Keep our process (incl. libclient.so) off the VPN so TURN/TCP dial works.
+        runCatching { builder.addDisallowedApplication(packageName) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setMetered(false)
+        }
+        builder.setBlocking(true)
+        val pfd = builder.establish()
+        tun = pfd
+        Log.i(TAG, "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd}")
+        return pfd
     }
 
     private fun stopSession() {
