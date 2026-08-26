@@ -162,7 +162,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     ?: config.profile?.direct?.address?.substringBefore('/')
                     ?: "10.8.0.2"
                 val mtu = config.profile?.direct?.mtu ?: 1280
-                val dns = config.profile?.direct?.dns?.firstOrNull() ?: "1.1.1.1"
+                val dns = config.profile?.direct?.dns?.firstOrNull() ?: "10.8.0.1"
                 establishTun(address, dns, mtu).also { created ->
                     if (created == null) {
                         AppLog.e(TAG, "TUN establish failed")
