@@ -16,7 +16,8 @@
 | Платформа | Android; форк `amneziawg-android` + bypass из WDTT |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
 | Деплой | Compose: `direct` + `bypass` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
-| WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0` |
+| WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 200 → `main`, остальной трафик prio 300+ → table `51820` |
+
 | Call hash | **1 hash на пользователя VPN**, только на телефоне (не в серверном `nvpn` как обязательное поле) |
 | Дозвон | **`vkcalls` по умолчанию** + **`legacy` (капча) как fallback** |
 | VK-аккаунт | Только чтобы **создать** звонок/hash; Connect — анонимный `vkcalls` (или legacy) по hash |
@@ -108,14 +109,24 @@ Android
 
 UI перед Connect: чекбокс **«Скрыть свой IP адрес»** (per-session или запомнить в профиле).
 
-- Выкл: NAT с `awg0`/`raw0` в интернет напрямую (IP VPS).
-- Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` (wireproxy→tun2socks).
+- Выкл: NAT с `awg0`/`wdttraw0` в интернет напрямую (IP VPS).
+- Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` (wgcf / kernel WG).
 
-На клиенте **нет** отдельного `10.10.0.{id}` как path подключения. Подсеть `10.10.0.0/24` на VPS — только под интерфейс WARP/маршрутизацию, не адрес клиента в `nvpn`.
+**DNS не через WARP.** Иначе резолв ломается (таймауты, «IP есть — сайты нет»), особенно на tun2socks/SOCKS и часто на WARP-пути.
+
+```
+prio 200: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → lookup main   # DNS → WAN
+prio 300+: from 10.8.0.x / 10.9.0.x → lookup 51820 → warp0         # остальное
++ MASQUERADE :53 на eth0 для 10.8/10.9/10.66
+```
+
+Клиентский DNS в профиле — `1.1.1.1` (идёт по main). Локальный dnsmasq на шлюзе — опционально позже.
+
+На клиенте **нет** отдельного `10.10.0.{id}` как path подключения.
 
 ```
 provision: host_id → 10.8.0.id + 10.9.0.id
-warp flag (клиент) → на сервере mark/policy для этого id → warp0
+hideIp → policy from client → table 51820 → warp0 (кроме :53)
 ```
 
 ---

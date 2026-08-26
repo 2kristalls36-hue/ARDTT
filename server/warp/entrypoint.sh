@@ -1,5 +1,10 @@
 #!/bin/bash
 # WARP egress: wgcf → warp0 (Table=off) + per-user ip rules from users.json hideIp.
+#
+# DNS must NOT go through WARP (breaks resolvers / looks like tun2socks DNS loops):
+#   priority 200: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → main
+#   priority 300+: from <client>/32 → table 51820 (WARP)
+# Existing MASQUERADE on VPN subnets → eth0 covers DNS upstream on main.
 set -euo pipefail
 
 DATA="${NVPN_DATA:-/data}"
@@ -8,11 +13,19 @@ STATE_DIR="${NVPN_WARP_STATE:-/var/lib/nvpn-warp}"
 IFACE="${NVPN_WARP_IFACE:-warp0}"
 TABLE="${NVPN_WARP_TABLE:-51820}"
 MARK_COMMENT="NVPN_WARP_MANAGED"
+DNS_COMMENT="NVPN_WARP_DNS_MAIN"
+# Prefer DNS (main) over WARP table — lower pref number = higher priority.
+DNS_RULE_PRIO="${NVPN_WARP_DNS_PRIO:-200}"
+WARP_RULE_PRIO_BASE="${NVPN_WARP_RULE_PRIO:-300}"
+
+# VPN ingress ifaces whose client DNS must stay on main.
+DNS_IIFACES="${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0 wdtt0}"
 
 mkdir -p "${STATE_DIR}"
 cd "${STATE_DIR}"
 
 echo "[warp] Cloudflare WARP egress via ${IFACE} table=${TABLE}"
+echo "[warp] DNS via main (prio ${DNS_RULE_PRIO}); WARP from/client (prio ${WARP_RULE_PRIO_BASE}+)"
 echo "[warp] GOMEMLIMIT=${GOMEMLIMIT:-400MiB}; no container restart-on-OOM"
 
 if [ -w /proc/sys/net/ipv4/ip_forward ]; then
@@ -93,22 +106,40 @@ bring_up() {
   iptables -C FORWARD -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT || true
 
+  ensure_dns_masquerade
+
   echo "[warp] ${IFACE} up; default in table ${TABLE}"
 }
 
-# Apply ip rules for every hideIp=true user (direct + bypass tunnel IPs).
-sync_rules() {
-  [[ -f "${USERS}" ]] || return 0
+# Explicit DNS MASQUERADE on WAN for VPN client subnets (upstream 1.1.1.1 via main).
+# Full-subnet MASQ usually already exists; these are idempotent belt-and-suspenders.
+ensure_dns_masquerade() {
+  local wan
+  wan="$(ip route show default 0.0.0.0/0 2>/dev/null | awk '{print $5; exit}')"
+  [[ -z "${wan}" ]] && wan="eth0"
+  local nets=("10.8.0.0/24" "10.9.0.0/24" "10.66.0.0/16")
+  local net proto
+  for net in "${nets[@]}"; do
+    for proto in udp tcp; do
+      iptables -t nat -C POSTROUTING -s "${net}" -o "${wan}" -p "${proto}" --dport 53 \
+        -m comment --comment "${DNS_COMMENT}" -j MASQUERADE 2>/dev/null \
+        || iptables -t nat -I POSTROUTING 1 -s "${net}" -o "${wan}" -p "${proto}" --dport 53 \
+          -m comment --comment "${DNS_COMMENT}" -j MASQUERADE || true
+    done
+  done
+  echo "[warp] DNS MASQUERADE on ${wan} for VPN subnets (udp/tcp :53)"
+}
 
-  # Drop every rule that points at our WARP table.
+clear_rules_for_table() {
+  local table="$1"
   local guard=0
-  while ip rule show | grep -q "lookup ${TABLE}"; do
+  while ip rule show | grep -q "lookup ${table}"; do
     local fr from pref
-    fr="$(ip rule show | grep "lookup ${TABLE}" | head -1)"
+    fr="$(ip rule show | grep "lookup ${table}" | head -1)"
     pref="$(echo "${fr}" | cut -d: -f1)"
     from="$(echo "${fr}" | sed -n 's/.*from \([^ ]*\).*/\1/p')"
     if [[ -n "${from}" ]]; then
-      ip rule del from "${from}" lookup "${TABLE}" 2>/dev/null || true
+      ip rule del from "${from}" lookup "${table}" 2>/dev/null || true
     fi
     if [[ -n "${pref}" ]]; then
       ip rule del pref "${pref}" 2>/dev/null || true
@@ -116,8 +147,53 @@ sync_rules() {
     guard=$((guard + 1))
     [[ "${guard}" -gt 64 ]] && break
   done
+}
 
-  local desired count=0 prio=100
+# Remove our DNS→main exceptions (match by priority band + iif/dport pattern).
+clear_dns_main_rules() {
+  local guard=0
+  while ip rule show | grep -E "dport 53.*lookup main|lookup main.*dport 53" | grep -q .; do
+    local fr pref
+    fr="$(ip rule show | grep -E "dport 53.*lookup main|lookup main.*dport 53" | head -1)"
+    pref="$(echo "${fr}" | cut -d: -f1)"
+    [[ -n "${pref}" ]] && ip rule del pref "${pref}" 2>/dev/null || true
+    guard=$((guard + 1))
+    [[ "${guard}" -gt 64 ]] && break
+  done
+  # Also drop known prefs in case grep wording differs across iproute2 versions.
+  local p
+  for p in $(seq "${DNS_RULE_PRIO}" $((DNS_RULE_PRIO + 20))); do
+    ip rule del pref "${p}" 2>/dev/null || true
+  done
+}
+
+install_dns_main_rules() {
+  clear_dns_main_rules
+  local prio="${DNS_RULE_PRIO}"
+  local iface proto
+  for iface in ${DNS_IIFACES}; do
+    if ! ip link show "${iface}" >/dev/null 2>&1; then
+      echo "[warp] skip DNS iif=${iface} (iface down)"
+      continue
+    fi
+    for proto in udp tcp; do
+      ip rule add iif "${iface}" ipproto "${proto}" dport 53 lookup main priority "${prio}" 2>/dev/null \
+        || ip rule add iif "${iface}" ipproto "${proto}" dport 53 lookup main || true
+      echo "[warp] DNS exception iif=${iface} ${proto}/53 → main prio=${prio}"
+      prio=$((prio + 1))
+    done
+  done
+}
+
+# Apply ip rules for every hideIp=true user (direct + bypass tunnel IPs).
+sync_rules() {
+  [[ -f "${USERS}" ]] || return 0
+
+  clear_rules_for_table "${TABLE}"
+  install_dns_main_rules
+  ensure_dns_masquerade
+
+  local desired count=0 prio="${WARP_RULE_PRIO_BASE}"
   desired="$(jq -r '
     (.config.directSubnet // "10.8.0.0/24") as $d
     | (.config.bypassSubnet // "10.9.0.0/24") as $b
@@ -132,6 +208,7 @@ sync_rules() {
     local dip bip
     dip="$(echo "${pair}" | awk '{print $1}')"
     bip="$(echo "${pair}" | awk '{print $2}')"
+    # WARP for everything except DNS (DNS already matched at prio 200 via iif).
     ip rule add from "${dip}" lookup "${TABLE}" priority "${prio}" 2>/dev/null || \
       ip rule add from "${dip}" lookup "${TABLE}" || true
     prio=$((prio + 1))
@@ -139,10 +216,11 @@ sync_rules() {
       ip rule add from "${bip}" lookup "${TABLE}" || true
     prio=$((prio + 1))
     count=$((count + 1))
-    echo "[warp] hideIp route ${dip} + ${bip} → table ${TABLE}"
+    echo "[warp] hideIp route ${dip} + ${bip} → table ${TABLE} (prio≥${WARP_RULE_PRIO_BASE})"
   done <<< "${desired}"
 
   echo "[warp] synced hideIp users=${count}"
+  ip rule show | head -30 || true
 }
 
 ensure_account

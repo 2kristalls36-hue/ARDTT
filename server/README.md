@@ -7,7 +7,7 @@ Compose-стек из четырёх сервисов (см. [архитекту
 | **provision** | рабочий | `/health`, пользователи, `host_id`, AWG-ключи, JSON-профиль |
 | **direct** | **AmneziaWG 2.0** | `amneziawg-go` + `awg`, conf из `users.json` |
 | **bypass** | **RAW `-listen-raw`** | `wdtt-server` (WDTT), пароли из `users.json`, подсеть `10.9.0.0/24` |
-| **warp** | stub | hide-IP egress (wireproxy→tun2socks) |
+| **warp** | **WARP egress** | `wgcf` → `warp0`; hideIp clients → table `51820`. **DNS (:53) stays on main** (ip rule prio 200), only the rest goes via WARP (prio 300+) |
 
 ## Быстрый старт (без Docker)
 
