@@ -54,6 +54,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
         startForeground(NOTIF_ID, buildNotification(path))
         ConnectionManager.getOrNull()?.onServiceStarted(path)
+        AppLog.i(TAG, "session start path=$path")
 
         backend?.stop()
         val chosen: TunnelBackend = when (path) {
@@ -72,8 +73,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val dns = config?.profile?.direct?.dns?.firstOrNull() ?: "1.1.1.1"
                 establishTun(address, dns, mtu).also { created ->
                     if (created == null) {
+                        AppLog.e(TAG, "TUN establish failed")
                         ConnectionManager.getOrNull()?.onTunnelFailed("Не удалось создать TUN (отклонён VPN?)")
                         stopSelf()
+                    } else {
+                        AppLog.i(TAG, "TUN ok ip=$address mtu=$mtu")
                     }
                 }
             }
@@ -83,18 +87,27 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
         sessionJob?.cancel()
         sessionJob = scope.launch {
-            chosen.start(this@VpnTunnelService, fd, config ?: return@launch) { state ->
-                Log.i(TAG, "backend state=$state")
-                when (state) {
-                    is TunnelBackendState.Running ->
-                        ConnectionManager.getOrNull()?.onTunnelRunning(path)
-                    is TunnelBackendState.Failed -> {
-                        ConnectionManager.getOrNull()?.onTunnelFailed(state.message)
-                        stopSelf()
+            try {
+                chosen.start(this@VpnTunnelService, fd, config ?: return@launch) { state ->
+                    Log.i(TAG, "backend state=$state")
+                    when (state) {
+                        is TunnelBackendState.Running -> {
+                            AppLog.i(TAG, "Running path=$path")
+                            ConnectionManager.getOrNull()?.onTunnelRunning(path)
+                        }
+                        is TunnelBackendState.Failed -> {
+                            AppLog.e(TAG, "Failed: ${state.message}")
+                            ConnectionManager.getOrNull()?.onTunnelFailed(state.message)
+                            stopSelf()
+                        }
+                        is TunnelBackendState.Stopped -> Unit
+                        is TunnelBackendState.Starting -> AppLog.i(TAG, "Starting…")
                     }
-                    is TunnelBackendState.Stopped -> Unit
-                    is TunnelBackendState.Starting -> Unit
                 }
+            } catch (t: Throwable) {
+                AppLog.e(TAG, "backend crash: ${t.message}")
+                ConnectionManager.getOrNull()?.onTunnelFailed(t.message ?: "tunnel crash")
+                stopSelf()
             }
         }
     }

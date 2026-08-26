@@ -1,9 +1,5 @@
 package com.nonamevpn.app.ui.tunnel
 
-import android.app.Activity
-import android.net.VpnService
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -55,6 +51,7 @@ import com.nonamevpn.app.bypass.VkCallHashGenerator
 import com.nonamevpn.app.bypass.VkLoginActivity
 import com.nonamevpn.app.bypass.VkSession
 import com.nonamevpn.app.bypass.VkUrl
+import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.NetworkClass
@@ -69,6 +66,7 @@ import kotlinx.coroutines.launch
 fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
+    onRequestConnect: () -> Unit,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -87,7 +85,10 @@ fun TunnelScreen(
         conn.updateProfile(profile)
         if (profile != null) {
             settings.setProfileName(profile!!.name)
-            if (profile!!.hideIp) settings.setHideIp(true)
+            // Never force Hide-IP from profile while WARP is stub
+            if (profile!!.hideIp) {
+                AppLog.w("Tunnel", "Profile hideIp=true ignored (WARP stub)")
+            }
         } else {
             settings.setProfileName("")
         }
@@ -96,28 +97,6 @@ fun TunnelScreen(
 
     LaunchedEffect(hideIp) {
         conn.setHideIp(hideIp)
-    }
-
-    val vpnPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            conn.connect()
-        }
-    }
-
-    fun requestConnect() {
-        if (hideIp) {
-            conn.reportUserError("«Скрыть IP» (WARP) пока не готов — выключите переключатель")
-            return
-        }
-        val activity = context as? Activity
-        val prep = VpnService.prepare(activity ?: context)
-        if (prep != null) {
-            vpnPermission.launch(prep)
-        } else {
-            conn.connect()
-        }
     }
 
     val connected = ui.state == ConnState.Connected
@@ -253,7 +232,7 @@ fun TunnelScreen(
                 }
                 Button(
                     onClick = {
-                        if (connected) conn.disconnect() else requestConnect()
+                        if (connected) conn.disconnect() else onRequestConnect()
                     },
                     enabled = !busy && (connected || ui.connectEnabled),
                     modifier = Modifier
@@ -385,15 +364,15 @@ fun TunnelScreen(
         ) {
             RowSwitch(
                 title = "Скрыть свой IP",
-                subtitle = "WARP на VPS — пока недоступно (stub)",
+                subtitle = "WARP на VPS — пока stub (при Connect выключится сам)",
                 checked = hideIp,
                 onCheckedChange = { scope.launch { settings.setHideIp(it) } },
             )
             if (hideIp) {
                 Text(
-                    "Переключатель включён, но Connect заблокирован до реализации WARP.",
+                    "Пока WARP не готов. Connect автоматически выключит этот тумблер.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.tertiary,
                 )
             }
         }

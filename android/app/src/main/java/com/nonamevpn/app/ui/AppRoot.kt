@@ -1,5 +1,9 @@
 package com.nonamevpn.app.ui
 
+import android.app.Activity
+import android.net.VpnService
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +34,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
@@ -42,6 +48,7 @@ import com.nonamevpn.app.ui.components.NavBarItem
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppRoot(
@@ -51,11 +58,14 @@ fun AppRoot(
     deployEngine: DeployEngine,
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val conn = remember { ConnectionManager.get(context) }
+    val scope = rememberCoroutineScope()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
+    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
@@ -64,6 +74,42 @@ fun AppRoot(
     val tabs = AppDestination.entries.filter { !it.adminOnly || admin }
     val navItems = tabs.map { dest ->
         NavBarItem(route = dest.route, label = dest.label, icon = dest.icon())
+    }
+
+    // VPN consent launcher lives HERE (always composed) — avoids crash after tab switch
+    // when TunnelScreen was disposed and its ActivityResultLauncher went stale.
+    val vpnPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            AppLog.i("VpnPrep", "VPN permission granted")
+            conn.connect()
+        } else {
+            AppLog.w("VpnPrep", "VPN permission denied/cancelled")
+            conn.reportUserError("Нужно разрешить VPN в системном диалоге")
+        }
+    }
+
+    fun requestVpnThenConnect() {
+        scope.launch {
+            if (hideIp) {
+                AppLog.w("VpnPrep", "Turning off Hide-IP (WARP stub) before Connect")
+                settings.setHideIp(false)
+                conn.setHideIp(false)
+            }
+            val prep = runCatching { VpnService.prepare(activity ?: context) }.getOrNull()
+            if (prep != null) {
+                AppLog.i("VpnPrep", "Launching system VPN consent")
+                vpnPermission.launch(prep)
+            } else {
+                AppLog.i("VpnPrep", "VPN already permitted — connect")
+                conn.connect()
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        AppLog.i("App", "UI ready")
     }
 
     LaunchedEffect(silent, economy, dial) {
@@ -111,7 +157,11 @@ fun AppRoot(
                 .padding(bottom = 88.dp),
         ) {
             composable(AppDestination.Tunnel.route) {
-                TunnelScreen(settings = settings, profiles = profiles)
+                TunnelScreen(
+                    settings = settings,
+                    profiles = profiles,
+                    onRequestConnect = { requestVpnThenConnect() },
+                )
             }
             composable(AppDestination.Settings.route) {
                 SettingsScreen(settings = settings)
