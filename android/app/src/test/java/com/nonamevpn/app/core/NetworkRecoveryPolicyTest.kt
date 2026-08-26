@@ -228,6 +228,39 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun initialValidatedAfterGraceTriggersHandoverCheck() {
+        assertTrue(
+            shouldTreatInitialValidatedAsHandover(
+                tunnelRunning = true,
+                userStopRequested = false,
+                softRestartInProgress = false,
+                sessionStartedAtMs = 1_000L,
+                nowMs = 10_000L,
+                graceAfterStartMs = 5_000L,
+            ),
+        )
+        assertFalse(
+            shouldTreatInitialValidatedAsHandover(
+                tunnelRunning = true,
+                userStopRequested = false,
+                softRestartInProgress = false,
+                sessionStartedAtMs = 8_000L,
+                nowMs = 10_000L,
+                graceAfterStartMs = 5_000L,
+            ),
+        )
+        assertFalse(
+            shouldTreatInitialValidatedAsHandover(
+                tunnelRunning = true,
+                userStopRequested = false,
+                softRestartInProgress = true,
+                sessionStartedAtMs = 1_000L,
+                nowMs = 10_000L,
+            ),
+        )
+    }
+
+    @Test
     fun handoverAutoSwitchesPathWhenProbeDisagrees() {
         assertEquals(
             NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),

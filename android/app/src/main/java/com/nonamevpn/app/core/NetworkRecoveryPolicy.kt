@@ -42,6 +42,24 @@ fun classifyValidatedNetworkTransition(
     else -> ValidatedNetworkTransition.HANDOVER
 }
 
+/**
+ * After Wi‑Fi→LTE the validated id is often cleared and the new underlay never
+ * gets a HANDOVER event — only INITIAL. Once the VPN session is past [graceMs],
+ * treat that INITIAL as a path re-check trigger.
+ */
+fun shouldTreatInitialValidatedAsHandover(
+    tunnelRunning: Boolean,
+    userStopRequested: Boolean,
+    softRestartInProgress: Boolean,
+    sessionStartedAtMs: Long,
+    nowMs: Long,
+    graceAfterStartMs: Long = 5_000L,
+): Boolean {
+    if (!tunnelRunning || userStopRequested || softRestartInProgress) return false
+    if (sessionStartedAtMs <= 0L) return false
+    return nowMs - sessionStartedAtMs >= graceAfterStartMs
+}
+
 fun shouldScheduleAvailableNetworkHandover(
     previousNetworkWasLost: Boolean,
     availableRealNetworkCount: Int,
