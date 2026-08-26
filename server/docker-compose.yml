@@ -1,0 +1,75 @@
+# nonameVPN server stack
+# Usage:
+#   export NVPN_PUBLIC_HOST=1.2.3.4
+#   docker compose -f server/docker-compose.yml up -d --build
+#
+# Notes:
+# - host network + NET_ADMIN required for real TUN (direct/bypass/warp).
+# - provision exposes TCP :9100 /health for client UDP-lite companion checks later.
+# - direct/bypass/warp are stubs until binaries are packaged.
+
+services:
+  provision:
+    build: ./provision
+    container_name: nvpn-provision
+    network_mode: host
+    environment:
+      NVPN_PUBLIC_HOST: ${NVPN_PUBLIC_HOST:-}
+      NVPN_PROVISION_LISTEN: ${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}
+      NVPN_DATA: /data
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  direct:
+    build: ./direct
+    container_name: nvpn-direct
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      NVPN_DIRECT_PORT: ${NVPN_DIRECT_PORT:-51820}
+      NVPN_DATA: /data
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      - provision
+    # Real AWG will need restart; stub stays up
+    restart: unless-stopped
+
+  bypass:
+    build: ./bypass
+    container_name: nvpn-bypass
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      NVPN_BYPASS_PORT: ${NVPN_BYPASS_PORT:-56003}
+      NVPN_DATA: /data
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      - provision
+    restart: unless-stopped
+
+  warp:
+    build: ./warp
+    container_name: nvpn-warp
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-400MiB}
+      NVPN_DATA: /data
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      - provision
+    # Intentionally NOT restart: on-failure OOM loops — soft memory policy in-process
+    restart: unless-stopped
