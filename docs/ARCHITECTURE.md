@@ -356,4 +356,5 @@ Call hash — **локально на устройстве**, не обязан 
 9. ~~Native Direct (AWG GoBackend / libwg-go).~~ (`android/tunnel` → `DirectBackend`)
 10. ~~Native Bypass (TURN TCP / vkcalls / RAW via go_client).~~ (`libclient.so` + `BypassSession`)
 11. ~~Client: WebView create-call (VK login → calls.start → hash on device).~~
-12. Dial path UI / legacy captcha bridge; WARP egress (не stub); UX vs SmartVPN.
+12. ~~Client: dial path UI (Авто / vkcalls / legacy) в Настройках + DataStore.~~
+13. Legacy captcha WebView bridge (если нужно); WARP egress (не stub); UX vs SmartVPN.
