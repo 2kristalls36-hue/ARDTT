@@ -30,8 +30,10 @@ render_conf() {
 }
 
 setup_forwarding() {
-  echo 1 >/proc/sys/net/ipv4/ip_forward 2>/dev/null || true
-  # Best-effort NAT; ignore failures on restricted hosts
+  # Host usually sets this; inside container sysctl is often RO.
+  if [ -w /proc/sys/net/ipv4/ip_forward ]; then
+    echo 1 >/proc/sys/net/ipv4/ip_forward || true
+  fi
   if command -v iptables >/dev/null 2>&1; then
     iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -j MASQUERADE 2>/dev/null \
       || iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE || true
@@ -64,13 +66,12 @@ if ! awg setconf "${IFACE}" "${CONF}"; then
 fi
 
 ip link set "${IFACE}" up 2>/dev/null || true
-# Address may come from setconf; ensure gateway IP
-ADDR=$(awk '/^Address/{print $3; exit}' "${CONF}" || true)
+ADDR=$(tr -d '[:space:]' <"${CONF}.address" 2>/dev/null || true)
 if [[ -n "${ADDR}" ]]; then
   ip addr replace "${ADDR}" dev "${IFACE}" 2>/dev/null || true
 fi
 
-echo "[direct] ready iface=${IFACE} port=${PORT}"
+echo "[direct] ready iface=${IFACE} port=${PORT} addr=${ADDR:-?} peers=$(grep -c '^\[Peer\]' "${CONF}" || true)"
 
 # Hot-reload peers when users.json changes
 (
@@ -82,6 +83,10 @@ echo "[direct] ready iface=${IFACE} port=${PORT}"
       echo "[direct] users.json changed — re-sync"
       render_conf
       awg syncconf "${IFACE}" "${CONF}" || awg setconf "${IFACE}" "${CONF}" || true
+      ADDR=$(tr -d '[:space:]' <"${CONF}.address" 2>/dev/null || true)
+      if [[ -n "${ADDR}" ]]; then
+        ip addr replace "${ADDR}" dev "${IFACE}" 2>/dev/null || true
+      fi
       last="${now}"
     fi
   done
