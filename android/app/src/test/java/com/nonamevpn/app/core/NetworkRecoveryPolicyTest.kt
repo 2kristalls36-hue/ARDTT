@@ -226,4 +226,66 @@ class NetworkRecoveryPolicyTest {
         val kb = TransportHealth.parseTrafficKb(line)
         assertTrue(kb != null && kb!! > 29_000L)
     }
+
+    @Test
+    fun handoverAutoSwitchesPathWhenProbeDisagrees() {
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun handoverKeepsPathWhenForcedModeOrSameOrNoHash() {
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Direct,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = false,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = null,
+                bypassAllowed = true,
+            ),
+        )
+    }
 }

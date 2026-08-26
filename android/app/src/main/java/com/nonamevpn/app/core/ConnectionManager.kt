@@ -96,9 +96,6 @@ class ConnectionManager(
 
     fun setHideIp(enabled: Boolean) {
         val cur = _ui.value
-        if (provisionUrl.isNullOrBlank()) {
-            provisionUrl = profile?.provisionBaseUrl
-        }
         val status = if (cur.state == ConnState.Connected) {
             when (cur.activePath) {
                 VpnPath.Direct -> "Подключено: прямое" + if (enabled) " · IP скрыт (WARP)" else ""
@@ -112,16 +109,28 @@ class ConnectionManager(
             hideIp = enabled,
             statusText = status,
             softInfo = softInfoFor(cur.probe),
+            lastError = null,
         )
-        if (cur.state == ConnState.Connected || cur.state == ConnState.Connecting) {
-            scope.launch {
-                val base = provisionUrl ?: profile?.provisionBaseUrl
-                val r = HideIpApi.setHideIp(base, profile?.deviceId, enabled)
-                if (r.isFailure) {
-                    AppLog.e(TAG, "live hide-ip failed: ${r.exceptionOrNull()?.message}")
-                }
+        // Always push to provision (even Idle) so WARP rules cannot stick after toggle-off.
+        scope.launch {
+            val base = resolveProvisionUrl()
+            val r = HideIpApi.setHideIp(base, profile?.deviceId, enabled, appContext)
+            if (r.isFailure) {
+                AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
+                _ui.value = _ui.value.copy(
+                    lastError = "Hide IP не синхронизирован с VPS: ${r.exceptionOrNull()?.message}",
+                )
             }
         }
+    }
+
+    private fun resolveProvisionUrl(): String? {
+        val fromProfile = profile?.provisionBaseUrl
+        if (!fromProfile.isNullOrBlank()) {
+            provisionUrl = fromProfile
+            return fromProfile
+        }
+        return provisionUrl?.takeIf { it.isNotBlank() }
     }
 
     /** Soft-restart transport if a session is up (exclusions / network / manual). */
@@ -274,8 +283,9 @@ class ConnectionManager(
                     lastError = null,
                 )
 
+                val provision = resolveProvisionUrl()
                 if (snap.hideIp) {
-                    val r = HideIpApi.setHideIp(provisionUrl, profile?.deviceId, true)
+                    val r = HideIpApi.setHideIp(provision, profile?.deviceId, true, appContext)
                     if (r.isFailure) {
                         AppLog.e(TAG, "hide-ip enable failed: ${r.exceptionOrNull()?.message}")
                         _ui.value = _ui.value.copy(
@@ -287,7 +297,7 @@ class ConnectionManager(
                     }
                 } else {
                     // Best-effort clear leftover server flag
-                    runCatching { HideIpApi.setHideIp(provisionUrl, profile?.deviceId, false) }
+                    runCatching { HideIpApi.setHideIp(provision, profile?.deviceId, false, appContext) }
                 }
                 // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
                 var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
@@ -442,7 +452,7 @@ class ConnectionManager(
             // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
             // If user turned hideIp off, clear server route.
             if (!_ui.value.hideIp) {
-                runCatching { HideIpApi.setHideIp(provisionUrl, profile?.deviceId, false) }
+                runCatching { HideIpApi.setHideIp(resolveProvisionUrl(), profile?.deviceId, false, appContext) }
             }
             stopTunnel()
             _ui.value = _ui.value.copy(
@@ -475,6 +485,106 @@ class ConnectionManager(
                 softInfo = reason.removePrefix("[СЕТЬ] ").takeIf { it.isNotBlank() },
             )
         }
+    }
+
+    /**
+     * After Wi‑Fi↔LTE settle: re-classify underlay (whitelist / Direct) and
+     * either soft-restart the same path or switch Direct↔Bypass in Auto mode.
+     *
+     * [bindNetwork] must be the real underlay (NOT_VPN); probing through the
+     * tunnel would falsely report Direct while on Bypass.
+     */
+    suspend fun decideNetworkHandover(
+        bindNetwork: android.net.Network?,
+    ): NetworkHandoverDecision {
+        val currentPath = TunnelSessionHolder.config?.path
+            ?: _ui.value.activePath
+            ?: return NetworkHandoverDecision.SoftRestartSamePath
+        val mode = pathMode
+        if (mode != ConnPathMode.Auto) {
+            AppLog.i(TAG, "Handover: mode=$mode — soft-restart $currentPath (no re-probe)")
+            return NetworkHandoverDecision.SoftRestartSamePath
+        }
+
+        val base = resolveProvisionUrl()
+        AppLog.i(
+            TAG,
+            "Handover probe start path=$currentPath endpoint=$directEndpoint provision=$base " +
+                "bind=${bindNetwork?.networkHandle}",
+        )
+        val fresh = NetworkProbe.probe(
+            context = appContext,
+            directEndpoint = directEndpoint,
+            provisionBaseUrl = base,
+            bindNetwork = bindNetwork,
+            quick = true,
+        )
+        AppLog.i(
+            TAG,
+            "Handover probe done class=${fresh.networkClass} path=${fresh.preselectedPath} " +
+                "yandex=${fresh.yandexOk} bigtech=${fresh.bigtechOk} " +
+                "udp=${fresh.vpsUdpOk} health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
+        )
+
+        // Update UI probe snapshot without leaving Connected/Connecting.
+        _ui.value = _ui.value.copy(
+            probe = fresh,
+            softInfo = softInfoFor(fresh),
+            hasCallHash = profile?.name?.let { hashStore.hasHash(it) } == true,
+        )
+
+        val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
+        val decision = decideNetworkHandoverAction(
+            pathMode = mode,
+            currentPath = currentPath,
+            probedPath = fresh.preselectedPath,
+            bypassAllowed = bypassAllowed,
+        )
+        when (decision) {
+            is NetworkHandoverDecision.SwitchPath -> {
+                AppLog.i(TAG, "Handover: switch $currentPath → ${decision.path}")
+                applySessionPath(decision.path)
+                softRestartInProgress = true
+                _ui.value = _ui.value.copy(
+                    state = ConnState.Connecting,
+                    activePath = decision.path,
+                    statusText = "Сеть сменилась — путь ${pathLabel(decision.path)}…",
+                    softInfo = fresh.message,
+                    lastError = null,
+                    connectEnabled = true,
+                )
+            }
+            NetworkHandoverDecision.SoftRestartSamePath -> {
+                if (
+                    fresh.preselectedPath == VpnPath.Bypass &&
+                    currentPath == VpnPath.Direct &&
+                    !bypassAllowed
+                ) {
+                    AppLog.w(TAG, "Handover: need Bypass but no call hash — keep Direct soft-restart")
+                } else {
+                    AppLog.i(TAG, "Handover: keep $currentPath (probe=${fresh.preselectedPath})")
+                }
+            }
+        }
+        return decision
+    }
+
+    /** Rewrite [TunnelSessionHolder] for a path switch mid-session (Auto handover). */
+    fun applySessionPath(path: VpnPath) {
+        val existing = TunnelSessionHolder.config ?: return
+        val addr = when (path) {
+            VpnPath.Direct -> profile?.direct?.address ?: existing.tunAddress
+            VpnPath.Bypass -> profile?.bypass?.address ?: existing.tunAddress
+        }
+        TunnelSessionHolder.config = existing.copy(
+            path = path,
+            tunAddress = addr,
+            callHash = callHashOrNull(),
+            hideIp = _ui.value.hideIp,
+            workers = workers,
+            silentRecreate = silentRecreate,
+            dialPathName = dialPath.name,
+        )
     }
 
     fun onUnderlyingNetworkLost() {

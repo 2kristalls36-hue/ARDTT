@@ -2,6 +2,7 @@ package com.nonamevpn.app.core
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -17,8 +18,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Parallel lightweight probes at app start / before Connect.
+ * Parallel lightweight probes at app start / before Connect / on network handover.
  * Does NOT bring up VpnService. No TCP probe to RAW UDP port.
+ *
+ * When [bindNetwork] is set (Wi‑Fi/LTE under the VPN), sockets are bound to that
+ * network so classification reflects the real underlay — not tunnel egress.
  *
  * Note: AmneziaWG/WireGuard silently drops invalid UDP — a reply-based
  * [udpLite] probe is only a positive signal when it gets a packet back.
@@ -37,19 +41,26 @@ object NetworkProbe {
         context: Context,
         directEndpoint: String?,
         provisionBaseUrl: String?,
+        bindNetwork: Network? = null,
+        /** Shorter timeouts for Wi‑Fi↔LTE handover (less blackout). */
+        quick: Boolean = false,
     ): ProbeResult = withContext(Dispatchers.IO) {
+        val tcpMs = if (quick) 2_000 else 4_000
+        val captiveMs = if (quick) 1_500 else 2_500
+        val udpMs = if (quick) 1_500 else 2_000
+        val healthMs = if (quick) 2_000 else 4_000
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
-                val systemOnline = isSystemOnline(context)
+                val systemOnline = isSystemOnline(context, bindNetwork)
 
-                val yandexDef = async { tcpReachable("yandex.ru", 443, 4_000) }
+                val yandexDef = async { tcpReachable("yandex.ru", 443, tcpMs, bindNetwork) }
                 val bigtechDef = async {
-                    bigtechHosts.any { tcpReachable(it, 443, 4_000) }
+                    bigtechHosts.any { tcpReachable(it, 443, tcpMs, bindNetwork) }
                 }
-                val captiveDef = async { detectCaptive() }
-                val udpDef = async { udpLite(directEndpoint, 2_000) }
-                val provisionDef = async { provisionHealth(provisionBaseUrl, 4_000) }
+                val captiveDef = async { detectCaptive(bindNetwork, captiveMs) }
+                val udpDef = async { udpLite(directEndpoint, udpMs, bindNetwork) }
+                val provisionDef = async { provisionHealth(provisionBaseUrl, healthMs, bindNetwork) }
 
                 val yandexOk = yandexDef.await()
                 val bigtechOk = bigtechDef.await()
@@ -158,16 +169,22 @@ object NetworkProbe {
         )
     }
 
-    private fun isSystemOnline(context: Context): Boolean {
+    private fun isSystemOnline(context: Context, bindNetwork: Network?): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = cm.activeNetwork ?: return false
+        val network = bindNetwork ?: cm.activeNetwork ?: return false
         val caps = cm.getNetworkCapabilities(network) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    private fun tcpReachable(host: String, port: Int, timeoutMs: Int): Boolean {
+    private fun tcpReachable(
+        host: String,
+        port: Int,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
         return try {
             Socket().use { socket ->
+                bindNetwork?.bindSocket(socket)
                 socket.connect(InetSocketAddress(host, port), timeoutMs)
                 true
             }
@@ -176,13 +193,13 @@ object NetworkProbe {
         }
     }
 
-    private fun detectCaptive(): Boolean {
+    private fun detectCaptive(bindNetwork: Network?, timeoutMs: Int = 2500): Boolean {
         return try {
             val url = URL("http://connectivitycheck.gstatic.com/generate_204")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = openHttp(url, bindNetwork).apply {
                 instanceFollowRedirects = false
-                connectTimeout = 2500
-                readTimeout = 2500
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
                 requestMethod = "GET"
             }
             val code = conn.responseCode
@@ -194,11 +211,15 @@ object NetworkProbe {
         }
     }
 
-    private fun provisionHealth(baseUrl: String?, timeoutMs: Int): Boolean {
+    private fun provisionHealth(
+        baseUrl: String?,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
         if (baseUrl.isNullOrBlank()) return false
         return try {
             val url = URL(baseUrl.trimEnd('/') + "/health")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = openHttp(url, bindNetwork).apply {
                 connectTimeout = timeoutMs
                 readTimeout = timeoutMs
                 requestMethod = "GET"
@@ -211,15 +232,29 @@ object NetworkProbe {
         }
     }
 
+    private fun openHttp(url: URL, bindNetwork: Network?): HttpURLConnection {
+        val raw = if (bindNetwork != null) {
+            bindNetwork.openConnection(url)
+        } else {
+            url.openConnection()
+        }
+        return raw as HttpURLConnection
+    }
+
     /**
      * Send a small UDP datagram to AWG endpoint and wait for any reply.
      * Valid Noise handshake needs keys; this is a LOS hint only.
      */
-    private suspend fun udpLite(endpoint: String?, timeoutMs: Int): Boolean {
+    private suspend fun udpLite(
+        endpoint: String?,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
         val parsed = parseEndpoint(endpoint) ?: return false
         return withTimeoutOrNull(timeoutMs.toLong() + 200L) {
             withContext(Dispatchers.IO) {
                 DatagramSocket().use { socket ->
+                    bindNetwork?.bindSocket(socket)
                     socket.soTimeout = timeoutMs
                     val payload = ByteArray(64) { 0x01 }
                     val packet = DatagramPacket(
