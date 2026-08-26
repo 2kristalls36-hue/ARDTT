@@ -162,7 +162,8 @@ fun TunnelScreen(
     }
 
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
-    LaunchedEffect(hideIp) {
+    LaunchedEffect(hideIp, profile?.deviceId) {
+        if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
     }
 

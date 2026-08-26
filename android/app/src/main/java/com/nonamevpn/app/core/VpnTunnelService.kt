@@ -242,7 +242,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
     }
 
-    private fun requestSoftRestart(reason: String, force: Boolean = false) {
+    private fun requestSoftRestart(
+        reason: String,
+        force: Boolean = false,
+        pathOverride: VpnPath? = null,
+    ) {
         if ((!tunnelSessionActive && !trustedWifiWaiting) || userStopRequested || trustedWifiWaiting) {
             return
         }
@@ -265,13 +269,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         wakeRecoveryGraceUntilMs = now + WAKE_RECOVERY_GRACE_MS
         zeroWorkersSinceMs = 0L
         processDeadSinceMs = 0L
-        val path = TunnelSessionHolder.config?.path
+        val path = pathOverride ?: TunnelSessionHolder.config?.path
         if (path == null) {
             softRestartInProgress = false
             AppLog.e(TAG, "soft restart aborted: no session path")
             return
         }
-        AppLog.i(TAG, "soft restart #$softRestartCount: $reason")
+        AppLog.i(TAG, "soft restart #$softRestartCount path=$path: $reason")
         ConnectionManager.getOrNull()?.onTransportRestarting(reason)
         updateNotification(path, "Переподключение транспорта…")
 
@@ -291,6 +295,21 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 }
             }
         }
+    }
+
+    /** Prefer validated Wi‑Fi, then any validated underlay, then any tracked network. */
+    private fun pickBestUnderlyingNetwork(): Network? {
+        val cm = connectivityManager ?: return activeNetworks.firstOrNull()
+        fun score(n: Network): Int {
+            val caps = cm.getNetworkCapabilities(n) ?: return 0
+            var s = 1
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) s += 2
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) s += 4
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) s += 8
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) s += 2
+            return s
+        }
+        return activeNetworks.maxByOrNull { score(it) }
     }
 
     // ── Screen / Doze wake rescue ───────────────────────────────────────────
@@ -666,7 +685,23 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     AppLog.i(TAG, "skip reconnect: session state changed")
                     return@launch
                 }
-                requestSoftRestart(reason = "[СЕТЬ] $reason", force = true)
+                val underlay = pickBestUnderlyingNetwork()
+                val decision = ConnectionManager.getOrNull()
+                    ?.decideNetworkHandover(underlay)
+                    ?: NetworkHandoverDecision.SoftRestartSamePath
+                when (decision) {
+                    is NetworkHandoverDecision.SwitchPath -> {
+                        AppLog.i(TAG, "handover path switch → ${decision.path}")
+                        requestSoftRestart(
+                            reason = "[СЕТЬ] $reason → ${decision.path}",
+                            force = true,
+                            pathOverride = decision.path,
+                        )
+                    }
+                    NetworkHandoverDecision.SoftRestartSamePath -> {
+                        requestSoftRestart(reason = "[СЕТЬ] $reason", force = true)
+                    }
+                }
             } finally {
                 stableNetworkReconnectPending = false
                 handoverPreviousNetworkId = null

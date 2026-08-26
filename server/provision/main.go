@@ -46,7 +46,7 @@ type User struct {
 	HostID           int       `json:"hostId"`
 	DeviceID         string    `json:"deviceId"`
 	Password         string    `json:"password"`
-	HideIP           bool      `json:"hideIp,omitempty"`
+	HideIP           bool      `json:"hideIp"`
 	CreatedAt        time.Time `json:"createdAt"`
 	DirectPrivateKey string    `json:"directPrivateKey,omitempty"`
 	DirectPublicKey  string    `json:"directPublicKey,omitempty"`

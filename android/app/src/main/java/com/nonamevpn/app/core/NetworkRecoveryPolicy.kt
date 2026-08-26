@@ -115,6 +115,34 @@ const val WATCHDOG_POLL_MS = 3_000L
 const val TRUSTED_WIFI_ENTER_DELAY_MS = 2_000L
 const val TRUSTED_WIFI_EXIT_DELAY_MS = 5_000L
 
+/**
+ * After Wi‑Fi↔LTE settle, Auto mode may switch Direct↔Bypass when underlay
+ * probe disagrees with the current path. Forced Direct/Bypass only soft-restarts.
+ */
+sealed class NetworkHandoverDecision {
+    data object SoftRestartSamePath : NetworkHandoverDecision()
+    data class SwitchPath(val path: VpnPath) : NetworkHandoverDecision()
+}
+
+fun decideNetworkHandoverAction(
+    pathMode: ConnPathMode,
+    currentPath: VpnPath,
+    probedPath: VpnPath?,
+    bypassAllowed: Boolean,
+): NetworkHandoverDecision {
+    if (pathMode != ConnPathMode.Auto) {
+        return NetworkHandoverDecision.SoftRestartSamePath
+    }
+    val desired = probedPath ?: return NetworkHandoverDecision.SoftRestartSamePath
+    if (desired == currentPath) {
+        return NetworkHandoverDecision.SoftRestartSamePath
+    }
+    if (desired == VpnPath.Bypass && !bypassAllowed) {
+        return NetworkHandoverDecision.SoftRestartSamePath
+    }
+    return NetworkHandoverDecision.SwitchPath(desired)
+}
+
 fun shouldReconnectTunnelAfterWake(
     activeWorkers: Int,
     hasFreshStatsSinceWake: Boolean,
