@@ -11,39 +11,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun ServersScreen() {
-    AdminPlaceholder(
-        title = "Серверы",
-        body = "Здесь будет управление профилями и provision (host_id, выдача nvpn).",
-    )
-}
-
-@Composable
-fun DeployScreen() {
-    AdminPlaceholder(
-        title = "Деплой",
-        body = "Здесь будет установка Compose-стека на VPS по SSH (как Deploy в qWDTT).",
-    )
-}
-
-@Composable
 fun LogsScreen() {
-    AdminPlaceholder(
-        title = "Логи",
-        body = "Здесь будут подробные логи probe / AWG / TURN·RAW с экспортом.",
-    )
-}
-
-@Composable
-private fun AdminPlaceholder(title: String, body: String) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.headlineMedium)
-        Text(body, style = MaterialTheme.typography.bodyLarge)
+        Text("Логи", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "Подробные логи probe / AWG / TURN·RAW с экспортом появятся здесь. Лог деплоя смотрите на вкладке «Деплой».",
+            style = MaterialTheme.typography.bodyLarge,
+        )
         Text(
             "Вкладка видна только в режиме администратора.",
             style = MaterialTheme.typography.bodySmall,
