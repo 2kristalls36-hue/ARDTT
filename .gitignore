@@ -1,5 +1,6 @@
 # Сборка и артефакты
 .gradle/
+**/.gradle/
 **/build/
 **/local.properties
 *.apk
