@@ -1,15 +1,17 @@
 # nonameVPN
 
-VPN-клиент на **AmneziaWG 2.0** с автоматическим обходом через TURN (принцип WDTT / qWDTT), если до VPS нет прямой видимости. В обходе — **RAW**-туннель (IP без вложенного WireGuard).
+Android VPN на **AmneziaWG 2.0** с автоматическим обходом (TURN / RAW), если до VPS нет прямой видимости. Обход под капотом; пользователю можно предложить только вход через VK для белых списков.
 
-Подробная схема, компоненты и открытые решения: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Архитектура и решения: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Идея в двух словах
+## Идея
 
 ```
-прямо видно VPS?  →  AmneziaWG 2.0 (UDP)
-иначе             →  TURN/DTLS + WRAP/RTP → RAW TUN на VPS
+прямо видно VPS?  →  AmneziaWG 2.0
+иначе             →  TURN + RAW (без второго WireGuard)
 ```
+
+База клиента — форк AmneziaWG Android; bypass — адаптация WDTT/qWDTT.
 
 ## Статус
 
