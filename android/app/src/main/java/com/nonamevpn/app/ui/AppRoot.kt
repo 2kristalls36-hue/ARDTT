@@ -15,6 +15,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -22,6 +25,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.nonamevpn.app.deploy.DeployEngine
+import com.nonamevpn.app.deploy.DeployTarget
+import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.admin.DeployScreen
@@ -31,11 +37,17 @@ import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 
 @Composable
-fun AppRoot(settings: AppSettingsRepository, profiles: ProfileRepository) {
+fun AppRoot(
+    settings: AppSettingsRepository,
+    profiles: ProfileRepository,
+    serversRepo: ServersRepository,
+    deployEngine: DeployEngine,
+) {
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
+    var deployInitial by remember { mutableStateOf<DeployTarget?>(null) }
 
     val tabs = AppDestination.entries.filter { !it.adminOnly || admin }
 
@@ -81,10 +93,22 @@ fun AppRoot(settings: AppSettingsRepository, profiles: ProfileRepository) {
                 SettingsScreen(settings = settings)
             }
             composable(AppDestination.Servers.route) {
-                ServersScreen()
+                ServersScreen(
+                    serversRepo = serversRepo,
+                    onDeploy = { target ->
+                        deployInitial = target
+                        navController.navigate(AppDestination.Deploy.route) {
+                            launchSingleTop = true
+                        }
+                    },
+                )
             }
             composable(AppDestination.Deploy.route) {
-                DeployScreen()
+                DeployScreen(
+                    serversRepo = serversRepo,
+                    engine = deployEngine,
+                    initial = deployInitial,
+                )
             }
             composable(AppDestination.Logs.route) {
                 LogsScreen()

@@ -352,5 +352,6 @@ Call hash — **локально на устройстве**, не обязан 
 5. ~~Client: probe UDP-lite + path preselect + hide-IP → VpnService stub.~~ (`NetworkProbe`, `ConnectionManager`, `VpnTunnelService`).
 6. ~~Импорт профиля JSON (формат provision) + demo; endpoints → probe.~~
 7. ~~Bypass scaffold на Android: WRAP, hash-on-device, dial Auto, TunnelBackend wiring.~~
-8. Native Direct (AWG GoBackend) + native Bypass (TURN TCP / vkcalls HTTP / RAW pump).
-9. WARP egress (не stub) + сверить UX с SmartVPN, когда репозиторий будет доступен.
+8. ~~Админ-деплой с приложения: SSH + upload Compose stack + install.sh.~~
+9. Native Direct (AWG GoBackend) + native Bypass (TURN TCP / vkcalls HTTP / RAW pump).
+10. WARP egress (не stub) + сверить UX с SmartVPN, когда репозиторий будет доступен.
