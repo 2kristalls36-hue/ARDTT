@@ -474,7 +474,8 @@ suspend fun onAppReady(profile: Profile) = coroutineScope {
     "hashes": ["..."],
     "workers": 9,
     "transport": "tcp",
-    "mode": "raw"
+    "mode": "raw",
+    "vk": { "accountRequired": true, "dial": "vkcalls" }
   },
   "warp": {
     "address": "10.10.0.5/32",
@@ -554,5 +555,5 @@ DTLS в Path B нет. Path A — только AWG 2.0.
 1. Каркас: форк amneziawg-android + `server/` compose (`direct`, `bypass`, `warp`).
 2. VPS: AWG 2.0 + bypass RAW + wireproxy/tun2socks.
 3. `provision` с `host_id` на три подсети.
-4. Bypass `.so` + `connmgr` failover; опциональный VK-логин.
+4. Bypass `.so` + `connmgr`; VK-аккаунт + авто-звонок (`vkcalls`), TCP до TURN; без captcha/legacy UI.
 5. На `warp`: `MemoryMax≈512M` + `restart: always` (уже в архитектуре).
