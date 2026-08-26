@@ -30,7 +30,6 @@ type user struct {
 
 const confTmpl = `[Interface]
 PrivateKey = {{.PrivateKey}}
-Address = {{.Address}}
 ListenPort = {{.ListenPort}}
 Jc = 4
 Jmin = 40
@@ -113,7 +112,11 @@ func main() {
 	if err := t.Execute(f, data); err != nil {
 		fatalf("render: %v", err)
 	}
-	fmt.Printf("[direct-sync] wrote %s (%d peers)\n", *outPath, len(peers))
+	addrPath := *outPath + ".address"
+	if err := os.WriteFile(addrPath, []byte(data.Address+"\n"), 0o600); err != nil {
+		fatalf("write address: %v", err)
+	}
+	fmt.Printf("[direct-sync] wrote %s (%d peers) addr=%s\n", *outPath, len(peers), data.Address)
 }
 
 func subnetBase(cidr string) string {

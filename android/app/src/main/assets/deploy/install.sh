@@ -78,8 +78,11 @@ chmod 700 "$STACK/data"
 
 prog 0.50 "Сборка и запуск Compose (может занять несколько минут)"
 cd "$STACK"
+# 1GB VPS: sequential builds avoid OOM
+export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 compose pull 2>/dev/null || true
-compose up -d --build
+compose build
+compose up -d
 
 prog 0.85 "Проверка health"
 sleep 3
