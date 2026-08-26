@@ -713,7 +713,7 @@ class ConnectionManager(
         val parts = mutableListOf<String>()
         when (pathMode) {
             ConnPathMode.Direct -> parts += "Режим: только прямое (AmneziaWG)."
-            ConnPathMode.Bypass -> parts += "Режим: только обход (WDTT / звонок)."
+            ConnPathMode.Bypass -> parts += "Режим: только обход (RAW / звонок)."
             ConnPathMode.Auto -> Unit
         }
         if (result == null) {

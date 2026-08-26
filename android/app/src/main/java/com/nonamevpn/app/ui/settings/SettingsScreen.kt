@@ -109,7 +109,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
         ) {
             Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Авто — прямое (AmneziaWG), при недоступности резерв обход (WDTT). " +
+                "Авто — прямое (AmneziaWG), при недоступности резерв обход (RAW через TURN). " +
                     "Можно принудительно выбрать один путь для теста.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -140,8 +140,8 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             Text(
                 when (pathMode) {
                     "direct" -> "Только AmneziaWG (AWG)."
-                    "bypass" -> "Только WDTT через звонок (нужен hash)."
-                    else -> "Приоритет AWG, резерв WDTT."
+                    "bypass" -> "Только обход RAW через звонок (нужен hash)."
+                    else -> "Приоритет AWG, резерв RAW/обход."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
@@ -186,7 +186,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
         ) {
             Text("Обход (дозвон)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Как получать TURN для WDTT. Авто: vkcalls → legacy. Connect анонимный по hash.",
+                "Как получать TURN для обхода (RAW). Авто: vkcalls → legacy. Connect анонимный по hash.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

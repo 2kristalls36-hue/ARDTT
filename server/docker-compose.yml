@@ -7,7 +7,7 @@
 # - host network + NET_ADMIN required for TUN (direct/bypass/warp).
 # - provision exposes TCP :9100 /health and generates AWG keypairs.
 # - direct: amneziawg-go + awg (AmneziaWG 2.0 userspace).
-# - bypass: wdtt-server -listen-raw (WDTT, GPL-3).
+# - bypass: wdtt-server -listen-raw (qWDTT / SpaceNeuroX RAW, GPL-3).
 # - dns: dnsmasq on 10.8.0.1 / 10.9.0.1 (client DNS; upstream 1.1.1.1 via main).
 # - warp: hideIp → table 51820; DNS :53 stays on main (prio 100) or hits local dnsmasq.
 

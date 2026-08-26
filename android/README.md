@@ -22,6 +22,6 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
 - `app` — UI, ConnectionManager, VpnTunnelService, bypass session
 - `tunnel` — AmneziaWG userspace (`libwg-go`)
-- `go_client` — WDTT Path B → `libclient.so`
+- `go_client` — Path B RAW (qWDTT / SpaceNeuroX) → `libclient.so`
 
 После деплоя сервера на VPS обычно остаётся `/opt/nonamevpn/stack/` (исторический путь каталога) и рабочие образы.

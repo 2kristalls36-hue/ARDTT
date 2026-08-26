@@ -35,7 +35,7 @@ sealed class BypassPhase {
 }
 
 /**
- * Path B: launches WDTT go_client (vkcalls → TURN TCP → WRAP → RAW),
+ * Path B: launches go_client (vkcalls → TURN TCP → WRAP → RAW; qWDTT/SpaceNeuroX lineage),
  * establishes VpnService TUN from RAWCONF, sends FD via [TunFdBridge].
  */
 class BypassSession {
