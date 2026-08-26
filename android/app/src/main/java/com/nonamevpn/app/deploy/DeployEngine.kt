@@ -85,6 +85,15 @@ class DeployEngine(private val appContext: Context) {
             if (failed != null) error(failed!!)
             if (code != 0) error("install.sh exit=$code")
 
+            // Belt-and-suspenders: ensure archive/logs from older installs are gone
+            runCatching {
+                ssh.exec(
+                    "rm -f /opt/nonamevpn/stack.tar.gz /var/log/nvpn-build*.log /var/log/nvpn-install.log; " +
+                        "docker builder prune -af >/dev/null 2>&1 || true; " +
+                        "docker image prune -f >/dev/null 2>&1 || true",
+                )
+            }
+
             val msg = "Стек установлен на $publicHost (/opt/nonamevpn)"
             append(msg)
             emit(1f, msg)
