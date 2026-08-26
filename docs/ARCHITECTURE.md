@@ -12,8 +12,9 @@
 | # | Вопрос | Решение |
 |---|--------|---------|
 | 1 | Платформа | **Цель — Android.** База: форк `amneziawg-android` + встройка bypass-ядра. Go-транспорт можно отлаживать отдельно, но продукт — APK. |
-| 2 | Кодовая база | **Да: форк Amnezia (клиент AWG) + форк/адаптация WDTT/qWDTT (сервер + bypass-клиент).** |
-| 3 | Оптимизация Path B | **RAW как в qWDTT: WRAP + TURN, без DTLS и без AWG/WG.** DTLS в classic WDTT — лишний оверхед (self-signed + второй AEAD). |
+| 2 | Кодовая база | **Форк Amnezia (клиент) + адаптация WDTT/qWDTT (bypass) + WARP userspace (`wireproxy`→tun2socks).** |
+| 3 | Оптимизация Path B | **RAW как в qWDTT: WRAP + TURN, без DTLS и без AWG/WG.** |
+| — | Деплой | **Три контейнера** (`direct`, `bypass`, `warp`) + общий `host_id` в трёх подсетях. |
 | 4 | Имя / URI | Пока `nonameVPN` / `nvpn://` (плейсхолдер). |
 | 5 | Форматы | **Только свой профиль/ссылка.** Без импорта `wdtt://`. Опционально: вход в VK-аккаунт для обхода белых списков. |
 
@@ -196,18 +197,33 @@ Cloudflare WARP (WireGuard conf, wgcf / аналог)
 
 MVP: поднять iface + третью подсеть + учёт `host_id`; policy exit можно вторым шагом.
 
-### Память WARP (известная проблема)
+### Память WARP (зафиксированный фикс)
 
-Официальный `warp-svc` часто течёт по RAM (сотни MB → GB) до OOM; помогает только restart процесса.
+Официальный `warp-svc` (и тяжёлые WARP-стеки) часто течёт по RAM до OOM.
 
-**Выбранный стек `wireproxy` + `tun2socks` как раз уходит от `warp-svc`.** Это основной способ не тащить его утечку.
+**Решение (из практики / чат `3545ac4e-…`):**
 
-Чат `3545ac4e-6f81-422b-9b7b-7859c4668fd3` из этой cloud-сессии **недоступен** (агент/automation не в scope репо) — детали вашего конкретного фикса сюда не подтянулись. В архитектуре оставляем якорь; когда подтвердите — впишем точно. Кандидаты, которые обычно комбинируют с этим стеком:
+1. Userspace-стек: `wireproxy` → SOCKS → `tun2socks` / `tun-warp` (не держать голый `warp-svc` как единственный процесс без ограничений).
+2. На сервис/контейнер `warp`:
+   - **`MemoryMax≈512M`** (systemd) или `mem_limit: 512m` (Docker);
+   - **`Restart=always`** / `restart: always` — при упоре в лимит OOM → авторестарт, RAM сбрасывается.
 
-- не использовать `warp-svc` (только wgcf + wireproxy + tun2socks);
-- `mem_limit` / `MemoryMax` на контейнер `warp` + `restart: always`;
-- периодический recycle контейнера / healthcheck по SOCKS/egress;
-- лимит коннектов / актуальный tun2socks (пулы буферов, cap TCP), чтобы не рос gVisor.
+```ini
+# пример systemd override
+[Service]
+MemoryMax=512M
+Restart=always
+RestartSec=3
+```
+
+```yaml
+# пример compose
+warp:
+  mem_limit: 512m
+  restart: always
+```
+
+Опционально позже: healthcheck по SOCKS/egress и recycle по таймеру; для MVP достаточно MemoryMax + restart.
 
 ### Именование
 
@@ -331,9 +347,10 @@ DTLS в Path B нет. Path A — только AWG 2.0.
 
 | Модуль | Роль |
 |--------|------|
-| compose service `direct` | AmneziaWG 2.0, подсеть A |
-| compose service `bypass` | `-listen-raw`, подсеть B |
-| `provision` + `/data` | `host_id` → IP в A и B, один `nvpn://` |
+| compose service `direct` | AmneziaWG 2.0, `10.8.0.0/24` |
+| compose service `bypass` | `-listen-raw`, `10.9.0.0/24` |
+| compose service `warp` | wireproxy→tun2socks, `10.10.0.0/24` |
+| `provision` + `/data` | `host_id` → IP×3, один `nvpn://` |
 
 ---
 
@@ -341,7 +358,7 @@ DTLS в Path B нет. Path A — только AWG 2.0.
 
 1. Форк amneziawg-android: свой package id, AWG 2.0 direct как сейчас.
 2. Встройка bypass RAW + авто-failover.
-3. VPS: AWG 2.0 + bypass-server RAW, один deploy → свой профиль.
+3. VPS: compose `direct` + `bypass` + `warp`, один deploy → профиль с тремя адресами.
 4. Опциональный «Войти через VK» в настройках обхода.
 5. Без публичного WDTT-брендинга и без `wdtt://`.
 
@@ -364,7 +381,8 @@ DTLS в Path B нет. Path A — только AWG 2.0.
 
 ## Следующий шаг
 
-1. Каркас: форк amneziawg-android в монорепо (или submodule) + каталог `server/` под bypass.
-2. Поднять VPS-часть: AWG 2.0 + wdtt RAW.
-3. Встроить bypass `.so` и `connmgr` failover.
-4. Свой профиль + экран опционального VK-логина.
+1. Каркас: форк amneziawg-android + `server/` compose (`direct`, `bypass`, `warp`).
+2. VPS: AWG 2.0 + bypass RAW + wireproxy/tun2socks.
+3. `provision` с `host_id` на три подсети.
+4. Bypass `.so` + `connmgr` failover; опциональный VK-логин.
+5. На `warp`: `MemoryMax≈512M` + `restart: always` (уже в архитектуре).
