@@ -14,44 +14,47 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/curve25519"
 )
 
 const (
-	defaultDataDir     = "/data"
-	defaultListen      = "0.0.0.0:9100"
-	defaultDirectCIDR  = "10.8.0.0/24"
-	defaultBypassCIDR  = "10.9.0.0/24"
-	defaultDirectPort  = 51820
-	defaultBypassPort  = 56003
-	defaultWorkers     = 3
-	minHostID          = 2 // .1 reserved for gateway
-	maxHostID          = 254
+	defaultDataDir    = "/data"
+	defaultListen     = "0.0.0.0:9100"
+	defaultDirectCIDR = "10.8.0.0/24"
+	defaultBypassCIDR = "10.9.0.0/24"
+	defaultDirectPort = 51820
+	defaultBypassPort = 56003
+	defaultWorkers    = 3
+	minHostID         = 2 // .1 reserved for gateway
+	maxHostID         = 254
 )
 
 type Config struct {
-	PublicHost   string `json:"publicHost"`
-	DirectPort   int    `json:"directPort"`
-	BypassPort   int    `json:"bypassPort"`
-	DirectSubnet string `json:"directSubnet"`
-	BypassSubnet string `json:"bypassSubnet"`
-	Workers      int    `json:"workers"`
-}
-
-type User struct {
-	Name      string    `json:"name"`
-	HostID    int       `json:"hostId"`
-	DeviceID  string    `json:"deviceId"`
-	Password  string    `json:"password"`
-	CreatedAt time.Time `json:"createdAt"`
-	// AWG keys filled later by direct service / full provisioner
-	DirectPrivateKey string `json:"directPrivateKey,omitempty"`
-	DirectPublicKey  string `json:"directPublicKey,omitempty"`
+	PublicHost       string `json:"publicHost"`
+	DirectPort       int    `json:"directPort"`
+	BypassPort       int    `json:"bypassPort"`
+	DirectSubnet     string `json:"directSubnet"`
+	BypassSubnet     string `json:"bypassSubnet"`
+	Workers          int    `json:"workers"`
+	ServerPrivateKey string `json:"serverPrivateKey,omitempty"`
 	ServerPublicKey  string `json:"serverPublicKey,omitempty"`
 }
 
+type User struct {
+	Name             string    `json:"name"`
+	HostID           int       `json:"hostId"`
+	DeviceID         string    `json:"deviceId"`
+	Password         string    `json:"password"`
+	CreatedAt        time.Time `json:"createdAt"`
+	DirectPrivateKey string    `json:"directPrivateKey,omitempty"`
+	DirectPublicKey  string    `json:"directPublicKey,omitempty"`
+	ServerPublicKey  string    `json:"serverPublicKey,omitempty"`
+}
+
 type Store struct {
-	Config Config  `json:"config"`
-	Users  []User  `json:"users"`
+	Config Config `json:"config"`
+	Users  []User `json:"users"`
 	mu     sync.Mutex
 	path   string
 }
@@ -216,11 +219,56 @@ func loadOrInitStore(dataDir, publicHost string) (*Store, error) {
 	if s.Users == nil {
 		s.Users = []User{}
 	}
+	if err := s.ensureServerKeys(); err != nil {
+		return nil, err
+	}
+	if err := s.ensureUserKeys(); err != nil {
+		return nil, err
+	}
 	if err := s.save(); err != nil {
 		return nil, err
 	}
 	_ = os.WriteFile(filepath.Join(dataDir, "config.json"), mustJSON(s.Config), 0o600)
+	_ = os.WriteFile(filepath.Join(dataDir, "server_public.key"), []byte(s.Config.ServerPublicKey+"\n"), 0o644)
 	return s, nil
+}
+
+func (s *Store) ensureServerKeys() error {
+	if s.Config.ServerPrivateKey != "" && s.Config.ServerPublicKey != "" {
+		return nil
+	}
+	priv, pub, err := generateWGKeyPair()
+	if err != nil {
+		return err
+	}
+	s.Config.ServerPrivateKey = priv
+	s.Config.ServerPublicKey = pub
+	log.Printf("generated AWG server keypair pub=%s…", pub[:8])
+	return nil
+}
+
+func (s *Store) ensureUserKeys() error {
+	changed := false
+	for i := range s.Users {
+		u := &s.Users[i]
+		if u.DirectPrivateKey == "" || u.DirectPublicKey == "" {
+			priv, pub, err := generateWGKeyPair()
+			if err != nil {
+				return err
+			}
+			u.DirectPrivateKey = priv
+			u.DirectPublicKey = pub
+			changed = true
+		}
+		if u.ServerPublicKey != s.Config.ServerPublicKey {
+			u.ServerPublicKey = s.Config.ServerPublicKey
+			changed = true
+		}
+	}
+	if changed {
+		log.Printf("filled missing AWG user keys")
+	}
+	return nil
 }
 
 func (s *Store) save() error {
@@ -264,12 +312,19 @@ func (s *Store) CreateUser(name string) (User, error) {
 	if err != nil {
 		return User{}, err
 	}
+	priv, pub, err := generateWGKeyPair()
+	if err != nil {
+		return User{}, err
+	}
 	u := User{
-		Name:      name,
-		HostID:    id,
-		DeviceID:  "dev-" + dev,
-		Password:  pass,
-		CreatedAt: time.Now().UTC(),
+		Name:             name,
+		HostID:           id,
+		DeviceID:         "dev-" + dev,
+		Password:         pass,
+		CreatedAt:        time.Now().UTC(),
+		DirectPrivateKey: priv,
+		DirectPublicKey:  pub,
+		ServerPublicKey:  s.Config.ServerPublicKey,
 	}
 	s.Users = append(s.Users, u)
 	if err := s.saveLocked(); err != nil {
@@ -320,7 +375,7 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.HideIP = false
 	p.Direct.Endpoint = fmt.Sprintf("%s:%d", host, cfg.DirectPort)
 	p.Direct.PrivateKey = u.DirectPrivateKey
-	p.Direct.PeerPublicKey = u.ServerPublicKey
+	p.Direct.PeerPublicKey = cfg.ServerPublicKey
 	p.Direct.Address = fmt.Sprintf("%s.%d/32", directBase, u.HostID)
 	p.Direct.DNS = []string{"1.1.1.1"}
 	p.Direct.MTU = 1280
@@ -337,6 +392,19 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.Bypass.Mode = "raw"
 	p.Bypass.Dial = "auto"
 	return p
+}
+
+func generateWGKeyPair() (privB64, pubB64 string, err error) {
+	var priv [32]byte
+	if _, err = rand.Read(priv[:]); err != nil {
+		return "", "", err
+	}
+	priv[0] &= 248
+	priv[31] &= 127
+	priv[31] |= 64
+	var pub [32]byte
+	curve25519.ScalarBaseMult(&pub, &priv)
+	return base64.StdEncoding.EncodeToString(priv[:]), base64.StdEncoding.EncodeToString(pub[:]), nil
 }
 
 func subnetBase(cidr string) string {
