@@ -19,6 +19,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Parallel lightweight probes at app start / before Connect.
  * Does NOT bring up VpnService. No TCP probe to RAW UDP port.
+ *
+ * Note: AmneziaWG/WireGuard silently drops invalid UDP — a reply-based
+ * [udpLite] probe is only a positive signal when it gets a packet back.
+ * Host aliveness for Direct also uses provision `/health` on the same host.
  */
 object NetworkProbe {
 
@@ -53,15 +57,12 @@ object NetworkProbe {
                 val vpsUdpOk = udpDef.await()
                 val provisionOk = provisionDef.await()
 
-                // VPS "ok" for Direct: UDP response preferred; provision health is host-alive hint only
-                val vpsOk = vpsUdpOk
-
                 classify(
                     systemOnline = systemOnline,
                     yandexOk = yandexOk,
                     bigtechOk = bigtechOk,
                     captive = captive,
-                    vpsUdpOk = vpsOk,
+                    vpsUdpOk = vpsUdpOk,
                     provisionOk = provisionOk,
                 )
             }
@@ -69,7 +70,7 @@ object NetworkProbe {
         result.copy(elapsedMs = elapsed)
     }
 
-    private fun classify(
+    internal fun classify(
         systemOnline: Boolean,
         yandexOk: Boolean,
         bigtechOk: Boolean,
@@ -105,7 +106,9 @@ object NetworkProbe {
                 elapsedMs = 0,
             )
         }
-        if (vpsUdpOk) {
+        // Positive UDP reply → Direct. AWG usually stays silent on junk datagrams,
+        // so provision /health on the same host also unlocks Direct on open networks.
+        if (vpsUdpOk || provisionOk) {
             return ProbeResult(
                 networkClass = NetworkClass.DirectOk,
                 preselectedPath = VpnPath.Direct,
@@ -113,13 +116,16 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = false,
-                vpsUdpOk = true,
+                vpsUdpOk = vpsUdpOk,
                 provisionOk = provisionOk,
-                message = "Готово: прямое",
+                message = when {
+                    vpsUdpOk -> "Готово: прямое"
+                    else -> "Готово: прямое (VPS live; UDP-probe без ответа — норма для AWG)"
+                },
                 elapsedMs = 0,
             )
         }
-        if (yandexOk || bigtechOk || provisionOk) {
+        if (yandexOk || bigtechOk) {
             val open = bigtechOk
             return ProbeResult(
                 networkClass = if (open) NetworkClass.OpenNeedBypass else NetworkClass.NeedBypass,
@@ -129,9 +135,9 @@ object NetworkProbe {
                 bigtechOk = bigtechOk,
                 captive = false,
                 vpsUdpOk = false,
-                provisionOk = provisionOk,
+                provisionOk = false,
                 message = if (open) {
-                    "Готово: обход (открытая сеть, VPS по UDP не ответил)"
+                    "Готово: обход (VPS health недоступен — UDP/Direct не подтверждён)"
                 } else {
                     "Готово: обход"
                 },

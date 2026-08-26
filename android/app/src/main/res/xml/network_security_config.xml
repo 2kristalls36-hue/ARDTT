@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Provision health is HTTP :9100 on the VPS; Path B dial uses HTTPS. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

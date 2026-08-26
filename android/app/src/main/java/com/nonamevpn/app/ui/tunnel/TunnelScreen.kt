@@ -89,8 +89,16 @@ fun TunnelScreen(
     }
 
     fun requestConnect() {
-        val prep = VpnService.prepare(context)
+        if (hideIp) {
+            // WARP egress is still a VPS stub — enabling it must not crash Connect.
+            conn.reportUserError("«Скрыть IP» (WARP) пока не готов — выключите переключатель")
+            return
+        }
+        val activity = context as? Activity
+        val prep = VpnService.prepare(activity ?: context)
         if (prep != null) {
+            // Opaque activity behind system VPN consent (helps some OEM overlays).
+            activity?.window?.statusBarColor = android.graphics.Color.WHITE
             vpnPermission.launch(prep)
         } else {
             conn.connect()
@@ -145,7 +153,14 @@ fun TunnelScreen(
                 )
                 ui.probe?.let { p ->
                     Text(
-                        detailLine(p.networkClass, p.yandexOk, p.bigtechOk, p.vpsUdpOk, p.elapsedMs),
+                        detailLine(
+                            p.networkClass,
+                            p.yandexOk,
+                            p.bigtechOk,
+                            p.vpsUdpOk,
+                            p.provisionOk,
+                            p.elapsedMs,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     )
@@ -258,10 +273,17 @@ fun TunnelScreen(
             ) {
                 RowSwitch(
                     title = "Скрыть свой IP",
-                    subtitle = "Выход через WARP на VPS",
+                    subtitle = "WARP на VPS — пока недоступно (stub)",
                     checked = hideIp,
                     onCheckedChange = { scope.launch { settings.setHideIp(it) } },
                 )
+                if (hideIp) {
+                    Text(
+                        "Переключатель включён, но Connect заблокирован до реализации WARP.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
 
@@ -464,6 +486,7 @@ private fun detailLine(
     yandexOk: Boolean,
     bigtechOk: Boolean,
     vpsUdpOk: Boolean,
+    provisionOk: Boolean,
     elapsedMs: Long,
 ): String {
     val bits = buildList {
@@ -471,6 +494,7 @@ private fun detailLine(
         add("yandex=${if (yandexOk) "ok" else "—"}")
         add("bigtech=${if (bigtechOk) "ok" else "—"}")
         add("udp=${if (vpsUdpOk) "ok" else "—"}")
+        add("health=${if (provisionOk) "ok" else "—"}")
         if (elapsedMs > 0) add("${elapsedMs}ms")
     }
     return bits.joinToString(" · ")
