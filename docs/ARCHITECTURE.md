@@ -3,7 +3,7 @@
 Клиентский VPN с двумя путями до своего VPS:
 
 1. **Прямой** — AmneziaWG 2.0 (основной режим).
-2. **Обход** — при отсутствии прямой видимости до VPS трафик идёт через TURN-релей (принцип WDTT / qWDTT), в режиме **RAW** (IP-пакеты без вложенного WireGuard). WDTT для пользователя невидим.
+2. **Обход** — при отсутствии прямой видимости до VPS трафик идёт через TURN-релей (принцип WDTT / qWDTT), в режиме **RAW**: `RAW IP → WRAP(RTP AEAD) → TURN → VPS`. **Без DTLS и без WireGuard.** WDTT для пользователя невидим.
 
 ---
 
@@ -13,7 +13,7 @@
 |---|--------|---------|
 | 1 | Платформа | **Цель — Android.** База: форк `amneziawg-android` + встройка bypass-ядра. Go-транспорт можно отлаживать отдельно, но продукт — APK. |
 | 2 | Кодовая база | **Да: форк Amnezia (клиент AWG) + форк/адаптация WDTT/qWDTT (сервер + bypass-клиент).** |
-| 3 | Оптимизация Path B | **RAW (WRAP+DTLS), без AWG-over-TURN.** Двойное шифрование не нужно: камуфляж уже WebRTC. |
+| 3 | Оптимизация Path B | **RAW как в qWDTT: WRAP + TURN, без DTLS и без AWG/WG.** DTLS в classic WDTT — лишний оверхед (self-signed + второй AEAD). |
 | 4 | Имя / URI | Пока `nonameVPN` / `nvpn://` (плейсхолдер). |
 | 5 | Форматы | **Только свой профиль/ссылка.** Без импорта `wdtt://`. Опционально: вход в VK-аккаунт для обхода белых списков. |
 
@@ -24,17 +24,35 @@
 | Режим | Когда | Плюсы | Минусы |
 |-------|--------|-------|--------|
 | **AWG 2.0 direct** | UDP до VPS проходит | Низкая задержка, полный AWG 2.0 | Падает, если IP/порт VPS режут |
-| **TURN + RAW** | Нет LOS / whitelist | Маскировка под WebRTC, максимальная скорость обхода | RTT выше; зависимость от TURN/VK |
+| **TURN + RAW** | Нет LOS / whitelist | Маскировка под WebRTC, макс. скорость обхода | RTT выше; зависимость от TURN/VK |
 
-### Почему RAW, а не AWG поверх TURN
+### Стек Path B (как в qWDTT Raw) — проверено по исходникам
 
-На Path B трафик уже выглядит как звонок. Вкладывать AWG внутрь:
+В `SpaceNeuroX/proxy-turn-vk-android`:
 
-- второй AEAD на каждый пакет;
-- меньше полезный MTU;
-- больше CPU на телефоне.
+- `TurnParams.RawMode` **подразумевает `NoDTLS`** — сервер `-listen-raw` DTLS не принимает.
+- Клиент: `obfsDirectConn` — «RTP-obfs AEAD прямо поверх TURN relay, **без DTLS**».
+- Комментарий в коде: DTLS поверх WRAP был оверхедом (self-signed + `InsecureSkipVerify` не давал реальной защиты, удваивал AEAD и требовал handshake на каждый worker).
 
-qWDTT Raw как раз убрал внутренний WG и выиграл скорость (заявки до ~200 Mbps). Для оптимизации приложения: **direct = AWG 2.0, bypass = RAW**.
+```
+Apps → VpnService TUN (raw IP)
+         ↓
+      WRAP = RTP header + AEAD (ключ из пароля, HKDF)
+         ↓
+      TURN Allocate / ChannelData  (VK relay, UDP или TCP)
+         ↓
+      VPS -listen-raw → TUN + NAT → интернет
+```
+
+**Нет DTLS. Нет WireGuard/AWG внутри обхода.**
+
+Классический WDTT (для сравнения, нам не нужен в MVP):
+
+```
+WG UDP → DTLS → WRAP/RTP → TURN → VPS -listen (DTLS) → внутренний WG
+```
+
+Есть ещё промежуточный `-listen-direct` / `NoDTLS` без RAW: WRAP→TURN, но внутри всё ещё WG. Мы берём именно **Raw**.
 
 ---
 
@@ -53,7 +71,8 @@ qWDTT Raw как раз убрал внутренний WG и выиграл с�
 │  │ Path B  │  VpnService TUN ◄─► bypass Go (RAW)                │
 │  └────┬────┘         │                                          │
 │       │              ▼                                          │
-│       │     WRAP(RTP)+DTLS → VK TURN → VPS:bypass-server        │
+│       │     WRAP(RTP AEAD) → VK TURN → VPS -listen-raw          │
+│       │     (без DTLS)                                          │
 │       │     auth: анонимный звонок ИЛИ VK-аккаунт (whitelist)   │
 └───────┴─────────────────────────────────────────────────────────┘
 ```
@@ -67,8 +86,8 @@ Apps → VpnService / AWG GoBackend → UDP → VPS amneziawg 2.0
 **Path B (bypass / RAW):**
 
 ```
-Apps → VpnService TUN → IP frames → WRAP/RTP AEAD → DTLS → TURN →
-  → VPS bypass-server (raw-port) → NAT → интернет
+Apps → VpnService TUN → raw IP → WRAP(RTP AEAD) → TURN →
+  → VPS bypass-server (-listen-raw) → TUN/NAT → интернет
 ```
 
 ---
@@ -93,7 +112,7 @@ Apps → VpnService TUN → IP frames → WRAP/RTP AEAD → DTLS → TURN →
 Два процесса (или один compose):
 
 1. **AmneziaWG 2.0** — прямой UDP (из amneziawg installer / своих пакетов).
-2. **bypass-server** — форк `wdtt-server` с **RAW**-режимом (как в актуальном qWDTT): DTLS+WRAP, TUN+NAT, без обязательного внутреннего WG.
+2. **bypass-server** — форк `wdtt-server` с **`-listen-raw`**: WRAP поверх UDP, TUN+NAT, **без DTLS и без WG**.
 
 Один install/deploy выдаёт клиенту **свой** профиль сразу с обоими path.
 
@@ -155,8 +174,7 @@ Connected* → Reconnecting → …
     }
   },
   "bypass": {
-    "peer": "x.x.x.x:56000",
-    "rawPort": 56003,
+    "peer": "x.x.x.x:56003",
     "password": "...",
     "hashes": ["..."],
     "workers": 9,
@@ -166,7 +184,21 @@ Connected* → Reconnecting → …
 }
 ```
 
+`peer` — адрес VPS для `-listen-raw` (после TURN CreatePermission/ChannelBind). Отдельный DTLS-порт не нужен.
+
 Шаринг: `nvpn://...` / QR. Импорта `wdtt://` нет. Серверный deploy сам кладёт hash/password в профиль.
+
+---
+
+## Слои Path B
+
+Снаружи → внутрь:
+
+1. **TURN** — транспорт через VK relay (UDP или TCP до relay).
+2. **WRAP** — RTP + AEAD (единственное шифрование обхода; ключ из пароля).
+3. **RAW IP** — пакеты с TUN клиента.
+
+DTLS в Path B нет. Path A — только AWG 2.0.
 
 ---
 
@@ -177,7 +209,7 @@ Connected* → Reconnecting → …
 | Модуль | Роль | Источник |
 |--------|------|----------|
 | UI + VpnService AWG | Path A, экраны | форк amneziawg-android |
-| `bypass` (Go `.so`) | TURN/DTLS/WRAP/RAW | адаптация qWDTT client |
+| `bypass` (Go `.so`) | TURN + WRAP + RAW (NoDTLS) | адаптация qWDTT client |
 | `connmgr` | probe / failover | новый |
 | `profile` | свой JSON / `nvpn://` | новый |
 | VK login (опц.) | whitelist TURN | из qWDTT WebView-потока |
@@ -187,7 +219,7 @@ Connected* → Reconnecting → …
 | Модуль | Роль |
 |--------|------|
 | amneziawg 2.0 | прямой path |
-| bypass-server (fork wdtt RAW) | обход |
+| bypass-server (`-listen-raw`) | обход WRAP+TURN+RAW |
 | provision | один профиль на оба path |
 
 ---
