@@ -355,5 +355,5 @@ Call hash — **локально на устройстве**, не обязан 
 8. ~~Админ-деплой с приложения: SSH + upload Compose stack + install.sh.~~
 9. ~~Native Direct (AWG GoBackend / libwg-go).~~ (`android/tunnel` → `DirectBackend`)
 10. ~~Native Bypass (TURN TCP / vkcalls / RAW via go_client).~~ (`libclient.so` + `BypassSession`)
-11. WebView create-call / dial path UI / legacy captcha bridge.
-12. WARP egress (не stub) + сверить UX с SmartVPN, когда репозиторий будет доступен.
+11. ~~Client: WebView create-call (VK login → calls.start → hash on device).~~
+12. Dial path UI / legacy captcha bridge; WARP egress (не stub); UX vs SmartVPN.

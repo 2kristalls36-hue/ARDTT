@@ -10,12 +10,13 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 - Импорт профиля JSON (provision)
 - **Path B (Bypass):** `libclient.so` (qWDTT go_client) — vkcalls → TURN TCP → WRAP → RAW; TUN после RAWCONF
 - **Bypass scaffold:** `CallHashStore`, dial policy, `WrapCrypto` (совместим с сервером)
+- **Создать звонок:** WebView вход VK → `calls.start` → hash в `CallHashStore` (Connect остаётся анонимным)
 - **Админ-деплой:** SSH (JSch) → upload `stack.tar.gz` + `install.sh` → Docker Compose на VPS
 - Настройки: тихий recreate, экономика workers
 
 ## Ещё нет (следующий слой)
 
-- WebView для создания звонка / legacy captcha (см. PR #10 / #11)
+- Legacy captcha WebView (fallback), если go_client captcha недостаточно
 - Нативный WARP egress на VPS (сейчас stub)
 
 ## Сборка native Path B

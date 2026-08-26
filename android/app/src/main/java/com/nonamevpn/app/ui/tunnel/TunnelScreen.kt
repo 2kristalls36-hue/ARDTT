@@ -35,6 +35,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.bypass.VkCallHashGenerator
+import com.nonamevpn.app.bypass.VkLoginActivity
+import com.nonamevpn.app.bypass.VkSession
+import com.nonamevpn.app.bypass.VkUrl
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.NetworkClass
@@ -57,6 +61,9 @@ fun TunnelScreen(
     var showImport by remember { mutableStateOf(false) }
     var showHash by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
+    var callBusy by remember { mutableStateOf(false) }
+    var callMessage by remember { mutableStateOf<String?>(null) }
+    var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
@@ -172,12 +179,73 @@ fun TunnelScreen(
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                callMessage?.let { msg ->
+                    Text(
+                        msg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                if (!vkLoggedIn) {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                callBusy = true
+                                callMessage = "Открываем вход VK…"
+                                val r = VkLoginActivity.login(context)
+                                callBusy = false
+                                vkLoggedIn = VkSession.hasSessionCookie()
+                                callMessage = if (r.isSuccess) {
+                                    "Вход выполнен — можно создать звонок"
+                                } else {
+                                    r.exceptionOrNull()?.message ?: "Вход отменён"
+                                }
+                            }
+                        },
+                        enabled = profile != null && !connected && !callBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Войти в VK…")
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                callBusy = true
+                                callMessage = "Создаём звонок…"
+                                val r = VkCallHashGenerator.generateOne(context)
+                                callBusy = false
+                                r.onSuccess { hash ->
+                                    conn.saveCallHash(hash)
+                                    callMessage = "Звонок создан, hash сохранён"
+                                }.onFailure { e ->
+                                    callMessage = e.message ?: "Не удалось создать звонок"
+                                    vkLoggedIn = VkSession.hasSessionCookie()
+                                }
+                            }
+                        },
+                        enabled = profile != null && !connected && !callBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (ui.hasCallHash) "Создать новый звонок" else "Создать звонок")
+                    }
+                    TextButton(
+                        onClick = {
+                            VkSession.clear()
+                            vkLoggedIn = false
+                            callMessage = "Сессия VK сброшена"
+                        },
+                        enabled = !connected && !callBusy,
+                    ) {
+                        Text("Выйти из VK")
+                    }
+                }
                 OutlinedButton(
                     onClick = { showHash = true },
-                    enabled = profile != null && !connected,
+                    enabled = profile != null && !connected && !callBusy,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (ui.hasCallHash) "Изменить hash…" else "Сохранить hash звонка…")
+                    Text(if (ui.hasCallHash) "Вставить hash вручную…" else "Сохранить hash вручную…")
                 }
             }
         }
@@ -281,8 +349,11 @@ fun TunnelScreen(
         HashDialog(
             onDismiss = { showHash = false },
             onSave = { hash ->
-                conn.saveCallHash(hash)
-                showHash = false
+                val cleaned = VkUrl.strip(hash)
+                if (VkUrl.isPlausibleHash(cleaned)) {
+                    conn.saveCallHash(cleaned)
+                    showHash = false
+                }
             },
             onClear = {
                 conn.clearCallHash()

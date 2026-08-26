@@ -24,6 +24,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".bypass.VkLoginActivity"
+            android:exported="false"
+            android:theme="@style/Theme.NonameVPN" />
+
         <service
             android:name=".core.VpnTunnelService"
             android:exported="false"
