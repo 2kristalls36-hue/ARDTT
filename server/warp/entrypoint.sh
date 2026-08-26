@@ -135,31 +135,43 @@ ensure_dns_masquerade() {
 clear_rules_for_table() {
   local table="$1"
   local guard=0
-  while ip rule show | grep -q "lookup ${table}"; do
-    local fr pref
-    fr="$(ip rule show | grep "lookup ${table}" | head -1)"
+  local fr pref from
+  # Prefer deleting by pref; also try from+lookup. Never abort the loop on del failure
+  # (set -o pipefail + empty grep must not kill sync_rules).
+  while true; do
+    fr="$(ip rule show 2>/dev/null | grep "lookup ${table}" | head -1 || true)"
+    [[ -z "${fr}" ]] && break
     pref="$(echo "${fr}" | cut -d: -f1 | tr -d '[:space:]')"
+    from="$(echo "${fr}" | sed -n 's/.*from \([^ ]*\).*/\1/p')"
     if [[ -n "${pref}" ]]; then
-      ip rule del pref "${pref}" 2>/dev/null || {
-        # Fallback when pref parse fails across iproute2 versions.
-        local from
-        from="$(echo "${fr}" | sed -n 's/.*from \([^ ]*\).*/\1/p')"
-        [[ -n "${from}" ]] && ip rule del from "${from}" lookup "${table}" 2>/dev/null || true
-      }
-    else
+      ip rule del pref "${pref}" 2>/dev/null || true
+    fi
+    if [[ -n "${from}" ]]; then
+      ip rule del from "${from}" lookup "${table}" 2>/dev/null || true
+      ip rule del from "${from}" table "${table}" 2>/dev/null || true
+    fi
+    # If the same line is still present, force-break to avoid infinite loop.
+    if ip rule show 2>/dev/null | grep -F "${fr}" | grep -q .; then
+      echo "[warp] WARN: could not delete rule: ${fr}" >&2
       break
     fi
     guard=$((guard + 1))
     [[ "${guard}" -gt 128 ]] && break
+  done
+  # Belt-and-suspenders: drop our usual hideIp priority band.
+  local p
+  for p in $(seq "${WARP_RULE_PRIO_BASE}" $((WARP_RULE_PRIO_BASE + 64))); do
+    ip rule del pref "${p}" 2>/dev/null || true
   done
 }
 
 # Remove our DNS→main exceptions (match by dport 53 → main and known pref band).
 clear_dns_main_rules() {
   local guard=0
-  while ip rule show | grep -E "dport 53.*lookup main|lookup main.*dport 53" | grep -q .; do
-    local fr pref
-    fr="$(ip rule show | grep -E "dport 53.*lookup main|lookup main.*dport 53" | head -1)"
+  local fr pref
+  while true; do
+    fr="$(ip rule show 2>/dev/null | grep -E "dport 53.*lookup main|lookup main.*dport 53" | head -1 || true)"
+    [[ -z "${fr}" ]] && break
     pref="$(echo "${fr}" | cut -d: -f1 | tr -d '[:space:]')"
     [[ -n "${pref}" ]] && ip rule del pref "${pref}" 2>/dev/null || true
     guard=$((guard + 1))
@@ -287,13 +299,23 @@ while true; do
     sync_rules
   fi
   # Retry DNS iif rules when VPN ifaces appear late after warp start.
+  # Match iproute2 wording: "iif awg0 ipproto udp dport 53 lookup main"
   DNS_RETRY_TICK=$((DNS_RETRY_TICK + 1))
   if [[ $((DNS_RETRY_TICK % 6)) -eq 0 ]]; then
     local_need=0
     for iface in ${DNS_IIFACES}; do
       if ip link show "${iface}" >/dev/null 2>&1; then
-        if ! ip rule show | grep -q "iif ${iface}.*dport 53.*lookup main"; then
-          local_need=1
+        udp_ok=0
+        tcp_ok=0
+        ip rule show 2>/dev/null | grep -E "iif ${iface}.*dport 53.*lookup main" | grep -q "udp" && udp_ok=1
+        ip rule show 2>/dev/null | grep -E "iif ${iface}.*dport 53.*lookup main" | grep -q "tcp" && tcp_ok=1
+        # iproute2 prints "ipproto udp" — accept either token.
+        if [[ "${udp_ok}" -eq 0 ]] || [[ "${tcp_ok}" -eq 0 ]]; then
+          # Fallback: any dport 53 rule for this iif counts as present pair if we have 2 lines.
+          n="$(ip rule show 2>/dev/null | grep -c "iif ${iface}.*dport 53.*lookup main" || true)"
+          if [[ "${n}" -lt 2 ]]; then
+            local_need=1
+          fi
         fi
       fi
     done
