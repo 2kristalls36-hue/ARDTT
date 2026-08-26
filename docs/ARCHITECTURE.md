@@ -109,12 +109,17 @@ Apps → VpnService TUN → raw IP → WRAP(RTP AEAD) → TURN →
 
 ### Сервер VPS
 
-Два процесса (или один compose):
+**Рекомендация: два контейнера в одном Compose**, не монолит.
 
-1. **AmneziaWG 2.0** — прямой UDP (из amneziawg installer / своих пакетов).
-2. **bypass-server** — форк `wdtt-server` с **`-listen-raw`**: WRAP поверх UDP, TUN+NAT, **без DTLS и без WG**.
+| Сервис (внутр. имя) | Роль | Порты (пример) |
+|---------------------|------|----------------|
+| `direct` | AmneziaWG 2.0 | UDP `51820` (или свой) |
+| `bypass` | fork wdtt `-listen-raw` (WRAP+TURN peer) | UDP `56003` |
+| `provision` (опц.) | один профиль `nvpn://` из обоих | только localhost/API |
 
-Один install/deploy выдаёт клиенту **свой** профиль сразу с обоими path.
+Пользователю в UI деплоя: «Установить сервер» → один `docker compose up`, без слов AWG/qWDTT/WDTT. Внутри compose — два (или три) сервиса.
+
+Подробнее: [Деплой: один контейнер vs два](#деплой-один-контейнер-vs-два).
 
 ### Лицензии (важно)
 
@@ -122,6 +127,74 @@ Apps → VpnService TUN → raw IP → WRAP(RTP AEAD) → TURN →
 - WDTT/qWDTT часто **GPL-3.0** → код bypass, слинкованный в приложение, тянет GPL на соответствующую часть (или на всё, если линковка жёсткая). Нужно: сохранить тексты лицензий, не смешивать «тихо», в README явно указать происхождение.
 
 Практически: форк допустим и обычен; юридически — соблюсти лицензии исходников.
+
+---
+
+## Деплой: один контейнер vs два
+
+### Вариант A — всё в одном контейнере
+
+```
+┌──────────── container: server ────────────┐
+│  amneziawg-go  +  bypass-raw  +  scripts  │
+│  awg0 + raw0 + общий iptables/nft         │
+└───────────────────────────────────────────┘
+```
+
+Плюсы: один образ, один `docker run`, проще «нажал — работает».  
+Минусы: общий PID/crash domain; обновление AWG 2.0 тянет пересборку bypass (и наоборот); два TUN + два NAT в одном init — хрупко; смешение лицензий/зависимостей в одном образе; сложнее логи и healthcheck «какой path жив».
+
+### Вариант B — два контейнера, один Compose (рекомендуем)
+
+```
+docker-compose.yml
+┌─ direct (AWG 2.0) ──┐   ┌─ bypass (RAW/WRAP) ─┐
+│ network_mode: host  │   │ network_mode: host  │
+│ /dev/net/tun        │   │ /dev/net/tun        │
+│ awg0 + NAT          │   │ raw0 + NAT          │
+└─────────────────────┘   └─────────────────────┘
+         │ shared volume: /data (keys, passwords, issued profile)
+         └─ optional provision: собирает nvpn:// из обоих
+```
+
+Плюсы:
+
+- независимый restart/update (`direct` не падает при баге в bypass);
+- разные образы и теги версий;
+- проще healthcheck и лимиты CPU/RAM;
+- NAT/MSS-правила изолированы по контейнеру (при `host` сети — по цепочкам/комментариям с префиксом);
+- лицензии GPL (bypass) и остальное не склеены в один fat-image без нужды.
+
+Минусы: чуть сложнее compose; оба обычно хотят `network_mode: host` + `NET_ADMIN` + `/dev/net/tun` (для VPN на VPS это норма).
+
+### Вариант C — два контейнера в bridge + port-publish
+
+Хуже для VPN: DNAT/hairpin, MTU, UDP performance. Имеет смысл только если host-network запрещён. **Не для MVP.**
+
+### Почему не «голый» AWG installer + отдельно qWDTT вручную
+
+Два независимых установщика = два пароля, два QR, пользователь сам склеивает профиль. Нам нужен **один** клиентский профиль с `direct` + `bypass`. Значит UX деплоя единый, а процессы внутри — разделённые.
+
+### Именование (не светить qWDTT)
+
+| Внутри репо / compose | Наружу (UI, docs для юзера) |
+|------------------------|-----------------------------|
+| сервис `direct` | «Прямое подключение» / просто часть сервера |
+| сервис `bypass` | «Обход» / невидимый fallback |
+| образ `…/direct`, `…/bypass` | «Установка сервера nonameVPN» |
+| не писать WDTT/qWDTT в UI | ок в NOTICE/LICENSE для GPL |
+
+### Практическая схема MVP
+
+1. `docker compose up -d` на VPS (host network).
+2. `direct` поднимает AWG 2.0, пишет peer keys в `/data`.
+3. `bypass` поднимает `-listen-raw`, тот же password/device space из `/data`.
+4. Скрипт/сервис `provision` один раз (или API из Android SSH-deploy, как у qWDTT) отдаёт **один** `nvpn://` с обоими блоками.
+5. Firewall: открыть только UDP AWG + UDP raw-listen; TURN снаружи на VPS не слушает — клиент ходит на VK, VK уже на VPS.
+
+### Итог
+
+**Два контейнера в одном Compose + общий volume профилей.** Один контейнер — только если сознательно жертвуем изоляцией ради ультра-простого одного бинарного образа; для продукта с двумя path это хуже сопровождается.
 
 ---
 
@@ -218,9 +291,9 @@ DTLS в Path B нет. Path A — только AWG 2.0.
 
 | Модуль | Роль |
 |--------|------|
-| amneziawg 2.0 | прямой path |
-| bypass-server (`-listen-raw`) | обход WRAP+TURN+RAW |
-| provision | один профиль на оба path |
+| compose service `direct` | AmneziaWG 2.0 |
+| compose service `bypass` | `-listen-raw` WRAP+TURN+RAW |
+| `provision` / shared `/data` | один `nvpn://` профиль |
 
 ---
 
