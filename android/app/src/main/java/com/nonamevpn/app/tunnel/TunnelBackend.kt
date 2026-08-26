@@ -28,7 +28,8 @@ interface TunnelBackend {
     val path: VpnPath
     suspend fun start(
         service: VpnService,
-        tun: ParcelFileDescriptor,
+        /** Null for Path B (TUN after RAWCONF). Non-null for Path A. */
+        tun: ParcelFileDescriptor?,
         config: TunnelSessionConfig,
         onState: (TunnelBackendState) -> Unit,
     )

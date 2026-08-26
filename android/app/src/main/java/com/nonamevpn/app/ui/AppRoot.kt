@@ -20,11 +20,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ServersRepository
@@ -43,13 +46,30 @@ fun AppRoot(
     serversRepo: ServersRepository,
     deployEngine: DeployEngine,
 ) {
+    val context = LocalContext.current
+    val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
     var deployInitial by remember { mutableStateOf<DeployTarget?>(null) }
 
     val tabs = AppDestination.entries.filter { !it.adminOnly || admin }
+
+    LaunchedEffect(silent, economy, dial) {
+        conn.setSilentRecreate(silent)
+        conn.setWorkers(if (economy) 1 else 3)
+        conn.setDialPath(
+            when (dial) {
+                "vkcalls" -> DialPath.VkCalls
+                "legacy" -> DialPath.Legacy
+                else -> DialPath.Auto
+            },
+        )
+    }
 
     LaunchedEffect(admin, currentRoute) {
         val dest = AppDestination.entries.find { it.route == currentRoute }
