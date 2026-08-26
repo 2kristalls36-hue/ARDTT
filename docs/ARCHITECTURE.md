@@ -1,7 +1,7 @@
-# AWDTT — архитектура
+# ARDTT — архитектура
 
 Легенда имени и смыслов: [LEGEND.md](LEGEND.md).  
-**AWDTT** = Amnezia + WDTT (раньше черновое имя: nonameVPN).
+**ARDTT** = Amnezia + RAW Dial via TURN (черновики: nonameVPN → AWDTT; **W** в WDTT = WireGuard, у нас Path B = RAW).
 
 Клиентский VPN с двумя путями до своего VPS:
 
@@ -27,7 +27,7 @@
 | Мёртвый звонок | По умолчанию спросить; настройка «тихий режим» — recreate в фоне |
 | TURN transport | **TCP** |
 | Workers | **Default 3** на один hash (TCP); в настройках можно 1 («экономия») |
-| Имя | **AWDTT** (Amnezia + WDTT); см. [LEGEND.md](LEGEND.md). Внутренние id/`nvpn` могут ещё встречаться |
+| Имя | **ARDTT** (Amnezia + RAW Dial via TURN); см. [LEGEND.md](LEGEND.md). Внутренние id/`nvpn`/каталоги `wdtt-*` — совместимость |
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |

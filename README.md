@@ -1,14 +1,16 @@
-# AWDTT
+# ARDTT
 
-**AWDTT** = **A**mnezia + **WDTT**.
+**ARDTT** = **A**mnezia + **R**AW **D**ial via **T**URN / **T**elephony-style path.
 
-Клиент под Android и self-hosted сервер на вашем VPS: быстрый прямой VPN на AmneziaWG 2.0 и автоматический обход через WDTT, если до сервера нет прямой видимости.
+Клиент под Android и self-hosted сервер на вашем VPS: быстрый прямой VPN на AmneziaWG 2.0 и автоматический обход **RAW через TURN**, если до сервера нет прямой видимости.
 
-Полная легенда имени и смыслов: [docs/LEGEND.md](docs/LEGEND.md).  
+> Имя **не** WDTT/AWDTT: историческая **W** в WDTT — от WireGuard, а Path B у нас несёт **RAW**, не второй WG.
+
+Полная легенда: [docs/LEGEND.md](docs/LEGEND.md).  
 Техническая схема: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 <p align="center">
-  <img src="docs/assets/awdtt-icon.png" alt="AWDTT icon" width="128" height="128" />
+  <img src="docs/assets/ardtt-icon.png" alt="ARDTT icon" width="128" height="128" />
 </p>
 
 ---
@@ -16,10 +18,10 @@
 ## Зачем этот проект
 
 Обычный VPN (и даже «замаскированный») бесполезен, если оператор режет IP/UDP до вашего VPS или пускает в интернет только «белый список» сервисов.  
-**AWDTT** делает два контура до **вашего** сервера:
+**ARDTT** делает два контура до **вашего** сервера:
 
 1. **Amnezia (прямое)** — AmneziaWG 2.0: быстро, когда UDP до VPS проходит.
-2. **WDTT (обход)** — трафик через инфраструктуру звонков (TURN); снаружи похож на медиазвонок, внутри — сырые IP-пакеты (RAW), без второго WireGuard и без DTLS.
+2. **RAW Dial via TURN (обход)** — трафик через инфраструктуру звонков (TURN); снаружи похож на медиазвонок, внутри — сырые IP-пакеты (RAW), без второго WireGuard и без DTLS.
 
 Приложение само на старте оценивает сеть и заранее выбирает метод. Вам остаётся нажать **«Подключить»**.  
 По желанию — **«Скрыть свой IP»**: выход в интернет с VPS через Cloudflare WARP, а не с адреса VPS.
@@ -48,7 +50,7 @@
                 ↓
          TURN по TCP (релей звонка)
                 ↓
-         ваш VPS (RAW / WDTT) → интернет
+         ваш VPS (RAW) → интернет
                          ↘ при «Скрыть IP» → WARP → интернет
 ```
 
@@ -66,7 +68,7 @@
 | Сервис | Назначение |
 |--------|------------|
 | `direct` | AmneziaWG 2.0 |
-| `bypass` | WDTT RAW/WRAP после TURN |
+| `bypass` | RAW/WRAP после TURN |
 | `dns` | dnsmasq на шлюзах туннелей |
 | `warp` | WARP egress при «Скрыть IP» |
 | `provision` | пользователи, ключи, профиль |
@@ -79,9 +81,9 @@ WARP — не третий способ дозвона, а **выход** с с�
 ## Клиент (Android)
 
 - База: [AmneziaWG for Android](https://github.com/amnezia-vpn/amneziawg-android).
-- Обход: [WDTT](https://github.com/amurcanov/proxy-turn-vk-android) (TURN, WRAP, RAW).
+- Обход: адаптация [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) в режиме **RAW**.
 - `applicationId` пока `com.nonamevpn.app` (можно ставить рядом с официальной AmneziaWG).
-- Имя на экране и в лаунчере: **AWDTT**.
+- Имя на экране и в лаунчере: **ARDTT**.
 - Soft-reconnect при Wi‑Fi↔LTE, исключения приложений/сайтов, уведомление VPN.
 
 ---
@@ -89,14 +91,14 @@ WARP — не третий способ дозвона, а **выход** с с�
 ## Структура репозитория
 
 ```
-AWDTT/
+ARDTT/
 ├── README.md
 ├── LICENSE                 ← GNU GPL v3
 ├── NOTICE                  ← атрибуции
 ├── docs/
-│   ├── LEGEND.md           ← легенда имени AWDTT
+│   ├── LEGEND.md           ← легенда имени ARDTT
 │   ├── ARCHITECTURE.md
-│   └── assets/awdtt-icon.png
+│   └── assets/ardtt-icon.png
 ├── android/                ← клиент
 └── server/                 ← Compose-стек
 ```
@@ -113,7 +115,7 @@ AWDTT/
 
 ## Документация
 
-- [Легенда AWDTT](docs/LEGEND.md)
+- [Легенда ARDTT](docs/LEGEND.md)
 - [Архитектура](docs/ARCHITECTURE.md)
 - [NOTICE](NOTICE)
 - [LICENSE](LICENSE)

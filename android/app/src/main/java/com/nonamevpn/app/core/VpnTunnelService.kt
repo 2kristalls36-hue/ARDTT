@@ -700,7 +700,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         runCatching { tun?.close() }
         tun = null
         val builder = Builder()
-            .setSession("AWDTT")
+            .setSession("ARDTT")
             .setMtu(mtu.coerceIn(576, 1500))
             .addAddress(ip.substringBefore('/'), 32)
             .addRoute("0.0.0.0", 0)
@@ -840,7 +840,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val title = when {
-            trustedWifiWaiting -> "AWDTT · доверенная сеть"
+            trustedWifiWaiting -> "ARDTT · доверенная сеть"
             path == VpnPath.Direct -> getString(R.string.notif_direct)
             else -> getString(R.string.notif_bypass)
         }

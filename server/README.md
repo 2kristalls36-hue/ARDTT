@@ -1,4 +1,4 @@
-# Сервер AWDTT
+# Сервер ARDTT
 
 Compose-стек из пяти сервисов (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
 

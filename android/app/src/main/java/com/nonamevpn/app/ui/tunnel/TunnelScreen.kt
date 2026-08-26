@@ -198,7 +198,7 @@ fun TunnelScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "AWDTT",
+                text = "ARDTT",
                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
                 color = MaterialTheme.colorScheme.primary,
             )
