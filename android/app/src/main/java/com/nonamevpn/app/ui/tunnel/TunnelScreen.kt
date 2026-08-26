@@ -5,6 +5,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -54,6 +55,7 @@ import com.nonamevpn.app.bypass.VkLoginActivity
 import com.nonamevpn.app.bypass.VkSession
 import com.nonamevpn.app.bypass.VkUrl
 import com.nonamevpn.app.core.AppLog
+import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.NetworkClass
@@ -231,6 +233,15 @@ fun TunnelScreen(
                     "Direct ${profile!!.direct.endpoint} · Bypass ${profile!!.bypass.peer}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    when (ui.pathMode) {
+                        ConnPathMode.Auto -> "Режим: Авто (AWG → WDTT)"
+                        ConnPathMode.Direct -> "Режим: только прямое (AWG)"
+                        ConnPathMode.Bypass -> "Режим: только обход (WDTT)"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
 
@@ -425,17 +436,21 @@ fun TunnelScreen(
         ) {
             RowSwitch(
                 title = "Скрыть свой IP",
-                subtitle = "WARP на VPS — пока stub (при Connect выключится сам)",
+                subtitle = if (hideIp) {
+                    "Включено. WARP на VPS пока stub — снаружи всё ещё IP сервера"
+                } else {
+                    "Через WARP на VPS (пока stub — можно включить, эффект позже)"
+                },
                 checked = hideIp,
-                onCheckedChange = { scope.launch { settings.setHideIp(it) } },
+                enabled = !connecting && !busy,
+                onCheckedChange = { on ->
+                    scope.launch {
+                        settings.setHideIp(on)
+                        conn.setHideIp(on)
+                        AppLog.i("HideIP", if (on) "enabled (WARP stub)" else "disabled")
+                    }
+                },
             )
-            if (hideIp) {
-                Text(
-                    "Пока WARP не готов. Connect автоматически выключит этот тумблер.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
         }
 
         if (profile != null) {
@@ -654,16 +669,29 @@ private fun RowSwitch(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (enabled) {
+                    Modifier.clickable { onCheckedChange(!checked) }
+                } else {
+                    Modifier
+                },
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+        )
     }
 }

@@ -33,6 +33,7 @@ data class ConnUiState(
     val state: ConnState = ConnState.Idle,
     val probe: ProbeResult? = null,
     val activePath: VpnPath? = null,
+    val pathMode: ConnPathMode = ConnPathMode.Auto,
     val hideIp: Boolean = false,
     val statusText: String = "Ожидание…",
     val softInfo: String? = null,
@@ -58,6 +59,7 @@ class ConnectionManager(
     private var workers: Int = 3
     private var silentRecreate: Boolean = false
     private var dialPath: DialPath = DialPath.Auto
+    private var pathMode: ConnPathMode = ConnPathMode.Auto
 
     fun updateProfile(profile: VpnProfile?) {
         this.profile = profile
@@ -102,6 +104,14 @@ class ConnectionManager(
 
     fun setDialPath(path: DialPath) {
         dialPath = path
+    }
+
+    fun setPathMode(mode: ConnPathMode) {
+        pathMode = mode
+        _ui.value = _ui.value.copy(
+            pathMode = mode,
+            softInfo = softInfoFor(_ui.value.probe),
+        )
     }
 
     fun saveCallHash(hash: String) {
@@ -163,17 +173,25 @@ class ConnectionManager(
 
     fun connect() {
         val current = _ui.value
-        val preferred = current.probe?.preselectedPath
-        if (preferred == null || current.state == ConnState.Probing || current.state == ConnState.Connecting) {
-            AppLog.w(TAG, "Connect ignored (state=${current.state} path=$preferred)")
+        val mode = pathMode
+        val probePreferred = current.probe?.preselectedPath
+        if (current.state == ConnState.Probing || current.state == ConnState.Connecting) {
+            AppLog.w(TAG, "Connect ignored (state=${current.state} mode=$mode)")
             return
         }
         if (current.state == ConnState.Connected) return
+        if (mode == ConnPathMode.Auto && probePreferred == null) {
+            AppLog.w(TAG, "Connect ignored (auto, no probe path)")
+            return
+        }
+        if (profile == null) {
+            AppLog.w(TAG, "Connect ignored — no profile")
+            return
+        }
 
-        // WARP stub: don't block forever — auto-off and continue.
+        // WARP is still a stub: keep the user preference, but traffic exits via VPS IP.
         if (current.hideIp) {
-            AppLog.w(TAG, "Hide-IP (WARP stub) was on — auto-off for Connect")
-            _ui.value = current.copy(hideIp = false)
+            AppLog.w(TAG, "Hide-IP preferred (WARP stub) — tunnel runs without WARP egress")
         }
 
         connectJob?.cancel()
@@ -181,18 +199,23 @@ class ConnectionManager(
             try {
                 val snap = _ui.value
                 val lastGood = snap.probe
-                AppLog.i(TAG, "Connect requested preferred=$preferred")
+                val labelPreferred = when (mode) {
+                    ConnPathMode.Direct -> VpnPath.Direct
+                    ConnPathMode.Bypass -> VpnPath.Bypass
+                    ConnPathMode.Auto -> probePreferred ?: VpnPath.Direct
+                }
+                AppLog.i(TAG, "Connect requested mode=$mode preferred=$labelPreferred")
                 _ui.value = snap.copy(
                     state = ConnState.Connecting,
-                    statusText = "Подключение (${pathLabel(preferred)})…",
+                    statusText = "Подключение (${pathLabel(labelPreferred)})…",
                     connectEnabled = false,
                     lastError = null,
                 )
-                // Soft re-probe: confirm network, but do not downgrade a recent DirectOk
-                // to Bypass on a single flaky /health miss (seen on phone ~2s probes).
+                // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
                 var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
                 if (
-                    preferred == VpnPath.Direct &&
+                    mode == ConnPathMode.Auto &&
+                    probePreferred == VpnPath.Direct &&
                     lastGood?.networkClass == NetworkClass.DirectOk &&
                     fresh.preselectedPath == VpnPath.Bypass &&
                     !fresh.provisionOk
@@ -200,17 +223,17 @@ class ConnectionManager(
                     AppLog.w(TAG, "Connect re-probe flaked health — retry once")
                     fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
                 }
-                val usePath = resolveConnectPath(preferred, lastGood, fresh)
+                val usePath = resolveConnectPath(mode, probePreferred, lastGood, fresh)
                 AppLog.i(
                     TAG,
                     "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
-                        "health=${fresh.provisionOk} udp=${fresh.vpsUdpOk}",
+                        "mode=$mode health=${fresh.provisionOk} udp=${fresh.vpsUdpOk}",
                 )
                 if (usePath == null) {
                     applyProbe(fresh)
                     _ui.value = _ui.value.copy(
                         state = ConnState.Error,
-                        lastError = fresh.message,
+                        lastError = fresh.message ?: "Нет доступного пути",
                         connectEnabled = false,
                     )
                     AppLog.e(TAG, "Connect aborted: ${fresh.message}")
@@ -252,21 +275,16 @@ class ConnectionManager(
                 }
                 startTunnel(usePath)
                 AppLog.i(TAG, "VpnTunnelService start path=$usePath")
+                val probeForUi = when {
+                    usePath == VpnPath.Direct && fresh.preselectedPath != VpnPath.Direct ->
+                        lastGood ?: fresh
+                    else -> fresh
+                }
                 _ui.value = _ui.value.copy(
                     state = ConnState.Connecting,
                     activePath = usePath,
-                    probe = if (usePath == VpnPath.Direct && fresh.preselectedPath != VpnPath.Direct) {
-                        lastGood ?: fresh
-                    } else {
-                        fresh
-                    },
-                    softInfo = softInfoFor(
-                        if (usePath == VpnPath.Direct && fresh.preselectedPath != VpnPath.Direct) {
-                            lastGood ?: fresh
-                        } else {
-                            fresh
-                        },
-                    ),
+                    probe = probeForUi,
+                    softInfo = softInfoFor(probeForUi),
                     statusText = "Запуск туннеля (${pathLabel(usePath)})…",
                     connectEnabled = false,
                 )
@@ -285,18 +303,24 @@ class ConnectionManager(
     }
 
     /**
-     * Stick to a recent DirectOk when Connect re-probe briefly loses /health
-     * (OpenNeedBypass) — otherwise we bounce to Bypass and fail without call hash.
+     * Respect Settings path mode. In Auto, stick to a recent DirectOk when Connect
+     * re-probe briefly loses /health (otherwise we bounce to Bypass without hash).
      */
     private fun resolveConnectPath(
-        preferred: VpnPath,
+        mode: ConnPathMode,
+        probePreferred: VpnPath?,
         lastGood: ProbeResult?,
         fresh: ProbeResult,
     ): VpnPath? {
+        when (mode) {
+            ConnPathMode.Direct -> return VpnPath.Direct
+            ConnPathMode.Bypass -> return VpnPath.Bypass
+            ConnPathMode.Auto -> Unit
+        }
         val freshPath = fresh.preselectedPath
         if (freshPath == VpnPath.Direct) return VpnPath.Direct
         if (
-            preferred == VpnPath.Direct &&
+            probePreferred == VpnPath.Direct &&
             lastGood?.networkClass == NetworkClass.DirectOk &&
             (lastGood.provisionOk || lastGood.vpsUdpOk) &&
             freshPath == VpnPath.Bypass
@@ -304,7 +328,7 @@ class ConnectionManager(
             AppLog.w(TAG, "Keeping Direct despite flaky re-probe (last health=${lastGood.provisionOk})")
             return VpnPath.Direct
         }
-        return freshPath ?: preferred.takeIf {
+        return freshPath ?: probePreferred.takeIf {
             lastGood?.networkClass == NetworkClass.DirectOk || lastGood?.preselectedPath != null
         }
     }
@@ -315,7 +339,7 @@ class ConnectionManager(
             state = ConnState.Error,
             lastError = message,
             statusText = "Нужно действие",
-            connectEnabled = _ui.value.probe?.preselectedPath != null,
+            connectEnabled = connectAllowed(_ui.value.probe),
         )
     }
 
@@ -336,7 +360,7 @@ class ConnectionManager(
                 activePath = null,
                 statusText = _ui.value.probe?.message ?: "Готово",
                 softInfo = softInfoFor(_ui.value.probe),
-                connectEnabled = _ui.value.probe?.preselectedPath != null,
+                connectEnabled = connectAllowed(_ui.value.probe),
                 lastError = null,
             )
         }
@@ -381,7 +405,7 @@ class ConnectionManager(
                 activePath = null,
                 statusText = "Ошибка подключения",
                 lastError = message,
-                connectEnabled = _ui.value.probe?.preselectedPath != null,
+                connectEnabled = connectAllowed(_ui.value.probe),
             )
         }
     }
@@ -394,44 +418,66 @@ class ConnectionManager(
                 activePath = null,
                 statusText = cur.probe?.message ?: "Отключено",
                 softInfo = softInfoFor(cur.probe),
-                connectEnabled = cur.probe?.preselectedPath != null,
+                connectEnabled = connectAllowed(cur.probe),
             )
         }
     }
 
+    private fun connectAllowed(probe: ProbeResult?): Boolean {
+        if (profile == null) return false
+        return when (pathMode) {
+            ConnPathMode.Direct, ConnPathMode.Bypass -> true
+            ConnPathMode.Auto -> probe?.preselectedPath != null
+        }
+    }
+
     private fun applyProbe(result: ProbeResult) {
-        val enabled = result.preselectedPath != null
         _ui.value = _ui.value.copy(
             state = ConnState.Ready,
             probe = result,
+            pathMode = pathMode,
             statusText = result.message,
             softInfo = softInfoFor(result),
-            connectEnabled = enabled,
-            lastError = if (!enabled) result.message else null,
+            connectEnabled = connectAllowed(result),
+            lastError = if (!connectAllowed(result)) result.message else null,
         )
         refreshHashFlag()
         Log.i(TAG, "probe class=${result.networkClass} path=${result.preselectedPath} ${result.elapsedMs}ms")
     }
 
     private fun softInfoFor(result: ProbeResult?): String? {
-        if (result == null) return null
         val parts = mutableListOf<String>()
+        when (pathMode) {
+            ConnPathMode.Direct -> parts += "Режим: только прямое (AmneziaWG)."
+            ConnPathMode.Bypass -> parts += "Режим: только обход (WDTT / звонок)."
+            ConnPathMode.Auto -> Unit
+        }
+        if (result == null) {
+            return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
+        }
         if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
             parts += "Сейчас demo-профиль с фейковым IP — импортируйте smoke JSON (159.194.225.162)."
         }
         when (result.networkClass) {
             NetworkClass.OpenNeedBypass ->
-                parts += "Сеть открыта, но VPS health/UDP не подтвердили Direct — будет обход."
+                if (pathMode == ConnPathMode.Auto) {
+                    parts += "Сеть открыта, но VPS health/UDP не подтвердили Direct — будет обход."
+                }
             NetworkClass.DirectOk ->
-                if (result.provisionOk && !result.vpsUdpOk) {
+                if (result.provisionOk && !result.vpsUdpOk && pathMode != ConnPathMode.Bypass) {
                     parts += "AWG не отвечает на «пустой» UDP (так и должно быть). Direct доступен по health VPS."
                 }
             NetworkClass.Captive ->
                 parts += "Похоже на captive portal — сначала войдите в Wi‑Fi."
             else -> Unit
         }
-        if (result.preselectedPath == VpnPath.Bypass && !_ui.value.hasCallHash) {
+        val needsHash = pathMode == ConnPathMode.Bypass ||
+            (pathMode == ConnPathMode.Auto && result.preselectedPath == VpnPath.Bypass)
+        if (needsHash && !_ui.value.hasCallHash) {
             parts += "Для обхода сохраните hash звонка на телефоне."
+        }
+        if (_ui.value.hideIp) {
+            parts += "«Скрыть IP» включён, но WARP на VPS ещё stub — снаружи виден IP сервера."
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }

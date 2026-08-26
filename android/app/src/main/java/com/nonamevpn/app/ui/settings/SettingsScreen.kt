@@ -1,5 +1,6 @@
 package com.nonamevpn.app.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -50,11 +52,13 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
+    val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val scope = rememberCoroutineScope()
     var pin by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(silent, economy, dial) {
+    LaunchedEffect(silent, economy, dial, pathMode) {
         conn.setSilentRecreate(silent)
         conn.setWorkers(if (economy) 1 else 3)
         conn.setDialPath(
@@ -64,6 +68,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
                 else -> DialPath.Auto
             },
         )
+        conn.setPathMode(ConnPathMode.fromSetting(pathMode))
     }
 
     Column(
@@ -91,9 +96,60 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Обход", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Путь дозвона TURN. Авто: vkcalls → legacy. Connect анонимный по hash.",
+                "Авто — прямое (AmneziaWG), при недоступности резерв обход (WDTT). " +
+                    "Можно принудительно выбрать один путь для теста.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DialChip(
+                    "Авто",
+                    pathMode == "auto",
+                    { scope.launch { settings.setPathMode("auto") } },
+                    Modifier.weight(1f),
+                )
+                DialChip(
+                    "Прямое",
+                    pathMode == "direct",
+                    { scope.launch { settings.setPathMode("direct") } },
+                    Modifier.weight(1f),
+                )
+                DialChip(
+                    "Обход",
+                    pathMode == "bypass",
+                    { scope.launch { settings.setPathMode("bypass") } },
+                    Modifier.weight(1f),
+                )
+            }
+            Text(
+                when (pathMode) {
+                    "direct" -> "Только AmneziaWG (AWG)."
+                    "bypass" -> "Только WDTT через звонок (нужен hash)."
+                    else -> "Приоритет AWG, резерв WDTT."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            RowSetting(
+                title = "Скрыть свой IP",
+                subtitle = "WARP на VPS пока stub — тумблер сохраняется, но выход всё ещё IP сервера",
+                checked = hideIp,
+                onCheckedChange = { scope.launch { settings.setHideIp(it) } },
+            )
+        }
+
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Обход (дозвон)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Как получать TURN для WDTT. Авто: vkcalls → legacy. Connect анонимный по hash.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
