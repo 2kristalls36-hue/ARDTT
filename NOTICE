@@ -39,6 +39,10 @@ The server `bypass` image builds `wdtt-server` from:
 A small subnet patch (`server/bypass/patches/raw-subnet.patch`) aligns the
 RAW TUN with nonameVPN `10.9.0.0/24`.
 
+The Android Path B client vendors `android/go_client/` (same upstream) and
+builds it as `libclient.so` via `scripts/build-bypass-client.sh`. A small
+patch allows `-n` workers of 1–9 without forcing multiples of 9.
+
 Copyright (c) WDTT / qWDTT contributors
 (see upstream repositories for full copyright lists).
 
