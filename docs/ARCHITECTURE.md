@@ -288,7 +288,8 @@ Call hash — **локально на устройстве**, не обязан 
 
 ## Следующий шаг
 
-1. Каркас репо + LICENSE/NOTICE.
-2. Server compose (direct/bypass/warp/provision).
-3. Client: probe UDP-lite + path preselect + hide-IP flag.
-4. Bypass module: RAW/TCP/vkcalls/legacy/hash-on-device.
+1. ~~Каркас репо + LICENSE/NOTICE.~~
+2. ~~Server compose + provision (health, host_id, профиль).~~ — stubs direct/bypass/warp.
+3. Упаковать **direct** (AmneziaWG 2.0) и **bypass** (RAW `-listen-raw`).
+4. Client: probe UDP-lite + path preselect + hide-IP flag.
+5. Bypass module на Android: RAW/TCP/vkcalls/legacy/hash-on-device.
