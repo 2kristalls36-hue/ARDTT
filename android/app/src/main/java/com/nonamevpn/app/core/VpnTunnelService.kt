@@ -707,15 +707,27 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         dnsCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { d ->
             runCatching { builder.addDnsServer(d) }
         }
-        // Always exclude ourselves; plus user app exclusions (split tunnel).
+        // App split-tunnel: ЧС = disallowed, БС = allowed (self always included).
         val excludedApps = runCatching {
             kotlinx.coroutines.runBlocking { settingsRepo.excludedAppsSnapshot() }
         }.getOrDefault(emptySet())
-        runCatching { builder.addDisallowedApplication(packageName) }
-        for (pkg in excludedApps) {
-            if (pkg == packageName) continue
-            runCatching { builder.addDisallowedApplication(pkg) }
-                .onFailure { Log.w(TAG, "skip disallowed app $pkg: ${it.message}") }
+        val whitelist = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.appsWhitelistModeSnapshot() }
+        }.getOrDefault(false)
+        if (whitelist) {
+            runCatching { builder.addAllowedApplication(packageName) }
+            for (pkg in excludedApps) {
+                if (pkg == packageName) continue
+                runCatching { builder.addAllowedApplication(pkg) }
+                    .onFailure { Log.w(TAG, "skip allowed app $pkg: ${it.message}") }
+            }
+        } else {
+            runCatching { builder.addDisallowedApplication(packageName) }
+            for (pkg in excludedApps) {
+                if (pkg == packageName) continue
+                runCatching { builder.addDisallowedApplication(pkg) }
+                    .onFailure { Log.w(TAG, "skip disallowed app $pkg: ${it.message}") }
+            }
         }
         // Domain → IP excludeRoute (API 33+). Best-effort; fails soft on older OS.
         val excludedHosts = runCatching {
@@ -731,8 +743,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         Log.i(
             TAG,
             "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd} " +
-                "apps=${excludedApps.size} hosts=${excludedHosts.size}",
-        )
+                "apps=${excludedApps.size} whitelist=$whitelist hosts=${excludedHosts.size}",
+            )
         return pfd
     }
 
