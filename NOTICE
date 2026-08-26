@@ -28,25 +28,31 @@ You may obtain a copy of the License at:
   http://www.apache.org/licenses/LICENSE-2.0
 
 ---------------------------------------------------------------------------
-WDTT (TURN / WRAP / RAW bypass)
+Path B bypass: classic WDTT vs RAW (qWDTT / SpaceNeuroX)
 ---------------------------------------------------------------------------
 
-Portions derived from WDTT (WireGuard / RAW over VK TURN), typically licensed
-under the GNU General Public License v3.0.
+**Classic WDTT** (amurcanov) is **WireGuard over TURN/DTLS** — not the Path B
+mode used by ARDTT:
 
   https://github.com/amurcanov/proxy-turn-vk-android
 
-The server `bypass` image builds `wdtt-server` from vendored WDTT Server v2
-sources under `server/bypass/wdtt-server/` (GPL-3.0). A small subnet patch
-(`server/bypass/patches/raw-subnet.patch`) aligns the RAW TUN with ARDTT
-`10.9.0.0/24`.
+**RAW Path B** (`-listen-raw`, `raw.go`, RAWCONF / GETCONF_RAW, no nested
+WireGuard, no DTLS on that listener) comes from the **qWDTT / SpaceNeuroX**
+lineage (fork/continuation of the WDTT idea), GPL-3.0:
 
-The Android Path B client vendors `android/go_client/` (WDTT android-client /
-go_client lineage) and builds it as `libclient.so` via
-`scripts/build-bypass-client.sh`. A small patch allows `-n` workers of 1–9
-without forcing multiples of 9.
+  https://github.com/SpaceNeuroX/proxy-turn-vk-android
 
-Copyright (c) WDTT contributors
+Vendored server sources under `server/bypass/wdtt-server/` (built as
+`wdtt-server`) and the Android Path B client under `android/go_client/`
+(`libclient.so` via `scripts/build-bypass-client.sh`) follow that RAW-capable
+tree. A small subnet patch (`server/bypass/patches/raw-subnet.patch`) aligns
+the RAW TUN with ARDTT `10.9.0.0/24`. A small client patch allows `-n`
+workers of 1–9 without forcing multiples of 9.
+
+Directory names may still say `wdtt-*` for historical/vendor reasons; the
+**product** name is ARDTT (Amnezia + RAW Dial via TURN), not WDTT.
+
+Copyright (c) WDTT / qWDTT / SpaceNeuroX contributors
 (see upstream repositories for full copyright lists).
 
 Licensed under the GNU General Public License, version 3.
