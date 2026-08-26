@@ -37,7 +37,7 @@ data class NavBarItem(
     val icon: ImageVector,
 )
 
-/** Floating pill bottom bar — simplified qWDTT `ProxyNavigationBar`. */
+/** Floating pill bottom bar. */
 @Composable
 fun NvpnNavigationBar(
     items: List<NavBarItem>,

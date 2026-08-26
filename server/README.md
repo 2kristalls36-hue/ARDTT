@@ -6,7 +6,7 @@ Compose-стек из четырёх сервисов (см. [архитекту
 |--------|---------------|------------|
 | **provision** | рабочий | `/health`, пользователи, `host_id`, AWG-ключи, JSON-профиль |
 | **direct** | **AmneziaWG 2.0** | `amneziawg-go` + `awg`, conf из `users.json` |
-| **bypass** | **RAW `-listen-raw`** | `wdtt-server` (qWDTT), пароли из `users.json`, подсеть `10.9.0.0/24` |
+| **bypass** | **RAW `-listen-raw`** | `wdtt-server` (WDTT), пароли из `users.json`, подсеть `10.9.0.0/24` |
 | **warp** | stub | hide-IP egress (wireproxy→tun2socks) |
 
 ## Быстрый старт (без Docker)
@@ -28,7 +28,7 @@ Call hash звонка на сервер **не** кладётся — толь�
 ## Docker Compose
 
 Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет
-`amneziawg-go` / `amneziawg-tools` и исходники qWDTT server (GPL-3).
+`amneziawg-go` / `amneziawg-tools` и исходники WDTT server (GPL-3, `bypass/wdtt-server/`).
 
 ```bash
 cd server

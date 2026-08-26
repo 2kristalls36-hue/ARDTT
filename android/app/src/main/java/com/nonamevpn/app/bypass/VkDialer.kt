@@ -15,7 +15,7 @@ data class TurnCredentials(
     val credential: String,
     val urls: List<String>,
     val source: DialPath,
-    val ttlSeconds: Int = 540, // ~9 min like qWDTT account cache
+    val ttlSeconds: Int = 540, // ~9 min account cache
 )
 
 sealed class DialResult {

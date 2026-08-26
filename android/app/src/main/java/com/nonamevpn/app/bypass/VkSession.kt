@@ -49,7 +49,7 @@ object VkSession {
     }
 
     fun loginStartUrl(attempt: Int): String = when (attempt) {
-        // Same sequence as qWDTT: mobile vk.ru → home → desktop login.
+        // Login sequence: mobile vk.ru → home → desktop login.
         0 -> "https://m.vk.ru/login"
         1 -> "https://m.vk.ru/"
         else -> "https://vk.ru/login"

@@ -74,7 +74,7 @@ WARP — не третий способ «дозвониться» до теле
 ## Клиент (Android)
 
 - База: форк [AmneziaWG for Android](https://github.com/amnezia-vpn/amneziawg-android).
-- Обход: адаптация идей и кода [qWDTT / WDTT](https://github.com/SpaceNeuroX/proxy-turn-vk-android) (TURN, WRAP, RAW).
+- Обход: адаптация идей и кода [WDTT](https://github.com/amurcanov/proxy-turn-vk-android) (TURN, WRAP, RAW).
 - Свой `applicationId` — можно ставить рядом с официальной AmneziaWG.
 - Перед подключением: лёгкая проверка сети (без полного поднятия VPN):
   - есть ли интернет (в т.ч. yandex — на «белых списках» часто жив);
@@ -122,7 +122,7 @@ nonameVPN/
 В продукте будут использоваться (с сохранением уведомлений):
 
 - AmneziaWG / компоненты на базе WireGuard — в основном **Apache-2.0** (см. NOTICE);
-- наработки WDTT / qWDTT по TURN/WRAP — часто **GPL-3.0**.
+- наработки WDTT по TURN/WRAP — часто **GPL-3.0**.
 
 Итоговое приложение как комбинированное произведение — под GPL-3; атрибуции перечислены в [NOTICE](NOTICE).
 
