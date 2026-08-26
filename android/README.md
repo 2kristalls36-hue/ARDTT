@@ -11,6 +11,7 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 - **Path B (Bypass):** `libclient.so` (qWDTT go_client) — vkcalls → TURN TCP → WRAP → RAW; TUN после RAWCONF
 - **Bypass scaffold:** `CallHashStore`, dial policy, `WrapCrypto` (совместим с сервером)
 - **Создать звонок:** WebView вход VK → `calls.start` → hash в `CallHashStore` (Connect остаётся анонимным)
+- **Dial path:** Настройки → Авто / vkcalls / Капча (legacy), сохраняется в DataStore
 - **Админ-деплой:** SSH (JSch) → upload `stack.tar.gz` + `install.sh` → Docker Compose на VPS
 - Настройки: тихий recreate, экономика workers
 
