@@ -67,7 +67,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     ) {
         Text("Настройки", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Режим: ${if (admin) "администратор" else "пользователь"}",
+            "Режим: ${if (admin) "администратор (вкладки Серверы / Деплой / Логи открыты)" else "пользователь"}",
             style = MaterialTheme.typography.bodyLarge,
         )
         Text(

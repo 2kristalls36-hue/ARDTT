@@ -147,6 +147,10 @@ class ConnectionManager(
             return
         }
         if (current.state == ConnState.Connected) return
+        if (current.hideIp) {
+            reportUserError("«Скрыть IP» (WARP) пока не готов — выключите переключатель")
+            return
+        }
 
         scope.launch {
             _ui.value = current.copy(
@@ -186,6 +190,15 @@ class ConnectionManager(
                 connectEnabled = false,
             )
         }
+    }
+
+    fun reportUserError(message: String) {
+        _ui.value = _ui.value.copy(
+            state = ConnState.Error,
+            lastError = message,
+            statusText = "Нужно действие",
+            connectEnabled = _ui.value.probe?.preselectedPath != null,
+        )
     }
 
     fun disconnect() {
@@ -271,7 +284,11 @@ class ConnectionManager(
         val parts = mutableListOf<String>()
         when (result.networkClass) {
             NetworkClass.OpenNeedBypass ->
-                parts += "Сеть выглядит открытой, но VPS по UDP не ответил — будет обход. Это не ошибка."
+                parts += "Сеть открыта, но VPS health/UDP не подтвердили Direct — будет обход."
+            NetworkClass.DirectOk ->
+                if (result.provisionOk && !result.vpsUdpOk) {
+                    parts += "AWG не отвечает на «пустой» UDP (так и должно быть). Direct доступен по health VPS."
+                }
             NetworkClass.Captive ->
                 parts += "Похоже на captive portal — сначала войдите в Wi‑Fi."
             else -> Unit

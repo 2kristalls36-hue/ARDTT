@@ -20,11 +20,11 @@ fun LogsScreen() {
     ) {
         Text("Логи", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Подробные логи probe / AWG / TURN·RAW с экспортом появятся здесь. Лог деплоя смотрите на вкладке «Деплой».",
+            "Админ-режим активен. Подробные логи probe / AWG / TURN·RAW с экспортом появятся здесь.",
             style = MaterialTheme.typography.bodyLarge,
         )
         Text(
-            "Вкладка видна только в режиме администратора.",
+            "Лог установки стека — на вкладке «Деплой».",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
         )
