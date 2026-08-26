@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0-bypass-scaffold"
+        versionCode = 3
+        versionName = "0.2.1-dial-path"
     }
 
     buildTypes {
