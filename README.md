@@ -1,6 +1,6 @@
 # nonameVPN
 
-Android VPN на **AmneziaWG 2.0** с автоматическим обходом (TURN / RAW), если до VPS нет прямой видимости. Обход под капотом; пользователю можно предложить только вход через VK для белых списков.
+Android VPN на **AmneziaWG 2.0** с обходом (TURN/RAW) и опциональным выходом через WARP (`wireproxy`→tun2socks). На VPS — три контейнера с общим `host_id` в разных подсетях.
 
 Архитектура и решения: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
