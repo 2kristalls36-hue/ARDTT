@@ -60,6 +60,8 @@ class ConnectionManager(
     private var silentRecreate: Boolean = false
     private var dialPath: DialPath = DialPath.Auto
     private var pathMode: ConnPathMode = ConnPathMode.Auto
+    /** Soft transport restart in progress (Wi‑Fi↔LTE); do not treat as user disconnect. */
+    @Volatile private var softRestartInProgress: Boolean = false
 
     fun updateProfile(profile: VpnProfile?) {
         this.profile = profile
@@ -383,6 +385,7 @@ class ConnectionManager(
 
     fun disconnect() {
         if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
+        softRestartInProgress = false
         connectJob?.cancel()
         connectJob = null
         scope.launch {
@@ -413,8 +416,36 @@ class ConnectionManager(
         Log.i(TAG, "VpnService started path=$path")
     }
 
+    /** WDTT-Plus-style soft reconnect: keep Connected UI, show progress. */
+    fun onTransportRestarting(reason: String) {
+        softRestartInProgress = true
+        scope.launch {
+            val path = _ui.value.activePath
+            AppLog.i(TAG, "Transport soft restart: $reason")
+            _ui.value = _ui.value.copy(
+                state = ConnState.Connecting,
+                activePath = path,
+                statusText = "Сеть сменилась — переподключение…",
+                lastError = null,
+                connectEnabled = true,
+                softInfo = reason.removePrefix("[СЕТЬ] ").takeIf { it.isNotBlank() },
+            )
+        }
+    }
+
+    fun onUnderlyingNetworkLost() {
+        if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
+        scope.launch {
+            _ui.value = _ui.value.copy(
+                statusText = "Ожидание сети…",
+                softInfo = "Подключение восстановится на новой Wi‑Fi/LTE.",
+            )
+        }
+    }
+
     fun onTunnelRunning(path: VpnPath) {
         scope.launch {
+            softRestartInProgress = false
             _ui.value = _ui.value.copy(
                 state = ConnState.Connected,
                 activePath = path,
@@ -424,6 +455,7 @@ class ConnectionManager(
                 },
                 connectEnabled = true,
                 lastError = null,
+                softInfo = softInfoFor(_ui.value.probe),
             )
         }
     }
@@ -437,6 +469,8 @@ class ConnectionManager(
             AppLog.w(TAG, "Ignoring cancel as tunnel failure: $message")
             return
         }
+        val wasSoft = softRestartInProgress
+        softRestartInProgress = false
         scope.launch {
             if (_ui.value.state == ConnState.Disconnecting || _ui.value.state == ConnState.Ready) {
                 AppLog.w(TAG, "Ignoring late tunnel failure in ${_ui.value.state}: $message")
@@ -446,7 +480,7 @@ class ConnectionManager(
             _ui.value = _ui.value.copy(
                 state = ConnState.Error,
                 activePath = null,
-                statusText = "Ошибка подключения",
+                statusText = if (wasSoft) "Не удалось переподключиться" else "Ошибка подключения",
                 lastError = message,
                 connectEnabled = connectAllowed(_ui.value.probe),
             )
@@ -454,6 +488,10 @@ class ConnectionManager(
     }
 
     fun onServiceStopped() {
+        if (softRestartInProgress) {
+            AppLog.i(TAG, "Ignoring service stopped during soft restart")
+            return
+        }
         val cur = _ui.value
         if (cur.state == ConnState.Connected || cur.state == ConnState.Connecting) {
             _ui.value = cur.copy(
