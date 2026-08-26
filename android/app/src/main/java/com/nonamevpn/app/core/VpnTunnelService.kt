@@ -60,6 +60,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var handoverPreviousNetworkId: Long? = null
     @Volatile private var stableNetworkReconnectPending = false
     @Volatile private var networkChangeJob: Job? = null
+    @Volatile private var softRestartJob: Job? = null
     @Volatile private var userStopRequested = false
     @Volatile private var softRestartInProgress = false
     @Volatile private var backendEpoch: Int = 0
@@ -252,19 +253,31 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         wakeRecoveryGraceUntilMs = now + WAKE_RECOVERY_GRACE_MS
         zeroWorkersSinceMs = 0L
         processDeadSinceMs = 0L
-        val path = TunnelSessionHolder.config?.path ?: return
+        val path = TunnelSessionHolder.config?.path
+        if (path == null) {
+            softRestartInProgress = false
+            AppLog.e(TAG, "soft restart aborted: no session path")
+            return
+        }
         AppLog.i(TAG, "soft restart #$softRestartCount: $reason")
         ConnectionManager.getOrNull()?.onTransportRestarting(reason)
         updateNotification(path, "Переподключение транспорта…")
 
-        networkChangeJob?.cancel()
-        networkChangeJob = scope.launch {
-            delay(recoveryPolicy.processRestartDelayMs)
-            if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) {
-                softRestartInProgress = false
-                return@launch
+        softRestartJob?.cancel()
+        softRestartJob = scope.launch {
+            var handedOff = false
+            try {
+                delay(recoveryPolicy.processRestartDelayMs)
+                if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) {
+                    return@launch
+                }
+                handedOff = true
+                launchBackend(path, softRestart = true)
+            } finally {
+                if (!handedOff) {
+                    softRestartInProgress = false
+                }
             }
-            launchBackend(path, softRestart = true)
         }
     }
 
@@ -631,6 +644,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private fun cancelAllRecovery() {
         networkChangeJob?.cancel()
         networkChangeJob = null
+        softRestartJob?.cancel()
+        softRestartJob = null
         stableNetworkReconnectPending = false
         softRestartInProgress = false
         trustedWifiEvalJob?.cancel()

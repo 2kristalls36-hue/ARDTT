@@ -183,7 +183,7 @@ class BypassGoProcess(
             val mtu = parts[2].trim().toIntOrNull() ?: return null
             val ip = parts[0].trim()
             if (ip.isBlank()) return null
-            return RawConf(ip, parts[1].trim().ifBlank { "1.1.1.1" }, mtu)
+            return RawConf(ip, parts[1].trim().ifBlank { "10.9.0.1" }, mtu)
         }
 
         private fun classifyFatal(line: String): String? {

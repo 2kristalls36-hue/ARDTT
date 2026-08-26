@@ -2,7 +2,7 @@
 # WARP egress: wgcf → warp0 (Table=off) + per-user ip rules from users.json hideIp.
 #
 # DNS must NOT go through WARP (breaks resolvers / looks like tun2socks DNS loops):
-#   priority 200: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → main
+#   priority 100: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → main
 #   priority 300+: from <client>/32 → table 51820 (WARP)
 # Existing MASQUERADE on VPN subnets → eth0 covers DNS upstream on main.
 set -euo pipefail
@@ -15,7 +15,8 @@ TABLE="${NVPN_WARP_TABLE:-51820}"
 MARK_COMMENT="NVPN_WARP_MANAGED"
 DNS_COMMENT="NVPN_WARP_DNS_MAIN"
 # Prefer DNS (main) over WARP table — lower pref number = higher priority.
-DNS_RULE_PRIO="${NVPN_WARP_DNS_PRIO:-200}"
+# Keep DNS well below any accidental unprioritized WARP rules (~163xx / auto).
+DNS_RULE_PRIO="${NVPN_WARP_DNS_PRIO:-100}"
 WARP_RULE_PRIO_BASE="${NVPN_WARP_RULE_PRIO:-300}"
 
 # VPN ingress ifaces whose client DNS must stay on main.
@@ -130,32 +131,36 @@ ensure_dns_masquerade() {
   echo "[warp] DNS MASQUERADE on ${wan} for VPN subnets (udp/tcp :53)"
 }
 
+# Remove every ip rule that lookups our WARP table (any priority / duplicate).
 clear_rules_for_table() {
   local table="$1"
   local guard=0
   while ip rule show | grep -q "lookup ${table}"; do
-    local fr from pref
+    local fr pref
     fr="$(ip rule show | grep "lookup ${table}" | head -1)"
-    pref="$(echo "${fr}" | cut -d: -f1)"
-    from="$(echo "${fr}" | sed -n 's/.*from \([^ ]*\).*/\1/p')"
-    if [[ -n "${from}" ]]; then
-      ip rule del from "${from}" lookup "${table}" 2>/dev/null || true
-    fi
+    pref="$(echo "${fr}" | cut -d: -f1 | tr -d '[:space:]')"
     if [[ -n "${pref}" ]]; then
-      ip rule del pref "${pref}" 2>/dev/null || true
+      ip rule del pref "${pref}" 2>/dev/null || {
+        # Fallback when pref parse fails across iproute2 versions.
+        local from
+        from="$(echo "${fr}" | sed -n 's/.*from \([^ ]*\).*/\1/p')"
+        [[ -n "${from}" ]] && ip rule del from "${from}" lookup "${table}" 2>/dev/null || true
+      }
+    else
+      break
     fi
     guard=$((guard + 1))
-    [[ "${guard}" -gt 64 ]] && break
+    [[ "${guard}" -gt 128 ]] && break
   done
 }
 
-# Remove our DNS→main exceptions (match by priority band + iif/dport pattern).
+# Remove our DNS→main exceptions (match by dport 53 → main and known pref band).
 clear_dns_main_rules() {
   local guard=0
   while ip rule show | grep -E "dport 53.*lookup main|lookup main.*dport 53" | grep -q .; do
     local fr pref
     fr="$(ip rule show | grep -E "dport 53.*lookup main|lookup main.*dport 53" | head -1)"
-    pref="$(echo "${fr}" | cut -d: -f1)"
+    pref="$(echo "${fr}" | cut -d: -f1 | tr -d '[:space:]')"
     [[ -n "${pref}" ]] && ip rule del pref "${pref}" 2>/dev/null || true
     guard=$((guard + 1))
     [[ "${guard}" -gt 64 ]] && break
@@ -165,24 +170,49 @@ clear_dns_main_rules() {
   for p in $(seq "${DNS_RULE_PRIO}" $((DNS_RULE_PRIO + 20))); do
     ip rule del pref "${p}" 2>/dev/null || true
   done
+  # Legacy band from older images (prio 200+).
+  if [[ "${DNS_RULE_PRIO}" -ne 200 ]]; then
+    for p in $(seq 200 220); do
+      ip rule del pref "${p}" 2>/dev/null || true
+    done
+  fi
 }
 
 install_dns_main_rules() {
   clear_dns_main_rules
   local prio="${DNS_RULE_PRIO}"
-  local iface proto
+  local iface proto added=0
   for iface in ${DNS_IIFACES}; do
     if ! ip link show "${iface}" >/dev/null 2>&1; then
       echo "[warp] skip DNS iif=${iface} (iface down)"
       continue
     fi
     for proto in udp tcp; do
-      ip rule add iif "${iface}" ipproto "${proto}" dport 53 lookup main priority "${prio}" 2>/dev/null \
-        || ip rule add iif "${iface}" ipproto "${proto}" dport 53 lookup main || true
-      echo "[warp] DNS exception iif=${iface} ${proto}/53 → main prio=${prio}"
+      # Never fall back to an unprioritized rule — those land below WARP prefs and break DNS.
+      if ip rule add iif "${iface}" ipproto "${proto}" dport 53 lookup main priority "${prio}" 2>/dev/null; then
+        echo "[warp] DNS exception iif=${iface} ${proto}/53 → main prio=${prio}"
+        added=$((added + 1))
+      else
+        echo "[warp] WARN: failed DNS rule iif=${iface} ${proto}/53 prio=${prio}" >&2
+      fi
       prio=$((prio + 1))
     done
   done
+  echo "[warp] DNS main rules installed=${added}"
+}
+
+add_hideip_rule() {
+  local from="$1"
+  local prio="$2"
+  if ! ip rule add from "${from}" lookup "${TABLE}" priority "${prio}" 2>/dev/null; then
+    # Rule may already exist at this pref; replace by deleting pref then retry once.
+    ip rule del pref "${prio}" 2>/dev/null || true
+    if ! ip rule add from "${from}" lookup "${TABLE}" priority "${prio}" 2>/dev/null; then
+      echo "[warp] WARN: failed hideIp rule from=${from} prio=${prio}" >&2
+      return 1
+    fi
+  fi
+  return 0
 }
 
 # Apply ip rules for every hideIp=true user (direct + bypass tunnel IPs).
@@ -208,20 +238,29 @@ sync_rules() {
     local dip bip
     dip="$(echo "${pair}" | awk '{print $1}')"
     bip="$(echo "${pair}" | awk '{print $2}')"
-    # WARP for everything except DNS (DNS already matched at prio 200 via iif).
-    ip rule add from "${dip}" lookup "${TABLE}" priority "${prio}" 2>/dev/null || \
-      ip rule add from "${dip}" lookup "${TABLE}" || true
+    # WARP for everything except DNS (DNS already matched at lower prio via iif).
+    add_hideip_rule "${dip}" "${prio}" || true
     prio=$((prio + 1))
-    ip rule add from "${bip}" lookup "${TABLE}" priority "${prio}" 2>/dev/null || \
-      ip rule add from "${bip}" lookup "${TABLE}" || true
+    add_hideip_rule "${bip}" "${prio}" || true
     prio=$((prio + 1))
     count=$((count + 1))
     echo "[warp] hideIp route ${dip} + ${bip} → table ${TABLE} (prio≥${WARP_RULE_PRIO_BASE})"
   done <<< "${desired}"
 
   echo "[warp] synced hideIp users=${count}"
-  ip rule show | head -30 || true
+  ip rule show | head -40 || true
 }
+
+cleanup_on_exit() {
+  echo "[warp] exit — clearing hideIp + DNS policy rules"
+  clear_rules_for_table "${TABLE}"
+  clear_dns_main_rules
+  iptables -t nat -D POSTROUTING -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j MASQUERADE 2>/dev/null || true
+  iptables -D FORWARD -i "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT 2>/dev/null || true
+  iptables -D FORWARD -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT 2>/dev/null || true
+}
+
+trap cleanup_on_exit EXIT INT TERM
 
 ensure_account
 build_conf
@@ -230,6 +269,7 @@ sync_rules
 
 # Soft recycle watcher: if RSS grows huge, restart tunnel in-process (no docker restart).
 LAST_MTIME=0
+DNS_RETRY_TICK=0
 while true; do
   sleep 5
   if [[ -f "${USERS}" ]]; then
@@ -245,5 +285,21 @@ while true; do
     echo "[warp] ${IFACE} missing — bringing up again"
     bring_up
     sync_rules
+  fi
+  # Retry DNS iif rules when VPN ifaces appear late after warp start.
+  DNS_RETRY_TICK=$((DNS_RETRY_TICK + 1))
+  if [[ $((DNS_RETRY_TICK % 6)) -eq 0 ]]; then
+    local_need=0
+    for iface in ${DNS_IIFACES}; do
+      if ip link show "${iface}" >/dev/null 2>&1; then
+        if ! ip rule show | grep -q "iif ${iface}.*dport 53.*lookup main"; then
+          local_need=1
+        fi
+      fi
+    done
+    if [[ "${local_need}" -eq 1 ]]; then
+      echo "[warp] DNS iif rules incomplete — reinstall"
+      install_dns_main_rules
+    fi
   fi
 done

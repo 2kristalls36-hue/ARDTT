@@ -415,7 +415,7 @@ fun TunnelScreen(
                             }
                         }
                     },
-                    enabled = profile != null && !connected && !callBusy,
+                    enabled = profile != null && !sessionUp && !callBusy,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -432,14 +432,14 @@ fun TunnelScreen(
                         vkLoggedIn = false
                         callMessage = "Сессия VK сброшена"
                     },
-                    enabled = !connected && !callBusy,
+                    enabled = !sessionUp && !callBusy,
                 ) {
                     Text("Выйти из VK")
                 }
             }
             OutlinedButton(
                 onClick = { showHash = true },
-                enabled = profile != null && !connected && !callBusy,
+                enabled = profile != null && !sessionUp && !callBusy,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
@@ -478,7 +478,7 @@ fun TunnelScreen(
         if (profile != null) {
             Button(
                 onClick = { launchFilePicker() },
-                enabled = !connected && !importBusy,
+                enabled = !sessionUp && !importBusy,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
@@ -490,7 +490,7 @@ fun TunnelScreen(
             }
             OutlinedButton(
                 onClick = { showImport = true },
-                enabled = !connected && !importBusy,
+                enabled = !sessionUp && !importBusy,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
@@ -505,7 +505,7 @@ fun TunnelScreen(
                         conn.clearCallHash()
                     }
                 },
-                enabled = !connected,
+                enabled = !sessionUp,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             ) {
                 Text("Удалить профиль")

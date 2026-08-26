@@ -71,6 +71,9 @@ class DirectBackend : TunnelBackend {
         val h = GoBackend.awgTurnOn(IFACE, tunFd, goConfig)
         if (h < 0) {
             Log.e(TAG, "awgTurnOn failed code=$h")
+            // detachFd transferred ownership; close orphaned FD ourselves.
+            runCatching { ParcelFileDescriptor.adoptFd(tunFd).close() }
+                .onFailure { Log.w(TAG, "close orphaned tunFd=$tunFd", it) }
             onState(TunnelBackendState.Failed("AmneziaWG не поднялся (код $h)"))
             return
         }

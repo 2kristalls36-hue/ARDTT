@@ -433,7 +433,7 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.Direct.PrivateKey = u.DirectPrivateKey
 	p.Direct.PeerPublicKey = cfg.ServerPublicKey
 	p.Direct.Address = fmt.Sprintf("%s.%d/32", directBase, u.HostID)
-	p.Direct.DNS = []string{"10.8.0.1"}
+	p.Direct.DNS = []string{fmt.Sprintf("%s.1", directBase)}
 	p.Direct.MTU = 1280
 	p.Direct.AWG = map[string]any{
 		"Jc": 4, "Jmin": 40, "Jmax": 70,
