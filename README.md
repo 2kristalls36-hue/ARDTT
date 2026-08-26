@@ -4,7 +4,7 @@
 
 Клиент под Android и self-hosted сервер на вашем VPS: быстрый прямой VPN на AmneziaWG 2.0 и автоматический обход **RAW через TURN**, если до сервера нет прямой видимости.
 
-> Имя **не** WDTT/AWDTT: историческая **W** в WDTT — от WireGuard, а Path B у нас несёт **RAW**, не второй WG.
+> Имя **не** WDTT/AWDTT: историческая **W** в WDTT — от WireGuard. Path B у нас — **RAW** из **qWDTT / SpaceNeuroX**, не WG-поверх-TURN.
 
 Полная легенда: [docs/LEGEND.md](docs/LEGEND.md).  
 Техническая схема: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -81,7 +81,11 @@ WARP — не третий способ дозвона, а **выход** с с�
 ## Клиент (Android)
 
 - База: [AmneziaWG for Android](https://github.com/amnezia-vpn/amneziawg-android).
-- Обход: адаптация [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) в режиме **RAW**.
+- Обход (RAW): линия **qWDTT / SpaceNeuroX** —
+  [SpaceNeuroX/proxy-turn-vk-android](https://github.com/SpaceNeuroX/proxy-turn-vk-android)
+  (`-listen-raw` / `-raw`). Классический
+  [WDTT amurcanov](https://github.com/amurcanov/proxy-turn-vk-android) — WG over TURN/DTLS,
+  **не** источник RAW Path B (см. [NOTICE](NOTICE), [docs/LEGEND.md](docs/LEGEND.md)).
 - `applicationId` пока `com.nonamevpn.app` (можно ставить рядом с официальной AmneziaWG).
 - Имя на экране и в лаунчере: **ARDTT**.
 - Soft-reconnect при Wi‑Fi↔LTE, исключения приложений/сайтов, уведомление VPN.

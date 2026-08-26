@@ -1,5 +1,10 @@
 # Легенда ARDTT
 
+> **Path B = RAW из qWDTT / SpaceNeuroX**, не из классического WDTT.  
+> Classic WDTT ([amurcanov](https://github.com/amurcanov/proxy-turn-vk-android)) = WireGuard over TURN/DTLS.  
+> RAW (`-listen-raw`) = [SpaceNeuroX/proxy-turn-vk-android](https://github.com/SpaceNeuroX/proxy-turn-vk-android).  
+> Подробности и лицензии: [NOTICE](../NOTICE).
+
 ## Имя
 
 **ARDTT** читается по буквам («а-эр-ди-ти-ти»), расшифровка:

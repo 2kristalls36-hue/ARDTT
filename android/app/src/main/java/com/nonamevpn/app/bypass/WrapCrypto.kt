@@ -7,7 +7,7 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * WRAP key + RTP-AEAD from WDTT (GPL path B).
+ * WRAP key + RTP-AEAD (qWDTT / SpaceNeuroX Path B; protocol salt still "WDTT-WRAP-v1").
  * Key: HKDF-SHA256(password, salt="WDTT-WRAP-v1", info="rtp-obfs/chacha20poly1305").
  * Packet: [RTP 12B AAD][ChaCha20-Poly1305 ciphertext+tag][padding][padLen].
  */

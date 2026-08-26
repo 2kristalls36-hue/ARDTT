@@ -5,13 +5,13 @@ package com.nonamevpn.app.core
  * Independent from Path B TURN dial (vkcalls / legacy).
  */
 enum class ConnPathMode {
-    /** Probe chooses Direct (AWG) when healthy, else Bypass (WDTT). */
+    /** Probe chooses Direct (AWG) when healthy, else Bypass (RAW via TURN). */
     Auto,
 
     /** Always Path A — AmneziaWG. */
     Direct,
 
-    /** Always Path B — WDTT / звонок. */
+    /** Always Path B — RAW Dial via TURN / звонок. */
     Bypass,
     ;
 

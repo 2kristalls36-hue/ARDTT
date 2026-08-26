@@ -252,9 +252,9 @@ fun TunnelScreen(
                 )
                 Text(
                     when (ui.pathMode) {
-                        ConnPathMode.Auto -> "Режим: Авто (AWG → WDTT)"
+                        ConnPathMode.Auto -> "Режим: Авто (прямое → обход)"
                         ConnPathMode.Direct -> "Режим: только прямое (AWG)"
-                        ConnPathMode.Bypass -> "Режим: только обход (WDTT)"
+                        ConnPathMode.Bypass -> "Режим: только обход (RAW)"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,

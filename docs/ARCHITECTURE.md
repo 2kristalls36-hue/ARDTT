@@ -1,7 +1,8 @@
 # ARDTT — архитектура
 
 Легенда имени и смыслов: [LEGEND.md](LEGEND.md).  
-**ARDTT** = Amnezia + RAW Dial via TURN (черновики: nonameVPN → AWDTT; **W** в WDTT = WireGuard, у нас Path B = RAW).
+**ARDTT** = Amnezia + RAW Dial via TURN (черновики: nonameVPN → AWDTT).  
+Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DTLS); см. [LEGEND.md](LEGEND.md).
 
 Клиентский VPN с двумя путями до своего VPS:
 
@@ -177,7 +178,7 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 
 ## Нагрузка Path B (workers)
 
-Слепой `workers=1` сильно режет скорость (WDTT RAW как раз от параллельных каналов).
+Слепой `workers=1` сильно режет скорость (RAW Path B как раз от параллельных каналов).
 
 **Зафиксировано (подтверждено):**
 
