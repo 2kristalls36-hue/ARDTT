@@ -167,12 +167,14 @@ fun TunnelScreen(
     }
 
     val connected = ui.state == ConnState.Connected
+    val pausedTrusted = ui.state == ConnState.PausedTrustedWifi
     val connecting = ui.state == ConnState.Connecting
+    val sessionUp = connected || pausedTrusted
     val busy = ui.state == ConnState.Probing || connecting || ui.state == ConnState.Disconnecting
 
     val buttonColor by animateColorAsState(
         targetValue = when {
-            connected -> MaterialTheme.colorScheme.error
+            sessionUp -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.primary
         },
         animationSpec = tween(400),
@@ -212,7 +214,7 @@ fun TunnelScreen(
             if (profile == null) {
                 Button(
                     onClick = { launchFilePicker() },
-                    enabled = !importBusy && !connected,
+                    enabled = !importBusy && !sessionUp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -227,7 +229,7 @@ fun TunnelScreen(
                 }
                 OutlinedButton(
                     onClick = { showImport = true },
-                    enabled = !importBusy && !connected,
+                    enabled = !importBusy && !sessionUp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(44.dp),
@@ -263,7 +265,7 @@ fun TunnelScreen(
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = when {
-                    connected -> NvpnColors.connected
+                    connected || pausedTrusted -> NvpnColors.connected
                     ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurface
                 },
@@ -275,6 +277,7 @@ fun TunnelScreen(
                     ConnState.Ready -> "Готово к подключению"
                     ConnState.Connecting -> "Подключение…"
                     ConnState.Connected -> pathStatus(ui.activePath)
+                    ConnState.PausedTrustedWifi -> "Пауза · доверенная Wi‑Fi"
                     ConnState.Disconnecting -> "Отключение…"
                     ConnState.Error -> "Ошибка"
                 },
@@ -309,7 +312,7 @@ fun TunnelScreen(
             ) {
                 OutlinedButton(
                     onClick = { conn.startInitialProbe() },
-                    enabled = !busy && !connected,
+                    enabled = !busy && !sessionUp,
                     modifier = Modifier.height(56.dp),
                     shape = RoundedCornerShape(18.dp),
                 ) {
@@ -317,9 +320,9 @@ fun TunnelScreen(
                 }
                 Button(
                     onClick = {
-                        if (connected) conn.disconnect() else onRequestConnect()
+                        if (sessionUp) conn.disconnect() else onRequestConnect()
                     },
-                    enabled = !busy && (connected || ui.connectEnabled),
+                    enabled = !busy && (sessionUp || ui.connectEnabled),
                     modifier = Modifier
                         .weight(1f)
                         .height(56.dp),
@@ -330,14 +333,15 @@ fun TunnelScreen(
                     ),
                 ) {
                     Icon(
-                        imageVector = if (connected) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
+                        imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
                         contentDescription = null,
                         modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = when {
-                            connected -> "Остановить"
+                            sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
+                            sessionUp -> "Остановить"
                             connecting -> "Подключение…"
                             ui.state == ConnState.Probing -> "Проверка…"
                             else -> "Подключить"

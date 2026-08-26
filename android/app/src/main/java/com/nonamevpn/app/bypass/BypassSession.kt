@@ -4,6 +4,7 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.nonamevpn.app.core.AppLog
+import com.nonamevpn.app.core.TransportHealth
 import com.nonamevpn.app.profile.VpnProfile
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
@@ -54,6 +55,7 @@ class BypassSession {
     ) {
         stop()
         running.set(true)
+        TransportHealth.noteBackendStarted()
         job = scope.launch {
             try {
                 setPhase(BypassPhase.Dialing, onPhase)
@@ -86,6 +88,7 @@ class BypassSession {
                         if (!rawReady.isCompleted) rawReady.complete(conf)
                     },
                     onLog = { line ->
+                        TransportHealth.onLogLine(line)
                         AppLog.i("go_client", line.take(300))
                         when {
                             line.contains("[VKCalls]") || line.contains("[VK Auth]") ->
@@ -153,6 +156,7 @@ class BypassSession {
         go = null
         runCatching { tun?.close() }
         tun = null
+        TransportHealth.noteBackendStopped()
     }
 
     private fun setPhase(p: BypassPhase, onPhase: (BypassPhase) -> Unit) {

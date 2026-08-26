@@ -4,7 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -12,10 +15,12 @@ import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.nonamevpn.app.MainActivity
 import com.nonamevpn.app.R
+import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.tunnel.BypassBackend
 import com.nonamevpn.app.tunnel.DirectBackend
 import com.nonamevpn.app.tunnel.TunEstablisher
@@ -32,11 +37,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Single VpnService for Path A (AWG) and Path B (RAW/WRAP). Backends are mutually exclusive.
+ * Single VpnService for Path A (AWG) and Path B (RAW/WRAP).
  *
- * Soft reconnect (WDTT-Plus style): on underlying Wi‑Fi/LTE handover, restart the
- * transport backend without requiring the user to tap Stop/Connect. The VPN
- * service stays foreground; only Direct/Bypass backends are recycled.
+ * Resilience (WDTT-Plus style):
+ * - Soft reconnect on Wi‑Fi/LTE handover
+ * - Wake-from-Doze rescue after SCREEN_ON
+ * - Path B zero-workers / dead-process watchdog
+ * - Trusted Wi‑Fi pause/resume
  */
 class VpnTunnelService : VpnService(), TunEstablisher {
 
@@ -61,28 +68,46 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var softRestartCount = 0
     private val recoveryPolicy = transportRecoveryPolicy()
 
+    private var screenReceiver: BroadcastReceiver? = null
+    @Volatile private var wakeRescueJob: Job? = null
+    @Volatile private var wakeRecoveryGraceUntilMs = 0L
+    @Volatile private var watchdogJob: Job? = null
+    @Volatile private var zeroWorkersSinceMs = 0L
+    @Volatile private var processDeadSinceMs = 0L
+
+    @Volatile private var trustedWifiWaiting = false
+    @Volatile private var trustedWifiWaitingSsid = ""
+    @Volatile private var trustedWifiEvalJob: Job? = null
+    private val settingsRepo by lazy { AppSettingsRepository(applicationContext) }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
                 userStopRequested = true
-                cancelNetworkReconnect()
-                stopSession()
+                trustedWifiWaiting = false
+                cancelAllRecovery()
+                stopSession(keepService = false)
                 ConnectionManager.getOrNull()?.onServiceStopped()
                 stopSelf()
                 return START_NOT_STICKY
             }
             ACTION_RESTART_TRANSPORT -> {
-                if (tunnelSessionActive && !userStopRequested) {
-                    requestSoftRestart(
-                        reason = intent.getStringExtra(EXTRA_RESTART_REASON)
-                            ?: "Запрошено переподключение транспорта",
-                        force = true,
-                    )
+                if ((tunnelSessionActive || trustedWifiWaiting) && !userStopRequested) {
+                    if (trustedWifiWaiting) {
+                        resumeFromTrustedWifi("manual restart")
+                    } else {
+                        requestSoftRestart(
+                            reason = intent.getStringExtra(EXTRA_RESTART_REASON)
+                                ?: "Запрошено переподключение транспорта",
+                            force = true,
+                        )
+                    }
                 }
                 return START_STICKY
             }
             ACTION_START, null -> {
                 userStopRequested = false
+                trustedWifiWaiting = false
                 startSession()
             }
         }
@@ -99,8 +124,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
         tunnelSessionActive = true
         softRestartInProgress = false
+        TransportHealth.reset()
         setupNetworkCallback()
+        registerScreenReceiver()
+        startWatchdog()
         launchBackend(path, softRestart = false)
+        scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
     }
 
     private fun launchBackend(path: VpnPath, softRestart: Boolean) {
@@ -119,6 +148,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         backend = null
         runCatching { tun?.close() }
         tun = null
+        TransportHealth.noteBackendStarted()
 
         val chosen: TunnelBackend = when (path) {
             VpnPath.Direct -> DirectBackend()
@@ -138,7 +168,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         AppLog.e(TAG, "TUN establish failed")
                         softRestartInProgress = false
                         ConnectionManager.getOrNull()?.onTunnelFailed("Не удалось создать TUN (отклонён VPN?)")
-                        if (!softRestart) stopSelf()
+                        if (!softRestart && !trustedWifiWaiting) stopSelf()
                     } else {
                         AppLog.i(TAG, "TUN ok ip=$address mtu=$mtu soft=$softRestart")
                     }
@@ -160,12 +190,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         is TunnelBackendState.Running -> {
                             AppLog.i(TAG, "Running path=$path")
                             softRestartInProgress = false
+                            tunnelSessionActive = true
+                            TransportHealth.backendAlive = true
                             ConnectionManager.getOrNull()?.onTunnelRunning(path)
                             updateNotification(path, getString(R.string.notif_running))
+                            scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
                         }
                         is TunnelBackendState.Failed -> {
-                            if (userStopRequested) {
-                                AppLog.w(TAG, "Ignoring failure after user stop: ${state.message}")
+                            if (userStopRequested || trustedWifiWaiting) {
+                                AppLog.w(TAG, "Ignoring failure after stop/pause: ${state.message}")
                                 return@start
                             }
                             AppLog.e(TAG, "Failed: ${state.message}")
@@ -184,7 +217,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     AppLog.i(TAG, "session cancelled (normal stop/restart)")
                     throw t
                 }
-                if (epoch != backendEpoch || userStopRequested) {
+                if (epoch != backendEpoch || userStopRequested || trustedWifiWaiting) {
                     AppLog.w(TAG, "Ignoring crash from stale/stop backend: ${t.message}")
                     return@launch
                 }
@@ -196,12 +229,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
     }
 
-    /**
-     * Soft transport restart — keep VpnService / foreground, recycle backend.
-     * Mirrors WDTT-Plus [TunnelManager.restartTransport].
-     */
     private fun requestSoftRestart(reason: String, force: Boolean = false) {
-        if (!tunnelSessionActive || userStopRequested) return
+        if ((!tunnelSessionActive && !trustedWifiWaiting) || userStopRequested || trustedWifiWaiting) {
+            return
+        }
         val now = System.currentTimeMillis()
         if (
             !shouldAttemptSoftRestartNow(
@@ -218,6 +249,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         lastSoftRestartAtMs = now
         softRestartCount++
         softRestartInProgress = true
+        wakeRecoveryGraceUntilMs = now + WAKE_RECOVERY_GRACE_MS
+        zeroWorkersSinceMs = 0L
+        processDeadSinceMs = 0L
         val path = TunnelSessionHolder.config?.path ?: return
         AppLog.i(TAG, "soft restart #$softRestartCount: $reason")
         ConnectionManager.getOrNull()?.onTransportRestarting(reason)
@@ -226,13 +260,213 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeJob?.cancel()
         networkChangeJob = scope.launch {
             delay(recoveryPolicy.processRestartDelayMs)
-            if (!tunnelSessionActive || userStopRequested) {
+            if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) {
                 softRestartInProgress = false
                 return@launch
             }
             launchBackend(path, softRestart = true)
         }
     }
+
+    // ── Screen / Doze wake rescue ───────────────────────────────────────────
+
+    private fun registerScreenReceiver() {
+        if (screenReceiver != null) return
+        screenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_ON -> {
+                        AppLog.i(TAG, "SCREEN_ON — schedule wake rescue")
+                        wakeRecoveryGraceUntilMs = System.currentTimeMillis() + WAKE_RECOVERY_GRACE_MS
+                        scheduleWakeRescueCheck()
+                    }
+                    Intent.ACTION_SCREEN_OFF -> {
+                        wakeRescueJob?.cancel()
+                        wakeRescueJob = null
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(screenReceiver, filter)
+        }
+    }
+
+    private fun unregisterScreenReceiver() {
+        screenReceiver?.let { runCatching { unregisterReceiver(it) } }
+        screenReceiver = null
+        wakeRescueJob?.cancel()
+        wakeRescueJob = null
+    }
+
+    private fun isDeviceInteractive(): Boolean {
+        val pm = getSystemService(POWER_SERVICE) as? PowerManager ?: return true
+        return pm.isInteractive
+    }
+
+    private fun scheduleWakeRescueCheck() {
+        if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) return
+        val wakeStartedAt = System.currentTimeMillis()
+        wakeRescueJob?.cancel()
+        wakeRescueJob = scope.launch {
+            delay(WAKE_RESCUE_GRACE_MS)
+            if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) return@launch
+            val path = TunnelSessionHolder.config?.path ?: return@launch
+            val fresh = TransportHealth.hasFreshStatsSince(wakeStartedAt)
+            val should = shouldReconnectTunnelAfterWake(
+                activeWorkers = TransportHealth.activeWorkers,
+                hasFreshStatsSinceWake = fresh,
+                bypassPath = path == VpnPath.Bypass,
+                backendAlive = sessionJob?.isActive == true || TransportHealth.backendAlive,
+            )
+            if (should) {
+                AppLog.i(TAG, "wake rescue → soft restart workers=${TransportHealth.activeWorkers}")
+                updateNotification(path, "Восстановление после сна…")
+                requestSoftRestart(
+                    reason = "[СОН] После пробуждения нет рабочих каналов. Мягко переподключаем транспорт.",
+                    force = true,
+                )
+            } else {
+                AppLog.i(TAG, "wake rescue: transport looks healthy")
+            }
+        }
+    }
+
+    // ── Zero-workers / process watchdog ─────────────────────────────────────
+
+    private fun startWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
+            delay(10_000L)
+            while (true) {
+                delay(WATCHDOG_POLL_MS)
+                if (userStopRequested || trustedWifiWaiting) continue
+                if (
+                    !shouldObserveTunnelHealth(
+                        deviceInteractive = isDeviceInteractive(),
+                        wakeRecoveryGraceActive = System.currentTimeMillis() < wakeRecoveryGraceUntilMs,
+                        trustedWifiWaiting = trustedWifiWaiting,
+                        softRestartInProgress = softRestartInProgress,
+                    )
+                ) {
+                    continue
+                }
+                if (!tunnelSessionActive) continue
+                val path = TunnelSessionHolder.config?.path ?: continue
+                val now = System.currentTimeMillis()
+                val jobAlive = sessionJob?.isActive == true
+                if (!jobAlive) {
+                    if (processDeadSinceMs == 0L) processDeadSinceMs = now
+                    if (now - processDeadSinceMs >= PROCESS_DEAD_GRACE_MS) {
+                        AppLog.w(TAG, "watchdog: backend job dead → soft restart")
+                        requestSoftRestart(reason = "[ЗДОРОВЬЕ] Процесс туннеля не отвечает", force = false)
+                        processDeadSinceMs = 0L
+                    }
+                    continue
+                } else {
+                    processDeadSinceMs = 0L
+                }
+                if (path != VpnPath.Bypass) continue
+                val workers = TransportHealth.activeWorkers
+                if (workers <= 0) {
+                    if (zeroWorkersSinceMs == 0L) zeroWorkersSinceMs = now
+                    if (
+                        shouldSoftRestartForZeroWorkers(
+                            activeWorkers = workers,
+                            zeroSinceMs = zeroWorkersSinceMs,
+                            nowMs = now,
+                        )
+                    ) {
+                        AppLog.w(TAG, "watchdog: zero workers for ${now - zeroWorkersSinceMs}ms")
+                        requestSoftRestart(
+                            reason = "[ЗДОРОВЬЕ] Нет активных TURN-воркеров — переподключаем обход",
+                            force = false,
+                        )
+                        zeroWorkersSinceMs = 0L
+                    }
+                } else {
+                    zeroWorkersSinceMs = 0L
+                }
+            }
+        }
+    }
+
+    // ── Trusted Wi‑Fi ───────────────────────────────────────────────────────
+
+    private fun scheduleTrustedWifiEvaluation(delayMs: Long) {
+        trustedWifiEvalJob?.cancel()
+        trustedWifiEvalJob = scope.launch {
+            delay(delayMs)
+            evaluateTrustedWifi()
+        }
+    }
+
+    private suspend fun evaluateTrustedWifi() {
+        if (userStopRequested) return
+        val (enabled, ssids) = runCatching { settingsRepo.trustedWifiSnapshot() }
+            .getOrDefault(false to emptySet())
+        val wifi = readConnectedWifiState(this)
+        val transition = decideTrustedWifiTransition(
+            enabled = enabled,
+            tunnelRunning = tunnelSessionActive && !softRestartInProgress,
+            waiting = trustedWifiWaiting,
+            wifi = wifi,
+            trustedSsids = ssids,
+        )
+        when (transition) {
+            TrustedWifiTransition.EnterWaiting -> {
+                val ssid = wifi.ssid.ifBlank { "доверенная Wi‑Fi" }
+                AppLog.i(TAG, "trusted wifi enter waiting ssid=$ssid")
+                enterTrustedWifiWaiting(ssid)
+            }
+            TrustedWifiTransition.ResumeVpn -> {
+                AppLog.i(TAG, "trusted wifi resume")
+                resumeFromTrustedWifi("left trusted wifi")
+            }
+            TrustedWifiTransition.None -> Unit
+        }
+    }
+
+    private fun enterTrustedWifiWaiting(ssid: String) {
+        if (trustedWifiWaiting) return
+        trustedWifiWaiting = true
+        trustedWifiWaitingSsid = ssid
+        tunnelSessionActive = false
+        softRestartInProgress = false
+        ++backendEpoch
+        sessionJob?.cancel()
+        sessionJob = null
+        backend?.stop()
+        backend = null
+        runCatching { tun?.close() }
+        tun = null
+        TransportHealth.noteBackendStopped()
+        ConnectionManager.getOrNull()?.onTrustedWifiWaiting(ssid)
+        val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
+        updateNotification(path, "VPN выключен в «$ssid» · ожидание выхода")
+        startForeground(NOTIF_ID, buildNotification(path, "VPN выключен в «$ssid» · ожидание выхода"))
+    }
+
+    private fun resumeFromTrustedWifi(reason: String) {
+        if (!trustedWifiWaiting) return
+        trustedWifiWaiting = false
+        trustedWifiWaitingSsid = ""
+        val path = TunnelSessionHolder.config?.path ?: return
+        AppLog.i(TAG, "resume from trusted wifi: $reason")
+        ConnectionManager.getOrNull()?.onTrustedWifiResuming()
+        tunnelSessionActive = true
+        updateNotification(path, "Подключение…")
+        launchBackend(path, softRestart = true)
+    }
+
+    // ── NetworkCallback (handover) ──────────────────────────────────────────
 
     private fun setupNetworkCallback() {
         if (networkCallback != null) return
@@ -245,6 +479,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 activeNetworks.add(network)
+                if (trustedWifiWaiting) {
+                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
+                }
                 if (
                     shouldScheduleAvailableNetworkHandover(
                         previousNetworkWasLost = stableNetworkWasLost,
@@ -260,6 +497,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             override fun onLost(network: Network) {
                 val networkLostAt = System.currentTimeMillis()
                 activeNetworks.remove(network)
+                if (trustedWifiWaiting) {
+                    scheduleTrustedWifiEvaluation(0L)
+                }
                 val lostId = network.networkHandle
                 val lostCurrentValidated = lastValidatedNetworkId == lostId
                 val lostPreviousHandover = handoverPreviousNetworkId == lostId
@@ -269,7 +509,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val shouldTrack = shouldTrackUnderlyingNetworkLoss(
                     tunnelRunning = tunnelSessionActive,
                     userStopRequested = userStopRequested,
-                )
+                ) && !trustedWifiWaiting
                 if (lostCurrentValidated || lostPreviousHandover) {
                     stableNetworkWasLost = shouldTrack
                 }
@@ -294,6 +534,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                val wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                if (wifi || trustedWifiWaiting) {
+                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
+                }
                 val usable =
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
@@ -321,7 +565,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
         }
 
-        // Only real (non-VPN) internet networks — same filter as WDTT-Plus.
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
@@ -335,6 +578,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         previousNetworkId: Long? = null,
         evidenceSinceMs: Long = System.currentTimeMillis(),
     ) {
+        if (trustedWifiWaiting) return
         if (
             !shouldTrackUnderlyingNetworkLoss(
                 tunnelRunning = tunnelSessionActive,
@@ -384,11 +628,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
     }
 
-    private fun cancelNetworkReconnect() {
+    private fun cancelAllRecovery() {
         networkChangeJob?.cancel()
         networkChangeJob = null
         stableNetworkReconnectPending = false
         softRestartInProgress = false
+        trustedWifiEvalJob?.cancel()
+        watchdogJob?.cancel()
+        watchdogJob = null
+        unregisterScreenReceiver()
         teardownNetworkCallback()
     }
 
@@ -411,7 +659,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         dnsCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { d ->
             runCatching { builder.addDnsServer(d) }
         }
-        // Keep our process (incl. libclient.so) off the VPN so TURN/TCP dial works.
         runCatching { builder.addDisallowedApplication(packageName) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
@@ -423,21 +670,27 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         return pfd
     }
 
-    private fun stopSession() {
+    private fun stopSession(keepService: Boolean) {
         tunnelSessionActive = false
-        cancelNetworkReconnect()
+        if (!keepService) {
+            cancelAllRecovery()
+        }
         sessionJob?.cancel()
         sessionJob = null
         backend?.stop()
         backend = null
         runCatching { tun?.close() }
         tun = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        TransportHealth.noteBackendStopped()
+        if (!keepService) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
     }
 
     override fun onDestroy() {
         userStopRequested = true
-        stopSession()
+        trustedWifiWaiting = false
+        stopSession(keepService = false)
         scope.cancel()
         ConnectionManager.getOrNull()?.onServiceStopped()
         super.onDestroy()
@@ -466,9 +719,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val title = when (path) {
-            VpnPath.Direct -> getString(R.string.notif_direct)
-            VpnPath.Bypass -> getString(R.string.notif_bypass)
+        val title = when {
+            trustedWifiWaiting -> "nonameVPN · доверенная сеть"
+            path == VpnPath.Direct -> getString(R.string.notif_direct)
+            else -> getString(R.string.notif_bypass)
         }
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle(title)

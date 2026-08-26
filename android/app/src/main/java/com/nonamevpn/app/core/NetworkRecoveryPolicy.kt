@@ -84,3 +84,49 @@ fun shouldAttemptSoftRestartNow(
     val cooldown = softRestartCooldownMs(minIntervalMs, softRestartCount)
     return nowMs - lastSoftRestartAtMs >= cooldown
 }
+
+/** Delay after SCREEN_ON before deciding whether to soft-restart. */
+const val WAKE_RESCUE_GRACE_MS = 60_000L
+
+/** Suppress zero-worker watchdog briefly after wake / soft restart. */
+const val WAKE_RECOVERY_GRACE_MS = 90_000L
+
+/** Path B: soft-restart if Активных stays 0 this long while screen is on. */
+const val ZERO_WORKERS_GRACE_MS = 5 * 60_000L
+
+/** Soft-restart if backend process/job is dead this long. */
+const val PROCESS_DEAD_GRACE_MS = 60_000L
+
+const val WATCHDOG_POLL_MS = 5_000L
+
+const val TRUSTED_WIFI_ENTER_DELAY_MS = 2_000L
+const val TRUSTED_WIFI_EXIT_DELAY_MS = 5_000L
+
+fun shouldReconnectTunnelAfterWake(
+    activeWorkers: Int,
+    hasFreshStatsSinceWake: Boolean,
+    bypassPath: Boolean,
+    backendAlive: Boolean,
+): Boolean {
+    if (!bypassPath) return !backendAlive
+    if (hasFreshStatsSinceWake) return false
+    return activeWorkers <= 0 || !backendAlive
+}
+
+fun shouldObserveTunnelHealth(
+    deviceInteractive: Boolean,
+    wakeRecoveryGraceActive: Boolean,
+    trustedWifiWaiting: Boolean,
+    softRestartInProgress: Boolean,
+): Boolean =
+    deviceInteractive &&
+        !wakeRecoveryGraceActive &&
+        !trustedWifiWaiting &&
+        !softRestartInProgress
+
+fun shouldSoftRestartForZeroWorkers(
+    activeWorkers: Int,
+    zeroSinceMs: Long,
+    nowMs: Long,
+    graceMs: Long = ZERO_WORKERS_GRACE_MS,
+): Boolean = activeWorkers <= 0 && zeroSinceMs > 0L && nowMs - zeroSinceMs >= graceMs
