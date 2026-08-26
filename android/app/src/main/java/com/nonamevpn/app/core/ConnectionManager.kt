@@ -9,6 +9,7 @@ import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.tunnel.TunnelSessionConfig
 import com.nonamevpn.app.tunnel.TunnelSessionHolder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,6 +50,7 @@ class ConnectionManager(
     private val hashStore = CallHashStore(appContext)
 
     private var probeJob: Job? = null
+    private var connectJob: Job? = null
     private var profile: VpnProfile? = null
     private var directEndpoint: String? = null
     private var provisionUrl: String? = null
@@ -126,6 +128,14 @@ class ConnectionManager(
     }
 
     fun startInitialProbe() {
+        val busy =
+            _ui.value.state == ConnState.Connecting ||
+                _ui.value.state == ConnState.Connected ||
+                _ui.value.state == ConnState.Disconnecting
+        if (busy) {
+            AppLog.w(TAG, "Probe skipped — tunnel busy (${_ui.value.state})")
+            return
+        }
         probeJob?.cancel()
         probeJob = scope.launch {
             AppLog.i(TAG, "Probe start endpoint=$directEndpoint provision=$provisionUrl")
@@ -142,15 +152,20 @@ class ConnectionManager(
                 "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
                     "udp=${result.vpsUdpOk} health=${result.provisionOk} ${result.elapsedMs}ms",
             )
+            // Don't clobber an in-flight Connect started while we probed.
+            if (_ui.value.state == ConnState.Connecting || _ui.value.state == ConnState.Connected) {
+                AppLog.w(TAG, "Probe result ignored — already connecting/connected")
+                return@launch
+            }
             applyProbe(result)
         }
     }
 
     fun connect() {
         val current = _ui.value
-        val path = current.probe?.preselectedPath
-        if (path == null || current.state == ConnState.Probing || current.state == ConnState.Connecting) {
-            AppLog.w(TAG, "Connect ignored (state=${current.state} path=$path)")
+        val preferred = current.probe?.preselectedPath
+        if (preferred == null || current.state == ConnState.Probing || current.state == ConnState.Connecting) {
+            AppLog.w(TAG, "Connect ignored (state=${current.state} path=$preferred)")
             return
         }
         if (current.state == ConnState.Connected) return
@@ -161,22 +176,37 @@ class ConnectionManager(
             _ui.value = current.copy(hideIp = false)
         }
 
-        scope.launch {
+        connectJob?.cancel()
+        connectJob = scope.launch {
             try {
                 val snap = _ui.value
-                AppLog.i(TAG, "Connect requested preferred=$path")
+                val lastGood = snap.probe
+                AppLog.i(TAG, "Connect requested preferred=$preferred")
                 _ui.value = snap.copy(
                     state = ConnState.Connecting,
-                    statusText = "Подключение (${pathLabel(path)})…",
+                    statusText = "Подключение (${pathLabel(preferred)})…",
                     connectEnabled = false,
                     lastError = null,
                 )
-                val fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
+                // Soft re-probe: confirm network, but do not downgrade a recent DirectOk
+                // to Bypass on a single flaky /health miss (seen on phone ~2s probes).
+                var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
+                if (
+                    preferred == VpnPath.Direct &&
+                    lastGood?.networkClass == NetworkClass.DirectOk &&
+                    fresh.preselectedPath == VpnPath.Bypass &&
+                    !fresh.provisionOk
+                ) {
+                    AppLog.w(TAG, "Connect re-probe flaked health — retry once")
+                    fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
+                }
+                val usePath = resolveConnectPath(preferred, lastGood, fresh)
                 AppLog.i(
                     TAG,
-                    "Connect re-probe path=${fresh.preselectedPath} health=${fresh.provisionOk} udp=${fresh.vpsUdpOk}",
+                    "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
+                        "health=${fresh.provisionOk} udp=${fresh.vpsUdpOk}",
                 )
-                if (fresh.preselectedPath == null) {
+                if (usePath == null) {
                     applyProbe(fresh)
                     _ui.value = _ui.value.copy(
                         state = ConnState.Error,
@@ -186,7 +216,6 @@ class ConnectionManager(
                     AppLog.e(TAG, "Connect aborted: ${fresh.message}")
                     return@launch
                 }
-                val usePath = fresh.preselectedPath
                 if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
                     AppLog.e(TAG, "Profile uses documentation IP (demo) — import real smoke JSON")
                     _ui.value = _ui.value.copy(
@@ -226,11 +255,24 @@ class ConnectionManager(
                 _ui.value = _ui.value.copy(
                     state = ConnState.Connecting,
                     activePath = usePath,
-                    probe = fresh,
-                    softInfo = softInfoFor(fresh),
+                    probe = if (usePath == VpnPath.Direct && fresh.preselectedPath != VpnPath.Direct) {
+                        lastGood ?: fresh
+                    } else {
+                        fresh
+                    },
+                    softInfo = softInfoFor(
+                        if (usePath == VpnPath.Direct && fresh.preselectedPath != VpnPath.Direct) {
+                            lastGood ?: fresh
+                        } else {
+                            fresh
+                        },
+                    ),
                     statusText = "Запуск туннеля (${pathLabel(usePath)})…",
                     connectEnabled = false,
                 )
+            } catch (t: CancellationException) {
+                AppLog.i(TAG, "Connect cancelled")
+                throw t
             } catch (t: Throwable) {
                 AppLog.e(TAG, "Connect crash: ${t.message ?: t.javaClass.simpleName}")
                 _ui.value = _ui.value.copy(
@@ -239,6 +281,31 @@ class ConnectionManager(
                     connectEnabled = true,
                 )
             }
+        }
+    }
+
+    /**
+     * Stick to a recent DirectOk when Connect re-probe briefly loses /health
+     * (OpenNeedBypass) — otherwise we bounce to Bypass and fail without call hash.
+     */
+    private fun resolveConnectPath(
+        preferred: VpnPath,
+        lastGood: ProbeResult?,
+        fresh: ProbeResult,
+    ): VpnPath? {
+        val freshPath = fresh.preselectedPath
+        if (freshPath == VpnPath.Direct) return VpnPath.Direct
+        if (
+            preferred == VpnPath.Direct &&
+            lastGood?.networkClass == NetworkClass.DirectOk &&
+            (lastGood.provisionOk || lastGood.vpsUdpOk) &&
+            freshPath == VpnPath.Bypass
+        ) {
+            AppLog.w(TAG, "Keeping Direct despite flaky re-probe (last health=${lastGood.provisionOk})")
+            return VpnPath.Direct
+        }
+        return freshPath ?: preferred.takeIf {
+            lastGood?.networkClass == NetworkClass.DirectOk || lastGood?.preselectedPath != null
         }
     }
 
@@ -254,11 +321,14 @@ class ConnectionManager(
 
     fun disconnect() {
         if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
+        connectJob?.cancel()
+        connectJob = null
         scope.launch {
             _ui.value = _ui.value.copy(
                 state = ConnState.Disconnecting,
                 statusText = "Отключение…",
                 connectEnabled = false,
+                lastError = null,
             )
             stopTunnel()
             _ui.value = _ui.value.copy(
@@ -267,6 +337,7 @@ class ConnectionManager(
                 statusText = _ui.value.probe?.message ?: "Готово",
                 softInfo = softInfoFor(_ui.value.probe),
                 connectEnabled = _ui.value.probe?.preselectedPath != null,
+                lastError = null,
             )
         }
     }
@@ -291,7 +362,19 @@ class ConnectionManager(
     }
 
     fun onTunnelFailed(message: String) {
+        // Ignore cancel noise if UI already left the tunnel (Stop / reconnect).
+        if (
+            message.contains("cancelled", ignoreCase = true) ||
+            message.contains("StandaloneCoroutine", ignoreCase = true)
+        ) {
+            AppLog.w(TAG, "Ignoring cancel as tunnel failure: $message")
+            return
+        }
         scope.launch {
+            if (_ui.value.state == ConnState.Disconnecting || _ui.value.state == ConnState.Ready) {
+                AppLog.w(TAG, "Ignoring late tunnel failure in ${_ui.value.state}: $message")
+                return@launch
+            }
             stopTunnel()
             _ui.value = _ui.value.copy(
                 state = ConnState.Error,
