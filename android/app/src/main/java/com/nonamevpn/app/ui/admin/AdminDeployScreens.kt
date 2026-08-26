@@ -98,7 +98,7 @@ fun DeployScreen(
     ) {
         Text("Деплой", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Установка Compose-стека nonameVPN на VPS по SSH (Docker, provision/direct/bypass/warp).",
+            "Установка Compose-стека AWDTT на VPS по SSH (Docker, provision/direct/bypass/warp).",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )

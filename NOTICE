@@ -1,5 +1,7 @@
-nonameVPN
-==========
+AWDTT (Amnezia + WDTT)
+======================
+
+Formerly referred to in early drafts as "nonameVPN". Product name is **AWDTT**.
 
 This product combines code and ideas from multiple upstream projects.
 Copyright notices in individual source files take precedence where present.
@@ -35,7 +37,7 @@ under the GNU General Public License v3.0.
 
 The server `bypass` image builds `wdtt-server` from vendored WDTT Server v2
 sources under `server/bypass/wdtt-server/` (GPL-3.0). A small subnet patch
-(`server/bypass/patches/raw-subnet.patch`) aligns the RAW TUN with nonameVPN
+(`server/bypass/patches/raw-subnet.patch`) aligns the RAW TUN with AWDTT
 `10.9.0.0/24`.
 
 The Android Path B client vendors `android/go_client/` (WDTT android-client /
@@ -66,7 +68,7 @@ here and/or in module manifests as they are vendored into the tree.
 Combined work
 ---------------------------------------------------------------------------
 
-The nonameVPN application and server packaging, as a combined work that
+The AWDTT application and server packaging, as a combined work that
 includes GPL-licensed bypass components, are distributed under the
 GNU General Public License, version 3 (see LICENSE).
 

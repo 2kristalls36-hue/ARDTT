@@ -9,4 +9,4 @@ Build Android `libclient.so`:
 ./scripts/build-bypass-client.sh
 ```
 
-**nonameVPN delta vs upstream:** `-n` workers honour 1–9 (no force to multiples of 9). See `main.go`.
+**nonameVPN / AWDTT delta vs upstream:** `-n` workers honour 1–9 (no force to multiples of 9). See `main.go`.
