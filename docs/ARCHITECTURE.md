@@ -150,11 +150,15 @@ Apps → VpnService TUN → raw IP → WRAP(RTP AEAD) → TURN →
 docker-compose.yml
 ┌─ direct (AWG 2.0) ──┐   ┌─ bypass (RAW/WRAP) ─┐
 │ network_mode: host  │   │ network_mode: host  │
-│ /dev/net/tun        │   │ /dev/net/tun        │
-│ awg0 + NAT          │   │ raw0 + NAT          │
-└─────────────────────┘   └─────────────────────┘
-         │ shared volume: /data (keys, passwords, issued profile)
-         └─ optional provision: собирает nvpn:// из обоих
+│ awg0  10.8.0.0/24   │   │ raw0  10.9.0.0/24   │
+│ NAT / MSS           │   │ NAT / MSS           │
+└─────────┬───────────┘   └─────────┬───────────┘
+          │     общая логика        │
+          └──────────┬──────────────┘
+                     ▼
+              /data + provision
+              user id → один host-octet
+              в обеих подсетях
 ```
 
 Плюсы:
@@ -163,9 +167,48 @@ docker-compose.yml
 - разные образы и теги версий;
 - проще healthcheck и лимиты CPU/RAM;
 - NAT/MSS-правила изолированы по контейнеру (при `host` сети — по цепочкам/комментариям с префиксом);
-- лицензии GPL (bypass) и остальное не склеены в один fat-image без нужды.
+- лицензии GPL (bypass) и остальное не склеены в один fat-image без нужды;
+- **единый учёт пользователей и зеркальные IP** (см. ниже).
 
 Минусы: чуть сложнее compose; оба обычно хотят `network_mode: host` + `NET_ADMIN` + `/dev/net/tun` (для VPN на VPS это норма).
+
+### Общая логика маршрутизации и IP
+
+Два контейнера, но **один реестр пользователей** (`/data/users.json` или sqlite). При создании клиента резервируется один `host_id` (например `5`), и из него считаются адреса в **разных подсетях**:
+
+| Path | Подсеть (пример) | Адрес клиента | Адрес шлюза на VPS |
+|------|------------------|---------------|--------------------|
+| direct (AWG) | `10.8.0.0/24` | `10.8.0.{id}/32` | `10.8.0.1` на `awg0` |
+| bypass (RAW) | `10.9.0.0/24` | `10.9.0.{id}/32` | `10.9.0.1` на `raw0` |
+
+Один и тот же пользователь → один и тот же хвост адреса (`.5` / `.5`), разный префикс. На клиенте в профиле оба `address`; активен только один TUN за раз, конфликтов нет.
+
+Зачем так:
+
+- failover не меняет «идентичность» клиента в логах/учёте (`host_id` стабилен);
+- ACL / kill-switch / per-user NAT на сервере пишутся один раз от `id`, применяются к обеим цепочкам;
+- provision выдаёт один `nvpn://` с согласованной парой адресов;
+- удаление пользователя освобождает `id` сразу в обоих контейнерах (через общий файл + SIGHUP/API reload).
+
+Кто владеет аллокацией: **только `provision`** (или скрипт create-user). Контейнеры `direct` и `bypass` — потребители: читают `/data`, поднимают peer/lease с уже выбранным IP. Не раздают адреса сами независимо.
+
+```
+create user "alice"
+  → allocate host_id=5
+  → write peer to direct:  AllowedIPs/Address 10.8.0.5
+  → write lease to bypass: Address 10.9.0.5
+  → emit nvpn profile (both blocks)
+  → reload direct + bypass
+```
+
+Маршрутизация на VPS (host net):
+
+- с `awg0`: трафик `10.8.0.0/24` → MASQUERADE в интернет;
+- с `raw0`: трафик `10.9.0.0/24` → MASQUERADE в интернет;
+- подсети **не пересекаются**, между собой не маршрутизируем (клиент не сидит на обоих path сразу);
+- опционально общий DNS/блоклисты по `host_id`.
+
+Подсети зафиксировать при install (по умолчанию `10.8.0.0/24` + `10.9.0.0/24`, или `10.66.0.0/24` + `10.67.0.0/24`). Менять потом — только с перевыпуском профилей.
 
 ### Вариант C — два контейнера в bridge + port-publish
 
@@ -187,14 +230,14 @@ docker-compose.yml
 ### Практическая схема MVP
 
 1. `docker compose up -d` на VPS (host network).
-2. `direct` поднимает AWG 2.0, пишет peer keys в `/data`.
-3. `bypass` поднимает `-listen-raw`, тот же password/device space из `/data`.
-4. Скрипт/сервис `provision` один раз (или API из Android SSH-deploy, как у qWDTT) отдаёт **один** `nvpn://` с обоими блоками.
-5. Firewall: открыть только UDP AWG + UDP raw-listen; TURN снаружи на VPS не слушает — клиент ходит на VK, VK уже на VPS.
+2. `provision` задаёт две подсети и пул `host_id`.
+3. `direct` / `bypass` читают `/data`, поднимают `awg0` / `raw0` + NAT.
+4. Создание пользователя → один `host_id` → адреса в обеих подсетях → один `nvpn://`.
+5. Firewall: UDP AWG + UDP raw-listen; TURN на VPS снаружи не слушает.
 
 ### Итог
 
-**Два контейнера в одном Compose + общий volume профилей.** Один контейнер — только если сознательно жертвуем изоляцией ради ультра-простого одного бинарного образа; для продукта с двумя path это хуже сопровождается.
+**Два контейнера + общий provision:** один `host_id` → зеркальный IP в двух подсетях, один `nvpn://`, раздельные процессы `direct`/`bypass`.
 
 ---
 
@@ -230,13 +273,14 @@ Connected* → Reconnecting → …
 {
   "name": "home-vps",
   "deviceId": "...",
+  "hostId": 5,
   "prefer": "direct",
   "direct": {
     "endpoint": "x.x.x.x:51820",
     "privateKey": "...",
     "peerPublicKey": "...",
     "presharedKey": "...",
-    "address": "10.8.0.2/32",
+    "address": "10.8.0.5/32",
     "dns": ["1.1.1.1"],
     "mtu": 1280,
     "awg": {
@@ -248,6 +292,7 @@ Connected* → Reconnecting → …
   },
   "bypass": {
     "peer": "x.x.x.x:56003",
+    "address": "10.9.0.5/32",
     "password": "...",
     "hashes": ["..."],
     "workers": 9,
@@ -257,7 +302,7 @@ Connected* → Reconnecting → …
 }
 ```
 
-`peer` — адрес VPS для `-listen-raw` (после TURN CreatePermission/ChannelBind). Отдельный DTLS-порт не нужен.
+`peer` — адрес VPS для `-listen-raw`. `hostId` общий; `direct.address` и `bypass.address` отличаются только префиксом подсети.
 
 Шаринг: `nvpn://...` / QR. Импорта `wdtt://` нет. Серверный deploy сам кладёт hash/password в профиль.
 
@@ -291,9 +336,9 @@ DTLS в Path B нет. Path A — только AWG 2.0.
 
 | Модуль | Роль |
 |--------|------|
-| compose service `direct` | AmneziaWG 2.0 |
-| compose service `bypass` | `-listen-raw` WRAP+TURN+RAW |
-| `provision` / shared `/data` | один `nvpn://` профиль |
+| compose service `direct` | AmneziaWG 2.0, подсеть A |
+| compose service `bypass` | `-listen-raw`, подсеть B |
+| `provision` + `/data` | `host_id` → IP в A и B, один `nvpn://` |
 
 ---
 
