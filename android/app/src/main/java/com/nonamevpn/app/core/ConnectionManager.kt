@@ -128,6 +128,7 @@ class ConnectionManager(
     fun startInitialProbe() {
         probeJob?.cancel()
         probeJob = scope.launch {
+            AppLog.i(TAG, "Probe start endpoint=$directEndpoint provision=$provisionUrl")
             _ui.value = _ui.value.copy(
                 state = ConnState.Probing,
                 statusText = "Определение сети…",
@@ -136,6 +137,11 @@ class ConnectionManager(
                 lastError = null,
             )
             val result = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
+            AppLog.i(
+                TAG,
+                "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
+                    "udp=${result.vpsUdpOk} health=${result.provisionOk} ${result.elapsedMs}ms",
+            )
             applyProbe(result)
         }
     }
@@ -144,55 +150,100 @@ class ConnectionManager(
         val current = _ui.value
         val path = current.probe?.preselectedPath
         if (path == null || current.state == ConnState.Probing || current.state == ConnState.Connecting) {
+            AppLog.w(TAG, "Connect ignored (state=${current.state} path=$path)")
             return
         }
         if (current.state == ConnState.Connected) return
+
+        // WARP stub: don't block forever — auto-off and continue.
         if (current.hideIp) {
-            reportUserError("«Скрыть IP» (WARP) пока не готов — выключите переключатель")
-            return
+            AppLog.w(TAG, "Hide-IP (WARP stub) was on — auto-off for Connect")
+            _ui.value = current.copy(hideIp = false)
         }
 
         scope.launch {
-            _ui.value = current.copy(
-                state = ConnState.Connecting,
-                statusText = "Подключение (${pathLabel(path)})…",
-                connectEnabled = false,
-            )
-            val fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
-            if (fresh.preselectedPath == null) {
-                applyProbe(fresh)
+            try {
+                val snap = _ui.value
+                AppLog.i(TAG, "Connect requested preferred=$path")
+                _ui.value = snap.copy(
+                    state = ConnState.Connecting,
+                    statusText = "Подключение (${pathLabel(path)})…",
+                    connectEnabled = false,
+                    lastError = null,
+                )
+                val fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
+                AppLog.i(
+                    TAG,
+                    "Connect re-probe path=${fresh.preselectedPath} health=${fresh.provisionOk} udp=${fresh.vpsUdpOk}",
+                )
+                if (fresh.preselectedPath == null) {
+                    applyProbe(fresh)
+                    _ui.value = _ui.value.copy(
+                        state = ConnState.Error,
+                        lastError = fresh.message,
+                        connectEnabled = false,
+                    )
+                    AppLog.e(TAG, "Connect aborted: ${fresh.message}")
+                    return@launch
+                }
+                val usePath = fresh.preselectedPath
+                if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
+                    AppLog.e(TAG, "Profile uses documentation IP (demo) — import real smoke JSON")
+                    _ui.value = _ui.value.copy(
+                        state = ConnState.Error,
+                        probe = fresh,
+                        lastError = "Профиль demo с фейковым IP (203.0.113.x). Импортируйте smoke JSON с VPS.",
+                        connectEnabled = true,
+                        softInfo = softInfoFor(fresh),
+                    )
+                    return@launch
+                }
+                if (usePath == VpnPath.Direct) {
+                    val d = profile?.direct
+                    if (d == null || d.privateKey.isBlank() || d.peerPublicKey.isBlank()) {
+                        AppLog.e(TAG, "Direct: missing AWG keys in profile")
+                        _ui.value = _ui.value.copy(
+                            state = ConnState.Error,
+                            lastError = "В профиле нет ключей AWG — нужен JSON с provision/smoke",
+                            connectEnabled = true,
+                        )
+                        return@launch
+                    }
+                }
+                if (usePath == VpnPath.Bypass && callHashOrNull().isNullOrBlank()) {
+                    AppLog.e(TAG, "Bypass: call hash missing")
+                    _ui.value = _ui.value.copy(
+                        state = ConnState.Error,
+                        probe = fresh,
+                        lastError = "Для обхода нужен hash звонка (сохраните на этом телефоне)",
+                        connectEnabled = true,
+                        softInfo = softInfoFor(fresh),
+                    )
+                    return@launch
+                }
+                startTunnel(usePath)
+                AppLog.i(TAG, "VpnTunnelService start path=$usePath")
                 _ui.value = _ui.value.copy(
-                    state = ConnState.Error,
-                    lastError = fresh.message,
+                    state = ConnState.Connecting,
+                    activePath = usePath,
+                    probe = fresh,
+                    softInfo = softInfoFor(fresh),
+                    statusText = "Запуск туннеля (${pathLabel(usePath)})…",
                     connectEnabled = false,
                 )
-                return@launch
-            }
-            val usePath = fresh.preselectedPath
-            if (usePath == VpnPath.Bypass && callHashOrNull().isNullOrBlank()) {
+            } catch (t: Throwable) {
+                AppLog.e(TAG, "Connect crash: ${t.message ?: t.javaClass.simpleName}")
                 _ui.value = _ui.value.copy(
                     state = ConnState.Error,
-                    probe = fresh,
-                    lastError = "Для обхода нужен hash звонка (сохраните на этом телефоне)",
+                    lastError = t.message ?: "Сбой Connect",
                     connectEnabled = true,
-                    softInfo = softInfoFor(fresh),
                 )
-                return@launch
             }
-            startTunnel(usePath)
-            // Optimistic until backend reports Running/Failed
-            _ui.value = _ui.value.copy(
-                state = ConnState.Connecting,
-                activePath = usePath,
-                probe = fresh,
-                softInfo = softInfoFor(fresh),
-                statusText = "Запуск туннеля (${pathLabel(usePath)})…",
-                connectEnabled = false,
-            )
         }
     }
 
     fun reportUserError(message: String) {
+        AppLog.w(TAG, message)
         _ui.value = _ui.value.copy(
             state = ConnState.Error,
             lastError = message,
@@ -282,6 +333,9 @@ class ConnectionManager(
     private fun softInfoFor(result: ProbeResult?): String? {
         if (result == null) return null
         val parts = mutableListOf<String>()
+        if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
+            parts += "Сейчас demo-профиль с фейковым IP — импортируйте smoke JSON (159.194.225.162)."
+        }
         when (result.networkClass) {
             NetworkClass.OpenNeedBypass ->
                 parts += "Сеть открыта, но VPS health/UDP не подтвердили Direct — будет обход."
@@ -317,7 +371,7 @@ class ConnectionManager(
             path = path,
             profile = profile,
             tunAddress = addr,
-            hideIp = _ui.value.hideIp,
+            hideIp = false, // WARP stub — never pass hideIp into backends yet
             callHash = callHashOrNull(),
             workers = workers,
             silentRecreate = silentRecreate,
@@ -327,17 +381,23 @@ class ConnectionManager(
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_START
             putExtra(VpnTunnelService.EXTRA_PATH, path.name)
-            putExtra(VpnTunnelService.EXTRA_HIDE_IP, _ui.value.hideIp)
+            putExtra(VpnTunnelService.EXTRA_HIDE_IP, false)
             putExtra(VpnTunnelService.EXTRA_TUN_ADDRESS, addr)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            appContext.startForegroundService(intent)
-        } else {
-            appContext.startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                appContext.startForegroundService(intent)
+            } else {
+                appContext.startService(intent)
+            }
+        } catch (t: Throwable) {
+            AppLog.e(TAG, "startForegroundService failed: ${t.message}")
+            throw t
         }
     }
 
     private fun stopTunnel() {
+        AppLog.i(TAG, "Stop tunnel")
         TunnelSessionHolder.config = null
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_STOP
@@ -358,5 +418,15 @@ class ConnectionManager(
         }
 
         fun getOrNull(): ConnectionManager? = instance
+
+        /** RFC 5737 documentation / demo hosts — not routable. */
+        fun isDocumentationHost(endpoint: String?): Boolean {
+            val host = endpoint?.substringBefore(':')?.trim().orEmpty()
+            if (host.isEmpty()) return false
+            return host.startsWith("203.0.113.") ||
+                host.startsWith("198.51.100.") ||
+                host.startsWith("192.0.2.") ||
+                host.equals("example.com", ignoreCase = true)
+        }
     }
 }
