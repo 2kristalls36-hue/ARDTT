@@ -7,15 +7,25 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 - Parallel **NetworkProbe** + **ConnectionManager**
 - **VpnTunnelService** — один VpnService, бэкенды Direct / Bypass
 - Импорт профиля JSON (provision)
-- **Bypass scaffold:** `CallHashStore`, `AutoVkDialer`, `WrapCrypto`, `BypassSession`
+- **Path B (Bypass):** `libclient.so` (qWDTT go_client) — vkcalls → TURN TCP → WRAP → RAW; TUN после RAWCONF
+- **Bypass scaffold:** `CallHashStore`, dial policy, `WrapCrypto` (совместим с сервером)
 - **Админ-деплой:** SSH (JSch) → upload `stack.tar.gz` + `install.sh` → Docker Compose на VPS
 - Настройки: тихий recreate, экономика workers
 
 ## Ещё нет (следующий слой)
 
-- Native AmneziaWG GoBackend в DirectBackend
-- Реальный HTTP/TLS для vkcalls + TURN Allocate TCP + packet pump RAW
+- Native AmneziaWG GoBackend в DirectBackend (отдельный PR)
 - WebView для создания звонка / legacy captcha
+- Нативный WARP egress на VPS (сейчас stub)
+
+## Сборка native Path B
+
+```bash
+# Нужны ANDROID_HOME / NDK 27+ и Go 1.26+
+chmod +x scripts/build-bypass-client.sh
+./scripts/build-bypass-client.sh          # arm64-v8a + x86_64 → jniLibs/
+cd android && ./gradlew :app:assembleDebug
+```
 
 ## Деплой с телефона
 
