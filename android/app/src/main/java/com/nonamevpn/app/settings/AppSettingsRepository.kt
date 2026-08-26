@@ -20,6 +20,7 @@ class AppSettingsRepository(private val context: Context) {
     private val profileName = stringPreferencesKey("profile_name")
     private val silentRecreate = booleanPreferencesKey("silent_recreate")
     private val economyWorkers = booleanPreferencesKey("economy_workers")
+    private val dialPath = stringPreferencesKey("dial_path")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
@@ -27,6 +28,10 @@ class AppSettingsRepository(private val context: Context) {
     val currentProfileName: Flow<String> = context.dataStore.data.map { it[profileName] ?: "" }
     val silentRecreateEnabled: Flow<Boolean> = context.dataStore.data.map { it[silentRecreate] == true }
     val economyWorkersEnabled: Flow<Boolean> = context.dataStore.data.map { it[economyWorkers] == true }
+    /** `auto` | `vkcalls` | `legacy` — Path B TURN dial. */
+    val dialPathName: Flow<String> = context.dataStore.data.map {
+        normalizeDialPath(it[dialPath])
+    }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -42,6 +47,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setEconomyWorkers(enabled: Boolean) {
         context.dataStore.edit { it[economyWorkers] = enabled }
+    }
+
+    suspend fun setDialPath(name: String) {
+        context.dataStore.edit { it[dialPath] = normalizeDialPath(name) }
     }
 
     suspend fun setAdminPin(pin: String) {
@@ -74,5 +83,13 @@ class AppSettingsRepository(private val context: Context) {
     private fun sha256(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    companion object {
+        fun normalizeDialPath(raw: String?): String = when (raw?.lowercase()?.trim()) {
+            "vkcalls" -> "vkcalls"
+            "legacy" -> "legacy"
+            else -> "auto"
+        }
     }
 }

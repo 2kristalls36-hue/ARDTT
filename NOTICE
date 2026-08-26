@@ -39,6 +39,10 @@ The server `bypass` image builds `wdtt-server` from:
 A small subnet patch (`server/bypass/patches/raw-subnet.patch`) aligns the
 RAW TUN with nonameVPN `10.9.0.0/24`.
 
+The Android Path B client vendors `android/go_client/` (same upstream) and
+builds it as `libclient.so` via `scripts/build-bypass-client.sh`. A small
+patch allows `-n` workers of 1–9 without forcing multiples of 9.
+
 Copyright (c) WDTT / qWDTT contributors
 (see upstream repositories for full copyright lists).
 
@@ -48,6 +52,11 @@ See the LICENSE file in this repository.
 ---------------------------------------------------------------------------
 Other dependencies
 ---------------------------------------------------------------------------
+
+The Android module `android/tunnel/` vendors AmneziaWG userspace glue
+(`libwg-go` JNI + `org.amnezia.awg.GoBackend` stubs) from amneziawg-android
+(Apache-2.0). The shared library is built from upstream `amneziawg-go` at
+build time (see `android/tunnel/tools/libwg-go/go.mod`).
 
 Additional third-party libraries (Go modules, Android libraries, Cloudflare
 WARP-related tooling such as wireproxy / tun2socks / wgcf, etc.) will be listed

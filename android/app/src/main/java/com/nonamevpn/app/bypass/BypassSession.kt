@@ -1,13 +1,17 @@
 package com.nonamevpn.app.bypass
 
+import android.net.VpnService
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.nonamevpn.app.profile.VpnProfile
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 
 data class BypassConfig(
     val profile: VpnProfile,
@@ -29,69 +33,100 @@ sealed class BypassPhase {
 }
 
 /**
- * Path B session: dial → TURN TCP workers → WRAP AEAD ↔ RAW peer.
- * Tun FD I/O and TURN ChannelData land with native go_client; this class
- * owns lifecycle, WRAP key, and phase reporting for VpnTunnelService.
+ * Path B: launches qWDTT go_client (vkcalls → TURN TCP → WRAP → RAW),
+ * establishes VpnService TUN from RAWCONF, sends FD via [TunFdBridge].
  */
-class BypassSession(
-    private val dialer: VkDialer = AutoVkDialer(),
-) {
+class BypassSession {
     private val running = AtomicBoolean(false)
     private var job: Job? = null
+    private var go: BypassGoProcess? = null
+    private var tun: ParcelFileDescriptor? = null
     @Volatile var phase: BypassPhase = BypassPhase.Idle
         private set
-    @Volatile var wrapKey: ByteArray? = null
-        private set
-    @Volatile var lastCreds: TurnCredentials? = null
-        private set
 
-    fun start(scope: CoroutineScope, config: BypassConfig, onPhase: (BypassPhase) -> Unit) {
+    fun start(
+        scope: CoroutineScope,
+        service: VpnService,
+        config: BypassConfig,
+        establishTun: (ip: String, dnsCsv: String, mtu: Int) -> ParcelFileDescriptor?,
+        onPhase: (BypassPhase) -> Unit,
+    ) {
         stop()
         running.set(true)
         job = scope.launch {
             try {
                 setPhase(BypassPhase.Dialing, onPhase)
-                val dial = dialer.obtainTurn(config.callHash, config.dialPath)
-                when (dial) {
-                    is DialResult.NeedHash -> {
-                        setPhase(BypassPhase.Failed(dial.message), onPhase)
-                        return@launch
-                    }
-                    is DialResult.NeedVkLogin -> {
-                        setPhase(BypassPhase.Failed(dial.message), onPhase)
-                        return@launch
-                    }
-                    is DialResult.Failed -> {
-                        if (config.silentRecreate) {
-                            Log.w(TAG, "dial failed, silent recreate not yet implemented: ${dial.message}")
-                        }
-                        setPhase(BypassPhase.Failed(dial.message), onPhase)
-                        return@launch
-                    }
-                    is DialResult.Ok -> lastCreds = dial.creds
+                val sockName = TunFdBridge.newSocketName()
+                val process = BypassGoProcess(service.applicationContext)
+                go = process
+                if (!process.binaryExists()) {
+                    setPhase(
+                        BypassPhase.Failed("Нет libclient.so — соберите scripts/build-bypass-client.sh"),
+                        onPhase,
+                    )
+                    return@launch
                 }
 
-                setPhase(BypassPhase.Allocating, onPhase)
-                // TURN Allocate over TCP × workers — native next.
-                delay(50)
+                val rawReady = CompletableDeferred<RawConf>()
+                val fatal = CompletableDeferred<String>()
 
-                setPhase(BypassPhase.Wrapping, onPhase)
-                wrapKey = WrapCrypto.deriveKey(config.profile.bypass.password)
-                Log.i(
-                    TAG,
-                    "WRAP key ready peer=${config.profile.bypass.peer} workers=${config.workers} transport=tcp mode=raw",
+                process.start(
+                    scope = this,
+                    args = BypassGoArgs(
+                        peer = config.profile.bypass.peer,
+                        callHash = config.callHash,
+                        password = config.profile.bypass.password,
+                        deviceId = config.profile.deviceId,
+                        workers = config.workers,
+                        dialPath = config.dialPath,
+                        tunSockName = sockName,
+                    ),
+                    onRawConf = { conf ->
+                        if (!rawReady.isCompleted) rawReady.complete(conf)
+                    },
+                    onLog = { line ->
+                        when {
+                            line.contains("[VKCalls]") || line.contains("[VK Auth]") ->
+                                Log.i(TAG, line)
+                            line.contains("TURN") || line.contains("RAW") || line.contains("ПРЯМОЙ") ->
+                                Log.i(TAG, line)
+                        }
+                    },
+                    onFatal = { msg ->
+                        if (!fatal.isCompleted) fatal.complete(msg)
+                    },
                 )
 
+                setPhase(BypassPhase.Allocating, onPhase)
+                val conf = select {
+                    rawReady.onAwait { it }
+                    fatal.onAwait { throw IllegalStateException(it) }
+                }
+
+                setPhase(BypassPhase.Wrapping, onPhase)
+                Log.i(TAG, "RAWCONF ip=${conf.ip} dns=${conf.dnsCsv} mtu=${conf.mtu}")
+                val pfd = establishTun(conf.ip, conf.dnsCsv, conf.mtu)
+                if (pfd == null) {
+                    setPhase(BypassPhase.Failed("Не удалось создать TUN после RAWCONF"), onPhase)
+                    return@launch
+                }
+                tun = pfd
+                TunFdBridge.sendOnce(sockName, pfd)
+
                 setPhase(BypassPhase.Running, onPhase)
-                // Keep session alive until stop; packet pump arrives with native.
-                while (isActive && running.get()) {
-                    delay(15_000)
-                    Log.d(TAG, "bypass heartbeat peer=${config.profile.bypass.peer}")
+                while (isActive && running.get() && process.isAlive) {
+                    delay(5_000)
+                }
+                if (running.get() && !process.isAlive) {
+                    val msg = process.lastError ?: "Процесс обхода завершился"
+                    setPhase(BypassPhase.Failed(msg), onPhase)
+                    return@launch
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "bypass session error", t)
                 setPhase(BypassPhase.Failed(t.message ?: "bypass error"), onPhase)
             } finally {
+                cleanup()
                 if (phase !is BypassPhase.Failed) {
                     setPhase(BypassPhase.Stopped, onPhase)
                 }
@@ -104,9 +139,15 @@ class BypassSession(
         running.set(false)
         job?.cancel()
         job = null
-        wrapKey = null
-        lastCreds = null
+        cleanup()
         phase = BypassPhase.Stopped
+    }
+
+    private fun cleanup() {
+        go?.stop()
+        go = null
+        runCatching { tun?.close() }
+        tun = null
     }
 
     private fun setPhase(p: BypassPhase, onPhase: (BypassPhase) -> Unit) {

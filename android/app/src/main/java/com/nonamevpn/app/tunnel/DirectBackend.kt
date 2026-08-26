@@ -7,46 +7,110 @@ import com.nonamevpn.app.core.VpnPath
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.coroutineScope
+import org.amnezia.awg.GoBackend
+import org.amnezia.awg.util.SharedLibraryLoader
 
 /**
- * Path A — AmneziaWG 2.0. Tun FD is ready; userspace AWG (.so / GoBackend) plugs in next.
- * Until then we hold the session open so probe/Connect UX and VpnService lifecycle work.
+ * Path A — AmneziaWG 2.0 userspace ([libwg-go] via [GoBackend] JNI).
+ * Owns the TUN FD after [ParcelFileDescriptor.detachFd]; [awgTurnOff] closes it.
  */
 class DirectBackend : TunnelBackend {
     override val path: VpnPath = VpnPath.Direct
     @Volatile private var stopped = false
+    @Volatile private var handle: Int = -1
 
     override suspend fun start(
         service: VpnService,
-        tun: ParcelFileDescriptor,
+        tun: ParcelFileDescriptor?,
         config: TunnelSessionConfig,
         onState: (TunnelBackendState) -> Unit,
     ) {
         stopped = false
         onState(TunnelBackendState.Starting)
-        val endpoint = config.profile?.direct?.endpoint
-        val hasKeys = !config.profile?.direct?.privateKey.isNullOrBlank() &&
-            !config.profile?.direct?.peerPublicKey.isNullOrBlank()
-        Log.i(TAG, "direct start endpoint=$endpoint keys=$hasKeys hideIp=${config.hideIp}")
-        if (!hasKeys) {
+        if (tun == null) {
+            onState(TunnelBackendState.Failed("Нет TUN для Direct"))
+            return
+        }
+        val direct = config.profile?.direct
+        if (direct == null ||
+            direct.privateKey.isBlank() ||
+            direct.peerPublicKey.isBlank() ||
+            direct.endpoint.isBlank()
+        ) {
             onState(TunnelBackendState.Failed("Нет ключей AWG в профиле — обновите профиль с provision"))
             return
         }
-        // Native amneziawg-go / GoBackend bind to [tun] here.
-        onState(TunnelBackendState.Running)
-        coroutineScope {
-            while (isActive && !stopped) {
-                delay(30_000)
-            }
+
+        val goConfig = try {
+            AwgUserspaceConfig.build(direct)
+        } catch (e: Exception) {
+            Log.e(TAG, "config", e)
+            onState(TunnelBackendState.Failed(e.message ?: "Ошибка конфига AWG"))
+            return
         }
-        onState(TunnelBackendState.Stopped)
+
+        try {
+            SharedLibraryLoader.loadSharedLibrary(service, "wg-go")
+        } catch (e: Exception) {
+            Log.e(TAG, "load libwg-go", e)
+            onState(TunnelBackendState.Failed("Не удалось загрузить AmneziaWG (.so)"))
+            return
+        }
+
+        val version = runCatching { GoBackend.awgVersion() }.getOrNull()
+        Log.i(TAG, "awg version=$version endpoint=${direct.endpoint} hideIp=${config.hideIp}")
+
+        val tunFd = try {
+            tun.detachFd()
+        } catch (e: Exception) {
+            Log.e(TAG, "detachFd", e)
+            onState(TunnelBackendState.Failed("Не удалось передать TUN в AWG"))
+            return
+        }
+
+        val h = GoBackend.awgTurnOn(IFACE, tunFd, goConfig)
+        if (h < 0) {
+            Log.e(TAG, "awgTurnOn failed code=$h")
+            onState(TunnelBackendState.Failed("AmneziaWG не поднялся (код $h)"))
+            return
+        }
+        handle = h
+
+        val sock4 = GoBackend.awgGetSocketV4(h)
+        val sock6 = GoBackend.awgGetSocketV6(h)
+        if (sock4 >= 0) service.protect(sock4)
+        if (sock6 >= 0) service.protect(sock6)
+        Log.i(TAG, "tunnel up handle=$h protect v4=$sock4 v6=$sock6")
+
+        onState(TunnelBackendState.Running)
+        try {
+            coroutineScope {
+                while (isActive && !stopped) {
+                    delay(30_000)
+                }
+            }
+        } finally {
+            turnOff()
+            onState(TunnelBackendState.Stopped)
+        }
     }
 
     override fun stop() {
         stopped = true
+        turnOff()
+    }
+
+    private fun turnOff() {
+        val h = handle
+        if (h < 0) return
+        handle = -1
+        runCatching { GoBackend.awgTurnOff(h) }
+            .onFailure { Log.w(TAG, "awgTurnOff", it) }
+        Log.i(TAG, "tunnel down handle=$h")
     }
 
     companion object {
         private const val TAG = "DirectBackend"
+        private const val IFACE = "nvpn0"
     }
 }

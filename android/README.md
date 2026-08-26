@@ -6,16 +6,28 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 
 - Parallel **NetworkProbe** + **ConnectionManager**
 - **VpnTunnelService** — один VpnService, бэкенды Direct / Bypass
+- **Path A (Direct):** модуль `:tunnel` с `libwg-go` (AmneziaWG userspace) → `DirectBackend` / `awgTurnOn`
 - Импорт профиля JSON (provision)
-- **Bypass scaffold:** `CallHashStore`, `AutoVkDialer`, `WrapCrypto`, `BypassSession`
+- **Path B (Bypass):** `libclient.so` (qWDTT go_client) — vkcalls → TURN TCP → WRAP → RAW; TUN после RAWCONF
+- **Bypass scaffold:** `CallHashStore`, dial policy, `WrapCrypto` (совместим с сервером)
+- **Создать звонок:** WebView вход VK → `calls.start` → hash в `CallHashStore` (Connect остаётся анонимным)
+- **Dial path:** Настройки → Авто / vkcalls / Капча (legacy), сохраняется в DataStore
 - **Админ-деплой:** SSH (JSch) → upload `stack.tar.gz` + `install.sh` → Docker Compose на VPS
 - Настройки: тихий recreate, экономика workers
 
 ## Ещё нет (следующий слой)
 
-- Native AmneziaWG GoBackend в DirectBackend
-- Реальный HTTP/TLS для vkcalls + TURN Allocate TCP + packet pump RAW
-- WebView для создания звонка / legacy captcha
+- Legacy captcha WebView (fallback), если go_client captcha недостаточно
+- Нативный WARP egress на VPS (сейчас stub)
+
+## Сборка native Path B
+
+```bash
+# Нужны ANDROID_HOME / NDK 27+ и Go 1.26+
+chmod +x scripts/build-bypass-client.sh
+./scripts/build-bypass-client.sh          # arm64-v8a + x86_64 → jniLibs/
+cd android && ./gradlew :app:assembleDebug
+```
 
 ## Деплой с телефона
 
@@ -43,9 +55,13 @@ cd android
 ## Структура
 
 ```
-core/       NetworkProbe, ConnectionManager, VpnTunnelService
-tunnel/     TunnelBackend, DirectBackend, BypassBackend
-bypass/     WrapCrypto, CallHashStore, VkDialer, BypassSession
-profile/    VpnProfile JSON
-ui/         Tunnel / Settings / Admin
+app/…/core/       NetworkProbe, ConnectionManager, VpnTunnelService
+app/…/tunnel/     TunnelBackend, DirectBackend, BypassBackend, AwgUserspaceConfig
+app/…/bypass/     WrapCrypto, CallHashStore, VkDialer, BypassSession
+app/…/profile/    VpnProfile JSON
+app/…/ui/         Tunnel / Settings / Admin
+tunnel/           AmneziaWG libwg-go (JNI) — форк tools из amneziawg-android
 ```
+
+Сборка `:tunnel` тянет NDK + Go (Makefile `libwg-go` сам скачает toolchain в Gradle cache).
+Нужны `ANDROID_HOME` / `local.properties` → `sdk.dir`, NDK 27+.

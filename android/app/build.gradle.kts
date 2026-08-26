@@ -12,9 +12,11 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0-bypass-scaffold"
+        versionCode = 4
+        versionName = "0.4.0-phone-integrate"
     }
+
+    ndkVersion = "27.0.12077973"
 
     buildTypes {
         release {
@@ -41,10 +43,15 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
 dependencies {
+    implementation(project(":tunnel"))
+
     val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -59,9 +66,12 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // mwiede JSch (SSH deploy) — same family as qWDTT
     implementation("com.github.mwiede:jsch:0.2.21")
+    // OkHttp for VK OAuth / calls.start (create-call)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }
