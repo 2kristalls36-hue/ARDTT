@@ -96,4 +96,68 @@ class NetworkRecoveryPolicyTest {
         assertFalse(shouldAttemptSoftRestartNow(50_000L, 40_000L, 45_000L, 0, force = false))
         assertTrue(shouldAttemptSoftRestartNow(50_000L, 40_000L, 45_000L, 0, force = true))
     }
+
+    @Test
+    fun wakeRescueReconnectsWhenBypassHasNoWorkers() {
+        assertTrue(
+            shouldReconnectTunnelAfterWake(
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+                bypassPath = true,
+                backendAlive = true,
+            ),
+        )
+        assertFalse(
+            shouldReconnectTunnelAfterWake(
+                activeWorkers = 2,
+                hasFreshStatsSinceWake = true,
+                bypassPath = true,
+                backendAlive = true,
+            ),
+        )
+        assertTrue(
+            shouldReconnectTunnelAfterWake(
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+                bypassPath = false,
+                backendAlive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun zeroWorkersGraceRequiresSustainedZero() {
+        assertFalse(shouldSoftRestartForZeroWorkers(0, 0L, 100_000L))
+        assertFalse(shouldSoftRestartForZeroWorkers(0, 90_000L, 100_000L, graceMs = 60_000L))
+        assertTrue(shouldSoftRestartForZeroWorkers(0, 30_000L, 100_000L, graceMs = 60_000L))
+        assertFalse(shouldSoftRestartForZeroWorkers(3, 30_000L, 100_000L, graceMs = 60_000L))
+    }
+
+    @Test
+    fun healthObserveGatesOnInteractiveAndGrace() {
+        assertTrue(
+            shouldObserveTunnelHealth(
+                deviceInteractive = true,
+                wakeRecoveryGraceActive = false,
+                trustedWifiWaiting = false,
+                softRestartInProgress = false,
+            ),
+        )
+        assertFalse(
+            shouldObserveTunnelHealth(
+                deviceInteractive = false,
+                wakeRecoveryGraceActive = false,
+                trustedWifiWaiting = false,
+                softRestartInProgress = false,
+            ),
+        )
+        assertFalse(
+            shouldObserveTunnelHealth(
+                deviceInteractive = true,
+                wakeRecoveryGraceActive = true,
+                trustedWifiWaiting = false,
+                softRestartInProgress = false,
+            ),
+        )
+    }
 }

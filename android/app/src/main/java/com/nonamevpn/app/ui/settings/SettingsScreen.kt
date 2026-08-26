@@ -1,5 +1,7 @@
 package com.nonamevpn.app.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -35,11 +37,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.Manifest
+import android.os.Build
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.hasTrustedWifiBackgroundPermission
+import com.nonamevpn.app.core.hasTrustedWifiForegroundPermission
+import com.nonamevpn.app.core.readConnectedWifiState
+import com.nonamevpn.app.core.trustedWifiAccessProblem
+import com.nonamevpn.app.core.TrustedWifiAccessProblem
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
 import kotlinx.coroutines.Job
@@ -186,6 +195,8 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             )
         }
 
+        TrustedWifiSettingsCard(settings = settings)
+
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -229,6 +240,110 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             adminHint?.let {
                 Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             }
+        }
+    }
+}
+
+@Composable
+private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val enabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
+    val ssids by settings.trustedWifiSsidsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+    var hint by remember { mutableStateOf<String?>(null) }
+    val wifi = remember(enabled, ssids) { readConnectedWifiState(context) }
+
+    val bgLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        hint = if (granted) "Фоновый доступ к локации разрешён" else "Без фоновой локации SSID в фоне недоступен"
+    }
+    val fineLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                !hasTrustedWifiBackgroundPermission(context)
+            ) {
+                bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            } else {
+                hint = "Локация разрешена — можно добавить текущую сеть"
+            }
+        } else {
+            hint = "Нужна локация, чтобы читать имя Wi‑Fi"
+        }
+    }
+
+    AppSectionCard(
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "В этих сетях VPN сам выключается. При выходе — поднимается снова.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        RowSetting(
+            title = "Включить",
+            subtitle = when (val p = trustedWifiAccessProblem(context)) {
+                TrustedWifiAccessProblem.ForegroundPermission -> "Нужно разрешение локации"
+                TrustedWifiAccessProblem.BackgroundPermission -> "Нужна фоновая локация (для SSID)"
+                TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе"
+                null -> if (ssids.isEmpty()) "Добавьте хотя бы одну сеть" else "${ssids.size} сетей"
+            },
+            checked = enabled,
+            onCheckedChange = { on ->
+                if (on && !hasTrustedWifiForegroundPermission(context)) {
+                    fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+                scope.launch { settings.setTrustedWifiEnabled(on) }
+            },
+        )
+        OutlinedButton(
+            onClick = {
+                if (!hasTrustedWifiForegroundPermission(context)) {
+                    fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    return@OutlinedButton
+                }
+                val ssid = wifi.ssid
+                if (ssid.isBlank()) {
+                    hint = when (wifi.accessProblem) {
+                        TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию"
+                        TrustedWifiAccessProblem.BackgroundPermission -> "Выдайте фоновую локацию"
+                        else -> "Сейчас не Wi‑Fi или имя сети недоступно"
+                    }
+                } else {
+                    scope.launch {
+                        settings.addTrustedWifiSsid(ssid)
+                        hint = "Добавлено: $ssid"
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            enabled = enabled,
+        ) {
+            Text(
+                if (wifi.ssidAvailable) "Добавить «${wifi.ssid}»"
+                else "Добавить текущую Wi‑Fi",
+            )
+        }
+        ssids.forEach { ssid ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(ssid, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                OutlinedButton(
+                    onClick = { scope.launch { settings.removeTrustedWifiSsid(ssid) } },
+                    shape = RoundedCornerShape(12.dp),
+                ) { Text("Убрать") }
+            }
+        }
+        hint?.let {
+            Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

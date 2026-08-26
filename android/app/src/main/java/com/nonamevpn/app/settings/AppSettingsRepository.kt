@@ -7,8 +7,10 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.nonamevpn.app.core.sanitizeTrustedWifiSsid
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore("nvpn_settings")
@@ -22,6 +24,8 @@ class AppSettingsRepository(private val context: Context) {
     private val economyWorkers = booleanPreferencesKey("economy_workers")
     private val dialPath = stringPreferencesKey("dial_path")
     private val pathMode = stringPreferencesKey("conn_path_mode")
+    private val trustedWifiEnabled = booleanPreferencesKey("trusted_wifi_enabled")
+    private val trustedWifiSsids = stringPreferencesKey("trusted_wifi_ssids")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
@@ -36,6 +40,12 @@ class AppSettingsRepository(private val context: Context) {
     /** `auto` | `direct` | `bypass` — tunnel path override. */
     val pathModeName: Flow<String> = context.dataStore.data.map {
         normalizePathMode(it[pathMode])
+    }
+    val trustedWifiEnabledFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[trustedWifiEnabled] == true }
+    /** Newline-separated SSIDs. */
+    val trustedWifiSsidsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        parseSsidSet(prefs[trustedWifiSsids])
     }
 
     suspend fun setHideIp(enabled: Boolean) {
@@ -60,6 +70,44 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setPathMode(name: String) {
         context.dataStore.edit { it[pathMode] = normalizePathMode(name) }
+    }
+
+    suspend fun setTrustedWifiEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[trustedWifiEnabled] = enabled }
+    }
+
+    suspend fun setTrustedWifiSsids(ssids: Set<String>) {
+        context.dataStore.edit {
+            it[trustedWifiSsids] = ssids
+                .map { s -> sanitizeTrustedWifiSsid(s) }
+                .filter { s -> s.isNotBlank() }
+                .distinct()
+                .joinToString("\n")
+        }
+    }
+
+    suspend fun addTrustedWifiSsid(ssid: String) {
+        val clean = sanitizeTrustedWifiSsid(ssid)
+        if (clean.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val current = parseSsidSet(prefs[trustedWifiSsids]).toMutableSet()
+            current.add(clean)
+            prefs[trustedWifiSsids] = current.joinToString("\n")
+        }
+    }
+
+    suspend fun removeTrustedWifiSsid(ssid: String) {
+        context.dataStore.edit { prefs ->
+            val current = parseSsidSet(prefs[trustedWifiSsids]).toMutableSet()
+            current.remove(sanitizeTrustedWifiSsid(ssid))
+            prefs[trustedWifiSsids] = current.joinToString("\n")
+        }
+    }
+
+    /** Snapshot for VpnService (call from IO/coroutine). */
+    suspend fun trustedWifiSnapshot(): Pair<Boolean, Set<String>> {
+        val prefs = context.dataStore.data.first()
+        return (prefs[trustedWifiEnabled] == true) to parseSsidSet(prefs[trustedWifiSsids])
     }
 
     suspend fun unlockAdmin() {
@@ -98,5 +146,12 @@ class AppSettingsRepository(private val context: Context) {
             "bypass", "wdtt" -> "bypass"
             else -> "auto"
         }
+
+        fun parseSsidSet(raw: String?): Set<String> =
+            raw.orEmpty()
+                .lineSequence()
+                .map { sanitizeTrustedWifiSsid(it) }
+                .filter { it.isNotBlank() }
+                .toSet()
     }
 }

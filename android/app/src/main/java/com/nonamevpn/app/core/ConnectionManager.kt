@@ -25,6 +25,8 @@ enum class ConnState {
     Ready,
     Connecting,
     Connected,
+    /** VPN paused on trusted Wi‑Fi; service may still be foreground waiting to resume. */
+    PausedTrustedWifi,
     Disconnecting,
     Error,
 }
@@ -165,6 +167,7 @@ class ConnectionManager(
         val busy =
             _ui.value.state == ConnState.Connecting ||
                 _ui.value.state == ConnState.Connected ||
+                _ui.value.state == ConnState.PausedTrustedWifi ||
                 _ui.value.state == ConnState.Disconnecting
         if (busy) {
             AppLog.w(TAG, "Probe skipped — tunnel busy (${_ui.value.state})")
@@ -384,7 +387,13 @@ class ConnectionManager(
     }
 
     fun disconnect() {
-        if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
+        if (
+            _ui.value.state != ConnState.Connected &&
+            _ui.value.state != ConnState.Connecting &&
+            _ui.value.state != ConnState.PausedTrustedWifi
+        ) {
+            return
+        }
         softRestartInProgress = false
         connectJob?.cancel()
         connectJob = null
@@ -439,6 +448,31 @@ class ConnectionManager(
             _ui.value = _ui.value.copy(
                 statusText = "Ожидание сети…",
                 softInfo = "Подключение восстановится на новой Wi‑Fi/LTE.",
+            )
+        }
+    }
+
+    fun onTrustedWifiWaiting(ssid: String) {
+        softRestartInProgress = false
+        scope.launch {
+            _ui.value = _ui.value.copy(
+                state = ConnState.PausedTrustedWifi,
+                statusText = "VPN выключен в «$ssid»",
+                softInfo = "Выйдите из доверенной сети — VPN поднимется сам.",
+                connectEnabled = true,
+                lastError = null,
+            )
+        }
+    }
+
+    fun onTrustedWifiResuming() {
+        scope.launch {
+            _ui.value = _ui.value.copy(
+                state = ConnState.Connecting,
+                statusText = "Выход из доверенной сети — подключение…",
+                softInfo = null,
+                connectEnabled = true,
+                lastError = null,
             )
         }
     }
