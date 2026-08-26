@@ -55,24 +55,16 @@ fun TunnelScreen(
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
     var showImport by remember { mutableStateOf(false) }
+    var showHash by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(profile) {
-        val p = profile
-        if (p != null) {
-            val tunAddr = when (p.prefer) {
-                "bypass" -> p.bypass.address
-                else -> p.direct.address
-            }
-            conn.updateEndpoints(
-                directEndpoint = p.direct.endpoint,
-                provisionUrl = p.provisionBaseUrl,
-                tunAddress = tunAddr,
-            )
-            settings.setProfileName(p.name)
-            if (p.hideIp) settings.setHideIp(true)
+        conn.updateProfile(profile)
+        if (profile != null) {
+            settings.setProfileName(profile!!.name)
+            if (profile!!.hideIp) settings.setHideIp(true)
         } else {
-            conn.updateEndpoints(null, null, null)
+            settings.setProfileName("")
         }
         conn.startInitialProbe()
     }
@@ -160,6 +152,32 @@ fun TunnelScreen(
                 }
                 ui.lastError?.takeIf { ui.state == ConnState.Error }?.let { err ->
                     Text(err, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Звонок (обход)", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (ui.hasCallHash) {
+                        "Hash сохранён на этом телефоне"
+                    } else {
+                        "Hash не задан — нужен для Path B"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedButton(
+                    onClick = { showHash = true },
+                    enabled = profile != null && !connected,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (ui.hasCallHash) "Изменить hash…" else "Сохранить hash звонка…")
                 }
             }
         }
@@ -258,6 +276,64 @@ fun TunnelScreen(
             },
         )
     }
+
+    if (showHash) {
+        HashDialog(
+            onDismiss = { showHash = false },
+            onSave = { hash ->
+                conn.saveCallHash(hash)
+                showHash = false
+            },
+            onClear = {
+                conn.clearCallHash()
+                showHash = false
+            },
+            hasHash = ui.hasCallHash,
+        )
+    }
+}
+
+@Composable
+private fun HashDialog(
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onClear: () -> Unit,
+    hasHash: Boolean,
+) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Hash звонка") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Один hash на профиль, только на телефоне. VK-логин нужен лишь чтобы создать звонок; Connect идёт анонимно.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("hash") },
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(text) },
+                enabled = text.isNotBlank(),
+            ) { Text("Сохранить") }
+        },
+        dismissButton = {
+            Column {
+                if (hasHash) {
+                    TextButton(onClick = onClear) { Text("Удалить hash") }
+                }
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+            }
+        },
+    )
 }
 
 @Composable

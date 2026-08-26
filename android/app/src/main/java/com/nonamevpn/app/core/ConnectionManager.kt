@@ -4,6 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import com.nonamevpn.app.bypass.CallHashStore
+import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.profile.VpnProfile
+import com.nonamevpn.app.tunnel.TunnelSessionConfig
+import com.nonamevpn.app.tunnel.TunnelSessionHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,23 +37,44 @@ data class ConnUiState(
     val softInfo: String? = null,
     val connectEnabled: Boolean = false,
     val lastError: String? = null,
+    val hasCallHash: Boolean = false,
 )
 
-/**
- * Orchestrates probe → preselect → connect stub.
- * Real AWG/RAW backends plug into [startTunnel]/[stopTunnel] later.
- */
 class ConnectionManager(
     private val appContext: Context,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _ui = MutableStateFlow(ConnUiState())
     val ui: StateFlow<ConnUiState> = _ui.asStateFlow()
+    private val hashStore = CallHashStore(appContext)
 
     private var probeJob: Job? = null
+    private var profile: VpnProfile? = null
     private var directEndpoint: String? = null
     private var provisionUrl: String? = null
     private var tunAddress: String? = null
+    private var workers: Int = 3
+    private var silentRecreate: Boolean = false
+    private var dialPath: DialPath = DialPath.Auto
+
+    fun updateProfile(profile: VpnProfile?) {
+        this.profile = profile
+        if (profile != null) {
+            directEndpoint = profile.direct.endpoint
+            provisionUrl = profile.provisionBaseUrl
+            tunAddress = when (profile.prefer) {
+                "bypass" -> profile.bypass.address
+                else -> profile.direct.address
+            }
+            workers = profile.bypass.workers.coerceIn(1, 9)
+            refreshHashFlag()
+        } else {
+            directEndpoint = null
+            provisionUrl = null
+            tunAddress = null
+            _ui.value = _ui.value.copy(hasCallHash = false)
+        }
+    }
 
     fun updateEndpoints(
         directEndpoint: String?,
@@ -62,6 +88,39 @@ class ConnectionManager(
 
     fun setHideIp(enabled: Boolean) {
         _ui.value = _ui.value.copy(hideIp = enabled)
+    }
+
+    fun setWorkers(workers: Int) {
+        this.workers = workers.coerceIn(1, 9)
+    }
+
+    fun setSilentRecreate(enabled: Boolean) {
+        silentRecreate = enabled
+    }
+
+    fun setDialPath(path: DialPath) {
+        dialPath = path
+    }
+
+    fun saveCallHash(hash: String) {
+        val name = profile?.name ?: return
+        hashStore.setHash(name, hash)
+        refreshHashFlag()
+    }
+
+    fun clearCallHash() {
+        val name = profile?.name ?: return
+        hashStore.clear(name)
+        refreshHashFlag()
+    }
+
+    fun callHashOrNull(): String? = profile?.name?.let { hashStore.getHash(it) }
+
+    private fun refreshHashFlag() {
+        val name = profile?.name
+        _ui.value = _ui.value.copy(
+            hasCallHash = name != null && hashStore.hasHash(name),
+        )
     }
 
     fun startInitialProbe() {
@@ -93,7 +152,6 @@ class ConnectionManager(
                 statusText = "Подключение (${pathLabel(path)})…",
                 connectEnabled = false,
             )
-            // Fresh short re-probe before bring-up
             val fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
             if (fresh.preselectedPath == null) {
                 applyProbe(fresh)
@@ -105,18 +163,25 @@ class ConnectionManager(
                 return@launch
             }
             val usePath = fresh.preselectedPath
-            startTunnel(usePath, _ui.value.hideIp)
-            // Connected confirmation arrives via onServiceStarted; optimistic UI:
+            if (usePath == VpnPath.Bypass && callHashOrNull().isNullOrBlank()) {
+                _ui.value = _ui.value.copy(
+                    state = ConnState.Error,
+                    probe = fresh,
+                    lastError = "Для обхода нужен hash звонка (сохраните на этом телефоне)",
+                    connectEnabled = true,
+                    softInfo = softInfoFor(fresh),
+                )
+                return@launch
+            }
+            startTunnel(usePath)
+            // Optimistic until backend reports Running/Failed
             _ui.value = _ui.value.copy(
-                state = ConnState.Connected,
+                state = ConnState.Connecting,
                 activePath = usePath,
                 probe = fresh,
                 softInfo = softInfoFor(fresh),
-                statusText = when (usePath) {
-                    VpnPath.Direct -> "Подключено: прямое" + hideSuffix()
-                    VpnPath.Bypass -> "Подключено: обход" + hideSuffix()
-                },
-                connectEnabled = true,
+                statusText = "Запуск туннеля (${pathLabel(usePath)})…",
+                connectEnabled = false,
             )
         }
     }
@@ -144,6 +209,34 @@ class ConnectionManager(
         Log.i(TAG, "VpnService started path=$path")
     }
 
+    fun onTunnelRunning(path: VpnPath) {
+        scope.launch {
+            _ui.value = _ui.value.copy(
+                state = ConnState.Connected,
+                activePath = path,
+                statusText = when (path) {
+                    VpnPath.Direct -> "Подключено: прямое" + hideSuffix()
+                    VpnPath.Bypass -> "Подключено: обход" + hideSuffix()
+                },
+                connectEnabled = true,
+                lastError = null,
+            )
+        }
+    }
+
+    fun onTunnelFailed(message: String) {
+        scope.launch {
+            stopTunnel()
+            _ui.value = _ui.value.copy(
+                state = ConnState.Error,
+                activePath = null,
+                statusText = "Ошибка подключения",
+                lastError = message,
+                connectEnabled = _ui.value.probe?.preselectedPath != null,
+            )
+        }
+    }
+
     fun onServiceStopped() {
         val cur = _ui.value
         if (cur.state == ConnState.Connected || cur.state == ConnState.Connecting) {
@@ -167,19 +260,24 @@ class ConnectionManager(
             connectEnabled = enabled,
             lastError = if (!enabled) result.message else null,
         )
+        refreshHashFlag()
         Log.i(TAG, "probe class=${result.networkClass} path=${result.preselectedPath} ${result.elapsedMs}ms")
     }
 
-    /** Soft info only — never blocks Connect (unlike old qWDTT whitelist dialog). */
     private fun softInfoFor(result: ProbeResult?): String? {
         if (result == null) return null
-        return when (result.networkClass) {
+        val parts = mutableListOf<String>()
+        when (result.networkClass) {
             NetworkClass.OpenNeedBypass ->
-                "Сеть выглядит открытой, но VPS по UDP не ответил — будет обход. Это не ошибка."
+                parts += "Сеть выглядит открытой, но VPS по UDP не ответил — будет обход. Это не ошибка."
             NetworkClass.Captive ->
-                "Похоже на captive portal — сначала войдите в Wi‑Fi."
-            else -> null
+                parts += "Похоже на captive portal — сначала войдите в Wi‑Fi."
+            else -> Unit
         }
+        if (result.preselectedPath == VpnPath.Bypass && !_ui.value.hasCallHash) {
+            parts += "Для обхода сохраните hash звонка на телефоне."
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
 
     private fun pathLabel(path: VpnPath): String = when (path) {
@@ -190,12 +288,28 @@ class ConnectionManager(
     private fun hideSuffix(): String =
         if (_ui.value.hideIp) " · IP скрыт (WARP)" else ""
 
-    private fun startTunnel(path: VpnPath, hideIp: Boolean) {
+    private fun startTunnel(path: VpnPath) {
+        val addr = when (path) {
+            VpnPath.Direct -> profile?.direct?.address ?: tunAddress
+            VpnPath.Bypass -> profile?.bypass?.address ?: tunAddress
+        } ?: "10.8.0.2"
+
+        TunnelSessionHolder.config = TunnelSessionConfig(
+            path = path,
+            profile = profile,
+            tunAddress = addr,
+            hideIp = _ui.value.hideIp,
+            callHash = callHashOrNull(),
+            workers = workers,
+            silentRecreate = silentRecreate,
+            dialPathName = dialPath.name,
+        )
+
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_START
             putExtra(VpnTunnelService.EXTRA_PATH, path.name)
-            putExtra(VpnTunnelService.EXTRA_HIDE_IP, hideIp)
-            putExtra(VpnTunnelService.EXTRA_TUN_ADDRESS, tunAddress ?: "10.8.0.2")
+            putExtra(VpnTunnelService.EXTRA_HIDE_IP, _ui.value.hideIp)
+            putExtra(VpnTunnelService.EXTRA_TUN_ADDRESS, addr)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             appContext.startForegroundService(intent)
@@ -205,6 +319,7 @@ class ConnectionManager(
     }
 
     private fun stopTunnel() {
+        TunnelSessionHolder.config = null
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_STOP
         }
@@ -223,7 +338,6 @@ class ConnectionManager(
             }
         }
 
-        /** For VpnService callbacks after [get] was initialized from UI/Application. */
         fun getOrNull(): ConnectionManager? = instance
     }
 }

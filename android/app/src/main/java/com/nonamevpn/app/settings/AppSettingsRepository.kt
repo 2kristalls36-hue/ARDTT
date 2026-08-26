@@ -18,11 +18,15 @@ class AppSettingsRepository(private val context: Context) {
     private val adminPinHash = stringPreferencesKey("admin_pin_hash")
     private val hideIp = booleanPreferencesKey("hide_ip")
     private val profileName = stringPreferencesKey("profile_name")
+    private val silentRecreate = booleanPreferencesKey("silent_recreate")
+    private val economyWorkers = booleanPreferencesKey("economy_workers")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
     val hasAdminPin: Flow<Boolean> = context.dataStore.data.map { !it[adminPinHash].isNullOrBlank() }
     val currentProfileName: Flow<String> = context.dataStore.data.map { it[profileName] ?: "" }
+    val silentRecreateEnabled: Flow<Boolean> = context.dataStore.data.map { it[silentRecreate] == true }
+    val economyWorkersEnabled: Flow<Boolean> = context.dataStore.data.map { it[economyWorkers] == true }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -30,6 +34,14 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setProfileName(name: String) {
         context.dataStore.edit { it[profileName] = name }
+    }
+
+    suspend fun setSilentRecreate(enabled: Boolean) {
+        context.dataStore.edit { it[silentRecreate] = enabled }
+    }
+
+    suspend fun setEconomyWorkers(enabled: Boolean) {
+        context.dataStore.edit { it[economyWorkers] = enabled }
     }
 
     suspend fun setAdminPin(pin: String) {
