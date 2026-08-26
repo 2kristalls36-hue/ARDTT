@@ -9,8 +9,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.coroutineScope
 
 /**
- * Path A — AmneziaWG 2.0. Tun FD is ready; userspace AWG (.so / GoBackend) plugs in next.
- * Until then we hold the session open so probe/Connect UX and VpnService lifecycle work.
+ * Path A — AmneziaWG 2.0. Tun FD is ready; userspace AWG (.so / GoBackend) plugs in next
+ * (see branch cursor/android-awg-direct-3094). Until then we hold the session open.
  */
 class DirectBackend : TunnelBackend {
     override val path: VpnPath = VpnPath.Direct
@@ -18,12 +18,16 @@ class DirectBackend : TunnelBackend {
 
     override suspend fun start(
         service: VpnService,
-        tun: ParcelFileDescriptor,
+        tun: ParcelFileDescriptor?,
         config: TunnelSessionConfig,
         onState: (TunnelBackendState) -> Unit,
     ) {
         stopped = false
         onState(TunnelBackendState.Starting)
+        if (tun == null) {
+            onState(TunnelBackendState.Failed("Нет TUN для Direct"))
+            return
+        }
         val endpoint = config.profile?.direct?.endpoint
         val hasKeys = !config.profile?.direct?.privateKey.isNullOrBlank() &&
             !config.profile?.direct?.peerPublicKey.isNullOrBlank()
@@ -32,7 +36,7 @@ class DirectBackend : TunnelBackend {
             onState(TunnelBackendState.Failed("Нет ключей AWG в профиле — обновите профиль с provision"))
             return
         }
-        // Native amneziawg-go / GoBackend bind to [tun] here.
+        // Native amneziawg-go / GoBackend bind to [tun] here (AWG PR).
         onState(TunnelBackendState.Running)
         coroutineScope {
             while (isActive && !stopped) {

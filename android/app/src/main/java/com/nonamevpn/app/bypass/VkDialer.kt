@@ -64,17 +64,15 @@ class AutoVkDialer(
 }
 
 /**
- * Anonymous vkcalls API path (api.vk.me). Implementation performs real HTTP when
- * native/TLS client is wired; until then returns a structured failure so Connect
- * can show a clear status (hash present ≠ credentials yet).
+ * Anonymous vkcalls is performed inside go_client (libclient.so).
+ * This Kotlin dialer remains for hash-check / UI policy; Connect Path B
+ * launches the native process which runs vkcalls → legacy itself.
  */
 class VkCallsDialer : VkDialer {
     override suspend fun obtainTurn(hash: String?, path: DialPath): DialResult {
         if (hash.isNullOrBlank()) return DialResult.NeedHash()
-        // Placeholder until fhttp/tls-client or Kotlin HTTP with VK fingerprint lands.
-        // Contract matches qWDTT: anonymous_token → getCallPreview → getAnonymCallToken → turn_server.
         return DialResult.Failed(
-            "vkcalls: HTTP-клиент ещё не подключён (hash сохранён, ждём native/API слой)",
+            "vkcalls выполняется в libclient.so при Connect (Path B)",
             DialPath.VkCalls,
         )
     }

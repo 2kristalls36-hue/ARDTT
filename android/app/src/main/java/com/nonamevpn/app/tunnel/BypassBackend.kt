@@ -12,8 +12,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 
 /**
- * Path B — RAW over TURN: dial → WRAP → TCP workers → VPS -listen-raw.
- * No DTLS. No nested WG/AWG.
+ * Path B — RAW over TURN via qWDTT go_client (libclient.so):
+ * dial (vkcalls) → TURN TCP → WRAP → VPS -listen-raw. No DTLS. No nested WG.
+ *
+ * TUN is established after RAWCONF (not before), so go_client can dial without
+ * routing its own sockets into the VPN.
  */
 class BypassBackend(
     private val session: BypassSession = BypassSession(),
@@ -22,10 +25,13 @@ class BypassBackend(
 
     override suspend fun start(
         service: VpnService,
-        tun: ParcelFileDescriptor,
+        tun: ParcelFileDescriptor?,
         config: TunnelSessionConfig,
         onState: (TunnelBackendState) -> Unit,
     ) {
+        // Pre-created TUN is unused for Path B (see VpnTunnelService).
+        runCatching { tun?.close() }
+
         val profile = config.profile
         if (profile == null) {
             onState(TunnelBackendState.Failed("Нет профиля"))
@@ -48,6 +54,7 @@ class BypassBackend(
         coroutineScope {
             session.start(
                 scope = this,
+                service = service,
                 config = BypassConfig(
                     profile = profile,
                     callHash = hash,
@@ -56,6 +63,10 @@ class BypassBackend(
                     silentRecreate = config.silentRecreate,
                     hideIp = config.hideIp,
                 ),
+                establishTun = { ip, dnsCsv, mtu ->
+                    (service as? TunEstablisher)?.establishTun(ip, dnsCsv, mtu)
+                        ?: error("VpnService не умеет establishTun")
+                },
             ) { phase ->
                 Log.i(TAG, "phase=$phase")
                 when (phase) {
@@ -73,8 +84,6 @@ class BypassBackend(
                     else -> Unit
                 }
             }
-            // Wait until session ends or fails (dial currently fails until HTTP wired —
-            // that is intentional so UI shows real status).
             done.await()
         }
     }
@@ -86,4 +95,9 @@ class BypassBackend(
     companion object {
         private const val TAG = "BypassBackend"
     }
+}
+
+/** Implemented by [com.nonamevpn.app.core.VpnTunnelService]. */
+interface TunEstablisher {
+    fun establishTun(ip: String, dnsCsv: String, mtu: Int): ParcelFileDescriptor?
 }
