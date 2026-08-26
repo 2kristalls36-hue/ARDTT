@@ -62,13 +62,19 @@ class VpnTunnelService : VpnService() {
         ConnectionManager.getOrNull()?.onServiceStarted(path)
 
         if (tun == null) {
-            tun = Builder()
+            val builder = Builder()
                 .setSession("nonameVPN")
                 .setMtu(mtu)
                 .addAddress(address, 32)
                 .addDnsServer(dns)
                 .addRoute("0.0.0.0", 0)
-                .establish()
+            // Keep our sockets off the VPN (SSH deploy, probe, TURN dial).
+            runCatching { builder.addDisallowedApplication(packageName) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                builder.setMetered(false)
+            }
+            builder.setBlocking(true)
+            tun = builder.establish()
         }
         val fd = tun
         if (fd == null) {

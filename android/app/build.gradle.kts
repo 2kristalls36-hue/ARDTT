@@ -12,9 +12,11 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0-bypass-scaffold"
+        versionCode = 3
+        versionName = "0.3.0-awg-direct"
     }
+
+    ndkVersion = "27.0.12077973"
 
     buildTypes {
         release {
@@ -45,6 +47,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":tunnel"))
+
     val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -64,4 +68,5 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }
