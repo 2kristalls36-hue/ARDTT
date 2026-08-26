@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.ui.theme.NonameTheme
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
@@ -115,7 +116,7 @@ class VkLoginActivity : ComponentActivity() {
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                 )
-                                applySettings(this)
+                                applySettings(this, loginFlowAttempt)
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                         loading = true
@@ -125,14 +126,15 @@ class VkLoginActivity : ComponentActivity() {
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         loading = false
                                         maybeComplete(url.orEmpty())
+                                        injectLoginErrorWatcher(view)
                                         // Login flow fallbacks if stuck on broken VK ID page
                                         if (mode == Mode.LOGIN && !loginHandled) {
                                             val u = url.orEmpty()
                                             if (loginFlowAttempt < 2 &&
-                                                (u.contains("error") || u.contains("blank"))
+                                                (u.contains("error") || u.contains("blank") ||
+                                                    u.contains("blocked"))
                                             ) {
-                                                loginFlowAttempt++
-                                                view?.loadUrl(VkSession.loginStartUrl(loginFlowAttempt))
+                                                retryLogin(view, "url=$u")
                                             }
                                         }
                                     }
@@ -146,7 +148,18 @@ class VkLoginActivity : ComponentActivity() {
                                         return false
                                     }
                                 }
-                                loadUrl(startUrl)
+                                addJavascriptInterface(
+                                    object {
+                                        @android.webkit.JavascriptInterface
+                                        fun onLoginPageError(msg: String) {
+                                            runOnUiThread {
+                                                if (!loginHandled) retryLogin(this@apply, msg)
+                                            }
+                                        }
+                                    },
+                                    "NvpnVkAuth",
+                                )
+                                loadUrl(startUrl, AUTH_HEADERS)
                             }
                         },
                     )
@@ -160,12 +173,37 @@ class VkLoginActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private fun retryLogin(view: WebView?, reason: String) {
+        if (loginHandled || mode != Mode.LOGIN) return
+        if (loginFlowAttempt >= 2) {
+            AppLog.e(TAG_ACT, "All login variants exhausted ($reason)")
+            pendingLogin.getAndSet(null)?.complete(
+                Result.failure(IllegalStateException("Не удалось открыть вход VK ($reason)")),
+            )
+            finish()
+            return
+        }
+        loginFlowAttempt++
+        val next = VkSession.loginStartUrl(loginFlowAttempt)
+        AppLog.w(TAG_ACT, "Retry login attempt=$loginFlowAttempt reason=$reason → $next")
+        view?.let {
+            applySettings(it, loginFlowAttempt)
+            it.evaluateJavascript("window.__nvpn_login_err_watch=false;", null)
+            it.loadUrl(next, AUTH_HEADERS)
+        }
+    }
+
+    private fun injectLoginErrorWatcher(view: WebView?) {
+        view?.evaluateJavascript(LOGIN_ERROR_WATCHER_JS, null)
+    }
+
     private fun maybeComplete(url: String) {
         when (mode) {
             Mode.LOGIN -> {
                 if (loginHandled) return
                 if (VkSession.hasSessionCookie() && !VkSession.looksLikeLoginUrl(url)) {
                     loginHandled = true
+                    AppLog.i(TAG_ACT, "Login OK remixsid present")
                     pendingLogin.getAndSet(null)?.complete(Result.success(Unit))
                     finish()
                 }
@@ -173,6 +211,7 @@ class VkLoginActivity : ComponentActivity() {
             Mode.TOKEN -> {
                 val token = VkCallHashGenerator.extractAccessToken(url)
                 if (!token.isNullOrBlank()) {
+                    AppLog.i(TAG_ACT, "Token OK")
                     pendingToken.getAndSet(null)?.complete(Result.success(token))
                     finish()
                 }
@@ -181,20 +220,54 @@ class VkLoginActivity : ComponentActivity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun applySettings(webView: WebView) {
+    private fun applySettings(webView: WebView, attempt: Int) {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            databaseEnabled = true
             javaScriptCanOpenWindowsAutomatically = true
+            setSupportMultipleWindows(true)
+            loadWithOverviewMode = true
+            useWideViewPort = true
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            userAgentString = WebSettings.getDefaultUserAgent(this@VkLoginActivity)
+            // Desktop UA on last attempt — qWDTT workaround for broken VK ID WebView.
+            userAgentString = if (attempt >= 2) {
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            } else {
+                WebSettings.getDefaultUserAgent(this@VkLoginActivity)
+            }
         }
     }
 
     companion object {
         const val EXTRA_MODE = "mode"
         private const val TIMEOUT_MS = 5 * 60_000L
+        private const val TAG = "VkLogin"
+        private const val TAG_ACT = "VkLogin"
+
+        private val AUTH_HEADERS = mapOf(
+            "Accept-Language" to "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        )
+
+        private const val LOGIN_ERROR_WATCHER_JS = """
+            (function() {
+                if (window.__nvpn_login_err_watch) return;
+                window.__nvpn_login_err_watch = true;
+                function check() {
+                    try {
+                        var t = (document.body && document.body.innerText) || '';
+                        var low = t.toLowerCase();
+                        if (low.indexOf('unknown method') !== -1) {
+                            window.NvpnVkAuth.onLoginPageError('Unknown method passed');
+                        }
+                    } catch(e) {}
+                }
+                setInterval(check, 1200);
+                check();
+            })();
+        """
 
         private val mutex = Mutex()
         private val pendingLogin = AtomicReference<CompletableDeferred<Result<Unit>>?>(null)
@@ -202,17 +275,32 @@ class VkLoginActivity : ComponentActivity() {
         @Volatile private var active: VkLoginActivity? = null
 
         suspend fun login(context: Context): Result<Unit> = mutex.withLock {
-            if (VkSession.hasSessionCookie()) return@withLock Result.success(Unit)
+            if (VkSession.hasSessionCookie()) {
+                AppLog.i(TAG, "Already have remixsid — skip WebView")
+                return@withLock Result.success(Unit)
+            }
             val deferred = CompletableDeferred<Result<Unit>>()
             pendingLogin.getAndSet(deferred)?.cancel()
             val intent = Intent(context, VkLoginActivity::class.java).apply {
                 putExtra(EXTRA_MODE, Mode.LOGIN.name)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                // qWDTT-style flags; Activity context still works with NEW_TASK on modern Android.
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                )
             }
-            context.startActivity(intent)
+            AppLog.i(TAG, "Starting VK login WebView")
+            try {
+                context.startActivity(intent)
+            } catch (t: Throwable) {
+                AppLog.e(TAG, "startActivity failed: ${t.message}")
+                return@withLock Result.failure(t)
+            }
             try {
                 withTimeout(TIMEOUT_MS) { deferred.await() }
             } catch (t: Throwable) {
+                AppLog.w(TAG, "login await: ${t.message}")
                 Result.failure(t)
             } finally {
                 pendingLogin.set(null)
@@ -225,8 +313,13 @@ class VkLoginActivity : ComponentActivity() {
             pendingToken.getAndSet(deferred)?.cancel()
             val intent = Intent(context, VkLoginActivity::class.java).apply {
                 putExtra(EXTRA_MODE, Mode.TOKEN.name)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                )
             }
+            AppLog.i(TAG, "Starting VK token WebView")
             context.startActivity(intent)
             try {
                 withTimeout(TIMEOUT_MS) {

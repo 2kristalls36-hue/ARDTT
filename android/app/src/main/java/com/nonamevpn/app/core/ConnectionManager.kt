@@ -189,9 +189,10 @@ class ConnectionManager(
             return
         }
 
-        // WARP is still a stub: keep the user preference, but traffic exits via VPS IP.
+        // WARP is still a stub — never claim "IP hidden".
         if (current.hideIp) {
-            AppLog.w(TAG, "Hide-IP preferred (WARP stub) — tunnel runs without WARP egress")
+            AppLog.w(TAG, "Hide-IP ignored (WARP stub)")
+            _ui.value = current.copy(hideIp = false)
         }
 
         connectJob?.cancel()
@@ -476,9 +477,6 @@ class ConnectionManager(
         if (needsHash && !_ui.value.hasCallHash) {
             parts += "Для обхода сохраните hash звонка на телефоне."
         }
-        if (_ui.value.hideIp) {
-            parts += "«Скрыть IP» включён, но WARP на VPS ещё stub — снаружи виден IP сервера."
-        }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
 
@@ -487,8 +485,7 @@ class ConnectionManager(
         VpnPath.Bypass -> "обход"
     }
 
-    private fun hideSuffix(): String =
-        if (_ui.value.hideIp) " · IP скрыт (WARP)" else ""
+    private fun hideSuffix(): String = ""
 
     private fun startTunnel(path: VpnPath) {
         val addr = when (path) {

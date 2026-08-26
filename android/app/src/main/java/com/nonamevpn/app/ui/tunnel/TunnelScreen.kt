@@ -64,7 +64,19 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.theme.NvpnColors
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import kotlinx.coroutines.launch
+
+private fun Context.findActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 @Composable
 fun TunnelScreen(
@@ -75,7 +87,6 @@ fun TunnelScreen(
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
-    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
     var showImport by remember { mutableStateOf(false) }
@@ -136,6 +147,12 @@ fun TunnelScreen(
         )
     }
 
+    LaunchedEffect(Unit) {
+        // WARP stub: clear any leftover Hide-IP preference so UI/status don't lie.
+        settings.setHideIp(false)
+        conn.setHideIp(false)
+    }
+
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
         if (profile != null) {
@@ -147,10 +164,6 @@ fun TunnelScreen(
             settings.setProfileName("")
         }
         conn.startInitialProbe()
-    }
-
-    LaunchedEffect(hideIp) {
-        conn.setHideIp(hideIp)
     }
 
     val connected = ui.state == ConnState.Connected
@@ -358,17 +371,22 @@ fun TunnelScreen(
                         scope.launch {
                             callBusy = true
                             callMessage = "Открываем вход VK…"
-                            val r = VkLoginActivity.login(context)
+                            AppLog.i("VK", "Login button pressed")
+                            val activityCtx = context.findActivity() ?: context
+                            val r = runCatching { VkLoginActivity.login(activityCtx) }
+                                .getOrElse { Result.failure(it) }
                             callBusy = false
                             vkLoggedIn = VkSession.hasSessionCookie()
-                            callMessage = if (r.isSuccess) {
-                                "Вход выполнен — можно создать звонок"
-                            } else {
-                                r.exceptionOrNull()?.message ?: "Вход отменён"
+                            callMessage = when {
+                                r.isSuccess && vkLoggedIn -> "Вход выполнен — можно создать звонок"
+                                r.isSuccess -> "Сессия не подтвердилась — попробуйте ещё раз"
+                                else -> r.exceptionOrNull()?.message ?: "Вход отменён"
                             }
+                            AppLog.i("VK", "Login result success=${r.isSuccess} cookie=$vkLoggedIn")
                         }
                     },
-                    enabled = profile != null && !connected && !callBusy,
+                    // Allow login even while connected (session is for hash recreate).
+                    enabled = profile != null && !callBusy,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -436,20 +454,10 @@ fun TunnelScreen(
         ) {
             RowSwitch(
                 title = "Скрыть свой IP",
-                subtitle = if (hideIp) {
-                    "Включено. WARP на VPS пока stub — снаружи всё ещё IP сервера"
-                } else {
-                    "Через WARP на VPS (пока stub — можно включить, эффект позже)"
-                },
-                checked = hideIp,
-                enabled = !connecting && !busy,
-                onCheckedChange = { on ->
-                    scope.launch {
-                        settings.setHideIp(on)
-                        conn.setHideIp(on)
-                        AppLog.i("HideIP", if (on) "enabled (WARP stub)" else "disabled")
-                    }
-                },
+                subtitle = "Недоступно — WARP на VPS ещё не готов (stub). Включение ничего не меняет и не ускоряет.",
+                checked = false,
+                enabled = false,
+                onCheckedChange = { },
             )
         }
 

@@ -1,6 +1,9 @@
 package com.nonamevpn.app.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,13 +14,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,18 +30,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -48,15 +51,12 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
-    val hasPin by settings.hasAdminPin.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
-    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val scope = rememberCoroutineScope()
-    var pin by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf<String?>(null) }
+    var adminHint by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(silent, economy, dial, pathMode) {
         conn.setSilentRecreate(silent)
@@ -137,9 +137,10 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             )
             RowSetting(
                 title = "Скрыть свой IP",
-                subtitle = "WARP на VPS пока stub — тумблер сохраняется, но выход всё ещё IP сервера",
-                checked = hideIp,
-                onCheckedChange = { scope.launch { settings.setHideIp(it) } },
+                subtitle = "Недоступно — WARP на VPS ещё stub",
+                checked = false,
+                enabled = false,
+                onCheckedChange = { },
             )
         }
 
@@ -181,51 +182,32 @@ fun SettingsScreen(settings: AppSettingsRepository) {
         ) {
             Text("Администратор", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                if (hasPin) {
-                    "PIN открывает Серверы / Деплой / Логи."
+                if (admin) {
+                    "Открыты Серверы / Деплой / Логи."
                 } else {
-                    "Задайте PIN (первый ввод создаёт его)."
+                    "Короткое нажатие — подсказка. Удерживайте кнопку 4 секунды."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(
-                value = pin,
-                onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(8) },
-                label = { Text("PIN") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth(),
-            )
             if (!admin) {
-                Button(
-                    onClick = {
+                AdminHoldButton(
+                    hint = adminHint,
+                    onHint = { adminHint = it },
+                    onUnlocked = {
                         scope.launch {
-                            if (pin.length < 4) {
-                                message = "PIN не короче 4 цифр"
-                                return@launch
-                            }
-                            val ok = settings.unlockAdmin(pin)
-                            message = if (ok) "Режим админа включён" else "Неверный PIN"
-                            if (ok) pin = ""
+                            settings.unlockAdmin()
+                            adminHint = "Режим админа включён"
+                            AppLog.i("Admin", "Unlocked via 4s hold")
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text(if (hasPin) "Разблокировать админа" else "Создать PIN и войти", fontWeight = FontWeight.Bold)
-                }
+                )
             } else {
                 OutlinedButton(
                     onClick = {
                         scope.launch {
                             settings.lockAdmin()
-                            message = "Снова режим пользователя"
-                            pin = ""
+                            adminHint = "Снова режим пользователя"
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -234,10 +216,63 @@ fun SettingsScreen(settings: AppSettingsRepository) {
                     Text("Выйти из режима админа")
                 }
             }
-            message?.let {
+            adminHint?.let {
                 Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+}
+
+@Composable
+private fun AdminHoldButton(
+    hint: String?,
+    onHint: (String) -> Unit,
+    onUnlocked: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var holdJob by remember { mutableStateOf<Job?>(null) }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    val startedAt = System.currentTimeMillis()
+                    holdJob?.cancel()
+                    holdJob = scope.launch {
+                        for (left in 4 downTo 1) {
+                            onHint("Удерживайте… ещё $left с")
+                            delay(1_000)
+                        }
+                        onUnlocked()
+                    }
+                    waitForUpOrCancellation()
+                    val heldMs = System.currentTimeMillis() - startedAt
+                    val finished = holdJob?.isCompleted == true
+                    holdJob?.cancel()
+                    holdJob = null
+                    if (!finished) {
+                        onHint(
+                            if (heldMs < 350) {
+                                "Удерживайте кнопку 4 секунды для режима админа"
+                            } else {
+                                "Отпущено рано — держите полные 4 секунды"
+                            },
+                        )
+                    }
+                }
+            },
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.primary,
+    ) {
+        Text(
+            text = hint?.takeIf { it.startsWith("Удерживайте") } ?: "Удерживать 4 сек — админ",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            color = MaterialTheme.colorScheme.onPrimary,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyLarge,
+        )
     }
 }
 
@@ -263,11 +298,14 @@ private fun RowSetting(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) },
+            .then(
+                if (enabled) Modifier.clickable { onCheckedChange(!checked) } else Modifier,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -275,6 +313,6 @@ private fun RowSetting(
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
