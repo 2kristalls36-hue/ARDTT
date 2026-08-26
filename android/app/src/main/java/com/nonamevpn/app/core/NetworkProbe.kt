@@ -49,7 +49,7 @@ object NetworkProbe {
                 }
                 val captiveDef = async { detectCaptive() }
                 val udpDef = async { udpLite(directEndpoint, 2_000) }
-                val provisionDef = async { provisionHealth(provisionBaseUrl, 2_500) }
+                val provisionDef = async { provisionHealth(provisionBaseUrl, 4_000) }
 
                 val yandexOk = yandexDef.await()
                 val bigtechOk = bigtechDef.await()

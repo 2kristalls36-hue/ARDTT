@@ -105,6 +105,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     }
                 }
             } catch (t: Throwable) {
+                // stop()/job.cancel() throws CancellationException — not a tunnel failure
+                if (t is kotlinx.coroutines.CancellationException) {
+                    AppLog.i(TAG, "session cancelled (normal stop)")
+                    throw t
+                }
                 AppLog.e(TAG, "backend crash: ${t.message}")
                 ConnectionManager.getOrNull()?.onTunnelFailed(t.message ?: "tunnel crash")
                 stopSelf()
