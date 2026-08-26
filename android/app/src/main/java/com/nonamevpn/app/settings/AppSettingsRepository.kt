@@ -62,27 +62,19 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[pathMode] = normalizePathMode(name) }
     }
 
-    suspend fun setAdminPin(pin: String) {
-        context.dataStore.edit {
-            it[adminPinHash] = sha256(pin)
-            it[adminUnlocked] = true
-        }
+    suspend fun unlockAdmin() {
+        context.dataStore.edit { it[adminUnlocked] = true }
     }
 
+    /** @deprecated PIN removed — use [unlockAdmin]. Kept for binary compat of older calls. */
     suspend fun unlockAdmin(pin: String): Boolean {
-        var ok = false
-        context.dataStore.edit { prefs ->
-            val stored = prefs[adminPinHash]
-            if (stored.isNullOrBlank()) {
-                prefs[adminPinHash] = sha256(pin)
-                prefs[adminUnlocked] = true
-                ok = true
-            } else if (stored == sha256(pin)) {
-                prefs[adminUnlocked] = true
-                ok = true
-            }
-        }
-        return ok
+        unlockAdmin()
+        return true
+    }
+
+    suspend fun setAdminPin(pin: String) {
+        // No-op: PIN flow removed in favour of long-press unlock.
+        unlockAdmin()
     }
 
     suspend fun lockAdmin() {
