@@ -6,6 +6,7 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 
 - Parallel **NetworkProbe** + **ConnectionManager**
 - **VpnTunnelService** — один VpnService, бэкенды Direct / Bypass
+- **Path A (Direct):** модуль `:tunnel` с `libwg-go` (AmneziaWG userspace) → `DirectBackend` / `awgTurnOn`
 - Импорт профиля JSON (provision)
 - **Bypass scaffold:** `CallHashStore`, `AutoVkDialer`, `WrapCrypto`, `BypassSession`
 - **Админ-деплой:** SSH (JSch) → upload `stack.tar.gz` + `install.sh` → Docker Compose на VPS
@@ -13,9 +14,9 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 
 ## Ещё нет (следующий слой)
 
-- Native AmneziaWG GoBackend в DirectBackend
 - Реальный HTTP/TLS для vkcalls + TURN Allocate TCP + packet pump RAW
 - WebView для создания звонка / legacy captcha
+- Нативный WARP egress на VPS (сейчас stub)
 
 ## Деплой с телефона
 
@@ -43,9 +44,13 @@ cd android
 ## Структура
 
 ```
-core/       NetworkProbe, ConnectionManager, VpnTunnelService
-tunnel/     TunnelBackend, DirectBackend, BypassBackend
-bypass/     WrapCrypto, CallHashStore, VkDialer, BypassSession
-profile/    VpnProfile JSON
-ui/         Tunnel / Settings / Admin
+app/…/core/       NetworkProbe, ConnectionManager, VpnTunnelService
+app/…/tunnel/     TunnelBackend, DirectBackend, BypassBackend, AwgUserspaceConfig
+app/…/bypass/     WrapCrypto, CallHashStore, VkDialer, BypassSession
+app/…/profile/    VpnProfile JSON
+app/…/ui/         Tunnel / Settings / Admin
+tunnel/           AmneziaWG libwg-go (JNI) — форк tools из amneziawg-android
 ```
+
+Сборка `:tunnel` тянет NDK + Go (Makefile `libwg-go` сам скачает toolchain в Gradle cache).
+Нужны `ANDROID_HOME` / `local.properties` → `sdk.dir`, NDK 27+.
