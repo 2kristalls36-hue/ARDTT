@@ -76,6 +76,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var zeroWorkersSinceMs = 0L
     @Volatile private var processDeadSinceMs = 0L
     @Volatile private var lastHandoffAtMs = 0L
+    @Volatile private var sessionStartedAtMs = 0L
 
     @Volatile private var trustedWifiWaiting = false
     @Volatile private var trustedWifiWaitingSsid = ""
@@ -137,6 +138,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
         tunnelSessionActive = true
         softRestartInProgress = false
+        sessionStartedAtMs = System.currentTimeMillis()
         TransportHealth.reset()
         setupNetworkCallback()
         registerScreenReceiver()
@@ -205,6 +207,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             softRestartInProgress = false
                             tunnelSessionActive = true
                             TransportHealth.backendAlive = true
+                            // Keep underlay id in sync after soft restart so the next
+                            // Wi‑Fi/LTE change is HANDOVER, not a silent INITIAL.
+                            pickBestUnderlyingNetwork()?.let {
+                                lastValidatedNetworkId = it.networkHandle
+                            }
                             ConnectionManager.getOrNull()?.onTunnelRunning(path)
                             updateNotification(path, getString(R.string.notif_running))
                             scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
@@ -238,6 +245,30 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 softRestartInProgress = false
                 ConnectionManager.getOrNull()?.onTunnelFailed(t.message ?: "tunnel crash")
                 stopSelf()
+            }
+        }
+    }
+
+    /**
+     * Auto: re-classify underlay and soft-restart (possibly switching Direct↔Bypass).
+     * Forced Direct/Bypass: soft-restart same path.
+     */
+    private suspend fun runHandoverProbeAndRestart(reason: String) {
+        val underlay = pickBestUnderlyingNetwork()
+        val decision = ConnectionManager.getOrNull()
+            ?.decideNetworkHandover(underlay)
+            ?: NetworkHandoverDecision.SoftRestartSamePath
+        when (decision) {
+            is NetworkHandoverDecision.SwitchPath -> {
+                AppLog.i(TAG, "handover path switch → ${decision.path}")
+                requestSoftRestart(
+                    reason = "[СЕТЬ] $reason → ${decision.path}",
+                    force = true,
+                    pathOverride = decision.path,
+                )
+            }
+            NetworkHandoverDecision.SoftRestartSamePath -> {
+                requestSoftRestart(reason = "[СЕТЬ] $reason", force = true)
             }
         }
     }
@@ -452,10 +483,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 "stalled=${now - TransportHealth.lastTrafficGrowthAtMs}ms " +
                                 "sinceHandoff=${if (lastHandoffAtMs > 0) now - lastHandoffAtMs else -1}",
                         )
-                        requestSoftRestart(
-                            reason = "[СЕТЬ] Трафик встал после смены сети — мягкий рестарт обхода",
-                            force = true,
-                        )
+                        // Re-probe: e.g. Wi‑Fi returned while stuck on Bypass zombies.
+                        scope.launch {
+                            runHandoverProbeAndRestart(
+                                "Трафик встал после смены сети — проверка пути",
+                            )
+                        }
                     }
                 }
             }
@@ -622,8 +655,25 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             reason = "Android подтвердил новую рабочую сеть",
                             previousNetworkId = previous,
                         )
-                    ValidatedNetworkTransition.INITIAL ->
+                    ValidatedNetworkTransition.INITIAL -> {
                         AppLog.i(TAG, "validated underlying network id=$id")
+                        // After Wi‑Fi→LTE, id is often cleared; the new/returning
+                        // underlay arrives as INITIAL, not HANDOVER — still re-probe.
+                        if (
+                            shouldTreatInitialValidatedAsHandover(
+                                tunnelRunning = tunnelSessionActive,
+                                userStopRequested = userStopRequested,
+                                softRestartInProgress = softRestartInProgress,
+                                sessionStartedAtMs = sessionStartedAtMs,
+                                nowMs = System.currentTimeMillis(),
+                            )
+                        ) {
+                            scheduleUnderlyingNetworkReconnect(
+                                reason = "Android подтвердил underlay (INITIAL после смены сети)",
+                                previousNetworkId = previous,
+                            )
+                        }
+                    }
                     ValidatedNetworkTransition.UNCHANGED -> Unit
                 }
             }
@@ -685,23 +735,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     AppLog.i(TAG, "skip reconnect: session state changed")
                     return@launch
                 }
-                val underlay = pickBestUnderlyingNetwork()
-                val decision = ConnectionManager.getOrNull()
-                    ?.decideNetworkHandover(underlay)
-                    ?: NetworkHandoverDecision.SoftRestartSamePath
-                when (decision) {
-                    is NetworkHandoverDecision.SwitchPath -> {
-                        AppLog.i(TAG, "handover path switch → ${decision.path}")
-                        requestSoftRestart(
-                            reason = "[СЕТЬ] $reason → ${decision.path}",
-                            force = true,
-                            pathOverride = decision.path,
-                        )
-                    }
-                    NetworkHandoverDecision.SoftRestartSamePath -> {
-                        requestSoftRestart(reason = "[СЕТЬ] $reason", force = true)
-                    }
-                }
+                runHandoverProbeAndRestart(reason)
             } finally {
                 stableNetworkReconnectPending = false
                 handoverPreviousNetworkId = null
