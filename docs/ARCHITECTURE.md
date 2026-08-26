@@ -13,7 +13,7 @@
 
 | Тема | Решение |
 |------|---------|
-| Платформа | Android; форк `amneziawg-android` + bypass из qWDTT |
+| Платформа | Android; форк `amneziawg-android` + bypass из WDTT |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
 | Деплой | Compose: `direct` + `bypass` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
 | WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0` |
@@ -76,7 +76,7 @@ Android
 | Раздел | Содержимое |
 |--------|------------|
 | **Логи** | Подробные логи tunnel / bypass / probe; export |
-| **Деплой** | Установка/обновление сервера (SSH), как Deploy в qWDTT |
+| **Деплой** | Установка/обновление сервера (SSH), как Deploy в WDTT |
 | **Серверы / provision** | Пользователи, host_id, выдача профилей |
 | **Сеть / обход** | dial auto\|vkcalls\|legacy, workers, тихий recreate |
 | **AWG** | Обфускация, endpoint, ключи |
@@ -148,7 +148,7 @@ warp flag (клиент) → на сервере mark/policy для этого i
 | **NeedBypass** | VPS UDP-lite fail, но yandex‖bigtech | Path B | «Обход» |
 | **OpenNeedBypass** | NeedBypass и bigtech ok | Path B | Мягкий info, **не** blocking dialog |
 
-**Убрали** qWDTT-style hard-block «не используйте без БС». На открытой сети при недоступном VPS обход как раз нужен. Info-текст можно показать, Connect не запрещаем.
+**Убрали** hard-block «не используйте без БС». На открытой сети при недоступном VPS обход как раз нужен. Info-текст можно показать, Connect не запрещаем.
 
 Инициализация клиента (профиль, `.so`, проверка VPN permission) — **параллельно** с probe. TURN Allocate — только после Connect на Path B.
 
@@ -156,7 +156,7 @@ warp flag (клиент) → на сервере mark/policy для этого i
 
 ## Нагрузка Path B (workers)
 
-Слепой `workers=1` сильно режет скорость (qWDTT RAW как раз от параллельных каналов).
+Слепой `workers=1` сильно режет скорость (WDTT RAW как раз от параллельных каналов).
 
 **Зафиксировано (подтверждено):**
 
@@ -166,7 +166,7 @@ warp flag (клиент) → на сервере mark/policy для этого i
 | «Экономия» в настройках | 1 | Слабые сети / отладка |
 | Потолок (позже) | 6–9 | Только после замеров |
 
-Один **hash** на пользователя; несколько workers = несколько TURN allocations на тот же hash (как qWDTT), не несколько звонков.
+Один **hash** на пользователя; несколько workers = несколько TURN allocations на тот же hash (как WDTT), не несколько звонков.
 
 ---
 
@@ -192,9 +192,9 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 Звонок мёртв: спросить | тихий recreate (настройка)
 ```
 
-### Как в qWDTT сейчас (#7 — сессия / тихий режим)
+### Как в WDTT (#7 — сессия / тихий режим)
 
-| Что | Поведение qWDTT |
+| Что | Поведение WDTT |
 |-----|-----------------|
 | Anonymous `vkcalls` | API: anonymous_token → call preview → anonym call token → `turn_server`; **без** долгого аккаунта |
 | Account mode | WebView логин; `turn_server` с страницы звонка; Go получает `TURN_CREDS` через stdin; кэш кредов **~9 мин** в памяти |
@@ -202,11 +202,11 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 | Hash | В профиле приложения (пользователь/генератор хешей) |
 | Refresh | При ошибках Allocate — refresh creds; смена hash; цепочка captcha для legacy |
 
-**Для нас (тихий recreate):** хранить hash + возможность открыть WebView/сессию VK при recreate; TURN creds кэшировать ≤9 мин как qWDTT; не хранить пароль VK — только cookies/сессия WebView (как qWDTT) в app-private storage. Тихий режим = auto WebView/API recreate без диалога (нужна ещё живая cookie-сессия; иначе всё равно показать логин).
+**Для нас (тихий recreate):** хранить hash + возможность открыть WebView/сессию VK при recreate; TURN creds кэшировать ≤9 мин как WDTT; не хранить пароль VK — только cookies/сессия WebView (как WDTT) в app-private storage. Тихий режим = auto WebView/API recreate без диалога (нужна ещё живая cookie-сессия; иначе всё равно показать логин).
 
 ### Зависимость от VK (#10)
 
-**Как в qWDTT:** форк API/WebView под текущий VK; при поломке — обновление приложения; Path всегда только через TURN VK; несколько hash/workers как смягчение; captcha/account как запасные ветки.
+**Как в WDTT:** форк API/WebView под текущий VK; при поломке — обновление приложения; Path всегда только через TURN VK; несколько hash/workers как смягчение; captcha/account как запасные ветки.
 
 **Наше предложение:**
 
@@ -227,11 +227,11 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 
 ## Лицензии GPL × Apache (#9)
 
-qWDTT/WDTT ≈ **GPL-3.0**, amneziawg-android ≈ **Apache-2.0**.
+WDTT ≈ **GPL-3.0**, amneziawg-android ≈ **Apache-2.0**.
 
 **Сделать:**
 
-1. В репо: `LICENSE` (решение для **всего APK** — практично **GPL-3.0**), `NOTICE` с атрибуцией Amnezia (Apache) и qWDTT/WDTT (GPL).
+1. В репо: `LICENSE` (решение для **всего APK** — практично **GPL-3.0**), `NOTICE` с атрибуцией Amnezia (Apache) и WDTT (GPL).
 2. Не удалять copyright headers из форкнутых файлов.
 3. README: откуда код, что продукт — комбинированное произведение под GPL-3.
 4. Play/распространение: готовность отдать corresponding source (GPL).

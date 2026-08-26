@@ -231,7 +231,7 @@ class VkLoginActivity : ComponentActivity() {
             loadWithOverviewMode = true
             useWideViewPort = true
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            // Desktop UA on last attempt — qWDTT workaround for broken VK ID WebView.
+            // Desktop UA on last attempt — workaround for broken VK ID WebView.
             userAgentString = if (attempt >= 2) {
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -283,7 +283,7 @@ class VkLoginActivity : ComponentActivity() {
             pendingLogin.getAndSet(deferred)?.cancel()
             val intent = Intent(context, VkLoginActivity::class.java).apply {
                 putExtra(EXTRA_MODE, Mode.LOGIN.name)
-                // qWDTT-style flags; Activity context still works with NEW_TASK on modern Android.
+                // WebView flags; Activity context still works with NEW_TASK on modern Android.
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_SINGLE_TOP or

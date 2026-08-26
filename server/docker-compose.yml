@@ -7,7 +7,7 @@
 # - host network + NET_ADMIN required for TUN (direct/bypass/warp).
 # - provision exposes TCP :9100 /health and generates AWG keypairs.
 # - direct: amneziawg-go + awg (AmneziaWG 2.0 userspace).
-# - bypass: wdtt-server -listen-raw (qWDTT/WDTT, GPL-3).
+# - bypass: wdtt-server -listen-raw (WDTT, GPL-3).
 
 services:
   provision:
@@ -68,10 +68,8 @@ services:
     environment:
       GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-400MiB}
       NVPN_DATA: /data
-      NVPN_WARP_STATE: /var/lib/nvpn-warp
     volumes:
       - ./data:/data:ro
-      - ./data/warp:/var/lib/nvpn-warp
     depends_on:
       - provision
     # Intentionally avoid restart-on-OOM loops — soft memory policy in-process

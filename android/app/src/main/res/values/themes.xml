@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Match qWDTT: transparent system bars; Compose theme paints content. -->
+    <!-- Transparent system bars; Compose theme paints content. -->
     <style name="Theme.NonameVPN" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

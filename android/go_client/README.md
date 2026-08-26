@@ -1,6 +1,7 @@
 # go_client (Path B)
 
-Vendored from [qWDTT / SpaceNeuroX](https://github.com/SpaceNeuroX/proxy-turn-vk-android) (`go_client/`), GPL-3.0.
+Vendored WDTT Path B client (`go_client` / android-client lineage) from
+[WDTT](https://github.com/amurcanov/proxy-turn-vk-android), GPL-3.0.
 
 Build Android `libclient.so`:
 

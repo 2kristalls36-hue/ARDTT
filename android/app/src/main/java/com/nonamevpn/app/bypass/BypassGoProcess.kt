@@ -31,7 +31,7 @@ data class BypassGoArgs(
 )
 
 /**
- * Runs vendored qWDTT go_client as [libclient.so] subprocess (Path B: vkcalls + TURN TCP + WRAP/RAW).
+ * Runs vendored WDTT go_client as [libclient.so] subprocess (Path B: vkcalls + TURN TCP + WRAP/RAW).
  */
 class BypassGoProcess(
     private val context: Context,

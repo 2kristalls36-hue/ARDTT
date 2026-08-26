@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
- * In-app event log (qWDTT-style): ring buffer for the Логи tab.
+ * In-app event log: ring buffer for the Логи tab.
  */
 object AppLog {
     enum class Level { I, W, E }

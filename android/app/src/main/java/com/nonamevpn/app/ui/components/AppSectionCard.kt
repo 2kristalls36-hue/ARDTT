@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** Soft section card — ported from qWDTT `AppSectionCard`. */
+/** Soft section card. */
 @Composable
 fun AppSectionCard(
     modifier: Modifier = Modifier,

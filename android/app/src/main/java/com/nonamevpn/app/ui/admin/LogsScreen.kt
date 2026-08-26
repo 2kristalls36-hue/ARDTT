@@ -41,7 +41,7 @@ import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-/** qWDTT-style event log: terminal list + copy/clear. */
+/** Event log: terminal list + copy/clear. */
 @Composable
 fun LogsScreen() {
     val context = LocalContext.current

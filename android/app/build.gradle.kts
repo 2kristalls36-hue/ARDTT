@@ -64,7 +64,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    // mwiede JSch (SSH deploy) — same family as qWDTT
+    // mwiede JSch (SSH deploy)
     implementation("com.github.mwiede:jsch:0.2.21")
     // OkHttp for VK OAuth / calls.start (create-call)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.nonamevpn.app.R
 
-/** Inter — as in qWDTT (SIL OFL). */
+/** Inter (SIL OFL). */
 val InterFontFamily = FontFamily(
     Font(R.font.inter_regular, FontWeight.Normal),
     Font(R.font.inter_medium, FontWeight.Medium),
@@ -47,7 +47,7 @@ val NvpnTypography = Typography(
     labelSmall = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 0.5.sp),
 )
 
-/** qWDTT light «Раф на кокосовом молоке» */
+/** Light «Раф на кокосовом молоке» */
 private val EspressoLight = lightColorScheme(
     primary = Color(0xFF6D4C41),
     onPrimary = Color(0xFFFFFFFF),
@@ -79,7 +79,7 @@ private val EspressoLight = lightColorScheme(
     surfaceTint = Color(0xFF6D4C41),
 )
 
-/** qWDTT dark «Эспрессо» */
+/** Dark «Эспрессо» */
 private val EspressoDark = darkColorScheme(
     primary = Color(0xFFD7CCC8),
     onPrimary = Color(0xFF3E2723),
@@ -111,7 +111,7 @@ private val EspressoDark = darkColorScheme(
     surfaceTint = Color(0xFFD7CCC8),
 )
 
-/** qWDTT default indigo (kept for parity; espresso is our default). */
+/** Indigo palette (kept for parity; espresso is our default). */
 private val IndigoLight = lightColorScheme(
     primary = Color(0xFF5B588D),
     onPrimary = Color(0xFFFFFFFF),
@@ -160,7 +160,7 @@ object NvpnColors {
 @Composable
 fun NonameTheme(
     themeMode: String = "system",
-    /** `espresso` (default) | `indigo` — same palettes as qWDTT. */
+    /** `espresso` (default) | `indigo`. */
     palette: String = "espresso",
     content: @Composable () -> Unit,
 ) {

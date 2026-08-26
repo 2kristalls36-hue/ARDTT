@@ -204,7 +204,7 @@ fun TunnelScreen(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-        // Connect — like qWDTT main card
+        // Connect — main card CTA
         AppSectionCard(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

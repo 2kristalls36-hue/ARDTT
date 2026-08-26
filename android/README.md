@@ -8,7 +8,7 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 - **VpnTunnelService** — один VpnService, бэкенды Direct / Bypass
 - **Path A (Direct):** модуль `:tunnel` с `libwg-go` (AmneziaWG userspace) → `DirectBackend` / `awgTurnOn`
 - Импорт профиля JSON (provision)
-- **Path B (Bypass):** `libclient.so` (qWDTT go_client) — vkcalls → TURN TCP → WRAP → RAW; TUN после RAWCONF
+- **Path B (Bypass):** `libclient.so` (WDTT go_client) — vkcalls → TURN TCP → WRAP → RAW; TUN после RAWCONF
 - **Bypass scaffold:** `CallHashStore`, dial policy, `WrapCrypto` (совместим с сервером)
 - **Создать звонок:** WebView вход VK → `calls.start` → hash в `CallHashStore` (Connect остаётся анонимным)
 - **Dial path:** Настройки → Авто / vkcalls / Капча (legacy), сохраняется в DataStore
