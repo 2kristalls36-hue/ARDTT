@@ -7,15 +7,16 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 - Parallel **NetworkProbe** + **ConnectionManager**
 - **VpnTunnelService** — один VpnService, бэкенды Direct / Bypass
 - Импорт профиля JSON (provision)
-- **Bypass scaffold:** `CallHashStore`, `AutoVkDialer`, `WrapCrypto`, `BypassSession`
+- **Bypass scaffold:** `CallHashStore`, dial policy, `WrapCrypto`
+- **Создать звонок:** WebView вход VK → `calls.start` → hash в `CallHashStore` (Connect остаётся анонимным)
 - **Админ-деплой:** SSH (JSch) → upload `stack.tar.gz` + `install.sh` → Docker Compose на VPS
 - Настройки: тихий recreate, экономика workers
 
 ## Ещё нет (следующий слой)
 
 - Native AmneziaWG GoBackend в DirectBackend
-- Реальный HTTP/TLS для vkcalls + TURN Allocate TCP + packet pump RAW
-- WebView для создания звонка / legacy captcha
+- Реальный HTTP/TLS для vkcalls + TURN Allocate TCP + packet pump RAW (PR #9)
+- Legacy captcha WebView (fallback)
 
 ## Деплой с телефона
 
