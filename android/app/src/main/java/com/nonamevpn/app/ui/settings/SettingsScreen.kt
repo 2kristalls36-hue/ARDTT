@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,6 +29,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import com.nonamevpn.app.BuildConfig
+import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.settings.AppSettingsRepository
 import kotlinx.coroutines.launch
@@ -39,13 +42,21 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     val hasPin by settings.hasAdminPin.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val scope = rememberCoroutineScope()
     var pin by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(silent, economy) {
+    LaunchedEffect(silent, economy, dial) {
         conn.setSilentRecreate(silent)
         conn.setWorkers(if (economy) 1 else 3)
+        conn.setDialPath(
+            when (dial) {
+                "vkcalls" -> DialPath.VkCalls
+                "legacy" -> DialPath.Legacy
+                else -> DialPath.Auto
+            },
+        )
     }
 
     Column(
@@ -66,6 +77,38 @@ fun SettingsScreen(settings: AppSettingsRepository) {
         )
 
         Text("Обход", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Путь дозвона TURN",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Text(
+            "Авто: vkcalls, при ошибке — legacy (капча). Connect остаётся анонимным по hash.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            DialChip(
+                label = "Авто",
+                selected = dial == "auto",
+                onClick = { scope.launch { settings.setDialPath("auto") } },
+                modifier = Modifier.weight(1f),
+            )
+            DialChip(
+                label = "vkcalls",
+                selected = dial == "vkcalls",
+                onClick = { scope.launch { settings.setDialPath("vkcalls") } },
+                modifier = Modifier.weight(1f),
+            )
+            DialChip(
+                label = "Капча",
+                selected = dial == "legacy",
+                onClick = { scope.launch { settings.setDialPath("legacy") } },
+                modifier = Modifier.weight(1f),
+            )
+        }
         RowSetting(
             title = "Тихий recreate звонка",
             subtitle = "Без диалога, если hash «умер» (нужна сессия VK)",
@@ -144,13 +187,28 @@ fun SettingsScreen(settings: AppSettingsRepository) {
 }
 
 @Composable
+private fun DialChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        modifier = modifier,
+    )
+}
+
+@Composable
 private fun RowSetting(
     title: String,
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    androidx.compose.foundation.layout.Row(
+    Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,

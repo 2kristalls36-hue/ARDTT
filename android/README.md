@@ -8,6 +8,7 @@ Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
 - **VpnTunnelService** — один VpnService, бэкенды Direct / Bypass
 - Импорт профиля JSON (provision)
 - **Bypass scaffold:** `CallHashStore`, `AutoVkDialer`, `WrapCrypto`, `BypassSession`
+- **Dial path:** Настройки → Авто / vkcalls / Капча (legacy), сохраняется в DataStore
 - **Админ-деплой:** SSH (JSch) → upload `stack.tar.gz` + `install.sh` → Docker Compose на VPS
 - Настройки: тихий recreate, экономика workers
 
