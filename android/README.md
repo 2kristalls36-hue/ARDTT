@@ -9,8 +9,15 @@
 | **Пользователь** (default) | После установки | Туннель, Настройки |
 | **Админ** | Настройки → PIN (≥4 цифр) | + Серверы, Деплой, Логи |
 
-Пользовательский экран туннеля: статус (заглушка), Connect, «Скрыть IP», импорт профиля (заглушка).  
-AWG / RAW / probe / VpnService — следующие итерации.
+## Уже есть
+
+- Parallel **NetworkProbe** + **ConnectionManager** (preselect Direct/Bypass; soft info на OpenNeedBypass)
+- **VpnTunnelService** stub (VpnService + notification)
+- **Импорт профиля** JSON (формат `provision`) / демо-профиль → endpoints для UDP-lite
+
+## Ещё нет
+
+- Реальные AWG / RAW backends, VK/TURN dial, call hash storage
 
 ## Сборка
 
@@ -27,12 +34,11 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`
 
 ```
 app/src/main/java/com/nonamevpn/app/
-  MainActivity.kt
-  settings/AppSettingsRepository.kt   # DataStore: admin PIN, hideIp
+  core/          # NetworkProbe, ConnectionManager, VpnTunnelService
+  profile/       # VpnProfile JSON + ProfileRepository
+  settings/      # DataStore: admin PIN, hideIp
   ui/
-    AppRoot.kt                        # нижняя навигация user/admin
     tunnel/TunnelScreen.kt
     settings/SettingsScreen.kt
-    admin/AdminPlaceholders.kt
-    theme/Theme.kt
+    admin/…
 ```

@@ -10,18 +10,26 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,21 +39,41 @@ import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.NetworkClass
 import com.nonamevpn.app.core.VpnPath
+import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import kotlinx.coroutines.launch
 
 @Composable
-fun TunnelScreen(settings: AppSettingsRepository) {
+fun TunnelScreen(
+    settings: AppSettingsRepository,
+    profiles: ProfileRepository,
+) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
-    val profile by settings.currentProfileName.collectAsStateWithLifecycle(initialValue = "")
+    val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
+    var showImport by remember { mutableStateOf(false) }
+    var importError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        // Demo endpoints until profile import lands; empty → UDP-lite skipped, provision skipped.
-        conn.updateEndpoints(directEndpoint = null, provisionUrl = null)
+    LaunchedEffect(profile) {
+        val p = profile
+        if (p != null) {
+            val tunAddr = when (p.prefer) {
+                "bypass" -> p.bypass.address
+                else -> p.direct.address
+            }
+            conn.updateEndpoints(
+                directEndpoint = p.direct.endpoint,
+                provisionUrl = p.provisionBaseUrl,
+                tunAddress = tunAddr,
+            )
+            settings.setProfileName(p.name)
+            if (p.hideIp) settings.setHideIp(true)
+        } else {
+            conn.updateEndpoints(null, null, null)
+        }
         conn.startInitialProbe()
     }
 
@@ -78,15 +106,27 @@ fun TunnelScreen(settings: AppSettingsRepository) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("nonameVPN", style = MaterialTheme.typography.headlineMedium)
         Text(
-            if (profile.isBlank()) "Профиль не импортирован" else "Профиль: $profile",
+            if (profile == null) {
+                "Профиль не импортирован"
+            } else {
+                "Профиль: ${profile!!.name} · host ${profile!!.hostId}"
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
+        profile?.let { p ->
+            Text(
+                "Direct ${p.direct.endpoint} · Bypass ${p.bypass.peer}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+            )
+        }
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -168,14 +208,102 @@ fun TunnelScreen(settings: AppSettingsRepository) {
         }
 
         OutlinedButton(
-            onClick = {
-                scope.launch { settings.setProfileName("demo-home") }
-            },
+            onClick = { showImport = true },
+            enabled = !connected,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Импорт профиля (заглушка)")
+            Text("Импорт профиля…")
+        }
+
+        if (profile != null) {
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        profiles.clear()
+                        settings.setProfileName("")
+                    }
+                },
+                enabled = !connected,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Удалить профиль")
+            }
         }
     }
+
+    if (showImport) {
+        ImportProfileDialog(
+            error = importError,
+            onDismiss = {
+                showImport = false
+                importError = null
+            },
+            onDemo = {
+                scope.launch {
+                    runCatching {
+                        profiles.importDemo()
+                        showImport = false
+                        importError = null
+                    }.onFailure { importError = it.message ?: "Ошибка импорта" }
+                }
+            },
+            onPaste = { raw ->
+                scope.launch {
+                    runCatching {
+                        profiles.importJson(raw)
+                        showImport = false
+                        importError = null
+                    }.onFailure { importError = it.message ?: "Неверный JSON профиля" }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ImportProfileDialog(
+    error: String?,
+    onDismiss: () -> Unit,
+    onDemo: () -> Unit,
+    onPaste: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Импорт профиля") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Вставьте JSON от provision (create-user) или загрузите демо.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp),
+                    label = { Text("JSON") },
+                    minLines = 5,
+                )
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onPaste(text) },
+                enabled = text.isNotBlank(),
+            ) { Text("Импортировать") }
+        },
+        dismissButton = {
+            Column {
+                TextButton(onClick = onDemo) { Text("Демо-профиль") }
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+            }
+        },
+    )
 }
 
 private fun pathStatus(path: VpnPath?): String = when (path) {
