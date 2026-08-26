@@ -79,7 +79,7 @@ fun LogsScreen() {
                     onClick = {
                         val text = AppLog.dumpText()
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("nonameVPN logs", text))
+                        cm.setPrimaryClip(ClipData.newPlainText("AWDTT logs", text))
                         Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
                     },
                 ) {

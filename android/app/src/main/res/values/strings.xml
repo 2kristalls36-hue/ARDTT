@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">nonameVPN</string>
+    <string name="app_name">AWDTT</string>
     <string name="notif_channel_tunnel">Туннель</string>
-    <string name="notif_direct">nonameVPN · прямое</string>
-    <string name="notif_bypass">nonameVPN · обход</string>
+    <string name="notif_direct">AWDTT · прямое</string>
+    <string name="notif_bypass">AWDTT · обход</string>
     <string name="notif_running">Туннель активен</string>
     <string name="notif_stop">Остановить</string>
 </resources>
