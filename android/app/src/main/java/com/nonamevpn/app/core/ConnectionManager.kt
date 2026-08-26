@@ -91,7 +91,29 @@ class ConnectionManager(
     }
 
     fun setHideIp(enabled: Boolean) {
-        _ui.value = _ui.value.copy(hideIp = enabled)
+        val cur = _ui.value
+        val status = if (cur.state == ConnState.Connected) {
+            when (cur.activePath) {
+                VpnPath.Direct -> "Подключено: прямое" + if (enabled) " · IP скрыт (WARP)" else ""
+                VpnPath.Bypass -> "Подключено: обход" + if (enabled) " · IP скрыт (WARP)" else ""
+                null -> cur.statusText
+            }
+        } else {
+            cur.statusText
+        }
+        _ui.value = cur.copy(
+            hideIp = enabled,
+            statusText = status,
+            softInfo = softInfoFor(cur.probe),
+        )
+        if (cur.state == ConnState.Connected || cur.state == ConnState.Connecting) {
+            scope.launch {
+                val r = HideIpApi.setHideIp(provisionUrl, profile?.deviceId, enabled)
+                if (r.isFailure) {
+                    AppLog.e(TAG, "live hide-ip failed: ${r.exceptionOrNull()?.message}")
+                }
+            }
+        }
     }
 
     fun setWorkers(workers: Int) {
@@ -189,10 +211,9 @@ class ConnectionManager(
             return
         }
 
-        // WARP is still a stub — never claim "IP hidden".
+        // Sync Hide-IP preference to VPS (policy route via warp0). WARP must be up.
         if (current.hideIp) {
-            AppLog.w(TAG, "Hide-IP ignored (WARP stub)")
-            _ui.value = current.copy(hideIp = false)
+            AppLog.i(TAG, "Hide-IP on — asking provision to route host via WARP")
         }
 
         connectJob?.cancel()
@@ -205,13 +226,29 @@ class ConnectionManager(
                     ConnPathMode.Bypass -> VpnPath.Bypass
                     ConnPathMode.Auto -> probePreferred ?: VpnPath.Direct
                 }
-                AppLog.i(TAG, "Connect requested mode=$mode preferred=$labelPreferred")
+                AppLog.i(TAG, "Connect requested mode=$mode preferred=$labelPreferred hideIp=${snap.hideIp}")
                 _ui.value = snap.copy(
                     state = ConnState.Connecting,
                     statusText = "Подключение (${pathLabel(labelPreferred)})…",
                     connectEnabled = false,
                     lastError = null,
                 )
+
+                if (snap.hideIp) {
+                    val r = HideIpApi.setHideIp(provisionUrl, profile?.deviceId, true)
+                    if (r.isFailure) {
+                        AppLog.e(TAG, "hide-ip enable failed: ${r.exceptionOrNull()?.message}")
+                        _ui.value = _ui.value.copy(
+                            state = ConnState.Error,
+                            lastError = "Не удалось включить WARP на VPS: ${r.exceptionOrNull()?.message}",
+                            connectEnabled = true,
+                        )
+                        return@launch
+                    }
+                } else {
+                    // Best-effort clear leftover server flag
+                    runCatching { HideIpApi.setHideIp(provisionUrl, profile?.deviceId, false) }
+                }
                 // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
                 var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
                 if (
@@ -355,6 +392,11 @@ class ConnectionManager(
                 connectEnabled = false,
                 lastError = null,
             )
+            // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
+            // If user turned hideIp off, clear server route.
+            if (!_ui.value.hideIp) {
+                runCatching { HideIpApi.setHideIp(provisionUrl, profile?.deviceId, false) }
+            }
             stopTunnel()
             _ui.value = _ui.value.copy(
                 state = ConnState.Ready,
@@ -477,6 +519,9 @@ class ConnectionManager(
         if (needsHash && !_ui.value.hasCallHash) {
             parts += "Для обхода сохраните hash звонка на телефоне."
         }
+        if (_ui.value.hideIp) {
+            parts += "Скрытие IP: выход через Cloudflare WARP на VPS."
+        }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
 
@@ -485,7 +530,8 @@ class ConnectionManager(
         VpnPath.Bypass -> "обход"
     }
 
-    private fun hideSuffix(): String = ""
+    private fun hideSuffix(): String =
+        if (_ui.value.hideIp) " · IP скрыт (WARP)" else ""
 
     private fun startTunnel(path: VpnPath) {
         val addr = when (path) {
@@ -497,7 +543,7 @@ class ConnectionManager(
             path = path,
             profile = profile,
             tunAddress = addr,
-            hideIp = false, // WARP stub — never pass hideIp into backends yet
+            hideIp = _ui.value.hideIp,
             callHash = callHashOrNull(),
             workers = workers,
             silentRecreate = silentRecreate,

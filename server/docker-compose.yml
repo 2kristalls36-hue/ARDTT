@@ -68,8 +68,10 @@ services:
     environment:
       GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-400MiB}
       NVPN_DATA: /data
+      NVPN_WARP_STATE: /var/lib/nvpn-warp
     volumes:
       - ./data:/data:ro
+      - ./data/warp:/var/lib/nvpn-warp
     depends_on:
       - provision
     # Intentionally avoid restart-on-OOM loops — soft memory policy in-process

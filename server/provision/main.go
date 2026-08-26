@@ -46,6 +46,7 @@ type User struct {
 	HostID           int       `json:"hostId"`
 	DeviceID         string    `json:"deviceId"`
 	Password         string    `json:"password"`
+	HideIP           bool      `json:"hideIp,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
 	DirectPrivateKey string    `json:"directPrivateKey,omitempty"`
 	DirectPublicKey  string    `json:"directPublicKey,omitempty"`
@@ -173,6 +174,43 @@ func runServer(store *Store, listen string) error {
 			return
 		}
 		writeJSON(w, store.BuildProfile(u))
+	})
+	mux.HandleFunc("/v1/hide-ip", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			DeviceID string `json:"deviceId"`
+			Name     string `json:"name"`
+			HideIP   bool   `json:"hideIp"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
+			return
+		}
+		if body.DeviceID == "" && body.Name == "" {
+			http.Error(w, `{"error":"deviceId or name required"}`, http.StatusBadRequest)
+			return
+		}
+		u, err := store.SetHideIP(body.DeviceID, body.Name, body.HideIP)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+		store.mu.Lock()
+		directBase := subnetBase(store.Config.DirectSubnet)
+		bypassBase := subnetBase(store.Config.BypassSubnet)
+		store.mu.Unlock()
+		writeJSON(w, map[string]any{
+			"ok":       true,
+			"name":     u.Name,
+			"deviceId": u.DeviceID,
+			"hostId":   u.HostID,
+			"hideIp":   u.HideIP,
+			"directIp": fmt.Sprintf("%s.%d", directBase, u.HostID),
+			"bypassIp": fmt.Sprintf("%s.%d", bypassBase, u.HostID),
+		})
 	})
 
 	ln, err := net.Listen("tcp", listen)
@@ -345,6 +383,24 @@ func (s *Store) FindUser(name string) (User, error) {
 	return User{}, fmt.Errorf("not found")
 }
 
+// SetHideIP flips per-user WARP egress. Identified by deviceId (preferred) or name.
+func (s *Store) SetHideIP(deviceID, name string, hide bool) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Users {
+		u := &s.Users[i]
+		if (deviceID != "" && u.DeviceID == deviceID) || (name != "" && u.Name == name) {
+			u.HideIP = hide
+			if err := s.saveLocked(); err != nil {
+				return User{}, err
+			}
+			log.Printf("hideIp=%v user=%q host_id=%d", hide, u.Name, u.HostID)
+			return *u, nil
+		}
+	}
+	return User{}, fmt.Errorf("not found")
+}
+
 func (s *Store) nextHostIDLocked() (int, error) {
 	used := map[int]bool{}
 	for _, u := range s.Users {
@@ -372,7 +428,7 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.DeviceID = u.DeviceID
 	p.HostID = u.HostID
 	p.Prefer = "direct"
-	p.HideIP = false
+	p.HideIP = u.HideIP
 	p.Direct.Endpoint = fmt.Sprintf("%s:%d", host, cfg.DirectPort)
 	p.Direct.PrivateKey = u.DirectPrivateKey
 	p.Direct.PeerPublicKey = cfg.ServerPublicKey
