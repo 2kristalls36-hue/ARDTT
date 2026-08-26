@@ -104,7 +104,9 @@ class ConnectionManager(
 
     fun saveCallHash(hash: String) {
         val name = profile?.name ?: return
-        hashStore.setHash(name, hash)
+        val cleaned = com.nonamevpn.app.bypass.VkUrl.strip(hash)
+        if (!com.nonamevpn.app.bypass.VkUrl.isPlausibleHash(cleaned)) return
+        hashStore.setHash(name, cleaned)
         refreshHashFlag()
     }
 
