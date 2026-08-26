@@ -42,7 +42,10 @@ wait_for_users
 ensure_main_password
 sync_passwords
 
-echo 1 >/proc/sys/net/ipv4/ip_forward 2>/dev/null || true
+# Host usually sets this; inside container sysctl is often RO.
+if [ -w /proc/sys/net/ipv4/ip_forward ]; then
+  echo 1 >/proc/sys/net/ipv4/ip_forward || true
+fi
 
 /usr/local/bin/wdtt-server \
   -listen "${DTLS_PORT}" \
