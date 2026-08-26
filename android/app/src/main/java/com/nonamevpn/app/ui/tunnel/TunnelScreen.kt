@@ -148,22 +148,22 @@ fun TunnelScreen(
     }
 
     LaunchedEffect(Unit) {
-        // WARP stub: clear any leftover Hide-IP preference so UI/status don't lie.
-        settings.setHideIp(false)
-        conn.setHideIp(false)
+        // no-op placeholder kept for future cold-start hooks
     }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
         if (profile != null) {
             settings.setProfileName(profile!!.name)
-            if (profile!!.hideIp) {
-                AppLog.w("Tunnel", "Profile hideIp=true ignored (WARP stub)")
-            }
         } else {
             settings.setProfileName("")
         }
         conn.startInitialProbe()
+    }
+
+    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
+    LaunchedEffect(hideIp) {
+        conn.setHideIp(hideIp)
     }
 
     val connected = ui.state == ConnState.Connected
@@ -454,10 +454,20 @@ fun TunnelScreen(
         ) {
             RowSwitch(
                 title = "Скрыть свой IP",
-                subtitle = "Недоступно — WARP на VPS ещё не готов (stub). Включение ничего не меняет и не ускоряет.",
-                checked = false,
-                enabled = false,
-                onCheckedChange = { },
+                subtitle = if (hideIp) {
+                    "Включено — выход через Cloudflare WARP (не IP VPS)"
+                } else {
+                    "Выход в интернет через WARP на VPS вместо адреса сервера"
+                },
+                checked = hideIp,
+                enabled = !connecting && ui.state != ConnState.Disconnecting,
+                onCheckedChange = { on ->
+                    scope.launch {
+                        settings.setHideIp(on)
+                        conn.setHideIp(on)
+                        AppLog.i("HideIP", if (on) "enabled" else "disabled")
+                    }
+                },
             )
         }
 

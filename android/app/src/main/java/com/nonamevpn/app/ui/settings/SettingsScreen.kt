@@ -55,6 +55,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val scope = rememberCoroutineScope()
     var adminHint by remember { mutableStateOf<String?>(null) }
 
@@ -137,10 +138,19 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             )
             RowSetting(
                 title = "Скрыть свой IP",
-                subtitle = "Недоступно — WARP на VPS ещё stub",
-                checked = false,
-                enabled = false,
-                onCheckedChange = { },
+                subtitle = if (hideIp) {
+                    "WARP egress на VPS включён"
+                } else {
+                    "Выход через Cloudflare WARP вместо IP VPS"
+                },
+                checked = hideIp,
+                enabled = true,
+                onCheckedChange = {
+                    scope.launch {
+                        settings.setHideIp(it)
+                        conn.setHideIp(it)
+                    }
+                },
             )
         }
 
