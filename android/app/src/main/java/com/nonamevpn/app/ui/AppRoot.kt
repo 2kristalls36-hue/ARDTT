@@ -22,6 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.admin.DeployScreen
 import com.nonamevpn.app.ui.admin.LogsScreen
@@ -30,7 +31,7 @@ import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 
 @Composable
-fun AppRoot(settings: AppSettingsRepository) {
+fun AppRoot(settings: AppSettingsRepository, profiles: ProfileRepository) {
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
@@ -74,7 +75,7 @@ fun AppRoot(settings: AppSettingsRepository) {
             modifier = Modifier.padding(padding),
         ) {
             composable(AppDestination.Tunnel.route) {
-                TunnelScreen(settings = settings)
+                TunnelScreen(settings = settings, profiles = profiles)
             }
             composable(AppDestination.Settings.route) {
                 SettingsScreen(settings = settings)

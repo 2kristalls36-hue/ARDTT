@@ -48,10 +48,16 @@ class ConnectionManager(
     private var probeJob: Job? = null
     private var directEndpoint: String? = null
     private var provisionUrl: String? = null
+    private var tunAddress: String? = null
 
-    fun updateEndpoints(directEndpoint: String?, provisionUrl: String?) {
+    fun updateEndpoints(
+        directEndpoint: String?,
+        provisionUrl: String?,
+        tunAddress: String? = null,
+    ) {
         this.directEndpoint = directEndpoint
         this.provisionUrl = provisionUrl
+        this.tunAddress = tunAddress
     }
 
     fun setHideIp(enabled: Boolean) {
@@ -189,6 +195,7 @@ class ConnectionManager(
             action = VpnTunnelService.ACTION_START
             putExtra(VpnTunnelService.EXTRA_PATH, path.name)
             putExtra(VpnTunnelService.EXTRA_HIDE_IP, hideIp)
+            putExtra(VpnTunnelService.EXTRA_TUN_ADDRESS, tunAddress ?: "10.8.0.2")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             appContext.startForegroundService(intent)
