@@ -8,7 +8,7 @@ Android VPN на **AmneziaWG 2.0** с автоматическим обходо�
 
 ```
 прямо видно VPS?  →  AmneziaWG 2.0
-иначе             →  TURN + RAW (без второго WireGuard)
+иначе             →  WRAP + TURN + RAW (без DTLS и без WG)
 ```
 
 База клиента — форк AmneziaWG Android; bypass — адаптация WDTT/qWDTT.
