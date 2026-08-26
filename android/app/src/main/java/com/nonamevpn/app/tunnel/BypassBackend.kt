@@ -1,0 +1,89 @@
+package com.nonamevpn.app.tunnel
+
+import android.net.VpnService
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import com.nonamevpn.app.bypass.BypassConfig
+import com.nonamevpn.app.bypass.BypassPhase
+import com.nonamevpn.app.bypass.BypassSession
+import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.core.VpnPath
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.coroutineScope
+
+/**
+ * Path B — RAW over TURN: dial → WRAP → TCP workers → VPS -listen-raw.
+ * No DTLS. No nested WG/AWG.
+ */
+class BypassBackend(
+    private val session: BypassSession = BypassSession(),
+) : TunnelBackend {
+    override val path: VpnPath = VpnPath.Bypass
+
+    override suspend fun start(
+        service: VpnService,
+        tun: ParcelFileDescriptor,
+        config: TunnelSessionConfig,
+        onState: (TunnelBackendState) -> Unit,
+    ) {
+        val profile = config.profile
+        if (profile == null) {
+            onState(TunnelBackendState.Failed("Нет профиля"))
+            return
+        }
+        val hash = config.callHash
+        if (hash.isNullOrBlank()) {
+            onState(TunnelBackendState.Failed("Нужен hash звонка — сохраните его в настройках туннеля"))
+            return
+        }
+        if (profile.bypass.password.isBlank() || profile.bypass.peer.isBlank()) {
+            onState(TunnelBackendState.Failed("В профиле нет bypass peer/password"))
+            return
+        }
+
+        onState(TunnelBackendState.Starting)
+        val dialPath = runCatching { DialPath.valueOf(config.dialPathName) }.getOrDefault(DialPath.Auto)
+        val done = CompletableDeferred<TunnelBackendState>()
+
+        coroutineScope {
+            session.start(
+                scope = this,
+                config = BypassConfig(
+                    profile = profile,
+                    callHash = hash,
+                    workers = config.workers.coerceIn(1, 9),
+                    dialPath = dialPath,
+                    silentRecreate = config.silentRecreate,
+                    hideIp = config.hideIp,
+                ),
+            ) { phase ->
+                Log.i(TAG, "phase=$phase")
+                when (phase) {
+                    is BypassPhase.Running -> onState(TunnelBackendState.Running)
+                    is BypassPhase.Failed -> {
+                        onState(TunnelBackendState.Failed(phase.message))
+                        done.complete(TunnelBackendState.Failed(phase.message))
+                    }
+                    is BypassPhase.Stopped -> {
+                        if (!done.isCompleted) {
+                            onState(TunnelBackendState.Stopped)
+                            done.complete(TunnelBackendState.Stopped)
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+            // Wait until session ends or fails (dial currently fails until HTTP wired —
+            // that is intentional so UI shows real status).
+            done.await()
+        }
+    }
+
+    override fun stop() {
+        session.stop()
+    }
+
+    companion object {
+        private const val TAG = "BypassBackend"
+    }
+}

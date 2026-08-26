@@ -8,49 +8,55 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.nonamevpn.app.MainActivity
 import com.nonamevpn.app.R
+import com.nonamevpn.app.tunnel.BypassBackend
+import com.nonamevpn.app.tunnel.DirectBackend
+import com.nonamevpn.app.tunnel.TunnelBackend
+import com.nonamevpn.app.tunnel.TunnelBackendState
+import com.nonamevpn.app.tunnel.TunnelSessionHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * VpnService-заглушка: поднимает tun + keepalive-сессию без реального AWG/RAW I/O.
- * Настоящие драйверы подключатся в следующих итерациях.
+ * Single VpnService for Path A (AWG) and Path B (RAW/WRAP). Backends are mutually exclusive.
  */
 class VpnTunnelService : VpnService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tun: ParcelFileDescriptor? = null
+    private var backend: TunnelBackend? = null
     private var sessionJob: Job? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                ConnectionManager.getOrNull()?.onServiceStopped()
                 stopSession()
+                ConnectionManager.getOrNull()?.onServiceStopped()
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_START, null -> startSession(intent)
+            ACTION_START, null -> startSession()
         }
         return START_STICKY
     }
 
-    private fun startSession(intent: Intent?) {
-        val path = runCatching {
-            VpnPath.valueOf(intent?.getStringExtra(EXTRA_PATH) ?: VpnPath.Direct.name)
-        }.getOrDefault(VpnPath.Direct)
-        val address = intent?.getStringExtra(EXTRA_TUN_ADDRESS)
-            ?.substringBefore('/')
-            ?.takeIf { it.isNotBlank() }
+    private fun startSession() {
+        val config = TunnelSessionHolder.config
+        val path = config?.path ?: VpnPath.Direct
+        val address = config?.tunAddress?.substringBefore('/')?.takeIf { it.isNotBlank() }
             ?: "10.8.0.2"
+        val mtu = when (path) {
+            VpnPath.Direct -> config?.profile?.direct?.mtu ?: 1280
+            VpnPath.Bypass -> 1300
+        }
+        val dns = config?.profile?.direct?.dns?.firstOrNull() ?: "1.1.1.1"
 
         startForeground(NOTIF_ID, buildNotification(path))
         ConnectionManager.getOrNull()?.onServiceStarted(path)
@@ -58,18 +64,40 @@ class VpnTunnelService : VpnService() {
         if (tun == null) {
             tun = Builder()
                 .setSession("nonameVPN")
-                .setMtu(1280)
+                .setMtu(mtu)
                 .addAddress(address, 32)
-                .addDnsServer("1.1.1.1")
+                .addDnsServer(dns)
                 .addRoute("0.0.0.0", 0)
                 .establish()
         }
+        val fd = tun
+        if (fd == null) {
+            ConnectionManager.getOrNull()?.onTunnelFailed("Не удалось создать TUN (отклонён VPN?)")
+            stopSelf()
+            return
+        }
+
+        backend?.stop()
+        val chosen: TunnelBackend = when (path) {
+            VpnPath.Direct -> DirectBackend()
+            VpnPath.Bypass -> BypassBackend()
+        }
+        backend = chosen
 
         sessionJob?.cancel()
         sessionJob = scope.launch {
-            // Keepalive stub until AWG/RAW engines are wired.
-            while (isActive) {
-                delay(30_000)
+            chosen.start(this@VpnTunnelService, fd, config ?: return@launch) { state ->
+                Log.i(TAG, "backend state=$state")
+                when (state) {
+                    is TunnelBackendState.Running ->
+                        ConnectionManager.getOrNull()?.onTunnelRunning(path)
+                    is TunnelBackendState.Failed -> {
+                        ConnectionManager.getOrNull()?.onTunnelFailed(state.message)
+                        stopSelf()
+                    }
+                    is TunnelBackendState.Stopped -> Unit
+                    is TunnelBackendState.Starting -> Unit
+                }
             }
         }
     }
@@ -77,6 +105,8 @@ class VpnTunnelService : VpnService() {
     private fun stopSession() {
         sessionJob?.cancel()
         sessionJob = null
+        backend?.stop()
+        backend = null
         runCatching { tun?.close() }
         tun = null
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -121,6 +151,7 @@ class VpnTunnelService : VpnService() {
     }
 
     companion object {
+        private const val TAG = "VpnTunnel"
         const val ACTION_START = "com.nonamevpn.app.action.START"
         const val ACTION_STOP = "com.nonamevpn.app.action.STOP"
         const val EXTRA_PATH = "path"
