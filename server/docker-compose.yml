@@ -4,9 +4,10 @@
 #   docker compose -f server/docker-compose.yml up -d --build
 #
 # Notes:
-# - host network + NET_ADMIN required for real TUN (direct/bypass/warp).
-# - provision exposes TCP :9100 /health for client UDP-lite companion checks later.
-# - direct/bypass/warp are stubs until binaries are packaged.
+# - host network + NET_ADMIN required for TUN (direct/bypass/warp).
+# - provision exposes TCP :9100 /health and generates AWG keypairs.
+# - direct: amneziawg-go + awg (AmneziaWG 2.0 userspace).
+# - bypass: wdtt-server -listen-raw (qWDTT/WDTT, GPL-3).
 
 services:
   provision:
@@ -36,7 +37,6 @@ services:
       - ./data:/data:ro
     depends_on:
       - provision
-    # Real AWG will need restart; stub stays up
     restart: unless-stopped
 
   bypass:
@@ -52,6 +52,7 @@ services:
       NVPN_DATA: /data
     volumes:
       - ./data:/data:ro
+      - bypass-config:/etc/wdtt
     depends_on:
       - provision
     restart: unless-stopped
@@ -71,5 +72,8 @@ services:
       - ./data:/data:ro
     depends_on:
       - provision
-    # Intentionally NOT restart: on-failure OOM loops — soft memory policy in-process
+    # Intentionally avoid restart-on-OOM loops — soft memory policy in-process
     restart: unless-stopped
+
+volumes:
+  bypass-config:
