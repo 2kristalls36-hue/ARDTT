@@ -69,3 +69,12 @@ Combined work
 The nonameVPN application and server packaging, as a combined work that
 includes GPL-licensed bypass components, are distributed under the
 GNU General Public License, version 3 (see LICENSE).
+
+---------------------------------------------------------------------------
+Inter font (UI typography, qWDTT-aligned)
+---------------------------------------------------------------------------
+
+Inter typeface by Rasmus Andersson, licensed under the SIL Open Font License 1.1.
+Bundled TTF files under android/app/src/main/res/font/.
+
+  https://github.com/rsms/inter

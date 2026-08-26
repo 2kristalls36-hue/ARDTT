@@ -18,7 +18,11 @@ fun LogsScreen() {
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Логи", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "Логи",
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.primary,
+        )
         Text(
             "Админ-режим активен. Подробные логи probe / AWG / TURN·RAW с экспортом появятся здесь.",
             style = MaterialTheme.typography.bodyLarge,
