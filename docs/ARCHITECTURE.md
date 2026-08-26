@@ -26,6 +26,7 @@
 | Имя | Временно `nonameVPN` / `nvpn://` |
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
+| UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
 
 ---
 
@@ -291,5 +292,6 @@ Call hash — **локально на устройстве**, не обязан 
 1. ~~Каркас репо + LICENSE/NOTICE.~~
 2. ~~Server compose + provision (health, host_id, профиль).~~ — stubs direct/bypass/warp.
 3. Упаковать **direct** (AmneziaWG 2.0) и **bypass** (RAW `-listen-raw`).
-4. Client: probe UDP-lite + path preselect + hide-IP flag.
+4. Client: UI user/admin modes + probe UDP-lite + path preselect + hide-IP.
 5. Bypass module на Android: RAW/TCP/vkcalls/legacy/hash-on-device.
+6. Сверить UX с SmartVPN, когда репозиторий будет доступен агенту.
