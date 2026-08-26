@@ -349,7 +349,7 @@ Call hash — **локально на устройстве**, не обязан 
 2. ~~Server compose + provision (health, host_id, профиль).~~ — stubs direct/bypass/warp.
 3. Упаковать **direct** (AmneziaWG 2.0) и **bypass** (RAW `-listen-raw`).
 4. ~~Client scaffold: UI user/admin modes.~~
-5. Client: probe UDP-lite + path preselect + hide-IP → VpnService.
+5. ~~Client: probe UDP-lite + path preselect + hide-IP → VpnService stub.~~ (`NetworkProbe`, `ConnectionManager`, `VpnTunnelService`).
 6. Bypass module на Android: RAW/TCP/vkcalls/legacy/hash-on-device.
-7. Упаковать **direct** (AmneziaWG 2.0) и **bypass** (RAW).
+7. Реальные бэкенды в `VpnTunnelService` (AWG Direct + RAW Bypass) + импорт профиля.
 8. Сверить UX с SmartVPN, когда репозиторий будет доступен.
