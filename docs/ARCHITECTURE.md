@@ -15,6 +15,7 @@
 | 2 | Кодовая база | **Форк Amnezia (клиент) + адаптация WDTT/qWDTT (bypass) + WARP userspace (`wireproxy`→tun2socks).** |
 | 3 | Оптимизация Path B | **RAW как в qWDTT: WRAP + TURN, без DTLS и без AWG/WG.** |
 | — | Деплой | **Три контейнера** (`direct`, `bypass`, `warp`) + общий `host_id` в трёх подсетях. |
+| — | Failover на RAW | После fail AWG: probe VPS → bigtech:443 → yandex.ru; RAW авто только на классе Whitelist; на открытой сети — предупреждение как в qWDTT 1.0.5–1.3.2. |
 | 4 | Имя / URI | Пока `nonameVPN` / `nvpn://` (плейсхолдер). |
 | 5 | Форматы | **Только свой профиль/ссылка.** Без импорта `wdtt://`. Опционально: вход в VK-аккаунт для обхода белых списков. |
 
@@ -250,28 +251,163 @@ warp:
 
 ## Connection Manager
 
-1. По умолчанию `prefer=direct`: probe AWG handshake / check через туннель (3–8 с) → успех Path A, иначе Path B.
-2. `prefer=bypass` / «только обход» — сразу Path B (whitelist-сети).
-3. Healthcheck + reconnect; при Path B — refresh TURN-кредов, смена hash, `transport` UDP↔TCP (TCP по умолчанию стабильнее).
-4. Один активный VpnService-туннель.
+### Состояния
 
 ```
-Idle → ProbingDirect → ConnectedDirect
-                   └→ ConnectingBypass → ConnectedBypass
+Idle
+  → ProbingNetwork          (классификация сети)
+  → ProbingDirect           (AWG handshake)
+       ├→ ConnectedDirect
+       └→ EvaluatingBypass  (перед RAW — проверка БС / предупреждение)
+            ├→ ConnectingBypass → ConnectedBypass
+            ├→ BypassBlockedWarning  (диалог как в qWDTT 1.0.5–1.3.2)
+            └→ NoNetwork / Abort
 Connected* → Reconnecting → …
+```
+
+По умолчанию `prefer=direct`. `prefer=bypass` / «только обход» — сразу Path B (после лёгкого NoNetwork-gate). Один активный VpnService-туннель.
+
+---
+
+### Network probe (перед failover на RAW)
+
+Порядок **обязательный**:
+
+1. **VPS** — доступность своего сервера.
+2. **Bigtech :443** — `google.com`, `amazon.com`, `apple.com`, `microsoft.com` (как в qWDTT).
+3. **Yandex :443** — `yandex.ru` (на БС оператора обычно доступен; отличает «нет интернета» от «белые списки»).
+
+#### 1) Probe VPS
+
+Цель: понять, есть ли смысл в Path A / жив ли хост.
+
+| Проверка | Зачем |
+|----------|--------|
+| TCP connect к `bypass.peer` (host:port raw, напр. `:56003`), timeout ~2–3 с | Порт RAW слушает UDP, но TCP SYN часто даёт «host alive / filtered»; если RST/accept — хост точно жив |
+| Параллельно: короткий **AWG handshake attempt** на `direct.endpoint` (уже Path A probe) | Реальная проверка UDP-пути AWG |
+
+Практично в connmgr:
+
+- `vpsReachable = awgHandshakeOk || tcpHintOk(bypass.peer)`  
+  (AWG-успех ⇒ сразу Path A, TCP-hint только для классификации, когда AWG уже провалился.)
+
+Не полагаться на ICMP (часто режут).
+
+#### 2) Probe bigtech
+
+Параллельно TCP `:443`, timeout ~4 с на хост (как qWDTT `isNetworkBlocked`):
+
+```
+bigtechOk = any(connect google|amazon|apple|microsoft :443)
+```
+
+В терминах qWDTT: `isNetworkBlocked ≈ !bigtechOk` (ни один bigtech не открылся).
+
+#### 3) Probe yandex
+
+```
+yandexOk = connect yandex.ru:443  (timeout ~4 с)
+```
+
+На типичных БС `yandex.ru` открыт; при полном offline — нет.
+
+---
+
+### Классификация сети
+
+| # | VPS¹ | bigtech | yandex | Класс | Действие |
+|---|------|---------|--------|-------|----------|
+| 1 | — | ✗ | ✗ | **NoNetwork** | Не поднимать RAW/AWG. UI: «Нет сети» |
+| 2 | ✓ (AWG ok) | * | * | **DirectOk** | Path A, RAW не нужен |
+| 3 | ✗ | ✗ | ✓ | **Whitelist** | Path B (RAW) — штатный failover |
+| 4 | ✗ | ✓ | * | **OpenNoVps** | Открытый интернет, VPS/UDP недоступен. **Не авто-RAW** — диалог-предупреждение (как qWDTT) |
+| 5 | ✗ | ✗ | ✗ уже в #1 | — | — |
+
+¹ После неудачи Path A: «VPS ✓» здесь почти не бывает; строка 2 — успешный direct до failover.
+
+Дополнительно: если AWG handshake failed, но `tcpHintOk(VPS)` и `bigtechOk` — скорее UDP/DPI режет AWG при живом хосте → всё равно класс **OpenNoVps** (предупреждение перед RAW) или отдельный подкласс **DpiSuspected** с тем же UX (предупреждение + «всё равно обход»).
+
+---
+
+### Поток `prefer=direct`
+
+```
+start()
+  → try Path A (AWG handshake, 3–8 с)
+       success → ConnectedDirect
+       fail    → run NetworkProbe (VPS hint + bigtech + yandex)
+                   │
+                   ├─ NoNetwork          → abort, тост/экран «Нет сети»
+                   ├─ Whitelist          → ConnectingBypass (RAW) без диалога
+                   └─ OpenNoVps          → BypassBlockedWarning
+                         │
+                         ├─ «Подключить обход» / forceBypass → ConnectingBypass
+                         ├─ «Отмена» → Idle
+                         └─ «Больше не показывать» → hideBypassWarning=true,
+                            дальше авто-RAW как Whitelist
+```
+
+Текст диалога (ориентир qWDTT):
+
+> Не используйте обход, если белые списки не включены — это ухудшает устойчивость способа.  
+> Кнопки: «Всё равно подключить обход» / «Отмена» + чекбокс «Больше не показывать».
+
+---
+
+### Поток `prefer=bypass` / force bypass
+
+1. Быстрый gate: если `!yandexOk && !bigtechOk` → NoNetwork, не жечь TURN/капчу.
+2. Иначе сразу ConnectingBypass (без bigtech-диалога — пользователь явно выбрал обход).
+
+---
+
+### Зачем такой порядок
+
+| Шаг | Зачем раньше |
+|-----|----------------|
+| Сначала VPS/AWG | Не гонять bigtech, если direct уже поднялся |
+| Потом bigtech | Отличить открытую сеть от БС (логика qWDTT) |
+| Yandex последним (или параллельно с bigtech) | Если bigtech ✗ — отличить БС от offline |
+
+Yandex и bigtech можно гонять **параллельно** после fail Path A; «порядок» логический: решение сначала смотрит VPS/AWG, затем пару (bigtech, yandex).
+
+---
+
+### Ложные срабатывания и смягчения
+
+| Риск | Митигация |
+|------|-----------|
+| DNS ломает resolve bigtech | DoH/кэш / IP-fallback опционально позже; MVP — системный DNS |
+| Корп. файрвол режет google, но не БС | Диалог + force; «не показывать» |
+| VPS down при открытом интернете | RAW через TURN всё ещё может поднять туннель до того же IP — forceBypass допустим |
+| IPv6-only / broken v4 | Probes dual-stack по возможности |
+| Долгий probe | Parallel + общий budget ~4–5 с |
+
+---
+
+### Псевдокод
+
+```kotlin
+suspend fun choosePathAfterDirectFail(profile, forceBypass: Boolean): PathDecision {
+  val vpsHint = tcpConnect(profile.bypass.peer, timeout = 2.5s) // optional
+  val bigtech = anyTcp443(listOf("google.com","amazon.com","apple.com","microsoft.com"), 4s)
+  val yandex  = tcp443("yandex.ru", 4s)
+
+  if (!bigtech && !yandex) return PathDecision.NoNetwork
+  if (!bigtech && yandex)  return PathDecision.UseBypass     // Whitelist
+  // bigtech == true → открытая сеть
+  if (forceBypass || settings.hideBypassWarning) return PathDecision.UseBypass
+  return PathDecision.WarnOpenNetwork(vpsHint = vpsHint)
+}
 ```
 
 ---
 
-## VK-авторизация (whitelist)
+### Связь с VK-логином
 
-Пользователь **не** настраивает WDTT. В UI максимум:
+Класс **Whitelist** → Path B. Если анонимный TURN нестабилен — UI предлагает «Войти через VK» (отдельная настройка, не часть probe).
 
-- переключатель / кнопка **«Войти через VK»** — для сетей с белыми списками, где анонимные TURN-креды режут, а «как звонок с аккаунта» проходит;
-- по умолчанию — анонимный поток (как в qWDTT), без обязательного логина.
-
-Внутри: кэш TURN ~9 мин, WebView для логина/капчи при необходимости. Снаружи это просто «режим обхода» / «вход VK».
-
+Healthcheck после connect: при отвале Path A — снова probe перед авто-failover на RAW (тот же классификатор).
 ---
 
 ## Профиль (только свой формат)
