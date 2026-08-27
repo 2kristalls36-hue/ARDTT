@@ -3,26 +3,24 @@ package com.nonamevpn.app.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,10 +30,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.os.Build
@@ -51,15 +51,65 @@ import com.nonamevpn.app.core.trustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiAccessProblem
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** Full-screen settings (kept for compatibility). Prefer [SettingsSheet] from Tunnel gear. */
 @Composable
 fun SettingsScreen(settings: AppSettingsRepository) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        SettingsContent(settings = settings)
+    }
+}
+
+/** Dialog host for settings opened from Tunnel gear. */
+@Composable
+fun SettingsSheet(
+    settings: AppSettingsRepository,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Настройки",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    TextButton(onClick = onDismiss) { Text("Закрыть") }
+                }
+                SettingsContent(settings = settings)
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsContent(settings: AppSettingsRepository) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val hasPin by settings.hasAdminPin.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -67,6 +117,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
     val scope = rememberCoroutineScope()
+    var pin by remember { mutableStateOf("") }
     var adminHint by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(silent, economy, dial, pathMode) {
@@ -82,21 +133,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
         conn.setPathMode(ConnPathMode.fromSetting(pathMode))
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Text(
-            "Настройки",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp),
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(
             "Режим: ${if (admin) "администратор" else "пользователь"} · ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodyMedium,
@@ -221,37 +258,86 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             Text("Администратор", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 if (admin) {
-                    "Открыты Серверы / Деплой / Логи."
+                    "Открыты Серверы и Логи."
+                } else if (hasPin) {
+                    "Введите PIN, чтобы открыть Серверы и Логи."
                 } else {
-                    "Короткое нажатие — подсказка. Удерживайте кнопку 4 секунды."
+                    "Задайте PIN администратора (первый ввод создаёт его)."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!admin) {
-                AdminHoldButton(
-                    hint = adminHint,
-                    onHint = { adminHint = it },
-                    onUnlocked = {
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(8) },
+                    label = { Text("PIN") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                )
+                OutlinedButton(
+                    onClick = {
                         scope.launch {
-                            settings.unlockAdmin()
-                            adminHint = "Режим админа включён"
-                            AppLog.i("Admin", "Unlocked via 4s hold")
+                            if (pin.length < 4) {
+                                adminHint = "PIN не короче 4 цифр"
+                                return@launch
+                            }
+                            val ok = settings.unlockAdmin(pin)
+                            adminHint = if (ok) "Режим админа включён" else "Неверный PIN"
+                            if (ok) {
+                                pin = ""
+                                AppLog.i("Admin", "Unlocked via PIN")
+                            }
                         }
                     },
-                )
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Text(if (hasPin) "Разблокировать админа" else "Создать PIN и войти")
+                }
             } else {
                 OutlinedButton(
                     onClick = {
                         scope.launch {
                             settings.lockAdmin()
                             adminHint = "Снова режим пользователя"
+                            pin = ""
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                 ) {
                     Text("Выйти из режима админа")
+                }
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(8) },
+                    label = { Text("Новый PIN") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                )
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            if (pin.length < 4) {
+                                adminHint = "Новый PIN не короче 4 цифр"
+                                return@launch
+                            }
+                            settings.setAdminPin(pin)
+                            pin = ""
+                            adminHint = "PIN обновлён"
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Text("Сменить PIN")
                 }
             }
             adminHint?.let {
@@ -362,59 +448,6 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         hint?.let {
             Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
         }
-    }
-}
-
-@Composable
-private fun AdminHoldButton(
-    hint: String?,
-    onHint: (String) -> Unit,
-    onUnlocked: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    var holdJob by remember { mutableStateOf<Job?>(null) }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    val startedAt = System.currentTimeMillis()
-                    holdJob?.cancel()
-                    holdJob = scope.launch {
-                        for (left in 4 downTo 1) {
-                            onHint("Удерживайте… ещё $left с")
-                            delay(1_000)
-                        }
-                        onUnlocked()
-                    }
-                    waitForUpOrCancellation()
-                    val heldMs = System.currentTimeMillis() - startedAt
-                    val finished = holdJob?.isCompleted == true
-                    holdJob?.cancel()
-                    holdJob = null
-                    if (!finished) {
-                        onHint(
-                            if (heldMs < 350) {
-                                "Удерживайте кнопку 4 секунды для режима админа"
-                            } else {
-                                "Отпущено рано — держите полные 4 секунды"
-                            },
-                        )
-                    }
-                }
-            },
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.primary,
-    ) {
-        Text(
-            text = hint?.takeIf { it.startsWith("Удерживайте") } ?: "Удерживать 4 сек — админ",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            color = MaterialTheme.colorScheme.onPrimary,
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.bodyLarge,
-        )
     }
 }
 

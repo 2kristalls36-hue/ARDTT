@@ -10,19 +10,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.ListAlt
-import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -39,17 +36,15 @@ import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.deploy.DeployEngine
-import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.admin.DeployScreen
 import com.nonamevpn.app.ui.admin.LogsScreen
-import com.nonamevpn.app.ui.admin.ServersScreen
+import com.nonamevpn.app.ui.admin.ServersHub
 import com.nonamevpn.app.ui.components.NavBarItem
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
 import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
-import com.nonamevpn.app.ui.settings.SettingsScreen
+import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import kotlinx.coroutines.launch
 
@@ -72,7 +67,6 @@ fun AppRoot(
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
-    var deployInitial by remember { mutableStateOf<DeployTarget?>(null) }
 
     val tabs = AppDestination.entries.filter { !it.adminOnly || admin }
     val navItems = tabs.map { dest ->
@@ -162,29 +156,18 @@ fun AppRoot(
                     onRequestConnect = { requestVpnThenConnect() },
                 )
             }
+            composable(AppDestination.Servers.route) {
+                ServersHub(
+                    serversRepo = serversRepo,
+                    deployEngine = deployEngine,
+                    profiles = profiles,
+                )
+            }
+            composable(AppDestination.Profiles.route) {
+                ProfilesScreen(profiles = profiles)
+            }
             composable(AppDestination.Exceptions.route) {
                 ExceptionsScreen(settings = settings)
-            }
-            composable(AppDestination.Settings.route) {
-                SettingsScreen(settings = settings)
-            }
-            composable(AppDestination.Servers.route) {
-                ServersScreen(
-                    serversRepo = serversRepo,
-                    onDeploy = { target ->
-                        deployInitial = target
-                        navController.navigate(AppDestination.Deploy.route) {
-                            launchSingleTop = true
-                        }
-                    },
-                )
-            }
-            composable(AppDestination.Deploy.route) {
-                DeployScreen(
-                    serversRepo = serversRepo,
-                    engine = deployEngine,
-                    initial = deployInitial,
-                )
             }
             composable(AppDestination.Logs.route) {
                 LogsScreen()
@@ -208,9 +191,8 @@ fun AppRoot(
 
 private fun AppDestination.icon(): ImageVector = when (this) {
     AppDestination.Tunnel -> Icons.Outlined.VpnKey
-    AppDestination.Exceptions -> Icons.Outlined.Block
-    AppDestination.Settings -> Icons.Outlined.Settings
     AppDestination.Servers -> Icons.Outlined.Dns
-    AppDestination.Deploy -> Icons.Outlined.CloudUpload
+    AppDestination.Profiles -> Icons.Outlined.Person
+    AppDestination.Exceptions -> Icons.Outlined.Block
     AppDestination.Logs -> Icons.Outlined.ListAlt
 }
