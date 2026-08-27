@@ -136,6 +136,8 @@ class ConnectionManager(
             softInfo = softInfoFor(cur.probe),
             lastError = null,
         )
+        // Egress changes after Hide-IP — clear until post-reconnect ifconfig.
+        EgressIpProbe.invalidate()
         // Shade notification must reflect Hide-IP immediately (not only after soft-restart).
         refreshVpnNotification()
         pendingHideIpSync = false
@@ -146,7 +148,7 @@ class ConnectionManager(
             if (_ui.value.hideIp != enabled) return@launch
             if (lastHideIpSent == enabled) {
                 AppLog.i(TAG, "Hide-IP already synced hideIp=$enabled — skip")
-                refreshVpnNotification()
+                scheduleEgressIpRefresh("hide-ip-already-synced")
                 return@launch
             }
             val viaVpn = hideIpViaVpn()
@@ -730,6 +732,7 @@ class ConnectionManager(
                     }
                 }
             }
+            scheduleEgressIpRefresh("tunnel-up")
         }
     }
 
@@ -849,41 +852,72 @@ class ConnectionManager(
         if (enabled) " · IP скрыт" else ""
 
     /**
-     * Two-line shade notification body.
-     * [Pair.first] = live line (speed/traffic/time/IP);
-     * [Pair.second] = modes line (path + hide-IP).
+     * Content for the custom VPN shade RemoteViews.
      */
-    fun notificationContent(
-        sessionStartedAtMs: Long = 0L,
-        tunIp: String = "—",
-    ): Pair<String, String> {
+    data class ShadeContent(
+        val duration: String,
+        val rates: String,
+        val totals: String,
+        val pathIp: String,
+    )
+
+    fun notificationShadeContent(sessionStartedAtMs: Long = 0L): ShadeContent {
         val u = _ui.value
+        val duration = VpnLiveStats.formatDuration(sessionStartedAtMs)
         if (u.state == ConnState.PausedTrustedWifi) {
             val t = u.statusText.ifBlank { "VPN выключен в доверенной сети" }
-            return t to "Доверенная Wi‑Fi"
+            return ShadeContent(duration, t, "", "Доверенная Wi‑Fi")
         }
         if (softRestartInProgress || u.state == ConnState.Connecting) {
             val t = u.statusText.ifBlank { "Переподключение…" }
-            return t to "…"
+            val path = shadePathLabel(u.activePath)
+            return ShadeContent(duration, t, "", "$path · …")
         }
 
         val down = VpnLiveStats.formatRate(VpnLiveStats.downBps)
         val up = VpnLiveStats.formatRate(VpnLiveStats.upBps)
         val rx = VpnLiveStats.formatBytes(VpnLiveStats.totalRx)
         val tx = VpnLiveStats.formatBytes(VpnLiveStats.totalTx)
-        val dur = VpnLiveStats.formatDuration(sessionStartedAtMs)
-        val live = "↓$down ↑$up · ↓$rx ↑$tx · $dur · $tunIp"
-        val pathMode = when (u.activePath) {
-            VpnPath.Direct -> "Прямое · AWG"
-            VpnPath.Bypass -> "Обход · RAW"
-            null -> "—"
+        val rates = "↓$down  ↑$up"
+        val totals = "↓$rx  ↑$tx"
+        val ip = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
+        val path = shadePathLabel(u.activePath)
+        val pathIp = if (u.hideIp) {
+            "$path · $ip (IP скрыт за WARP)"
+        } else {
+            "$path · $ip"
         }
-        val hideMode = if (u.hideIp) "Скрыть IP: вкл" else "Скрыть IP: выкл"
-        val modes = "$pathMode · $hideMode"
-        return live to modes
+        return ShadeContent(duration, rates, totals, pathIp)
+    }
+
+    private fun shadePathLabel(path: VpnPath?): String = when (path) {
+        VpnPath.Direct -> "Прямое подключение"
+        VpnPath.Bypass -> "Обход"
+        null -> "—"
+    }
+
+    /** Fallback single-line text for non-custom / hidden shade. */
+    fun notificationContent(
+        sessionStartedAtMs: Long = 0L,
+        tunIp: String = "—",
+    ): Pair<String, String> {
+        val c = notificationShadeContent(sessionStartedAtMs)
+        return c.rates to c.pathIp
     }
 
     fun notificationRunningText(): String = notificationContent().first
+
+    /** Resolve public egress IP after tunnel is up (and after Hide-IP soft-restart). */
+    private fun scheduleEgressIpRefresh(reason: String) {
+        scope.launch {
+            delay(1_200)
+            if (_ui.value.state != ConnState.Connected) return@launch
+            if (softRestartInProgress) return@launch
+            AppLog.i(TAG, "egress ip refresh ($reason)")
+            EgressIpProbe.refresh()
+            refreshVpnNotification()
+        }
+    }
 
     private fun startTunnel(path: VpnPath) {
         val addr = when (path) {
@@ -922,6 +956,7 @@ class ConnectionManager(
 
     private fun stopTunnel() {
         AppLog.i(TAG, "Stop tunnel")
+        EgressIpProbe.clear()
         TunnelSessionHolder.config = null
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_STOP

@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.nonamevpn.app.MainActivity
@@ -1045,30 +1046,25 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             Intent(this, VpnTunnelService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val tunIp = TunnelSessionHolder.config?.tunAddress?.substringBefore('/') ?: "—"
-        val content = ConnectionManager.getOrNull()?.notificationContent(
-            sessionStartedAtMs = sessionStartedAtMs,
-            tunIp = tunIp,
-        )
-        val liveLine = when {
-            trustedWifiWaiting -> "VPN выключен в доверенной сети"
-            content != null && content.first.isNotBlank() -> content.first
-            else -> text.ifBlank { getString(R.string.notif_running) }
-        }
-        val modesLine = when {
-            trustedWifiWaiting -> "Доверенная Wi‑Fi"
-            content != null && content.second.isNotBlank() -> content.second
-            path == VpnPath.Direct -> "Прямое · AWG"
-            else -> "Обход · RAW"
-        }
+        val shade = ConnectionManager.getOrNull()?.notificationShadeContent(sessionStartedAtMs)
+            ?: ConnectionManager.ShadeContent(
+                duration = VpnLiveStats.formatDuration(sessionStartedAtMs),
+                rates = text.ifBlank { getString(R.string.notif_running) },
+                totals = "",
+                pathIp = when (path) {
+                    VpnPath.Direct -> "Прямое подключение · …"
+                    VpnPath.Bypass -> "Обход · …"
+                },
+            )
+        val remote = buildShadeRemoteViews(shade)
 
         val builder = NotificationCompat.Builder(this, channelId)
-            // Title stays visible when expanded; BigText replaces only contentText —
-            // do not repeat liveLine in bigText or it doubles.
-            .setContentTitle(liveLine)
-            .setContentText(modesLine)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(modesLine))
             .setSmallIcon(R.drawable.ic_vpn_key)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(shade.pathIp)
+            .setCustomContentView(remote)
+            .setCustomBigContentView(remote)
+            // No DecoratedCustomViewStyle — it would repeat the app name above our header.
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -1086,6 +1082,20 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             builder.addAction(0, getString(R.string.notif_stop), stopPi)
         }
         return builder.build()
+    }
+
+    private fun buildShadeRemoteViews(shade: ConnectionManager.ShadeContent): RemoteViews {
+        return RemoteViews(packageName, R.layout.notif_vpn_shade).apply {
+            setTextViewText(R.id.notif_brand, getString(R.string.app_name))
+            setTextViewText(R.id.notif_duration, shade.duration)
+            setTextViewText(R.id.notif_rates, shade.rates)
+            setTextViewText(R.id.notif_totals, shade.totals)
+            setTextViewText(R.id.notif_path_ip, shade.pathIp)
+            setViewVisibility(
+                R.id.notif_totals,
+                if (shade.totals.isBlank()) android.view.View.GONE else android.view.View.VISIBLE,
+            )
+        }
     }
 
     companion object {

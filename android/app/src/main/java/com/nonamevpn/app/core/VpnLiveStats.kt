@@ -290,16 +290,12 @@ object VpnLiveStats {
     }
 
     fun formatDuration(startedAtMs: Long, nowMs: Long = System.currentTimeMillis()): String {
-        if (startedAtMs <= 0L) return "—"
+        if (startedAtMs <= 0L) return "00:00:00"
         val sec = ((nowMs - startedAtMs) / 1000L).coerceAtLeast(0L)
         val h = sec / 3600L
         val m = (sec % 3600L) / 60L
         val s = sec % 60L
-        return if (h > 0) {
-            String.format(Locale.US, "%d:%02d:%02d", h, m, s)
-        } else {
-            String.format(Locale.US, "%02d:%02d", m, s)
-        }
+        return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
     }
 
     private fun File.readTextOrNull(): String? =
