@@ -58,6 +58,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var trustedWifiNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private val activeNetworks = ConcurrentHashMap.newKeySet<Network>()
     @Volatile private var lastValidatedNetworkId: Long? = null
     @Volatile private var stableNetworkWasLost = false
@@ -143,10 +144,37 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         TransportHealth.reset()
         VpnLiveStats.reset()
         setupNetworkCallback()
+        setupTrustedWifiMonitoring()
         registerScreenReceiver()
         startWatchdog()
         startNotifLiveUpdates()
         startTrustedWifiSettingsObserver()
+        // WDTT Plus: check trusted SSID before bringing the tunnel up.
+        scope.launch { startOrWaitForTrustedWifi(path) }
+    }
+
+    /**
+     * Like WDTT Plus `startOrWaitForTrustedWifi`: if already on a whitelisted
+     * Wi‑Fi, enter waiting without launching Direct/Bypass backends.
+     */
+    private suspend fun startOrWaitForTrustedWifi(path: VpnPath) {
+        if (userStopRequested) return
+        val (enabled, ssids) = runCatching { settingsRepo.trustedWifiSnapshot() }
+            .getOrDefault(false to emptySet())
+        val wifi = readConnectedWifiState(this)
+        val enter = decideTrustedWifiTransition(
+            enabled = enabled,
+            tunnelRunning = true,
+            waiting = false,
+            wifi = wifi,
+            trustedSsids = ssids,
+        ) == TrustedWifiTransition.EnterWaiting
+        if (enter) {
+            val ssid = wifi.ssid.ifBlank { "доверенная Wi‑Fi" }
+            AppLog.i(TAG, "start on trusted wifi — waiting ssid=$ssid")
+            enterTrustedWifiWaiting(ssid)
+            return
+        }
         launchBackend(path, softRestart = false)
         scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
     }
@@ -620,6 +648,50 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     // ── NetworkCallback (handover) ──────────────────────────────────────────
 
+    /**
+     * Dedicated Wi‑Fi monitor (WDTT Plus style): evaluates trusted-SSID exclusion
+     * on Wi‑Fi transport events, independently of the general internet handover
+     * callback below.
+     */
+    private fun setupTrustedWifiMonitoring() {
+        if (trustedWifiNetworkCallback != null) return
+        val cm = connectivityManager
+            ?: (getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager).also {
+                connectivityManager = it
+            }
+        trustedWifiNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                if (trustedWifiWaiting) {
+                    scheduleTrustedWifiEvaluation(0L)
+                } else {
+                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
+                }
+            }
+
+            override fun onLost(network: Network) {
+                if (trustedWifiWaiting) {
+                    scheduleTrustedWifiEvaluation(0L)
+                } else {
+                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
+                }
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (trustedWifiWaiting) {
+                    scheduleTrustedWifiEvaluation(0L)
+                } else {
+                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
+                }
+            }
+        }
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        runCatching { cm.registerNetworkCallback(request, trustedWifiNetworkCallback!!) }
+            .onFailure { AppLog.w(TAG, "trusted wifi NetworkCallback failed: ${it.message}") }
+    }
+
     private fun setupNetworkCallback() {
         if (networkCallback != null) return
         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -688,14 +760,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                val wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                // Wi‑Fi: check exclusion first (short enter delay). Handover/probe
-                // only runs after that check (see scheduleUnderlyingNetworkReconnect).
-                when {
-                    trustedWifiWaiting ->
-                        scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
-                    wifi ->
-                        scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
+                // Wi‑Fi exclusion is owned by setupTrustedWifiMonitoring();
+                // here only resume-while-waiting and handover classification.
+                if (trustedWifiWaiting) {
+                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
                 }
                 val usable =
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
@@ -838,9 +906,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     }
 
     private fun teardownNetworkCallback() {
-        val cb = networkCallback ?: return
-        runCatching { connectivityManager?.unregisterNetworkCallback(cb) }
+        networkCallback?.let { cb ->
+            runCatching { connectivityManager?.unregisterNetworkCallback(cb) }
+        }
         networkCallback = null
+        trustedWifiNetworkCallback?.let { cb ->
+            runCatching { connectivityManager?.unregisterNetworkCallback(cb) }
+        }
+        trustedWifiNetworkCallback = null
         activeNetworks.clear()
         lastValidatedNetworkId = null
     }
