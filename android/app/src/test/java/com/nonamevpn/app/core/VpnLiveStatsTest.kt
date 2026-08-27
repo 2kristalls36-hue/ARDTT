@@ -60,6 +60,19 @@ class VpnLiveStatsTest {
     }
 
     @Test
+    fun parsesAwgIpcWithMultiplePeers() {
+        val ipc = """
+            public_key=a
+            rx_bytes=10
+            tx_bytes=20
+            public_key=b
+            rx_bytes=5
+            tx_bytes=7
+        """.trimIndent()
+        assertEquals(15L to 27L, VpnLiveStats.parseAwgTransfer(ipc))
+    }
+
+    @Test
     fun formatRateAndBytes() {
         assertEquals("512 Б/с", VpnLiveStats.formatRate(512))
         assertEquals("1.5 КБ/с", VpnLiveStats.formatRate(1536))

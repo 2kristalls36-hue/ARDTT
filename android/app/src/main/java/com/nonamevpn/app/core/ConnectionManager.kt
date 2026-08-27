@@ -849,26 +849,22 @@ class ConnectionManager(
         if (enabled) " · IP скрыт" else ""
 
     /**
-     * Short + detail lines for the ongoing VPN shade notification (live stats).
-     * [Pair.first] = content text; [Pair.second] = big-text body.
+     * Two-line shade notification body.
+     * [Pair.first] = live line (speed/traffic/time/IP);
+     * [Pair.second] = modes line (path + hide-IP).
      */
     fun notificationContent(
         sessionStartedAtMs: Long = 0L,
         tunIp: String = "—",
     ): Pair<String, String> {
         val u = _ui.value
-        val path = when (u.activePath) {
-            VpnPath.Direct -> "Прямое (AWG)"
-            VpnPath.Bypass -> "Обход (RAW)"
-            null -> "—"
-        }
         if (u.state == ConnState.PausedTrustedWifi) {
             val t = u.statusText.ifBlank { "VPN выключен в доверенной сети" }
-            return t to t
+            return t to "Доверенная Wi‑Fi"
         }
         if (softRestartInProgress || u.state == ConnState.Connecting) {
             val t = u.statusText.ifBlank { "Переподключение…" }
-            return t to t
+            return t to "…"
         }
 
         val down = VpnLiveStats.formatRate(VpnLiveStats.downBps)
@@ -876,17 +872,15 @@ class ConnectionManager(
         val rx = VpnLiveStats.formatBytes(VpnLiveStats.totalRx)
         val tx = VpnLiveStats.formatBytes(VpnLiveStats.totalTx)
         val dur = VpnLiveStats.formatDuration(sessionStartedAtMs)
-        val hideLine = if (u.hideIp) "Скрыть свой IP: вкл (Cloudflare)" else "Скрыть свой IP: выкл (IP VPS)"
-
-        val short = "↓ $down  ↑ $up"
-        val detail = buildString {
-            append("↓ ").append(down).append("   ↑ ").append(up).append('\n')
-            append("Трафик: ↓ ").append(rx).append(" · ↑ ").append(tx).append('\n')
-            append("Время: ").append(dur).append(" · IP: ").append(tunIp).append('\n')
-            append("Путь: ").append(path).append('\n')
-            append(hideLine)
+        val live = "↓$down ↑$up · ↓$rx ↑$tx · $dur · $tunIp"
+        val pathMode = when (u.activePath) {
+            VpnPath.Direct -> "Прямое · AWG"
+            VpnPath.Bypass -> "Обход · RAW"
+            null -> "—"
         }
-        return short to detail
+        val hideMode = if (u.hideIp) "Скрыть IP: вкл" else "Скрыть IP: выкл"
+        val modes = "$pathMode · $hideMode"
+        return live to modes
     }
 
     fun notificationRunningText(): String = notificationContent().first
