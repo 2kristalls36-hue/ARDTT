@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 69
-        versionName = "0.5.51"
+        versionCode = 70
+        versionName = "0.5.52"
     }
 
     ndkVersion = "27.0.12077973"
@@ -46,6 +46,10 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
+    }
+    androidResources {
+        // Keep gzipped deploy archive bytes intact (aapt may otherwise unpack *.gz).
+        noCompress += listOf("gz", "bin")
     }
 }
 
