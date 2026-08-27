@@ -88,8 +88,9 @@ class VpnLiveStatsTest {
         assertEquals("8 бит/с", VpnLiveStats.formatRate(1))
         // 125_000 B/s → 1_000_000 bit/s → 1.00 Мбит/с
         assertEquals("1.00 Мбит/с", VpnLiveStats.formatRate(125_000))
-        assertTrue(VpnLiveStats.formatRateFixed(1, down = true).contains("бит"))
+        assertTrue(VpnLiveStats.formatRateFixed(1, down = true).contains("б/с"))
         assertFalse(VpnLiveStats.formatRateFixed(1, down = true).contains("Б/с"))
+        assertFalse(VpnLiveStats.formatRateFixed(125_000, down = true).contains("WARP"))
     }
 
     @Test

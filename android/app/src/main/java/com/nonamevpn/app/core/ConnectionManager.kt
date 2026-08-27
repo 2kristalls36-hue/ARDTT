@@ -862,6 +862,7 @@ class ConnectionManager(
         val ip: String,
         val path: String,
         val showTotals: Boolean = true,
+        val showWarpIcon: Boolean = false,
     ) {
         val summary: String get() = "$ip · $path"
         val rates: String get() = "$rateDown $rateUp"
@@ -875,19 +876,18 @@ class ConnectionManager(
         }
         if (softRestartInProgress || u.state == ConnState.Connecting) {
             val t = u.statusText.ifBlank { "Переподключение…" }
-            return ShadeContent(t, "", "", "", "…", shadePathLabel(u.activePath), showTotals = false)
+            return ShadeContent(
+                t, "", "", "", "…", shadePathLabel(u.activePath),
+                showTotals = false,
+                showWarpIcon = u.hideIp,
+            )
         }
 
         val rateDown = VpnLiveStats.formatRateFixed(VpnLiveStats.downBps, down = true)
         val rateUp = VpnLiveStats.formatRateFixed(VpnLiveStats.upBps, down = false)
         val totalDown = VpnLiveStats.formatBytesFixed(VpnLiveStats.totalRx, down = true)
         val totalUp = VpnLiveStats.formatBytesFixed(VpnLiveStats.totalTx, down = false)
-        val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
-        val ip = if (u.hideIp && rawIp != "…") {
-            "$rawIp (IP скрыт за WARP)"
-        } else {
-            rawIp
-        }
+        val ip = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
         return ShadeContent(
             rateDown = rateDown,
             rateUp = rateUp,
@@ -895,6 +895,7 @@ class ConnectionManager(
             totalUp = totalUp,
             ip = ip,
             path = shadePathLabel(u.activePath),
+            showWarpIcon = u.hideIp,
         )
     }
 

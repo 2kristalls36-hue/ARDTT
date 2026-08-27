@@ -1109,13 +1109,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             setTextViewText(R.id.notif_total_up, shade.totalUp)
             setTextViewText(R.id.notif_ip, shade.ip)
             setTextViewText(R.id.notif_path, shade.path)
+            setViewVisibility(
+                R.id.notif_warp_icon,
+                if (shade.showWarpIcon) android.view.View.VISIBLE else android.view.View.GONE,
+            )
             val totalsVis = if (shade.showTotals) {
                 android.view.View.VISIBLE
             } else {
                 android.view.View.GONE
             }
-            setViewVisibility(R.id.notif_total_down, totalsVis)
-            setViewVisibility(R.id.notif_total_up, totalsVis)
+            setViewVisibility(R.id.notif_totals_row, totalsVis)
             setViewVisibility(
                 R.id.notif_rate_up,
                 if (shade.rateUp.isBlank()) android.view.View.GONE else android.view.View.VISIBLE,
