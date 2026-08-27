@@ -85,18 +85,27 @@ class DeployEngine(private val appContext: Context) {
                 append(line)
                 when {
                     line.startsWith("NVPN_PROGRESS|") -> {
-                        val parts = line.split('|')
+                        val parts = line.split('|', limit = 3)
                         val frac = parts.getOrNull(1)?.toFloatOrNull() ?: _progress.value
-                        val step = parts.getOrNull(2) ?: ""
-                        emit(frac.coerceIn(0f, 1f), step)
+                        val step = parts.getOrNull(2)?.take(160).orEmpty()
+                        if (step.isNotBlank()) emit(frac.coerceIn(0f, 1f), step)
                     }
                     line.startsWith("NVPN_ERROR|") -> failed = line.removePrefix("NVPN_ERROR|")
                     line.startsWith("NVPN_DONE|") -> emit(1f, "Готово")
                 }
             }
             if (failed != null) error(failed!!)
-            if (code != 0) error("install.sh exit=$code")
-
+            if (code != 0) {
+                val hint = _log.value.takeLast(8).joinToString(" ")
+                val diskHint = when {
+                    hint.contains("no space", ignoreCase = true) ||
+                        hint.contains("write /") ||
+                        hint.contains("Мало места") ->
+                        " — на VPS закончилось место на диске"
+                    else -> ""
+                }
+                error("install.sh exit=$code$diskHint")
+            }
             // Belt-and-suspenders: ensure archive/logs from older installs are gone
             runCatching {
                 ssh.exec(
