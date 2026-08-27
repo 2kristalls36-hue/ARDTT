@@ -162,7 +162,8 @@ fun TunnelScreen(
     }
 
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
-    LaunchedEffect(hideIp, profile?.deviceId) {
+    // Sync prefs → ConnMgr once profile is known (toggle calls setHideIp directly).
+    LaunchedEffect(profile?.deviceId) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
     }

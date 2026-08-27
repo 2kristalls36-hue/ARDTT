@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -94,6 +95,9 @@ class ConnectionManager(
         this.tunAddress = tunAddress
     }
 
+    private var hideIpSyncJob: Job? = null
+    private var lastHideIpSent: Boolean? = null
+
     /** Hide-IP must reach provision after tunnel is up (Bypass / whitelist underlay). */
     @Volatile private var pendingHideIpSync: Boolean = false
 
@@ -133,15 +137,25 @@ class ConnectionManager(
             lastError = null,
         )
         pendingHideIpSync = false
-        scope.launch {
+        // Debounce rapid toggles — only the final value hits provision/WARP.
+        hideIpSyncJob?.cancel()
+        hideIpSyncJob = scope.launch {
+            delay(450)
+            if (_ui.value.hideIp != enabled) return@launch
+            if (lastHideIpSent == enabled) {
+                AppLog.i(TAG, "Hide-IP already synced hideIp=$enabled — skip")
+                return@launch
+            }
             val viaVpn = hideIpViaVpn()
-            if (!viaVpn && enabled && cur.probe?.provisionOk != true) {
+            if (!viaVpn && enabled && _ui.value.probe?.provisionOk != true) {
                 pendingHideIpSync = true
                 AppLog.i(TAG, "Hide-IP queued until tunnel (provision unreachable on underlay)")
                 return@launch
             }
             val r = syncHideIpToProvision(enabled, viaVpn = viaVpn)
-            if (r.isFailure) {
+            if (r.isSuccess) {
+                lastHideIpSent = enabled
+            } else {
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
                 if (viaVpn) {
                     _ui.value = _ui.value.copy(
@@ -675,13 +689,19 @@ class ConnectionManager(
             if (pendingHideIpSync || _ui.value.hideIp) {
                 val want = _ui.value.hideIp
                 pendingHideIpSync = false
-                val r = syncHideIpToProvision(want, viaVpn = true, tryVpnFallback = false)
-                if (r.isFailure) {
-                    AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
-                    if (want) {
-                        _ui.value = _ui.value.copy(
-                            lastError = "WARP на VPS: ${r.exceptionOrNull()?.message}",
-                        )
+                if (lastHideIpSent == want) {
+                    AppLog.i(TAG, "Hide-IP already at hideIp=$want after tunnel up")
+                } else {
+                    val r = syncHideIpToProvision(want, viaVpn = true, tryVpnFallback = false)
+                    if (r.isSuccess) {
+                        lastHideIpSent = want
+                    } else {
+                        AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
+                        if (want) {
+                            _ui.value = _ui.value.copy(
+                                lastError = "WARP на VPS: ${r.exceptionOrNull()?.message}",
+                            )
+                        }
                     }
                 }
             }
