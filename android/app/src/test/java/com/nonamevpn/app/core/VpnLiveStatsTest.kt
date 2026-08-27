@@ -86,22 +86,23 @@ class VpnLiveStatsTest {
     fun formatRateUsesBitsNotBytes() {
         assertEquals("0 бит/с", VpnLiveStats.formatRate(0))
         assertEquals("8 бит/с", VpnLiveStats.formatRate(1))
-        // 125_000 B/s → 1_000_000 bit/s → 1.00 Мбит/с
         assertEquals("1.00 Мбит/с", VpnLiveStats.formatRate(125_000))
-        assertTrue(VpnLiveStats.formatRateFixed(1, down = true).contains("б/с"))
-        assertFalse(VpnLiveStats.formatRateFixed(1, down = true).contains("Б/с"))
-        assertFalse(VpnLiveStats.formatRateFixed(125_000, down = true).contains("WARP"))
+        val p = VpnLiveStats.formatRateParts(1)
+        assertTrue(p.unit.trim().endsWith("б/с") || p.unit.contains("б/с"))
+        assertFalse(p.unit.contains("Б/с"))
     }
 
     @Test
-    fun formatFixedKeepsStableWidth() {
-        val a = VpnLiveStats.formatRateFixed(0, down = true)
-        val b = VpnLiveStats.formatRateFixed(12_300, down = true)
-        assertTrue(a.startsWith("↓"))
-        assertTrue(b.startsWith("↓"))
-        assertEquals(
-            VpnLiveStats.formatBytesFixed(100, down = false).length,
-            VpnLiveStats.formatBytesFixed(999, down = false).length,
-        )
+    fun formatPartsUseFixedDigitWidth() {
+        val a = VpnLiveStats.formatRateParts(0)
+        val b = VpnLiveStats.formatRateParts(12_300)
+        assertEquals(6, a.value.length)
+        assertEquals(6, b.value.length)
+        assertEquals(4, a.unit.length)
+        assertEquals(4, b.unit.length)
+        val t0 = VpnLiveStats.formatBytesParts(100)
+        val t1 = VpnLiveStats.formatBytesParts(999)
+        assertEquals(t0.value.length, t1.value.length)
+        assertEquals(t0.unit.length, t1.unit.length)
     }
 }
