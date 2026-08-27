@@ -459,11 +459,11 @@ fun TunnelScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             RowSwitch(
-                title = "Скрыть IP сервера",
+                title = "Скрыть свой IP",
                 subtitle = if (hideIp) {
-                    "Включено — внешний IP Cloudflare, не адрес VPS"
+                    "Включено — выход через Cloudflare (не IP VPS)"
                 } else {
-                    "Выход через Cloudflare: сайты не видят IP вашего VPS"
+                    "Выход в интернет через Cloudflare вместо адреса VPS"
                 },
                 checked = hideIp,
                 enabled = !connecting && ui.state != ConnState.Disconnecting,

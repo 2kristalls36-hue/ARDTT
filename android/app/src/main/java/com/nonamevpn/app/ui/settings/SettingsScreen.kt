@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.os.Build
+import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
@@ -68,6 +69,16 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
     val scope = rememberCoroutineScope()
     var adminHint by remember { mutableStateOf<String?>(null) }
+
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        AppLog.i("NotifPrep", "settings POST_NOTIFICATIONS granted=$granted")
+        conn.refreshVpnNotification()
+        if (!granted) {
+            adminHint = "Без разрешения Android плашка в шторке не появится"
+        }
+    }
 
     LaunchedEffect(silent, economy, dial, pathMode) {
         conn.setSilentRecreate(silent)
@@ -147,11 +158,11 @@ fun SettingsScreen(settings: AppSettingsRepository) {
                 color = MaterialTheme.colorScheme.primary,
             )
             RowSetting(
-                title = "Скрыть IP сервера",
+                title = "Скрыть свой IP",
                 subtitle = if (hideIp) {
-                    "Включено — внешний IP Cloudflare, не адрес VPS"
+                    "Включено — выход через Cloudflare (не IP VPS)"
                 } else {
-                    "Выход через Cloudflare: сайты не видят IP вашего VPS"
+                    "Выход в интернет через Cloudflare вместо адреса VPS"
                 },
                 checked = hideIp,
                 enabled = true,
@@ -163,18 +174,24 @@ fun SettingsScreen(settings: AppSettingsRepository) {
                 },
             )
             RowSetting(
-                title = "Уведомление VPN",
+                title = "Плашка VPN в шторке",
                 subtitle = if (notifVisible) {
-                    "В шторке: статус и кнопка «Остановить»"
+                    "Статус сессии и кнопка «Остановить» (как в qWDTT)"
                 } else {
-                    "Скрыто насколько позволяет Android (служба всё равно нужна)"
+                    "Скрыта в шторке; служба VPN всё равно работает в фоне"
                 },
                 checked = notifVisible,
                 enabled = true,
                 onCheckedChange = {
                     scope.launch {
                         settings.setVpnNotificationVisible(it)
-                        conn.refreshVpnNotification()
+                        if (it && needsNotificationPermission(context) &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                        ) {
+                            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            conn.refreshVpnNotification()
+                        }
                     }
                 },
             )

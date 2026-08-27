@@ -177,7 +177,7 @@ class ConnectionManager(
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
                 if (viaVpn) {
                     _ui.value = _ui.value.copy(
-                        lastError = "Скрытие IP сервера не синхронизировано с VPS: ${r.exceptionOrNull()?.message}",
+                        lastError = "Скрытие IP не синхронизировано с VPS: ${r.exceptionOrNull()?.message}",
                     )
                 } else {
                     pendingHideIpSync = enabled
@@ -356,7 +356,7 @@ class ConnectionManager(
                         AppLog.e(TAG, "hide-ip enable failed: ${r.exceptionOrNull()?.message}")
                         _ui.value = _ui.value.copy(
                             state = ConnState.Error,
-                            lastError = "Не удалось включить скрытие IP сервера: ${r.exceptionOrNull()?.message}",
+                            lastError = "Не удалось включить «Скрыть свой IP»: ${r.exceptionOrNull()?.message}",
                             connectEnabled = true,
                         )
                         return@launch
@@ -724,7 +724,7 @@ class ConnectionManager(
                         AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
                         if (want) {
                             _ui.value = _ui.value.copy(
-                                lastError = "Скрытие IP сервера: ${r.exceptionOrNull()?.message}",
+                                lastError = "Скрыть свой IP: ${r.exceptionOrNull()?.message}",
                             )
                         }
                     }
@@ -835,7 +835,7 @@ class ConnectionManager(
             parts += "Для обхода сохраните hash звонка на телефоне."
         }
         if (_ui.value.hideIp) {
-            parts += "Скрытие IP сервера: выход через Cloudflare, не с адреса VPS."
+            parts += "Скрыть свой IP: выход через Cloudflare, не с адреса VPS."
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
@@ -846,20 +846,40 @@ class ConnectionManager(
     }
 
     private fun hideSuffix(enabled: Boolean = _ui.value.hideIp): String =
-        if (enabled) " · IP сервера скрыт" else ""
+        if (enabled) " · IP скрыт" else ""
 
-    /** Body text for the ongoing VPN shade notification. */
-    fun notificationRunningText(): String {
+    /**
+     * Short + detail lines for the ongoing VPN shade notification.
+     * [Pair.first] = content text; [Pair.second] = big-text body (session details).
+     */
+    fun notificationContent(): Pair<String, String> {
         val u = _ui.value
-        return when {
+        val path = when (u.activePath) {
+            VpnPath.Direct -> "Прямое (AWG)"
+            VpnPath.Bypass -> "Обход (RAW)"
+            null -> "—"
+        }
+        val hideLine = if (u.hideIp) "Скрыть свой IP: вкл (Cloudflare)" else "Скрыть свой IP: выкл (IP VPS)"
+        val detail = buildString {
+            append("Путь: ").append(path).append('\n')
+            append(hideLine)
+            if (u.statusText.isNotBlank()) {
+                append('\n').append(u.statusText)
+            }
+        }
+        val short = when {
             u.state == ConnState.PausedTrustedWifi ->
                 u.statusText.ifBlank { "VPN выключен в доверенной сети" }
             softRestartInProgress || u.state == ConnState.Connecting ->
-                u.statusText.ifBlank { "Переподключение транспорта…" }
-            u.hideIp -> "Туннель активен · IP сервера скрыт"
-            else -> "Туннель активен"
+                u.statusText.ifBlank { "Переподключение…" }
+            u.hideIp -> "Подключено · IP скрыт"
+            else -> "Подключено"
         }
+        return short to detail
     }
+
+    /** @deprecated use [notificationContent] */
+    fun notificationRunningText(): String = notificationContent().first
 
     private fun startTunnel(path: VpnPath) {
         val addr = when (path) {
