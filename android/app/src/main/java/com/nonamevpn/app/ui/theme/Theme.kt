@@ -6,12 +6,14 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -111,7 +113,6 @@ private val EspressoDark = darkColorScheme(
     surfaceTint = Color(0xFFD7CCC8),
 )
 
-/** Indigo palette (kept for parity; espresso is our default). */
 private val IndigoLight = lightColorScheme(
     primary = Color(0xFF5B588D),
     onPrimary = Color(0xFFFFFFFF),
@@ -150,18 +151,68 @@ private val IndigoDark = darkColorScheme(
     outlineVariant = Color(0xFF47464F),
 )
 
+private val ForestLight = lightColorScheme(
+    primary = Color(0xFF5F5D68),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFE5E0F0),
+    onPrimaryContainer = Color(0xFF1C1A23),
+    secondary = Color(0xFF5F5D68),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFE5E0F0),
+    onSecondaryContainer = Color(0xFF1C1A23),
+    background = Color(0xFFFCF8FF),
+    onBackground = Color(0xFF1D1B20),
+    surface = Color(0xFFF7F2FA),
+    onSurface = Color(0xFF1D1B20),
+    surfaceVariant = Color(0xFFE6E0E9),
+    onSurfaceVariant = Color(0xFF48454E),
+    outline = Color(0xFF79747E),
+    outlineVariant = Color(0xFFCAC4D0),
+)
+
+private val ForestDark = darkColorScheme(
+    primary = Color(0xFFC8C4D3),
+    onPrimary = Color(0xFF312F38),
+    primaryContainer = Color(0xFF474550),
+    onPrimaryContainer = Color(0xFFE5E0F0),
+    secondary = Color(0xFFC8C4D3),
+    onSecondary = Color(0xFF312F38),
+    secondaryContainer = Color(0xFF474550),
+    onSecondaryContainer = Color(0xFFE5E0F0),
+    background = Color(0xFF141318),
+    onBackground = Color(0xFFE6E1E5),
+    surface = Color(0xFF1D1B20),
+    onSurface = Color(0xFFCAC4D0),
+    surfaceVariant = Color(0xFF48454E),
+    onSurfaceVariant = Color(0xFFCAC4D0),
+    outline = Color(0xFF938F99),
+    outlineVariant = Color(0xFF48454E),
+)
+
+private fun schemeFor(palette: String, dark: Boolean) = when (palette) {
+    "indigo" -> if (dark) IndigoDark else IndigoLight
+    "forest" -> if (dark) ForestDark else ForestLight
+    else -> if (dark) EspressoDark else EspressoLight
+}
+
 object NvpnColors {
     val connected = Color(0xFF4CAF50)
     val warning = Color(0xFFFFA726)
     val terminalBg = Color(0xFF1A1A2E)
+    val terminalBgDark = Color(0xFF0D0D1A)
     val terminalText = Color(0xFFE0E0E0)
+    val terminalGreen = Color(0xFF4CAF50)
+    val terminalBlue = Color(0xFF42A5F5)
+    val terminalRed = Color(0xFFEF5350)
+    val terminalCounter = Color(0xFF1E88E5)
 }
 
 @Composable
 fun NonameTheme(
     themeMode: String = "system",
-    /** `espresso` (default) | `indigo`. */
+    /** `espresso` (default) | `indigo` | `forest`. */
     palette: String = "espresso",
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
@@ -169,9 +220,11 @@ fun NonameTheme(
         "light" -> false
         else -> isSystemInDarkTheme()
     }
-    val colorScheme = when (palette) {
-        "indigo" -> if (darkTheme) IndigoDark else IndigoLight
-        else -> if (darkTheme) EspressoDark else EspressoLight
+    val colorScheme = when {
+        dynamicColor && !darkTheme && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            dynamicLightColorScheme(LocalContext.current)
+        }
+        else -> schemeFor(palette, darkTheme)
     }
 
     val view = LocalView.current

@@ -39,6 +39,25 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.NonameVPN" />
 
+        <activity
+            android:name=".VpnPermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <receiver
+            android:name=".TunnelWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_description">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.nonamevpn.app.ACTION_TOGGLE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/tunnel_widget_info" />
+        </receiver>
+
         <service
             android:name=".core.VpnTunnelService"
             android:exported="false"
