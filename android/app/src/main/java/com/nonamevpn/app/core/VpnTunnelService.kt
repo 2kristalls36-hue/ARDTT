@@ -1053,16 +1053,22 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             Intent(this, VpnTunnelService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val shade = ConnectionManager.getOrNull()?.notificationShadeContent(sessionStartedAtMs)
-            ?: ConnectionManager.ShadeContent(
-                title = when (path) {
-                    VpnPath.Direct -> "Прямое подключение"
-                    VpnPath.Bypass -> "Обход"
-                },
-                ip = "…",
-                showTotals = false,
-                statusText = text.ifBlank { getString(R.string.notif_running) },
-            )
+        val appsWhitelist = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.appsWhitelistModeSnapshot() }
+        }.getOrDefault(false)
+        val shade = ConnectionManager.getOrNull()?.notificationShadeContent(
+            sessionStartedAtMs = sessionStartedAtMs,
+            appsWhitelist = appsWhitelist,
+        ) ?: ConnectionManager.ShadeContent(
+            title = when (path) {
+                VpnPath.Direct -> "Прямое подключение"
+                VpnPath.Bypass -> "Обход"
+            },
+            ip = "…",
+            showTotals = false,
+            showWhitelistIcon = appsWhitelist,
+            statusText = text.ifBlank { getString(R.string.notif_running) },
+        )
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_vpn_key)
@@ -1138,6 +1144,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             setViewVisibility(
                 R.id.notif_warp_icon,
                 if (shade.showWarpIcon) android.view.View.VISIBLE else android.view.View.GONE,
+            )
+            setViewVisibility(
+                R.id.notif_rkn_icon,
+                if (shade.showWhitelistIcon) android.view.View.VISIBLE else android.view.View.GONE,
             )
         }
     }

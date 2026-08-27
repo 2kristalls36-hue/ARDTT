@@ -868,6 +868,8 @@ class ConnectionManager(
         val ip: String = "…",
         val showTotals: Boolean = true,
         val showWarpIcon: Boolean = false,
+        /** БС (apps whitelist) — show red RKN mark beside Cloudflare. */
+        val showWhitelistIcon: Boolean = false,
         val statusText: String? = null,
     ) {
         val summary: String get() = "$ip · $title"
@@ -875,7 +877,10 @@ class ConnectionManager(
             get() = "↓$rateDownNum$rateDownUnit ↑$rateUpNum$rateUpUnit"
     }
 
-    fun notificationShadeContent(sessionStartedAtMs: Long = 0L): ShadeContent {
+    fun notificationShadeContent(
+        sessionStartedAtMs: Long = 0L,
+        appsWhitelist: Boolean = false,
+    ): ShadeContent {
         val u = _ui.value
         val title = shadePathLabel(u.activePath)
         if (u.state == ConnState.PausedTrustedWifi) {
@@ -884,6 +889,7 @@ class ConnectionManager(
                 title = "Доверенная Wi‑Fi",
                 ip = "—",
                 showTotals = false,
+                showWhitelistIcon = appsWhitelist,
                 statusText = t,
             )
         }
@@ -894,6 +900,7 @@ class ConnectionManager(
                 ip = "…",
                 showTotals = false,
                 showWarpIcon = u.hideIp,
+                showWhitelistIcon = appsWhitelist,
                 statusText = t,
             )
         }
@@ -915,6 +922,7 @@ class ConnectionManager(
             totalUpUnit = tu.unit,
             ip = ip,
             showWarpIcon = u.hideIp,
+            showWhitelistIcon = appsWhitelist,
         )
     }
 
