@@ -255,7 +255,8 @@ private fun ServerListScreen(
         }
     }
 
-    LaunchedEffect(servers.map { it.id }) {
+    val serverIds = remember(servers) { servers.map { it.id }.joinToString(",") }
+    LaunchedEffect(serverIds) {
         probeAll()
     }
 
