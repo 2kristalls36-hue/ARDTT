@@ -1061,13 +1061,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             path == VpnPath.Direct -> "Прямое · AWG"
             else -> "Обход · RAW"
         }
-        val bigText = "$liveLine\n$modesLine"
 
         val builder = NotificationCompat.Builder(this, channelId)
-            // Title = live stats; text = modes. App name already shown by the system header.
+            // Title stays visible when expanded; BigText replaces only contentText —
+            // do not repeat liveLine in bigText or it doubles.
             .setContentTitle(liveLine)
             .setContentText(modesLine)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(modesLine))
             .setSmallIcon(R.drawable.ic_vpn_key)
             .setContentIntent(open)
             .setOngoing(true)
