@@ -1,45 +1,1137 @@
 package com.nonamevpn.app.ui.admin
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
+import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.ServersRepository
+import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.theme.NvpnColors
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+
+private sealed class ServersNavScreen {
+    data object List : ServersNavScreen()
+    data class Overview(val serverId: String) : ServersNavScreen()
+    data class Clients(val serverId: String) : ServersNavScreen()
+    data class Deploy(val serverId: String?) : ServersNavScreen()
+}
+
+private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
+    save = { state ->
+        when (state) {
+            is ServersNavScreen.List -> listOf("list")
+            is ServersNavScreen.Overview -> listOf("overview", state.serverId)
+            is ServersNavScreen.Clients -> listOf("clients", state.serverId)
+            is ServersNavScreen.Deploy -> listOf("deploy", state.serverId ?: "")
+        }
+    },
+    restore = { saved ->
+        when (saved.getOrNull(0)) {
+            "overview" -> ServersNavScreen.Overview(saved.getOrElse(1) { "" })
+            "clients" -> ServersNavScreen.Clients(saved.getOrElse(1) { "" })
+            "deploy" -> ServersNavScreen.Deploy(saved.getOrNull(1)?.ifEmpty { null })
+            else -> ServersNavScreen.List
+        }
+    },
+)
+
+private enum class HealthUi { Checking, Online, Offline }
+
+private fun formatDeployRelative(ms: Long): String {
+    if (ms <= 0L) return ""
+    val diff = (System.currentTimeMillis() - ms).coerceAtLeast(0L)
+    val minutes = diff / 60_000L
+    val hours = diff / 3_600_000L
+    val days = diff / 86_400_000L
+    return when {
+        minutes < 1L -> "только что"
+        minutes < 60L -> "$minutes мин назад"
+        hours < 24L -> "$hours ч назад"
+        days < 30L -> "$days дн назад"
+        else -> SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(ms))
+    }
+}
+
+private fun healthStatusLine(health: HealthUi?, lastDeployedAtMs: Long): Pair<String, Color?> {
+    return when (health) {
+        null, HealthUi.Checking -> "● Проверка…" to null
+        HealthUi.Online -> {
+            val base = "● Онлайн"
+            val text = if (lastDeployedAtMs > 0L) {
+                "$base · деплой ${formatDeployRelative(lastDeployedAtMs)}"
+            } else {
+                base
+            }
+            text to NvpnColors.connected
+        }
+        HealthUi.Offline -> {
+            val text = if (lastDeployedAtMs == 0L) {
+                "● Не установлен / нет связи"
+            } else {
+                "● Нет связи"
+            }
+            text to null // error color applied by caller when null + offline
+        }
+    }
+}
+
+@Composable
+fun ServersScreen(
+    serversRepo: ServersRepository,
+    engine: DeployEngine,
+) {
+    val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
+    var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
+        mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
+    }
+
+    BackHandler(enabled = screen !is ServersNavScreen.List) {
+        screen = when (val current = screen) {
+            is ServersNavScreen.Clients -> ServersNavScreen.Overview(current.serverId)
+            is ServersNavScreen.Deploy -> current.serverId
+                ?.let { ServersNavScreen.Overview(it) }
+                ?: ServersNavScreen.List
+            is ServersNavScreen.Overview -> ServersNavScreen.List
+            is ServersNavScreen.List -> ServersNavScreen.List
+        }
+    }
+
+    Crossfade(targetState = screen, label = "servers_nav") { current ->
+        when (val s = current) {
+            is ServersNavScreen.List -> ServerListScreen(
+                servers = servers,
+                serversRepo = serversRepo,
+                onOpenServer = { id -> screen = ServersNavScreen.Overview(id) },
+                onAddServer = { screen = ServersNavScreen.Deploy(null) },
+            )
+            is ServersNavScreen.Overview -> ServerOverviewHost(
+                servers = servers,
+                serversRepo = serversRepo,
+                serverId = s.serverId,
+                onOpenClients = { screen = ServersNavScreen.Clients(s.serverId) },
+                onOpenDeploy = { screen = ServersNavScreen.Deploy(s.serverId) },
+                onBack = { screen = ServersNavScreen.List },
+            )
+            is ServersNavScreen.Clients -> ClientsHost(
+                servers = servers,
+                serverId = s.serverId,
+                onBack = { screen = ServersNavScreen.Overview(s.serverId) },
+            )
+            is ServersNavScreen.Deploy -> {
+                val initial = s.serverId?.let { id -> servers.find { it.id == id } }
+                DeployScreen(
+                    serversRepo = serversRepo,
+                    engine = engine,
+                    initial = initial,
+                    onSaved = { savedId ->
+                        screen = ServersNavScreen.Overview(savedId)
+                    },
+                    onBack = {
+                        screen = s.serverId
+                            ?.let { ServersNavScreen.Overview(it) }
+                            ?: ServersNavScreen.List
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerListScreen(
+    servers: List<DeployTarget>,
+    serversRepo: ServersRepository,
+    onOpenServer: (String) -> Unit,
+    onAddServer: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var healthById by remember { mutableStateOf<Map<String, HealthUi>>(emptyMap()) }
+    var probing by remember { mutableStateOf(false) }
+
+    fun probeAll() {
+        val snapshot = serversRepo.snapshot()
+        if (snapshot.isEmpty()) {
+            healthById = emptyMap()
+            probing = false
+            return
+        }
+        probing = true
+        healthById = snapshot.associate { it.id to HealthUi.Checking }
+        scope.launch {
+            coroutineScope {
+                snapshot.map { target ->
+                    async {
+                        val online = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
+                            .getOrNull() == true
+                        val status = if (online) HealthUi.Online else HealthUi.Offline
+                        healthById = healthById + (target.id to status)
+                    }
+                }.awaitAll()
+            }
+            probing = false
+        }
+    }
+
+    LaunchedEffect(servers.map { it.id }) {
+        probeAll()
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Серверы",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "Управление вашими VPS",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    onClick = { probeAll() },
+                    enabled = !probing && servers.isNotEmpty(),
+                ) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "Обновить статус",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (servers.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = { probeAll() },
+                    enabled = !probing,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (probing) "Проверка…" else "Обновить статус всех",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+
+            if (servers.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .widthIn(max = 340.dp)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Filled.Dns,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(48.dp),
+                        )
+                        Spacer(modifier = Modifier.height(26.dp))
+                        Text(
+                            "Добавьте первый VPS, чтобы установить сервер и управлять пользователями",
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(30.dp))
+                        Button(
+                            onClick = onAddServer,
+                            modifier = Modifier
+                                .widthIn(max = 304.dp)
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Добавить сервер")
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 104.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(servers, key = { it.id }) { server ->
+                        ServerCard(
+                            server = server,
+                            health = healthById[server.id],
+                            onOpenServer = { onOpenServer(server.id) },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (servers.isNotEmpty()) {
+            FloatingActionButton(
+                onClick = onAddServer,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 22.dp)
+                    .size(58.dp),
+                shape = RoundedCornerShape(20.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp, pressedElevation = 8.dp),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Добавить сервер")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerCard(
+    server: DeployTarget,
+    health: HealthUi?,
+    onOpenServer: () -> Unit,
+) {
+    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs)
+    val statusColor = when {
+        statusColorHint != null -> statusColorHint
+        health == HealthUi.Offline -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    AppSectionCard(
+        modifier = Modifier.clickable(onClick = onOpenServer),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 15.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Icon(
+                    Icons.Filled.Dns,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier
+                        .padding(11.dp)
+                        .size(22.dp),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    server.name.ifBlank { server.host },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (server.name.isNotBlank() && server.name != server.host) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        server.host,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    "SSH ${server.sshPort}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = statusColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = "Открыть сервер",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ServerOverviewHost(
+    servers: List<DeployTarget>,
+    serversRepo: ServersRepository,
+    serverId: String,
+    onOpenClients: () -> Unit,
+    onOpenDeploy: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val server = servers.find { it.id == serverId }
+    var showActions by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
+    var health by remember { mutableStateOf<HealthUi?>(HealthUi.Checking) }
+
+    LaunchedEffect(servers, serverId) {
+        if (servers.isNotEmpty() && server == null) onBack()
+    }
+
+    LaunchedEffect(serverId, server?.host, server?.publicHost) {
+        val target = server ?: return@LaunchedEffect
+        health = HealthUi.Checking
+        val online = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
+            .getOrNull() == true
+        health = if (online) HealthUi.Online else HealthUi.Offline
+    }
+
+    if (server == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    } else {
+        ServerOverviewScreen(
+            server = server,
+            health = health,
+            onOpenClients = onOpenClients,
+            onOpenDeploy = onOpenDeploy,
+            onBack = onBack,
+            showActions = showActions,
+            onShowActions = { showActions = it },
+            onRename = { showRename = true },
+            onDelete = { showDeleteConfirm = true },
+        )
+        if (showRename) {
+            RenameServerDialog(
+                initialName = server.name.ifBlank { server.host },
+                onDismiss = { showRename = false },
+                onConfirm = { name ->
+                    serversRepo.upsert(server.copy(name = name))
+                    showRename = false
+                },
+            )
+        }
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("Удалить сервер?") },
+                text = {
+                    Text(
+                        "Из приложения будут удалены только данные подключения. " +
+                            "Сервер и пользователи на VPS останутся без изменений.",
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            serversRepo.delete(server.id)
+                            showDeleteConfirm = false
+                            onBack()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    ) { Text("Удалить") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) { Text("Отмена") }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ServerOverviewScreen(
+    server: DeployTarget,
+    health: HealthUi?,
+    onOpenClients: () -> Unit,
+    onOpenDeploy: () -> Unit,
+    onBack: () -> Unit,
+    showActions: Boolean,
+    onShowActions: (Boolean) -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs)
+    val statusColor = when {
+        statusColorHint != null -> statusColorHint
+        health == HealthUi.Offline -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад к серверам",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    "Управление сервером",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    server.name.ifBlank { server.host },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Box {
+                IconButton(onClick = { onShowActions(true) }) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "Действия с сервером",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(
+                    expanded = showActions,
+                    onDismissRequest = { onShowActions(false) },
+                    modifier = Modifier
+                        .width(216.dp)
+                        .padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 2.dp,
+                    shadowElevation = 6.dp,
+                ) {
+                    DropdownMenuItem(
+                        modifier = Modifier.heightIn(min = 54.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp),
+                        text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
+                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                        onClick = {
+                            onShowActions(false)
+                            onRename()
+                        },
+                    )
+                    DropdownMenuItem(
+                        modifier = Modifier.heightIn(min = 54.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp),
+                        text = {
+                            Text(
+                                "Удалить",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            onShowActions(false)
+                            onDelete()
+                        },
+                    )
+                }
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                AppSectionCard(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                    shape = RoundedCornerShape(24.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                        ) {
+                            Icon(
+                                Icons.Filled.Dns,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier
+                                    .padding(10.dp)
+                                    .size(22.dp),
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                server.host,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "SSH ${server.sshPort}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Text(
+                        "Публичный host: ${server.publicHost.ifBlank { server.host }}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        statusText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = statusColor,
+                    )
+                }
+            }
+            item {
+                Text(
+                    "Действия",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                )
+            }
+            item {
+                ServerActionCard(
+                    icon = Icons.Filled.People,
+                    title = "Клиенты",
+                    description = "Создание профилей через provision",
+                    onClick = onOpenClients,
+                )
+            }
+            item {
+                ServerActionCard(
+                    icon = Icons.Filled.Settings,
+                    title = "Управление сервером",
+                    description = "SSH, порты, обновление и переустановка",
+                    onClick = onOpenDeploy,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerActionCard(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    onClick: () -> Unit,
+) {
+    AppSectionCard(
+        modifier = Modifier.clickable(onClick = onClick),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+        shape = RoundedCornerShape(24.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier
+                        .padding(10.dp)
+                        .size(22.dp),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RenameServerDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by rememberSaveable { mutableStateOf(initialName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Переименовать") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Имя сервера") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(name.trim().ifBlank { initialName }) }) {
+                Text("Сохранить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        },
+    )
+}
+
+@Composable
+private fun ClientsHost(
+    servers: List<DeployTarget>,
+    serverId: String,
+    onBack: () -> Unit,
+) {
+    val server = servers.find { it.id == serverId }
+    LaunchedEffect(servers, serverId) {
+        if (servers.isNotEmpty() && server == null) onBack()
+    }
+    if (server == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    } else {
+        ClientsScreen(server = server, onBack = onBack)
+    }
+}
+
+@Composable
+private fun ClientsScreen(
+    server: DeployTarget,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val base = remember(server.id, server.host, server.publicHost) {
+        ProvisionAdminApi.provisionBase(server)
+    }
+
+    var users by remember { mutableStateOf<List<ProvisionAdminApi.UserSummary>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var showCreate by remember { mutableStateOf(false) }
+    var createName by remember { mutableStateOf("") }
+    var creating by remember { mutableStateOf(false) }
+    var profilePreview by remember { mutableStateOf<String?>(null) }
+    var busyUser by remember { mutableStateOf<String?>(null) }
+
+    fun copyText(label: String, text: String) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+    }
+
+    fun refresh() {
+        loading = true
+        error = null
+        scope.launch {
+            val result = ProvisionAdminApi.listUsers(base)
+            result.fold(
+                onSuccess = {
+                    users = it
+                    error = null
+                },
+                onFailure = {
+                    users = emptyList()
+                    error = it.message ?: "Provision недоступен"
+                },
+            )
+            loading = false
+        }
+    }
+
+    LaunchedEffect(base) { refresh() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Клиенты",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Пользователи · ${server.name.ifBlank { server.host }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = { refresh() }, enabled = !loading) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Обновить")
+            }
+        }
+
+        when {
+            loading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+            error != null -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.widthIn(max = 360.dp),
+                    ) {
+                        Text(
+                            "Provision недоступен",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            error ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Нужен установленный стек (health на :9100).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        OutlinedButton(onClick = { refresh() }) { Text("Повторить") }
+                    }
+                }
+            }
+            else -> {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (users.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "Пока нет пользователей. Создайте первого через provision.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 104.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            items(users, key = { "${it.name}-${it.deviceId}-${it.hostId}" }) { user ->
+                                AppSectionCard(
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    shape = RoundedCornerShape(22.dp),
+                                ) {
+                                    Text(
+                                        user.name.ifBlank { "user" },
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        "hostId ${user.hostId} · device ${user.deviceId.ifBlank { "—" }}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        if (user.hideIp) "hideIp: да" else "hideIp: нет",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    OutlinedButton(
+                                        onClick = {
+                                            busyUser = user.name
+                                            scope.launch {
+                                                val result = ProvisionAdminApi.profileJson(base, user.name)
+                                                result.fold(
+                                                    onSuccess = { json ->
+                                                        copyText("ARDTT profile", json)
+                                                    },
+                                                    onFailure = {
+                                                        Toast.makeText(
+                                                            context,
+                                                            it.message ?: "Ошибка профиля",
+                                                            Toast.LENGTH_LONG,
+                                                        ).show()
+                                                    },
+                                                )
+                                                busyUser = null
+                                            }
+                                        },
+                                        enabled = busyUser == null,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(
+                                            if (busyUser == user.name) "Загрузка…" else "Профиль",
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    FloatingActionButton(
+                        onClick = {
+                            createName = ""
+                            showCreate = true
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 24.dp, bottom = 22.dp)
+                            .size(58.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = "Создать пользователя")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCreate) {
+        AlertDialog(
+            onDismissRequest = { if (!creating) showCreate = false },
+            title = { Text("Новый пользователь") },
+            text = {
+                OutlinedTextField(
+                    value = createName,
+                    onValueChange = { createName = it },
+                    label = { Text("Имя") },
+                    singleLine = true,
+                    enabled = !creating,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val name = createName.trim()
+                        if (name.isBlank()) return@Button
+                        creating = true
+                        scope.launch {
+                            val result = ProvisionAdminApi.createUser(base, name)
+                            creating = false
+                            result.fold(
+                                onSuccess = { body ->
+                                    showCreate = false
+                                    profilePreview = body
+                                    refresh()
+                                },
+                                onFailure = {
+                                    Toast.makeText(
+                                        context,
+                                        it.message ?: "Ошибка создания",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                },
+                            )
+                        }
+                    },
+                    enabled = !creating && createName.isNotBlank(),
+                ) {
+                    Text(if (creating) "Создание…" else "Создать")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreate = false }, enabled = !creating) {
+                    Text("Отмена")
+                }
+            },
+        )
+    }
+
+    profilePreview?.let { json ->
+        AlertDialog(
+            onDismissRequest = { profilePreview = null },
+            title = { Text("Профиль создан") },
+            text = {
+                Text(
+                    json.take(1200),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        copyText("ARDTT profile", json)
+                        profilePreview = null
+                    },
+                ) { Text("Копировать") }
+            },
+            dismissButton = {
+                TextButton(onClick = { profilePreview = null }) { Text("Закрыть") }
+            },
+        )
+    }
+}
 
 @Composable
 fun DeployScreen(
     serversRepo: ServersRepository,
     engine: DeployEngine,
     initial: DeployTarget? = null,
-    onSaved: () -> Unit = {},
+    onSaved: (serverId: String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -59,6 +1151,7 @@ fun DeployScreen(
     var publicHost by remember { mutableStateOf(initial?.publicHost ?: "") }
     var directPort by remember { mutableStateOf((initial?.directPort ?: 51820).toString()) }
     var bypassPort by remember { mutableStateOf((initial?.bypassPort ?: 56003).toString()) }
+    var lastDeployedAtMs by remember { mutableStateOf(initial?.lastDeployedAtMs ?: 0L) }
     var status by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(initial?.id) {
@@ -74,9 +1167,10 @@ fun DeployScreen(
         publicHost = t.publicHost
         directPort = t.directPort.toString()
         bypassPort = t.bypassPort.toString()
+        lastDeployedAtMs = t.lastDeployedAtMs
     }
 
-    fun buildTarget(): DeployTarget = DeployTarget(
+    fun buildTarget(deployedAt: Long = lastDeployedAtMs): DeployTarget = DeployTarget(
         id = id,
         name = name.ifBlank { host },
         host = host.trim(),
@@ -89,6 +1183,7 @@ fun DeployScreen(
         publicHost = publicHost.trim().ifBlank { host.trim() },
         directPort = directPort.toIntOrNull() ?: 51820,
         bypassPort = bypassPort.toIntOrNull() ?: 56003,
+        lastDeployedAtMs = deployedAt,
     )
 
     Column(
@@ -98,7 +1193,12 @@ fun DeployScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Деплой", style = MaterialTheme.typography.headlineMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, enabled = !busy) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+            }
+            Text("Деплой", style = MaterialTheme.typography.headlineMedium)
+        }
         Text(
             "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «Установить на VPS».",
             style = MaterialTheme.typography.bodyMedium,
@@ -210,9 +1310,10 @@ fun DeployScreen(
                     status = "Нужен пароль или SSH-ключ"
                     return@OutlinedButton
                 }
-                serversRepo.upsert(buildTarget())
-                status = "Сервер сохранён — возврат к списку…"
-                onSaved()
+                val target = buildTarget()
+                serversRepo.upsert(target)
+                status = "Сервер сохранён"
+                onSaved(target.id)
             },
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
@@ -236,7 +1337,12 @@ fun DeployScreen(
                     status = null
                     val result = engine.deploy(target)
                     status = result.fold(
-                        onSuccess = { it },
+                        onSuccess = { msg ->
+                            val deployedAt = System.currentTimeMillis()
+                            lastDeployedAtMs = deployedAt
+                            serversRepo.upsert(target.copy(lastDeployedAtMs = deployedAt))
+                            msg
+                        },
                         onFailure = { "Ошибка: ${it.message}" },
                     )
                 }
@@ -252,7 +1358,7 @@ fun DeployScreen(
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("К списку серверов")
+            Text("Назад")
         }
 
         if (busy) {
@@ -285,55 +1391,6 @@ fun DeployScreen(
                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 modifier = Modifier.fillMaxWidth(),
             )
-        }
-    }
-}
-
-@Composable
-fun ServersScreen(
-    serversRepo: ServersRepository,
-    onDeploy: (DeployTarget?) -> Unit,
-) {
-    val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("Серверы", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "Сохранённые VPS для деплоя. Профили пользователей — через provision после установки.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-        )
-        Button(
-            onClick = { onDeploy(null) },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Добавить / деплой нового") }
-
-        if (servers.isEmpty()) {
-            Text("Пока нет сохранённых серверов.", style = MaterialTheme.typography.bodyLarge)
-        } else {
-            servers.forEach { s ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(s.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "${s.sshUser}@${s.host}:${s.sshPort} · pub ${s.publicHost.ifBlank { s.host }}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onDeploy(s) }) { Text("Деплой") }
-                        OutlinedButton(onClick = { serversRepo.delete(s.id) }) { Text("Удалить") }
-                    }
-                }
-            }
         }
     }
 }

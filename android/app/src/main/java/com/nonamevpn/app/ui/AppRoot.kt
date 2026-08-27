@@ -23,7 +23,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -44,11 +43,9 @@ import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.deploy.DeployEngine
-import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.admin.DeployScreen
 import com.nonamevpn.app.ui.admin.LogsScreen
 import com.nonamevpn.app.ui.admin.ServersScreen
 import com.nonamevpn.app.ui.components.AppBackdrop
@@ -80,7 +77,6 @@ fun AppRoot(
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
-    var deployInitial by remember { mutableStateOf<DeployTarget?>(null) }
     var dragTargetIndex by remember { mutableIntStateOf(-1) }
     var dragProgress by remember { mutableFloatStateOf(0f) }
 
@@ -90,10 +86,7 @@ fun AppRoot(
     val navItems = tabs.map { dest ->
         NavBarItem(route = dest.route, label = dest.label, icon = dest.icon())
     }
-    val selectedNavRoute = when (currentRoute) {
-        AppDestination.Deploy.route -> AppDestination.Servers.route
-        else -> currentRoute
-    }
+    val selectedNavRoute = currentRoute
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -237,12 +230,7 @@ fun AppRoot(
                 composable(AppDestination.Servers.route) {
                     ServersScreen(
                         serversRepo = serversRepo,
-                        onDeploy = { target ->
-                            deployInitial = target
-                            navController.navigate(AppDestination.Deploy.route) {
-                                launchSingleTop = true
-                            }
-                        },
+                        engine = deployEngine,
                     )
                 }
                 composable(AppDestination.Profiles.route) {
@@ -260,25 +248,6 @@ fun AppRoot(
                 }
                 composable(AppDestination.Settings.route) {
                     SettingsScreen(settings = settings)
-                }
-                composable(AppDestination.Deploy.route) {
-                    DeployScreen(
-                        serversRepo = serversRepo,
-                        engine = deployEngine,
-                        initial = deployInitial,
-                        onSaved = {
-                            navController.navigate(AppDestination.Servers.route) {
-                                popUpTo(AppDestination.Servers.route) { inclusive = true }
-                                launchSingleTop = true
-                            }
-                        },
-                        onBack = {
-                            navController.navigate(AppDestination.Servers.route) {
-                                popUpTo(AppDestination.Servers.route) { inclusive = true }
-                                launchSingleTop = true
-                            }
-                        },
-                    )
                 }
             }
 
@@ -300,6 +269,6 @@ private fun AppDestination.icon(): ImageVector = when (this) {
     AppDestination.Profiles -> Icons.Outlined.Folder
     AppDestination.Exceptions -> Icons.Outlined.FilterList
     AppDestination.Logs -> Icons.Outlined.Terminal
-    AppDestination.Deploy -> Icons.Outlined.CloudUpload
+    AppDestination.Deploy -> Icons.Outlined.CloudUpload // kept for enum; not in bottom nav
     AppDestination.Settings -> Icons.Outlined.Settings
 }
