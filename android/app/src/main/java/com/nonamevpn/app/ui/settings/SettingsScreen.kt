@@ -147,11 +147,11 @@ fun SettingsScreen(settings: AppSettingsRepository) {
                 color = MaterialTheme.colorScheme.primary,
             )
             RowSetting(
-                title = "Скрыть свой IP",
+                title = "Скрыть IP сервера",
                 subtitle = if (hideIp) {
-                    "WARP egress на VPS включён"
+                    "Включено — внешний IP Cloudflare, не адрес VPS"
                 } else {
-                    "Выход через Cloudflare WARP вместо IP VPS"
+                    "Выход через Cloudflare: сайты не видят IP вашего VPS"
                 },
                 checked = hideIp,
                 enabled = true,

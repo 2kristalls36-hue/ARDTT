@@ -112,9 +112,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
                 val text = when {
                     trustedWifiWaiting -> "VPN выключен в доверенной сети"
-                    softRestartInProgress -> "Переподключение транспорта…"
-                    tunnelSessionActive -> getString(R.string.notif_running)
-                    else -> getString(R.string.notif_running)
+                    softRestartInProgress -> {
+                        ConnectionManager.getOrNull()?.notificationRunningText()
+                            ?: "Переподключение транспорта…"
+                    }
+                    else -> {
+                        ConnectionManager.getOrNull()?.notificationRunningText()
+                            ?: getString(R.string.notif_running)
+                    }
                 }
                 updateNotification(path, text)
                 return START_STICKY
@@ -213,7 +218,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 lastValidatedNetworkId = it.networkHandle
                             }
                             ConnectionManager.getOrNull()?.onTunnelRunning(path)
-                            updateNotification(path, getString(R.string.notif_running))
+                            updateNotification(
+                                path,
+                                ConnectionManager.getOrNull()?.notificationRunningText()
+                                    ?: getString(R.string.notif_running),
+                            )
                             scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
                         }
                         is TunnelBackendState.Failed -> {
@@ -319,7 +328,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
         AppLog.i(TAG, "soft restart #$softRestartCount path=$path: $reason")
         ConnectionManager.getOrNull()?.onTransportRestarting(reason)
-        updateNotification(path, "Переподключение транспорта…")
+        val restartText = ConnectionManager.getOrNull()?.notificationRunningText()
+            ?: "Переподключение транспорта…"
+        updateNotification(path, restartText)
 
         softRestartJob?.cancel()
         softRestartJob = scope.launch {
