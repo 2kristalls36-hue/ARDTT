@@ -8,8 +8,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -46,14 +49,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.VkCallHashGenerator
@@ -72,8 +77,20 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.theme.NvpnColors
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeChild
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** Gap between sticky Connect and the bottom tab bar (4–8 px). */
+private val StickyConnectTabGap = 6.dp
+/** Connect button height. */
+private val StickyConnectButtonHeight = 58.dp
+/** Extra scroll padding so content can pass under the floating Connect + glass fade. */
+private val StickyConnectScrollReserve = 118.dp
 
 private fun Context.findActivity(): Activity? {
     var ctx: Context? = this
@@ -232,313 +249,305 @@ fun TunnelScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        AppPageHeader(
-            title = "ARDTT",
-            subtitle = "Туннель и быстрые настройки",
-        )
+    val hazeState = remember { HazeState() }
+    val scrimBase = MaterialTheme.colorScheme.background
 
-        if (!admin && profile != null) {
-            val active = profile!!.subscriptionActive
-            val expiresText = when {
-                profile!!.expiresAt <= 0L -> "без срока"
-                else -> {
-                    val fmt = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale("ru"))
-                    fmt.format(java.util.Date(profile!!.expiresAt * 1000L))
-                }
-            }
-            AppSectionCard(
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(
-                    2.dp,
-                    if (active) NvpnColors.connected else MaterialTheme.colorScheme.error,
-                ),
-                shadowElevation = 0.dp,
-            ) {
-                Text(
-                    if (active) "Подписка активна" else "Подписка неактивна",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (active) NvpnColors.connected else MaterialTheme.colorScheme.error,
-                )
-                Text(
-                    "Действует до $expiresText",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        // ═══ Быстрые настройки ═══
-        AppSectionCard(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            shape = RoundedCornerShape(28.dp),
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp)
+                .haze(hazeState)
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = StickyConnectScrollReserve),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                "Быстрые настройки",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+            AppPageHeader(
+                title = "ARDTT",
+                subtitle = "Туннель и быстрые настройки",
             )
 
-            QuickSettingRow(
-                title = "Путь",
-                subtitle = when (pathMode) {
-                    "direct" -> "Только AmneziaWG (AWG)"
-                    "bypass" -> "Только обход RAW через звонок"
-                    else -> "Авто: AWG, резерв обход"
-                },
-            ) {
-                ChoiceChipButton(
-                    label = "Авто",
-                    selected = pathMode == "auto",
-                    enabled = !pathBusy,
-                    onClick = {
-                        scope.launch {
-                            settings.setPathMode("auto")
-                            conn.setPathMode(ConnPathMode.Auto)
-                            AppLog.i("PathMode", "auto")
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                ChoiceChipButton(
-                    label = "Прямое",
-                    selected = pathMode == "direct",
-                    enabled = !pathBusy,
-                    selectedContainer = NvpnColors.pathDirect,
-                    onClick = {
-                        scope.launch {
-                            settings.setPathMode("direct")
-                            conn.setPathMode(ConnPathMode.Direct)
-                            AppLog.i("PathMode", "direct")
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                ChoiceChipButton(
-                    label = "Обход",
-                    selected = pathMode == "bypass",
-                    enabled = !pathBusy,
-                    selectedContainer = NvpnColors.pathBypass,
-                    onClick = {
-                        scope.launch {
-                            settings.setPathMode("bypass")
-                            conn.setPathMode(ConnPathMode.Bypass)
-                            AppLog.i("PathMode", "bypass")
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            QuickSettingRow(
-                title = "Мощность",
-                subtitle = if (economy) {
-                    "Оптимально — 1 worker"
-                } else {
-                    "Максимум — 3 workers"
-                },
-            ) {
-                ChoiceChipButton(
-                    label = "Оптимально",
-                    selected = economy,
-                    enabled = !pathBusy,
-                    onClick = {
-                        scope.launch {
-                            settings.setEconomyWorkers(true)
-                            conn.setWorkers(1)
-                            AppLog.i("Power", "optimal (1 worker)")
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                ChoiceChipButton(
-                    label = "Максимум",
-                    selected = !economy,
-                    enabled = !pathBusy,
-                    onClick = {
-                        scope.launch {
-                            settings.setEconomyWorkers(false)
-                            conn.setWorkers(3)
-                            AppLog.i("Power", "max (3 workers)")
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            QuickSettingRow(
-                title = "Хэш звонка",
-                subtitle = when {
-                    callMessage != null -> callMessage
-                    ui.hasCallHash -> "Hash сохранён на этом телефоне"
-                    vkLoggedIn -> "VK: вход выполнен — нажмите ещё раз, чтобы создать звонок"
-                    else -> "Нужен для обхода (Path B)"
-                },
-            ) {
-                ChoiceChipButton(
-                    label = "Вход в ВК",
-                    selected = vkLoggedIn || ui.hasCallHash,
-                    enabled = profile != null && !callBusy,
-                    onClick = { onVkAction() },
-                    modifier = Modifier.weight(1f),
-                )
-                ChoiceChipButton(
-                    label = "Ручное",
-                    selected = false,
-                    enabled = profile != null && !sessionUp && !callBusy,
-                    onClick = { showHash = true },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            QuickSettingRow(
-                title = "Скрыть IP",
-                subtitle = if (hideIp) {
-                    "Выход через Cloudflare WARP"
-                } else {
-                    "Выход напрямую (IP VPS)"
-                },
-            ) {
-                ChoiceChipButton(
-                    label = "На прямую",
-                    selected = !hideIp,
-                    enabled = !pathBusy,
-                    onClick = {
-                        scope.launch {
-                            settings.setHideIp(false)
-                            conn.setHideIp(false)
-                            AppLog.i("HideIP", "disabled (direct)")
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                ChoiceChipButton(
-                    label = "WARP",
-                    selected = hideIp,
-                    enabled = !pathBusy,
-                    onClick = {
-                        scope.launch {
-                            settings.setHideIp(true)
-                            conn.setHideIp(true)
-                            AppLog.i("HideIP", "enabled (WARP)")
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            if (profile == null) {
-                Text(
-                    "Профиль не загружен — импортируйте во вкладке «Профили».",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(
-                    onClick = { showImport = true },
-                    enabled = !importBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+            if (!admin && profile != null) {
+                val active = profile!!.subscriptionActive
+                val expiresText = when {
+                    profile!!.expiresAt <= 0L -> "без срока"
+                    else -> {
+                        val fmt = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale("ru"))
+                        fmt.format(java.util.Date(profile!!.expiresAt * 1000L))
+                    }
+                }
+                AppSectionCard(
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(
+                        2.dp,
+                        if (active) NvpnColors.connected else MaterialTheme.colorScheme.error,
+                    ),
+                    shadowElevation = 0.dp,
                 ) {
-                    Text("Импорт профиля…")
+                    Text(
+                        if (active) "Подписка активна" else "Подписка неактивна",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (active) NvpnColors.connected else MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        "Действует до $expiresText",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
+
+            // ═══ Быстрые настройки ═══
+            AppSectionCard(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                shape = RoundedCornerShape(28.dp),
+            ) {
+                Text(
+                    "Быстрые настройки",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+
+                QuickSettingRow(
+                    title = "Путь",
+                    subtitle = when (pathMode) {
+                        "direct" -> "Только AmneziaWG (AWG)"
+                        "bypass" -> "Только обход RAW через звонок"
+                        else -> "Авто: AWG, резерв обход"
+                    },
+                ) {
+                    ChoiceChipButton(
+                        label = "Авто",
+                        selected = pathMode == "auto",
+                        enabled = !pathBusy,
+                        onClick = {
+                            scope.launch {
+                                settings.setPathMode("auto")
+                                conn.setPathMode(ConnPathMode.Auto)
+                                AppLog.i("PathMode", "auto")
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChipButton(
+                        label = "Прямое",
+                        selected = pathMode == "direct",
+                        enabled = !pathBusy,
+                        selectedContainer = NvpnColors.pathDirect,
+                        onClick = {
+                            scope.launch {
+                                settings.setPathMode("direct")
+                                conn.setPathMode(ConnPathMode.Direct)
+                                AppLog.i("PathMode", "direct")
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChipButton(
+                        label = "Обход",
+                        selected = pathMode == "bypass",
+                        enabled = !pathBusy,
+                        selectedContainer = NvpnColors.pathBypass,
+                        onClick = {
+                            scope.launch {
+                                settings.setPathMode("bypass")
+                                conn.setPathMode(ConnPathMode.Bypass)
+                                AppLog.i("PathMode", "bypass")
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                QuickSettingRow(
+                    title = "Мощность",
+                    subtitle = if (economy) {
+                        "Оптимально — 1 worker"
+                    } else {
+                        "Максимум — 3 workers"
+                    },
+                ) {
+                    ChoiceChipButton(
+                        label = "Оптимально",
+                        selected = economy,
+                        enabled = !pathBusy,
+                        onClick = {
+                            scope.launch {
+                                settings.setEconomyWorkers(true)
+                                conn.setWorkers(1)
+                                AppLog.i("Power", "optimal (1 worker)")
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChipButton(
+                        label = "Максимум",
+                        selected = !economy,
+                        enabled = !pathBusy,
+                        onClick = {
+                            scope.launch {
+                                settings.setEconomyWorkers(false)
+                                conn.setWorkers(3)
+                                AppLog.i("Power", "max (3 workers)")
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                QuickSettingRow(
+                    title = "Хэш звонка",
+                    subtitle = when {
+                        callMessage != null -> callMessage
+                        ui.hasCallHash -> "Hash сохранён на этом телефоне"
+                        vkLoggedIn -> "VK: вход выполнен — нажмите ещё раз, чтобы создать звонок"
+                        else -> "Нужен для обхода (Path B)"
+                    },
+                ) {
+                    ChoiceChipButton(
+                        label = "Вход в ВК",
+                        selected = vkLoggedIn || ui.hasCallHash,
+                        enabled = profile != null && !callBusy,
+                        onClick = { onVkAction() },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChipButton(
+                        label = "Ручное",
+                        selected = false,
+                        enabled = profile != null && !sessionUp && !callBusy,
+                        onClick = { showHash = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                QuickSettingRow(
+                    title = "Скрыть IP",
+                    subtitle = if (hideIp) {
+                        "Выход через Cloudflare WARP"
+                    } else {
+                        "Выход напрямую (IP VPS)"
+                    },
+                ) {
+                    ChoiceChipButton(
+                        label = "На прямую",
+                        selected = !hideIp,
+                        enabled = !pathBusy,
+                        onClick = {
+                            scope.launch {
+                                settings.setHideIp(false)
+                                conn.setHideIp(false)
+                                AppLog.i("HideIP", "disabled (direct)")
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChipButton(
+                        label = "WARP",
+                        selected = hideIp,
+                        enabled = !pathBusy,
+                        onClick = {
+                            scope.launch {
+                                settings.setHideIp(true)
+                                conn.setHideIp(true)
+                                AppLog.i("HideIP", "enabled (WARP)")
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                if (profile == null) {
+                    Text(
+                        "Профиль не загружен — импортируйте во вкладке «Профили».",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = { showImport = true },
+                        enabled = !importBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Text("Импорт профиля…")
+                    }
+                }
+            }
+
+            // ═══ Статус сессии — структурированная панель ═══
+            TunnelStatusPanel(
+                statusText = ui.statusText.ifBlank { "—" },
+                statusColor = when {
+                    connected || pausedTrusted -> NvpnColors.connected
+                    ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+                pathModeLabel = when (pathMode) {
+                    "direct" -> "Прямое"
+                    "bypass" -> "Обход"
+                    else -> "Авто"
+                },
+                activePathLabel = when (ui.activePath) {
+                    VpnPath.Direct -> "Прямое"
+                    VpnPath.Bypass -> "Обход"
+                    null -> null
+                },
+                powerLabel = if (economy) "Оптимально (1)" else "Максимум (3)",
+                publicIp = when {
+                    !publicIp.isNullOrBlank() -> publicIp!!
+                    !ipError.isNullOrBlank() && sessionUp -> "не удалось · нажмите"
+                    sessionUp -> "…"
+                    else -> "—"
+                },
+                ipFailed = sessionUp && publicIp.isNullOrBlank() && !ipError.isNullOrBlank(),
+                onIpClick = if (sessionUp) {
+                    { conn.requestEgressIpRefresh() }
+                } else {
+                    null
+                },
+                profileName = profile?.name?.takeIf { it.isNotBlank() },
+                version = BuildConfig.VERSION_NAME,
+                directEndpoint = profile?.direct?.endpoint,
+                bypassPeer = profile?.bypass?.peer,
+                provisionLine = profile?.let { p ->
+                    p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
+                },
+                probe = ui.probe,
+                softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
+                errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
+                showVkLogout = vkLoggedIn,
+                vkLogoutEnabled = !callBusy,
+                onVkLogout = {
+                    VkSession.clear()
+                    vkLoggedIn = false
+                    callMessage = "Сессия VK сброшена"
+                },
+            )
         }
 
-        // ═══ Подключить — на всю ширину ═══
-        Button(
+        // Sticky «Подключить» — floats above tab bar; content scrolls underneath with glass blur
+        StickyConnectBar(
+            hazeState = hazeState,
+            scrimBase = scrimBase,
+            buttonColor = buttonColor,
+            sessionUp = sessionUp,
+            pausedTrusted = pausedTrusted,
+            connecting = connecting,
+            probing = ui.state == ConnState.Probing,
+            enabled = !busy && (sessionUp || ui.connectEnabled),
             onClick = {
                 if (sessionUp) conn.disconnect() else onRequestConnect()
             },
-            enabled = !busy && (sessionUp || ui.connectEnabled),
             modifier = Modifier
+                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(58.dp),
-            shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = buttonColor,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-        ) {
-            Icon(
-                imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = when {
-                    sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
-                    sessionUp -> "Остановить"
-                    connecting -> "Подключение…"
-                    ui.state == ConnState.Probing -> "Проверка…"
-                    else -> "Подключить"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-        }
-
-        // ═══ Статус сессии — структурированная панель ═══
-        TunnelStatusPanel(
-            statusText = ui.statusText.ifBlank { "—" },
-            statusColor = when {
-                connected || pausedTrusted -> NvpnColors.connected
-                ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.onSurface
-            },
-            pathModeLabel = when (pathMode) {
-                "direct" -> "Прямое"
-                "bypass" -> "Обход"
-                else -> "Авто"
-            },
-            activePathLabel = when (ui.activePath) {
-                VpnPath.Direct -> "Прямое"
-                VpnPath.Bypass -> "Обход"
-                null -> null
-            },
-            powerLabel = if (economy) "Оптимально (1)" else "Максимум (3)",
-            publicIp = when {
-                !publicIp.isNullOrBlank() -> publicIp!!
-                !ipError.isNullOrBlank() && sessionUp -> "не удалось · нажмите"
-                sessionUp -> "…"
-                else -> "—"
-            },
-            ipFailed = sessionUp && publicIp.isNullOrBlank() && !ipError.isNullOrBlank(),
-            onIpClick = if (sessionUp) {
-                { conn.requestEgressIpRefresh() }
-            } else {
-                null
-            },
-            profileName = profile?.name?.takeIf { it.isNotBlank() },
-            version = BuildConfig.VERSION_NAME,
-            directEndpoint = profile?.direct?.endpoint,
-            bypassPeer = profile?.bypass?.peer,
-            provisionLine = profile?.let { p ->
-                p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
-            },
-            probe = ui.probe,
-            softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
-            errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
-            showVkLogout = vkLoggedIn,
-            vkLogoutEnabled = !callBusy,
-            onVkLogout = {
-                VkSession.clear()
-                vkLoggedIn = false
-                callMessage = "Сессия VK сброшена"
-            },
+                .zIndex(2f)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = StickyConnectTabGap),
         )
     }
 
@@ -591,6 +600,88 @@ fun TunnelScreen(
                 callMessage = "Hash очищен"
             },
         )
+    }
+}
+
+@Composable
+private fun StickyConnectBar(
+    hazeState: HazeState,
+    scrimBase: Color,
+    buttonColor: Color,
+    sessionUp: Boolean,
+    pausedTrusted: Boolean,
+    connecting: Boolean,
+    probing: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val glassStyle = HazeStyle(
+        backgroundColor = scrimBase,
+        tint = HazeTint(scrimBase.copy(alpha = 0.28f)),
+        blurRadius = 10.dp,
+        noiseFactor = 0.06f,
+        fallbackTint = HazeTint(scrimBase.copy(alpha = 0.72f)),
+    )
+    Box(
+        modifier = modifier.height(StickyConnectButtonHeight + 36.dp),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        // Glass + darkening gradient under the button — content scrolls beneath this layer
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .hazeChild(state = hazeState, style = glassStyle) {
+                    blurRadius = 10.dp
+                }
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to scrimBase.copy(alpha = 0f),
+                            0.35f to scrimBase.copy(alpha = 0.28f),
+                            0.72f to scrimBase.copy(alpha = 0.55f),
+                            1.0f to scrimBase.copy(alpha = 0.78f),
+                        ),
+                    ),
+                ),
+        )
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(StickyConnectButtonHeight),
+            shape = RoundedCornerShape(20.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = buttonColor,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+            elevation = ButtonDefaults.buttonElevation(
+                defaultElevation = 6.dp,
+                pressedElevation = 2.dp,
+                disabledElevation = 0.dp,
+            ),
+        ) {
+            Icon(
+                imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = when {
+                    sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
+                    sessionUp -> "Остановить"
+                    connecting -> "Подключение…"
+                    probing -> "Проверка…"
+                    else -> "Подключить"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
     }
 }
 
