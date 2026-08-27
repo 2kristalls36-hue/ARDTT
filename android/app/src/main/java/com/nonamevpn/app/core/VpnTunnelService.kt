@@ -79,6 +79,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var processDeadSinceMs = 0L
     @Volatile private var lastHandoffAtMs = 0L
     @Volatile private var sessionStartedAtMs = 0L
+    private var notifLiveJob: Job? = null
 
     @Volatile private var trustedWifiWaiting = false
     @Volatile private var trustedWifiWaitingSsid = ""
@@ -112,18 +113,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
             ACTION_REFRESH_NOTIFICATION -> {
                 val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
-                val text = when {
-                    trustedWifiWaiting -> "VPN выключен в доверенной сети"
-                    softRestartInProgress -> {
-                        ConnectionManager.getOrNull()?.notificationRunningText()
-                            ?: "Переподключение транспорта…"
-                    }
-                    else -> {
-                        ConnectionManager.getOrNull()?.notificationRunningText()
-                            ?: getString(R.string.notif_running)
-                    }
-                }
-                updateNotification(path, text)
+                // Re-promote foreground so channel switches (shade ↔ silent) apply immediately.
+                startForegroundNotification(path, "refresh")
                 return START_STICKY
             }
             ACTION_START, null -> {
@@ -147,9 +138,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         softRestartInProgress = false
         sessionStartedAtMs = System.currentTimeMillis()
         TransportHealth.reset()
+        VpnLiveStats.reset()
         setupNetworkCallback()
         registerScreenReceiver()
         startWatchdog()
+        startNotifLiveUpdates()
         launchBackend(path, softRestart = false)
         scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
     }
@@ -772,6 +765,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeJob = null
         softRestartJob?.cancel()
         softRestartJob = null
+        notifLiveJob?.cancel()
+        notifLiveJob = null
         stableNetworkReconnectPending = false
         softRestartInProgress = false
         trustedWifiEvalJob?.cancel()
@@ -900,6 +895,23 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         super.onDestroy()
     }
 
+    private fun startNotifLiveUpdates() {
+        notifLiveJob?.cancel()
+        notifLiveJob = scope.launch {
+            while (true) {
+                delay(1_000)
+                if (!tunnelSessionActive || userStopRequested) continue
+                val showInShade = runCatching {
+                    settingsRepo.vpnNotificationVisibleSnapshot()
+                }.getOrDefault(true)
+                if (!showInShade) continue
+                VpnLiveStats.sample()
+                val path = TunnelSessionHolder.config?.path ?: continue
+                updateNotification(path, "live")
+            }
+        }
+    }
+
     private fun updateNotification(path: VpnPath, text: String) {
         val nm = getSystemService(NotificationManager::class.java) ?: return
         nm.notify(NOTIF_ID, buildNotification(path, text))
@@ -923,8 +935,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         val showInShade = runCatching {
             kotlinx.coroutines.runBlocking { settingsRepo.vpnNotificationVisibleSnapshot() }
         }.getOrDefault(true)
-        // Fresh channel ids so a previous IMPORTANCE_MIN channel cannot stick forever
-        // (Android ignores importance changes after first createNotificationChannel).
         val channelId = if (showInShade) CHANNEL_SHADE else CHANNEL_MIN
         val importance = if (showInShade) {
             NotificationManager.IMPORTANCE_DEFAULT
@@ -933,8 +943,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
-            // Drop legacy channel ids from older builds.
-            listOf("nvpn_tunnel", "nvpn_tunnel_min").forEach { legacy ->
+            listOf("nvpn_tunnel", "nvpn_tunnel_min", "ardtt_vpn_shade_v1", "ardtt_vpn_min_v1").forEach { legacy ->
                 runCatching { nm.deleteNotificationChannel(legacy) }
             }
             nm.createNotificationChannel(
@@ -947,15 +956,20 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     },
                     importance,
                 ).apply {
-                    setShowBadge(showInShade)
+                    setShowBadge(false)
                     setSound(null, null)
                     enableVibration(false)
+                    enableLights(false)
                     description = if (showInShade) {
-                        "Плашка VPN: статус сессии и «Остановить»"
+                        "Плашка VPN: живой статус и «Остановить»"
                     } else {
-                        "Минимальное FGS-уведомление (служба обязательна)"
+                        "Техническая запись службы (Android не даёт убрать полностью)"
                     }
-                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    lockscreenVisibility = if (showInShade) {
+                        Notification.VISIBILITY_PUBLIC
+                    } else {
+                        Notification.VISIBILITY_SECRET
+                    }
                 },
             )
         }
@@ -966,6 +980,30 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+
+        // Hidden mode: Android still requires an FGS notification — keep it minimal under «Без звука».
+        if (!showInShade) {
+            val builder = NotificationCompat.Builder(this, channelId)
+                .setContentTitle("ARDTT")
+                .setContentText("VPN")
+                .setSmallIcon(R.drawable.ic_vpn_key)
+                .setContentIntent(open)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+                .setShowWhen(false)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                .setLocalOnly(true)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setForegroundServiceBehavior(
+                    NotificationCompat.FOREGROUND_SERVICE_DEFERRED,
+                )
+            }
+            return builder.build()
+        }
+
         val stopPi = PendingIntent.getService(
             this,
             1,
@@ -977,10 +1015,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             path == VpnPath.Direct -> getString(R.string.notif_direct)
             else -> getString(R.string.notif_bypass)
         }
-        val content = ConnectionManager.getOrNull()?.notificationContent()
-        val shortText = content?.first?.takeIf { it.isNotBlank() } ?: text
-        val bigText = content?.second?.takeIf { it.isNotBlank() }
-            ?: shortText
+        val tunIp = TunnelSessionHolder.config?.tunAddress?.substringBefore('/') ?: "—"
+        val content = ConnectionManager.getOrNull()?.notificationContent(
+            sessionStartedAtMs = sessionStartedAtMs,
+            tunIp = tunIp,
+        )
+        val shortText = content?.first?.takeIf { it.isNotBlank() } ?: text.ifBlank { "Подключено" }
+        val bigText = content?.second?.takeIf { it.isNotBlank() } ?: shortText
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setContentTitle(title)
@@ -992,18 +1033,21 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setShowWhen(true)
-            .setSilent(!showInShade)
-            .setPriority(
-                if (showInShade) NotificationCompat.PRIORITY_DEFAULT
-                else NotificationCompat.PRIORITY_MIN,
-            )
+            .setSilent(false)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        if (sessionStartedAtMs > 0L && !trustedWifiWaiting && !softRestartInProgress) {
+            builder.setWhen(sessionStartedAtMs)
+                .setUsesChronometer(true)
+                .setShowWhen(true)
+        } else {
+            builder.setShowWhen(true)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setForegroundServiceBehavior(
                 NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE,
             )
         }
-        if (showInShade && !trustedWifiWaiting) {
+        if (!trustedWifiWaiting) {
             builder.addAction(0, getString(R.string.notif_stop), stopPi)
         }
         return builder.build()
@@ -1020,7 +1064,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_TUN_ADDRESS = "tun_address"
         const val EXTRA_RESTART_REASON = "restart_reason"
         private const val NOTIF_ID = 42
-        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v1"
-        private const val CHANNEL_MIN = "ardtt_vpn_min_v1"
+        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v2"
+        private const val CHANNEL_MIN = "ardtt_vpn_min_v2"
     }
 }

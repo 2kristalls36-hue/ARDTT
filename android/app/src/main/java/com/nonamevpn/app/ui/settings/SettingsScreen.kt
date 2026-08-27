@@ -176,9 +176,9 @@ fun SettingsScreen(settings: AppSettingsRepository) {
             RowSetting(
                 title = "Плашка VPN в шторке",
                 subtitle = if (notifVisible) {
-                    "Статус сессии и кнопка «Остановить» (как в qWDTT)"
+                    "Живой статус, скорость и кнопка «Остановить»"
                 } else {
-                    "Скрыта в шторке; служба VPN всё равно работает в фоне"
+                    "Скрыта из основной шторки; Android всё равно оставляет тихую запись службы в «Без звука»"
                 },
                 checked = notifVisible,
                 enabled = true,

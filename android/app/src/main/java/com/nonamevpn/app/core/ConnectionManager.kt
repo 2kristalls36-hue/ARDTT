@@ -849,36 +849,46 @@ class ConnectionManager(
         if (enabled) " · IP скрыт" else ""
 
     /**
-     * Short + detail lines for the ongoing VPN shade notification.
-     * [Pair.first] = content text; [Pair.second] = big-text body (session details).
+     * Short + detail lines for the ongoing VPN shade notification (live stats).
+     * [Pair.first] = content text; [Pair.second] = big-text body.
      */
-    fun notificationContent(): Pair<String, String> {
+    fun notificationContent(
+        sessionStartedAtMs: Long = 0L,
+        tunIp: String = "—",
+    ): Pair<String, String> {
         val u = _ui.value
         val path = when (u.activePath) {
             VpnPath.Direct -> "Прямое (AWG)"
             VpnPath.Bypass -> "Обход (RAW)"
             null -> "—"
         }
+        if (u.state == ConnState.PausedTrustedWifi) {
+            val t = u.statusText.ifBlank { "VPN выключен в доверенной сети" }
+            return t to t
+        }
+        if (softRestartInProgress || u.state == ConnState.Connecting) {
+            val t = u.statusText.ifBlank { "Переподключение…" }
+            return t to t
+        }
+
+        val down = VpnLiveStats.formatRate(VpnLiveStats.downBps)
+        val up = VpnLiveStats.formatRate(VpnLiveStats.upBps)
+        val rx = VpnLiveStats.formatBytes(VpnLiveStats.totalRx)
+        val tx = VpnLiveStats.formatBytes(VpnLiveStats.totalTx)
+        val dur = VpnLiveStats.formatDuration(sessionStartedAtMs)
         val hideLine = if (u.hideIp) "Скрыть свой IP: вкл (Cloudflare)" else "Скрыть свой IP: выкл (IP VPS)"
+
+        val short = "↓ $down  ↑ $up"
         val detail = buildString {
+            append("↓ ").append(down).append("   ↑ ").append(up).append('\n')
+            append("Трафик: ↓ ").append(rx).append(" · ↑ ").append(tx).append('\n')
+            append("Время: ").append(dur).append(" · IP: ").append(tunIp).append('\n')
             append("Путь: ").append(path).append('\n')
             append(hideLine)
-            if (u.statusText.isNotBlank()) {
-                append('\n').append(u.statusText)
-            }
-        }
-        val short = when {
-            u.state == ConnState.PausedTrustedWifi ->
-                u.statusText.ifBlank { "VPN выключен в доверенной сети" }
-            softRestartInProgress || u.state == ConnState.Connecting ->
-                u.statusText.ifBlank { "Переподключение…" }
-            u.hideIp -> "Подключено · IP скрыт"
-            else -> "Подключено"
         }
         return short to detail
     }
 
-    /** @deprecated use [notificationContent] */
     fun notificationRunningText(): String = notificationContent().first
 
     private fun startTunnel(path: VpnPath) {
