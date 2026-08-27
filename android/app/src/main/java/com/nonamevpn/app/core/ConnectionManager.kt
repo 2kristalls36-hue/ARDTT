@@ -140,7 +140,7 @@ class ConnectionManager(
         // Debounce rapid toggles — only the final value hits provision/WARP.
         hideIpSyncJob?.cancel()
         hideIpSyncJob = scope.launch {
-            delay(450)
+            delay(900)
             if (_ui.value.hideIp != enabled) return@launch
             if (lastHideIpSent == enabled) {
                 AppLog.i(TAG, "Hide-IP already synced hideIp=$enabled — skip")
@@ -343,11 +343,13 @@ class ConnectionManager(
                         )
                         return@launch
                     }
+                    lastHideIpSent = true
                 } else if (deferHideIp) {
                     pendingHideIpSync = true
                     AppLog.i(TAG, "Hide-IP deferred until Bypass tunnel (underlay cannot reach provision)")
                 } else {
                     runCatching { syncHideIpToProvision(false, viaVpn = false) }
+                        .onSuccess { lastHideIpSent = false }
                 }
                 // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
                 var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl, quick = true)
