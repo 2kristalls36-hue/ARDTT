@@ -26,7 +26,7 @@ data class TransportRecoveryPolicy(
 fun transportRecoveryPolicy(): TransportRecoveryPolicy =
     TransportRecoveryPolicy(
         // Fast enough for Wi‑Fi↔LTE; still lets DHCP/VALIDATED settle.
-        networkSettleDelayMs = 2_000L,
+        networkSettleDelayMs = 1_000L,
         reconnectMinIntervalMs = 12_000L,
         processRestartDelayMs = 400L,
     )

@@ -32,7 +32,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
-| Переподключение | Мягкий restart при смене Wi‑Fi/LTE: settle ~2 с, затем **re-probe underlay** (Auto) и при необходимости смена Direct↔Bypass; иначе тот же path. VpnService живёт, backend/`libclient` перезапускается |
+| Переподключение | Мягкий restart при смене Wi‑Fi/LTE: settle ~1 с, затем **re-probe underlay** (Auto) и при необходимости смена Direct↔Bypass; иначе тот же path. VpnService живёт, backend/`libclient` перезапускается |
 | Wake rescue | После `SCREEN_ON` через ~60 с: если Path B без активных воркеров — soft restart |
 | Watchdog | Path B: 0 воркеров ≥5 мин (экран вкл.) или мёртвый backend ≥60 с → soft restart |
 | Trusted Wi‑Fi | Список SSID: на сети VPN пауза; при выходе — авто-подъём (нужна локация для SSID) |
@@ -142,9 +142,11 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 - Полный AWG handshake / подъём туннеля на каждый старт приложения.
 - TCP connect на UDP-порт `-listen-raw` как доказательство «VPS жив».
 
-### Что делаем при старте / смене сети (параллельно, ~2–4 с)
+### Что делаем при старте / смене сети (параллельно, ~1–2 с)
 
 Те же проверки. На **смене сети при активном туннеле** сокеты биндятся к underlay (`NOT_VPN`), чтобы не классифицировать мир через уже поднятый Direct/Bypass. В режиме Auto при смене класса сети — переключение пути; иначе soft-restart того же path.
+
+Таймауты (полный / handover `quick`): TCP 2 с / 1.5 с, captive 1.5 / 1 с, UDP 1 с, `/health` 2 / 1.5 с. Bigtech — 4 хоста параллельно. Если `/health` ok — UDP не ждём. Settle после смены сети ~1 с. Connect re-probe использует `quick`.
 
 | Probe | Как | Зачем |
 |-------|-----|--------|

@@ -13,6 +13,7 @@ import java.net.URL
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -42,31 +43,36 @@ object NetworkProbe {
         directEndpoint: String?,
         provisionBaseUrl: String?,
         bindNetwork: Network? = null,
-        /** Shorter timeouts for Wi‑Fi↔LTE handover (less blackout). */
+        /** Shorter timeouts (handover / Connect re-probe). */
         quick: Boolean = false,
     ): ProbeResult = withContext(Dispatchers.IO) {
-        val tcpMs = if (quick) 2_000 else 4_000
-        val captiveMs = if (quick) 1_500 else 2_500
-        val udpMs = if (quick) 1_500 else 2_000
-        val healthMs = if (quick) 2_000 else 4_000
+        // Full ≈ former quick; quick tighter for handover blackout.
+        val tcpMs = if (quick) 1_500 else 2_000
+        val captiveMs = if (quick) 1_000 else 1_500
+        val udpMs = if (quick) 1_000 else 1_000
+        val healthMs = if (quick) 1_500 else 2_000
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
                 val systemOnline = isSystemOnline(context, bindNetwork)
 
                 val yandexDef = async { tcpReachable("yandex.ru", 443, tcpMs, bindNetwork) }
-                val bigtechDef = async {
-                    bigtechHosts.any { tcpReachable(it, 443, tcpMs, bindNetwork) }
-                }
+                val bigtechDef = async { anyBigtechReachable(tcpMs, bindNetwork) }
                 val captiveDef = async { detectCaptive(bindNetwork, captiveMs) }
-                val udpDef = async { udpLite(directEndpoint, udpMs, bindNetwork) }
                 val provisionDef = async { provisionHealth(provisionBaseUrl, healthMs, bindNetwork) }
+                val udpDef = async { udpLite(directEndpoint, udpMs, bindNetwork) }
 
+                val provisionOk = provisionDef.await()
+                // AWG almost never replies to junk UDP; skip waiting when /health already OK.
+                val vpsUdpOk = if (provisionOk) {
+                    udpDef.cancel()
+                    false
+                } else {
+                    udpDef.await()
+                }
                 val yandexOk = yandexDef.await()
                 val bigtechOk = bigtechDef.await()
                 val captive = captiveDef.await()
-                val vpsUdpOk = udpDef.await()
-                val provisionOk = provisionDef.await()
 
                 classify(
                     systemOnline = systemOnline,
@@ -80,6 +86,15 @@ object NetworkProbe {
         }
         result.copy(elapsedMs = elapsed)
     }
+
+    /** Bigtech hosts in parallel — wall time ≈ one TCP timeout, not 4×. */
+    private suspend fun anyBigtechReachable(timeoutMs: Int, bindNetwork: Network?): Boolean =
+        coroutineScope {
+            bigtechHosts
+                .map { host -> async { tcpReachable(host, 443, timeoutMs, bindNetwork) } }
+                .awaitAll()
+                .any { it }
+        }
 
     internal fun classify(
         systemOnline: Boolean,
@@ -193,7 +208,7 @@ object NetworkProbe {
         }
     }
 
-    private fun detectCaptive(bindNetwork: Network?, timeoutMs: Int = 2500): Boolean {
+    private fun detectCaptive(bindNetwork: Network?, timeoutMs: Int = 1500): Boolean {
         return try {
             val url = URL("http://connectivitycheck.gstatic.com/generate_204")
             val conn = openHttp(url, bindNetwork).apply {
