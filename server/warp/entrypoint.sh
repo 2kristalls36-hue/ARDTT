@@ -230,7 +230,8 @@ add_hideip_rule() {
 # True if a hideIp "from ADDR lookup TABLE" rule already exists.
 has_hideip_from() {
   local from="$1"
-  ip rule show 2>/dev/null | grep -q "from ${from} .*lookup ${TABLE}\|from ${from} lookup ${TABLE}"
+  local bare="${from%/32}"
+  ip rule show 2>/dev/null | grep -E "from ${bare}(/32)? .*lookup ${TABLE}|from ${bare}(/32)? lookup ${TABLE}" | grep -q .
 }
 
 # Diff-based hideIp sync: add/remove only changed client prefixes.
