@@ -250,8 +250,7 @@ fun TunnelScreen(
             Text(
                 "Быстрые настройки",
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
             )
 
             QuickSettingRow(
@@ -447,7 +446,7 @@ fun TunnelScreen(
                     else -> "Подключить"
                 },
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
         }
@@ -789,7 +788,7 @@ private fun ImportDialog(
                 ) {
                     Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (busy) "Читаем…" else "Выбрать файл…", fontWeight = FontWeight.Bold)
+                    Text(if (busy) "Читаем…" else "Выбрать файл…", fontWeight = FontWeight.SemiBold)
                 }
                 Text("Или вставьте JSON:", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(

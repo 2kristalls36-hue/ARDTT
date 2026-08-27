@@ -165,7 +165,7 @@ fun LogsScreen() {
         AppSectionCard(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(0.dp),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(24.dp),
             color = terminalBg,
             shadowElevation = 4.dp,
         ) {
@@ -173,7 +173,7 @@ fun LogsScreen() {
                 if (pinnedStats != null || uptimeText != null) {
                     Surface(
                         color = NvpnColors.terminalBlue.copy(alpha = if (isDark) 0.18f else 0.12f),
-                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(

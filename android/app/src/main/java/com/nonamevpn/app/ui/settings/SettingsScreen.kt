@@ -549,7 +549,7 @@ private fun AdminHoldButton(
             text = hint?.takeIf { it.startsWith("Удерживайте") } ?: "Удерживать 4 сек — админ",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             color = MaterialTheme.colorScheme.onPrimary,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodyLarge,
         )
     }
