@@ -929,6 +929,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             running = false,
             statsText = null,
         )
+        com.nonamevpn.app.QuickToggleTileService.requestTileUpdate(this)
+        com.nonamevpn.app.AppShortcuts.refreshAsync(this)
         super.onDestroy()
     }
 
@@ -956,7 +958,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private fun updateNotification(path: VpnPath, text: String) {
         val nm = getSystemService(NotificationManager::class.java) ?: return
         nm.notify(NOTIF_ID, buildNotification(path, text))
-        com.nonamevpn.app.TunnelWidgetProvider.pushFromConnection(this)
+        pushQuickLaunchState()
     }
 
     private fun startForegroundNotification(path: VpnPath, text: String) {
@@ -971,7 +973,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         } else {
             startForeground(NOTIF_ID, notification)
         }
+        pushQuickLaunchState()
+    }
+
+    private fun pushQuickLaunchState() {
         com.nonamevpn.app.TunnelWidgetProvider.pushFromConnection(this)
+        com.nonamevpn.app.QuickToggleTileService.requestTileUpdate(this)
+        com.nonamevpn.app.AppShortcuts.refreshAsync(this)
     }
 
     private fun buildNotification(path: VpnPath, text: String): Notification {
@@ -995,6 +1003,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 "ardtt_vpn_min_v2",
                 "ardtt_vpn_shade_v3",
                 "ardtt_vpn_min_v3",
+                "ardtt_vpn_shade_v4",
+                "ardtt_vpn_min_v4",
             ).forEach { legacy ->
                 runCatching { nm.deleteNotificationChannel(legacy) }
             }
@@ -1070,8 +1080,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             appsWhitelist = appsWhitelist,
         ) ?: ConnectionManager.ShadeContent(
             title = when (path) {
-                VpnPath.Direct -> "Прямое подключение"
-                VpnPath.Bypass -> "Обход"
+                VpnPath.Direct -> "ARDTT · Прямое"
+                VpnPath.Bypass -> "ARDTT · Обход"
             },
             ip = "…",
             showTotals = false,
@@ -1080,15 +1090,17 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         )
 
         val builder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_vpn_key)
+            .setSmallIcon(R.drawable.ic_stat_connected)
             .setContentTitle(shade.title)
             .setContentText(shade.ip)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setLocalOnly(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setSilent(false)
+            // Match qWDTT: silent shade updates (no sound/vibration on live stats).
+            .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
 
         val remote = runCatching { buildShadeRemoteViews(shade) }.getOrElse { t ->

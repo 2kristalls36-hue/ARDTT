@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Agreed shade body:
-  - Bold title (Прямое подключение / Обход)
-  - Line1: compact rates LEFT · session totals RIGHT (no minEms — they stretch on OEMs)
+  Shade body (qWDTT-parity branding + ARDTT agreed contract):
+  - Bold title: ARDTT · Прямое / ARDTT · Обход (brand + path)
+  - Line1: compact rates LEFT · session totals RIGHT (richer than qWDTT plain text)
   - Line2: [CF?][RKN?] IP
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -18,7 +18,7 @@
         android:layout_height="wrap_content"
         android:ellipsize="end"
         android:maxLines="1"
-        android:text="Прямое подключение"
+        android:text="ARDTT · Прямое"
         android:textAppearance="@android:style/TextAppearance.Material.Notification.Title"
         android:textStyle="bold" />
 

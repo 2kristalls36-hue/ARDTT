@@ -31,6 +31,7 @@ class TunnelWidgetProvider : AppWidgetProvider() {
         if (isRunning(app)) {
             conn.disconnect()
             updateWidgetState(app, running = false, statsText = null)
+            QuickToggleTileService.requestTileUpdate(app)
         } else {
             val prep = runCatching { VpnService.prepare(app) }.getOrNull()
             if (prep != null) {
@@ -42,6 +43,7 @@ class TunnelWidgetProvider : AppWidgetProvider() {
                 openVpnPermission(app)
             } else {
                 conn.connect()
+                QuickToggleTileService.requestTileUpdate(app)
             }
         }
     }
@@ -63,6 +65,7 @@ class TunnelWidgetProvider : AppWidgetProvider() {
             val running = isRunning(context)
             val stats = if (running) widgetStatsText() else null
             updateWidgetState(context, running, stats)
+            QuickToggleTileService.requestTileUpdate(context)
         }
 
         private fun isRunning(context: Context): Boolean {

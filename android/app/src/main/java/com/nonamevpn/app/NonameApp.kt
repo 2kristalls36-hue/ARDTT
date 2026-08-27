@@ -7,5 +7,6 @@ class NonameApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ConnectionManager.get(this)
+        AppShortcuts.refreshAsync(this)
     }
 }
