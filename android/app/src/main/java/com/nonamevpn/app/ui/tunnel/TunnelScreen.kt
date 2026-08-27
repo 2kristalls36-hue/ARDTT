@@ -68,6 +68,7 @@ import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
@@ -235,11 +236,9 @@ fun TunnelScreen(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = "ARDTT",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+        AppPageHeader(
+            title = "ARDTT",
+            subtitle = "Туннель и быстрые настройки",
         )
 
         // ═══ Быстрые настройки ═══
@@ -695,7 +694,6 @@ private fun TunnelStatusPanel(
                 StatusFactRow(label = "Сеть", value = p.networkClass.name)
                 StatusFactRow(label = "Yandex", value = if (p.yandexOk) "ok" else "—")
                 StatusFactRow(label = "Bigtech", value = if (p.bigtechOk) "ok" else "—")
-                StatusFactRow(label = "UDP VPS", value = if (p.vpsUdpOk) "ok" else "—")
                 StatusFactRow(label = "Health", value = if (p.provisionOk) "ok" else "—")
                 if (p.elapsedMs > 0) {
                     StatusFactRow(label = "Время", value = "${p.elapsedMs} мс")

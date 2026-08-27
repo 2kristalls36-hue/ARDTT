@@ -4,8 +4,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -16,18 +14,16 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Parallel lightweight probes at app start / before Connect / on network handover.
- * Does NOT bring up VpnService. No TCP probe to RAW UDP port.
+ * Does NOT bring up VpnService.
+ *
+ * Direct reachability is judged by provision `/health` on the VPS host (TCP),
+ * not by junk UDP to the AmneziaWG port (AWG silently drops invalid packets).
  *
  * When [bindNetwork] is set (Wi‑Fi/LTE under the VPN), sockets are bound to that
  * network so classification reflects the real underlay — not tunnel egress.
- *
- * Note: AmneziaWG/WireGuard silently drops invalid UDP — a reply-based
- * [udpLite] probe is only a positive signal when it gets a packet back.
- * Host aliveness for Direct also uses provision `/health` on the same host.
  */
 object NetworkProbe {
 
@@ -40,16 +36,13 @@ object NetworkProbe {
 
     suspend fun probe(
         context: Context,
-        directEndpoint: String?,
         provisionBaseUrl: String?,
         bindNetwork: Network? = null,
         /** Shorter timeouts (handover / Connect re-probe). */
         quick: Boolean = false,
     ): ProbeResult = withContext(Dispatchers.IO) {
-        // Full ≈ former quick; quick tighter for handover blackout.
         val tcpMs = if (quick) 1_500 else 2_000
         val captiveMs = if (quick) 1_000 else 1_500
-        val udpMs = if (quick) 1_000 else 1_000
         val healthMs = if (quick) 1_500 else 2_000
         var result: ProbeResult
         val elapsed = measureTimeMillis {
@@ -60,16 +53,8 @@ object NetworkProbe {
                 val bigtechDef = async { anyBigtechReachable(tcpMs, bindNetwork) }
                 val captiveDef = async { detectCaptive(bindNetwork, captiveMs) }
                 val provisionDef = async { provisionHealth(provisionBaseUrl, healthMs, bindNetwork) }
-                val udpDef = async { udpLite(directEndpoint, udpMs, bindNetwork) }
 
                 val provisionOk = provisionDef.await()
-                // AWG almost never replies to junk UDP; skip waiting when /health already OK.
-                val vpsUdpOk = if (provisionOk) {
-                    udpDef.cancel()
-                    false
-                } else {
-                    udpDef.await()
-                }
                 val yandexOk = yandexDef.await()
                 val bigtechOk = bigtechDef.await()
                 val captive = captiveDef.await()
@@ -79,7 +64,6 @@ object NetworkProbe {
                     yandexOk = yandexOk,
                     bigtechOk = bigtechOk,
                     captive = captive,
-                    vpsUdpOk = vpsUdpOk,
                     provisionOk = provisionOk,
                 )
             }
@@ -101,7 +85,6 @@ object NetworkProbe {
         yandexOk: Boolean,
         bigtechOk: Boolean,
         captive: Boolean,
-        vpsUdpOk: Boolean,
         provisionOk: Boolean,
     ): ProbeResult {
         if (captive) {
@@ -112,7 +95,6 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = true,
-                vpsUdpOk = vpsUdpOk,
                 provisionOk = provisionOk,
                 message = "Войдите в сеть (captive portal)",
                 elapsedMs = 0,
@@ -126,15 +108,12 @@ object NetworkProbe {
                 yandexOk = false,
                 bigtechOk = false,
                 captive = false,
-                vpsUdpOk = vpsUdpOk,
                 provisionOk = provisionOk,
                 message = "Нет сети",
                 elapsedMs = 0,
             )
         }
-        // Positive UDP reply → Direct. AWG usually stays silent on junk datagrams,
-        // so provision /health on the same host also unlocks Direct on open networks.
-        if (vpsUdpOk || provisionOk) {
+        if (provisionOk) {
             return ProbeResult(
                 networkClass = NetworkClass.DirectOk,
                 preselectedPath = VpnPath.Direct,
@@ -142,12 +121,8 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = false,
-                vpsUdpOk = vpsUdpOk,
-                provisionOk = provisionOk,
-                message = when {
-                    vpsUdpOk -> "Готово: прямое"
-                    else -> "Готово: прямое (VPS live; UDP-probe без ответа — норма для AWG)"
-                },
+                provisionOk = true,
+                message = "Готово: прямое",
                 elapsedMs = 0,
             )
         }
@@ -160,10 +135,9 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = false,
-                vpsUdpOk = false,
                 provisionOk = false,
                 message = if (open) {
-                    "Готово: обход (VPS health недоступен — UDP/Direct не подтверждён)"
+                    "Готово: обход (VPS health недоступен — Direct не подтверждён)"
                 } else {
                     "Готово: обход"
                 },
@@ -177,7 +151,6 @@ object NetworkProbe {
             yandexOk = yandexOk,
             bigtechOk = bigtechOk,
             captive = false,
-            vpsUdpOk = vpsUdpOk,
             provisionOk = provisionOk,
             message = "Нет сети",
             elapsedMs = 0,
@@ -254,41 +227,6 @@ object NetworkProbe {
             url.openConnection()
         }
         return raw as HttpURLConnection
-    }
-
-    /**
-     * Send a small UDP datagram to AWG endpoint and wait for any reply.
-     * Valid Noise handshake needs keys; this is a LOS hint only.
-     */
-    private suspend fun udpLite(
-        endpoint: String?,
-        timeoutMs: Int,
-        bindNetwork: Network?,
-    ): Boolean {
-        val parsed = parseEndpoint(endpoint) ?: return false
-        return withTimeoutOrNull(timeoutMs.toLong() + 200L) {
-            withContext(Dispatchers.IO) {
-                DatagramSocket().use { socket ->
-                    bindNetwork?.bindSocket(socket)
-                    socket.soTimeout = timeoutMs
-                    val payload = ByteArray(64) { 0x01 }
-                    val packet = DatagramPacket(
-                        payload,
-                        payload.size,
-                        InetSocketAddress(parsed.first, parsed.second),
-                    )
-                    socket.send(packet)
-                    val buf = ByteArray(256)
-                    val resp = DatagramPacket(buf, buf.size)
-                    try {
-                        socket.receive(resp)
-                        true
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-            }
-        } ?: false
     }
 
     fun parseEndpoint(endpoint: String?): Pair<String, Int>? {

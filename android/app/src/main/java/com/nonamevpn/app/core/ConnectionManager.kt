@@ -297,11 +297,11 @@ class ConnectionManager(
                 connectEnabled = false,
                 lastError = null,
             )
-            val result = NetworkProbe.probe(appContext, directEndpoint, provisionUrl, quick = true)
+            val result = NetworkProbe.probe(appContext, provisionUrl, quick = true)
             AppLog.i(
                 TAG,
                 "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
-                    "udp=${result.vpsUdpOk} health=${result.provisionOk} ${result.elapsedMs}ms",
+                    "health=${result.provisionOk} ${result.elapsedMs}ms",
             )
             // Don't clobber an in-flight Connect started while we probed.
             if (_ui.value.state == ConnState.Connecting || _ui.value.state == ConnState.Connected) {
@@ -377,7 +377,7 @@ class ConnectionManager(
                         .onSuccess { lastHideIpSent = false }
                 }
                 // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
-                var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl, quick = true)
+                var fresh = NetworkProbe.probe(appContext, provisionUrl, quick = true)
                 if (
                     mode == ConnPathMode.Auto &&
                     probePreferred == VpnPath.Direct &&
@@ -386,13 +386,13 @@ class ConnectionManager(
                     !fresh.provisionOk
                 ) {
                     AppLog.w(TAG, "Connect re-probe flaked health — retry once")
-                    fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl, quick = true)
+                    fresh = NetworkProbe.probe(appContext, provisionUrl, quick = true)
                 }
                 val usePath = resolveConnectPath(mode, probePreferred, lastGood, fresh)
                 AppLog.i(
                     TAG,
                     "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
-                        "mode=$mode health=${fresh.provisionOk} udp=${fresh.vpsUdpOk}",
+                        "mode=$mode health=${fresh.provisionOk}",
                 )
                 if (usePath == null) {
                     applyProbe(fresh)
@@ -487,7 +487,7 @@ class ConnectionManager(
         if (
             probePreferred == VpnPath.Direct &&
             lastGood?.networkClass == NetworkClass.DirectOk &&
-            (lastGood.provisionOk || lastGood.vpsUdpOk) &&
+            lastGood.provisionOk &&
             freshPath == VpnPath.Bypass
         ) {
             AppLog.w(TAG, "Keeping Direct despite flaky re-probe (last health=${lastGood.provisionOk})")
@@ -595,7 +595,6 @@ class ConnectionManager(
         )
         val fresh = NetworkProbe.probe(
             context = appContext,
-            directEndpoint = directEndpoint,
             provisionBaseUrl = base,
             bindNetwork = bindNetwork,
             quick = true,
@@ -604,7 +603,7 @@ class ConnectionManager(
             TAG,
             "Handover probe done class=${fresh.networkClass} path=${fresh.preselectedPath} " +
                 "yandex=${fresh.yandexOk} bigtech=${fresh.bigtechOk} " +
-                "udp=${fresh.vpsUdpOk} health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
+                "health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
         )
 
         // Update UI probe snapshot without leaving Connected/Connecting.
@@ -836,12 +835,9 @@ class ConnectionManager(
         when (result.networkClass) {
             NetworkClass.OpenNeedBypass ->
                 if (pathMode == ConnPathMode.Auto) {
-                    parts += "Сеть открыта, но VPS health/UDP не подтвердили Direct — будет обход."
+                    parts += "Сеть открыта, но VPS health не подтвердил Direct — будет обход."
                 }
-            NetworkClass.DirectOk ->
-                if (result.provisionOk && !result.vpsUdpOk && pathMode != ConnPathMode.Bypass) {
-                    parts += "AWG не отвечает на «пустой» UDP (так и должно быть). Direct доступен по health VPS."
-                }
+            NetworkClass.DirectOk -> Unit
             NetworkClass.Captive ->
                 parts += "Похоже на captive portal — сначала войдите в Wi‑Fi."
             else -> Unit
