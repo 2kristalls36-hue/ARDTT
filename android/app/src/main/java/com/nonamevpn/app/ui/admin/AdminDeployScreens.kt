@@ -212,7 +212,7 @@ private fun healthStatusLine(
             val ver = health.deployVersion.ifBlank { "—" }
             val current = DeployBundle.isCurrent(health.deployVersion, expectedVersion)
             val freshness = if (current) "актуален" else "нужно обновить"
-            val base = "● Онлайн · v$ver · $freshness"
+            val base = "● Онлайн · деплой $ver · $freshness"
             val text = if (lastDeployedAtMs > 0L) {
                 "$base · ${formatDeployRelative(lastDeployedAtMs)}"
             } else {
@@ -556,6 +556,7 @@ private fun ServerCard(
                 )
                 if (isActiveDeploy) {
                     val online = health as? HealthUi.Online
+                    val installed = online?.deployVersion.orEmpty().ifBlank { "—" }
                     val current = online != null &&
                         DeployBundle.isCurrent(online.deployVersion, expectedVersion)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -569,9 +570,9 @@ private fun ServerCard(
                     ) {
                         Text(
                             if (current) {
-                                "Актуальный деплой · v${online?.deployVersion.orEmpty().ifBlank { expectedVersion }}"
+                                "Актуальный деплой · $installed"
                             } else {
-                                "Требуется обновление · v${online?.deployVersion?.ifBlank { "—" } ?: "—"} → $expectedVersion"
+                                "Требуется обновление · $installed → $expectedVersion"
                             },
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
@@ -819,6 +820,7 @@ private fun ServerOverviewScreen(
                     )
                     if (isActiveDeploy) {
                         val online = health as? HealthUi.Online
+                        val installed = online?.deployVersion.orEmpty().ifBlank { "—" }
                         val current = online != null &&
                             DeployBundle.isCurrent(online.deployVersion, expectedVersion)
                         Surface(
@@ -832,9 +834,9 @@ private fun ServerOverviewScreen(
                         ) {
                             Text(
                                 if (current) {
-                                    "Актуальный деплой · v${online?.deployVersion.orEmpty().ifBlank { expectedVersion }}"
+                                    "Актуальный деплой · $installed"
                                 } else {
-                                    "Неактуальный деплой · v${online?.deployVersion?.ifBlank { "—" } ?: "—"} → $expectedVersion"
+                                    "Неактуальный деплой · $installed → $expectedVersion"
                                 },
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 style = MaterialTheme.typography.labelLarge,
