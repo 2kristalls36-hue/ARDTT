@@ -1066,16 +1066,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 },
                 showTotals = false,
             )
-        val remote = buildShadeRemoteViews(shade)
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_vpn_key)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(shade.summary)
-            .setCustomContentView(remote)
-            .setCustomBigContentView(remote)
-            // System header = app name + chronometer (session time), no duplicate brand in body.
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -1083,6 +1078,24 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSilent(false)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+
+        val remote = runCatching { buildShadeRemoteViews(shade) }.getOrElse { t ->
+            AppLog.e(TAG, "shade RemoteViews failed: ${t.message}")
+            null
+        }
+        if (remote != null) {
+            builder.setCustomContentView(remote)
+                .setCustomBigContentView(remote)
+                .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+        } else {
+            // Fallback so a bad layout never crashes FGS / connect.
+            builder.setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "${shade.rates}\n${shade.summary}",
+                ),
+            )
+        }
+
         if (sessionStartedAtMs > 0L && !trustedWifiWaiting) {
             builder.setWhen(sessionStartedAtMs)
                 .setUsesChronometer(true)
