@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import com.nonamevpn.app.ui.components.EdgeFeedTopInset
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -230,9 +231,10 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp)
+            .padding(bottom = NvpnBottomChrome.NavZoneHeight),
     ) {
+        EdgeFeedTopInset()
         AppPageHeader(
             title = "Обход",
             subtitle = "Сайты и приложения вне туннеля",
@@ -411,7 +413,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             LazyColumn(
                                 state = rememberLazyListState(),
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 12.dp),
+                                contentPadding = PaddingValues(bottom = 24.dp),
                             ) {
                                 items(filteredApps, key = { it.packageName }) { app ->
                                     val isSelected = app.packageName in selectedPackages
@@ -521,7 +523,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 12.dp),
+                                contentPadding = PaddingValues(bottom = 24.dp),
                             ) {
                                 items(orderedSites, key = { it }) { rule ->
                                     BypassRuleRow(

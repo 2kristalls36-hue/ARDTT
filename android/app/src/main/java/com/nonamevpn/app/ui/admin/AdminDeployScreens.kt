@@ -92,6 +92,9 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.EdgeFeedTopInset
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -371,8 +374,9 @@ private fun ServerListScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
+            EdgeFeedTopInset()
             AppPageHeader(
-                applyStatusBarsPadding = true,
+                applyStatusBarsPadding = false,
                 contentHorizontalPadding = true,
                 title = "Серверы",
                 subtitle = "Управление вашими VPS",
@@ -436,25 +440,12 @@ private fun ServerListScreen(
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Spacer(modifier = Modifier.height(30.dp))
-                        Button(
-                            onClick = onAddServer,
-                            modifier = Modifier
-                                .widthIn(max = 304.dp)
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp),
-                            shape = RoundedCornerShape(16.dp),
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Добавить сервер")
-                        }
                     }
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 104.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(servers, key = { it.id }) { server ->
@@ -470,21 +461,16 @@ private fun ServerListScreen(
             }
         }
 
-        if (servers.isNotEmpty()) {
-            FloatingActionButton(
-                onClick = onAddServer,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 24.dp, bottom = 22.dp)
-                    .size(58.dp),
-                shape = RoundedCornerShape(20.dp),
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp, pressedElevation = 8.dp),
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "Добавить сервер")
-            }
-        }
+        StickyPrimaryButton(
+            text = "Добавить сервер",
+            onClick = onAddServer,
+            icon = Icons.Filled.Add,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.NavZoneHeight + NvpnBottomChrome.StickyGap),
+        )
+
     }
 }
 
@@ -825,9 +811,11 @@ private fun ServerOverviewScreen(
     }
     val activeBorder = deployFreshnessBorder(health, isActiveDeploy, expectedVersion)
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
+        EdgeFeedTopInset()
         AppPageHeader(
-            applyStatusBarsPadding = true,
+            applyStatusBarsPadding = false,
             contentHorizontalPadding = true,
             title = server.name.ifBlank { server.host },
             subtitle = "Управление сервером",
@@ -891,7 +879,7 @@ private fun ServerOverviewScreen(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -973,35 +961,6 @@ private fun ServerOverviewScreen(
                                     fontWeight = FontWeight.SemiBold,
                                     color = if (current) NvpnColors.connected else NvpnColors.warning,
                                 )
-                                Button(
-                                    onClick = onUpdateDeploy,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(48.dp),
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (outdated) {
-                                            NvpnColors.warning
-                                        } else {
-                                            MaterialTheme.colorScheme.primary
-                                        },
-                                    ),
-                                ) {
-                                    Icon(
-                                        Icons.Filled.CloudUpload,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        if (outdated) {
-                                            "Обновить деплой до $expectedVersion"
-                                        } else {
-                                            "Обновить деплой"
-                                        },
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
                             }
                         }
                     }
@@ -1014,14 +973,6 @@ private fun ServerOverviewScreen(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
-                )
-            }
-            item {
-                ServerActionCard(
-                    icon = Icons.Filled.CloudUpload,
-                    title = "Обновить деплой",
-                    description = "Переустановить стек · версия $expectedVersion",
-                    onClick = onUpdateDeploy,
                 )
             }
             item {
@@ -1041,6 +992,22 @@ private fun ServerOverviewScreen(
                 )
             }
         }
+    }
+
+        StickyPrimaryButton(
+            text = "Обновить деплой",
+            onClick = onUpdateDeploy,
+            containerColor = if (isDeployOutdated(health, expectedVersion)) {
+                NvpnColors.warning
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            icon = Icons.Filled.CloudUpload,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.NavZoneHeight + NvpnBottomChrome.StickyGap),
+        )
     }
 }
 
@@ -1196,9 +1163,11 @@ private fun ClientsScreen(
 
     LaunchedEffect(base) { refresh() }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
+        EdgeFeedTopInset()
         AppPageHeader(
-            applyStatusBarsPadding = true,
+            applyStatusBarsPadding = false,
             contentHorizontalPadding = true,
             title = "Клиенты",
             subtitle = when {
@@ -1277,7 +1246,7 @@ private fun ClientsScreen(
                         }
                     } else {
                         LazyColumn(
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 104.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(users, key = { "${it.name}-${it.deviceId}-${it.hostId}" }) { user ->
@@ -1506,27 +1475,26 @@ private fun ClientsScreen(
                         }
                     }
 
-                    FloatingActionButton(
-                        onClick = {
-                            createName = ""
-                            createDays = "30"
-                            createMaxDevices = "1"
-                            showCreate = true
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 24.dp, bottom = 22.dp)
-                            .size(58.dp),
-                        shape = RoundedCornerShape(20.dp),
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Создать пользователя")
-                    }
                 }
             }
         }
-    }
+        } // Column
+
+        StickyPrimaryButton(
+            text = "Создать пользователя",
+            onClick = {
+                createName = ""
+                createDays = "30"
+                createMaxDevices = "1"
+                showCreate = true
+            },
+            icon = Icons.Filled.Add,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.NavZoneHeight + NvpnBottomChrome.StickyGap),
+        )
+    } // Box
 
     if (showCreate) {
         AlertDialog(
