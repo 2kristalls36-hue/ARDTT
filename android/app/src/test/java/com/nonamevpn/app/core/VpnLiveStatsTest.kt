@@ -93,11 +93,13 @@ class VpnLiveStatsTest {
     }
 
     @Test
-    fun formatPartsUseFixedDigitWidth() {
+    fun formatPartsAreCompactForShade() {
         val a = VpnLiveStats.formatRateParts(0)
         val b = VpnLiveStats.formatRateParts(12_300)
-        assertEquals(6, a.value.length)
-        assertEquals(6, b.value.length)
+        assertTrue(a.value.isNotBlank())
+        assertTrue(b.value.isNotBlank())
+        assertFalse(a.value.startsWith(" "))
+        assertFalse(b.value.startsWith(" "))
         val line = VpnLiveStats.formatRateLine(0, 12_300)
         assertTrue(line.contains("↓"))
         assertTrue(line.contains("↑"))

@@ -862,20 +862,26 @@ class ConnectionManager(
         if (enabled) " · IP скрыт" else ""
 
     /**
-     * Content for the custom VPN shade RemoteViews.
+     * Content for the custom VPN shade RemoteViews (qWDTT-style plate).
      */
     data class ShadeContent(
+        /** Bold title under system header — path only, brand is in system row. */
         val title: String,
         val rates: String = "",
         val totals: String = "",
         val ip: String = "…",
+        /** Short path label on the right of the IP row. */
+        val pathLabel: String = "",
         val showTotals: Boolean = true,
         val showWarpIcon: Boolean = false,
         /** БС (apps whitelist) — show red RKN mark beside Cloudflare. */
         val showWhitelistIcon: Boolean = false,
         val statusText: String? = null,
     ) {
-        val summary: String get() = "$ip · $title"
+        val summary: String get() = listOfNotNull(
+            ip.takeIf { it.isNotBlank() },
+            pathLabel.takeIf { it.isNotBlank() } ?: title,
+        ).joinToString(" · ")
     }
 
     fun notificationShadeContent(
@@ -883,12 +889,14 @@ class ConnectionManager(
         appsWhitelist: Boolean = false,
     ): ShadeContent {
         val u = _ui.value
-        val title = shadePathLabel(u.activePath)
+        val title = shadeTitle(u.activePath)
+        val pathShort = shadePathShort(u.activePath)
         if (u.state == ConnState.PausedTrustedWifi) {
             val t = u.statusText.ifBlank { "VPN выключен в доверенной сети" }
             return ShadeContent(
                 title = "Доверенная Wi‑Fi",
                 ip = "—",
+                pathLabel = "",
                 showTotals = false,
                 showWhitelistIcon = appsWhitelist,
                 statusText = t,
@@ -899,6 +907,7 @@ class ConnectionManager(
             return ShadeContent(
                 title = title,
                 ip = "…",
+                pathLabel = pathShort,
                 showTotals = false,
                 showWarpIcon = u.hideIp,
                 showWhitelistIcon = appsWhitelist,
@@ -908,22 +917,34 @@ class ConnectionManager(
 
         val rates = VpnLiveStats.formatRateLine(VpnLiveStats.downBps, VpnLiveStats.upBps)
         val totals = VpnLiveStats.formatBytesLine(VpnLiveStats.totalRx, VpnLiveStats.totalTx)
-        val ip = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
+        val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() }
+        val ip = when {
+            rawIp != null && u.hideIp -> "$rawIp (скрыт)"
+            rawIp != null -> rawIp
+            !EgressIpProbe.lastError.isNullOrBlank() -> "IP…"
+            else -> "…"
+        }
         return ShadeContent(
             title = title,
             rates = rates,
             totals = totals,
             ip = ip,
+            pathLabel = pathShort,
             showWarpIcon = u.hideIp,
             showWhitelistIcon = appsWhitelist,
         )
     }
 
-    private fun shadePathLabel(path: VpnPath?): String = when (path) {
-        // Brand + path like qWDTT title "qWDTT", with ARDTT path labels.
-        VpnPath.Direct -> "ARDTT · Прямое"
-        VpnPath.Bypass -> "ARDTT · Обход"
+    private fun shadeTitle(path: VpnPath?): String = when (path) {
+        VpnPath.Direct -> "Прямое подключение"
+        VpnPath.Bypass -> "Обход"
         null -> "ARDTT"
+    }
+
+    private fun shadePathShort(path: VpnPath?): String = when (path) {
+        VpnPath.Direct -> "Прямое"
+        VpnPath.Bypass -> "Обход"
+        null -> ""
     }
 
     /** Fallback single-line text for non-custom / hidden shade. */

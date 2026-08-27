@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Shade body (qWDTT-parity branding + ARDTT agreed contract):
-  - Bold title: ARDTT · Прямое / ARDTT · Обход (brand + path)
-  - Line1: compact rates LEFT · session totals RIGHT (richer than qWDTT plain text)
-  - Line2: [CF?][RKN?] IP
+  VPN shade (qWDTT-style plate):
+  - System header: ARDTT + chronometer
+  - Bold title: Прямое подключение / Обход
+  - Line 1: live rates LEFT · session totals RIGHT
+  - Line 2: [CF?][RKN?] public IP … path label RIGHT
+  No Space / minEms (OEM RemoteViews bugs).
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -18,7 +20,7 @@
         android:layout_height="wrap_content"
         android:ellipsize="end"
         android:maxLines="1"
-        android:text="ARDTT · Прямое"
+        android:text="Прямое подключение"
         android:textAppearance="@android:style/TextAppearance.Material.Notification.Title"
         android:textStyle="bold" />
 
@@ -47,7 +49,7 @@
             android:ellipsize="none"
             android:fontFamily="monospace"
             android:maxLines="1"
-            android:text="↓  0.00 Кб/с  ↑  0.00 Кб/с"
+            android:text="↓0.00 Кб/с  ↑0.00 Кб/с"
             android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
 
         <TextView
@@ -64,7 +66,7 @@
             android:fontFamily="monospace"
             android:gravity="end"
             android:maxLines="1"
-            android:text="↓  0.00 КБ  ↑  0.00 КБ"
+            android:text="↓0.00 КБ  ↑0.00 КБ"
             android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
     </LinearLayout>
 
@@ -103,6 +105,17 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:text="…"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification.Info" />
+
+        <TextView
+            android:id="@+id/notif_path"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:ellipsize="end"
+            android:gravity="end"
+            android:maxLines="1"
+            android:text="Прямое"
             android:textAppearance="@android:style/TextAppearance.Material.Notification.Info" />
     </LinearLayout>
 </LinearLayout>
