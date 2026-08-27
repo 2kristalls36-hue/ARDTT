@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 27
-        versionName = "0.5.9-hideip-conntrack"
+        versionCode = 28
+        versionName = "0.5.10-hideip-softrestart"
     }
 
     ndkVersion = "27.0.12077973"
