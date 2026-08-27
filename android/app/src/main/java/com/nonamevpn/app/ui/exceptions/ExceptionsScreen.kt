@@ -84,7 +84,6 @@ private enum class ExceptionsPane { Apps, Sites }
 
 private val CardShape = RoundedCornerShape(24.dp)
 private val ControlShape = RoundedCornerShape(14.dp)
-private const val MAX_SITE_RULES = 100
 
 @Stable
 data class ExceptionAppItem(
@@ -135,14 +134,13 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             busy = true
             hint = null
             try {
-                val capped = rules
+                val cleaned = rules
                     .map { AppSettingsRepository.normalizeHost(it) }
                     .filter { it.isNotBlank() }
                     .distinct()
-                    .take(MAX_SITE_RULES)
-                settings.setExcludedHosts(capped.toSet())
+                settings.setExcludedHosts(cleaned.toSet())
                 hint = note ?: when {
-                    capped.isEmpty() -> null
+                    cleaned.isEmpty() -> null
                     Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ->
                         "Сайты сохранятся; исключение IP нужно Android 13+"
                     else -> null
@@ -160,10 +158,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         if (orderedSites.any { it.equals(rule, ignoreCase = true) }) {
             hint = "Уже в списке"
             newRule = ""
-            return
-        }
-        if (orderedSites.size >= MAX_SITE_RULES) {
-            hint = "Лимит $MAX_SITE_RULES сайтов"
             return
         }
         newRule = ""
@@ -458,7 +452,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                "${orderedSites.size} / $MAX_SITE_RULES",
+                                if (orderedSites.isEmpty()) "Нет сайтов" else "${orderedSites.size}",
                                 style = MaterialTheme.typography.labelLarge.copy(
                                     fontWeight = FontWeight.Medium,
                                     letterSpacing = 0.2.sp,
@@ -485,7 +479,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             value = newRule,
                             onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
                             enabled = !busy,
-                            canAdd = !busy && newRule.isNotBlank() && orderedSites.size < MAX_SITE_RULES,
+                            canAdd = !busy && newRule.isNotBlank(),
                             busy = busy,
                             onAdd = { addSite() },
                             modifier = Modifier
