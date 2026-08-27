@@ -8,7 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudUpload
@@ -26,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -51,9 +49,6 @@ import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import kotlinx.coroutines.launch
-
-/** Space reserved above the floating bottom nav so non-tunnel tabs stay readable. */
-private val BottomNavContentInset = 88.dp
 
 @Composable
 fun AppRoot(
@@ -184,37 +179,27 @@ fun AppRoot(
                 )
             }
             composable(AppDestination.Servers.route) {
-                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
-                    ServersScreen(
-                        serversRepo = serversRepo,
-                        engine = deployEngine,
-                        profiles = profiles,
-                    )
-                }
+                ServersScreen(
+                    serversRepo = serversRepo,
+                    engine = deployEngine,
+                    profiles = profiles,
+                )
             }
             composable(AppDestination.Profiles.route) {
-                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
-                    ProfilesScreen(
-                        settings = settings,
-                        profiles = profiles,
-                        onApplied = { navigateTab(AppDestination.Tunnel.route) },
-                    )
-                }
+                ProfilesScreen(
+                    settings = settings,
+                    profiles = profiles,
+                    onApplied = { navigateTab(AppDestination.Tunnel.route) },
+                )
             }
             composable(AppDestination.Exceptions.route) {
-                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
-                    ExceptionsScreen(settings = settings)
-                }
+                ExceptionsScreen(settings = settings)
             }
             composable(AppDestination.Logs.route) {
-                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
-                    LogsScreen()
-                }
+                LogsScreen()
             }
             composable(AppDestination.Settings.route) {
-                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
-                    SettingsScreen(settings = settings)
-                }
+                SettingsScreen(settings = settings)
             }
         }
 

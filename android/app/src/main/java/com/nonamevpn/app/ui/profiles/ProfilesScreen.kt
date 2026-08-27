@@ -4,25 +4,16 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -46,6 +37,8 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.StickyBottomScaffold
+import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import kotlinx.coroutines.launch
 
 /**
@@ -103,14 +96,17 @@ fun ProfilesScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    StickyBottomScaffold(
+        stickyContent = {
+            StickyPrimaryButton(
+                text = if (busy) "Читаем…" else "Из файла…",
+                onClick = {
+                    pickFile.launch(arrayOf("application/json", "text/*", "*/*"))
+                },
+                enabled = !busy,
+                icon = Icons.Default.FolderOpen,
+            )
+        },
     ) {
         AppPageHeader(
             title = "Профили",
@@ -167,20 +163,6 @@ fun ProfilesScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Импорт", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Button(
-                onClick = {
-                    pickFile.launch(arrayOf("application/json", "text/*", "*/*"))
-                },
-                enabled = !busy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(if (busy) "Читаем…" else "Из файла…", fontWeight = FontWeight.SemiBold)
-            }
             OutlinedButton(
                 onClick = { showPaste = true },
                 enabled = !busy,
@@ -254,20 +236,21 @@ fun ProfilesScreen(
                                 val p = profiles.importJson(pasteText)
                                 settings.setProfileName(p.name)
                                 conn.updateProfile(p)
+                                AppLog.i("Profiles", "imported paste profile=${p.name}")
                                 afterImport()
                             }.onFailure { t ->
                                 busy = false
-                                error = t.message ?: "Ошибка"
-                                Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                                error = t.message ?: "Ошибка импорта"
                             }
                         }
                     },
-                    enabled = !busy && pasteText.isNotBlank(),
+                    enabled = pasteText.isNotBlank() && !busy,
                 ) { Text("Импортировать") }
             },
             dismissButton = {
                 TextButton(onClick = { showPaste = false }, enabled = !busy) { Text("Отмена") }
             },
+            shape = RoundedCornerShape(24.dp),
         )
     }
 }

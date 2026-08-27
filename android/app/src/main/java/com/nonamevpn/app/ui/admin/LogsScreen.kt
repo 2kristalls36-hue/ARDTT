@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -49,6 +48,8 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.VpnLiveStats
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.EdgeFeedTopInset
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -109,10 +110,10 @@ fun LogsScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .padding(horizontal = 16.dp)
-            .padding(bottom = 12.dp),
+            .padding(bottom = NvpnBottomChrome.NavZoneHeight + 12.dp),
     ) {
+        EdgeFeedTopInset()
         AppPageHeader(
             title = "Логи",
             subtitle = if (AppLog.isDetailedEnabled()) {
