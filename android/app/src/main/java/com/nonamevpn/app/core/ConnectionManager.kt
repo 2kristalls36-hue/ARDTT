@@ -258,7 +258,7 @@ class ConnectionManager(
                 connectEnabled = false,
                 lastError = null,
             )
-            val result = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
+            val result = NetworkProbe.probe(appContext, directEndpoint, provisionUrl, quick = true)
             AppLog.i(
                 TAG,
                 "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
@@ -336,7 +336,7 @@ class ConnectionManager(
                     runCatching { syncHideIpToProvision(false, viaVpn = false) }
                 }
                 // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
-                var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
+                var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl, quick = true)
                 if (
                     mode == ConnPathMode.Auto &&
                     probePreferred == VpnPath.Direct &&
@@ -345,7 +345,7 @@ class ConnectionManager(
                     !fresh.provisionOk
                 ) {
                     AppLog.w(TAG, "Connect re-probe flaked health — retry once")
-                    fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
+                    fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl, quick = true)
                 }
                 val usePath = resolveConnectPath(mode, probePreferred, lastGood, fresh)
                 AppLog.i(
