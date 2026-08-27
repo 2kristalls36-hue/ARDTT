@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -102,6 +103,7 @@ fun TunnelScreen(
     var callMessage by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
+    var ipError by remember { mutableStateOf(EgressIpProbe.lastError) }
 
     fun applyImported() {
         showImport = false
@@ -180,9 +182,11 @@ fun TunnelScreen(
     LaunchedEffect(sessionUp, hideIp) {
         while (sessionUp) {
             publicIp = EgressIpProbe.current()
-            delay(1_500)
+            ipError = EgressIpProbe.lastError
+            delay(1_000)
         }
         publicIp = EgressIpProbe.current()
+        ipError = EgressIpProbe.lastError
     }
 
     val buttonColor by animateColorAsState(
@@ -470,7 +474,18 @@ fun TunnelScreen(
                 null -> null
             },
             powerLabel = if (economy) "Оптимально (1)" else "Максимум (3)",
-            publicIp = publicIp?.takeIf { it.isNotBlank() } ?: "…",
+            publicIp = when {
+                !publicIp.isNullOrBlank() -> publicIp!!
+                !ipError.isNullOrBlank() && sessionUp -> "не удалось · нажмите"
+                sessionUp -> "…"
+                else -> "—"
+            },
+            ipFailed = sessionUp && publicIp.isNullOrBlank() && !ipError.isNullOrBlank(),
+            onIpClick = if (sessionUp) {
+                { conn.requestEgressIpRefresh() }
+            } else {
+                null
+            },
             profileName = profile?.name?.takeIf { it.isNotBlank() },
             version = BuildConfig.VERSION_NAME,
             directEndpoint = profile?.direct?.endpoint,
@@ -611,6 +626,8 @@ private fun TunnelStatusPanel(
     activePathLabel: String?,
     powerLabel: String,
     publicIp: String,
+    ipFailed: Boolean = false,
+    onIpClick: (() -> Unit)? = null,
     profileName: String?,
     version: String,
     directEndpoint: String?,
@@ -652,7 +669,12 @@ private fun TunnelStatusPanel(
             StatusFactRow(label = "Режим", value = pathModeLabel)
             activePathLabel?.let { StatusFactRow(label = "Активный путь", value = it) }
             StatusFactRow(label = "Мощность", value = powerLabel)
-            StatusFactRow(label = "IP", value = publicIp)
+            StatusFactRow(
+                label = "IP",
+                value = publicIp,
+                valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
+                onClick = onIpClick,
+            )
             profileName?.let { StatusFactRow(label = "Профиль", value = it) }
             StatusFactRow(label = "Версия", value = "v$version")
         }
@@ -734,9 +756,13 @@ private fun TunnelStatusPanel(
 private fun StatusFactRow(
     label: String,
     value: String,
+    valueColor: Color? = null,
+    onClick: (() -> Unit)? = null,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
     ) {
@@ -750,7 +776,7 @@ private fun StatusFactRow(
             value,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = valueColor ?: MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.End,
             modifier = Modifier.weight(1f),
             maxLines = 2,
