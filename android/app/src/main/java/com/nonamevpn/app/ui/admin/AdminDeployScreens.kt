@@ -290,10 +290,11 @@ fun ServersScreen(
             is ServersNavScreen.Overview -> ServerOverviewHost(
                 servers = servers,
                 serversRepo = serversRepo,
+                engine = engine,
                 serverId = s.serverId,
                 isActiveDeploy = s.serverId == activeDeployServerId,
                 onOpenClients = { screen = ServersNavScreen.Clients(s.serverId) },
-                onOpenDeploy = { screen = ServersNavScreen.Deploy(s.serverId) },
+                onOpenDeploySettings = { screen = ServersNavScreen.Deploy(s.serverId) },
                 onBack = { screen = ServersNavScreen.List },
             )
             is ServersNavScreen.Clients -> ClientsHost(
@@ -601,19 +602,28 @@ private fun ServerCard(
 private fun ServerOverviewHost(
     servers: List<DeployTarget>,
     serversRepo: ServersRepository,
+    engine: DeployEngine,
     serverId: String,
     isActiveDeploy: Boolean,
     onOpenClients: () -> Unit,
-    onOpenDeploy: () -> Unit,
+    onOpenDeploySettings: () -> Unit,
     onBack: () -> Unit,
 ) {
     val server = servers.find { it.id == serverId }
     var showActions by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
+    var showRedeployConfirm by remember { mutableStateOf(false) }
+    var showRedeployProgress by remember { mutableStateOf(false) }
+    var redeployStatus by remember { mutableStateOf<String?>(null) }
     var health by remember { mutableStateOf<HealthUi?>(HealthUi.Checking) }
     val context = LocalContext.current
     val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
+    val scope = rememberCoroutineScope()
+    val busy by engine.busy.collectAsStateWithLifecycle()
+    val progress by engine.progress.collectAsStateWithLifecycle()
+    val step by engine.step.collectAsStateWithLifecycle()
+    val deployLog by engine.log.collectAsStateWithLifecycle()
 
     LaunchedEffect(servers, serverId) {
         if (servers.isNotEmpty() && server == null) onBack()
@@ -624,6 +634,34 @@ private fun ServerOverviewHost(
         health = HealthUi.Checking
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
         health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
+    }
+
+    fun refreshHealth(target: DeployTarget) {
+        scope.launch {
+            health = HealthUi.Checking
+            val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
+            health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
+        }
+    }
+
+    fun startRedeploy(target: DeployTarget) {
+        showRedeployConfirm = false
+        showRedeployProgress = true
+        redeployStatus = null
+        scope.launch {
+            val result = engine.deploy(target)
+            result.fold(
+                onSuccess = { msg ->
+                    val deployedAt = System.currentTimeMillis()
+                    serversRepo.upsert(target.copy(lastDeployedAtMs = deployedAt))
+                    redeployStatus = msg
+                    refreshHealth(target)
+                },
+                onFailure = { e ->
+                    redeployStatus = "Ошибка: ${e.message}"
+                },
+            )
+        }
     }
 
     if (server == null) {
@@ -637,7 +675,8 @@ private fun ServerOverviewHost(
             isActiveDeploy = isActiveDeploy,
             expectedVersion = expectedVersion,
             onOpenClients = onOpenClients,
-            onOpenDeploy = onOpenDeploy,
+            onUpdateDeploy = { showRedeployConfirm = true },
+            onOpenDeploySettings = onOpenDeploySettings,
             onBack = onBack,
             showActions = showActions,
             onShowActions = { showActions = it },
@@ -679,6 +718,87 @@ private fun ServerOverviewHost(
                 },
             )
         }
+        if (showRedeployConfirm) {
+            AlertDialog(
+                onDismissRequest = { if (!busy) showRedeployConfirm = false },
+                title = { Text("Обновить деплой?") },
+                text = {
+                    Text(
+                        "Стек версии $expectedVersion будет заново залит на ${server.host} " +
+                            "по сохранённым SSH-данным. Параметры подключения менять не нужно.",
+                    )
+                },
+                confirmButton = {
+                    Button(onClick = { startRedeploy(server) }) {
+                        Text("Обновить")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRedeployConfirm = false }) { Text("Отмена") }
+                },
+            )
+        }
+        if (showRedeployProgress) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!busy) showRedeployProgress = false
+                },
+                title = {
+                    Text(
+                        when {
+                            busy -> "Обновление деплоя…"
+                            redeployStatus?.startsWith("Ошибка") == true -> "Ошибка"
+                            else -> "Готово"
+                        },
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            step.ifBlank { "…" },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        redeployStatus?.let {
+                            Text(
+                                it,
+                                color = if (it.startsWith("Ошибка")) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    NvpnColors.connected
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        Text(
+                            "Лог",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            deployLog.takeLast(12).joinToString("\n").ifBlank { "—" },
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 220.dp)
+                                .verticalScroll(rememberScrollState()),
+                        )
+                    }
+                },
+                confirmButton = {
+                    if (busy) {
+                        TextButton(onClick = { engine.cancel() }) { Text("Отменить") }
+                    } else {
+                        TextButton(onClick = { showRedeployProgress = false }) { Text("Закрыть") }
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -689,7 +809,8 @@ private fun ServerOverviewScreen(
     isActiveDeploy: Boolean,
     expectedVersion: String,
     onOpenClients: () -> Unit,
-    onOpenDeploy: () -> Unit,
+    onUpdateDeploy: () -> Unit,
+    onOpenDeploySettings: () -> Unit,
     onBack: () -> Unit,
     showActions: Boolean,
     onShowActions: (Boolean) -> Unit,
@@ -853,7 +974,7 @@ private fun ServerOverviewScreen(
                                     color = if (current) NvpnColors.connected else NvpnColors.warning,
                                 )
                                 Button(
-                                    onClick = onOpenDeploy,
+                                    onClick = onUpdateDeploy,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(48.dp),
@@ -900,7 +1021,7 @@ private fun ServerOverviewScreen(
                     icon = Icons.Filled.CloudUpload,
                     title = "Обновить деплой",
                     description = "Переустановить стек · версия $expectedVersion",
-                    onClick = onOpenDeploy,
+                    onClick = onUpdateDeploy,
                 )
             }
             item {
@@ -916,7 +1037,7 @@ private fun ServerOverviewScreen(
                     icon = Icons.Filled.Settings,
                     title = "Параметры сервера",
                     description = "SSH, порты и учётные данные",
-                    onClick = onOpenDeploy,
+                    onClick = onOpenDeploySettings,
                 )
             }
         }

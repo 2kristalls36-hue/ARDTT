@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPOutputStream
 
 /**
  * Admin deploy: SSH → upload stack.tar.gz + install.sh → run Compose on VPS.
@@ -51,7 +53,7 @@ class DeployEngine(private val appContext: Context) {
             ssh.exec("mkdir -p /opt/nonamevpn && chmod 755 /opt/nonamevpn")
 
             emit(0.12f, "Загрузка stack.tar.gz…")
-            val stackBytes = appContext.assets.open("deploy/stack.tar.gz").use { it.readBytes() }
+            val stackBytes = loadStackArchiveBytes()
             ssh.uploadBytes(stackBytes, "/opt/nonamevpn/stack.tar.gz")
             append("Загружен stack.tar.gz (${stackBytes.size / 1024} КБ)")
 
@@ -126,6 +128,39 @@ class DeployEngine(private val appContext: Context) {
         activeSession = null
         _busy.value = false
         append("Отменено")
+    }
+
+    /**
+     * aapt/aapt2 may unpack `*.gz` assets and drop the `.gz` suffix (leaving `stack.tar`).
+     * Prefer the opaque `.bin` name; fall back to gz / uncompressed tar (re-gzipped).
+     */
+    private fun loadStackArchiveBytes(): ByteArray {
+        val assets = appContext.assets
+        val names = listOf(
+            "deploy/stack.tar.gz.bin",
+            "deploy/stack.tar.gz",
+            "deploy/stack.tar",
+        )
+        for (name in names) {
+            val bytes = runCatching { assets.open(name).use { it.readBytes() } }.getOrNull()
+                ?: continue
+            if (bytes.isEmpty()) continue
+            return if (name.endsWith(".tar") && !name.endsWith(".tar.gz") && !name.endsWith(".tar.gz.bin")) {
+                gzipBytes(bytes)
+            } else {
+                bytes
+            }
+        }
+        error(
+            "В APK нет deploy/stack.tar.gz (aapt мог переименовать в stack.tar). " +
+                "Выполните scripts/pack-deploy-assets.sh и пересоберите приложение.",
+        )
+    }
+
+    private fun gzipBytes(raw: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream(raw.size / 2)
+        GZIPOutputStream(out).use { it.write(raw) }
+        return out.toByteArray()
     }
 
     private fun emit(fraction: Float, step: String) {
