@@ -13,6 +13,9 @@ data class VpnProfile(
     val hostId: Int,
     val prefer: String = "direct",
     val hideIp: Boolean = false,
+    val expiresAt: Long = 0L,
+    val deactivated: Boolean = false,
+    val maxDevices: Int = 1,
     val direct: DirectConfig,
     val bypass: BypassConfig,
 ) {
@@ -20,6 +23,13 @@ data class VpnProfile(
         get() {
             val host = NetworkEndpoint.hostOf(direct.endpoint) ?: NetworkEndpoint.hostOf(bypass.peer)
             return host?.let { "http://$it:9100" }
+        }
+
+    val subscriptionActive: Boolean
+        get() {
+            if (deactivated) return false
+            if (expiresAt <= 0L) return true
+            return expiresAt * 1000L > System.currentTimeMillis()
         }
 }
 
@@ -78,6 +88,9 @@ object VpnProfileJson {
             hostId = o.optInt("hostId", 0),
             prefer = o.optString("prefer", "direct"),
             hideIp = o.optBoolean("hideIp", false),
+            expiresAt = o.optLong("expiresAt", 0L),
+            deactivated = o.optBoolean("deactivated", false),
+            maxDevices = o.optInt("maxDevices", 1).coerceAtLeast(1),
             direct = DirectConfig(
                 endpoint = direct.optString("endpoint", ""),
                 privateKey = direct.optString("privateKey", ""),
@@ -110,6 +123,9 @@ object VpnProfileJson {
             .put("hostId", profile.hostId)
             .put("prefer", profile.prefer)
             .put("hideIp", profile.hideIp)
+            .put("expiresAt", profile.expiresAt)
+            .put("deactivated", profile.deactivated)
+            .put("maxDevices", profile.maxDevices)
             .put(
                 "direct",
                 JSONObject()

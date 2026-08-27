@@ -87,7 +87,7 @@ object EgressIpProbe {
                 cached.set(fromProvision)
                 lastError = null
                 lastVia = if (hideIp) "provision/warp" else "provision"
-                AppLog.i(TAG, "egress ip=$fromProvision via=$lastVia")
+                AppLog.v(TAG, "egress ip=$fromProvision via=$lastVia")
                 return@withContext fromProvision
             }
         } else {
@@ -105,7 +105,7 @@ object EgressIpProbe {
                 cached.set(ip)
                 lastError = null
                 lastVia = if (vpnNet != null) "vpn+$url" else url
-                AppLog.i(TAG, "egress ip=$ip via=$lastVia")
+                AppLog.v(TAG, "egress ip=$ip via=$lastVia")
                 return@withContext ip
             }
         }

@@ -137,6 +137,11 @@ fun AppRoot(
         AppLog.i("App", "UI ready")
     }
 
+    LaunchedEffect(admin) {
+        AppLog.setDetailedEnabled(admin)
+        AppLog.i("App", if (admin) "Подробные логи (админ)" else "Минимальные логи")
+    }
+
     LaunchedEffect(silent, economy, dial, pathModeSetting) {
         conn.setSilentRecreate(silent)
         conn.setWorkers(if (economy) 1 else 3)

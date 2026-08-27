@@ -167,6 +167,7 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     LaunchedEffect(profile?.deviceId) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
@@ -245,6 +246,39 @@ fun TunnelScreen(
             subtitle = "Туннель и быстрые настройки",
         )
 
+        if (!admin && profile != null) {
+            val active = profile!!.subscriptionActive
+            val expiresText = when {
+                profile!!.expiresAt <= 0L -> "без срока"
+                else -> {
+                    val fmt = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale("ru"))
+                    fmt.format(java.util.Date(profile!!.expiresAt * 1000L))
+                }
+            }
+            AppSectionCard(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                shape = RoundedCornerShape(24.dp),
+                border = BorderStroke(
+                    2.dp,
+                    if (active) NvpnColors.connected else MaterialTheme.colorScheme.error,
+                ),
+                shadowElevation = 0.dp,
+            ) {
+                Text(
+                    if (active) "Подписка активна" else "Подписка неактивна",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (active) NvpnColors.connected else MaterialTheme.colorScheme.error,
+                )
+                Text(
+                    "Действует до $expiresText",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         // ═══ Быстрые настройки ═══
         AppSectionCard(
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
@@ -282,6 +316,7 @@ fun TunnelScreen(
                     label = "Прямое",
                     selected = pathMode == "direct",
                     enabled = !pathBusy,
+                    selectedContainer = NvpnColors.pathDirect,
                     onClick = {
                         scope.launch {
                             settings.setPathMode("direct")
@@ -295,6 +330,7 @@ fun TunnelScreen(
                     label = "Обход",
                     selected = pathMode == "bypass",
                     enabled = !pathBusy,
+                    selectedContainer = NvpnColors.pathBypass,
                     onClick = {
                         scope.launch {
                             settings.setPathMode("bypass")
@@ -592,6 +628,7 @@ private fun ChoiceChipButton(
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    selectedContainer: Color? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     if (selected) {
@@ -600,6 +637,14 @@ private fun ChoiceChipButton(
             enabled = enabled,
             modifier = modifier.height(44.dp),
             shape = RoundedCornerShape(16.dp),
+            colors = if (selectedContainer != null) {
+                ButtonDefaults.buttonColors(
+                    containerColor = selectedContainer,
+                    contentColor = Color.White,
+                )
+            } else {
+                ButtonDefaults.buttonColors()
+            },
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
             Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
@@ -610,10 +655,18 @@ private fun ChoiceChipButton(
             enabled = enabled,
             modifier = modifier.height(44.dp),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.45f)),
+            border = BorderStroke(
+                1.dp,
+                (selectedContainer ?: colors.outline).copy(alpha = if (selectedContainer != null) 0.55f else 0.45f),
+            ),
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
-            Text(label, fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(
+                label,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                color = selectedContainer ?: colors.onSurface,
+            )
         }
     }
 }
@@ -667,7 +720,14 @@ private fun TunnelStatusPanel(
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             StatusFactRow(label = "Режим", value = pathModeLabel)
-            activePathLabel?.let { StatusFactRow(label = "Активный путь", value = it) }
+            activePathLabel?.let {
+                val pathColor = when (it) {
+                    "Прямое" -> NvpnColors.pathDirect
+                    "Обход" -> NvpnColors.pathBypass
+                    else -> null
+                }
+                StatusFactRow(label = "Активный путь", value = it, valueColor = pathColor)
+            }
             StatusFactRow(label = "Мощность", value = powerLabel)
             StatusFactRow(
                 label = "IP",

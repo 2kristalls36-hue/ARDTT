@@ -81,6 +81,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.deploy.DeployBundle
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
@@ -161,7 +162,11 @@ private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
     },
 )
 
-private enum class HealthUi { Checking, Online, Offline }
+private sealed class HealthUi {
+    data object Checking : HealthUi()
+    data class Online(val deployVersion: String = "") : HealthUi()
+    data object Offline : HealthUi()
+}
 
 private fun formatDeployRelative(ms: Long): String {
     if (ms <= 0L) return ""
@@ -178,17 +183,42 @@ private fun formatDeployRelative(ms: Long): String {
     }
 }
 
-private fun healthStatusLine(health: HealthUi?, lastDeployedAtMs: Long): Pair<String, Color?> {
+private fun formatOfflineDuration(sec: Long): String {
+    if (sec <= 0L) return "—"
+    val m = sec / 60
+    val h = sec / 3600
+    val d = sec / 86400
+    return when {
+        sec < 60 -> "$sec с"
+        m < 60 -> "$m мин"
+        h < 48 -> "$h ч"
+        else -> "$d дн"
+    }
+}
+
+private fun formatExpiresAt(expiresAt: Long): String {
+    if (expiresAt <= 0L) return "без срока"
+    return SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(expiresAt * 1000L))
+}
+
+private fun healthStatusLine(
+    health: HealthUi?,
+    lastDeployedAtMs: Long,
+    expectedVersion: String,
+): Pair<String, Color?> {
     return when (health) {
         null, HealthUi.Checking -> "● Проверка…" to null
-        HealthUi.Online -> {
-            val base = "● Онлайн"
+        is HealthUi.Online -> {
+            val ver = health.deployVersion.ifBlank { "—" }
+            val current = DeployBundle.isCurrent(health.deployVersion, expectedVersion)
+            val freshness = if (current) "актуален" else "нужно обновить"
+            val base = "● Онлайн · v$ver · $freshness"
             val text = if (lastDeployedAtMs > 0L) {
-                "$base · деплой ${formatDeployRelative(lastDeployedAtMs)}"
+                "$base · ${formatDeployRelative(lastDeployedAtMs)}"
             } else {
                 base
             }
-            text to NvpnColors.connected
+            text to if (current) NvpnColors.connected else NvpnColors.warning
         }
         HealthUi.Offline -> {
             val text = if (lastDeployedAtMs == 0L) {
@@ -198,6 +228,21 @@ private fun healthStatusLine(health: HealthUi?, lastDeployedAtMs: Long): Pair<St
             }
             text to null // error color applied by caller when null + offline
         }
+    }
+}
+
+/** Green = current stack; orange = online but outdated; null = no special border. */
+private fun deployFreshnessBorder(
+    health: HealthUi?,
+    isActiveDeploy: Boolean,
+    expectedVersion: String,
+): BorderStroke? {
+    if (!isActiveDeploy) return null
+    val online = health as? HealthUi.Online ?: return BorderStroke(2.dp, NvpnColors.warning)
+    return if (DeployBundle.isCurrent(online.deployVersion, expectedVersion)) {
+        BorderStroke(2.dp, NvpnColors.connected)
+    } else {
+        BorderStroke(2.dp, NvpnColors.warning)
     }
 }
 
@@ -279,6 +324,8 @@ private fun ServerListScreen(
     onAddServer: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
     var healthById by remember { mutableStateOf<Map<String, HealthUi>>(emptyMap()) }
     var probing by remember { mutableStateOf(false) }
 
@@ -295,9 +342,13 @@ private fun ServerListScreen(
             coroutineScope {
                 snapshot.map { target ->
                     async {
-                        val online = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
-                            .getOrNull() == true
-                        val status = if (online) HealthUi.Online else HealthUi.Offline
+                        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
+                            .getOrNull()
+                        val status = if (info?.ok == true) {
+                            HealthUi.Online(info.deployVersion)
+                        } else {
+                            HealthUi.Offline
+                        }
                         healthById = healthById + (target.id to status)
                     }
                 }.awaitAll()
@@ -404,6 +455,7 @@ private fun ServerListScreen(
                             server = server,
                             health = healthById[server.id],
                             isActiveDeploy = server.id == activeDeployServerId,
+                            expectedVersion = expectedVersion,
                             onOpenServer = { onOpenServer(server.id) },
                         )
                     }
@@ -434,19 +486,16 @@ private fun ServerCard(
     server: DeployTarget,
     health: HealthUi?,
     isActiveDeploy: Boolean,
+    expectedVersion: String,
     onOpenServer: () -> Unit,
 ) {
-    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs)
+    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
     val statusColor = when {
         statusColorHint != null -> statusColorHint
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
-    val activeBorder = if (isActiveDeploy) {
-        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-    } else {
-        null
-    }
+    val activeBorder = deployFreshnessBorder(health, isActiveDeploy, expectedVersion)
 
     AppSectionCard(
         modifier = Modifier.clickable(onClick = onOpenServer),
@@ -502,9 +551,35 @@ private fun ServerCard(
                     statusText,
                     style = MaterialTheme.typography.labelMedium,
                     color = statusColor,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (isActiveDeploy) {
+                    val online = health as? HealthUi.Online
+                    val current = online != null &&
+                        DeployBundle.isCurrent(online.deployVersion, expectedVersion)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (current) {
+                            NvpnColors.connected.copy(alpha = 0.18f)
+                        } else {
+                            NvpnColors.warning.copy(alpha = 0.18f)
+                        },
+                    ) {
+                        Text(
+                            if (current) {
+                                "Актуальный деплой · v${online?.deployVersion.orEmpty().ifBlank { expectedVersion }}"
+                            } else {
+                                "Требуется обновление · v${online?.deployVersion?.ifBlank { "—" } ?: "—"} → $expectedVersion"
+                            },
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (current) NvpnColors.connected else NvpnColors.warning,
+                        )
+                    }
+                }
             }
             Icon(
                 Icons.AutoMirrored.Filled.ArrowForward,
@@ -530,6 +605,8 @@ private fun ServerOverviewHost(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var health by remember { mutableStateOf<HealthUi?>(HealthUi.Checking) }
+    val context = LocalContext.current
+    val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
 
     LaunchedEffect(servers, serverId) {
         if (servers.isNotEmpty() && server == null) onBack()
@@ -538,9 +615,8 @@ private fun ServerOverviewHost(
     LaunchedEffect(serverId, server?.host, server?.publicHost) {
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
-        val online = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
-            .getOrNull() == true
-        health = if (online) HealthUi.Online else HealthUi.Offline
+        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
+        health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
     }
 
     if (server == null) {
@@ -552,6 +628,7 @@ private fun ServerOverviewHost(
             server = server,
             health = health,
             isActiveDeploy = isActiveDeploy,
+            expectedVersion = expectedVersion,
             onOpenClients = onOpenClients,
             onOpenDeploy = onOpenDeploy,
             onBack = onBack,
@@ -603,6 +680,7 @@ private fun ServerOverviewScreen(
     server: DeployTarget,
     health: HealthUi?,
     isActiveDeploy: Boolean,
+    expectedVersion: String,
     onOpenClients: () -> Unit,
     onOpenDeploy: () -> Unit,
     onBack: () -> Unit,
@@ -611,17 +689,13 @@ private fun ServerOverviewScreen(
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs)
+    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
     val statusColor = when {
         statusColorHint != null -> statusColorHint
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
-    val activeBorder = if (isActiveDeploy) {
-        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-    } else {
-        null
-    }
+    val activeBorder = deployFreshnessBorder(health, isActiveDeploy, expectedVersion)
 
     Column(modifier = Modifier.fillMaxSize()) {
         AppPageHeader(
@@ -744,12 +818,30 @@ private fun ServerOverviewScreen(
                         color = statusColor,
                     )
                     if (isActiveDeploy) {
-                        Text(
-                            "Текущий профиль",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                        val online = health as? HealthUi.Online
+                        val current = online != null &&
+                            DeployBundle.isCurrent(online.deployVersion, expectedVersion)
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (current) {
+                                NvpnColors.connected.copy(alpha = 0.18f)
+                            } else {
+                                NvpnColors.warning.copy(alpha = 0.18f)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (current) {
+                                    "Актуальный деплой · v${online?.deployVersion.orEmpty().ifBlank { expectedVersion }}"
+                                } else {
+                                    "Неактуальный деплой · v${online?.deployVersion?.ifBlank { "—" } ?: "—"} → $expectedVersion"
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (current) NvpnColors.connected else NvpnColors.warning,
+                            )
+                        }
                     }
                 }
             }
@@ -897,9 +989,15 @@ private fun ClientsScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showCreate by remember { mutableStateOf(false) }
     var createName by remember { mutableStateOf("") }
+    var createDays by remember { mutableStateOf("30") }
+    var createMaxDevices by remember { mutableStateOf("1") }
     var creating by remember { mutableStateOf(false) }
     var profilePreview by remember { mutableStateOf<String?>(null) }
     var busyUser by remember { mutableStateOf<String?>(null) }
+    var editUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
+    var editMaxDevices by remember { mutableStateOf("1") }
+    var editDays by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf(false) }
 
     fun copyText(label: String, text: String) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -1013,27 +1111,195 @@ private fun ClientsScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(users, key = { "${it.name}-${it.deviceId}-${it.hostId}" }) { user ->
+                                val subActive = !user.deactivated &&
+                                    (user.expiresAt <= 0L || user.expiresAt * 1000L > System.currentTimeMillis())
+                                val border = BorderStroke(
+                                    2.dp,
+                                    if (subActive) NvpnColors.connected else MaterialTheme.colorScheme.error,
+                                )
                                 AppSectionCard(
                                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                     shape = RoundedCornerShape(24.dp),
+                                    border = border,
                                 ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            user.name.ifBlank { "user" },
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (user.online) {
+                                                NvpnColors.connected.copy(alpha = 0.18f)
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                            },
+                                        ) {
+                                            Text(
+                                                if (user.online) "онлайн" else "оффлайн",
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (user.online) {
+                                                    NvpnColors.connected
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                            )
+                                        }
+                                    }
                                     Text(
-                                        user.name.ifBlank { "user" },
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    Text(
-                                        "hostId ${user.hostId} · device ${user.deviceId.ifBlank { "—" }}",
+                                        "hostId ${user.hostId} · устройств ${user.deviceIds.size}/${user.maxDevices}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    Text(
+                                        buildString {
+                                            append("Подписка до ${formatExpiresAt(user.expiresAt)}")
+                                            if (user.deactivated) append(" · выключена")
+                                            else if (!subActive) append(" · истекла")
+                                            else append(" · активна")
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (subActive) NvpnColors.connected else MaterialTheme.colorScheme.error,
+                                    )
+                                    Text(
+                                        if (user.online) {
+                                            "Последнее подключение: сейчас"
+                                        } else if (user.lastSeenAt > 0L) {
+                                            "Последнее: ${formatDeployRelative(user.lastSeenAt * 1000L)} · нет активности ${formatOfflineDuration(user.offlineForSec)}"
+                                        } else {
+                                            "Ещё не подключался"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    if (user.lastExternalIp.isNotBlank()) {
+                                        Text(
+                                            "Внешний IP: ${user.lastExternalIp}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                     Text(
                                         if (user.hideIp) "hideIp: да" else "hideIp: нет",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    if (user.deviceIds.isNotEmpty()) {
+                                        Text(
+                                            "Привязанные устройства",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        user.deviceIds.forEach { deviceId ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    deviceId,
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        fontFamily = FontFamily.Monospace,
+                                                    ),
+                                                    modifier = Modifier.weight(1f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                TextButton(
+                                                    onClick = {
+                                                        busyUser = user.name
+                                                        scope.launch {
+                                                            val result = ProvisionAdminApi.unbindDevice(
+                                                                base,
+                                                                user.name,
+                                                                deviceId,
+                                                            )
+                                                            result.fold(
+                                                                onSuccess = { refreshed ->
+                                                                    users = users.map {
+                                                                        if (it.name == refreshed.name) refreshed else it
+                                                                    }
+                                                                },
+                                                                onFailure = {
+                                                                    Toast.makeText(
+                                                                        context,
+                                                                        it.message ?: "Не удалось открепить",
+                                                                        Toast.LENGTH_LONG,
+                                                                    ).show()
+                                                                },
+                                                            )
+                                                            busyUser = null
+                                                        }
+                                                    },
+                                                    enabled = busyUser == null,
+                                                ) { Text("Открепить") }
+                                            }
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                editUser = user
+                                                editMaxDevices = user.maxDevices.toString()
+                                                editDays = ""
+                                            },
+                                            enabled = busyUser == null,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(44.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                        ) {
+                                            Text("Устройства", fontWeight = FontWeight.SemiBold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                busyUser = user.name
+                                                scope.launch {
+                                                    val result = ProvisionAdminApi.updateUser(
+                                                        base,
+                                                        user.name,
+                                                        deactivated = !user.deactivated,
+                                                    )
+                                                    result.fold(
+                                                        onSuccess = { refreshed ->
+                                                            users = users.map {
+                                                                if (it.name == refreshed.name) refreshed else it
+                                                            }
+                                                        },
+                                                        onFailure = {
+                                                            Toast.makeText(
+                                                                context,
+                                                                it.message ?: "Ошибка",
+                                                                Toast.LENGTH_LONG,
+                                                            ).show()
+                                                        },
+                                                    )
+                                                    busyUser = null
+                                                }
+                                            },
+                                            enabled = busyUser == null,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(44.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                        ) {
+                                            Text(
+                                                if (user.deactivated) "Включить" else "Выключить",
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                        }
+                                    }
                                     OutlinedButton(
                                         onClick = {
                                             busyUser = user.name
@@ -1073,6 +1339,8 @@ private fun ClientsScreen(
                     FloatingActionButton(
                         onClick = {
                             createName = ""
+                            createDays = "30"
+                            createMaxDevices = "1"
                             showCreate = true
                         },
                         modifier = Modifier
@@ -1095,14 +1363,34 @@ private fun ClientsScreen(
             onDismissRequest = { if (!creating) showCreate = false },
             title = { Text("Новый пользователь") },
             text = {
-                OutlinedTextField(
-                    value = createName,
-                    onValueChange = { createName = it },
-                    label = { Text("Имя") },
-                    singleLine = true,
-                    enabled = !creating,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = createName,
+                        onValueChange = { createName = it },
+                        label = { Text("Имя") },
+                        singleLine = true,
+                        enabled = !creating,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = createDays,
+                        onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) createDays = v },
+                        label = { Text("Дней подписки (0 = без срока)") },
+                        singleLine = true,
+                        enabled = !creating,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = createMaxDevices,
+                        onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) createMaxDevices = v },
+                        label = { Text("Устройств") },
+                        singleLine = true,
+                        enabled = !creating,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             },
             confirmButton = {
                 Button(
@@ -1111,7 +1399,12 @@ private fun ClientsScreen(
                         if (name.isBlank()) return@Button
                         creating = true
                         scope.launch {
-                            val result = ProvisionAdminApi.createUser(base, name)
+                            val result = ProvisionAdminApi.createUser(
+                                base,
+                                name,
+                                days = createDays.toIntOrNull() ?: 0,
+                                maxDevices = createMaxDevices.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                            )
                             creating = false
                             result.fold(
                                 onSuccess = { body ->
@@ -1138,6 +1431,72 @@ private fun ClientsScreen(
                 TextButton(onClick = { showCreate = false }, enabled = !creating) {
                     Text("Отмена")
                 }
+            },
+        )
+    }
+
+    editUser?.let { target ->
+        AlertDialog(
+            onDismissRequest = { if (!editing) editUser = null },
+            title = { Text("Устройства · ${target.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Сейчас ${target.deviceIds.size}/${target.maxDevices}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(
+                        value = editMaxDevices,
+                        onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) editMaxDevices = v },
+                        label = { Text("Лимит устройств") },
+                        singleLine = true,
+                        enabled = !editing,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = editDays,
+                        onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editDays = v },
+                        label = { Text("Продлить на N дней (опц.)") },
+                        singleLine = true,
+                        enabled = !editing,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        editing = true
+                        scope.launch {
+                            val result = ProvisionAdminApi.updateUser(
+                                base,
+                                target.name,
+                                maxDevices = editMaxDevices.toIntOrNull()?.coerceAtLeast(1),
+                                days = editDays.toIntOrNull()?.takeIf { it > 0 },
+                            )
+                            editing = false
+                            result.fold(
+                                onSuccess = { refreshed ->
+                                    users = users.map { if (it.name == refreshed.name) refreshed else it }
+                                    editUser = null
+                                },
+                                onFailure = {
+                                    Toast.makeText(
+                                        context,
+                                        it.message ?: "Ошибка",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                },
+                            )
+                        }
+                    },
+                    enabled = !editing,
+                ) { Text(if (editing) "Сохранение…" else "Сохранить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editUser = null }, enabled = !editing) { Text("Отмена") }
             },
         )
     }

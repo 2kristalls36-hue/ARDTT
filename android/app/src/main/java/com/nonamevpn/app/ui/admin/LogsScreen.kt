@@ -115,7 +115,11 @@ fun LogsScreen() {
     ) {
         AppPageHeader(
             title = "Логи",
-            subtitle = "События туннеля и диагностики",
+            subtitle = if (AppLog.isDetailedEnabled()) {
+                "Подробные события (админ)"
+            } else {
+                "Краткие события туннеля"
+            },
             actions = {
                 IconButton(onClick = { AppLog.clear() }) {
                     Icon(Icons.Default.Delete, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.primary)
