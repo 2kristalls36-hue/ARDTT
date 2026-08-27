@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 68
-        versionName = "0.5.50"
+        versionCode = 69
+        versionName = "0.5.51"
     }
 
     ndkVersion = "27.0.12077973"
@@ -72,8 +72,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    // Glassmorphism / backdrop blur for sticky Connect bar
-    implementation("dev.chrisbanes.haze:haze-android:1.0.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }

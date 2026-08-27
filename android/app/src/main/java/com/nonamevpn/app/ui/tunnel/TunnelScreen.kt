@@ -8,7 +8,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,7 +49,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -76,12 +74,6 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.theme.NvpnColors
-import dev.chrisbanes.haze.HazeProgressive
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.haze
-import dev.chrisbanes.haze.hazeChild
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -89,8 +81,8 @@ import kotlinx.coroutines.launch
 private val StickyConnectTabGap = 6.dp
 /** Connect button height. */
 private val StickyConnectButtonHeight = 58.dp
-/** Extra scroll padding so content can pass under the floating Connect + glass fade. */
-private val StickyConnectScrollReserve = 118.dp
+/** Extra scroll padding so the last content can clear the floating Connect button. */
+private val StickyConnectScrollReserve = 80.dp
 
 private fun Context.findActivity(): Activity? {
     var ctx: Context? = this
@@ -249,16 +241,12 @@ fun TunnelScreen(
         }
     }
 
-    val hazeState = remember { HazeState() }
-    val scrimBase = MaterialTheme.colorScheme.background
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp)
-                .haze(hazeState)
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = StickyConnectScrollReserve),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -529,10 +517,8 @@ fun TunnelScreen(
             )
         }
 
-        // Sticky «Подключить» — floats above tab bar; content scrolls underneath with glass blur
+        // Sticky «Подключить» — floats above tab bar; content scrolls underneath (no blur)
         StickyConnectBar(
-            hazeState = hazeState,
-            scrimBase = scrimBase,
             buttonColor = buttonColor,
             sessionUp = sessionUp,
             pausedTrusted = pausedTrusted,
@@ -605,8 +591,6 @@ fun TunnelScreen(
 
 @Composable
 private fun StickyConnectBar(
-    hazeState: HazeState,
-    scrimBase: Color,
     buttonColor: Color,
     sessionUp: Boolean,
     pausedTrusted: Boolean,
@@ -616,78 +600,39 @@ private fun StickyConnectBar(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val glassStyle = HazeStyle(
-        backgroundColor = scrimBase,
-        tint = HazeTint(scrimBase.copy(alpha = 0.12f)),
-        blurRadius = 12.dp,
-        noiseFactor = 0.04f,
-        fallbackTint = HazeTint(scrimBase.copy(alpha = 0.55f)),
-    )
-    // Soft fade above the button + blur only under its lower half (no hard “halo” panel)
-    val fadeAbove = 28.dp
-    Box(
-        modifier = modifier.height(StickyConnectButtonHeight + fadeAbove),
-        contentAlignment = Alignment.BottomCenter,
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(StickyConnectButtonHeight),
+        shape = RoundedCornerShape(20.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = buttonColor,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 6.dp,
+            pressedElevation = 2.dp,
+            disabledElevation = 0.dp,
+        ),
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .hazeChild(state = hazeState, style = glassStyle) {
-                    blurRadius = 12.dp
-                    // Gradient blur: none at top → full under the button (no frosted “card” halo)
-                    progressive = HazeProgressive.verticalGradient(
-                        startIntensity = 0f,
-                        endIntensity = 1f,
-                        preferPerformance = true,
-                    )
-                }
-                .background(
-                    Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0.0f to scrimBase.copy(alpha = 0f),
-                            0.40f to scrimBase.copy(alpha = 0.18f),
-                            0.78f to scrimBase.copy(alpha = 0.42f),
-                            1.0f to scrimBase.copy(alpha = 0.62f),
-                        ),
-                    ),
-                ),
+        Icon(
+            imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
         )
-        Button(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(StickyConnectButtonHeight),
-            shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = buttonColor,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-            elevation = ButtonDefaults.buttonElevation(
-                defaultElevation = 6.dp,
-                pressedElevation = 2.dp,
-                disabledElevation = 0.dp,
-            ),
-        ) {
-            Icon(
-                imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = when {
-                    sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
-                    sessionUp -> "Остановить"
-                    connecting -> "Подключение…"
-                    probing -> "Проверка…"
-                    else -> "Подключить"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = when {
+                sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
+                sessionUp -> "Остановить"
+                connecting -> "Подключение…"
+                probing -> "Проверка…"
+                else -> "Подключить"
+            },
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
 }
 
