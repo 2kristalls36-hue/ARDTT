@@ -6,6 +6,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -84,6 +85,9 @@ import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.ServersRepository
+import com.nonamevpn.app.profile.NetworkEndpoint
+import com.nonamevpn.app.profile.ProfileRepository
+import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
@@ -99,6 +103,42 @@ private sealed class ServersNavScreen {
     data class Overview(val serverId: String) : ServersNavScreen()
     data class Clients(val serverId: String) : ServersNavScreen()
     data class Deploy(val serverId: String?) : ServersNavScreen()
+}
+
+/** Host of the currently applied VPN profile (direct endpoint, else bypass peer). */
+internal fun activeProfileHost(profile: VpnProfile?): String? {
+    if (profile == null) return null
+    return NetworkEndpoint.hostOf(profile.direct.endpoint)
+        ?: NetworkEndpoint.hostOf(profile.bypass.peer)
+}
+
+/**
+ * Server that backs the current profile/deploy in use.
+ * Prefer exact [DeployTarget.publicHost], then [DeployTarget.host]; if no profile match,
+ * fall back to the most recently successfully deployed server.
+ */
+internal fun findActiveDeployServerId(
+    servers: List<DeployTarget>,
+    profileHost: String?,
+): String? {
+    if (servers.isEmpty()) return null
+    val host = profileHost?.trim()?.takeIf { it.isNotEmpty() }
+    if (host != null) {
+        val byPublic = servers.filter {
+            it.publicHost.isNotBlank() && it.publicHost.equals(host, ignoreCase = true)
+        }
+        if (byPublic.isNotEmpty()) {
+            return byPublic.maxByOrNull { it.lastDeployedAtMs }?.id
+        }
+        val byHost = servers.filter { it.host.equals(host, ignoreCase = true) }
+        if (byHost.isNotEmpty()) {
+            return byHost.maxByOrNull { it.lastDeployedAtMs }?.id
+        }
+    }
+    return servers
+        .filter { it.lastDeployedAtMs > 0L }
+        .maxByOrNull { it.lastDeployedAtMs }
+        ?.id
 }
 
 private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
@@ -215,8 +255,13 @@ private fun AdminPageHeader(
 fun ServersScreen(
     serversRepo: ServersRepository,
     engine: DeployEngine,
+    profiles: ProfileRepository,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
+    val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
+    val activeDeployServerId = remember(servers, profile) {
+        findActiveDeployServerId(servers, activeProfileHost(profile))
+    }
     var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
         mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
     }
@@ -237,6 +282,7 @@ fun ServersScreen(
             is ServersNavScreen.List -> ServerListScreen(
                 servers = servers,
                 serversRepo = serversRepo,
+                activeDeployServerId = activeDeployServerId,
                 onOpenServer = { id -> screen = ServersNavScreen.Overview(id) },
                 onAddServer = { screen = ServersNavScreen.Deploy(null) },
             )
@@ -244,6 +290,7 @@ fun ServersScreen(
                 servers = servers,
                 serversRepo = serversRepo,
                 serverId = s.serverId,
+                isActiveDeploy = s.serverId == activeDeployServerId,
                 onOpenClients = { screen = ServersNavScreen.Clients(s.serverId) },
                 onOpenDeploy = { screen = ServersNavScreen.Deploy(s.serverId) },
                 onBack = { screen = ServersNavScreen.List },
@@ -277,6 +324,7 @@ fun ServersScreen(
 private fun ServerListScreen(
     servers: List<DeployTarget>,
     serversRepo: ServersRepository,
+    activeDeployServerId: String?,
     onOpenServer: (String) -> Unit,
     onAddServer: () -> Unit,
 ) {
@@ -403,6 +451,7 @@ private fun ServerListScreen(
                         ServerCard(
                             server = server,
                             health = healthById[server.id],
+                            isActiveDeploy = server.id == activeDeployServerId,
                             onOpenServer = { onOpenServer(server.id) },
                         )
                     }
@@ -432,6 +481,7 @@ private fun ServerListScreen(
 private fun ServerCard(
     server: DeployTarget,
     health: HealthUi?,
+    isActiveDeploy: Boolean,
     onOpenServer: () -> Unit,
 ) {
     val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs)
@@ -440,11 +490,17 @@ private fun ServerCard(
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
+    val activeBorder = if (isActiveDeploy) {
+        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+    } else {
+        null
+    }
 
     AppSectionCard(
         modifier = Modifier.clickable(onClick = onOpenServer),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
+        border = activeBorder,
         shadowElevation = 0.dp,
         shape = RoundedCornerShape(24.dp),
     ) {
@@ -512,6 +568,7 @@ private fun ServerOverviewHost(
     servers: List<DeployTarget>,
     serversRepo: ServersRepository,
     serverId: String,
+    isActiveDeploy: Boolean,
     onOpenClients: () -> Unit,
     onOpenDeploy: () -> Unit,
     onBack: () -> Unit,
@@ -542,6 +599,7 @@ private fun ServerOverviewHost(
         ServerOverviewScreen(
             server = server,
             health = health,
+            isActiveDeploy = isActiveDeploy,
             onOpenClients = onOpenClients,
             onOpenDeploy = onOpenDeploy,
             onBack = onBack,
@@ -592,6 +650,7 @@ private fun ServerOverviewHost(
 private fun ServerOverviewScreen(
     server: DeployTarget,
     health: HealthUi?,
+    isActiveDeploy: Boolean,
     onOpenClients: () -> Unit,
     onOpenDeploy: () -> Unit,
     onBack: () -> Unit,
@@ -605,6 +664,11 @@ private fun ServerOverviewScreen(
         statusColorHint != null -> statusColorHint
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
+    }
+    val activeBorder = if (isActiveDeploy) {
+        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+    } else {
+        null
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -678,6 +742,7 @@ private fun ServerOverviewScreen(
                 AppSectionCard(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
+                    border = activeBorder,
                     shape = RoundedCornerShape(24.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -724,6 +789,14 @@ private fun ServerOverviewScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = statusColor,
                     )
+                    if (isActiveDeploy) {
+                        Text(
+                            "Текущий профиль",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
             item {

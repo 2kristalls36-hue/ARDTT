@@ -231,6 +231,7 @@ fun AppRoot(
                     ServersScreen(
                         serversRepo = serversRepo,
                         engine = deployEngine,
+                        profiles = profiles,
                     )
                 }
                 composable(AppDestination.Profiles.route) {
