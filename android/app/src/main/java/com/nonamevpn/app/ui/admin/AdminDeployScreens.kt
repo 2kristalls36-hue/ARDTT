@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
@@ -244,6 +245,11 @@ private fun deployFreshnessBorder(
     } else {
         BorderStroke(2.dp, NvpnColors.warning)
     }
+}
+
+private fun isDeployOutdated(health: HealthUi?, expectedVersion: String): Boolean {
+    val online = health as? HealthUi.Online ?: return true
+    return !DeployBundle.isCurrent(online.deployVersion, expectedVersion)
 }
 
 @Composable
@@ -818,31 +824,64 @@ private fun ServerOverviewScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = statusColor,
                     )
-                    if (isActiveDeploy) {
+                    if (isActiveDeploy || health is HealthUi.Online || health == HealthUi.Offline) {
                         val online = health as? HealthUi.Online
-                        val installed = online?.deployVersion.orEmpty().ifBlank { "—" }
-                        val current = online != null &&
-                            DeployBundle.isCurrent(online.deployVersion, expectedVersion)
+                        val installed = online?.deployVersion.orEmpty().ifBlank {
+                            if (health == HealthUi.Offline) "нет связи" else "—"
+                        }
+                        val outdated = isDeployOutdated(health, expectedVersion)
+                        val current = !outdated && online != null
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = if (current) {
-                                NvpnColors.connected.copy(alpha = 0.18f)
-                            } else {
-                                NvpnColors.warning.copy(alpha = 0.18f)
+                            color = when {
+                                current -> NvpnColors.connected.copy(alpha = 0.18f)
+                                else -> NvpnColors.warning.copy(alpha = 0.18f)
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(
-                                if (current) {
-                                    "Актуальный деплой · $installed"
-                                } else {
-                                    "Неактуальный деплой · $installed → $expectedVersion"
-                                },
+                            Column(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (current) NvpnColors.connected else NvpnColors.warning,
-                            )
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    when {
+                                        current -> "Актуальный деплой · $installed"
+                                        else -> "Неактуальный деплой · $installed → $expectedVersion"
+                                    },
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (current) NvpnColors.connected else NvpnColors.warning,
+                                )
+                                Button(
+                                    onClick = onOpenDeploy,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (outdated) {
+                                            NvpnColors.warning
+                                        } else {
+                                            MaterialTheme.colorScheme.primary
+                                        },
+                                    ),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.CloudUpload,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        if (outdated) {
+                                            "Обновить деплой до $expectedVersion"
+                                        } else {
+                                            "Обновить деплой"
+                                        },
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -858,6 +897,14 @@ private fun ServerOverviewScreen(
             }
             item {
                 ServerActionCard(
+                    icon = Icons.Filled.CloudUpload,
+                    title = "Обновить деплой",
+                    description = "Переустановить стек · версия $expectedVersion",
+                    onClick = onOpenDeploy,
+                )
+            }
+            item {
+                ServerActionCard(
                     icon = Icons.Filled.People,
                     title = "Клиенты",
                     description = "Создание профилей через provision",
@@ -867,8 +914,8 @@ private fun ServerOverviewScreen(
             item {
                 ServerActionCard(
                     icon = Icons.Filled.Settings,
-                    title = "Управление сервером",
-                    description = "SSH, порты, обновление и переустановка",
+                    title = "Параметры сервера",
+                    description = "SSH, порты и учётные данные",
                     onClick = onOpenDeploy,
                 )
             }
@@ -1588,6 +1635,10 @@ fun DeployScreen(
         lastDeployedAtMs = deployedAt,
     )
 
+    val context = LocalContext.current
+    val expectedDeployVersion = remember(context) { DeployBundle.expectedVersion(context) }
+    val isUpdate = initial != null && lastDeployedAtMs > 0L
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1598,12 +1649,20 @@ fun DeployScreen(
         AppPageHeader(
             applyStatusBarsPadding = true,
             contentHorizontalPadding = true,
-            title = "Деплой",
-            subtitle = "SSH · установка Compose-стека ARDTT",
+            title = if (isUpdate) "Обновить деплой" else "Деплой",
+            subtitle = if (isUpdate) {
+                "Стек $expectedDeployVersion · SSH · Compose"
+            } else {
+                "SSH · установка Compose-стека ARDTT"
+            },
             onBack = onBack,
         )
         Text(
-            "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «Установить на VPS».",
+            if (isUpdate) {
+                "Кнопка «Обновить деплой» заново зальёт стек версии $expectedDeployVersion на VPS."
+            } else {
+                "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «Установить на VPS»."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
@@ -1757,9 +1816,26 @@ fun DeployScreen(
                 }
             },
             enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = RoundedCornerShape(16.dp),
         ) {
-            Text(if (busy) "Установка…" else "Установить на VPS")
+            Icon(
+                Icons.Filled.CloudUpload,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                when {
+                    busy && isUpdate -> "Обновление…"
+                    busy -> "Установка…"
+                    isUpdate -> "Обновить деплой ($expectedDeployVersion)"
+                    else -> "Установить на VPS"
+                },
+                fontWeight = FontWeight.SemiBold,
+            )
         }
 
         OutlinedButton(
