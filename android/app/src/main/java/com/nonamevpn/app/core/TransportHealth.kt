@@ -18,6 +18,12 @@ object TransportHealth {
     /** Approximate total traffic in KB (parsed from МБ counters). */
     @Volatile var trafficKb: Long = 0L
         private set
+    /** Approximate ↓ bytes from go_client МБ counters (Bypass live shade fallback). */
+    @Volatile var downBytes: Long = 0L
+        private set
+    /** Approximate ↑ bytes from go_client МБ counters (Bypass live shade fallback). */
+    @Volatile var upBytes: Long = 0L
+        private set
     @Volatile var lastTrafficGrowthAtMs: Long = 0L
         private set
 
@@ -26,6 +32,8 @@ object TransportHealth {
         lastStatsAtMs = 0L
         backendAlive = false
         trafficKb = 0L
+        downBytes = 0L
+        upBytes = 0L
         lastTrafficGrowthAtMs = 0L
     }
 
@@ -34,6 +42,8 @@ object TransportHealth {
         activeWorkers = 0
         lastStatsAtMs = 0L
         trafficKb = 0L
+        downBytes = 0L
+        upBytes = 0L
         lastTrafficGrowthAtMs = 0L
     }
 
@@ -52,6 +62,10 @@ object TransportHealth {
         activeWorkers = match.groupValues[1].toIntOrNull() ?: return
         lastStatsAtMs = System.currentTimeMillis()
         backendAlive = true
+        parseDownUpBytes(line)?.let { (down, up) ->
+            downBytes = down
+            upBytes = up
+        }
         val kb = parseTrafficKb(line)
         if (kb != null && kb > trafficKb) {
             trafficKb = kb
@@ -66,12 +80,18 @@ object TransportHealth {
         lastStatsAtMs >= sinceMs && activeWorkers > 0 && nowMs - lastStatsAtMs < 90_000L
 
     internal fun parseTrafficKb(line: String): Long? {
-        val down = downRe.find(line)?.groupValues?.get(1)?.toDoubleOrNull()
-        val up = upRe.find(line)?.groupValues?.get(1)?.toDoubleOrNull()
-        if (down != null && up != null) {
-            return ((down + up) * 1024.0).toLong()
+        val pair = parseDownUpBytes(line)
+        if (pair != null) {
+            return (pair.first + pair.second) / 1024L
         }
         val total = totalRe.find(line)?.groupValues?.get(1)?.toDoubleOrNull() ?: return null
         return (total * 1024.0).toLong()
+    }
+
+    /** Convert go_client `↓X.XX МБ / ↑Y.YY МБ` into approximate byte totals. */
+    internal fun parseDownUpBytes(line: String): Pair<Long, Long>? {
+        val down = downRe.find(line)?.groupValues?.get(1)?.toDoubleOrNull() ?: return null
+        val up = upRe.find(line)?.groupValues?.get(1)?.toDoubleOrNull() ?: return null
+        return (down * 1024.0 * 1024.0).toLong() to (up * 1024.0 * 1024.0).toLong()
     }
 }
