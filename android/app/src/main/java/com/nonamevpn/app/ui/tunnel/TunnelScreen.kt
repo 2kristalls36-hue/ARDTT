@@ -4,7 +4,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,11 +25,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,6 +64,8 @@ import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.WarpIcon
+import com.nonamevpn.app.ui.settings.SettingsSheet
 import com.nonamevpn.app.ui.theme.NvpnColors
 import android.app.Activity
 import android.content.Context
@@ -91,6 +94,7 @@ fun TunnelScreen(
     val scope = rememberCoroutineScope()
     var showImport by remember { mutableStateOf(false) }
     var showHash by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var callBusy by remember { mutableStateOf(false) }
@@ -202,6 +206,13 @@ fun TunnelScreen(
                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
                 color = MaterialTheme.colorScheme.primary,
             )
+            IconButton(onClick = { showSettings = true }) {
+                Icon(
+                    imageVector = Icons.Outlined.Settings,
+                    contentDescription = "Настройки",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
@@ -456,61 +467,39 @@ fun TunnelScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            RowSwitch(
-                title = "Скрыть свой IP",
-                subtitle = if (hideIp) {
-                    "Включено — выход через Cloudflare WARP (не IP VPS)"
-                } else {
-                    "Выход в интернет через WARP на VPS вместо адреса сервера"
-                },
-                checked = hideIp,
-                enabled = !connecting && ui.state != ConnState.Disconnecting,
-                onCheckedChange = { on ->
-                    scope.launch {
-                        settings.setHideIp(on)
-                        conn.setHideIp(on)
-                        AppLog.i("HideIP", if (on) "enabled" else "disabled")
-                    }
-                },
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                WarpIcon()
+                RowSwitch(
+                    title = "Скрыть свой IP",
+                    subtitle = if (hideIp) {
+                        "Включено — выход через Cloudflare WARP (не IP VPS)"
+                    } else {
+                        "Выход в интернет через WARP на VPS вместо адреса сервера"
+                    },
+                    checked = hideIp,
+                    enabled = !connecting && ui.state != ConnState.Disconnecting,
+                    onCheckedChange = { on ->
+                        scope.launch {
+                            settings.setHideIp(on)
+                            conn.setHideIp(on)
+                            AppLog.i("HideIP", if (on) "enabled" else "disabled")
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
+    }
 
-        if (profile != null) {
-            Button(
-                onClick = { launchFilePicker() },
-                enabled = !sessionUp && !importBusy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (importBusy) "Читаем файл…" else "Импорт из файла…", fontWeight = FontWeight.SemiBold)
-            }
-            OutlinedButton(
-                onClick = { showImport = true },
-                enabled = !sessionUp && !importBusy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text("Вставить JSON вручную…")
-            }
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        profiles.clear()
-                        conn.clearCallHash()
-                    }
-                },
-                enabled = !sessionUp,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            ) {
-                Text("Удалить профиль")
-            }
-        }
+    if (showSettings) {
+        SettingsSheet(
+            settings = settings,
+            onDismiss = { showSettings = false },
+        )
     }
 
     if (showImport) {
@@ -692,9 +681,10 @@ private fun RowSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .then(
                 if (enabled) {
