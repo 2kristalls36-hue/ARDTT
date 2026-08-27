@@ -12,11 +12,18 @@ import org.json.JSONObject
 
 /** Talks to provision `/v1/hide-ip` so VPS policy-routes this host via WARP. */
 object HideIpApi {
+    /**
+     * @param viaVpn When true, use the default route (through an active VPN tunnel).
+     *   Required on Bypass/whitelist where underlay cannot reach VPS :9100.
+     * @param tryVpnFallback After underlay failure, retry on default route (tunnel).
+     */
     suspend fun setHideIp(
         provisionBaseUrl: String?,
         deviceId: String?,
         enabled: Boolean,
         context: Context? = null,
+        viaVpn: Boolean = false,
+        tryVpnFallback: Boolean = true,
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val base = provisionBaseUrl?.trimEnd('/') ?: return@withContext Result.failure(
             IllegalStateException("Нет provision URL в профиле"),
@@ -24,33 +31,47 @@ object HideIpApi {
         if (deviceId.isNullOrBlank()) {
             return@withContext Result.failure(IllegalStateException("Нет deviceId в профиле"))
         }
-        runCatching {
-            val url = URL("$base/v1/hide-ip")
-            val body = JSONObject()
-                .put("deviceId", deviceId)
-                .put("hideIp", enabled)
-                .toString()
-            // Prefer underlay so hide-ip still works while the VPN tunnel is up / broken.
-            val underlay = context?.let { pickUnderlayNetwork(it) }
-            val conn = openHttp(url, underlay).apply {
-                requestMethod = "POST"
-                connectTimeout = 8_000
-                readTimeout = 8_000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            val code = conn.responseCode
-            val resp = runCatching {
-                (if (code in 200..299) conn.inputStream else conn.errorStream)
-                    ?.bufferedReader()?.readText().orEmpty()
-            }.getOrDefault("")
-            conn.disconnect()
-            if (code !in 200..299) {
-                throw IllegalStateException("hide-ip HTTP $code: $resp")
-            }
-            AppLog.i("HideIP", "provision hideIp=$enabled ok device=$deviceId")
+        if (viaVpn) {
+            return@withContext postHideIp(base, deviceId, enabled, bindNetwork = null)
         }
+        val underlay = context?.let { pickUnderlayNetwork(it) }
+        val first = postHideIp(base, deviceId, enabled, bindNetwork = underlay)
+        if (first.isSuccess || !tryVpnFallback || underlay == null) {
+            return@withContext first
+        }
+        AppLog.i("HideIP", "underlay failed (${first.exceptionOrNull()?.message}) — retry via default route")
+        postHideIp(base, deviceId, enabled, bindNetwork = null)
+    }
+
+    private fun postHideIp(
+        base: String,
+        deviceId: String,
+        enabled: Boolean,
+        bindNetwork: Network?,
+    ): Result<Unit> = runCatching {
+        val url = URL("$base/v1/hide-ip")
+        val body = JSONObject()
+            .put("deviceId", deviceId)
+            .put("hideIp", enabled)
+            .toString()
+        val conn = openHttp(url, bindNetwork).apply {
+            requestMethod = "POST"
+            connectTimeout = 8_000
+            readTimeout = 8_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+        }
+        conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        val code = conn.responseCode
+        val resp = runCatching {
+            (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.readText().orEmpty()
+        }.getOrDefault("")
+        conn.disconnect()
+        if (code !in 200..299) {
+            throw IllegalStateException("hide-ip HTTP $code: $resp")
+        }
+        AppLog.i("HideIP", "provision hideIp=$enabled ok device=$deviceId")
     }
 
     private fun openHttp(url: URL, bindNetwork: Network?): HttpURLConnection {
