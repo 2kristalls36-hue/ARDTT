@@ -301,14 +301,14 @@ object VpnLiveStats {
     fun formatRateLine(downBytesPerSec: Long, upBytesPerSec: Long): String {
         val d = formatRateParts(downBytesPerSec)
         val u = formatRateParts(upBytesPerSec)
-        return "↓${d.value} ${d.unit.trim()}  ↑${u.value} ${u.unit.trim()}"
+        return "↓${d.value.trim()} ${d.unit.trim()}  ↑${u.value.trim()} ${u.unit.trim()}"
     }
 
-    /** Example: `↓ 71.50 КБ  ↑ 52.60 КБ` */
+    /** Example: `↓ 71.5 КБ  ↑ 52.6 КБ` */
     fun formatBytesLine(downBytes: Long, upBytes: Long): String {
         val d = formatBytesParts(downBytes)
         val u = formatBytesParts(upBytes)
-        return "↓${d.value} ${d.unit.trim()}  ↑${u.value} ${u.unit.trim()}"
+        return "↓${d.value.trim()} ${d.unit.trim()}  ↑${u.value.trim()} ${u.unit.trim()}"
     }
 
     data class FixedParts(val value: String, val unit: String)
@@ -322,7 +322,7 @@ object VpnLiveStats {
             else -> (bits / 1_000_000_000.0) to "Гб/с"
         }
         return FixedParts(
-            value = String.format(Locale.US, "%6.2f", num),
+            value = String.format(Locale.US, "%.2f", num),
             unit = unit,
         )
     }
@@ -336,7 +336,7 @@ object VpnLiveStats {
             else -> (b / (1024.0 * 1024.0 * 1024.0)) to "ГБ"
         }
         return FixedParts(
-            value = String.format(Locale.US, "%6.2f", num),
+            value = String.format(Locale.US, "%.1f", num),
             unit = unit,
         )
     }

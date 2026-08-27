@@ -1080,10 +1080,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             appsWhitelist = appsWhitelist,
         ) ?: ConnectionManager.ShadeContent(
             title = when (path) {
-                VpnPath.Direct -> "ARDTT · Прямое"
-                VpnPath.Bypass -> "ARDTT · Обход"
+                VpnPath.Direct -> "Прямое подключение"
+                VpnPath.Bypass -> "Обход"
             },
             ip = "…",
+            pathLabel = when (path) {
+                VpnPath.Direct -> "Прямое"
+                VpnPath.Bypass -> "Обход"
+            },
             showTotals = false,
             showWhitelistIcon = appsWhitelist,
             statusText = text.ifBlank { getString(R.string.notif_running) },
@@ -1158,6 +1162,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 )
             }
             setTextViewText(R.id.notif_ip, shade.ip)
+            setTextViewText(R.id.notif_path, shade.pathLabel)
+            setViewVisibility(
+                R.id.notif_path,
+                if (shade.pathLabel.isNotBlank()) android.view.View.VISIBLE else android.view.View.GONE,
+            )
             setViewVisibility(
                 R.id.notif_warp_icon,
                 if (shade.showWarpIcon) android.view.View.VISIBLE else android.view.View.GONE,
@@ -1180,7 +1189,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_TUN_ADDRESS = "tun_address"
         const val EXTRA_RESTART_REASON = "restart_reason"
         private const val NOTIF_ID = 42
-        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v5"
-        private const val CHANNEL_MIN = "ardtt_vpn_min_v5"
+        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v6"
+        private const val CHANNEL_MIN = "ardtt_vpn_min_v6"
     }
 }
