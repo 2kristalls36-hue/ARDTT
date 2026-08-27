@@ -979,7 +979,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
-            listOf("nvpn_tunnel", "nvpn_tunnel_min", "ardtt_vpn_shade_v1", "ardtt_vpn_min_v1").forEach { legacy ->
+            listOf(
+                "nvpn_tunnel",
+                "nvpn_tunnel_min",
+                "ardtt_vpn_shade_v1",
+                "ardtt_vpn_min_v1",
+                "ardtt_vpn_shade_v2",
+                "ardtt_vpn_min_v2",
+            ).forEach { legacy ->
                 runCatching { nm.deleteNotificationChannel(legacy) }
             }
             nm.createNotificationChannel(
