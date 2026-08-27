@@ -942,9 +942,9 @@ class ConnectionManager(
         scope.launch {
             val hideIp = _ui.value.hideIp
             // WARP policy + MSS path need a beat longer than plain VPS SNAT.
-            val initialDelay = if (hideIp) 2_500L else 1_200L
+            val initialDelay = if (hideIp) 2_500L else 1_000L
             delay(initialDelay)
-            val attempts = if (hideIp) 4 else 2
+            val attempts = if (hideIp) 5 else 4
             repeat(attempts) { attempt ->
                 var wait = 0
                 while (softRestartInProgress && wait < 30) {
@@ -956,18 +956,28 @@ class ConnectionManager(
                     if (_ui.value.state != ConnState.Connected) return@repeat
                 }
                 AppLog.i(TAG, "egress ip refresh ($reason) attempt=${attempt + 1} hideIp=$hideIp")
+                // Prefer underlay to reach provision :9100 while app is excluded from TUN.
                 val ip = EgressIpProbe.refresh(
                     hideIp = _ui.value.hideIp,
                     provisionBaseUrl = resolveProvisionUrl(),
                     deviceId = profile?.deviceId,
                     context = appContext,
-                    viaVpn = true,
+                    viaVpn = false,
                 )
                 refreshVpnNotification()
                 if (!ip.isNullOrBlank()) return@launch
-                delay(1_500L * (attempt + 1))
+                delay(1_200L * (attempt + 1))
             }
         }
+    }
+
+    /** Manual retry from Tunnel status panel. */
+    fun requestEgressIpRefresh() {
+        if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.PausedTrustedWifi) {
+            return
+        }
+        EgressIpProbe.invalidate()
+        scheduleEgressIpRefresh("manual")
     }
 
     private fun startTunnel(path: VpnPath) {

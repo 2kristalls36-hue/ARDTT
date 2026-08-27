@@ -6,7 +6,6 @@ import android.net.VpnService
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,15 +20,11 @@ import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,7 +50,6 @@ import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
-import kotlin.math.abs
 import kotlinx.coroutines.launch
 
 @Composable
@@ -77,8 +71,6 @@ fun AppRoot(
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
-    var dragTargetIndex by remember { mutableIntStateOf(-1) }
-    var dragProgress by remember { mutableFloatStateOf(0f) }
 
     val tabs = AppDestination.entries.filter {
         it.inBottomNav && (!it.adminOnly || admin)
@@ -171,96 +163,51 @@ fun AppRoot(
     Box(modifier = Modifier.fillMaxSize()) {
         AppBackdrop(modifier = Modifier.fillMaxSize())
 
-        Box(
+        NavHost(
+            navController = navController,
+            startDestination = AppDestination.Tunnel.route,
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(selectedNavRoute, tabs) {
-                    var totalDrag = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = {
-                            totalDrag = 0f
-                            dragTargetIndex = -1
-                            dragProgress = 0f
-                        },
-                        onDragCancel = {
-                            dragTargetIndex = -1
-                            dragProgress = 0f
-                        },
-                        onDragEnd = {
-                            if (dragTargetIndex in tabs.indices && dragProgress >= 0.5f) {
-                                navigateTab(tabs[dragTargetIndex].route)
-                            }
-                            dragTargetIndex = -1
-                            dragProgress = 0f
-                        },
-                    ) { change, dragAmount ->
-                        change.consume()
-                        totalDrag += dragAmount
-                        if (abs(totalDrag) < 12f) {
-                            dragTargetIndex = -1
-                            dragProgress = 0f
-                            return@detectHorizontalDragGestures
-                        }
-                        val currentIndex = tabs.indexOfFirst { it.route == selectedNavRoute }
-                        val candidate = if (totalDrag < 0f) currentIndex + 1 else currentIndex - 1
-                        if (candidate !in tabs.indices) {
-                            dragTargetIndex = -1
-                            dragProgress = 0f
-                            return@detectHorizontalDragGestures
-                        }
-                        dragTargetIndex = candidate
-                        dragProgress = (abs(totalDrag) / 180f).coerceIn(0f, 1f)
-                    }
-                },
+                .padding(bottom = 88.dp),
         ) {
-            NavHost(
-                navController = navController,
-                startDestination = AppDestination.Tunnel.route,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 88.dp),
-            ) {
-                composable(AppDestination.Tunnel.route) {
-                    TunnelScreen(
-                        settings = settings,
-                        profiles = profiles,
-                        onRequestConnect = { requestVpnThenConnect() },
-                    )
-                }
-                composable(AppDestination.Servers.route) {
-                    ServersScreen(
-                        serversRepo = serversRepo,
-                        engine = deployEngine,
-                        profiles = profiles,
-                    )
-                }
-                composable(AppDestination.Profiles.route) {
-                    ProfilesScreen(
-                        settings = settings,
-                        profiles = profiles,
-                        onApplied = { navigateTab(AppDestination.Tunnel.route) },
-                    )
-                }
-                composable(AppDestination.Exceptions.route) {
-                    ExceptionsScreen(settings = settings)
-                }
-                composable(AppDestination.Logs.route) {
-                    LogsScreen()
-                }
-                composable(AppDestination.Settings.route) {
-                    SettingsScreen(settings = settings)
-                }
+            composable(AppDestination.Tunnel.route) {
+                TunnelScreen(
+                    settings = settings,
+                    profiles = profiles,
+                    onRequestConnect = { requestVpnThenConnect() },
+                )
             }
-
-            NvpnNavigationBar(
-                items = navItems,
-                selectedRoute = selectedNavRoute,
-                onSelect = { route -> navigateTab(route) },
-                dragTargetIndex = dragTargetIndex,
-                dragProgress = dragProgress,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+            composable(AppDestination.Servers.route) {
+                ServersScreen(
+                    serversRepo = serversRepo,
+                    engine = deployEngine,
+                    profiles = profiles,
+                )
+            }
+            composable(AppDestination.Profiles.route) {
+                ProfilesScreen(
+                    settings = settings,
+                    profiles = profiles,
+                    onApplied = { navigateTab(AppDestination.Tunnel.route) },
+                )
+            }
+            composable(AppDestination.Exceptions.route) {
+                ExceptionsScreen(settings = settings)
+            }
+            composable(AppDestination.Logs.route) {
+                LogsScreen()
+            }
+            composable(AppDestination.Settings.route) {
+                SettingsScreen(settings = settings)
+            }
         }
+
+        NvpnNavigationBar(
+            items = navItems,
+            selectedRoute = selectedNavRoute,
+            onSelect = { route -> navigateTab(route) },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 

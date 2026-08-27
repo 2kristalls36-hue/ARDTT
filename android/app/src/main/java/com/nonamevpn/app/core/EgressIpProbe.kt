@@ -12,13 +12,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * Public egress IP as seen through the active VPN (ifconfig-style).
+ * Public egress IP for traffic leaving the VPS (and Cloudflare when Hide-IP/WARP is on).
  *
  * The VPN app process is usually excluded from the TUN (Bypass TURN dial), so a
- * plain HttpURLConnection never observes WARP SNAT. When [hideIp] is on we ask
- * provision `/v1/egress-ip`, which probes via `warp0` on the VPS.
- *
- * Fetched after connect and after Hide-IP flips — not on a timer.
+ * plain HttpURLConnection from the phone often never sees tunnel/WARP SNAT.
+ * Primary source is therefore provision `/v1/egress-ip` on the VPS; local
+ * ifconfig endpoints are only a last-resort fallback.
  */
 object EgressIpProbe {
     private val endpoints = listOf(
@@ -33,23 +32,30 @@ object EgressIpProbe {
     var lastError: String? = null
         private set
 
+    /** Last successful probe path for diagnostics (provision/warp, provision, ifconfig…). */
+    @Volatile
+    var lastVia: String? = null
+        private set
+
     fun current(): String? = cached.get()
 
     fun clear() {
         cached.set(null)
         lastError = null
+        lastVia = null
     }
 
     /** Mark unknown while egress is changing (Hide-IP / reconnect). */
     fun invalidate() {
         cached.set(null)
+        lastError = null
     }
 
     /**
-     * @param hideIp When true, prefer provision WARP egress IP (via warp0).
+     * @param hideIp When true, provision probes via warp0 (Cloudflare).
      * @param provisionBaseUrl Profile provision base (e.g. http://vps:9100).
      * @param deviceId Profile device id for per-user hideIp lookup on VPS.
-     * @param context Used to optionally bind the local ifconfig probe to the VPN network.
+     * @param context Used to bind sockets to underlay / VPN when needed.
      * @param viaVpn Prefer default/VPN route when talking to provision (tunnel up).
      */
     suspend fun refresh(
@@ -59,52 +65,64 @@ object EgressIpProbe {
         context: Context? = null,
         viaVpn: Boolean = false,
     ): String? = withContext(Dispatchers.IO) {
-        if (hideIp) {
+        val errors = mutableListOf<String>()
+
+        // 1) Provision on VPS — source of truth for client tunnel egress / WARP.
+        if (!provisionBaseUrl.isNullOrBlank()) {
             val fromProvision = runCatching {
                 fetchProvisionEgressIp(
                     provisionBaseUrl = provisionBaseUrl,
                     deviceId = deviceId,
                     context = context,
                     viaVpn = viaVpn,
+                    viaWarp = hideIp,
                 )
             }.getOrElse {
-                lastError = it.message
-                AppLog.w(TAG, "provision warp egress failed: ${it.message}")
+                val msg = it.message ?: "provision failed"
+                errors += msg
+                AppLog.w(TAG, "provision egress failed viaWarp=$hideIp: $msg")
                 null
             }
             if (!fromProvision.isNullOrBlank()) {
                 cached.set(fromProvision)
                 lastError = null
-                AppLog.i(TAG, "egress ip=$fromProvision via=provision/warp")
+                lastVia = if (hideIp) "provision/warp" else "provision"
+                AppLog.i(TAG, "egress ip=$fromProvision via=$lastVia")
                 return@withContext fromProvision
             }
+        } else {
+            errors += "нет provision URL"
         }
 
+        // 2) Local ifconfig — last resort (often wrong while app is excluded from TUN).
         val vpnNet = context?.let { pickVpnNetwork(it) }
-        var lastFail: String? = null
         for (url in endpoints) {
             val ip = runCatching { fetchIp(url, vpnNet) }.getOrElse {
-                lastFail = it.message
+                errors += "${hostOf(url)}: ${it.message}"
                 null
             }
             if (!ip.isNullOrBlank()) {
                 cached.set(ip)
                 lastError = null
-                val via = if (vpnNet != null) "vpn+$url" else url
-                AppLog.i(TAG, "egress ip=$ip via=$via")
+                lastVia = if (vpnNet != null) "vpn+$url" else url
+                AppLog.i(TAG, "egress ip=$ip via=$lastVia")
                 return@withContext ip
             }
         }
-        lastError = lastFail ?: "empty"
+
+        lastError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
         AppLog.w(TAG, "egress ip failed: $lastError")
         null
     }
+
+    private fun hostOf(url: String): String = runCatching { URL(url).host }.getOrDefault(url)
 
     private fun fetchProvisionEgressIp(
         provisionBaseUrl: String?,
         deviceId: String?,
         context: Context?,
         viaVpn: Boolean,
+        viaWarp: Boolean,
     ): String {
         val base = provisionBaseUrl?.trimEnd('/')
             ?: error("Нет provision URL")
@@ -114,15 +132,21 @@ object EgressIpProbe {
             if (!deviceId.isNullOrBlank()) {
                 params += "deviceId=" + java.net.URLEncoder.encode(deviceId.trim(), Charsets.UTF_8.name())
             }
-            // Force WARP probe even if users.json lag behind the toggle.
-            params += "viaWarp=1"
+            params += if (viaWarp) "viaWarp=1" else "viaWarp=0"
             append(params.joinToString("&"))
         }
-        val underlay = if (!viaVpn) context?.let { pickUnderlayNetwork(it) } else null
-        val first = runCatching { getProvisionIp(q, underlay) }
+        // Prefer underlay when tunnel is up but app is excluded from TUN —
+        // provision :9100 is on the VPS public host, reachable without VPN.
+        val underlay = context?.let { pickUnderlayNetwork(it) }
+        val firstBind = when {
+            !viaVpn -> underlay
+            underlay != null -> underlay
+            else -> null
+        }
+        val first = runCatching { getProvisionIp(q, firstBind) }
         if (first.isSuccess) return first.getOrThrow()
-        if (underlay != null) {
-            AppLog.i(TAG, "provision egress underlay failed (${first.exceptionOrNull()?.message}) — retry default")
+        if (firstBind != null) {
+            AppLog.i(TAG, "provision egress bind failed (${first.exceptionOrNull()?.message}) — retry default")
             return getProvisionIp(q, bindNetwork = null)
         }
         throw first.exceptionOrNull() ?: IllegalStateException("provision egress failed")
@@ -131,8 +155,8 @@ object EgressIpProbe {
     private fun getProvisionIp(url: String, bindNetwork: Network?): String {
         val conn = openHttp(URL(url), bindNetwork).apply {
             requestMethod = "GET"
-            connectTimeout = 5_000
-            readTimeout = 5_000
+            connectTimeout = 6_000
+            readTimeout = 8_000
             setRequestProperty("Accept", "application/json")
         }
         try {
@@ -206,9 +230,7 @@ object EgressIpProbe {
 
     internal fun looksLikeIp(value: String): Boolean {
         if (value.isBlank() || value.length > 45) return false
-        // IPv4
         if (value.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))) return true
-        // Rough IPv6
         if (value.contains(':') && value.all { it.isLetterOrDigit() || it == ':' || it == '.' }) {
             return true
         }
