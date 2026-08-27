@@ -55,7 +55,8 @@ class ServersRepository(context: Context) {
                     .put("sudoPassword", t.sudoPassword)
                     .put("publicHost", t.publicHost.ifBlank { t.host })
                     .put("directPort", t.directPort)
-                    .put("bypassPort", t.bypassPort),
+                    .put("bypassPort", t.bypassPort)
+                    .put("lastDeployedAtMs", t.lastDeployedAtMs),
             )
         }
         prefs.edit().putString(KEY, arr.toString()).apply()
@@ -83,6 +84,7 @@ class ServersRepository(context: Context) {
                             publicHost = o.optString("publicHost", ""),
                             directPort = o.optInt("directPort", 51820),
                             bypassPort = o.optInt("bypassPort", 56003),
+                            lastDeployedAtMs = o.optLong("lastDeployedAtMs", 0L),
                         ),
                     )
                 }
