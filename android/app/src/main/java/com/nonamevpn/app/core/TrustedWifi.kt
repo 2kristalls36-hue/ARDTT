@@ -41,17 +41,34 @@ fun decideTrustedWifiTransition(
     wifi: ConnectedWifiState,
     trustedSsids: Set<String>,
 ): TrustedWifiTransition {
-    if (!enabled) return TrustedWifiTransition.None
+    // Turning the feature off (or clearing the list) while paused must resume VPN.
+    if (!enabled) {
+        return if (waiting) TrustedWifiTransition.ResumeVpn else TrustedWifiTransition.None
+    }
     if (trustedSsids.isEmpty()) {
         return if (waiting) TrustedWifiTransition.ResumeVpn else TrustedWifiTransition.None
     }
     if (waiting) {
         if (!wifi.connected) return TrustedWifiTransition.ResumeVpn
         if (!wifi.ssidAvailable) return TrustedWifiTransition.ResumeVpn
-        return if (wifi.ssid in trustedSsids) TrustedWifiTransition.None else TrustedWifiTransition.ResumeVpn
+        return if (isTrustedSsid(wifi.ssid, trustedSsids)) {
+            TrustedWifiTransition.None
+        } else {
+            TrustedWifiTransition.ResumeVpn
+        }
     }
     if (!tunnelRunning || !wifi.ssidAvailable) return TrustedWifiTransition.None
-    return if (wifi.ssid in trustedSsids) TrustedWifiTransition.EnterWaiting else TrustedWifiTransition.None
+    return if (isTrustedSsid(wifi.ssid, trustedSsids)) {
+        TrustedWifiTransition.EnterWaiting
+    } else {
+        TrustedWifiTransition.None
+    }
+}
+
+/** Case-insensitive match — some OEMs alter SSID casing across APIs. */
+fun isTrustedSsid(ssid: String, trustedSsids: Set<String>): Boolean {
+    if (ssid.isBlank()) return false
+    return trustedSsids.any { it.equals(ssid, ignoreCase = true) }
 }
 
 fun sanitizeTrustedWifiSsid(value: String): String {
@@ -82,11 +99,14 @@ fun hasTrustedWifiBackgroundPermission(context: Context): Boolean =
         ContextCompat.checkSelfPermission(context, BACKGROUND_LOCATION_PERMISSION) ==
         PackageManager.PERMISSION_GRANTED
 
-fun trustedWifiAccessProblem(context: Context): TrustedWifiAccessProblem? {
+fun trustedWifiAccessProblem(
+    context: Context,
+    requireBackground: Boolean = true,
+): TrustedWifiAccessProblem? {
     if (!hasTrustedWifiForegroundPermission(context)) {
         return TrustedWifiAccessProblem.ForegroundPermission
     }
-    if (!hasTrustedWifiBackgroundPermission(context)) {
+    if (requireBackground && !hasTrustedWifiBackgroundPermission(context)) {
         return TrustedWifiAccessProblem.BackgroundPermission
     }
     val locationManager = context.getSystemService(LocationManager::class.java)
@@ -97,7 +117,10 @@ fun trustedWifiAccessProblem(context: Context): TrustedWifiAccessProblem? {
 }
 
 @Suppress("DEPRECATION")
-fun readConnectedWifiState(context: Context): ConnectedWifiState {
+fun readConnectedWifiState(
+    context: Context,
+    requireBackground: Boolean = true,
+): ConnectedWifiState {
     val appContext = context.applicationContext
     val connectivityManager = appContext.getSystemService(ConnectivityManager::class.java)
     val wifiConnected = runCatching {
@@ -110,7 +133,7 @@ fun readConnectedWifiState(context: Context): ConnectedWifiState {
     }.getOrDefault(false)
     if (!wifiConnected) return ConnectedWifiState(connected = false)
 
-    val accessProblem = trustedWifiAccessProblem(appContext)
+    val accessProblem = trustedWifiAccessProblem(appContext, requireBackground = requireBackground)
     if (accessProblem != null) {
         return ConnectedWifiState(connected = true, accessProblem = accessProblem)
     }

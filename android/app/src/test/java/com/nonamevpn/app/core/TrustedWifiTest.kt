@@ -66,13 +66,23 @@ class TrustedWifiTest {
     }
 
     @Test
-    fun disabledFeatureDoesNothingUnlessWaitingWithEmptyList() {
+    fun disabledFeatureResumesWhenWaiting() {
         assertEquals(
             TrustedWifiTransition.None,
             decideTrustedWifiTransition(
                 enabled = false,
                 tunnelRunning = true,
                 waiting = false,
+                wifi = ConnectedWifiState(connected = true, ssid = "Home"),
+                trustedSsids = setOf("Home"),
+            ),
+        )
+        assertEquals(
+            TrustedWifiTransition.ResumeVpn,
+            decideTrustedWifiTransition(
+                enabled = false,
+                tunnelRunning = false,
+                waiting = true,
                 wifi = ConnectedWifiState(connected = true, ssid = "Home"),
                 trustedSsids = setOf("Home"),
             ),
@@ -96,5 +106,20 @@ class TrustedWifiTest {
                 trustedSsids = emptySet(),
             ) == TrustedWifiTransition.EnterWaiting,
         )
+    }
+
+    @Test
+    fun trustedSsidMatchIsCaseInsensitive() {
+        assertEquals(
+            TrustedWifiTransition.EnterWaiting,
+            decideTrustedWifiTransition(
+                enabled = true,
+                tunnelRunning = true,
+                waiting = false,
+                wifi = ConnectedWifiState(connected = true, ssid = "HomeWiFi"),
+                trustedSsids = setOf("homewifi"),
+            ),
+        )
+        assertTrue(isTrustedSsid("Cafe", setOf("cafe")))
     }
 }

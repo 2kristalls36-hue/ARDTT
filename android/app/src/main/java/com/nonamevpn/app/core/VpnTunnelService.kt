@@ -36,6 +36,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -80,6 +81,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var lastHandoffAtMs = 0L
     @Volatile private var sessionStartedAtMs = 0L
     private var notifLiveJob: Job? = null
+    private var trustedWifiSettingsJob: Job? = null
 
     @Volatile private var trustedWifiWaiting = false
     @Volatile private var trustedWifiWaitingSsid = ""
@@ -143,6 +145,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         registerScreenReceiver()
         startWatchdog()
         startNotifLiveUpdates()
+        startTrustedWifiSettingsObserver()
         launchBackend(path, softRestart = false)
         scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
     }
@@ -522,6 +525,22 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
     }
 
+    /** React immediately when user toggles/ disables / deletes trusted SSIDs in Settings. */
+    private fun startTrustedWifiSettingsObserver() {
+        if (trustedWifiSettingsJob?.isActive == true) return
+        trustedWifiSettingsJob = scope.launch {
+            kotlinx.coroutines.flow.combine(
+                settingsRepo.trustedWifiEnabledFlow,
+                settingsRepo.trustedWifiSsidsFlow,
+            ) { enabled, ssids -> enabled to ssids }
+                .distinctUntilChanged()
+                .collect {
+                    AppLog.i(TAG, "trusted wifi settings changed — re-evaluate")
+                    scheduleTrustedWifiEvaluation(0L)
+                }
+        }
+    }
+
     private suspend fun evaluateTrustedWifi() {
         if (userStopRequested) return
         val (enabled, ssids) = runCatching { settingsRepo.trustedWifiSnapshot() }
@@ -541,8 +560,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 enterTrustedWifiWaiting(ssid)
             }
             TrustedWifiTransition.ResumeVpn -> {
-                AppLog.i(TAG, "trusted wifi resume")
-                resumeFromTrustedWifi("left trusted wifi")
+                AppLog.i(TAG, "trusted wifi resume (enabled=$enabled ssids=${ssids.size})")
+                resumeFromTrustedWifi("trusted wifi settings/network change")
             }
             TrustedWifiTransition.None -> Unit
         }
@@ -570,9 +589,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     private fun resumeFromTrustedWifi(reason: String) {
         if (!trustedWifiWaiting) return
+        val path = TunnelSessionHolder.config?.path
+        if (path == null) {
+            AppLog.e(TAG, "resume from trusted wifi aborted: no session config ($reason)")
+            // Keep waiting=true so a later restart / settings change can retry;
+            // surface UI so the user is not stuck on a silent pause.
+            ConnectionManager.getOrNull()?.onTrustedWifiResuming()
+            ConnectionManager.getOrNull()?.onTunnelFailed("Нет конфигурации сессии после доверенной Wi‑Fi")
+            trustedWifiWaiting = false
+            trustedWifiWaitingSsid = ""
+            return
+        }
         trustedWifiWaiting = false
         trustedWifiWaitingSsid = ""
-        val path = TunnelSessionHolder.config?.path ?: return
         AppLog.i(TAG, "resume from trusted wifi: $reason")
         ConnectionManager.getOrNull()?.onTrustedWifiResuming()
         tunnelSessionActive = true
@@ -767,6 +796,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         softRestartJob = null
         notifLiveJob?.cancel()
         notifLiveJob = null
+        trustedWifiSettingsJob?.cancel()
+        trustedWifiSettingsJob = null
         stableNetworkReconnectPending = false
         softRestartInProgress = false
         trustedWifiEvalJob?.cancel()

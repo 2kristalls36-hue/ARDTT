@@ -281,20 +281,45 @@ fun SettingsScreen(settings: AppSettingsRepository) {
 @Composable
 private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     val context = LocalContext.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val enabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val ssids by settings.trustedWifiSsidsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     var hint by remember { mutableStateOf<String?>(null) }
-    val wifi = remember(enabled, ssids) { readConnectedWifiState(context) }
+    var wifi by remember {
+        mutableStateOf(readConnectedWifiState(context, requireBackground = false))
+    }
+    var manualSsid by remember { mutableStateOf("") }
+
+    fun refreshWifi() {
+        wifi = readConnectedWifiState(context, requireBackground = false)
+    }
+
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                refreshWifi()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(enabled, ssids) { refreshWifi() }
 
     val bgLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        hint = if (granted) "Фоновый доступ к локации разрешён" else "Без фоновой локации SSID в фоне недоступен"
+        refreshWifi()
+        hint = if (granted) {
+            "Фоновый доступ к локации разрешён"
+        } else {
+            "Без фоновой локации VPN не увидит SSID в фоне — для добавления в настройках хватает обычной локации"
+        }
     }
     val fineLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        refreshWifi()
         if (granted) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                 !hasTrustedWifiBackgroundPermission(context)
@@ -314,38 +339,66 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     ) {
         Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            "В этих сетях VPN сам выключается. При выходе — поднимается снова.",
+            "В этих сетях VPN сам выключается. При выходе, отключении опции или удалении сети — поднимается снова. Добавляется текущая Wi‑Fi или имя вручную (списка всех сетей нет).",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         RowSetting(
             title = "Включить",
-            subtitle = when (val p = trustedWifiAccessProblem(context)) {
+            subtitle = when (val p = trustedWifiAccessProblem(context, requireBackground = false)) {
                 TrustedWifiAccessProblem.ForegroundPermission -> "Нужно разрешение локации"
-                TrustedWifiAccessProblem.BackgroundPermission -> "Нужна фоновая локация (для SSID)"
                 TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе"
-                null -> if (ssids.isEmpty()) "Добавьте хотя бы одну сеть" else "${ssids.size} сетей"
+                TrustedWifiAccessProblem.BackgroundPermission -> "Нужна фоновая локация"
+                null -> when {
+                    !hasTrustedWifiBackgroundPermission(context) ->
+                        "Для авто-паузы в фоне выдайте «Локация → Всегда»"
+                    ssids.isEmpty() -> "Добавьте хотя бы одну сеть"
+                    else -> "${ssids.size} сетей"
+                }
             },
             checked = enabled,
             onCheckedChange = { on ->
                 if (on && !hasTrustedWifiForegroundPermission(context)) {
                     fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                } else if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    !hasTrustedWifiBackgroundPermission(context)
+                ) {
+                    bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 }
                 scope.launch { settings.setTrustedWifiEnabled(on) }
             },
         )
+        if (wifi.connected && wifi.ssidAvailable) {
+            Text(
+                "Сейчас: «${wifi.ssid}»",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else if (wifi.connected) {
+            Text(
+                when (wifi.accessProblem) {
+                    TrustedWifiAccessProblem.ForegroundPermission -> "Wi‑Fi есть, но нет разрешения локации"
+                    TrustedWifiAccessProblem.LocationDisabled -> "Wi‑Fi есть, но геолокация выключена"
+                    else -> "Wi‑Fi есть, имя сети недоступно — введите SSID вручную"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         OutlinedButton(
             onClick = {
                 if (!hasTrustedWifiForegroundPermission(context)) {
                     fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                     return@OutlinedButton
                 }
-                val ssid = wifi.ssid
+                val fresh = readConnectedWifiState(context, requireBackground = false)
+                wifi = fresh
+                val ssid = fresh.ssid
                 if (ssid.isBlank()) {
-                    hint = when (wifi.accessProblem) {
+                    hint = when (fresh.accessProblem) {
                         TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию"
-                        TrustedWifiAccessProblem.BackgroundPermission -> "Выдайте фоновую локацию"
-                        else -> "Сейчас не Wi‑Fi или имя сети недоступно"
+                        TrustedWifiAccessProblem.ForegroundPermission -> "Выдайте локацию"
+                        else -> "Имя сети не прочиталось — введите SSID вручную ниже"
                     }
                 } else {
                     scope.launch {
@@ -362,6 +415,33 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 if (wifi.ssidAvailable) "Добавить «${wifi.ssid}»"
                 else "Добавить текущую Wi‑Fi",
             )
+        }
+        androidx.compose.material3.OutlinedTextField(
+            value = manualSsid,
+            onValueChange = { manualSsid = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text("Или введите SSID вручную") },
+            shape = RoundedCornerShape(14.dp),
+        )
+        OutlinedButton(
+            onClick = {
+                val clean = manualSsid.trim()
+                if (clean.isBlank()) {
+                    hint = "Введите имя Wi‑Fi (SSID)"
+                    return@OutlinedButton
+                }
+                scope.launch {
+                    settings.addTrustedWifiSsid(clean)
+                    hint = "Добавлено: $clean"
+                    manualSsid = ""
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            enabled = enabled && manualSsid.isNotBlank(),
+        ) {
+            Text("Добавить введённое имя")
         }
         ssids.forEach { ssid ->
             Row(
