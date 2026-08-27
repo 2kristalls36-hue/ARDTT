@@ -510,10 +510,24 @@ class ConnectionManager(
     }
 
     fun disconnect() {
+        val state = _ui.value.state
+        if (state == ConnState.Probing) {
+            probeJob?.cancel()
+            probeJob = null
+            _ui.value = _ui.value.copy(
+                state = if (_ui.value.probe != null) ConnState.Ready else ConnState.Idle,
+                statusText = _ui.value.probe?.message ?: "Отменено",
+                softInfo = softInfoFor(_ui.value.probe),
+                connectEnabled = connectAllowed(_ui.value.probe),
+                lastError = null,
+            )
+            AppLog.i(TAG, "Probe cancelled by user")
+            return
+        }
         if (
-            _ui.value.state != ConnState.Connected &&
-            _ui.value.state != ConnState.Connecting &&
-            _ui.value.state != ConnState.PausedTrustedWifi
+            state != ConnState.Connected &&
+            state != ConnState.Connecting &&
+            state != ConnState.PausedTrustedWifi
         ) {
             return
         }
