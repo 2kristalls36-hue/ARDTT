@@ -9,24 +9,29 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
@@ -79,10 +84,17 @@ import kotlinx.coroutines.launch
 
 /** Gap between sticky Connect and the bottom tab bar (4–8 px). */
 private val StickyConnectTabGap = 6.dp
+/** Height of the floating bottom nav zone (matches AppRoot inset). */
+private val BottomNavZoneHeight = 88.dp
 /** Connect button height. */
 private val StickyConnectButtonHeight = 58.dp
-/** Extra scroll padding so the last content can clear the floating Connect button. */
-private val StickyConnectScrollReserve = 80.dp
+/** Extra space for Cancel row while connecting. */
+private val StickyCancelRowHeight = 52.dp
+/**
+ * Idle Connect looks like Material disabled (~38% opacity).
+ * Full opacity while the finger is held down.
+ */
+private const val ConnectIdleAlpha = 0.38f
 
 private fun Context.findActivity(): Activity? {
     var ctx: Context? = this
@@ -182,12 +194,15 @@ fun TunnelScreen(
         conn.setHideIp(hideIp)
     }
 
-    val connected = ui.state == ConnState.Connected
-    val pausedTrusted = ui.state == ConnState.PausedTrustedWifi
     val connecting = ui.state == ConnState.Connecting
+    val pausedTrusted = ui.state == ConnState.PausedTrustedWifi
+    val connected = ui.state == ConnState.Connected
     val sessionUp = connected || pausedTrusted
-    val busy = ui.state == ConnState.Probing || connecting || ui.state == ConnState.Disconnecting
-    val pathBusy = connecting || ui.state == ConnState.Disconnecting
+    val probing = ui.state == ConnState.Probing
+    val disconnecting = ui.state == ConnState.Disconnecting
+    val busy = probing || connecting || disconnecting
+    val pathBusy = connecting || disconnecting
+    val canCancelConnect = connecting || probing
 
     LaunchedEffect(sessionUp, hideIp) {
         while (sessionUp) {
@@ -245,12 +260,22 @@ fun TunnelScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = StickyConnectScrollReserve),
+                .padding(horizontal = 16.dp)
+                // Bottom reserve: sticky Connect (+ Cancel) + tab bar — content scrolls under them
+                .padding(
+                    bottom = BottomNavZoneHeight + StickyConnectTabGap + StickyConnectButtonHeight +
+                        if (canCancelConnect) StickyCancelRowHeight + 10.dp else 16.dp,
+                ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // Scrollable top inset — feed continues under the status bar (infinite-tape feel)
+            Spacer(
+                Modifier.height(
+                    WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+                ),
+            )
+
             AppPageHeader(
                 title = "ARDTT",
                 subtitle = "Туннель и быстрые настройки",
@@ -517,23 +542,25 @@ fun TunnelScreen(
             )
         }
 
-        // Sticky «Подключить» — floats above tab bar; content scrolls underneath (no blur)
+        // Sticky «Подключить» — floats above tab bar; content scrolls underneath
         StickyConnectBar(
             buttonColor = buttonColor,
             sessionUp = sessionUp,
             pausedTrusted = pausedTrusted,
             connecting = connecting,
-            probing = ui.state == ConnState.Probing,
+            probing = probing,
             enabled = !busy && (sessionUp || ui.connectEnabled),
+            showCancel = canCancelConnect,
             onClick = {
                 if (sessionUp) conn.disconnect() else onRequestConnect()
             },
+            onCancel = { conn.disconnect() },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .zIndex(2f)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = StickyConnectTabGap),
+                .padding(bottom = BottomNavZoneHeight + StickyConnectTabGap),
         )
     }
 
@@ -597,42 +624,95 @@ private fun StickyConnectBar(
     connecting: Boolean,
     probing: Boolean,
     enabled: Boolean,
+    showCancel: Boolean,
     onClick: () -> Unit,
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.height(StickyConnectButtonHeight),
-        shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = buttonColor,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 6.dp,
-            pressedElevation = 2.dp,
-            disabledElevation = 0.dp,
-        ),
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    // Idle / in-progress: same soft transparency as Material disabled; opaque while held.
+    val containerAlpha = when {
+        sessionUp -> 1f
+        pressed -> 1f
+        connecting || probing -> ConnectIdleAlpha
+        else -> ConnectIdleAlpha
+    }
+    val contentAlpha = when {
+        sessionUp -> 1f
+        pressed -> 1f
+        connecting || probing -> ConnectIdleAlpha
+        else -> ConnectIdleAlpha
+    }
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Icon(
-            imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
-            contentDescription = null,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = when {
-                sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
-                sessionUp -> "Остановить"
-                connecting -> "Подключение…"
-                probing -> "Проверка…"
-                else -> "Подключить"
-            },
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-        )
+        if (showCancel) {
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(StickyCancelRowHeight - 4.dp),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.error),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Отменить",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            interactionSource = interactionSource,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(StickyConnectButtonHeight),
+            shape = RoundedCornerShape(20.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = buttonColor.copy(alpha = containerAlpha),
+                contentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = contentAlpha),
+                disabledContainerColor = buttonColor.copy(alpha = ConnectIdleAlpha),
+                disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = ConnectIdleAlpha),
+            ),
+            elevation = ButtonDefaults.buttonElevation(
+                defaultElevation = if (pressed || sessionUp) 6.dp else 2.dp,
+                pressedElevation = 2.dp,
+                disabledElevation = 0.dp,
+            ),
+        ) {
+            Icon(
+                imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = when {
+                    sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
+                    sessionUp -> "Остановить"
+                    connecting -> "Подключение…"
+                    probing -> "Проверка…"
+                    else -> "Подключить"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
     }
 }
 

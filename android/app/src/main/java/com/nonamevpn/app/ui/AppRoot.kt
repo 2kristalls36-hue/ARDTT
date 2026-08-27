@@ -52,6 +52,9 @@ import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import kotlinx.coroutines.launch
 
+/** Space reserved above the floating bottom nav so non-tunnel tabs stay readable. */
+private val BottomNavContentInset = 88.dp
+
 @Composable
 fun AppRoot(
     settings: AppSettingsRepository,
@@ -171,9 +174,7 @@ fun AppRoot(
         NavHost(
             navController = navController,
             startDestination = AppDestination.Tunnel.route,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 88.dp),
+            modifier = Modifier.fillMaxSize(),
         ) {
             composable(AppDestination.Tunnel.route) {
                 TunnelScreen(
@@ -183,27 +184,37 @@ fun AppRoot(
                 )
             }
             composable(AppDestination.Servers.route) {
-                ServersScreen(
-                    serversRepo = serversRepo,
-                    engine = deployEngine,
-                    profiles = profiles,
-                )
+                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
+                    ServersScreen(
+                        serversRepo = serversRepo,
+                        engine = deployEngine,
+                        profiles = profiles,
+                    )
+                }
             }
             composable(AppDestination.Profiles.route) {
-                ProfilesScreen(
-                    settings = settings,
-                    profiles = profiles,
-                    onApplied = { navigateTab(AppDestination.Tunnel.route) },
-                )
+                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
+                    ProfilesScreen(
+                        settings = settings,
+                        profiles = profiles,
+                        onApplied = { navigateTab(AppDestination.Tunnel.route) },
+                    )
+                }
             }
             composable(AppDestination.Exceptions.route) {
-                ExceptionsScreen(settings = settings)
+                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
+                    ExceptionsScreen(settings = settings)
+                }
             }
             composable(AppDestination.Logs.route) {
-                LogsScreen()
+                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
+                    LogsScreen()
+                }
             }
             composable(AppDestination.Settings.route) {
-                SettingsScreen(settings = settings)
+                Box(modifier = Modifier.fillMaxSize().padding(bottom = BottomNavContentInset)) {
+                    SettingsScreen(settings = settings)
+                }
             }
         }
 
