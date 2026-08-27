@@ -299,10 +299,10 @@ while true; do
     bring_up
     sync_rules
   fi
-  # Retry DNS iif rules when VPN ifaces appear late after warp start (~every 30s).
+  # Retry DNS iif rules when VPN ifaces appear late after warp start (~every 10s).
   # Match iproute2 wording: "iif awg0 ipproto udp dport 53 lookup main"
   DNS_RETRY_TICK=$((DNS_RETRY_TICK + 1))
-  if [[ $((DNS_RETRY_TICK % 30)) -eq 0 ]]; then
+  if [[ $((DNS_RETRY_TICK % 10)) -eq 0 ]]; then
     local_need=0
     for iface in ${DNS_IIFACES}; do
       if ip link show "${iface}" >/dev/null 2>&1; then
