@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 51
-        versionName = "0.5.33-shade-tile-widget"
+        versionCode = 52
+        versionName = "0.5.34-deploy-save-nav"
     }
 
     ndkVersion = "27.0.12077973"

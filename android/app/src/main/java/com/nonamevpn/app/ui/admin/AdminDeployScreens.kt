@@ -39,6 +39,8 @@ fun DeployScreen(
     serversRepo: ServersRepository,
     engine: DeployEngine,
     initial: DeployTarget? = null,
+    onSaved: () -> Unit = {},
+    onBack: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val busy by engine.busy.collectAsStateWithLifecycle()
@@ -98,7 +100,7 @@ fun DeployScreen(
     ) {
         Text("Деплой", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Установка Compose-стека ARDTT на VPS по SSH (Docker, provision/direct/bypass/warp).",
+            "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «Установить на VPS».",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
@@ -209,7 +211,8 @@ fun DeployScreen(
                     return@OutlinedButton
                 }
                 serversRepo.upsert(buildTarget())
-                status = "Сервер сохранён"
+                status = "Сервер сохранён — возврат к списку…"
+                onSaved()
             },
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
@@ -242,6 +245,14 @@ fun DeployScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(if (busy) "Установка…" else "Установить на VPS")
+        }
+
+        OutlinedButton(
+            onClick = onBack,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("К списку серверов")
         }
 
         if (busy) {
