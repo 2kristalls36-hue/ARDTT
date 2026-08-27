@@ -107,9 +107,20 @@ bring_up() {
   iptables -C FORWARD -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT || true
 
+  # warp0 MTU is 1280; VPN ingress is often higher (AWG ~1420). Without MSS clamp,
+  # TCP SYN advertises too-large MSS → blackhole on Hide-IP (small pings work, HTTPS dies).
+  iptables -t mangle -C FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+    || iptables -t mangle -A FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+      -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu || true
+  iptables -t mangle -C FORWARD -i "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+    || iptables -t mangle -A FORWARD -i "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+      -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu || true
+
   ensure_dns_masquerade
 
-  echo "[warp] ${IFACE} up; default in table ${TABLE}"
+  echo "[warp] ${IFACE} up; default in table ${TABLE}; TCPMSS clamp on FORWARD"
 }
 
 # Explicit DNS MASQUERADE on WAN for VPN client subnets (upstream 1.1.1.1 via main).
@@ -236,13 +247,20 @@ has_hideip_from() {
 
 # Keep VPN/LAN and VPS-public destinations on main even when hideIp from-rule is on.
 # Otherwise DNS/gateway and provision (:9100) get sucked into warp0 → stalls on toggle.
+# Do NOT exempt 172.16.0.0/12 — that is WARP's own CGNAT (warp0 = 172.16.0.2/32).
 LOCAL_EXEMPT_PRIO="${NVPN_WARP_LOCAL_PRIO:-280}"
 
 install_local_exempt_rules() {
   local p="${LOCAL_EXEMPT_PRIO}"
   local net
-  for net in 10.8.0.0/24 10.9.0.0/24 10.66.0.0/16 172.16.0.0/12 127.0.0.0/8; do
-    ip rule del to "${net}" lookup main pref "${p}" 2>/dev/null || true
+  # Drop legacy 172.16/12 exempt if an older image left it behind.
+  ip rule del to 172.16.0.0/12 lookup main 2>/dev/null || true
+  # Clear our exempt priority band so pref numbers stay stable across edits.
+  local clear_p
+  for clear_p in $(seq "${LOCAL_EXEMPT_PRIO}" $((LOCAL_EXEMPT_PRIO + 16))); do
+    ip rule del pref "${clear_p}" 2>/dev/null || true
+  done
+  for net in 10.8.0.0/24 10.9.0.0/24 10.66.0.0/16 127.0.0.0/8; do
     if ip rule add to "${net}" lookup main priority "${p}" 2>/dev/null; then
       echo "[warp] local exempt to ${net} → main prio=${p}"
     fi
@@ -253,7 +271,6 @@ install_local_exempt_rules() {
     pub="$(jq -r '.config.publicHost // empty' "${USERS}" 2>/dev/null || true)"
   fi
   if [[ -n "${pub}" ]]; then
-    ip rule del to "${pub}" lookup main pref "${p}" 2>/dev/null || true
     if ip rule add to "${pub}" lookup main priority "${p}" 2>/dev/null; then
       echo "[warp] local exempt to ${pub} (publicHost) → main prio=${p}"
     fi
@@ -340,6 +357,10 @@ cleanup_on_exit() {
   iptables -t nat -D POSTROUTING -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j MASQUERADE 2>/dev/null || true
   iptables -D FORWARD -i "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT 2>/dev/null || true
   iptables -D FORWARD -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT 2>/dev/null || true
+  iptables -t mangle -D FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+  iptables -t mangle -D FORWARD -i "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
 }
 
 trap cleanup_on_exit EXIT INT TERM
