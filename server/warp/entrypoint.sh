@@ -234,6 +234,45 @@ has_hideip_from() {
   ip rule show 2>/dev/null | grep -E "from ${bare}(/32)? .*lookup ${TABLE}|from ${bare}(/32)? lookup ${TABLE}" | grep -q .
 }
 
+# Keep VPN/LAN and VPS-public destinations on main even when hideIp from-rule is on.
+# Otherwise DNS/gateway and provision (:9100) get sucked into warp0 → stalls on toggle.
+LOCAL_EXEMPT_PRIO="${NVPN_WARP_LOCAL_PRIO:-280}"
+
+install_local_exempt_rules() {
+  local p="${LOCAL_EXEMPT_PRIO}"
+  local net
+  for net in 10.8.0.0/24 10.9.0.0/24 10.66.0.0/16 172.16.0.0/12 127.0.0.0/8; do
+    ip rule del to "${net}" lookup main pref "${p}" 2>/dev/null || true
+    if ip rule add to "${net}" lookup main priority "${p}" 2>/dev/null; then
+      echo "[warp] local exempt to ${net} → main prio=${p}"
+    fi
+    p=$((p + 1))
+  done
+  local pub=""
+  if [[ -f "${USERS}" ]]; then
+    pub="$(jq -r '.config.publicHost // empty' "${USERS}" 2>/dev/null || true)"
+  fi
+  if [[ -n "${pub}" ]]; then
+    ip rule del to "${pub}" lookup main pref "${p}" 2>/dev/null || true
+    if ip rule add to "${pub}" lookup main priority "${p}" 2>/dev/null; then
+      echo "[warp] local exempt to ${pub} (publicHost) → main prio=${p}"
+    fi
+  fi
+}
+
+# Drop conntrack for a client so old TCP sessions die fast after egress flip
+# (otherwise phone apps hang until idle timeout).
+flush_client_conntrack() {
+  local bare="$1"
+  bare="${bare%/32}"
+  [[ -z "${bare}" ]] && return 0
+  if command -v conntrack >/dev/null 2>&1; then
+    conntrack -D -s "${bare}" 2>/dev/null || true
+    conntrack -D -d "${bare}" 2>/dev/null || true
+    echo "[warp] conntrack flushed for ${bare}"
+  fi
+}
+
 # Diff-based hideIp sync: add/remove only changed client prefixes.
 # Does NOT tear down DNS→main rules (that caused internet blips on rapid toggles).
 sync_rules() {
@@ -265,6 +304,7 @@ sync_rules() {
       fi
       ip rule del from "${from}" lookup "${TABLE}" 2>/dev/null || true
       echo "[warp] hideIp remove from=${from}"
+      flush_client_conntrack "${from}"
     fi
   done <<< "$(ip rule show 2>/dev/null | grep "lookup ${TABLE}" || true)"
 
@@ -285,6 +325,7 @@ sync_rules() {
     done
     add_hideip_rule "${addr}" "${prio}" || true
     echo "[warp] hideIp add ${addr} → table ${TABLE} prio=${prio}"
+    flush_client_conntrack "${bare}"
     count=$((count + 1))
     prio=$((prio + 1))
   done <<< "${desired}"
@@ -307,20 +348,34 @@ ensure_account
 build_conf
 bring_up
 install_dns_main_rules
+install_local_exempt_rules
 sync_rules
 
 # Soft recycle watcher: if RSS grows huge, restart tunnel in-process (no docker restart).
 LAST_MTIME=0
+PENDING_SYNC=0
+PENDING_SINCE=0
 DNS_RETRY_TICK=0
+# Coalesce rapid hideIp toggles: apply only after users.json stable ~1s.
+SYNC_DEBOUNCE_SEC="${NVPN_WARP_SYNC_DEBOUNCE:-1}"
 while true; do
-  # Fast hideIp toggle: poll users.json every 1s (was 5s).
   sleep 1
   if [[ -f "${USERS}" ]]; then
     now="$(stat -c %Y "${USERS}" 2>/dev/null || echo 0)"
     if [[ "${now}" != "${LAST_MTIME}" ]]; then
       LAST_MTIME="${now}"
-      echo "[warp] users.json changed — resync hideIp rules"
-      sync_rules
+      PENDING_SYNC=1
+      PENDING_SINCE="$(date +%s)"
+      echo "[warp] users.json changed — debounce ${SYNC_DEBOUNCE_SEC}s before hideIp sync"
+    fi
+    if [[ "${PENDING_SYNC}" -eq 1 ]]; then
+      now_s="$(date +%s)"
+      if [[ $((now_s - PENDING_SINCE)) -ge "${SYNC_DEBOUNCE_SEC}" ]]; then
+        PENDING_SYNC=0
+        echo "[warp] debounce done — resync hideIp rules"
+        install_local_exempt_rules
+        sync_rules
+      fi
     fi
   fi
   # Keep link up
@@ -328,6 +383,7 @@ while true; do
     echo "[warp] ${IFACE} missing — bringing up again"
     bring_up
     install_dns_main_rules
+    install_local_exempt_rules
     sync_rules
   fi
   # Retry DNS iif rules when VPN ifaces appear late after warp start (~every 10s).
