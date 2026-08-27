@@ -314,7 +314,6 @@ class ConnectionManager(
                     lastError = null,
                 )
 
-                val provision = resolveProvisionUrl()
                 val deferHideIp =
                     snap.hideIp &&
                         snap.probe?.provisionOk != true &&
