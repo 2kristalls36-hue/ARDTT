@@ -174,6 +174,11 @@ class ConnectionManager(
                     }
                     AppLog.i(TAG, "Hide-IP applied — $why (soft-restart sockets)")
                     requestTransportRestart(why)
+                    // Soft-restart also refreshes on tunnel-up; schedule a late
+                    // WARP/VPS IP fetch in case the first attempt races policy apply.
+                    scheduleEgressIpRefresh("hide-ip-applied")
+                } else {
+                    scheduleEgressIpRefresh("hide-ip-synced-offline")
                 }
             } else {
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
@@ -939,12 +944,33 @@ class ConnectionManager(
     /** Resolve public egress IP after tunnel is up (and after Hide-IP soft-restart). */
     private fun scheduleEgressIpRefresh(reason: String) {
         scope.launch {
-            delay(1_200)
-            if (_ui.value.state != ConnState.Connected) return@launch
-            if (softRestartInProgress) return@launch
-            AppLog.i(TAG, "egress ip refresh ($reason)")
-            EgressIpProbe.refresh()
-            refreshVpnNotification()
+            val hideIp = _ui.value.hideIp
+            // WARP policy + MSS path need a beat longer than plain VPS SNAT.
+            val initialDelay = if (hideIp) 2_500L else 1_200L
+            delay(initialDelay)
+            val attempts = if (hideIp) 4 else 2
+            repeat(attempts) { attempt ->
+                var wait = 0
+                while (softRestartInProgress && wait < 30) {
+                    delay(400)
+                    wait++
+                }
+                if (_ui.value.state != ConnState.Connected) {
+                    delay(600)
+                    if (_ui.value.state != ConnState.Connected) return@repeat
+                }
+                AppLog.i(TAG, "egress ip refresh ($reason) attempt=${attempt + 1} hideIp=$hideIp")
+                val ip = EgressIpProbe.refresh(
+                    hideIp = _ui.value.hideIp,
+                    provisionBaseUrl = resolveProvisionUrl(),
+                    deviceId = profile?.deviceId,
+                    context = appContext,
+                    viaVpn = true,
+                )
+                refreshVpnNotification()
+                if (!ip.isNullOrBlank()) return@launch
+                delay(1_500L * (attempt + 1))
+            }
         }
     }
 

@@ -176,7 +176,7 @@ fun TunnelScreen(
     val busy = ui.state == ConnState.Probing || connecting || ui.state == ConnState.Disconnecting
     val pathBusy = connecting || ui.state == ConnState.Disconnecting
 
-    LaunchedEffect(sessionUp) {
+    LaunchedEffect(sessionUp, hideIp) {
         while (sessionUp) {
             publicIp = EgressIpProbe.current()
             delay(1_500)

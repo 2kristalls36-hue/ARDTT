@@ -11,7 +11,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -212,6 +214,54 @@ func runServer(store *Store, listen string) error {
 			"bypassIp": fmt.Sprintf("%s.%d", bypassBase, u.HostID),
 		})
 	})
+	// Public egress IP as seen by the Internet for this device's VPN traffic.
+	// When hideIp is on, probe via warp0 (Cloudflare WARP). Otherwise VPS WAN.
+	mux.HandleFunc("/v1/egress-ip", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		deviceID := r.URL.Query().Get("deviceId")
+		name := r.URL.Query().Get("name")
+		if r.Method == http.MethodPost {
+			var body struct {
+				DeviceID string `json:"deviceId"`
+				Name     string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+				if deviceID == "" {
+					deviceID = body.DeviceID
+				}
+				if name == "" {
+					name = body.Name
+				}
+			}
+		}
+		viaWarp := false
+		if deviceID != "" || name != "" {
+			if u, err := store.FindUserByDeviceOrName(deviceID, name); err == nil {
+				viaWarp = u.HideIP
+			}
+		}
+		// Client may force WARP probe right after toggle (users.json already flipped,
+		// but allow explicit override for races / diagnostics).
+		switch strings.ToLower(r.URL.Query().Get("viaWarp")) {
+		case "1", "true", "yes":
+			viaWarp = true
+		case "0", "false", "no":
+			viaWarp = false
+		}
+		ip, err := probeEgressIP(viaWarp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"ok":      true,
+			"ip":      ip,
+			"viaWarp": viaWarp,
+		})
+	})
 
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
@@ -381,6 +431,65 @@ func (s *Store) FindUser(name string) (User, error) {
 		}
 	}
 	return User{}, fmt.Errorf("not found")
+}
+
+func (s *Store) FindUserByDeviceOrName(deviceID, name string) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range s.Users {
+		if deviceID != "" && u.DeviceID == deviceID {
+			return u, nil
+		}
+		if name != "" && u.Name == name {
+			return u, nil
+		}
+	}
+	return User{}, fmt.Errorf("not found")
+}
+
+// probeEgressIP returns the VPS (or WARP) public IPv4 as seen by ifconfig-style services.
+// viaWarp binds curl to warp0 so the answer is the Cloudflare egress IP.
+func probeEgressIP(viaWarp bool) (string, error) {
+	endpoints := []string{
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+		"https://icanhazip.com",
+	}
+	var last error
+	for _, url := range endpoints {
+		args := []string{"-sS", "--max-time", "5", "-A", "curl/8.0", "-H", "Accept: text/plain"}
+		if viaWarp {
+			args = append(args, "--interface", "warp0")
+		}
+		args = append(args, url)
+		out, err := exec.Command("curl", args...).CombinedOutput()
+		if err != nil {
+			last = fmt.Errorf("%s: %w (%s)", url, err, strings.TrimSpace(string(out)))
+			continue
+		}
+		ip := strings.TrimSpace(string(out))
+		if idx := strings.IndexByte(ip, '\n'); idx >= 0 {
+			ip = strings.TrimSpace(ip[:idx])
+		}
+		if looksLikeIP(ip) {
+			return ip, nil
+		}
+		last = fmt.Errorf("%s: not an ip %q", url, ip)
+	}
+	if last == nil {
+		last = errors.New("empty")
+	}
+	return "", last
+}
+
+func looksLikeIP(value string) bool {
+	if value == "" || len(value) > 45 {
+		return false
+	}
+	if net.ParseIP(value) != nil {
+		return true
+	}
+	return false
 }
 
 // SetHideIP flips per-user WARP egress. Identified by deviceId (preferred) or name.

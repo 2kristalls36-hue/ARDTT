@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 56
-        versionName = "0.5.38"
+        versionCode = 57
+        versionName = "0.5.39"
     }
 
     ndkVersion = "27.0.12077973"
