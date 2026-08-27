@@ -289,6 +289,32 @@ object VpnLiveStats {
         return String.format(Locale.US, "%.2f ГБ", gb)
     }
 
+    /**
+     * Fixed-width rate for shade cells (monospace) so digits don't shift the row.
+     * Examples: `↓   0 Б/с`, `↓ 12.3 КБ/с`, `↓ 1.25 МБ/с`
+     */
+    fun formatRateFixed(bps: Long, down: Boolean): String {
+        val arrow = if (down) "↓" else "↑"
+        val body = when {
+            bps < 1024L -> String.format(Locale.US, "%4d Б/с", bps.coerceIn(0L, 9999L))
+            bps < 1024L * 1024L -> String.format(Locale.US, "%5.1f КБ/с", bps / 1024.0)
+            else -> String.format(Locale.US, "%5.2f МБ/с", bps / (1024.0 * 1024.0))
+        }
+        return arrow + body
+    }
+
+    /** Fixed-width session total for shade cells (monospace). */
+    fun formatBytesFixed(bytes: Long, down: Boolean): String {
+        val arrow = if (down) "↓" else "↑"
+        val body = when {
+            bytes < 1024L -> String.format(Locale.US, "%4d Б", bytes.coerceIn(0L, 9999L))
+            bytes < 1024L * 1024L -> String.format(Locale.US, "%5.1f КБ", bytes / 1024.0)
+            bytes < 1024L * 1024L * 1024L -> String.format(Locale.US, "%5.1f МБ", bytes / (1024.0 * 1024.0))
+            else -> String.format(Locale.US, "%5.2f ГБ", bytes / (1024.0 * 1024.0 * 1024.0))
+        }
+        return arrow + body
+    }
+
     fun formatDuration(startedAtMs: Long, nowMs: Long = System.currentTimeMillis()): String {
         if (startedAtMs <= 0L) return "00:00:00"
         val sec = ((nowMs - startedAtMs) / 1000L).coerceAtLeast(0L)
