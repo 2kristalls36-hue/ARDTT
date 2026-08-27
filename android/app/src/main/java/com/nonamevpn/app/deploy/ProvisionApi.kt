@@ -61,6 +61,7 @@ object ProvisionApi {
 
     /**
      * POST /v1/users with `{ "name": "..." }` — returns full profile JSON.
+     * Free create: no days / maxDevices limits.
      */
     suspend fun createUser(publicHost: String, name: String): Result<Pair<VpnProfile, String>> =
         withContext(Dispatchers.IO) {
@@ -84,6 +85,33 @@ object ProvisionApi {
                 }
             }
         }
+
+    /** GET /v1/profile/{name} — full profile JSON for an existing user. */
+    suspend fun fetchProfile(publicHost: String, name: String): Result<Pair<VpnProfile, String>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val clean = name.trim()
+                require(clean.isNotBlank()) { "Имя обязательно" }
+                val url = "${baseUrl(publicHost)}/v1/profile/${java.net.URLEncoder.encode(clean, Charsets.UTF_8.name())}"
+                val req = Request.Builder().url(url).get().build()
+                client.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        throw IllegalStateException("GET profile HTTP ${resp.code}: $body")
+                    }
+                    val profile = VpnProfileJson.parse(body)
+                    profile to body
+                }
+            }
+        }
+
+    suspend fun health(publicHost: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = "${baseUrl(publicHost)}/health"
+            val req = Request.Builder().url(url).get().build()
+            client.newCall(req).execute().use { it.isSuccessful }
+        }
+    }
 
     private fun parseUsers(raw: String): List<ProvisionUser> {
         val arr = JSONArray(raw)

@@ -166,7 +166,16 @@ if command -v firewall-cmd >/dev/null 2>&1; then
   firewall-cmd --add-port=9100/tcp --permanent || true
   firewall-cmd --reload || true
 fi
+if command -v iptables >/dev/null 2>&1; then
+  iptables -C INPUT -p udp --dport "$DIRECT_PORT" -j ACCEPT 2>/dev/null || \
+    iptables -I INPUT -p udp --dport "$DIRECT_PORT" -j ACCEPT || true
+  iptables -C INPUT -p udp --dport "$BYPASS_PORT" -j ACCEPT 2>/dev/null || \
+    iptables -I INPUT -p udp --dport "$BYPASS_PORT" -j ACCEPT || true
+  iptables -C INPUT -p tcp --dport 9100 -j ACCEPT 2>/dev/null || \
+    iptables -I INPUT -p tcp --dport 9100 -j ACCEPT || true
+fi
 
 prog 1.00 "Готово"
-echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST"
-echo "Создать пользователя: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"
+echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|provision=http://${PUBLIC_HOST}:9100"
+echo "Пользователи: в приложении Серверы → Пользователи (POST http://${PUBLIC_HOST}:9100/v1/users)"
+echo "Или CLI: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"

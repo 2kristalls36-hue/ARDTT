@@ -177,7 +177,7 @@ fun UsersScreen(
                             status = "Скопировано в буфер"
                         },
                         modifier = Modifier.weight(1f),
-                    ) { Text("Copy") }
+                    ) { Text("Копировать") }
                     Button(
                         onClick = {
                             scope.launch {
@@ -215,13 +215,33 @@ fun UsersScreen(
                 Text("Пусто", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             users.forEach { u ->
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     Text(u.name, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "hostId=${u.hostId} · ${u.deviceId}",
+                        "hostId=${u.hostId} · ${u.deviceId}" +
+                            if (u.hideIp) " · WARP" else "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                ProvisionApi.fetchProfile(publicHost, u.name)
+                                    .onSuccess { (profile, raw) ->
+                                        createdJson = raw
+                                        createdName = profile.name
+                                        status = "Профиль загружен: ${profile.name}"
+                                    }
+                                    .onFailure {
+                                        status = "Ошибка профиля: ${it.message}"
+                                    }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Показать профиль") }
                 }
             }
         }
