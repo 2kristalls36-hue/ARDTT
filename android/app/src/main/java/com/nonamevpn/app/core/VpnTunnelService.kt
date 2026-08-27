@@ -1048,12 +1048,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         )
         val shade = ConnectionManager.getOrNull()?.notificationShadeContent(sessionStartedAtMs)
             ?: ConnectionManager.ShadeContent(
-                duration = VpnLiveStats.formatDuration(sessionStartedAtMs),
                 rates = text.ifBlank { getString(R.string.notif_running) },
                 totals = "",
-                pathIp = when (path) {
-                    VpnPath.Direct -> "Прямое подключение · …"
-                    VpnPath.Bypass -> "Обход · …"
+                ip = "…",
+                path = when (path) {
+                    VpnPath.Direct -> "Прямое подключение"
+                    VpnPath.Bypass -> "Обход"
                 },
             )
         val remote = buildShadeRemoteViews(shade)
@@ -1061,18 +1061,25 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_vpn_key)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(shade.pathIp)
+            .setContentText(shade.summary)
             .setCustomContentView(remote)
             .setCustomBigContentView(remote)
-            // No DecoratedCustomViewStyle — it would repeat the app name above our header.
+            // System header = app name + chronometer (session time), no duplicate brand in body.
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSilent(false)
-            .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        if (sessionStartedAtMs > 0L && !trustedWifiWaiting) {
+            builder.setWhen(sessionStartedAtMs)
+                .setUsesChronometer(true)
+                .setShowWhen(true)
+        } else {
+            builder.setShowWhen(false)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setForegroundServiceBehavior(
                 NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE,
@@ -1086,11 +1093,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     private fun buildShadeRemoteViews(shade: ConnectionManager.ShadeContent): RemoteViews {
         return RemoteViews(packageName, R.layout.notif_vpn_shade).apply {
-            setTextViewText(R.id.notif_brand, getString(R.string.app_name))
-            setTextViewText(R.id.notif_duration, shade.duration)
             setTextViewText(R.id.notif_rates, shade.rates)
             setTextViewText(R.id.notif_totals, shade.totals)
-            setTextViewText(R.id.notif_path_ip, shade.pathIp)
+            setTextViewText(R.id.notif_ip, shade.ip)
+            setTextViewText(R.id.notif_path, shade.path)
             setViewVisibility(
                 R.id.notif_totals,
                 if (shade.totals.isBlank()) android.view.View.GONE else android.view.View.VISIBLE,
@@ -1109,7 +1115,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_TUN_ADDRESS = "tun_address"
         const val EXTRA_RESTART_REASON = "restart_reason"
         private const val NOTIF_ID = 42
-        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v2"
-        private const val CHANNEL_MIN = "ardtt_vpn_min_v2"
+        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v3"
+        private const val CHANNEL_MIN = "ardtt_vpn_min_v3"
     }
 }

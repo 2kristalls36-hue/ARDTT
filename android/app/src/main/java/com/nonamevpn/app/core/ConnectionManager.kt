@@ -855,23 +855,23 @@ class ConnectionManager(
      * Content for the custom VPN shade RemoteViews.
      */
     data class ShadeContent(
-        val duration: String,
         val rates: String,
         val totals: String,
-        val pathIp: String,
-    )
+        val ip: String,
+        val path: String,
+    ) {
+        val summary: String get() = "$ip · $path"
+    }
 
     fun notificationShadeContent(sessionStartedAtMs: Long = 0L): ShadeContent {
         val u = _ui.value
-        val duration = VpnLiveStats.formatDuration(sessionStartedAtMs)
         if (u.state == ConnState.PausedTrustedWifi) {
             val t = u.statusText.ifBlank { "VPN выключен в доверенной сети" }
-            return ShadeContent(duration, t, "", "Доверенная Wi‑Fi")
+            return ShadeContent(t, "", "—", "Доверенная Wi‑Fi")
         }
         if (softRestartInProgress || u.state == ConnState.Connecting) {
             val t = u.statusText.ifBlank { "Переподключение…" }
-            val path = shadePathLabel(u.activePath)
-            return ShadeContent(duration, t, "", "$path · …")
+            return ShadeContent(t, "", "…", shadePathLabel(u.activePath))
         }
 
         val down = VpnLiveStats.formatRate(VpnLiveStats.downBps)
@@ -880,14 +880,13 @@ class ConnectionManager(
         val tx = VpnLiveStats.formatBytes(VpnLiveStats.totalTx)
         val rates = "↓$down  ↑$up"
         val totals = "↓$rx  ↑$tx"
-        val ip = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
-        val path = shadePathLabel(u.activePath)
-        val pathIp = if (u.hideIp) {
-            "$path · $ip (IP скрыт за WARP)"
+        val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
+        val ip = if (u.hideIp && rawIp != "…") {
+            "$rawIp (IP скрыт за WARP)"
         } else {
-            "$path · $ip"
+            rawIp
         }
-        return ShadeContent(duration, rates, totals, pathIp)
+        return ShadeContent(rates, totals, ip, shadePathLabel(u.activePath))
     }
 
     private fun shadePathLabel(path: VpnPath?): String = when (path) {
@@ -902,7 +901,7 @@ class ConnectionManager(
         tunIp: String = "—",
     ): Pair<String, String> {
         val c = notificationShadeContent(sessionStartedAtMs)
-        return c.rates to c.pathIp
+        return c.rates to c.summary
     }
 
     fun notificationRunningText(): String = notificationContent().first
