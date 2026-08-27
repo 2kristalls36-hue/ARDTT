@@ -855,38 +855,47 @@ class ConnectionManager(
      * Content for the custom VPN shade RemoteViews.
      */
     data class ShadeContent(
-        val rates: String,
-        val totals: String,
+        val rateDown: String,
+        val rateUp: String,
+        val totalDown: String,
+        val totalUp: String,
         val ip: String,
         val path: String,
+        val showTotals: Boolean = true,
     ) {
         val summary: String get() = "$ip · $path"
+        val rates: String get() = "$rateDown $rateUp"
     }
 
     fun notificationShadeContent(sessionStartedAtMs: Long = 0L): ShadeContent {
         val u = _ui.value
         if (u.state == ConnState.PausedTrustedWifi) {
             val t = u.statusText.ifBlank { "VPN выключен в доверенной сети" }
-            return ShadeContent(t, "", "—", "Доверенная Wi‑Fi")
+            return ShadeContent(t, "", "", "", "—", "Доверенная Wi‑Fi", showTotals = false)
         }
         if (softRestartInProgress || u.state == ConnState.Connecting) {
             val t = u.statusText.ifBlank { "Переподключение…" }
-            return ShadeContent(t, "", "…", shadePathLabel(u.activePath))
+            return ShadeContent(t, "", "", "", "…", shadePathLabel(u.activePath), showTotals = false)
         }
 
-        val down = VpnLiveStats.formatRate(VpnLiveStats.downBps)
-        val up = VpnLiveStats.formatRate(VpnLiveStats.upBps)
-        val rx = VpnLiveStats.formatBytes(VpnLiveStats.totalRx)
-        val tx = VpnLiveStats.formatBytes(VpnLiveStats.totalTx)
-        val rates = "↓$down  ↑$up"
-        val totals = "↓$rx  ↑$tx"
+        val rateDown = VpnLiveStats.formatRateFixed(VpnLiveStats.downBps, down = true)
+        val rateUp = VpnLiveStats.formatRateFixed(VpnLiveStats.upBps, down = false)
+        val totalDown = VpnLiveStats.formatBytesFixed(VpnLiveStats.totalRx, down = true)
+        val totalUp = VpnLiveStats.formatBytesFixed(VpnLiveStats.totalTx, down = false)
         val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
         val ip = if (u.hideIp && rawIp != "…") {
             "$rawIp (IP скрыт за WARP)"
         } else {
             rawIp
         }
-        return ShadeContent(rates, totals, ip, shadePathLabel(u.activePath))
+        return ShadeContent(
+            rateDown = rateDown,
+            rateUp = rateUp,
+            totalDown = totalDown,
+            totalUp = totalUp,
+            ip = ip,
+            path = shadePathLabel(u.activePath),
+        )
     }
 
     private fun shadePathLabel(path: VpnPath?): String = when (path) {

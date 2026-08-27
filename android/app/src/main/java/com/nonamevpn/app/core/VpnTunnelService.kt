@@ -1055,13 +1055,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         )
         val shade = ConnectionManager.getOrNull()?.notificationShadeContent(sessionStartedAtMs)
             ?: ConnectionManager.ShadeContent(
-                rates = text.ifBlank { getString(R.string.notif_running) },
-                totals = "",
+                rateDown = text.ifBlank { getString(R.string.notif_running) },
+                rateUp = "",
+                totalDown = "",
+                totalUp = "",
                 ip = "…",
                 path = when (path) {
                     VpnPath.Direct -> "Прямое подключение"
                     VpnPath.Bypass -> "Обход"
                 },
+                showTotals = false,
             )
         val remote = buildShadeRemoteViews(shade)
 
@@ -1100,13 +1103,22 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     private fun buildShadeRemoteViews(shade: ConnectionManager.ShadeContent): RemoteViews {
         return RemoteViews(packageName, R.layout.notif_vpn_shade).apply {
-            setTextViewText(R.id.notif_rates, shade.rates)
-            setTextViewText(R.id.notif_totals, shade.totals)
+            setTextViewText(R.id.notif_rate_down, shade.rateDown)
+            setTextViewText(R.id.notif_rate_up, shade.rateUp)
+            setTextViewText(R.id.notif_total_down, shade.totalDown)
+            setTextViewText(R.id.notif_total_up, shade.totalUp)
             setTextViewText(R.id.notif_ip, shade.ip)
             setTextViewText(R.id.notif_path, shade.path)
+            val totalsVis = if (shade.showTotals) {
+                android.view.View.VISIBLE
+            } else {
+                android.view.View.GONE
+            }
+            setViewVisibility(R.id.notif_total_down, totalsVis)
+            setViewVisibility(R.id.notif_total_up, totalsVis)
             setViewVisibility(
-                R.id.notif_totals,
-                if (shade.totals.isBlank()) android.view.View.GONE else android.view.View.VISIBLE,
+                R.id.notif_rate_up,
+                if (shade.rateUp.isBlank()) android.view.View.GONE else android.view.View.VISIBLE,
             )
         }
     }

@@ -79,4 +79,17 @@ class VpnLiveStatsTest {
         assertEquals("1.5 КБ", VpnLiveStats.formatBytes(1536))
         assertEquals("00:01:05", VpnLiveStats.formatDuration(1_000L, 66_000L))
     }
+
+    @Test
+    fun formatFixedKeepsStableWidth() {
+        val a = VpnLiveStats.formatRateFixed(0, down = true)
+        val b = VpnLiveStats.formatRateFixed(12_300, down = true)
+        assertTrue(a.startsWith("↓"))
+        assertTrue(b.startsWith("↓"))
+        // Same unit-slot length class for monospace shade cells.
+        assertEquals(
+            VpnLiveStats.formatBytesFixed(100, down = false).length,
+            VpnLiveStats.formatBytesFixed(999, down = false).length,
+        )
+    }
 }
