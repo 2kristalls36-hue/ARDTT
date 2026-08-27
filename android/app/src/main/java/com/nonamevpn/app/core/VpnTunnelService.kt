@@ -254,22 +254,33 @@ class VpnTunnelService : VpnService(), TunEstablisher {
      * Forced Direct/Bypass: soft-restart same path.
      */
     private suspend fun runHandoverProbeAndRestart(reason: String) {
-        val underlay = pickBestUnderlyingNetwork()
-        val decision = ConnectionManager.getOrNull()
-            ?.decideNetworkHandover(underlay)
-            ?: NetworkHandoverDecision.SoftRestartSamePath
-        when (decision) {
-            is NetworkHandoverDecision.SwitchPath -> {
-                AppLog.i(TAG, "handover path switch → ${decision.path}")
-                requestSoftRestart(
-                    reason = "[СЕТЬ] $reason → ${decision.path}",
-                    force = true,
-                    pathOverride = decision.path,
-                )
+        if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) return
+        if (softRestartInProgress) {
+            AppLog.i(TAG, "handover probe skipped — soft restart already in progress ($reason)")
+            return
+        }
+        softRestartInProgress = true
+        try {
+            val underlay = pickBestUnderlyingNetwork()
+            val decision = ConnectionManager.getOrNull()
+                ?.decideNetworkHandover(underlay)
+                ?: NetworkHandoverDecision.SoftRestartSamePath
+            when (decision) {
+                is NetworkHandoverDecision.SwitchPath -> {
+                    AppLog.i(TAG, "handover path switch → ${decision.path}")
+                    requestSoftRestart(
+                        reason = "[СЕТЬ] $reason → ${decision.path}",
+                        force = true,
+                        pathOverride = decision.path,
+                    )
+                }
+                NetworkHandoverDecision.SoftRestartSamePath -> {
+                    requestSoftRestart(reason = "[СЕТЬ] $reason", force = true)
+                }
             }
-            NetworkHandoverDecision.SoftRestartSamePath -> {
-                requestSoftRestart(reason = "[СЕТЬ] $reason", force = true)
-            }
+        } catch (t: Throwable) {
+            softRestartInProgress = false
+            AppLog.e(TAG, "handover probe failed: ${t.message}")
         }
     }
 

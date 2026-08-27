@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.5.4-wifi-return"
+        versionCode = 23
+        versionName = "0.5.5-hideip-bypass"
     }
 
     ndkVersion = "27.0.12077973"

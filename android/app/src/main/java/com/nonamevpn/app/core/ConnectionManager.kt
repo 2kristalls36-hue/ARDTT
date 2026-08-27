@@ -94,6 +94,27 @@ class ConnectionManager(
         this.tunAddress = tunAddress
     }
 
+    /** Hide-IP must reach provision after tunnel is up (Bypass / whitelist underlay). */
+    @Volatile private var pendingHideIpSync: Boolean = false
+
+    private fun hideIpViaVpn(): Boolean {
+        val s = _ui.value.state
+        return s == ConnState.Connected || s == ConnState.Connecting
+    }
+
+    private suspend fun syncHideIpToProvision(
+        enabled: Boolean,
+        viaVpn: Boolean = hideIpViaVpn(),
+        tryVpnFallback: Boolean = true,
+    ): Result<Unit> = HideIpApi.setHideIp(
+        provisionBaseUrl = resolveProvisionUrl(),
+        deviceId = profile?.deviceId,
+        enabled = enabled,
+        context = appContext,
+        viaVpn = viaVpn,
+        tryVpnFallback = tryVpnFallback,
+    )
+
     fun setHideIp(enabled: Boolean) {
         val cur = _ui.value
         val status = if (cur.state == ConnState.Connected) {
@@ -111,15 +132,25 @@ class ConnectionManager(
             softInfo = softInfoFor(cur.probe),
             lastError = null,
         )
-        // Always push to provision (even Idle) so WARP rules cannot stick after toggle-off.
+        pendingHideIpSync = false
         scope.launch {
-            val base = resolveProvisionUrl()
-            val r = HideIpApi.setHideIp(base, profile?.deviceId, enabled, appContext)
+            val viaVpn = hideIpViaVpn()
+            if (!viaVpn && enabled && cur.probe?.provisionOk != true) {
+                pendingHideIpSync = true
+                AppLog.i(TAG, "Hide-IP queued until tunnel (provision unreachable on underlay)")
+                return@launch
+            }
+            val r = syncHideIpToProvision(enabled, viaVpn = viaVpn)
             if (r.isFailure) {
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
-                _ui.value = _ui.value.copy(
-                    lastError = "Hide IP не синхронизирован с VPS: ${r.exceptionOrNull()?.message}",
-                )
+                if (viaVpn) {
+                    _ui.value = _ui.value.copy(
+                        lastError = "Hide IP не синхронизирован с VPS: ${r.exceptionOrNull()?.message}",
+                    )
+                } else {
+                    pendingHideIpSync = enabled
+                    AppLog.i(TAG, "Hide-IP will retry after tunnel up")
+                }
             }
         }
     }
@@ -284,8 +315,12 @@ class ConnectionManager(
                 )
 
                 val provision = resolveProvisionUrl()
-                if (snap.hideIp) {
-                    val r = HideIpApi.setHideIp(provision, profile?.deviceId, true, appContext)
+                val deferHideIp =
+                    snap.hideIp &&
+                        snap.probe?.provisionOk != true &&
+                        (labelPreferred == VpnPath.Bypass || snap.probe?.preselectedPath == VpnPath.Bypass)
+                if (snap.hideIp && !deferHideIp) {
+                    val r = syncHideIpToProvision(true, viaVpn = false)
                     if (r.isFailure) {
                         AppLog.e(TAG, "hide-ip enable failed: ${r.exceptionOrNull()?.message}")
                         _ui.value = _ui.value.copy(
@@ -295,9 +330,11 @@ class ConnectionManager(
                         )
                         return@launch
                     }
+                } else if (deferHideIp) {
+                    pendingHideIpSync = true
+                    AppLog.i(TAG, "Hide-IP deferred until Bypass tunnel (underlay cannot reach provision)")
                 } else {
-                    // Best-effort clear leftover server flag
-                    runCatching { HideIpApi.setHideIp(provision, profile?.deviceId, false, appContext) }
+                    runCatching { syncHideIpToProvision(false, viaVpn = false) }
                 }
                 // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
                 var fresh = NetworkProbe.probe(appContext, directEndpoint, provisionUrl)
@@ -452,7 +489,7 @@ class ConnectionManager(
             // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
             // If user turned hideIp off, clear server route.
             if (!_ui.value.hideIp) {
-                runCatching { HideIpApi.setHideIp(resolveProvisionUrl(), profile?.deviceId, false, appContext) }
+                runCatching { syncHideIpToProvision(false, viaVpn = hideIpViaVpn()) }
             }
             stopTunnel()
             _ui.value = _ui.value.copy(
@@ -636,6 +673,19 @@ class ConnectionManager(
                 lastError = null,
                 softInfo = softInfoFor(_ui.value.probe),
             )
+            if (pendingHideIpSync || _ui.value.hideIp) {
+                val want = _ui.value.hideIp
+                pendingHideIpSync = false
+                val r = syncHideIpToProvision(want, viaVpn = true, tryVpnFallback = false)
+                if (r.isFailure) {
+                    AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
+                    if (want) {
+                        _ui.value = _ui.value.copy(
+                            lastError = "WARP на VPS: ${r.exceptionOrNull()?.message}",
+                        )
+                    }
+                }
+            }
         }
     }
 
