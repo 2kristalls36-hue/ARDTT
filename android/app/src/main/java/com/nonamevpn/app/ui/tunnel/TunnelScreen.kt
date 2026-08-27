@@ -45,8 +45,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,7 +64,7 @@ import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
-import com.nonamevpn.app.core.NetworkClass
+import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
@@ -449,79 +453,44 @@ fun TunnelScreen(
             )
         }
 
-        // ═══ Техстатус / IP / версия ═══
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                buildFooterLine(
-                    status = ui.statusText,
-                    path = ui.activePath,
-                    pathMode = pathMode,
-                    ip = publicIp,
-                    profileName = profile?.name,
-                    version = BuildConfig.VERSION_NAME,
-                    economy = economy,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = when {
-                    connected || pausedTrusted -> NvpnColors.connected
-                    ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-            profile?.let { p ->
-                Text(
-                    "Direct ${p.direct.endpoint} · Bypass ${p.bypass.peer}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                )
-                p.provisionBaseUrl?.let { base ->
-                    Text(
-                        "Provision $base · host ${p.hostId}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                    )
-                }
-            }
-            ui.probe?.let { probe ->
-                Text(
-                    probeDetailLine(probe.networkClass, probe.yandexOk, probe.bigtechOk, probe.vpsUdpOk, probe.provisionOk, probe.elapsedMs),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                )
-            }
-            ui.softInfo?.takeIf { it.isNotBlank() }?.let { info ->
-                Text(
-                    info,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
-            ui.lastError?.takeIf { ui.state == ConnState.Error }?.let { err ->
-                Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
-            if (vkLoggedIn) {
-                TextButton(
-                    onClick = {
-                        VkSession.clear()
-                        vkLoggedIn = false
-                        callMessage = "Сессия VK сброшена"
-                    },
-                    enabled = !callBusy,
-                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
-                ) {
-                    Text(
-                        "Выйти из VK",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
+        // ═══ Статус сессии — структурированная панель ═══
+        TunnelStatusPanel(
+            statusText = ui.statusText.ifBlank { "—" },
+            statusColor = when {
+                connected || pausedTrusted -> NvpnColors.connected
+                ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurface
+            },
+            pathModeLabel = when (pathMode) {
+                "direct" -> "Прямое"
+                "bypass" -> "Обход"
+                else -> "Авто"
+            },
+            activePathLabel = when (ui.activePath) {
+                VpnPath.Direct -> "Прямое"
+                VpnPath.Bypass -> "Обход"
+                null -> null
+            },
+            powerLabel = if (economy) "Оптимально (1)" else "Максимум (3)",
+            publicIp = publicIp?.takeIf { it.isNotBlank() } ?: "…",
+            profileName = profile?.name?.takeIf { it.isNotBlank() },
+            version = BuildConfig.VERSION_NAME,
+            directEndpoint = profile?.direct?.endpoint,
+            bypassPeer = profile?.bypass?.peer,
+            provisionLine = profile?.let { p ->
+                p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
+            },
+            probe = ui.probe,
+            softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
+            errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
+            showVkLogout = vkLoggedIn,
+            vkLogoutEnabled = !callBusy,
+            onVkLogout = {
+                VkSession.clear()
+                vkLoggedIn = false
+                callMessage = "Сессия VK сброшена"
+            },
+        )
     }
 
     if (showImport) {
@@ -636,54 +605,161 @@ private fun ChoiceChipButton(
     }
 }
 
-private fun buildFooterLine(
-    status: String,
-    path: VpnPath?,
-    pathMode: String,
-    ip: String?,
+@Composable
+private fun TunnelStatusPanel(
+    statusText: String,
+    statusColor: Color,
+    pathModeLabel: String,
+    activePathLabel: String?,
+    powerLabel: String,
+    publicIp: String,
     profileName: String?,
     version: String,
-    economy: Boolean,
-): String {
-    val bits = buildList {
-        add(status.ifBlank { "—" })
-        when (path) {
-            VpnPath.Direct -> add("актив: прямое")
-            VpnPath.Bypass -> add("актив: обход")
-            null -> Unit
+    directEndpoint: String?,
+    bypassPeer: String?,
+    provisionLine: String?,
+    probe: ProbeResult?,
+    softInfo: String?,
+    errorText: String?,
+    showVkLogout: Boolean,
+    vkLogoutEnabled: Boolean,
+    onVkLogout: () -> Unit,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    AppSectionCard(
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 0.dp,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "Статус",
+                style = MaterialTheme.typography.labelLarge,
+                color = muted,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                statusText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = statusColor,
+            )
         }
-        add(
-            when (pathMode) {
-                "direct" -> "режим: прямое"
-                "bypass" -> "режим: обход"
-                else -> "режим: авто"
-            },
-        )
-        add(if (economy) "мощность: 1" else "мощность: 3")
-        add("IP ${ip?.takeIf { it.isNotBlank() } ?: "…"}")
-        if (!profileName.isNullOrBlank()) add(profileName)
-        add("v$version")
+
+        HorizontalDivider(color = dividerColor)
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatusFactRow(label = "Режим", value = pathModeLabel)
+            activePathLabel?.let { StatusFactRow(label = "Активный путь", value = it) }
+            StatusFactRow(label = "Мощность", value = powerLabel)
+            StatusFactRow(label = "IP", value = publicIp)
+            profileName?.let { StatusFactRow(label = "Профиль", value = it) }
+            StatusFactRow(label = "Версия", value = "v$version")
+        }
+
+        val hasEndpoints = !directEndpoint.isNullOrBlank() ||
+            !bypassPeer.isNullOrBlank() ||
+            !provisionLine.isNullOrBlank()
+        if (hasEndpoints) {
+            HorizontalDivider(color = dividerColor)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Эндпоинты",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = muted,
+                    fontWeight = FontWeight.Medium,
+                )
+                directEndpoint?.takeIf { it.isNotBlank() }?.let {
+                    StatusFactRow(label = "Direct", value = it)
+                }
+                bypassPeer?.takeIf { it.isNotBlank() }?.let {
+                    StatusFactRow(label = "Bypass", value = it)
+                }
+                provisionLine?.takeIf { it.isNotBlank() }?.let {
+                    StatusFactRow(label = "Provision", value = it)
+                }
+            }
+        }
+
+        probe?.let { p ->
+            HorizontalDivider(color = dividerColor)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Проверка сети",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = muted,
+                    fontWeight = FontWeight.Medium,
+                )
+                StatusFactRow(label = "Сеть", value = p.networkClass.name)
+                StatusFactRow(label = "Yandex", value = if (p.yandexOk) "ok" else "—")
+                StatusFactRow(label = "Bigtech", value = if (p.bigtechOk) "ok" else "—")
+                StatusFactRow(label = "UDP VPS", value = if (p.vpsUdpOk) "ok" else "—")
+                StatusFactRow(label = "Health", value = if (p.provisionOk) "ok" else "—")
+                if (p.elapsedMs > 0) {
+                    StatusFactRow(label = "Время", value = "${p.elapsedMs} мс")
+                }
+            }
+        }
+
+        softInfo?.let { info ->
+            Text(
+                info,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+        }
+        errorText?.let { err ->
+            Text(
+                err,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (showVkLogout) {
+            TextButton(
+                onClick = onVkLogout,
+                enabled = vkLogoutEnabled,
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+            ) {
+                Text(
+                    "Выйти из VK",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = muted,
+                )
+            }
+        }
     }
-    return bits.joinToString(" · ")
 }
 
-private fun probeDetailLine(
-    networkClass: NetworkClass,
-    yandexOk: Boolean,
-    bigtechOk: Boolean,
-    vpsUdpOk: Boolean,
-    provisionOk: Boolean,
-    elapsedMs: Long,
-): String {
-    val bits = buildList {
-        add(networkClass.name)
-        add("yandex=${if (yandexOk) "ok" else "—"}")
-        add("bigtech=${if (bigtechOk) "ok" else "—"}")
-        add("udp=${if (vpsUdpOk) "ok" else "—"}")
-        add("health=${if (provisionOk) "ok" else "—"}")
-        if (elapsedMs > 0) add("${elapsedMs}ms")
+@Composable
+private fun StatusFactRow(
+    label: String,
+    value: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(112.dp),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
-    return bits.joinToString(" · ")
 }
 
 @Composable
