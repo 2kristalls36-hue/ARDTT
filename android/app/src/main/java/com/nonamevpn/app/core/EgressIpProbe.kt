@@ -109,12 +109,13 @@ object EgressIpProbe {
         val base = provisionBaseUrl?.trimEnd('/')
             ?: error("Нет provision URL")
         val q = buildString {
-            append("$base/v1/egress-ip")
+            append("$base/v1/egress-ip?")
             val params = mutableListOf<String>()
-            if (!deviceId.isNullOrBlank()) params += "deviceId=${deviceId.trim()}"
+            if (!deviceId.isNullOrBlank()) {
+                params += "deviceId=" + java.net.URLEncoder.encode(deviceId.trim(), Charsets.UTF_8.name())
+            }
             // Force WARP probe even if users.json lag behind the toggle.
             params += "viaWarp=1"
-            append('?')
             append(params.joinToString("&"))
         }
         val underlay = if (!viaVpn) context?.let { pickUnderlayNetwork(it) } else null
