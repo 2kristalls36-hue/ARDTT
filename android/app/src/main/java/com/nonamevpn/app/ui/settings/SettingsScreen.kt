@@ -289,7 +289,6 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     var wifi by remember {
         mutableStateOf(readConnectedWifiState(context, requireBackground = false))
     }
-    var manualSsid by remember { mutableStateOf("") }
 
     fun refreshWifi() {
         wifi = readConnectedWifiState(context, requireBackground = false)
@@ -339,7 +338,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     ) {
         Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            "В этих сетях VPN сам выключается. При выходе, отключении опции или удалении сети — поднимается снова. Добавляется текущая Wi‑Fi или имя вручную (списка всех сетей нет).",
+            "В этих сетях VPN сам выключается. При выходе, отключении опции или удалении сети — поднимается снова. Добавляется только текущая Wi‑Fi (списка всех сетей нет).",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -379,7 +378,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 when (wifi.accessProblem) {
                     TrustedWifiAccessProblem.ForegroundPermission -> "Wi‑Fi есть, но нет разрешения локации"
                     TrustedWifiAccessProblem.LocationDisabled -> "Wi‑Fi есть, но геолокация выключена"
-                    else -> "Wi‑Fi есть, имя сети недоступно — введите SSID вручную"
+                    else -> "Wi‑Fi есть, имя сети недоступно — выдайте локацию или включите геолокацию"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -398,7 +397,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                     hint = when (fresh.accessProblem) {
                         TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию"
                         TrustedWifiAccessProblem.ForegroundPermission -> "Выдайте локацию"
-                        else -> "Имя сети не прочиталось — введите SSID вручную ниже"
+                        else -> "Имя сети не прочиталось — подключитесь к Wi‑Fi и выдайте локацию"
                     }
                 } else {
                     scope.launch {
@@ -415,33 +414,6 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 if (wifi.ssidAvailable) "Добавить «${wifi.ssid}»"
                 else "Добавить текущую Wi‑Fi",
             )
-        }
-        androidx.compose.material3.OutlinedTextField(
-            value = manualSsid,
-            onValueChange = { manualSsid = it },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            label = { Text("Или введите SSID вручную") },
-            shape = RoundedCornerShape(14.dp),
-        )
-        OutlinedButton(
-            onClick = {
-                val clean = manualSsid.trim()
-                if (clean.isBlank()) {
-                    hint = "Введите имя Wi‑Fi (SSID)"
-                    return@OutlinedButton
-                }
-                scope.launch {
-                    settings.addTrustedWifiSsid(clean)
-                    hint = "Добавлено: $clean"
-                    manualSsid = ""
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            enabled = enabled && manualSsid.isNotBlank(),
-        ) {
-            Text("Добавить введённое имя")
         }
         ssids.forEach { ssid ->
             Row(
