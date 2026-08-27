@@ -788,6 +788,8 @@ class ConnectionManager(
                 running = false,
                 statsText = null,
             )
+            com.nonamevpn.app.QuickToggleTileService.requestTileUpdate(appContext)
+            com.nonamevpn.app.AppShortcuts.refreshAsync(appContext)
         }
     }
 
@@ -917,9 +919,10 @@ class ConnectionManager(
     }
 
     private fun shadePathLabel(path: VpnPath?): String = when (path) {
-        VpnPath.Direct -> "Прямое подключение"
-        VpnPath.Bypass -> "Обход"
-        null -> "—"
+        // Brand + path like qWDTT title "qWDTT", with ARDTT path labels.
+        VpnPath.Direct -> "ARDTT · Прямое"
+        VpnPath.Bypass -> "ARDTT · Обход"
+        null -> "ARDTT"
     }
 
     /** Fallback single-line text for non-custom / hidden shade. */

@@ -7,11 +7,16 @@
     <string name="notif_bypass">ARDTT · обход</string>
     <string name="notif_running">Подключено</string>
     <string name="notif_running_masked">Подключено · IP скрыт</string>
-    <string name="notif_stop">Остановить</string>
+    <string name="notif_stop">Отключить</string>
     <string name="widget_description">Быстрое подключение ARDTT</string>
     <string name="widget_status_dot">Статус</string>
     <string name="widget_toggle">Подключить / отключить</string>
     <string name="widget_disconnected">ARDTT: Отключен</string>
     <string name="widget_connected">ARDTT: Активен</string>
     <string name="widget_tap_to_connect">Нажмите для подключения</string>
+    <string name="tile_label">ARDTT</string>
+    <string name="shortcut_start_short">Подключить</string>
+    <string name="shortcut_start_long">Подключить ARDTT</string>
+    <string name="shortcut_stop_short">Отключить</string>
+    <string name="shortcut_stop_long">Отключить ARDTT</string>
 </resources>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="shortcut_start_tunnel"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_start"
+        android:shortcutShortLabel="@string/shortcut_start_short"
+        android:shortcutLongLabel="@string/shortcut_start_long">
+        <intent
+            android:action="com.nonamevpn.app.shortcut.START_TUNNEL"
+            android:targetClass="com.nonamevpn.app.MainActivity"
+            android:targetPackage="com.nonamevpn.app" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="shortcut_stop_tunnel"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_stop"
+        android:shortcutShortLabel="@string/shortcut_stop_short"
+        android:shortcutLongLabel="@string/shortcut_stop_long">
+        <intent
+            android:action="com.nonamevpn.app.shortcut.STOP_TUNNEL"
+            android:targetClass="com.nonamevpn.app.MainActivity"
+            android:targetPackage="com.nonamevpn.app" />
+    </shortcut>
+</shortcuts>
