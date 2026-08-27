@@ -111,6 +111,11 @@ fun ServersHub(
                 selected = saved
                 deployInitial = saved
             },
+            onOpenUsers = { saved ->
+                selected = saved
+                deployInitial = saved
+                pane = ServersPane.Users
+            },
         )
         ServersPane.Users -> {
             val target = selected
@@ -244,6 +249,7 @@ fun DeployScreen(
     initial: DeployTarget? = null,
     onBack: (() -> Unit)? = null,
     onSaved: ((DeployTarget) -> Unit)? = null,
+    onOpenUsers: ((DeployTarget) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val busy by engine.busy.collectAsStateWithLifecycle()
@@ -263,6 +269,7 @@ fun DeployScreen(
     var directPort by remember { mutableStateOf((initial?.directPort ?: 51820).toString()) }
     var bypassPort by remember { mutableStateOf((initial?.bypassPort ?: 56003).toString()) }
     var status by remember { mutableStateOf<String?>(null) }
+    var deployOk by remember { mutableStateOf(false) }
 
     LaunchedEffect(initial?.id) {
         val t = initial ?: return@LaunchedEffect
@@ -319,185 +326,226 @@ fun DeployScreen(
             )
         }
         Text(
-            "Установка Compose-стека ARDTT на VPS по SSH (Docker, provision/direct/bypass/warp).",
+            "SSH-установка стека на VPS (Docker: provision / direct / bypass / warp). После успеха — пользователи через provision :9100.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Имя сервера") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            enabled = !busy,
-        )
-        OutlinedTextField(
-            value = host,
-            onValueChange = { host = it },
-            label = { Text("SSH host / IP") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            enabled = !busy,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("SSH", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             OutlinedTextField(
-                value = sshPort,
-                onValueChange = { sshPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("SSH порт") },
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Имя сервера") },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 enabled = !busy,
             )
             OutlinedTextField(
-                value = sshUser,
-                onValueChange = { sshUser = it },
-                label = { Text("SSH user") },
-                modifier = Modifier.weight(1f),
+                value = host,
+                onValueChange = { host = it },
+                label = { Text("SSH host / IP") },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 enabled = !busy,
             )
-        }
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Пароль (или sudo)") },
-            modifier = Modifier.fillMaxWidth(),
-            visualTransformation = PasswordVisualTransformation(),
-            singleLine = true,
-            enabled = !busy,
-        )
-        OutlinedTextField(
-            value = privateKey,
-            onValueChange = { privateKey = it },
-            label = { Text("SSH private key PEM (опционально)") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 80.dp),
-            minLines = 3,
-            enabled = !busy,
-        )
-        if (privateKey.isNotBlank()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = sshPort,
+                    onValueChange = { sshPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                    label = { Text("SSH порт") },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+                OutlinedTextField(
+                    value = sshUser,
+                    onValueChange = { sshUser = it },
+                    label = { Text("SSH user") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+            }
             OutlinedTextField(
-                value = keyPass,
-                onValueChange = { keyPass = it },
-                label = { Text("Passphrase ключа") },
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Пароль (или sudo)") },
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 enabled = !busy,
             )
-        }
-        OutlinedTextField(
-            value = publicHost,
-            onValueChange = { publicHost = it },
-            label = { Text("Публичный host для профиля") },
-            placeholder = { Text("Как в NVPN_PUBLIC_HOST, обычно = IP") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            enabled = !busy,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedTextField(
-                value = directPort,
-                onValueChange = { directPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("Direct UDP") },
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                value = privateKey,
+                onValueChange = { privateKey = it },
+                label = { Text("SSH private key PEM (опционально)") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 80.dp),
+                minLines = 3,
+                enabled = !busy,
+            )
+            if (privateKey.isNotBlank()) {
+                OutlinedTextField(
+                    value = keyPass,
+                    onValueChange = { keyPass = it },
+                    label = { Text("Passphrase ключа") },
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+            }
+        }
+
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Сеть / порты", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = publicHost,
+                onValueChange = { publicHost = it },
+                label = { Text("Публичный host для профиля") },
+                placeholder = { Text("Обычно = IP VPS") },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 enabled = !busy,
             )
-            OutlinedTextField(
-                value = bypassPort,
-                onValueChange = { bypassPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("Bypass UDP") },
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                enabled = !busy,
-            )
-        }
-
-        OutlinedButton(
-            onClick = {
-                if (host.isBlank()) {
-                    status = "Укажите host"
-                    return@OutlinedButton
-                }
-                if (password.isBlank() && privateKey.isBlank()) {
-                    status = "Нужен пароль или SSH-ключ"
-                    return@OutlinedButton
-                }
-                val target = buildTarget()
-                serversRepo.upsert(target)
-                onSaved?.invoke(target)
-                status = "Сервер сохранён"
-            },
-            enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Сохранить сервер")
-        }
-
-        Button(
-            onClick = {
-                if (host.isBlank()) {
-                    status = "Укажите host"
-                    return@Button
-                }
-                if (password.isBlank() && privateKey.isBlank()) {
-                    status = "Нужен пароль или SSH-ключ"
-                    return@Button
-                }
-                val target = buildTarget()
-                serversRepo.upsert(target)
-                onSaved?.invoke(target)
-                scope.launch {
-                    status = null
-                    val result = engine.deploy(target)
-                    status = result.fold(
-                        onSuccess = { it },
-                        onFailure = { "Ошибка: ${it.message}" },
-                    )
-                }
-            },
-            enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (busy) "Установка…" else "Установить на VPS")
-        }
-
-        if (busy) {
-            OutlinedButton(
-                onClick = { engine.cancel() },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Отменить SSH") }
-        }
-
-        if (busy || progress > 0f) {
-            Text(step.ifBlank { "…" }, style = MaterialTheme.typography.bodyMedium)
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        status?.let {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = directPort,
+                    onValueChange = { directPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                    label = { Text("Direct UDP") },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+                OutlinedTextField(
+                    value = bypassPort,
+                    onValueChange = { bypassPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                    label = { Text("Bypass UDP") },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+            }
             Text(
-                it,
-                color = if (it.startsWith("Ошибка")) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.primary,
+                "Provision API: TCP 9100 (создание пользователей без лимитов дней/устройств).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Действия", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            OutlinedButton(
+                onClick = {
+                    if (host.isBlank()) {
+                        status = "Укажите host"
+                        return@OutlinedButton
+                    }
+                    if (password.isBlank() && privateKey.isBlank()) {
+                        status = "Нужен пароль или SSH-ключ"
+                        return@OutlinedButton
+                    }
+                    val target = buildTarget()
+                    serversRepo.upsert(target)
+                    onSaved?.invoke(target)
+                    status = "Сервер сохранён"
+                },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Сохранить сервер")
+            }
+
+            Button(
+                onClick = {
+                    if (host.isBlank()) {
+                        status = "Укажите host"
+                        return@Button
+                    }
+                    if (password.isBlank() && privateKey.isBlank()) {
+                        status = "Нужен пароль или SSH-ключ"
+                        return@Button
+                    }
+                    val target = buildTarget()
+                    serversRepo.upsert(target)
+                    onSaved?.invoke(target)
+                    scope.launch {
+                        status = null
+                        deployOk = false
+                        val result = engine.deploy(target)
+                        status = result.fold(
+                            onSuccess = {
+                                deployOk = true
+                                "Установка завершена. Можно создавать пользователей."
+                            },
+                            onFailure = { "Ошибка: ${it.message}" },
+                        )
+                    }
+                },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (busy) "Установка…" else "Установить на VPS")
+            }
+
+            if (deployOk && onOpenUsers != null) {
+                Button(
+                    onClick = { onOpenUsers(buildTarget()) },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("К пользователям") }
+            }
+
+            if (busy) {
+                OutlinedButton(
+                    onClick = { engine.cancel() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Отменить SSH") }
+            }
+
+            if (busy || progress > 0f) {
+                Text(step.ifBlank { "…" }, style = MaterialTheme.typography.bodyMedium)
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            status?.let {
+                Text(
+                    it,
+                    color = if (it.startsWith("Ошибка")) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary,
+                )
+            }
         }
 
         if (log.isNotEmpty()) {
-            Text("Лог", style = MaterialTheme.typography.titleMedium)
-            Text(
-                log.takeLast(80).joinToString("\n"),
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            AppSectionCard(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Лог", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    log.takeLast(80).joinToString("\n"),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
