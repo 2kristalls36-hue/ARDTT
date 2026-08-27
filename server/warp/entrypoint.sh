@@ -227,40 +227,68 @@ add_hideip_rule() {
   return 0
 }
 
-# Apply ip rules for every hideIp=true user (direct + bypass tunnel IPs).
+# True if a hideIp "from ADDR lookup TABLE" rule already exists.
+has_hideip_from() {
+  local from="$1"
+  ip rule show 2>/dev/null | grep -q "from ${from} .*lookup ${TABLE}\|from ${from} lookup ${TABLE}"
+}
+
+# Diff-based hideIp sync: add/remove only changed client prefixes.
+# Does NOT tear down DNS→main rules (that caused internet blips on rapid toggles).
 sync_rules() {
   [[ -f "${USERS}" ]] || return 0
 
-  clear_rules_for_table "${TABLE}"
-  install_dns_main_rules
-  ensure_dns_masquerade
-
-  local desired count=0 prio="${WARP_RULE_PRIO_BASE}"
+  local desired="" count=0
   desired="$(jq -r '
     (.config.directSubnet // "10.8.0.0/24") as $d
     | (.config.bypassSubnet // "10.9.0.0/24") as $b
     | ($d | split(".") | .[0:3] | join(".")) as $db
     | ($b | split(".") | .[0:3] | join(".")) as $bb
     | .users[] | select(.hideIp == true)
-    | "\($db).\(.hostId)/32 \($bb).\(.hostId)/32"
+    | "\($db).\(.hostId)/32\n\($bb).\(.hostId)/32"
   ' "${USERS}" 2>/dev/null || true)"
 
-  while read -r pair; do
-    [[ -z "${pair}" ]] && continue
-    local dip bip
-    dip="$(echo "${pair}" | awk '{print $1}')"
-    bip="$(echo "${pair}" | awk '{print $2}')"
-    # WARP for everything except DNS (DNS already matched at lower prio via iif).
-    add_hideip_rule "${dip}" "${prio}" || true
-    prio=$((prio + 1))
-    add_hideip_rule "${bip}" "${prio}" || true
-    prio=$((prio + 1))
+  # Remove WARP-table rules whose "from" is no longer desired.
+  local fr pref from
+  while IFS= read -r fr; do
+    [[ -z "${fr}" ]] && continue
+    from="$(echo "${fr}" | sed -n 's/.*from \([^ ]*\).*/\1/p')"
+    pref="$(echo "${fr}" | cut -d: -f1 | tr -d '[:space:]')"
+    [[ -z "${from}" ]] && continue
+    local from_slash="${from}"
+    [[ "${from}" != */* ]] && from_slash="${from}/32"
+    if ! echo "${desired}" | grep -qxF "${from}" && ! echo "${desired}" | grep -qxF "${from_slash}" \
+      && ! echo "${desired}" | grep -qxF "${from%/32}"; then
+      if [[ -n "${pref}" ]]; then
+        ip rule del pref "${pref}" 2>/dev/null || true
+      fi
+      ip rule del from "${from}" lookup "${TABLE}" 2>/dev/null || true
+      echo "[warp] hideIp remove from=${from}"
+    fi
+  done <<< "$(ip rule show 2>/dev/null | grep "lookup ${TABLE}" || true)"
+
+  # Add missing desired prefixes.
+  local prio="${WARP_RULE_PRIO_BASE}"
+  local addr
+  while IFS= read -r addr; do
+    [[ -z "${addr}" ]] && continue
+    local bare="${addr%/32}"
+    if has_hideip_from "${addr}" || has_hideip_from "${bare}"; then
+      count=$((count + 1))
+      prio=$((prio + 1))
+      continue
+    fi
+    while ip rule show 2>/dev/null | grep -q "^${prio}:"; do
+      prio=$((prio + 1))
+      [[ "${prio}" -gt $((WARP_RULE_PRIO_BASE + 200)) ]] && break
+    done
+    add_hideip_rule "${addr}" "${prio}" || true
+    echo "[warp] hideIp add ${addr} → table ${TABLE} prio=${prio}"
     count=$((count + 1))
-    echo "[warp] hideIp route ${dip} + ${bip} → table ${TABLE} (prio≥${WARP_RULE_PRIO_BASE})"
+    prio=$((prio + 1))
   done <<< "${desired}"
 
-  echo "[warp] synced hideIp users=${count}"
-  ip rule show | head -40 || true
+  echo "[warp] synced hideIp prefixes≈${count}"
 }
 
 cleanup_on_exit() {
@@ -277,6 +305,7 @@ trap cleanup_on_exit EXIT INT TERM
 ensure_account
 build_conf
 bring_up
+install_dns_main_rules
 sync_rules
 
 # Soft recycle watcher: if RSS grows huge, restart tunnel in-process (no docker restart).
@@ -297,6 +326,7 @@ while true; do
   if ! ip link show "${IFACE}" >/dev/null 2>&1; then
     echo "[warp] ${IFACE} missing — bringing up again"
     bring_up
+    install_dns_main_rules
     sync_rules
   fi
   # Retry DNS iif rules when VPN ifaces appear late after warp start (~every 10s).

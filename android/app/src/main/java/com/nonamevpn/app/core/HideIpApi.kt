@@ -34,13 +34,22 @@ object HideIpApi {
         if (viaVpn) {
             return@withContext postHideIp(base, deviceId, enabled, bindNetwork = null)
         }
+        // Prefer underlay so hide-ip still works while the VPN tunnel is up / broken.
+        // If bind is denied (EPERM) or fails, fall back to default route immediately.
         val underlay = context?.let { pickUnderlayNetwork(it) }
-        val first = postHideIp(base, deviceId, enabled, bindNetwork = underlay)
-        if (first.isSuccess || !tryVpnFallback || underlay == null) {
+        val first = if (underlay != null) {
+            postHideIp(base, deviceId, enabled, bindNetwork = underlay)
+        } else {
+            postHideIp(base, deviceId, enabled, bindNetwork = null)
+        }
+        if (first.isSuccess || !tryVpnFallback) {
             return@withContext first
         }
-        AppLog.i("HideIP", "underlay failed (${first.exceptionOrNull()?.message}) — retry via default route")
-        postHideIp(base, deviceId, enabled, bindNetwork = null)
+        if (underlay != null) {
+            AppLog.i("HideIP", "underlay failed (${first.exceptionOrNull()?.message}) — retry via default route")
+            return@withContext postHideIp(base, deviceId, enabled, bindNetwork = null)
+        }
+        first
     }
 
     private fun postHideIp(
