@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -158,6 +160,57 @@ private fun healthStatusLine(health: HealthUi?, lastDeployedAtMs: Long): Pair<St
     }
 }
 
+/** Shared top bar: statusBarsPadding + ARDTT title styles. */
+@Composable
+private fun AdminPageHeader(
+    title: String,
+    subtitle: String? = null,
+    onBack: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = if (onBack != null) 4.dp else 16.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onBack != null) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        actions()
+    }
+}
+
 @Composable
 fun ServersScreen(
     serversRepo: ServersRepository,
@@ -262,36 +315,22 @@ private fun ServerListScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Серверы",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        "Управление вашими VPS",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(
-                    onClick = { probeAll() },
-                    enabled = !probing && servers.isNotEmpty(),
-                ) {
-                    Icon(
-                        Icons.Filled.Refresh,
-                        contentDescription = "Обновить статус",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            AdminPageHeader(
+                title = "Серверы",
+                subtitle = "Управление вашими VPS",
+                actions = {
+                    IconButton(
+                        onClick = { probeAll() },
+                        enabled = !probing && servers.isNotEmpty(),
+                    ) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = "Обновить статус",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
+            )
 
             if (servers.isNotEmpty()) {
                 OutlinedButton(
@@ -404,9 +443,10 @@ private fun ServerCard(
 
     AppSectionCard(
         modifier = Modifier.clickable(onClick = onOpenServer),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 15.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
         shadowElevation = 0.dp,
+        shape = RoundedCornerShape(24.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -568,103 +608,76 @@ private fun ServerOverviewScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Назад к серверам",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    "Управление сервером",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    server.name.ifBlank { server.host },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Box {
-                IconButton(onClick = { onShowActions(true) }) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Действия с сервером",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        AdminPageHeader(
+            title = server.name.ifBlank { server.host },
+            subtitle = "Управление сервером",
+            onBack = onBack,
+            actions = {
+                Box {
+                    IconButton(onClick = { onShowActions(true) }) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "Действия с сервером",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showActions,
+                        onDismissRequest = { onShowActions(false) },
+                        modifier = Modifier
+                            .width(216.dp)
+                            .padding(vertical = 4.dp),
+                        shape = RoundedCornerShape(22.dp),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 2.dp,
+                        shadowElevation = 6.dp,
+                    ) {
+                        DropdownMenuItem(
+                            modifier = Modifier.heightIn(min = 54.dp),
+                            contentPadding = PaddingValues(horizontal = 18.dp),
+                            text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
+                            leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                            onClick = {
+                                onShowActions(false)
+                                onRename()
+                            },
+                        )
+                        DropdownMenuItem(
+                            modifier = Modifier.heightIn(min = 54.dp),
+                            contentPadding = PaddingValues(horizontal = 18.dp),
+                            text = {
+                                Text(
+                                    "Удалить",
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = {
+                                onShowActions(false)
+                                onDelete()
+                            },
+                        )
+                    }
                 }
-                DropdownMenu(
-                    expanded = showActions,
-                    onDismissRequest = { onShowActions(false) },
-                    modifier = Modifier
-                        .width(216.dp)
-                        .padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(22.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 2.dp,
-                    shadowElevation = 6.dp,
-                ) {
-                    DropdownMenuItem(
-                        modifier = Modifier.heightIn(min = 54.dp),
-                        contentPadding = PaddingValues(horizontal = 18.dp),
-                        text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
-                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                        onClick = {
-                            onShowActions(false)
-                            onRename()
-                        },
-                    )
-                    DropdownMenuItem(
-                        modifier = Modifier.heightIn(min = 54.dp),
-                        contentPadding = PaddingValues(horizontal = 18.dp),
-                        text = {
-                            Text(
-                                "Удалить",
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        },
-                        onClick = {
-                            onShowActions(false)
-                            onDelete()
-                        },
-                    )
-                }
-            }
-        }
+            },
+        )
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 AppSectionCard(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     shape = RoundedCornerShape(24.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -697,17 +710,18 @@ private fun ServerOverviewScreen(
                     }
                     Text(
                         "Публичный host: ${server.publicHost.ifBlank { server.host }}",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         statusText,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
                         color = statusColor,
                     )
                 }
@@ -715,10 +729,10 @@ private fun ServerOverviewScreen(
             item {
                 Text(
                     "Действия",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
                 )
             }
             item {
@@ -750,7 +764,7 @@ private fun ServerActionCard(
 ) {
     AppSectionCard(
         modifier = Modifier.clickable(onClick = onClick),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
         shape = RoundedCornerShape(24.dp),
     ) {
@@ -768,9 +782,14 @@ private fun ServerActionCard(
             Spacer(modifier = Modifier.width(12.dp))
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
                 Text(
                     description,
                     style = MaterialTheme.typography.bodySmall,
@@ -883,37 +902,24 @@ private fun ClientsScreen(
     LaunchedEffect(base) { refresh() }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Назад",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "Клиенты",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    "Пользователи · ${server.name.ifBlank { server.host }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            IconButton(onClick = { refresh() }, enabled = !loading) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Обновить")
-            }
-        }
+        AdminPageHeader(
+            title = "Клиенты",
+            subtitle = when {
+                loading -> "Загрузка…"
+                error != null -> server.host
+                else -> "${users.size} · ${server.name.ifBlank { server.host }}"
+            },
+            onBack = onBack,
+            actions = {
+                IconButton(onClick = { refresh() }, enabled = !loading) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "Обновить",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            },
+        )
 
         when {
             loading -> {
@@ -974,19 +980,20 @@ private fun ClientsScreen(
                         }
                     } else {
                         LazyColumn(
-                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 104.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 104.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(users, key = { "${it.name}-${it.deviceId}-${it.hostId}" }) { user ->
                                 AppSectionCard(
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    shape = RoundedCornerShape(22.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    shape = RoundedCornerShape(24.dp),
                                 ) {
                                     Text(
                                         user.name.ifBlank { "user" },
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                     )
                                     Text(
                                         "hostId ${user.hostId} · device ${user.deviceId.ifBlank { "—" }}",
@@ -995,7 +1002,7 @@ private fun ClientsScreen(
                                     )
                                     Text(
                                         if (user.hideIp) "hideIp: да" else "hideIp: нет",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                     OutlinedButton(
@@ -1019,10 +1026,14 @@ private fun ClientsScreen(
                                             }
                                         },
                                         enabled = busyUser == null,
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(44.dp),
+                                        shape = RoundedCornerShape(16.dp),
                                     ) {
                                         Text(
                                             if (busyUser == user.name) "Загрузка…" else "Профиль",
+                                            fontWeight = FontWeight.SemiBold,
                                         )
                                     }
                                 }
@@ -1190,22 +1201,26 @@ fun DeployScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, enabled = !busy) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
-            }
-            Text("Деплой", style = MaterialTheme.typography.headlineMedium)
-        }
+        AdminPageHeader(
+            title = "Деплой",
+            subtitle = "SSH · установка Compose-стека ARDTT",
+            onBack = onBack,
+        )
         Text(
             "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «Установить на VPS».",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
         )
 
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
@@ -1213,6 +1228,7 @@ fun DeployScreen(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             enabled = !busy,
+            shape = RoundedCornerShape(16.dp),
         )
         OutlinedTextField(
             value = host,
@@ -1386,12 +1402,18 @@ fun DeployScreen(
         }
 
         if (log.isNotEmpty()) {
-            Text("Лог", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Лог",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
             Text(
                 log.takeLast(80).joinToString("\n"),
                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        } // form column
     }
 }
