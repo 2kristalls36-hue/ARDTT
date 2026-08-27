@@ -26,7 +26,7 @@
             android:fontFamily="monospace"
             android:gravity="start"
             android:maxLines="1"
-            android:text="↓   0 Б/с"
+            android:text="↓   0 бит/с"
             android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
 
         <TextView
@@ -39,7 +39,7 @@
             android:gravity="start"
             android:maxLines="1"
             android:paddingStart="4dp"
-            android:text="↑   0 Б/с"
+            android:text="↑   0 бит/с"
             android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
 
         <TextView

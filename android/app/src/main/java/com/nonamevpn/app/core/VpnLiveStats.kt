@@ -271,12 +271,17 @@ object VpnLiveStats {
         return Triple(rx, tx, null)
     }
 
-    fun formatRate(bps: Long): String {
-        if (bps < 1024) return "$bps Б/с"
-        val kb = bps / 1024.0
-        if (kb < 1024) return String.format(Locale.US, "%.1f КБ/с", kb)
-        val mb = kb / 1024.0
-        return String.format(Locale.US, "%.2f МБ/с", mb)
+    /**
+     * Format byte/s counter as bit/s for the shade (network-style units).
+     * [bytesPerSec] is bytes/second from counters; display uses ×8 → бит/с.
+     */
+    fun formatRate(bytesPerSec: Long): String {
+        val bits = bytesPerSec.coerceAtLeast(0L) * 8L
+        if (bits < 1000L) return "$bits бит/с"
+        val kbit = bits / 1000.0
+        if (kbit < 1000.0) return String.format(Locale.US, "%.1f Кбит/с", kbit)
+        val mbit = kbit / 1000.0
+        return String.format(Locale.US, "%.2f Мбит/с", mbit)
     }
 
     fun formatBytes(bytes: Long): String {
@@ -290,20 +295,21 @@ object VpnLiveStats {
     }
 
     /**
-     * Fixed-width rate for shade cells (monospace) so digits don't shift the row.
-     * Examples: `↓   0 Б/с`, `↓ 12.3 КБ/с`, `↓ 1.25 МБ/с`
+     * Fixed-width bit/s rate for shade cells (monospace) so digits don't shift.
+     * [bytesPerSec] is bytes/second; shown as бит/с / Кбит/с / Мбит/с.
      */
-    fun formatRateFixed(bps: Long, down: Boolean): String {
+    fun formatRateFixed(bytesPerSec: Long, down: Boolean): String {
         val arrow = if (down) "↓" else "↑"
+        val bits = bytesPerSec.coerceAtLeast(0L) * 8L
         val body = when {
-            bps < 1024L -> String.format(Locale.US, "%4d Б/с", bps.coerceIn(0L, 9999L))
-            bps < 1024L * 1024L -> String.format(Locale.US, "%5.1f КБ/с", bps / 1024.0)
-            else -> String.format(Locale.US, "%5.2f МБ/с", bps / (1024.0 * 1024.0))
+            bits < 1000L -> String.format(Locale.US, "%4d бит/с", bits.coerceAtMost(999L))
+            bits < 1_000_000L -> String.format(Locale.US, "%5.1f Кбит/с", bits / 1000.0)
+            else -> String.format(Locale.US, "%5.2f Мбит/с", bits / 1_000_000.0)
         }
         return arrow + body
     }
 
-    /** Fixed-width session total for shade cells (monospace). */
+    /** Fixed-width session total for shade cells (monospace), still in bytes. */
     fun formatBytesFixed(bytes: Long, down: Boolean): String {
         val arrow = if (down) "↓" else "↑"
         val body = when {

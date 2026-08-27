@@ -74,10 +74,22 @@ class VpnLiveStatsTest {
 
     @Test
     fun formatRateAndBytes() {
-        assertEquals("512 Б/с", VpnLiveStats.formatRate(512))
-        assertEquals("1.5 КБ/с", VpnLiveStats.formatRate(1536))
+        // 512 B/s → 4096 bit/s → 4.1 Кбит/с
+        assertEquals("4.1 Кбит/с", VpnLiveStats.formatRate(512))
+        // 1536 B/s → 12288 bit/s → 12.3 Кбит/с
+        assertEquals("12.3 Кбит/с", VpnLiveStats.formatRate(1536))
         assertEquals("1.5 КБ", VpnLiveStats.formatBytes(1536))
         assertEquals("00:01:05", VpnLiveStats.formatDuration(1_000L, 66_000L))
+    }
+
+    @Test
+    fun formatRateUsesBitsNotBytes() {
+        assertEquals("0 бит/с", VpnLiveStats.formatRate(0))
+        assertEquals("8 бит/с", VpnLiveStats.formatRate(1))
+        // 125_000 B/s → 1_000_000 bit/s → 1.00 Мбит/с
+        assertEquals("1.00 Мбит/с", VpnLiveStats.formatRate(125_000))
+        assertTrue(VpnLiveStats.formatRateFixed(1, down = true).contains("бит"))
+        assertFalse(VpnLiveStats.formatRateFixed(1, down = true).contains("Б/с"))
     }
 
     @Test
@@ -86,7 +98,6 @@ class VpnLiveStatsTest {
         val b = VpnLiveStats.formatRateFixed(12_300, down = true)
         assertTrue(a.startsWith("↓"))
         assertTrue(b.startsWith("↓"))
-        // Same unit-slot length class for monospace shade cells.
         assertEquals(
             VpnLiveStats.formatBytesFixed(100, down = false).length,
             VpnLiveStats.formatBytesFixed(999, down = false).length,
