@@ -3,6 +3,7 @@ package com.nonamevpn.app.tunnel
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.nonamevpn.app.core.VpnLiveStats
 import com.nonamevpn.app.core.VpnPath
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -78,6 +79,7 @@ class DirectBackend : TunnelBackend {
             return
         }
         handle = h
+        VpnLiveStats.setAwgHandle(h)
 
         val sock4 = GoBackend.awgGetSocketV4(h)
         val sock6 = GoBackend.awgGetSocketV6(h)
@@ -107,6 +109,7 @@ class DirectBackend : TunnelBackend {
         val h = handle
         if (h < 0) return
         handle = -1
+        VpnLiveStats.clearAwgHandle(h)
         runCatching { GoBackend.awgTurnOff(h) }
             .onFailure { Log.w(TAG, "awgTurnOff", it) }
         Log.i(TAG, "tunnel down handle=$h")
