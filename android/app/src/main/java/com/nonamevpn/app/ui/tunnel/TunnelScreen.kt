@@ -56,9 +56,11 @@ import com.nonamevpn.app.bypass.VkLoginActivity
 import com.nonamevpn.app.bypass.VkSession
 import com.nonamevpn.app.bypass.VkUrl
 import com.nonamevpn.app.core.AppLog
+import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
+import com.nonamevpn.app.core.NetworkClass
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
@@ -156,6 +158,8 @@ fun TunnelScreen(
     }
 
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+    val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     LaunchedEffect(profile?.deviceId) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
@@ -166,6 +170,7 @@ fun TunnelScreen(
     val connecting = ui.state == ConnState.Connecting
     val sessionUp = connected || pausedTrusted
     val busy = ui.state == ConnState.Probing || connecting || ui.state == ConnState.Disconnecting
+    val pathBusy = connecting || ui.state == ConnState.Disconnecting
 
     LaunchedEffect(sessionUp) {
         while (sessionUp) {
@@ -247,6 +252,91 @@ fun TunnelScreen(
             )
 
             QuickSettingRow(
+                title = "Путь",
+                subtitle = when (pathMode) {
+                    "direct" -> "Только AmneziaWG (AWG)"
+                    "bypass" -> "Только обход RAW через звонок"
+                    else -> "Авто: AWG, резерв обход"
+                },
+            ) {
+                ChoiceChipButton(
+                    label = "Авто",
+                    selected = pathMode == "auto",
+                    enabled = !pathBusy,
+                    onClick = {
+                        scope.launch {
+                            settings.setPathMode("auto")
+                            conn.setPathMode(ConnPathMode.Auto)
+                            AppLog.i("PathMode", "auto")
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                ChoiceChipButton(
+                    label = "Прямое",
+                    selected = pathMode == "direct",
+                    enabled = !pathBusy,
+                    onClick = {
+                        scope.launch {
+                            settings.setPathMode("direct")
+                            conn.setPathMode(ConnPathMode.Direct)
+                            AppLog.i("PathMode", "direct")
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                ChoiceChipButton(
+                    label = "Обход",
+                    selected = pathMode == "bypass",
+                    enabled = !pathBusy,
+                    onClick = {
+                        scope.launch {
+                            settings.setPathMode("bypass")
+                            conn.setPathMode(ConnPathMode.Bypass)
+                            AppLog.i("PathMode", "bypass")
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            QuickSettingRow(
+                title = "Мощность",
+                subtitle = if (economy) {
+                    "Оптимально — 1 worker"
+                } else {
+                    "Максимум — 3 workers"
+                },
+            ) {
+                ChoiceChipButton(
+                    label = "Оптимально",
+                    selected = economy,
+                    enabled = !pathBusy,
+                    onClick = {
+                        scope.launch {
+                            settings.setEconomyWorkers(true)
+                            conn.setWorkers(1)
+                            AppLog.i("Power", "optimal (1 worker)")
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                ChoiceChipButton(
+                    label = "Максимум",
+                    selected = !economy,
+                    enabled = !pathBusy,
+                    onClick = {
+                        scope.launch {
+                            settings.setEconomyWorkers(false)
+                            conn.setWorkers(3)
+                            AppLog.i("Power", "max (3 workers)")
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            QuickSettingRow(
                 title = "Хэш звонка",
                 subtitle = when {
                     callMessage != null -> callMessage
@@ -282,7 +372,7 @@ fun TunnelScreen(
                 ChoiceChipButton(
                     label = "На прямую",
                     selected = !hideIp,
-                    enabled = !connecting && ui.state != ConnState.Disconnecting,
+                    enabled = !pathBusy,
                     onClick = {
                         scope.launch {
                             settings.setHideIp(false)
@@ -295,7 +385,7 @@ fun TunnelScreen(
                 ChoiceChipButton(
                     label = "WARP",
                     selected = hideIp,
-                    enabled = !connecting && ui.state != ConnState.Disconnecting,
+                    enabled = !pathBusy,
                     onClick = {
                         scope.launch {
                             settings.setHideIp(true)
@@ -359,7 +449,7 @@ fun TunnelScreen(
             )
         }
 
-        // ═══ IP / версия / статус ═══
+        // ═══ Техстатус / IP / версия ═══
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -370,9 +460,11 @@ fun TunnelScreen(
                 buildFooterLine(
                     status = ui.statusText,
                     path = ui.activePath,
+                    pathMode = pathMode,
                     ip = publicIp,
                     profileName = profile?.name,
                     version = BuildConfig.VERSION_NAME,
+                    economy = economy,
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = when {
@@ -381,6 +473,34 @@ fun TunnelScreen(
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
+            profile?.let { p ->
+                Text(
+                    "Direct ${p.direct.endpoint} · Bypass ${p.bypass.peer}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                )
+                p.provisionBaseUrl?.let { base ->
+                    Text(
+                        "Provision $base · host ${p.hostId}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    )
+                }
+            }
+            ui.probe?.let { probe ->
+                Text(
+                    probeDetailLine(probe.networkClass, probe.yandexOk, probe.bigtechOk, probe.vpsUdpOk, probe.provisionOk, probe.elapsedMs),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                )
+            }
+            ui.softInfo?.takeIf { it.isNotBlank() }?.let { info ->
+                Text(
+                    info,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             ui.lastError?.takeIf { ui.state == ConnState.Error }?.let { err ->
                 Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
@@ -519,20 +639,49 @@ private fun ChoiceChipButton(
 private fun buildFooterLine(
     status: String,
     path: VpnPath?,
+    pathMode: String,
     ip: String?,
     profileName: String?,
     version: String,
+    economy: Boolean,
 ): String {
     val bits = buildList {
         add(status.ifBlank { "—" })
         when (path) {
-            VpnPath.Direct -> add("прямое")
-            VpnPath.Bypass -> add("обход")
+            VpnPath.Direct -> add("актив: прямое")
+            VpnPath.Bypass -> add("актив: обход")
             null -> Unit
         }
+        add(
+            when (pathMode) {
+                "direct" -> "режим: прямое"
+                "bypass" -> "режим: обход"
+                else -> "режим: авто"
+            },
+        )
+        add(if (economy) "мощность: 1" else "мощность: 3")
         add("IP ${ip?.takeIf { it.isNotBlank() } ?: "…"}")
         if (!profileName.isNullOrBlank()) add(profileName)
         add("v$version")
+    }
+    return bits.joinToString(" · ")
+}
+
+private fun probeDetailLine(
+    networkClass: NetworkClass,
+    yandexOk: Boolean,
+    bigtechOk: Boolean,
+    vpsUdpOk: Boolean,
+    provisionOk: Boolean,
+    elapsedMs: Long,
+): String {
+    val bits = buildList {
+        add(networkClass.name)
+        add("yandex=${if (yandexOk) "ok" else "—"}")
+        add("bigtech=${if (bigtechOk) "ok" else "—"}")
+        add("udp=${if (vpsUdpOk) "ok" else "—"}")
+        add("health=${if (provisionOk) "ok" else "—"}")
+        if (elapsedMs > 0) add("${elapsedMs}ms")
     }
     return bits.joinToString(" · ")
 }
