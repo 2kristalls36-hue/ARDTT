@@ -270,7 +270,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 Text(
                     "Приложения ${selectedPackages.size}",
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
             SegmentedButton(
@@ -288,7 +288,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 Text(
                     "Сайты ${orderedSites.size}",
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }
@@ -324,7 +324,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 Text(
                                     "Режим",
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                 )
                                 Text(
                                     if (isWhitelist) {
@@ -450,7 +450,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             Text(
                                 if (orderedSites.isEmpty()) "Нет сайтов" else "${orderedSites.size}",
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     letterSpacing = 0.2.sp,
                                 ),
                                 color = colors.onSurfaceVariant,
@@ -774,7 +774,7 @@ private fun AppExceptionRow(
                 Text(
                     text = app.name,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                 )
                 Text(

@@ -338,7 +338,7 @@ private fun ServerListScreen(
                     enabled = !probing,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -355,7 +355,7 @@ private fun ServerListScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(
@@ -396,7 +396,7 @@ private fun ServerListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 104.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 104.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(servers, key = { it.id }) { server ->

@@ -154,7 +154,7 @@ fun ProfilesScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                 ) {
-                    Text("Открыть туннель")
+                    Text("Открыть туннель", fontWeight = FontWeight.SemiBold)
                 }
             }
             error?.let {
@@ -179,7 +179,7 @@ fun ProfilesScreen(
             ) {
                 Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(if (busy) "Читаем…" else "Из файла…", fontWeight = FontWeight.Bold)
+                Text(if (busy) "Читаем…" else "Из файла…", fontWeight = FontWeight.SemiBold)
             }
             OutlinedButton(
                 onClick = { showPaste = true },
