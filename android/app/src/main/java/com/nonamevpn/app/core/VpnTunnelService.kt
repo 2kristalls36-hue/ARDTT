@@ -924,6 +924,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         stopSession(keepService = false)
         scope.cancel()
         ConnectionManager.getOrNull()?.onServiceStopped()
+        com.nonamevpn.app.TunnelWidgetProvider.updateWidgetState(
+            this,
+            running = false,
+            statsText = null,
+        )
         super.onDestroy()
     }
 
@@ -951,6 +956,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private fun updateNotification(path: VpnPath, text: String) {
         val nm = getSystemService(NotificationManager::class.java) ?: return
         nm.notify(NOTIF_ID, buildNotification(path, text))
+        com.nonamevpn.app.TunnelWidgetProvider.pushFromConnection(this)
     }
 
     private fun startForegroundNotification(path: VpnPath, text: String) {
@@ -965,6 +971,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         } else {
             startForeground(NOTIF_ID, notification)
         }
+        com.nonamevpn.app.TunnelWidgetProvider.pushFromConnection(this)
     }
 
     private fun buildNotification(path: VpnPath, text: String): Notification {

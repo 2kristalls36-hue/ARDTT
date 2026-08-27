@@ -782,6 +782,13 @@ class ConnectionManager(
                 connectEnabled = connectAllowed(cur.probe),
             )
         }
+        runCatching {
+            com.nonamevpn.app.TunnelWidgetProvider.updateWidgetState(
+                appContext,
+                running = false,
+                statsText = null,
+            )
+        }
     }
 
     private fun connectAllowed(probe: ProbeResult?): Boolean {

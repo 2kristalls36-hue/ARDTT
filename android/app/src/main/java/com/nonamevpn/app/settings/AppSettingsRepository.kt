@@ -30,6 +30,9 @@ class AppSettingsRepository(private val context: Context) {
     private val excludedApps = stringPreferencesKey("excluded_apps")
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
+    private val themeMode = stringPreferencesKey("theme_mode")
+    private val themePalette = stringPreferencesKey("theme_palette")
+    private val dynamicColor = booleanPreferencesKey("is_dynamic_color")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
@@ -65,6 +68,16 @@ class AppSettingsRepository(private val context: Context) {
     /** true = БС (только выбранные через VPN), false = ЧС (выбранные мимо VPN). */
     val appsWhitelistModeFlow: Flow<Boolean> =
         context.dataStore.data.map { it[appsWhitelistMode] == true }
+    /** `system` | `light` | `dark` */
+    val themeModeFlow: Flow<String> = context.dataStore.data.map {
+        normalizeThemeMode(it[themeMode])
+    }
+    /** `espresso` | `indigo` | `forest` */
+    val themePaletteFlow: Flow<String> = context.dataStore.data.map {
+        normalizeThemePalette(it[themePalette])
+    }
+    val dynamicColorFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[dynamicColor] == true }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -234,6 +247,18 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[adminUnlocked] = false }
     }
 
+    suspend fun setThemeMode(mode: String) {
+        context.dataStore.edit { it[themeMode] = normalizeThemeMode(mode) }
+    }
+
+    suspend fun setThemePalette(palette: String) {
+        context.dataStore.edit { it[themePalette] = normalizeThemePalette(palette) }
+    }
+
+    suspend fun setDynamicColor(enabled: Boolean) {
+        context.dataStore.edit { it[dynamicColor] = enabled }
+    }
+
     private fun sha256(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
@@ -250,6 +275,18 @@ class AppSettingsRepository(private val context: Context) {
             "direct", "awg" -> "direct"
             "bypass", "wdtt" -> "bypass"
             else -> "auto"
+        }
+
+        fun normalizeThemeMode(raw: String?): String = when (raw?.lowercase()?.trim()) {
+            "light" -> "light"
+            "dark" -> "dark"
+            else -> "system"
+        }
+
+        fun normalizeThemePalette(raw: String?): String = when (raw?.lowercase()?.trim()) {
+            "indigo" -> "indigo"
+            "forest" -> "forest"
+            else -> "espresso"
         }
 
         fun parseSsidSet(raw: String?): Set<String> =
