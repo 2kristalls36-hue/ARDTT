@@ -986,6 +986,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 "ardtt_vpn_min_v1",
                 "ardtt_vpn_shade_v2",
                 "ardtt_vpn_min_v2",
+                "ardtt_vpn_shade_v3",
+                "ardtt_vpn_min_v3",
             ).forEach { legacy ->
                 runCatching { nm.deleteNotificationChannel(legacy) }
             }
@@ -1072,7 +1074,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_vpn_key)
-            // contentTitle is the bold headline under the app name.
             .setContentTitle(shade.title)
             .setContentText(shade.ip)
             .setContentIntent(open)
@@ -1094,7 +1095,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         } else {
             builder.setStyle(
                 NotificationCompat.BigTextStyle().bigText(
-                    "${shade.rates}\n${shade.summary}",
+                    listOfNotNull(shade.rates, shade.totals.takeIf { shade.showTotals }, shade.summary)
+                        .filter { it.isNotBlank() }
+                        .joinToString("\n"),
                 ),
             )
         }
@@ -1119,6 +1122,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     private fun buildShadeRemoteViews(shade: ConnectionManager.ShadeContent): RemoteViews {
         return RemoteViews(packageName, R.layout.notif_vpn_shade).apply {
+            setTextViewText(R.id.notif_title, shade.title)
             val status = shade.statusText
             if (!status.isNullOrBlank()) {
                 setViewVisibility(R.id.notif_status, android.view.View.VISIBLE)
@@ -1127,16 +1131,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             } else {
                 setViewVisibility(R.id.notif_status, android.view.View.GONE)
                 setViewVisibility(R.id.notif_stats_row, android.view.View.VISIBLE)
-                setTextViewText(R.id.notif_rate_down_num, shade.rateDownNum)
-                setTextViewText(R.id.notif_rate_down_unit, shade.rateDownUnit)
-                setTextViewText(R.id.notif_rate_up_num, shade.rateUpNum)
-                setTextViewText(R.id.notif_rate_up_unit, shade.rateUpUnit)
-                setTextViewText(R.id.notif_total_down_num, shade.totalDownNum)
-                setTextViewText(R.id.notif_total_down_unit, shade.totalDownUnit)
-                setTextViewText(R.id.notif_total_up_num, shade.totalUpNum)
-                setTextViewText(R.id.notif_total_up_unit, shade.totalUpUnit)
+                setTextViewText(R.id.notif_rates, shade.rates)
+                setTextViewText(R.id.notif_totals, shade.totals)
                 setViewVisibility(
-                    R.id.notif_totals_row,
+                    R.id.notif_totals,
                     if (shade.showTotals) android.view.View.VISIBLE else android.view.View.GONE,
                 )
             }
@@ -1163,7 +1161,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_TUN_ADDRESS = "tun_address"
         const val EXTRA_RESTART_REASON = "restart_reason"
         private const val NOTIF_ID = 42
-        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v3"
-        private const val CHANNEL_MIN = "ardtt_vpn_min_v3"
+        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v4"
+        private const val CHANNEL_MIN = "ardtt_vpn_min_v4"
     }
 }

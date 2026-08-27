@@ -853,18 +853,11 @@ class ConnectionManager(
 
     /**
      * Content for the custom VPN shade RemoteViews.
-     * [title] is shown as bold notification contentTitle (path mode).
      */
     data class ShadeContent(
         val title: String,
-        val rateDownNum: String = "  0.00",
-        val rateDownUnit: String = "б/с ",
-        val rateUpNum: String = "  0.00",
-        val rateUpUnit: String = "б/с ",
-        val totalDownNum: String = "  0.00",
-        val totalDownUnit: String = "Б  ",
-        val totalUpNum: String = "  0.00",
-        val totalUpUnit: String = "Б  ",
+        val rates: String = "",
+        val totals: String = "",
         val ip: String = "…",
         val showTotals: Boolean = true,
         val showWarpIcon: Boolean = false,
@@ -873,8 +866,6 @@ class ConnectionManager(
         val statusText: String? = null,
     ) {
         val summary: String get() = "$ip · $title"
-        val rates: String
-            get() = "↓$rateDownNum$rateDownUnit ↑$rateUpNum$rateUpUnit"
     }
 
     fun notificationShadeContent(
@@ -905,21 +896,13 @@ class ConnectionManager(
             )
         }
 
-        val rd = VpnLiveStats.formatRateParts(VpnLiveStats.downBps)
-        val ru = VpnLiveStats.formatRateParts(VpnLiveStats.upBps)
-        val td = VpnLiveStats.formatBytesParts(VpnLiveStats.totalRx)
-        val tu = VpnLiveStats.formatBytesParts(VpnLiveStats.totalTx)
+        val rates = VpnLiveStats.formatRateLine(VpnLiveStats.downBps, VpnLiveStats.upBps)
+        val totals = VpnLiveStats.formatBytesLine(VpnLiveStats.totalRx, VpnLiveStats.totalTx)
         val ip = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
         return ShadeContent(
             title = title,
-            rateDownNum = rd.value,
-            rateDownUnit = rd.unit,
-            rateUpNum = ru.value,
-            rateUpUnit = ru.unit,
-            totalDownNum = td.value,
-            totalDownUnit = td.unit,
-            totalUpNum = tu.value,
-            totalUpUnit = tu.unit,
+            rates = rates,
+            totals = totals,
             ip = ip,
             showWarpIcon = u.hideIp,
             showWhitelistIcon = appsWhitelist,

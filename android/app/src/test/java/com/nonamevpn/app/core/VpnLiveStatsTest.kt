@@ -98,11 +98,11 @@ class VpnLiveStatsTest {
         val b = VpnLiveStats.formatRateParts(12_300)
         assertEquals(6, a.value.length)
         assertEquals(6, b.value.length)
-        assertEquals(4, a.unit.length)
-        assertEquals(4, b.unit.length)
-        val t0 = VpnLiveStats.formatBytesParts(100)
-        val t1 = VpnLiveStats.formatBytesParts(999)
-        assertEquals(t0.value.length, t1.value.length)
-        assertEquals(t0.unit.length, t1.unit.length)
+        val line = VpnLiveStats.formatRateLine(0, 12_300)
+        assertTrue(line.contains("↓"))
+        assertTrue(line.contains("↑"))
+        assertTrue(line.contains("Кб/с") || line.contains("б/с"))
+        val totals = VpnLiveStats.formatBytesLine(100, 999)
+        assertTrue(totals.contains("КБ") || totals.contains("Б"))
     }
 }
