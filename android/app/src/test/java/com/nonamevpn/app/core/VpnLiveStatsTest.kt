@@ -77,6 +77,6 @@ class VpnLiveStatsTest {
         assertEquals("512 Б/с", VpnLiveStats.formatRate(512))
         assertEquals("1.5 КБ/с", VpnLiveStats.formatRate(1536))
         assertEquals("1.5 КБ", VpnLiveStats.formatBytes(1536))
-        assertEquals("01:05", VpnLiveStats.formatDuration(1_000L, 66_000L))
+        assertEquals("00:01:05", VpnLiveStats.formatDuration(1_000L, 66_000L))
     }
 }
