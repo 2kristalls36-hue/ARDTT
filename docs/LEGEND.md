@@ -74,7 +74,7 @@
 
 ---
 
-## «Скрыть свой IP» (WARP) — не третий path
+## «Скрыть IP сервера» (WARP) — не третий path
 
 - Трафик по-прежнему приходит на VPS по Path A или Path B.
 - На сервере для этого `host_id` — policy routing → **Cloudflare WARP**.
