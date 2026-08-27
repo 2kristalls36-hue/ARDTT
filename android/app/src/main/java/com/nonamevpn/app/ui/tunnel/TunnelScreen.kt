@@ -27,13 +27,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -83,7 +81,6 @@ fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     onRequestConnect: () -> Unit,
-    onOpenSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -229,26 +226,12 @@ fun TunnelScreen(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "ARDTT",
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                color = MaterialTheme.colorScheme.primary,
-            )
-            IconButton(onClick = onOpenSettings) {
-                Icon(
-                    Icons.Default.Settings,
-                    contentDescription = "Настройки",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
+        Text(
+            text = "ARDTT",
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+        )
 
         // ═══ Быстрые настройки ═══
         AppSectionCard(
