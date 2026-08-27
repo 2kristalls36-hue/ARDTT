@@ -58,6 +58,7 @@ import com.nonamevpn.app.core.readConnectedWifiState
 import com.nonamevpn.app.core.trustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiAccessProblem
 import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -114,16 +115,10 @@ fun SettingsScreen(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            "Настройки",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            "Режим: ${if (admin) "администратор" else "пользователь"} · ${BuildConfig.VERSION_NAME}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        val modeLabel = if (admin) "администратор" else "пользователь"
+        AppPageHeader(
+            title = "Настройки",
+            subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
         )
 
         AppSectionCard(

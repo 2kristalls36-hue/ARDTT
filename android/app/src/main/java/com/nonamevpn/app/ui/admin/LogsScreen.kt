@@ -47,6 +47,7 @@ import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.VpnLiveStats
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
@@ -112,19 +113,10 @@ fun LogsScreen() {
             .padding(horizontal = 16.dp)
             .padding(bottom = 12.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "Лог событий",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Row {
+        AppPageHeader(
+            title = "Логи",
+            subtitle = "События туннеля и диагностики",
+            actions = {
                 IconButton(onClick = { AppLog.clear() }) {
                     Icon(Icons.Default.Delete, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.primary)
                 }
@@ -149,8 +141,8 @@ fun LogsScreen() {
                 ) {
                     Icon(Icons.Default.Share, contentDescription = "Поделиться", tint = MaterialTheme.colorScheme.primary)
                 }
-            }
-        }
+            },
+        )
 
         ui.lastError?.takeIf { it.isNotBlank() }?.let { fatal ->
             Surface(

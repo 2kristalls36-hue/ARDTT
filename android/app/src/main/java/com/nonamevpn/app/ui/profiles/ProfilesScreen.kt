@@ -44,6 +44,7 @@ import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import kotlinx.coroutines.launch
 
@@ -111,16 +112,9 @@ fun ProfilesScreen(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            "Профили",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            "Текущий профиль устройства. Мультипрофиль и папки — позже.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        AppPageHeader(
+            title = "Профили",
+            subtitle = "Текущий профиль устройства. Мультипрофиль и папки — позже.",
         )
 
         AppSectionCard(

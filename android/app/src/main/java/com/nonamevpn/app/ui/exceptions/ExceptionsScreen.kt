@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.settings.AppSettingsRepository
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -232,14 +233,9 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             .statusBarsPadding()
             .padding(horizontal = 16.dp),
     ) {
-        Text(
-            "Обход",
-            style = MaterialTheme.typography.headlineSmall.copy(
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.2).sp,
-            ),
-            color = colors.onSurface,
-            modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+        AppPageHeader(
+            title = "Обход",
+            subtitle = "Сайты и приложения вне туннеля",
         )
 
         if (busy) {

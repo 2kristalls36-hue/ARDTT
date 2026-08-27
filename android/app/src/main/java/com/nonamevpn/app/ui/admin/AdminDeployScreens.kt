@@ -88,6 +88,7 @@ import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
@@ -197,57 +198,6 @@ private fun healthStatusLine(health: HealthUi?, lastDeployedAtMs: Long): Pair<St
             }
             text to null // error color applied by caller when null + offline
         }
-    }
-}
-
-/** Shared top bar: statusBarsPadding + ARDTT title styles. */
-@Composable
-private fun AdminPageHeader(
-    title: String,
-    subtitle: String? = null,
-    onBack: (() -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {},
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(start = if (onBack != null) 4.dp else 16.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Назад",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        actions()
     }
 }
 
@@ -363,7 +313,9 @@ private fun ServerListScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            AdminPageHeader(
+            AppPageHeader(
+                applyStatusBarsPadding = true,
+                contentHorizontalPadding = true,
                 title = "Серверы",
                 subtitle = "Управление вашими VPS",
                 actions = {
@@ -672,7 +624,9 @@ private fun ServerOverviewScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        AdminPageHeader(
+        AppPageHeader(
+            applyStatusBarsPadding = true,
+            contentHorizontalPadding = true,
             title = server.name.ifBlank { server.host },
             subtitle = "Управление сервером",
             onBack = onBack,
@@ -975,7 +929,9 @@ private fun ClientsScreen(
     LaunchedEffect(base) { refresh() }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        AdminPageHeader(
+        AppPageHeader(
+            applyStatusBarsPadding = true,
+            contentHorizontalPadding = true,
             title = "Клиенты",
             subtitle = when {
                 loading -> "Загрузка…"
@@ -1278,7 +1234,9 @@ fun DeployScreen(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AdminPageHeader(
+        AppPageHeader(
+            applyStatusBarsPadding = true,
+            contentHorizontalPadding = true,
             title = "Деплой",
             subtitle = "SSH · установка Compose-стека ARDTT",
             onBack = onBack,

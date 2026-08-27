@@ -7,13 +7,12 @@ import org.junit.Test
 
 class NetworkProbeClassifyTest {
     @Test
-    fun provisionHealthUnlocksDirectWhenUdpSilent() {
+    fun provisionHealthUnlocksDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = true,
             captive = false,
-            vpsUdpOk = false,
             provisionOk = true,
         )
         assertEquals(VpnPath.Direct, r.preselectedPath)
@@ -28,24 +27,10 @@ class NetworkProbeClassifyTest {
             yandexOk = true,
             bigtechOk = true,
             captive = false,
-            vpsUdpOk = false,
             provisionOk = false,
         )
         assertEquals(VpnPath.Bypass, r.preselectedPath)
         assertEquals(NetworkClass.OpenNeedBypass, r.networkClass)
-    }
-
-    @Test
-    fun udpReplyStillDirect() {
-        val r = NetworkProbe.classify(
-            systemOnline = true,
-            yandexOk = false,
-            bigtechOk = false,
-            captive = false,
-            vpsUdpOk = true,
-            provisionOk = false,
-        )
-        assertEquals(VpnPath.Direct, r.preselectedPath)
     }
 
     @Test
@@ -55,7 +40,6 @@ class NetworkProbeClassifyTest {
             yandexOk = true,
             bigtechOk = true,
             captive = true,
-            vpsUdpOk = true,
             provisionOk = true,
         )
         assertNull(r.preselectedPath)
