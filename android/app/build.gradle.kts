@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 29
-        versionName = "0.5.11-hideip-notif"
+        versionCode = 30
+        versionName = "0.5.12-vpn-shade"
     }
 
     ndkVersion = "27.0.12077973"

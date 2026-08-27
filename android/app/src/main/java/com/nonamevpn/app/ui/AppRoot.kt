@@ -1,7 +1,9 @@
 package com.nonamevpn.app.ui
 
 import android.app.Activity
+import android.Manifest
 import android.net.VpnService
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -38,6 +40,7 @@ import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ServersRepository
@@ -93,7 +96,7 @@ fun AppRoot(
         }
     }
 
-    fun requestVpnThenConnect() {
+    fun launchVpnPrepareOrConnect() {
         scope.launch {
             val prep = runCatching { VpnService.prepare(activity ?: context) }.getOrNull()
             if (prep != null) {
@@ -103,6 +106,28 @@ fun AppRoot(
                 AppLog.i("VpnPrep", "VPN already permitted — connect")
                 conn.connect()
             }
+        }
+    }
+
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        AppLog.i("NotifPrep", "POST_NOTIFICATIONS granted=$granted")
+        // Proceed regardless — without grant the shade stays empty on Android 13+.
+        launchVpnPrepareOrConnect()
+    }
+
+    fun requestVpnThenConnect() {
+        scope.launch {
+            val wantShade = runCatching { settings.vpnNotificationVisibleSnapshot() }.getOrDefault(true)
+            if (wantShade && needsNotificationPermission(context) &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            ) {
+                AppLog.i("NotifPrep", "Requesting POST_NOTIFICATIONS before connect")
+                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return@launch
+            }
+            launchVpnPrepareOrConnect()
         }
     }
 
