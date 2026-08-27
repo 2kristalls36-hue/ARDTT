@@ -266,6 +266,18 @@ fun AppRoot(
                         serversRepo = serversRepo,
                         engine = deployEngine,
                         initial = deployInitial,
+                        onSaved = {
+                            navController.navigate(AppDestination.Servers.route) {
+                                popUpTo(AppDestination.Servers.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                        onBack = {
+                            navController.navigate(AppDestination.Servers.route) {
+                                popUpTo(AppDestination.Servers.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
                     )
                 }
             }
