@@ -1,6 +1,7 @@
 package com.nonamevpn.app.core
 
 import android.net.TrafficStats
+import android.util.Log
 import java.io.File
 import java.net.NetworkInterface
 import java.util.Collections
@@ -10,11 +11,12 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Live VPN traffic for the shade notification.
  *
- * Prefer kernel iface counters via sysfs / `/proc/net/dev` (covers TUN traffic from
- * all apps). [TrafficStats] UID counters only see this process and stay ~0 while
- * Chrome/etc. use the tunnel. AmneziaWG / Bypass backends can also publish totals.
+ * Prefer AmneziaWG IPC / Bypass health when available — kernel TUN sysfs often
+ * stays at 0 for userspace tunnels on Android, which previously blocked fallbacks.
  */
 object VpnLiveStats {
+    private const val TAG = "VpnLiveStats"
+
     @Volatile var downBps: Long = 0L
         private set
     @Volatile var upBps: Long = 0L
@@ -25,12 +27,15 @@ object VpnLiveStats {
         private set
     @Volatile var ifaceName: String? = null
         private set
+    @Volatile var source: String? = null
+        private set
 
     private var lastRx = -1L
     private var lastTx = -1L
     private var lastAtMs = 0L
     private var baselineRx = -1L
     private var baselineTx = -1L
+    private var lastLogAtMs = 0L
 
     /** Optional AmneziaWG handle for IPC transfer counters (Direct path). */
     private val awgHandle = AtomicInteger(-1)
@@ -41,16 +46,19 @@ object VpnLiveStats {
         totalRx = 0L
         totalTx = 0L
         ifaceName = null
+        source = null
         lastRx = -1L
         lastTx = -1L
         lastAtMs = 0L
         baselineRx = -1L
         baselineTx = -1L
+        lastLogAtMs = 0L
         // Keep awgHandle — DirectBackend owns lifecycle across soft-restarts.
     }
 
     fun setAwgHandle(handle: Int) {
         awgHandle.set(handle)
+        Log.i(TAG, "awg handle=$handle")
     }
 
     fun clearAwgHandle(handle: Int = -1) {
@@ -61,15 +69,18 @@ object VpnLiveStats {
 
     fun sample() {
         val now = System.currentTimeMillis()
-        val (rxAbs, txAbs, iface) = readCounters()
-        if (rxAbs < 0L || txAbs < 0L) return
+        val (rxAbs, txAbs, iface, src) = readCounters()
+        if (rxAbs < 0L || txAbs < 0L) {
+            maybeLog(now, "no counters handle=${awgHandle.get()}")
+            return
+        }
 
         if (baselineRx < 0L || baselineTx < 0L) {
             baselineRx = rxAbs
             baselineTx = txAbs
         }
-        // Soft-restart / counter wrap: re-baseline instead of huge negative rates.
-        if (rxAbs < baselineRx || txAbs < baselineTx) {
+        // Soft-restart / counter wrap / source switch: re-baseline.
+        if (rxAbs < baselineRx || txAbs < baselineTx || (source != null && source != src)) {
             baselineRx = rxAbs
             baselineTx = txAbs
             lastRx = -1L
@@ -93,31 +104,54 @@ object VpnLiveStats {
         totalRx = rx
         totalTx = tx
         ifaceName = iface
+        source = src
+        if (rx > 0L || tx > 0L || downBps > 0L || upBps > 0L) {
+            maybeLog(now, "src=$src iface=$iface ↓$downBps ↑$upBps rx=$rx tx=$tx")
+        }
     }
 
-    private fun readCounters(): Triple<Long, Long, String?> {
-        readSysfsOrProc()?.let { return it }
-        readAwgTransfer()?.let { return Triple(it.first, it.second, "awg") }
-        readTransportHealth()?.let { return Triple(it.first, it.second, "bypass") }
-        return readUidFallback()
+    private fun maybeLog(now: Long, msg: String) {
+        if (now - lastLogAtMs < 5_000L) return
+        lastLogAtMs = now
+        Log.i(TAG, msg)
+    }
+
+    private data class Counters(val rx: Long, val tx: Long, val iface: String?, val source: String)
+
+    private fun readCounters(): Counters {
+        // Direct: AWG peer transfer is authoritative (sysfs TUN often stuck at 0).
+        readAwgTransfer()?.let { return Counters(it.first, it.second, "awg", "awg") }
+        readTransportHealth()?.let { return Counters(it.first, it.second, "bypass", "bypass") }
+        readSysfsOrProc()?.let { return Counters(it.first, it.second, it.third, "sysfs") }
+        val uid = readUidFallback()
+        return Counters(uid.first, uid.second, uid.third, "uid")
     }
 
     private fun readSysfsOrProc(): Triple<Long, Long, String?>? {
         for (name in candidateIfaces()) {
             val sys = readSysfsBytes(name)
-            if (sys != null) return Triple(sys.first, sys.second, name)
+            if (sys != null && (sys.first > 0L || sys.second > 0L)) {
+                return Triple(sys.first, sys.second, name)
+            }
             val proc = readProcNetDev(name)
-            if (proc != null) return Triple(proc.first, proc.second, name)
+            if (proc != null && (proc.first > 0L || proc.second > 0L)) {
+                return Triple(proc.first, proc.second, name)
+            }
             val api = readTrafficStatsIface(name)
             if (api != null) return Triple(api.first, api.second, name)
+        }
+        // Accept all-zero sysfs only when nothing else exists (fresh tunnel).
+        for (name in candidateIfaces()) {
+            val sys = readSysfsBytes(name) ?: continue
+            return Triple(sys.first, sys.second, name)
         }
         return null
     }
 
     private fun candidateIfaces(): List<String> {
         val ordered = LinkedHashSet<String>()
-        ifaceName?.let { ordered.add(it) }
-        ordered.addAll(listOf("nvpn0", "tun0", "awg0", "wg0", "tun1", "wdttraw0"))
+        ifaceName?.let { if (it != "awg" && it != "bypass") ordered.add(it) }
+        ordered.addAll(listOf("tun0", "tun1", "nvpn0", "awg0", "wg0", "wdttraw0"))
         runCatching {
             File("/sys/class/net").list()?.forEach { name ->
                 if (isVpnIfaceName(name)) ordered.add(name)
@@ -159,9 +193,7 @@ object VpnLiveStats {
         return parseProcNetDev(text, iface)
     }
 
-    /**
-     * `/proc/net/dev` columns: iface | rx_bytes packets ... | tx_bytes packets ...
-     */
+    /** `/proc/net/dev` columns: iface | rx_bytes … | tx_bytes … */
     internal fun parseProcNetDev(text: String, iface: String): Pair<Long, Long>? {
         val want = iface.trimEnd(':')
         for (raw in text.lineSequence()) {
@@ -182,7 +214,6 @@ object VpnLiveStats {
         val rx = runCatching { TrafficStats.getRxBytes(iface) }.getOrDefault(-1L)
         val tx = runCatching { TrafficStats.getTxBytes(iface) }.getOrDefault(-1L)
         if (rx < 0L || tx < 0L) return null
-        // Constant zeros are useless (common for unsupported VPN ifaces that return 0).
         if (rx == 0L && tx == 0L) return null
         return rx to tx
     }
@@ -192,7 +223,11 @@ object VpnLiveStats {
         if (h < 0) return null
         val cfg = runCatching {
             org.amnezia.awg.GoBackend.awgGetConfig(h)
-        }.getOrNull() ?: return null
+        }.getOrNull()
+        if (cfg.isNullOrBlank()) {
+            maybeLog(System.currentTimeMillis(), "awgGetConfig empty handle=$h")
+            return null
+        }
         return parseAwgTransfer(cfg)
     }
 
@@ -205,11 +240,13 @@ object VpnLiveStats {
             val line = raw.trim()
             when {
                 line.startsWith("rx_bytes=") -> {
-                    rx += line.substringAfter('=').toLongOrNull() ?: continue
+                    val v = line.substringAfter('=').toLongOrNull() ?: continue
+                    rx += v
                     saw = true
                 }
                 line.startsWith("tx_bytes=") -> {
-                    tx += line.substringAfter('=').toLongOrNull() ?: continue
+                    val v = line.substringAfter('=').toLongOrNull() ?: continue
+                    tx += v
                     saw = true
                 }
             }

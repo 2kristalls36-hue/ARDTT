@@ -930,15 +930,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         notifLiveJob?.cancel()
         notifLiveJob = scope.launch {
             while (true) {
+                if (tunnelSessionActive && !userStopRequested) {
+                    val showInShade = runCatching {
+                        settingsRepo.vpnNotificationVisibleSnapshot()
+                    }.getOrDefault(true)
+                    if (showInShade) {
+                        VpnLiveStats.sample()
+                        val path = TunnelSessionHolder.config?.path
+                        if (path != null) {
+                            updateNotification(path, "live")
+                        }
+                    }
+                }
                 delay(1_000)
-                if (!tunnelSessionActive || userStopRequested) continue
-                val showInShade = runCatching {
-                    settingsRepo.vpnNotificationVisibleSnapshot()
-                }.getOrDefault(true)
-                if (!showInShade) continue
-                VpnLiveStats.sample()
-                val path = TunnelSessionHolder.config?.path ?: continue
-                updateNotification(path, "live")
             }
         }
     }
@@ -1041,22 +1045,28 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             Intent(this, VpnTunnelService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val title = when {
-            trustedWifiWaiting -> "ARDTT · доверенная сеть"
-            path == VpnPath.Direct -> getString(R.string.notif_direct)
-            else -> getString(R.string.notif_bypass)
-        }
         val tunIp = TunnelSessionHolder.config?.tunAddress?.substringBefore('/') ?: "—"
         val content = ConnectionManager.getOrNull()?.notificationContent(
             sessionStartedAtMs = sessionStartedAtMs,
             tunIp = tunIp,
         )
-        val shortText = content?.first?.takeIf { it.isNotBlank() } ?: text.ifBlank { "Подключено" }
-        val bigText = content?.second?.takeIf { it.isNotBlank() } ?: shortText
+        val liveLine = when {
+            trustedWifiWaiting -> "VPN выключен в доверенной сети"
+            content != null && content.first.isNotBlank() -> content.first
+            else -> text.ifBlank { getString(R.string.notif_running) }
+        }
+        val modesLine = when {
+            trustedWifiWaiting -> "Доверенная Wi‑Fi"
+            content != null && content.second.isNotBlank() -> content.second
+            path == VpnPath.Direct -> "Прямое · AWG"
+            else -> "Обход · RAW"
+        }
+        val bigText = "$liveLine\n$modesLine"
 
         val builder = NotificationCompat.Builder(this, channelId)
-            .setContentTitle(title)
-            .setContentText(shortText)
+            // Title = live stats; text = modes. App name already shown by the system header.
+            .setContentTitle(liveLine)
+            .setContentText(modesLine)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setSmallIcon(R.drawable.ic_vpn_key)
             .setContentIntent(open)
@@ -1065,14 +1075,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSilent(false)
+            .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-        if (sessionStartedAtMs > 0L && !trustedWifiWaiting && !softRestartInProgress) {
-            builder.setWhen(sessionStartedAtMs)
-                .setUsesChronometer(true)
-                .setShowWhen(true)
-        } else {
-            builder.setShowWhen(true)
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setForegroundServiceBehavior(
                 NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE,
