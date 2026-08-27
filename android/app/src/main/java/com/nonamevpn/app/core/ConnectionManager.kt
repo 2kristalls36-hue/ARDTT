@@ -123,8 +123,8 @@ class ConnectionManager(
         val cur = _ui.value
         val status = if (cur.state == ConnState.Connected) {
             when (cur.activePath) {
-                VpnPath.Direct -> "Подключено: прямое" + if (enabled) " · IP скрыт (WARP)" else ""
-                VpnPath.Bypass -> "Подключено: обход" + if (enabled) " · IP скрыт (WARP)" else ""
+                VpnPath.Direct -> "Подключено: прямое" + if (enabled) hideSuffix(true) else ""
+                VpnPath.Bypass -> "Подключено: обход" + if (enabled) hideSuffix(true) else ""
                 null -> cur.statusText
             }
         } else {
@@ -136,6 +136,8 @@ class ConnectionManager(
             softInfo = softInfoFor(cur.probe),
             lastError = null,
         )
+        // Shade notification must reflect Hide-IP immediately (not only after soft-restart).
+        refreshVpnNotification()
         pendingHideIpSync = false
         // Debounce rapid toggles — only the final value hits provision/WARP.
         hideIpSyncJob?.cancel()
@@ -144,6 +146,7 @@ class ConnectionManager(
             if (_ui.value.hideIp != enabled) return@launch
             if (lastHideIpSent == enabled) {
                 AppLog.i(TAG, "Hide-IP already synced hideIp=$enabled — skip")
+                refreshVpnNotification()
                 return@launch
             }
             val viaVpn = hideIpViaVpn()
@@ -155,6 +158,7 @@ class ConnectionManager(
             val r = syncHideIpToProvision(enabled, viaVpn = viaVpn)
             if (r.isSuccess) {
                 lastHideIpSent = enabled
+                refreshVpnNotification()
                 // Egress flip on VPS invalidates in-flight TCP (new SNAT IP).
                 // Server conntrack flush alone leaves phone sockets waiting ~RTO (30s).
                 // Soft-restart TUN so apps reconnect in ~1–2s instead of hanging.
@@ -173,7 +177,7 @@ class ConnectionManager(
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
                 if (viaVpn) {
                     _ui.value = _ui.value.copy(
-                        lastError = "Hide IP не синхронизирован с VPS: ${r.exceptionOrNull()?.message}",
+                        lastError = "Скрытие IP сервера не синхронизировано с VPS: ${r.exceptionOrNull()?.message}",
                     )
                 } else {
                     pendingHideIpSync = enabled
@@ -352,7 +356,7 @@ class ConnectionManager(
                         AppLog.e(TAG, "hide-ip enable failed: ${r.exceptionOrNull()?.message}")
                         _ui.value = _ui.value.copy(
                             state = ConnState.Error,
-                            lastError = "Не удалось включить WARP на VPS: ${r.exceptionOrNull()?.message}",
+                            lastError = "Не удалось включить скрытие IP сервера: ${r.exceptionOrNull()?.message}",
                             connectEnabled = true,
                         )
                         return@launch
@@ -539,23 +543,22 @@ class ConnectionManager(
     /** WDTT-Plus-style soft reconnect: keep Connected UI, show progress. */
     fun onTransportRestarting(reason: String) {
         softRestartInProgress = true
-        scope.launch {
-            val path = _ui.value.activePath
-            AppLog.i(TAG, "Transport soft restart: $reason")
-            val status = when {
-                reason.startsWith("Hide-IP") -> "Смена egress — переподключение…"
-                reason.startsWith("[СЕТЬ]") -> "Сеть сменилась — переподключение…"
-                else -> "Переподключение транспорта…"
-            }
-            _ui.value = _ui.value.copy(
-                state = ConnState.Connecting,
-                activePath = path,
-                statusText = status,
-                lastError = null,
-                connectEnabled = true,
-                softInfo = reason.removePrefix("[СЕТЬ] ").takeIf { it.isNotBlank() },
-            )
+        val path = _ui.value.activePath
+        AppLog.i(TAG, "Transport soft restart: $reason")
+        val status = when {
+            reason.startsWith("Hide-IP") -> "Смена выхода — переподключение…"
+            reason.startsWith("[СЕТЬ]") -> "Сеть сменилась — переподключение…"
+            else -> "Переподключение транспорта…"
         }
+        _ui.value = _ui.value.copy(
+            state = ConnState.Connecting,
+            activePath = path,
+            statusText = status,
+            lastError = null,
+            connectEnabled = true,
+            softInfo = reason.removePrefix("[СЕТЬ] ").takeIf { it.isNotBlank() },
+        )
+        refreshVpnNotification()
     }
 
     /**
@@ -707,6 +710,7 @@ class ConnectionManager(
                 lastError = null,
                 softInfo = softInfoFor(_ui.value.probe),
             )
+            refreshVpnNotification()
             if (pendingHideIpSync || _ui.value.hideIp) {
                 val want = _ui.value.hideIp
                 pendingHideIpSync = false
@@ -720,7 +724,7 @@ class ConnectionManager(
                         AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
                         if (want) {
                             _ui.value = _ui.value.copy(
-                                lastError = "WARP на VPS: ${r.exceptionOrNull()?.message}",
+                                lastError = "Скрытие IP сервера: ${r.exceptionOrNull()?.message}",
                             )
                         }
                     }
@@ -831,7 +835,7 @@ class ConnectionManager(
             parts += "Для обхода сохраните hash звонка на телефоне."
         }
         if (_ui.value.hideIp) {
-            parts += "Скрытие IP: выход через Cloudflare WARP на VPS."
+            parts += "Скрытие IP сервера: выход через Cloudflare, не с адреса VPS."
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
@@ -841,8 +845,21 @@ class ConnectionManager(
         VpnPath.Bypass -> "обход"
     }
 
-    private fun hideSuffix(): String =
-        if (_ui.value.hideIp) " · IP скрыт (WARP)" else ""
+    private fun hideSuffix(enabled: Boolean = _ui.value.hideIp): String =
+        if (enabled) " · IP сервера скрыт" else ""
+
+    /** Body text for the ongoing VPN shade notification. */
+    fun notificationRunningText(): String {
+        val u = _ui.value
+        return when {
+            u.state == ConnState.PausedTrustedWifi ->
+                u.statusText.ifBlank { "VPN выключен в доверенной сети" }
+            softRestartInProgress || u.state == ConnState.Connecting ->
+                u.statusText.ifBlank { "Переподключение транспорта…" }
+            u.hideIp -> "Туннель активен · IP сервера скрыт"
+            else -> "Туннель активен"
+        }
+    }
 
     private fun startTunnel(path: VpnPath) {
         val addr = when (path) {

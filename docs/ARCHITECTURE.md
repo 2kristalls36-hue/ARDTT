@@ -9,7 +9,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 1. **Прямой** — AmneziaWG 2.0.
 2. **Обход** — TURN + RAW (`RAW IP → WRAP → TURN → VPS`), без DTLS и без вложенного WG/AWG.
 
-Опционально на VPS: egress через **WARP**, если пользователь включил «Скрыть свой IP».
+Опционально на VPS: egress через **WARP**, если пользователь включил «Скрыть IP сервера».
 
 ---
 
@@ -20,7 +20,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Платформа | Android; форк `amneziawg-android` + RAW bypass из qWDTT / SpaceNeuroX |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
 | Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
-| WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
+| WARP | Не третий клиентский path. Галочка **«Скрыть IP сервера»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
 
 | Call hash | **1 hash на пользователя VPN**, только на телефоне (не в серверном `nvpn` как обязательное поле) |
 | Дозвон | **`vkcalls` по умолчанию** + **`legacy` (капча) как fallback** |
@@ -66,7 +66,7 @@ Android
 |------|----------------|
 | Статус сети / preselect (прямое / обход / нет сети) | Подробные логи TURN/AWG |
 | Кнопка **Подключить / Отключить** | Деплой VPS / SSH |
-| Галочка **Скрыть свой IP** | Workers, dial, MTU, AWG Jc/H/S… |
+| Галочка **Скрыть IP сервера** | Workers, dial, MTU, AWG Jc/H/S… |
 | Импорт профиля (QR / файл) | Сырые конфиги, debug |
 | При необходимости: VK **создать звонок** (один раз) | Advanced DNS, bypass routes |
 | Короткий статус ошибки понятным языком | Полный pipeline connection steps |
@@ -111,7 +111,7 @@ Android
 
 ## WARP = скрытие IP (egress), не третий path
 
-UI перед Connect: чекбокс **«Скрыть свой IP адрес»** (per-session или запомнить в профиле).
+UI перед Connect: чекбокс **«Скрыть IP сервера»** (per-session или запомнить в профиле).
 
 - Выкл: NAT с `awg0`/`wdttraw0` в интернет напрямую (IP VPS).
 - Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` (wgcf / kernel WG).
