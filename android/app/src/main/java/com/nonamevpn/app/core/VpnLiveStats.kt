@@ -295,9 +295,22 @@ object VpnLiveStats {
     }
 
     /**
-     * Fixed shade slots: arrow (layout) + [00.00] digits + unit (б/с|Кб/с|Мб/с|Гб/с).
-     * [bytesPerSec] is bytes/second; display is bit/s ×8.
+     * Fixed shade slots as one monospace string (no minEms — OEM RemoteViews stretch).
+     * Example: `↓ 27.22 Кб/с  ↑ 27.09 Кб/с`
      */
+    fun formatRateLine(downBytesPerSec: Long, upBytesPerSec: Long): String {
+        val d = formatRateParts(downBytesPerSec)
+        val u = formatRateParts(upBytesPerSec)
+        return "↓${d.value} ${d.unit.trim()}  ↑${u.value} ${u.unit.trim()}"
+    }
+
+    /** Example: `↓ 71.50 КБ  ↑ 52.60 КБ` */
+    fun formatBytesLine(downBytes: Long, upBytes: Long): String {
+        val d = formatBytesParts(downBytes)
+        val u = formatBytesParts(upBytes)
+        return "↓${d.value} ${d.unit.trim()}  ↑${u.value} ${u.unit.trim()}"
+    }
+
     data class FixedParts(val value: String, val unit: String)
 
     fun formatRateParts(bytesPerSec: Long): FixedParts {
@@ -310,11 +323,10 @@ object VpnLiveStats {
         }
         return FixedParts(
             value = String.format(Locale.US, "%6.2f", num),
-            unit = unit.padEnd(4, ' '),
+            unit = unit,
         )
     }
 
-    /** Session totals in bytes: Б | КБ | МБ | ГБ with fixed 00.00 digits. */
     fun formatBytesParts(bytes: Long): FixedParts {
         val b = bytes.coerceAtLeast(0L)
         val (num, unit) = when {
@@ -325,19 +337,18 @@ object VpnLiveStats {
         }
         return FixedParts(
             value = String.format(Locale.US, "%6.2f", num),
-            unit = unit.padEnd(3, ' '),
+            unit = unit,
         )
     }
 
-    /** Compact single-string forms (tests / fallback text). */
     fun formatRateFixed(bytesPerSec: Long, down: Boolean): String {
         val p = formatRateParts(bytesPerSec)
-        return (if (down) "↓" else "↑") + p.value + p.unit.trimEnd()
+        return (if (down) "↓" else "↑") + p.value + " " + p.unit
     }
 
     fun formatBytesFixed(bytes: Long, down: Boolean): String {
         val p = formatBytesParts(bytes)
-        return (if (down) "↓" else "↑") + p.value + p.unit.trimEnd()
+        return (if (down) "↓" else "↑") + p.value + " " + p.unit
     }
 
     fun formatDuration(startedAtMs: Long, nowMs: Long = System.currentTimeMillis()): String {
