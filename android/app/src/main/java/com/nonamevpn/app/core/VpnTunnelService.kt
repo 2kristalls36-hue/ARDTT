@@ -1180,7 +1180,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_TUN_ADDRESS = "tun_address"
         const val EXTRA_RESTART_REASON = "restart_reason"
         private const val NOTIF_ID = 42
-        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v4"
-        private const val CHANNEL_MIN = "ardtt_vpn_min_v4"
+        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v5"
+        private const val CHANNEL_MIN = "ardtt_vpn_min_v5"
     }
 }
