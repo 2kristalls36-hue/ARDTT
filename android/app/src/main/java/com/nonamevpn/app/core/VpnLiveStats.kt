@@ -295,28 +295,28 @@ object VpnLiveStats {
     }
 
     /**
-     * Fixed-width bit/s rate for shade cells (monospace) so digits don't shift.
-     * [bytesPerSec] is bytes/second; shown as бит/с / Кбит/с / Мбит/с.
+     * Compact fixed-width bit/s for shade (monospace).
+     * [bytesPerSec] → бит/с shown as б/с · Кб/с · Мб/с.
      */
     fun formatRateFixed(bytesPerSec: Long, down: Boolean): String {
         val arrow = if (down) "↓" else "↑"
         val bits = bytesPerSec.coerceAtLeast(0L) * 8L
         val body = when {
-            bits < 1000L -> String.format(Locale.US, "%4d бит/с", bits.coerceAtMost(999L))
-            bits < 1_000_000L -> String.format(Locale.US, "%5.1f Кбит/с", bits / 1000.0)
-            else -> String.format(Locale.US, "%5.2f Мбит/с", bits / 1_000_000.0)
+            bits < 1000L -> String.format(Locale.US, "%4dб/с", bits.coerceAtMost(999L))
+            bits < 1_000_000L -> String.format(Locale.US, "%5.1fКб/с", bits / 1000.0)
+            else -> String.format(Locale.US, "%5.2fМб/с", bits / 1_000_000.0)
         }
         return arrow + body
     }
 
-    /** Fixed-width session total for shade cells (monospace), still in bytes. */
+    /** Compact fixed-width session total (monospace), bytes. */
     fun formatBytesFixed(bytes: Long, down: Boolean): String {
         val arrow = if (down) "↓" else "↑"
         val body = when {
-            bytes < 1024L -> String.format(Locale.US, "%4d Б", bytes.coerceIn(0L, 9999L))
-            bytes < 1024L * 1024L -> String.format(Locale.US, "%5.1f КБ", bytes / 1024.0)
-            bytes < 1024L * 1024L * 1024L -> String.format(Locale.US, "%5.1f МБ", bytes / (1024.0 * 1024.0))
-            else -> String.format(Locale.US, "%5.2f ГБ", bytes / (1024.0 * 1024.0 * 1024.0))
+            bytes < 1024L -> String.format(Locale.US, "%4dБ", bytes.coerceIn(0L, 9999L))
+            bytes < 1024L * 1024L -> String.format(Locale.US, "%5.1fКБ", bytes / 1024.0)
+            bytes < 1024L * 1024L * 1024L -> String.format(Locale.US, "%5.1fМБ", bytes / (1024.0 * 1024.0))
+            else -> String.format(Locale.US, "%5.2fГБ", bytes / (1024.0 * 1024.0 * 1024.0))
         }
         return arrow + body
     }
