@@ -22,11 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -70,7 +66,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     settings: AppSettingsRepository,
-    onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -119,27 +114,12 @@ fun SettingsScreen(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (onBack != null) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Назад",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            Text(
-                "Настройки",
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+        Text(
+            "Настройки",
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 8.dp),
+        )
         Text(
             "Режим: ${if (admin) "администратор" else "пользователь"} · ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodyMedium,

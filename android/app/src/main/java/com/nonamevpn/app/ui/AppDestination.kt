@@ -1,8 +1,8 @@
 package com.nonamevpn.app.ui
 
 /**
- * Bottom tabs in qWDTT order.
- * Deploy is reached from Servers (not a bottom tab). Settings lives under Tunnel.
+ * Bottom tabs: Tunnel → Servers → Profiles → Exceptions → Logs → Settings.
+ * Deploy is reached from Servers (not a bottom tab).
  */
 enum class AppDestination(
     val route: String,
@@ -15,8 +15,7 @@ enum class AppDestination(
     Profiles("profiles", "Профили", adminOnly = false),
     Exceptions("exceptions", "Обход", adminOnly = false),
     Logs("logs", "Логи", adminOnly = false),
+    Settings("settings", "Настройки", adminOnly = false),
     /** Nested from Servers — not in bottom bar. */
     Deploy("deploy", "Деплой", adminOnly = true, inBottomNav = false),
-    /** Opened from Tunnel — not in bottom bar. */
-    Settings("settings", "Настройки", adminOnly = false, inBottomNav = false),
 }

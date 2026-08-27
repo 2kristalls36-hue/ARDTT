@@ -91,7 +91,6 @@ fun AppRoot(
         NavBarItem(route = dest.route, label = dest.label, icon = dest.icon())
     }
     val selectedNavRoute = when (currentRoute) {
-        AppDestination.Settings.route -> AppDestination.Tunnel.route
         AppDestination.Deploy.route -> AppDestination.Servers.route
         else -> currentRoute
     }
@@ -233,11 +232,6 @@ fun AppRoot(
                         settings = settings,
                         profiles = profiles,
                         onRequestConnect = { requestVpnThenConnect() },
-                        onOpenSettings = {
-                            navController.navigate(AppDestination.Settings.route) {
-                                launchSingleTop = true
-                            }
-                        },
                     )
                 }
                 composable(AppDestination.Servers.route) {
@@ -265,15 +259,7 @@ fun AppRoot(
                     LogsScreen()
                 }
                 composable(AppDestination.Settings.route) {
-                    SettingsScreen(
-                        settings = settings,
-                        onBack = {
-                            navController.popBackStack(
-                                AppDestination.Tunnel.route,
-                                inclusive = false,
-                            )
-                        },
-                    )
+                    SettingsScreen(settings = settings)
                 }
                 composable(AppDestination.Deploy.route) {
                     DeployScreen(
