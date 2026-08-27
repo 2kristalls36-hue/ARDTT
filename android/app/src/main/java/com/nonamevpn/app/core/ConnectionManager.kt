@@ -55,6 +55,7 @@ class ConnectionManager(
 
     private var probeJob: Job? = null
     private var connectJob: Job? = null
+    private var presenceJob: Job? = null
     private var profile: VpnProfile? = null
     private var directEndpoint: String? = null
     private var provisionUrl: String? = null
@@ -147,14 +148,14 @@ class ConnectionManager(
             delay(900)
             if (_ui.value.hideIp != enabled) return@launch
             if (lastHideIpSent == enabled) {
-                AppLog.i(TAG, "Hide-IP already synced hideIp=$enabled — skip")
+                AppLog.v(TAG, "Hide-IP already synced hideIp=$enabled — skip")
                 scheduleEgressIpRefresh("hide-ip-already-synced")
                 return@launch
             }
             val viaVpn = hideIpViaVpn()
             if (!viaVpn && enabled && _ui.value.probe?.provisionOk != true) {
                 pendingHideIpSync = true
-                AppLog.i(TAG, "Hide-IP queued until tunnel (provision unreachable on underlay)")
+                AppLog.v(TAG, "Hide-IP queued until tunnel (provision unreachable on underlay)")
                 return@launch
             }
             val r = syncHideIpToProvision(enabled, viaVpn = viaVpn)
@@ -172,7 +173,7 @@ class ConnectionManager(
                     } else {
                         "Hide-IP: egress → VPS"
                     }
-                    AppLog.i(TAG, "Hide-IP applied — $why (soft-restart sockets)")
+                    AppLog.v(TAG, "Hide-IP applied — $why (soft-restart sockets)")
                     requestTransportRestart(why)
                     // Soft-restart also refreshes on tunnel-up; schedule a late
                     // WARP/VPS IP fetch in case the first attempt races policy apply.
@@ -289,7 +290,7 @@ class ConnectionManager(
         }
         probeJob?.cancel()
         probeJob = scope.launch {
-            AppLog.i(TAG, "Probe start endpoint=$directEndpoint provision=$provisionUrl")
+            AppLog.v(TAG, "Probe start endpoint=$directEndpoint provision=$provisionUrl")
             _ui.value = _ui.value.copy(
                 state = ConnState.Probing,
                 statusText = "Определение сети…",
@@ -298,7 +299,7 @@ class ConnectionManager(
                 lastError = null,
             )
             val result = NetworkProbe.probe(appContext, provisionUrl, quick = true)
-            AppLog.i(
+            AppLog.v(
                 TAG,
                 "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
                     "health=${result.provisionOk} ${result.elapsedMs}ms",
@@ -332,7 +333,7 @@ class ConnectionManager(
 
         // Sync Hide-IP preference to VPS (policy route via warp0). WARP must be up.
         if (current.hideIp) {
-            AppLog.i(TAG, "Hide-IP on — asking provision to route host via WARP")
+            AppLog.v(TAG, "Hide-IP on — asking provision to route host via WARP")
         }
 
         connectJob?.cancel()
@@ -345,7 +346,7 @@ class ConnectionManager(
                     ConnPathMode.Bypass -> VpnPath.Bypass
                     ConnPathMode.Auto -> probePreferred ?: VpnPath.Direct
                 }
-                AppLog.i(TAG, "Connect requested mode=$mode preferred=$labelPreferred hideIp=${snap.hideIp}")
+                AppLog.v(TAG, "Connect requested mode=$mode preferred=$labelPreferred hideIp=${snap.hideIp}")
                 _ui.value = snap.copy(
                     state = ConnState.Connecting,
                     statusText = "Подключение (${pathLabel(labelPreferred)})…",
@@ -371,7 +372,7 @@ class ConnectionManager(
                     lastHideIpSent = true
                 } else if (deferHideIp) {
                     pendingHideIpSync = true
-                    AppLog.i(TAG, "Hide-IP deferred until Bypass tunnel (underlay cannot reach provision)")
+                    AppLog.v(TAG, "Hide-IP deferred until Bypass tunnel (underlay cannot reach provision)")
                 } else {
                     runCatching { syncHideIpToProvision(false, viaVpn = false) }
                         .onSuccess { lastHideIpSent = false }
@@ -389,7 +390,7 @@ class ConnectionManager(
                     fresh = NetworkProbe.probe(appContext, provisionUrl, quick = true)
                 }
                 val usePath = resolveConnectPath(mode, probePreferred, lastGood, fresh)
-                AppLog.i(
+                AppLog.v(
                     TAG,
                     "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
                         "mode=$mode health=${fresh.provisionOk}",
@@ -439,7 +440,7 @@ class ConnectionManager(
                     return@launch
                 }
                 startTunnel(usePath)
-                AppLog.i(TAG, "VpnTunnelService start path=$usePath")
+                AppLog.v(TAG, "VpnTunnelService start path=$usePath")
                 val probeForUi = when {
                     usePath == VpnPath.Direct && fresh.preselectedPath != VpnPath.Direct ->
                         lastGood ?: fresh
@@ -454,7 +455,7 @@ class ConnectionManager(
                     connectEnabled = false,
                 )
             } catch (t: CancellationException) {
-                AppLog.i(TAG, "Connect cancelled")
+                AppLog.v(TAG, "Connect cancelled")
                 throw t
             } catch (t: Throwable) {
                 AppLog.e(TAG, "Connect crash: ${t.message ?: t.javaClass.simpleName}")
@@ -517,6 +518,8 @@ class ConnectionManager(
             return
         }
         softRestartInProgress = false
+        presenceJob?.cancel()
+        presenceJob = null
         connectJob?.cancel()
         connectJob = null
         scope.launch {
@@ -551,7 +554,7 @@ class ConnectionManager(
     fun onTransportRestarting(reason: String) {
         softRestartInProgress = true
         val path = _ui.value.activePath
-        AppLog.i(TAG, "Transport soft restart: $reason")
+        AppLog.v(TAG, "Transport soft restart: $reason")
         val status = when {
             reason.startsWith("Hide-IP") -> "Смена выхода — переподключение…"
             reason.startsWith("[СЕТЬ]") -> "Сеть сменилась — переподключение…"
@@ -583,12 +586,12 @@ class ConnectionManager(
             ?: return NetworkHandoverDecision.SoftRestartSamePath
         val mode = pathMode
         if (mode != ConnPathMode.Auto) {
-            AppLog.i(TAG, "Handover: mode=$mode — soft-restart $currentPath (no re-probe)")
+            AppLog.v(TAG, "Handover: mode=$mode — soft-restart $currentPath (no re-probe)")
             return NetworkHandoverDecision.SoftRestartSamePath
         }
 
         val base = resolveProvisionUrl()
-        AppLog.i(
+        AppLog.v(
             TAG,
             "Handover probe start path=$currentPath endpoint=$directEndpoint provision=$base " +
                 "bind=${bindNetwork?.networkHandle}",
@@ -599,7 +602,7 @@ class ConnectionManager(
             bindNetwork = bindNetwork,
             quick = true,
         )
-        AppLog.i(
+        AppLog.v(
             TAG,
             "Handover probe done class=${fresh.networkClass} path=${fresh.preselectedPath} " +
                 "yandex=${fresh.yandexOk} bigtech=${fresh.bigtechOk} " +
@@ -622,7 +625,7 @@ class ConnectionManager(
         )
         when (decision) {
             is NetworkHandoverDecision.SwitchPath -> {
-                AppLog.i(TAG, "Handover: switch $currentPath → ${decision.path}")
+                AppLog.v(TAG, "Handover: switch $currentPath → ${decision.path}")
                 applySessionPath(decision.path)
                 softRestartInProgress = true
                 _ui.value = _ui.value.copy(
@@ -642,7 +645,7 @@ class ConnectionManager(
                 ) {
                     AppLog.w(TAG, "Handover: need Bypass but no call hash — keep Direct soft-restart")
                 } else {
-                    AppLog.i(TAG, "Handover: keep $currentPath (probe=${fresh.preselectedPath})")
+                    AppLog.v(TAG, "Handover: keep $currentPath (probe=${fresh.preselectedPath})")
                 }
             }
         }
@@ -737,6 +740,7 @@ class ConnectionManager(
                 }
             }
             scheduleEgressIpRefresh("tunnel-up")
+            schedulePresenceHeartbeat()
         }
     }
 
@@ -769,7 +773,7 @@ class ConnectionManager(
 
     fun onServiceStopped() {
         if (softRestartInProgress) {
-            AppLog.i(TAG, "Ignoring service stopped during soft restart")
+            AppLog.v(TAG, "Ignoring service stopped during soft restart")
             return
         }
         val cur = _ui.value
@@ -976,7 +980,7 @@ class ConnectionManager(
                     delay(600)
                     if (_ui.value.state != ConnState.Connected) return@repeat
                 }
-                AppLog.i(TAG, "egress ip refresh ($reason) attempt=${attempt + 1} hideIp=$hideIp")
+                AppLog.v(TAG, "egress ip refresh ($reason) attempt=${attempt + 1} hideIp=$hideIp")
                 // Prefer underlay to reach provision :9100 while app is excluded from TUN.
                 val ip = EgressIpProbe.refresh(
                     hideIp = _ui.value.hideIp,
@@ -999,6 +1003,31 @@ class ConnectionManager(
         }
         EgressIpProbe.invalidate()
         scheduleEgressIpRefresh("manual")
+    }
+
+    private fun schedulePresenceHeartbeat() {
+        presenceJob?.cancel()
+        presenceJob = scope.launch {
+            while (
+                _ui.value.state == ConnState.Connected ||
+                _ui.value.state == ConnState.PausedTrustedWifi
+            ) {
+                val p = profile
+                val base = resolveProvisionUrl()
+                if (p != null && !base.isNullOrBlank()) {
+                    val ext = EgressIpProbe.current().orEmpty()
+                    runCatching {
+                        com.nonamevpn.app.deploy.ProvisionAdminApi.reportPresence(
+                            baseUrl = base,
+                            deviceId = p.deviceId,
+                            name = p.name,
+                            externalIp = ext,
+                        )
+                    }
+                }
+                delay(60_000L)
+            }
+        }
     }
 
     private fun startTunnel(path: VpnPath) {
@@ -1037,7 +1066,9 @@ class ConnectionManager(
     }
 
     private fun stopTunnel() {
-        AppLog.i(TAG, "Stop tunnel")
+        presenceJob?.cancel()
+        presenceJob = null
+        AppLog.v(TAG, "Stop tunnel")
         EgressIpProbe.clear()
         TunnelSessionHolder.config = null
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {

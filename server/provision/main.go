@@ -47,13 +47,21 @@ type User struct {
 	Name             string    `json:"name"`
 	HostID           int       `json:"hostId"`
 	DeviceID         string    `json:"deviceId"`
+	DeviceIDs        []string  `json:"deviceIds,omitempty"`
+	MaxDevices       int       `json:"maxDevices"`
 	Password         string    `json:"password"`
 	HideIP           bool      `json:"hideIp"`
+	ExpiresAt        int64     `json:"expiresAt"` // unix seconds; 0 = no expiry
+	Deactivated      bool      `json:"deactivated"`
+	LastSeenAt       int64     `json:"lastSeenAt,omitempty"`
+	LastExternalIP   string    `json:"lastExternalIp,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
 	DirectPrivateKey string    `json:"directPrivateKey,omitempty"`
 	DirectPublicKey  string    `json:"directPublicKey,omitempty"`
 	ServerPublicKey  string    `json:"serverPublicKey,omitempty"`
 }
+
+const onlineGraceSeconds = 120
 
 type Store struct {
 	Config Config `json:"config"`
@@ -63,12 +71,15 @@ type Store struct {
 }
 
 type Profile struct {
-	Name     string `json:"name"`
-	DeviceID string `json:"deviceId"`
-	HostID   int    `json:"hostId"`
-	Prefer   string `json:"prefer"`
-	HideIP   bool   `json:"hideIp"`
-	Direct   struct {
+	Name        string `json:"name"`
+	DeviceID    string `json:"deviceId"`
+	HostID      int    `json:"hostId"`
+	Prefer      string `json:"prefer"`
+	HideIP      bool   `json:"hideIp"`
+	ExpiresAt   int64  `json:"expiresAt"`
+	Deactivated bool   `json:"deactivated"`
+	MaxDevices  int    `json:"maxDevices"`
+	Direct      struct {
 		Endpoint      string         `json:"endpoint"`
 		PrivateKey    string         `json:"privateKey"`
 		PeerPublicKey string         `json:"peerPublicKey"`
@@ -86,6 +97,23 @@ type Profile struct {
 		Mode      string `json:"mode"`
 		Dial      string `json:"dial"`
 	} `json:"bypass"`
+}
+
+// UserPublic is the admin list/detail shape (includes online presence).
+type UserPublic struct {
+	Name           string   `json:"name"`
+	HostID         int      `json:"hostId"`
+	DeviceID       string   `json:"deviceId"`
+	DeviceIDs      []string `json:"deviceIds"`
+	MaxDevices     int      `json:"maxDevices"`
+	HideIP         bool     `json:"hideIp"`
+	ExpiresAt      int64    `json:"expiresAt"`
+	Deactivated    bool     `json:"deactivated"`
+	CreatedAt      string   `json:"createdAt"`
+	LastSeenAt     int64    `json:"lastSeenAt"`
+	LastExternalIP string   `json:"lastExternalIp"`
+	Online         bool     `json:"online"`
+	OfflineForSec  int64    `json:"offlineForSec"`
 }
 
 func main() {
@@ -110,7 +138,7 @@ func main() {
 		if *name == "" {
 			log.Fatal("-name required")
 		}
-		u, err := store.CreateUser(*name)
+		u, err := store.CreateUser(*name, 0, 1)
 		if err != nil {
 			log.Fatalf("create-user: %v", err)
 		}
@@ -141,24 +169,27 @@ func main() {
 func runServer(store *Store, listen string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"service":"provision"}`))
+		writeJSON(w, map[string]any{
+			"ok":            true,
+			"service":       "provision",
+			"deployVersion": resolveDeployVersion(),
+		})
 	})
 	mux.HandleFunc("/v1/users", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			store.mu.Lock()
-			defer store.mu.Unlock()
-			writeJSON(w, store.Users)
+			writeJSON(w, store.ListUsersPublic())
 		case http.MethodPost:
 			var body struct {
-				Name string `json:"name"`
+				Name       string `json:"name"`
+				Days       int    `json:"days"`
+				MaxDevices int    `json:"maxDevices"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 				http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
 				return
 			}
-			u, err := store.CreateUser(body.Name)
+			u, err := store.CreateUser(body.Name, body.Days, body.MaxDevices)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusConflict)
 				return
@@ -168,12 +199,95 @@ func runServer(store *Store, listen string) error {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	mux.HandleFunc("/v1/users/update", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Name         string `json:"name"`
+			MaxDevices   *int   `json:"maxDevices"`
+			Days         *int   `json:"days"`
+			Deactivated  *bool  `json:"deactivated"`
+			ClearDevices bool   `json:"clearDevices"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+			http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
+			return
+		}
+		u, err := store.UpdateUser(body.Name, body.MaxDevices, body.Days, body.Deactivated, body.ClearDevices)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, store.ToPublic(u))
+	})
+	mux.HandleFunc("/v1/users/unbind-device", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Name     string `json:"name"`
+			DeviceID string `json:"deviceId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.DeviceID == "" {
+			http.Error(w, `{"error":"name and deviceId required"}`, http.StatusBadRequest)
+			return
+		}
+		u, err := store.UnbindDevice(body.Name, body.DeviceID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, store.ToPublic(u))
+	})
+	mux.HandleFunc("/v1/presence", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			DeviceID   string `json:"deviceId"`
+			Name       string `json:"name"`
+			ExternalIP string `json:"externalIp"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
+			return
+		}
+		if body.DeviceID == "" && body.Name == "" {
+			http.Error(w, `{"error":"deviceId or name required"}`, http.StatusBadRequest)
+			return
+		}
+		ext := strings.TrimSpace(body.ExternalIP)
+		if ext == "" {
+			ext = clientIP(r)
+		}
+		u, err := store.TouchPresence(body.DeviceID, body.Name, ext)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"ok":             true,
+			"name":           u.Name,
+			"lastSeenAt":     u.LastSeenAt,
+			"lastExternalIp": u.LastExternalIP,
+		})
+	})
 	mux.HandleFunc("/v1/profile/", func(w http.ResponseWriter, r *http.Request) {
 		name := filepath.Base(r.URL.Path)
 		u, err := store.FindUser(name)
 		if err != nil {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 			return
+		}
+		// Best-effort presence when profile is fetched (connect / import).
+		_, _ = store.TouchPresence(u.DeviceID, u.Name, clientIP(r))
+		u2, _ := store.FindUser(name)
+		if u2.Name != "" {
+			u = u2
 		}
 		writeJSON(w, store.BuildProfile(u))
 	})
@@ -200,6 +314,7 @@ func runServer(store *Store, listen string) error {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
 		}
+		_, _ = store.TouchPresence(body.DeviceID, body.Name, clientIP(r))
 		store.mu.Lock()
 		directBase := subnetBase(store.Config.DirectSubnet)
 		bypassBase := subnetBase(store.Config.BypassSubnet)
@@ -267,7 +382,7 @@ func runServer(store *Store, listen string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("provision listening on %s (data=%s)", listen, store.path)
+	log.Printf("provision listening on %s (data=%s deploy=%s)", listen, store.path, resolveDeployVersion())
 	return http.Serve(ln, mux)
 }
 
@@ -352,9 +467,16 @@ func (s *Store) ensureUserKeys() error {
 			u.ServerPublicKey = s.Config.ServerPublicKey
 			changed = true
 		}
+		if normalizeUserDevices(u) {
+			changed = true
+		}
+		if u.MaxDevices <= 0 {
+			u.MaxDevices = 1
+			changed = true
+		}
 	}
 	if changed {
-		log.Printf("filled missing AWG user keys")
+		log.Printf("filled missing AWG user keys / device defaults")
 	}
 	return nil
 }
@@ -380,7 +502,7 @@ func (s *Store) saveLocked() error {
 	return os.Rename(tmp, s.path)
 }
 
-func (s *Store) CreateUser(name string) (User, error) {
+func (s *Store) CreateUser(name string, days, maxDevices int) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, u := range s.Users {
@@ -404,11 +526,22 @@ func (s *Store) CreateUser(name string) (User, error) {
 	if err != nil {
 		return User{}, err
 	}
+	if maxDevices <= 0 {
+		maxDevices = 1
+	}
+	var expires int64
+	if days > 0 {
+		expires = time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour).Unix()
+	}
+	deviceID := "dev-" + dev
 	u := User{
 		Name:             name,
 		HostID:           id,
-		DeviceID:         "dev-" + dev,
+		DeviceID:         deviceID,
+		DeviceIDs:        []string{deviceID},
+		MaxDevices:       maxDevices,
 		Password:         pass,
+		ExpiresAt:        expires,
 		CreatedAt:        time.Now().UTC(),
 		DirectPrivateKey: priv,
 		DirectPublicKey:  pub,
@@ -418,7 +551,7 @@ func (s *Store) CreateUser(name string) (User, error) {
 	if err := s.saveLocked(); err != nil {
 		return User{}, err
 	}
-	log.Printf("created user %q host_id=%d", name, id)
+	log.Printf("created user %q host_id=%d max_devices=%d expires=%d", name, id, maxDevices, expires)
 	return u, nil
 }
 
@@ -437,12 +570,169 @@ func (s *Store) FindUserByDeviceOrName(deviceID, name string) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, u := range s.Users {
-		if deviceID != "" && u.DeviceID == deviceID {
-			return u, nil
+		if deviceID != "" {
+			if u.DeviceID == deviceID || containsString(u.DeviceIDs, deviceID) {
+				return u, nil
+			}
 		}
 		if name != "" && u.Name == name {
 			return u, nil
 		}
+	}
+	return User{}, fmt.Errorf("not found")
+}
+
+func (s *Store) ListUsersPublic() []UserPublic {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]UserPublic, 0, len(s.Users))
+	now := time.Now().Unix()
+	for _, u := range s.Users {
+		out = append(out, toPublicLocked(u, now))
+	}
+	return out
+}
+
+func (s *Store) ToPublic(u User) UserPublic {
+	return toPublicLocked(u, time.Now().Unix())
+}
+
+func toPublicLocked(u User, now int64) UserPublic {
+	normalizeUserDevices(&u)
+	online := u.LastSeenAt > 0 && now-u.LastSeenAt <= onlineGraceSeconds
+	var offlineFor int64
+	if u.LastSeenAt > 0 && !online {
+		offlineFor = now - u.LastSeenAt
+		if offlineFor < 0 {
+			offlineFor = 0
+		}
+	}
+	ids := append([]string{}, u.DeviceIDs...)
+	return UserPublic{
+		Name:           u.Name,
+		HostID:         u.HostID,
+		DeviceID:       u.DeviceID,
+		DeviceIDs:      ids,
+		MaxDevices:     maxInt(u.MaxDevices, 1),
+		HideIP:         u.HideIP,
+		ExpiresAt:      u.ExpiresAt,
+		Deactivated:    u.Deactivated,
+		CreatedAt:      u.CreatedAt.UTC().Format(time.RFC3339),
+		LastSeenAt:     u.LastSeenAt,
+		LastExternalIP: u.LastExternalIP,
+		Online:         online,
+		OfflineForSec:  offlineFor,
+	}
+}
+
+func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool, clearDevices bool) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Users {
+		u := &s.Users[i]
+		if u.Name != name {
+			continue
+		}
+		if maxDevices != nil {
+			if *maxDevices <= 0 {
+				return User{}, fmt.Errorf("maxDevices must be positive")
+			}
+			u.MaxDevices = *maxDevices
+			// Trim excess bindings if limit lowered.
+			normalizeUserDevices(u)
+			if len(u.DeviceIDs) > u.MaxDevices {
+				u.DeviceIDs = u.DeviceIDs[:u.MaxDevices]
+				if len(u.DeviceIDs) > 0 {
+					u.DeviceID = u.DeviceIDs[0]
+				}
+			}
+		}
+		if days != nil && *days > 0 {
+			u.ExpiresAt = time.Now().UTC().Add(time.Duration(*days) * 24 * time.Hour).Unix()
+		}
+		if deactivated != nil {
+			u.Deactivated = *deactivated
+		}
+		if clearDevices {
+			u.DeviceIDs = nil
+			u.DeviceID = ""
+		}
+		normalizeUserDevices(u)
+		if err := s.saveLocked(); err != nil {
+			return User{}, err
+		}
+		return *u, nil
+	}
+	return User{}, fmt.Errorf("not found")
+}
+
+func (s *Store) UnbindDevice(name, deviceID string) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Users {
+		u := &s.Users[i]
+		if u.Name != name {
+			continue
+		}
+		normalizeUserDevices(u)
+		next := make([]string, 0, len(u.DeviceIDs))
+		for _, id := range u.DeviceIDs {
+			if id != deviceID {
+				next = append(next, id)
+			}
+		}
+		u.DeviceIDs = next
+		if u.DeviceID == deviceID {
+			if len(next) > 0 {
+				u.DeviceID = next[0]
+			} else {
+				u.DeviceID = ""
+			}
+		}
+		if err := s.saveLocked(); err != nil {
+			return User{}, err
+		}
+		return *u, nil
+	}
+	return User{}, fmt.Errorf("not found")
+}
+
+func (s *Store) TouchPresence(deviceID, name, externalIP string) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Users {
+		u := &s.Users[i]
+		match := false
+		if deviceID != "" && (u.DeviceID == deviceID || containsString(u.DeviceIDs, deviceID)) {
+			match = true
+		}
+		if name != "" && u.Name == name {
+			match = true
+		}
+		if !match {
+			continue
+		}
+		u.LastSeenAt = time.Now().Unix()
+		if ip := strings.TrimSpace(externalIP); ip != "" && looksLikeIP(ip) && !isPrivateOrTunnelIP(ip) {
+			u.LastExternalIP = ip
+		}
+		// Bind device slot when presence reports a new device id.
+		if deviceID != "" {
+			normalizeUserDevices(u)
+			if !containsString(u.DeviceIDs, deviceID) {
+				maxDev := maxInt(u.MaxDevices, 1)
+				if len(u.DeviceIDs) < maxDev {
+					u.DeviceIDs = append(u.DeviceIDs, deviceID)
+					if u.DeviceID == "" {
+						u.DeviceID = deviceID
+					}
+				}
+			}
+		}
+		if err := s.saveLocked(); err != nil {
+			return User{}, err
+		}
+		return *u, nil
 	}
 	return User{}, fmt.Errorf("not found")
 }
@@ -538,6 +828,9 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.HostID = u.HostID
 	p.Prefer = "direct"
 	p.HideIP = u.HideIP
+	p.ExpiresAt = u.ExpiresAt
+	p.Deactivated = u.Deactivated
+	p.MaxDevices = maxInt(u.MaxDevices, 1)
 	p.Direct.Endpoint = fmt.Sprintf("%s:%d", host, cfg.DirectPort)
 	p.Direct.PrivateKey = u.DirectPrivateKey
 	p.Direct.PeerPublicKey = cfg.ServerPublicKey
@@ -609,4 +902,113 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func resolveDeployVersion() string {
+	if v := strings.TrimSpace(os.Getenv("NVPN_DEPLOY_VERSION")); v != "" {
+		return v
+	}
+	candidates := []string{
+		"/opt/nonamevpn/DEPLOY_VERSION",
+		"/data/DEPLOY_VERSION",
+		"DEPLOY_VERSION",
+	}
+	for _, p := range candidates {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if v := strings.TrimSpace(string(raw)); v != "" {
+			return v
+		}
+	}
+	return "unknown"
+}
+
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			ip := strings.TrimSpace(parts[0])
+			if looksLikeIP(ip) {
+				return ip
+			}
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return strings.TrimSpace(r.RemoteAddr)
+	}
+	return host
+}
+
+func isPrivateOrTunnelIP(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return true
+	}
+	if parsed.IsLoopback() || parsed.IsLinkLocalUnicast() || parsed.IsLinkLocalMulticast() {
+		return true
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		// 10.0.0.0/8, 172.16/12, 192.168/16, and ARDTT tunnel ranges 10.8/10.9
+		if v4[0] == 10 || v4[0] == 127 {
+			return true
+		}
+		if v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31 {
+			return true
+		}
+		if v4[0] == 192 && v4[1] == 168 {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeUserDevices(u *User) bool {
+	changed := false
+	if u.MaxDevices <= 0 {
+		u.MaxDevices = 1
+		changed = true
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(u.DeviceIDs)+1)
+	if u.DeviceID != "" {
+		seen[u.DeviceID] = true
+		out = append(out, u.DeviceID)
+	}
+	for _, id := range u.DeviceIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+		changed = true
+	}
+	if len(out) != len(u.DeviceIDs) || (len(out) > 0 && u.DeviceID == "") {
+		changed = true
+	}
+	u.DeviceIDs = out
+	if u.DeviceID == "" && len(out) > 0 {
+		u.DeviceID = out[0]
+		changed = true
+	}
+	return changed
+}
+
+func containsString(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

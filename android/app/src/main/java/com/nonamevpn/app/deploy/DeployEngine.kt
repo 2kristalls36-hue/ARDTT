@@ -60,12 +60,22 @@ class DeployEngine(private val appContext: Context) {
             ssh.uploadBytes(installBytes, "/opt/nonamevpn/install.sh")
             ssh.exec("chmod +x /opt/nonamevpn/install.sh")
 
+            val deployVersion = DeployBundle.expectedVersion(appContext)
+            runCatching {
+                ssh.uploadBytes(
+                    (deployVersion + "\n").toByteArray(Charsets.UTF_8),
+                    "/opt/nonamevpn/DEPLOY_VERSION",
+                )
+            }
+            append("Версия деплоя $deployVersion")
+
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
             emit(0.25f, "Запуск установщика…")
             val env = buildString {
                 append("NVPN_PUBLIC_HOST="); append(SshClient.shellQuote(publicHost)); append(' ')
                 append("NVPN_DIRECT_PORT="); append(target.directPort); append(' ')
                 append("NVPN_BYPASS_PORT="); append(target.bypassPort); append(' ')
+                append("NVPN_DEPLOY_VERSION="); append(SshClient.shellQuote(deployVersion)); append(' ')
                 append("bash /opt/nonamevpn/install.sh")
             }
             var failed: String? = null

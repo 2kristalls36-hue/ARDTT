@@ -124,11 +124,23 @@ else
 fi
 
 prog 0.40 "Запись .env"
+DEPLOY_VERSION="${NVPN_DEPLOY_VERSION:-}"
+if [ -z "$DEPLOY_VERSION" ] && [ -f "$STACK/DEPLOY_VERSION" ]; then
+  DEPLOY_VERSION="$(tr -d '[:space:]' < "$STACK/DEPLOY_VERSION")"
+fi
+if [ -z "$DEPLOY_VERSION" ] && [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
+  DEPLOY_VERSION="$(tr -d '[:space:]' < "$INSTALL_DIR/DEPLOY_VERSION")"
+fi
+[ -n "$DEPLOY_VERSION" ] || DEPLOY_VERSION="unknown"
+# Persist on host so provision can read even if env is missing after recreate.
+printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
+printf '%s\n' "$DEPLOY_VERSION" > "$STACK/DEPLOY_VERSION"
 cat > "$STACK/.env" <<EOF
 NVPN_PUBLIC_HOST=$PUBLIC_HOST
 NVPN_DIRECT_PORT=$DIRECT_PORT
 NVPN_BYPASS_PORT=$BYPASS_PORT
 NVPN_PROVISION_LISTEN=$PROVISION_LISTEN
+NVPN_DEPLOY_VERSION=$DEPLOY_VERSION
 NVPN_WARP_GOMEMLIMIT=400MiB
 EOF
 

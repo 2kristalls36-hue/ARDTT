@@ -20,6 +20,7 @@ services:
       NVPN_PUBLIC_HOST: ${NVPN_PUBLIC_HOST:-}
       NVPN_PROVISION_LISTEN: ${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}
       NVPN_DATA: /data
+      NVPN_DEPLOY_VERSION: ${NVPN_DEPLOY_VERSION:-}
     volumes:
       - ./data:/data
     restart: unless-stopped

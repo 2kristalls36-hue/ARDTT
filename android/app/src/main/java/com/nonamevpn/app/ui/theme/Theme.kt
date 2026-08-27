@@ -198,6 +198,10 @@ private fun schemeFor(palette: String, dark: Boolean) = when (palette) {
 object NvpnColors {
     val connected = Color(0xFF4CAF50)
     val warning = Color(0xFFFFA726)
+    /** Direct path accent (green). */
+    val pathDirect = Color(0xFF2E7D32)
+    /** Bypass path accent (blue). */
+    val pathBypass = Color(0xFF1565C0)
     val terminalBg = Color(0xFF1A1A2E)
     val terminalBgDark = Color(0xFF0D0D1A)
     val terminalText = Color(0xFFE0E0E0)
