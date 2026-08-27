@@ -2,12 +2,16 @@ package com.nonamevpn.app.deploy
 
 import android.content.Context
 
-/** Stack / provision deploy version shipped with the APK and written to the VPS on install. */
+/**
+ * Stack / provision deploy version — independent from the app [versionName].
+ * Series starts at **1.0.1** and is bumped only when the VPS install bundle changes.
+ * Written to the VPS on deploy and compared via provision `GET /health`.
+ */
 object DeployBundle {
     const val ASSET_VERSION_FILE = "deploy/DEPLOY_VERSION"
 
-    /** Fallback when the asset is missing (should match assets/deploy/DEPLOY_VERSION). */
-    const val FALLBACK_VERSION = "0.5.45"
+    /** Fallback when the asset is missing (must match assets/deploy/DEPLOY_VERSION). */
+    const val FALLBACK_VERSION = "1.0.1"
 
     fun expectedVersion(context: Context): String =
         runCatching {
