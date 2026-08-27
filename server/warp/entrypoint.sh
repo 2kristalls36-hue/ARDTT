@@ -283,7 +283,8 @@ sync_rules
 LAST_MTIME=0
 DNS_RETRY_TICK=0
 while true; do
-  sleep 5
+  # Fast hideIp toggle: poll users.json every 1s (was 5s).
+  sleep 1
   if [[ -f "${USERS}" ]]; then
     now="$(stat -c %Y "${USERS}" 2>/dev/null || echo 0)"
     if [[ "${now}" != "${LAST_MTIME}" ]]; then
@@ -298,10 +299,10 @@ while true; do
     bring_up
     sync_rules
   fi
-  # Retry DNS iif rules when VPN ifaces appear late after warp start.
+  # Retry DNS iif rules when VPN ifaces appear late after warp start (~every 30s).
   # Match iproute2 wording: "iif awg0 ipproto udp dport 53 lookup main"
   DNS_RETRY_TICK=$((DNS_RETRY_TICK + 1))
-  if [[ $((DNS_RETRY_TICK % 6)) -eq 0 ]]; then
+  if [[ $((DNS_RETRY_TICK % 30)) -eq 0 ]]; then
     local_need=0
     for iface in ${DNS_IIFACES}; do
       if ip link show "${iface}" >/dev/null 2>&1; then

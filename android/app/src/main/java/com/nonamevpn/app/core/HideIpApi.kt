@@ -56,8 +56,10 @@ object HideIpApi {
             .toString()
         val conn = openHttp(url, bindNetwork).apply {
             requestMethod = "POST"
-            connectTimeout = 8_000
-            readTimeout = 8_000
+            // Short timeouts: underlay often cannot reach :9100; fail fast and
+            // retry via VPN / defer rather than block Connect for ~8s.
+            connectTimeout = 2_000
+            readTimeout = 2_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
         }
