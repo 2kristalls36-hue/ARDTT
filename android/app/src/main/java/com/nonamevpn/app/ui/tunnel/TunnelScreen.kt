@@ -50,7 +50,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -77,6 +76,7 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.theme.NvpnColors
+import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -618,30 +618,36 @@ private fun StickyConnectBar(
 ) {
     val glassStyle = HazeStyle(
         backgroundColor = scrimBase,
-        tint = HazeTint(scrimBase.copy(alpha = 0.28f)),
-        blurRadius = 10.dp,
-        noiseFactor = 0.06f,
-        fallbackTint = HazeTint(scrimBase.copy(alpha = 0.72f)),
+        tint = HazeTint(scrimBase.copy(alpha = 0.12f)),
+        blurRadius = 12.dp,
+        noiseFactor = 0.04f,
+        fallbackTint = HazeTint(scrimBase.copy(alpha = 0.55f)),
     )
+    // Soft fade above the button + blur only under its lower half (no hard “halo” panel)
+    val fadeAbove = 28.dp
     Box(
-        modifier = modifier.height(StickyConnectButtonHeight + 36.dp),
+        modifier = modifier.height(StickyConnectButtonHeight + fadeAbove),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        // Glass + darkening gradient under the button — content scrolls beneath this layer
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
                 .hazeChild(state = hazeState, style = glassStyle) {
-                    blurRadius = 10.dp
+                    blurRadius = 12.dp
+                    // Gradient blur: none at top → full under the button (no frosted “card” halo)
+                    progressive = HazeProgressive.verticalGradient(
+                        startIntensity = 0f,
+                        endIntensity = 1f,
+                        preferPerformance = true,
+                    )
                 }
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
                             0.0f to scrimBase.copy(alpha = 0f),
-                            0.35f to scrimBase.copy(alpha = 0.28f),
-                            0.72f to scrimBase.copy(alpha = 0.55f),
-                            1.0f to scrimBase.copy(alpha = 0.78f),
+                            0.40f to scrimBase.copy(alpha = 0.18f),
+                            0.78f to scrimBase.copy(alpha = 0.42f),
+                            1.0f to scrimBase.copy(alpha = 0.62f),
                         ),
                     ),
                 ),
