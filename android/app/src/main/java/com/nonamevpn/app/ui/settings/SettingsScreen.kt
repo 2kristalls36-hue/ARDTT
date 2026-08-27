@@ -7,7 +7,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -526,7 +528,8 @@ private fun AdminHoldButton(
                         }
                         onUnlocked()
                     }
-                    waitForUpOrCancellation()
+                    // Only release cancels the hold — sliding off the button must not.
+                    waitForPointerUpIgnoringBounds()
                     val heldMs = System.currentTimeMillis() - startedAt
                     val finished = holdJob?.isCompleted == true
                     holdJob?.cancel()
@@ -552,6 +555,24 @@ private fun AdminHoldButton(
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodyLarge,
         )
+    }
+}
+
+/**
+ * Like [androidx.compose.foundation.gestures.waitForUpOrCancellation], but does
+ * **not** cancel when the finger slides outside the hit bounds. Hold continues
+ * until the pointer is actually released.
+ */
+private suspend fun AwaitPointerEventScope.waitForPointerUpIgnoringBounds() {
+    while (true) {
+        val event = awaitPointerEvent(PointerEventPass.Main)
+        if (event.changes.all { it.changedToUp() }) {
+            event.changes.forEach { it.consume() }
+            return
+        }
+        if (event.changes.none { it.pressed }) {
+            return
+        }
     }
 }
 
