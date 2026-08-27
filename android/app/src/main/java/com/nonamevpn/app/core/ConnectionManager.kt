@@ -853,48 +853,67 @@ class ConnectionManager(
 
     /**
      * Content for the custom VPN shade RemoteViews.
+     * [title] is shown as bold notification contentTitle (path mode).
      */
     data class ShadeContent(
-        val rateDown: String,
-        val rateUp: String,
-        val totalDown: String,
-        val totalUp: String,
-        val ip: String,
-        val path: String,
+        val title: String,
+        val rateDownNum: String = "  0.00",
+        val rateDownUnit: String = "б/с ",
+        val rateUpNum: String = "  0.00",
+        val rateUpUnit: String = "б/с ",
+        val totalDownNum: String = "  0.00",
+        val totalDownUnit: String = "Б  ",
+        val totalUpNum: String = "  0.00",
+        val totalUpUnit: String = "Б  ",
+        val ip: String = "…",
         val showTotals: Boolean = true,
         val showWarpIcon: Boolean = false,
+        val statusText: String? = null,
     ) {
-        val summary: String get() = "$ip · $path"
-        val rates: String get() = "$rateDown $rateUp"
+        val summary: String get() = "$ip · $title"
+        val rates: String
+            get() = "↓$rateDownNum$rateDownUnit ↑$rateUpNum$rateUpUnit"
     }
 
     fun notificationShadeContent(sessionStartedAtMs: Long = 0L): ShadeContent {
         val u = _ui.value
+        val title = shadePathLabel(u.activePath)
         if (u.state == ConnState.PausedTrustedWifi) {
             val t = u.statusText.ifBlank { "VPN выключен в доверенной сети" }
-            return ShadeContent(t, "", "", "", "—", "Доверенная Wi‑Fi", showTotals = false)
+            return ShadeContent(
+                title = "Доверенная Wi‑Fi",
+                ip = "—",
+                showTotals = false,
+                statusText = t,
+            )
         }
         if (softRestartInProgress || u.state == ConnState.Connecting) {
             val t = u.statusText.ifBlank { "Переподключение…" }
             return ShadeContent(
-                t, "", "", "", "…", shadePathLabel(u.activePath),
+                title = title,
+                ip = "…",
                 showTotals = false,
                 showWarpIcon = u.hideIp,
+                statusText = t,
             )
         }
 
-        val rateDown = VpnLiveStats.formatRateFixed(VpnLiveStats.downBps, down = true)
-        val rateUp = VpnLiveStats.formatRateFixed(VpnLiveStats.upBps, down = false)
-        val totalDown = VpnLiveStats.formatBytesFixed(VpnLiveStats.totalRx, down = true)
-        val totalUp = VpnLiveStats.formatBytesFixed(VpnLiveStats.totalTx, down = false)
+        val rd = VpnLiveStats.formatRateParts(VpnLiveStats.downBps)
+        val ru = VpnLiveStats.formatRateParts(VpnLiveStats.upBps)
+        val td = VpnLiveStats.formatBytesParts(VpnLiveStats.totalRx)
+        val tu = VpnLiveStats.formatBytesParts(VpnLiveStats.totalTx)
         val ip = EgressIpProbe.current()?.takeIf { it.isNotBlank() } ?: "…"
         return ShadeContent(
-            rateDown = rateDown,
-            rateUp = rateUp,
-            totalDown = totalDown,
-            totalUp = totalUp,
+            title = title,
+            rateDownNum = rd.value,
+            rateDownUnit = rd.unit,
+            rateUpNum = ru.value,
+            rateUpUnit = ru.unit,
+            totalDownNum = td.value,
+            totalDownUnit = td.unit,
+            totalUpNum = tu.value,
+            totalUpUnit = tu.unit,
             ip = ip,
-            path = shadePathLabel(u.activePath),
             showWarpIcon = u.hideIp,
         )
     }

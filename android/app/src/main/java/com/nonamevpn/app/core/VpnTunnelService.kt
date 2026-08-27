@@ -1055,22 +1055,20 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         )
         val shade = ConnectionManager.getOrNull()?.notificationShadeContent(sessionStartedAtMs)
             ?: ConnectionManager.ShadeContent(
-                rateDown = text.ifBlank { getString(R.string.notif_running) },
-                rateUp = "",
-                totalDown = "",
-                totalUp = "",
-                ip = "…",
-                path = when (path) {
+                title = when (path) {
                     VpnPath.Direct -> "Прямое подключение"
                     VpnPath.Bypass -> "Обход"
                 },
+                ip = "…",
                 showTotals = false,
+                statusText = text.ifBlank { getString(R.string.notif_running) },
             )
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_vpn_key)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(shade.summary)
+            // contentTitle is the bold headline under the app name.
+            .setContentTitle(shade.title)
+            .setContentText(shade.ip)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -1088,7 +1086,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 .setCustomBigContentView(remote)
                 .setStyle(NotificationCompat.DecoratedCustomViewStyle())
         } else {
-            // Fallback so a bad layout never crashes FGS / connect.
             builder.setStyle(
                 NotificationCompat.BigTextStyle().bigText(
                     "${shade.rates}\n${shade.summary}",
@@ -1116,25 +1113,31 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     private fun buildShadeRemoteViews(shade: ConnectionManager.ShadeContent): RemoteViews {
         return RemoteViews(packageName, R.layout.notif_vpn_shade).apply {
-            setTextViewText(R.id.notif_rate_down, shade.rateDown)
-            setTextViewText(R.id.notif_rate_up, shade.rateUp)
-            setTextViewText(R.id.notif_total_down, shade.totalDown)
-            setTextViewText(R.id.notif_total_up, shade.totalUp)
+            val status = shade.statusText
+            if (!status.isNullOrBlank()) {
+                setViewVisibility(R.id.notif_status, android.view.View.VISIBLE)
+                setViewVisibility(R.id.notif_stats_row, android.view.View.GONE)
+                setTextViewText(R.id.notif_status, status)
+            } else {
+                setViewVisibility(R.id.notif_status, android.view.View.GONE)
+                setViewVisibility(R.id.notif_stats_row, android.view.View.VISIBLE)
+                setTextViewText(R.id.notif_rate_down_num, shade.rateDownNum)
+                setTextViewText(R.id.notif_rate_down_unit, shade.rateDownUnit)
+                setTextViewText(R.id.notif_rate_up_num, shade.rateUpNum)
+                setTextViewText(R.id.notif_rate_up_unit, shade.rateUpUnit)
+                setTextViewText(R.id.notif_total_down_num, shade.totalDownNum)
+                setTextViewText(R.id.notif_total_down_unit, shade.totalDownUnit)
+                setTextViewText(R.id.notif_total_up_num, shade.totalUpNum)
+                setTextViewText(R.id.notif_total_up_unit, shade.totalUpUnit)
+                setViewVisibility(
+                    R.id.notif_totals_row,
+                    if (shade.showTotals) android.view.View.VISIBLE else android.view.View.GONE,
+                )
+            }
             setTextViewText(R.id.notif_ip, shade.ip)
-            setTextViewText(R.id.notif_path, shade.path)
             setViewVisibility(
                 R.id.notif_warp_icon,
                 if (shade.showWarpIcon) android.view.View.VISIBLE else android.view.View.GONE,
-            )
-            val totalsVis = if (shade.showTotals) {
-                android.view.View.VISIBLE
-            } else {
-                android.view.View.GONE
-            }
-            setViewVisibility(R.id.notif_totals_row, totalsVis)
-            setViewVisibility(
-                R.id.notif_rate_up,
-                if (shade.rateUp.isBlank()) android.view.View.GONE else android.view.View.VISIBLE,
             )
         }
     }

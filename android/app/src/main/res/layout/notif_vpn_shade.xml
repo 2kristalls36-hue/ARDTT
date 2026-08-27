@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  RemoteViews-safe layout only (no Space/View — they crash notification inflate).
-  Line1: rates (left half) | totals (right half)
-  Line2: [CF icon?] IP | path
+  RemoteViews-safe (LinearLayout/TextView/ImageView only).
+  Line1: ↓ 00.00 Кб/с  ↑ 00.00 Кб/с   ……   ↓ 00.00 КБ  ↑ 00.00 КБ
+  Fixed arrow / digit / unit slots — no stretch jump.
+  Line2: [CF?] IP
+  Bold path title comes from Notification contentTitle.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -11,68 +13,174 @@
     android:paddingTop="1dp"
     android:paddingBottom="1dp">
 
+    <!-- Status override (connecting / trusted wifi) -->
+    <TextView
+        android:id="@+id/notif_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2"
+        android:visibility="gone" />
+
     <LinearLayout
+        android:id="@+id/notif_stats_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
+        <!-- Live rates: arrow | digits | unit ×2 -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="start|center_vertical"
+            android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <TextView
-                android:id="@+id/notif_rate_down"
+                android:id="@+id/notif_rate_down_arrow"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:ellipsize="none"
                 android:fontFamily="monospace"
                 android:maxLines="1"
-                android:text="↓   0б/с"
+                android:text="↓"
+                android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/notif_rate_down_num"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:gravity="end"
+                android:maxLines="1"
+                android:minEms="6"
+                android:text="  0.00"
                 android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
 
             <TextView
-                android:id="@+id/notif_rate_up"
+                android:id="@+id/notif_rate_down_unit"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:ellipsize="none"
                 android:fontFamily="monospace"
                 android:maxLines="1"
-                android:paddingStart="8dp"
-                android:text="↑   0б/с"
+                android:minEms="4"
+                android:paddingStart="2dp"
+                android:text="б/с "
+                android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
+
+            <TextView
+                android:id="@+id/notif_rate_up_arrow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:paddingStart="6dp"
+                android:text="↑"
+                android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/notif_rate_up_num"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:gravity="end"
+                android:maxLines="1"
+                android:minEms="6"
+                android:text="  0.00"
+                android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
+
+            <TextView
+                android:id="@+id/notif_rate_up_unit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:minEms="4"
+                android:paddingStart="2dp"
+                android:text="б/с "
                 android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
         </LinearLayout>
 
+        <!-- Flex gap (TextView is RemoteViews-safe; Space is not) -->
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"
+            android:text="" />
+
+        <!-- Session totals -->
         <LinearLayout
             android:id="@+id/notif_totals_row"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="end|center_vertical"
+            android:gravity="center_vertical|end"
             android:orientation="horizontal">
 
             <TextView
-                android:id="@+id/notif_total_down"
+                android:id="@+id/notif_total_down_arrow"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:ellipsize="none"
                 android:fontFamily="monospace"
                 android:maxLines="1"
-                android:text="↓  0Б"
+                android:text="↓"
+                android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/notif_total_down_num"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:gravity="end"
+                android:maxLines="1"
+                android:minEms="6"
+                android:text="  0.00"
                 android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
 
             <TextView
-                android:id="@+id/notif_total_up"
+                android:id="@+id/notif_total_down_unit"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:ellipsize="none"
                 android:fontFamily="monospace"
                 android:maxLines="1"
-                android:paddingStart="8dp"
-                android:text="↑  0Б"
+                android:minEms="3"
+                android:paddingStart="2dp"
+                android:text="Б  "
+                android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
+
+            <TextView
+                android:id="@+id/notif_total_up_arrow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:paddingStart="6dp"
+                android:text="↑"
+                android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/notif_total_up_num"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:gravity="end"
+                android:maxLines="1"
+                android:minEms="6"
+                android:text="  0.00"
+                android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
+
+            <TextView
+                android:id="@+id/notif_total_up_unit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:minEms="3"
+                android:paddingStart="2dp"
+                android:text="Б  "
                 android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
         </LinearLayout>
     </LinearLayout>
@@ -102,16 +210,6 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:text="…"
-            android:textAppearance="@android:style/TextAppearance.Material.Notification.Info" />
-
-        <TextView
-            android:id="@+id/notif_path"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="end"
-            android:maxLines="1"
-            android:paddingStart="10dp"
-            android:text="Прямое подключение"
             android:textAppearance="@android:style/TextAppearance.Material.Notification.Info" />
     </LinearLayout>
 </LinearLayout>
