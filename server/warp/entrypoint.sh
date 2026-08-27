@@ -278,14 +278,21 @@ install_local_exempt_rules() {
 }
 
 # Drop conntrack for a client so old TCP sessions die fast after egress flip
-# (otherwise phone apps hang until idle timeout).
+# (otherwise phone apps hang until idle timeout). Quiet stdout — `-D` prints
+# every deleted tuple and can stall the sync loop under load.
 flush_client_conntrack() {
   local bare="$1"
   bare="${bare%/32}"
   [[ -z "${bare}" ]] && return 0
   if command -v conntrack >/dev/null 2>&1; then
-    conntrack -D -s "${bare}" 2>/dev/null || true
-    conntrack -D -d "${bare}" 2>/dev/null || true
+    conntrack -D -s "${bare}" >/dev/null 2>&1 || true
+    conntrack -D -d "${bare}" >/dev/null 2>&1 || true
+    conntrack -D --reply-src "${bare}" >/dev/null 2>&1 || true
+    conntrack -D --reply-dst "${bare}" >/dev/null 2>&1 || true
+    # Catch races: packets in flight recreate entries during the first pass.
+    sleep 0.05
+    conntrack -D -s "${bare}" >/dev/null 2>&1 || true
+    conntrack -D -d "${bare}" >/dev/null 2>&1 || true
     echo "[warp] conntrack flushed for ${bare}"
   fi
 }
@@ -394,7 +401,10 @@ while true; do
       if [[ $((now_s - PENDING_SINCE)) -ge "${SYNC_DEBOUNCE_SEC}" ]]; then
         PENDING_SYNC=0
         echo "[warp] debounce done — resync hideIp rules"
-        install_local_exempt_rules
+        # Exempts are stable; only repair if the 10.8 → main rule vanished.
+        if ! ip rule show 2>/dev/null | grep -q "to 10.8.0.0/24 lookup main"; then
+          install_local_exempt_rules
+        fi
         sync_rules
       fi
     fi

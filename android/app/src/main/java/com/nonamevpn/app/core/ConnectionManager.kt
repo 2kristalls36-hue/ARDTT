@@ -155,6 +155,20 @@ class ConnectionManager(
             val r = syncHideIpToProvision(enabled, viaVpn = viaVpn)
             if (r.isSuccess) {
                 lastHideIpSent = enabled
+                // Egress flip on VPS invalidates in-flight TCP (new SNAT IP).
+                // Server conntrack flush alone leaves phone sockets waiting ~RTO (30s).
+                // Soft-restart TUN so apps reconnect in ~1–2s instead of hanging.
+                if (_ui.value.state == ConnState.Connected) {
+                    delay(1_500) // nvpn-warp debounce + apply ip rules
+                    if (_ui.value.hideIp != enabled) return@launch
+                    val why = if (enabled) {
+                        "Hide-IP: egress → WARP"
+                    } else {
+                        "Hide-IP: egress → VPS"
+                    }
+                    AppLog.i(TAG, "Hide-IP applied — $why (soft-restart sockets)")
+                    requestTransportRestart(why)
+                }
             } else {
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
                 if (viaVpn) {
@@ -528,10 +542,15 @@ class ConnectionManager(
         scope.launch {
             val path = _ui.value.activePath
             AppLog.i(TAG, "Transport soft restart: $reason")
+            val status = when {
+                reason.startsWith("Hide-IP") -> "Смена egress — переподключение…"
+                reason.startsWith("[СЕТЬ]") -> "Сеть сменилась — переподключение…"
+                else -> "Переподключение транспорта…"
+            }
             _ui.value = _ui.value.copy(
                 state = ConnState.Connecting,
                 activePath = path,
-                statusText = "Сеть сменилась — переподключение…",
+                statusText = status,
                 lastError = null,
                 connectEnabled = true,
                 softInfo = reason.removePrefix("[СЕТЬ] ").takeIf { it.isNotBlank() },
