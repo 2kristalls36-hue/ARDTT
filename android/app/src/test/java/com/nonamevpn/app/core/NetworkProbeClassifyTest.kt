@@ -44,7 +44,7 @@ class NetworkProbeClassifyTest {
             bigtechOk = true,
             captive = false,
             awgUdpOk = false,
-            provisionOk = true,
+            provisionOk = false,
         )
         assertEquals(VpnPath.Bypass, r.preselectedPath)
         assertEquals(NetworkClass.OpenNeedBypass, r.networkClass)

@@ -260,8 +260,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             }
                             AppLog.e(TAG, "Failed: ${state.message}")
                             softRestartInProgress = false
-                            ConnectionManager.getOrNull()?.onTunnelFailed(state.message)
-                            stopSelf()
+                            val fallback = ConnectionManager.getOrNull()?.onTunnelFailed(state.message) == true
+                            if (fallback) {
+                                AppLog.i(TAG, "Auto fallback Direct → Bypass")
+                                launchBackend(VpnPath.Bypass, softRestart = true)
+                            } else {
+                                stopSelf()
+                            }
                         }
                         is TunnelBackendState.Stopped -> Unit
                         is TunnelBackendState.Starting -> {
@@ -280,8 +285,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 }
                 AppLog.e(TAG, "backend crash: ${t.message}")
                 softRestartInProgress = false
-                ConnectionManager.getOrNull()?.onTunnelFailed(t.message ?: "tunnel crash")
-                stopSelf()
+                val fallback = ConnectionManager.getOrNull()?.onTunnelFailed(t.message ?: "tunnel crash") == true
+                if (fallback) {
+                    AppLog.i(TAG, "Auto fallback Direct → Bypass after crash")
+                    launchBackend(VpnPath.Bypass, softRestart = true)
+                } else {
+                    stopSelf()
+                }
             }
         }
     }
@@ -303,6 +313,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 ?.decideNetworkHandover(underlay)
                 ?: NetworkHandoverDecision.SoftRestartSamePath
             when (decision) {
+                NetworkHandoverDecision.NoAction -> {
+                    softRestartInProgress = false
+                    AppLog.v(TAG, "handover: no action ($reason)")
+                }
                 is NetworkHandoverDecision.SwitchPath -> {
                     AppLog.v(TAG, "handover path switch → ${decision.path}")
                     requestSoftRestart(

@@ -138,27 +138,60 @@ const val TRUSTED_WIFI_EXIT_DELAY_MS = 5_000L
  * probe disagrees with the current path. Forced Direct/Bypass only soft-restarts.
  */
 sealed class NetworkHandoverDecision {
+    /** Spurious underlay event (VPN bind / grace) — do not restart. */
+    data object NoAction : NetworkHandoverDecision()
     data object SoftRestartSamePath : NetworkHandoverDecision()
     data class SwitchPath(val path: VpnPath) : NetworkHandoverDecision()
 }
 
+/**
+ * Ignore Android "network changed" for this long after the tunnel starts.
+ * Bringing up VpnService looks like an underlay handover and must not
+ * tear down a working Direct session.
+ */
+const val HANDOVER_IGNORE_GRACE_MS = 12_000L
+
+/**
+ * Auto handover:
+ * - Direct stays Direct while it is healthy; underlay `/health` failure is
+ *   expected on whitelist and after VPN bind — it is not a reason to switch.
+ * - Bypass → Direct only when the underlay can reach the VPS again (open Wi‑Fi).
+ * - Direct → Bypass only when Direct is already down and Bypass is allowed.
+ */
 fun decideNetworkHandoverAction(
     pathMode: ConnPathMode,
     currentPath: VpnPath,
     probedPath: VpnPath?,
     bypassAllowed: Boolean,
+    sessionAgeMs: Long = Long.MAX_VALUE,
+    currentPathHealthy: Boolean = false,
+    underlayVpsReachable: Boolean = probedPath == VpnPath.Direct,
 ): NetworkHandoverDecision {
+    if (sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS) {
+        return NetworkHandoverDecision.NoAction
+    }
     if (pathMode != ConnPathMode.Auto) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
-    val desired = probedPath ?: return NetworkHandoverDecision.SoftRestartSamePath
-    if (desired == currentPath) {
+    if (currentPath == VpnPath.Direct) {
+        if (currentPathHealthy) {
+            // Underlay `/health` often fails while Direct AWG still works (whitelist,
+            // VPN bind). Only reconnect AWG when the underlay still sees the VPS.
+            return if (underlayVpsReachable || probedPath == VpnPath.Direct) {
+                NetworkHandoverDecision.SoftRestartSamePath
+            } else {
+                NetworkHandoverDecision.NoAction
+            }
+        }
+        if (probedPath == VpnPath.Bypass && bypassAllowed && !underlayVpsReachable) {
+            return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
+        }
         return NetworkHandoverDecision.SoftRestartSamePath
     }
-    if (desired == VpnPath.Bypass && !bypassAllowed) {
-        return NetworkHandoverDecision.SoftRestartSamePath
+    if (underlayVpsReachable || probedPath == VpnPath.Direct) {
+        return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
     }
-    return NetworkHandoverDecision.SwitchPath(desired)
+    return NetworkHandoverDecision.SoftRestartSamePath
 }
 
 fun shouldReconnectTunnelAfterWake(

@@ -22,11 +22,15 @@ import kotlinx.coroutines.withContext
  * Parallel lightweight probes at app start / before Connect / on network handover.
  * Does NOT bring up VpnService.
  *
- * Direct reachability uses AWG UDP-lite (handshake initiation → any reply),
- * not TCP `/health` alone — on operator whitelists TCP :9100 may work while UDP AWG is blocked.
+ * Direct vs Bypass cannot be proven by one packet:
+ * - AWG often **drops** junk UDP (no reply ≠ blocked).
+ * - TCP `/health` can work on a whitelist while AWG UDP does not.
  *
- * When [bindNetwork] is set (Wi‑Fi/LTE under the VPN), sockets are bound to that
- * network so classification reflects the real underlay — not tunnel egress.
+ * Connect policy: if the VPS answers TCP or UDP, **try Direct**. If Direct
+ * then fails, Auto falls back to Bypass. Bypass-first only when the VPS is
+ * unreachable but Yandex/bigtech still work.
+ *
+ * When [bindNetwork] is set, sockets bind to that underlay (not the tunnel).
  */
 object NetworkProbe {
 
@@ -124,7 +128,7 @@ object NetworkProbe {
                 elapsedMs = 0,
             )
         }
-        if (awgUdpOk) {
+        if (awgUdpOk || provisionOk) {
             return ProbeResult(
                 networkClass = NetworkClass.DirectOk,
                 preselectedPath = VpnPath.Direct,
@@ -132,7 +136,7 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = false,
-                awgUdpOk = true,
+                awgUdpOk = awgUdpOk,
                 provisionOk = provisionOk,
                 message = "Готово: прямое",
                 elapsedMs = 0,
@@ -148,9 +152,9 @@ object NetworkProbe {
                 bigtechOk = bigtechOk,
                 captive = false,
                 awgUdpOk = false,
-                provisionOk = provisionOk,
+                provisionOk = false,
                 message = if (open) {
-                    "Готово: обход (AWG UDP недоступен)"
+                    "Готово: обход (VPS недоступен)"
                 } else {
                     "Готово: обход"
                 },
