@@ -44,21 +44,22 @@ type Config struct {
 }
 
 type User struct {
-	Name             string    `json:"name"`
-	HostID           int       `json:"hostId"`
-	DeviceID         string    `json:"deviceId"`
-	DeviceIDs        []string  `json:"deviceIds,omitempty"`
-	MaxDevices       int       `json:"maxDevices"`
-	Password         string    `json:"password"`
-	HideIP           bool      `json:"hideIp"`
-	ExpiresAt        int64     `json:"expiresAt"` // unix seconds; 0 = no expiry
-	Deactivated      bool      `json:"deactivated"`
-	LastSeenAt       int64     `json:"lastSeenAt,omitempty"`
-	LastExternalIP   string    `json:"lastExternalIp,omitempty"`
-	CreatedAt        time.Time `json:"createdAt"`
-	DirectPrivateKey string    `json:"directPrivateKey,omitempty"`
-	DirectPublicKey  string    `json:"directPublicKey,omitempty"`
-	ServerPublicKey  string    `json:"serverPublicKey,omitempty"`
+	Name              string    `json:"name"`
+	HostID            int       `json:"hostId"`
+	DeviceID          string    `json:"deviceId"`
+	DeviceIDs         []string  `json:"deviceIds,omitempty"`
+	MaxDevices        int       `json:"maxDevices"`
+	Password          string    `json:"password"`
+	HideIP            bool      `json:"hideIp"`
+	ExpiresAt         int64     `json:"expiresAt"` // unix seconds; 0 = no expiry
+	Deactivated       bool      `json:"deactivated"`
+	TrafficLimitBytes int64     `json:"trafficLimitBytes,omitempty"` // 0 = unlimited
+	LastSeenAt        int64     `json:"lastSeenAt,omitempty"`
+	LastExternalIP    string    `json:"lastExternalIp,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+	DirectPrivateKey  string    `json:"directPrivateKey,omitempty"`
+	DirectPublicKey   string    `json:"directPublicKey,omitempty"`
+	ServerPublicKey   string    `json:"serverPublicKey,omitempty"`
 }
 
 const onlineGraceSeconds = 120
@@ -101,19 +102,22 @@ type Profile struct {
 
 // UserPublic is the admin list/detail shape (includes online presence).
 type UserPublic struct {
-	Name           string   `json:"name"`
-	HostID         int      `json:"hostId"`
-	DeviceID       string   `json:"deviceId"`
-	DeviceIDs      []string `json:"deviceIds"`
-	MaxDevices     int      `json:"maxDevices"`
-	HideIP         bool     `json:"hideIp"`
-	ExpiresAt      int64    `json:"expiresAt"`
-	Deactivated    bool     `json:"deactivated"`
-	CreatedAt      string   `json:"createdAt"`
-	LastSeenAt     int64    `json:"lastSeenAt"`
-	LastExternalIP string   `json:"lastExternalIp"`
-	Online         bool     `json:"online"`
-	OfflineForSec  int64    `json:"offlineForSec"`
+	Name              string   `json:"name"`
+	HostID            int      `json:"hostId"`
+	DeviceID          string   `json:"deviceId"`
+	DeviceIDs         []string `json:"deviceIds"`
+	MaxDevices        int      `json:"maxDevices"`
+	HideIP            bool     `json:"hideIp"`
+	ExpiresAt         int64    `json:"expiresAt"`
+	Deactivated       bool     `json:"deactivated"`
+	CreatedAt         string   `json:"createdAt"`
+	LastSeenAt        int64    `json:"lastSeenAt"`
+	LastExternalIP    string   `json:"lastExternalIp"`
+	Online            bool     `json:"online"`
+	OfflineForSec     int64    `json:"offlineForSec"`
+	DownBytes         int64    `json:"downBytes"`
+	UpBytes           int64    `json:"upBytes"`
+	TrafficLimitBytes int64    `json:"trafficLimitBytes"`
 }
 
 func main() {
@@ -205,17 +209,29 @@ func runServer(store *Store, listen string) error {
 			return
 		}
 		var body struct {
-			Name         string `json:"name"`
-			MaxDevices   *int   `json:"maxDevices"`
-			Days         *int   `json:"days"`
-			Deactivated  *bool  `json:"deactivated"`
-			ClearDevices bool   `json:"clearDevices"`
+			Name              string `json:"name"`
+			MaxDevices        *int   `json:"maxDevices"`
+			Days              *int   `json:"days"`
+			Deactivated       *bool  `json:"deactivated"`
+			ClearDevices      bool   `json:"clearDevices"`
+			TrafficLimitBytes *int64 `json:"trafficLimitBytes"`
+			TrafficLimitGb    *int   `json:"trafficLimitGb"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 			http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
 			return
 		}
-		u, err := store.UpdateUser(body.Name, body.MaxDevices, body.Days, body.Deactivated, body.ClearDevices)
+		var limitBytes *int64
+		if body.TrafficLimitBytes != nil {
+			limitBytes = body.TrafficLimitBytes
+		} else if body.TrafficLimitGb != nil {
+			v := int64(*body.TrafficLimitGb) * 1024 * 1024 * 1024
+			if *body.TrafficLimitGb <= 0 {
+				v = 0
+			}
+			limitBytes = &v
+		}
+		u, err := store.UpdateUser(body.Name, body.MaxDevices, body.Days, body.Deactivated, body.ClearDevices, limitBytes)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
@@ -603,16 +619,28 @@ func (s *Store) FindUserByDeviceOrName(deviceID, name string) (User, error) {
 func (s *Store) ListUsersPublic() []UserPublic {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	traffic := loadBypassTrafficLocked(filepath.Dir(s.path))
 	out := make([]UserPublic, 0, len(s.Users))
 	now := time.Now().Unix()
 	for _, u := range s.Users {
-		out = append(out, toPublicLocked(u, now))
+		pub := toPublicLocked(u, now)
+		if t, ok := traffic[u.Name]; ok {
+			pub.DownBytes = t.DownBytes
+			pub.UpBytes = t.UpBytes
+		}
+		out = append(out, pub)
 	}
 	return out
 }
 
 func (s *Store) ToPublic(u User) UserPublic {
-	return toPublicLocked(u, time.Now().Unix())
+	pub := toPublicLocked(u, time.Now().Unix())
+	traffic := loadBypassTrafficLocked(filepath.Dir(s.path))
+	if t, ok := traffic[u.Name]; ok {
+		pub.DownBytes = t.DownBytes
+		pub.UpBytes = t.UpBytes
+	}
+	return pub
 }
 
 func toPublicLocked(u User, now int64) UserPublic {
@@ -627,23 +655,47 @@ func toPublicLocked(u User, now int64) UserPublic {
 	}
 	ids := append([]string{}, u.DeviceIDs...)
 	return UserPublic{
-		Name:           u.Name,
-		HostID:         u.HostID,
-		DeviceID:       u.DeviceID,
-		DeviceIDs:      ids,
-		MaxDevices:     maxInt(u.MaxDevices, 1),
-		HideIP:         u.HideIP,
-		ExpiresAt:      u.ExpiresAt,
-		Deactivated:    u.Deactivated,
-		CreatedAt:      u.CreatedAt.UTC().Format(time.RFC3339),
-		LastSeenAt:     u.LastSeenAt,
-		LastExternalIP: u.LastExternalIP,
-		Online:         online,
-		OfflineForSec:  offlineFor,
+		Name:              u.Name,
+		HostID:            u.HostID,
+		DeviceID:          u.DeviceID,
+		DeviceIDs:         ids,
+		MaxDevices:        maxInt(u.MaxDevices, 1),
+		HideIP:            u.HideIP,
+		ExpiresAt:         u.ExpiresAt,
+		Deactivated:       u.Deactivated,
+		CreatedAt:         u.CreatedAt.UTC().Format(time.RFC3339),
+		LastSeenAt:        u.LastSeenAt,
+		LastExternalIP:    u.LastExternalIP,
+		Online:            online,
+		OfflineForSec:     offlineFor,
+		TrafficLimitBytes: u.TrafficLimitBytes,
 	}
 }
 
-func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool, clearDevices bool) (User, error) {
+type bypassTrafficFile struct {
+	ByName map[string]struct {
+		DownBytes int64 `json:"downBytes"`
+		UpBytes   int64 `json:"upBytes"`
+	} `json:"byName"`
+}
+
+func loadBypassTrafficLocked(dataDir string) map[string]struct{ DownBytes, UpBytes int64 } {
+	out := map[string]struct{ DownBytes, UpBytes int64 }{}
+	raw, err := os.ReadFile(filepath.Join(dataDir, "bypass-traffic.json"))
+	if err != nil {
+		return out
+	}
+	var snap bypassTrafficFile
+	if json.Unmarshal(raw, &snap) != nil || snap.ByName == nil {
+		return out
+	}
+	for name, t := range snap.ByName {
+		out[name] = struct{ DownBytes, UpBytes int64 }{t.DownBytes, t.UpBytes}
+	}
+	return out
+}
+
+func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool, clearDevices bool, trafficLimitBytes *int64) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.Users {
@@ -674,6 +726,12 @@ func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool
 		if clearDevices {
 			u.DeviceIDs = nil
 			u.DeviceID = ""
+		}
+		if trafficLimitBytes != nil {
+			if *trafficLimitBytes < 0 {
+				return User{}, fmt.Errorf("trafficLimitBytes must be >= 0")
+			}
+			u.TrafficLimitBytes = *trafficLimitBytes
 		}
 		normalizeUserDevices(u)
 		if err := s.saveLocked(); err != nil {
