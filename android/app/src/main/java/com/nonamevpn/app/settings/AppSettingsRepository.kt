@@ -21,7 +21,6 @@ class AppSettingsRepository(private val context: Context) {
     private val hideIp = booleanPreferencesKey("hide_ip")
     private val profileName = stringPreferencesKey("profile_name")
     private val silentRecreate = booleanPreferencesKey("silent_recreate")
-    private val economyWorkers = booleanPreferencesKey("economy_workers")
     private val dialPath = stringPreferencesKey("dial_path")
     private val testingMode = booleanPreferencesKey("testing_mode")
     private val pathMode = stringPreferencesKey("conn_path_mode")
@@ -41,7 +40,6 @@ class AppSettingsRepository(private val context: Context) {
     val hasAdminPin: Flow<Boolean> = context.dataStore.data.map { !it[adminPinHash].isNullOrBlank() }
     val currentProfileName: Flow<String> = context.dataStore.data.map { it[profileName] ?: "" }
     val silentRecreateEnabled: Flow<Boolean> = context.dataStore.data.map { it[silentRecreate] == true }
-    val economyWorkersEnabled: Flow<Boolean> = context.dataStore.data.map { it[economyWorkers] == true }
     /** `auto` | `vkcalls` | `legacy` — Path B TURN dial. */
     val dialPathName: Flow<String> = context.dataStore.data.map {
         normalizeDialPath(it[dialPath])
@@ -91,10 +89,6 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setSilentRecreate(enabled: Boolean) {
         context.dataStore.edit { it[silentRecreate] = enabled }
-    }
-
-    suspend fun setEconomyWorkers(enabled: Boolean) {
-        context.dataStore.edit { it[economyWorkers] = enabled }
     }
 
     suspend fun setDialPath(name: String) {

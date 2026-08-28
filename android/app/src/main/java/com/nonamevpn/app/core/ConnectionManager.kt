@@ -76,7 +76,7 @@ class ConnectionManager(
                 "bypass" -> profile.bypass.address
                 else -> profile.direct.address
             }
-            workers = profile.bypass.workers.coerceIn(1, 9)
+            workers = DEFAULT_WORKERS
             refreshHashFlag()
         } else {
             directEndpoint = null
@@ -236,7 +236,7 @@ class ConnectionManager(
     }
 
     fun setWorkers(workers: Int) {
-        this.workers = workers.coerceIn(1, 9)
+        this.workers = DEFAULT_WORKERS
     }
 
     fun setSilentRecreate(enabled: Boolean) {
@@ -410,11 +410,11 @@ class ConnectionManager(
                     return@launch
                 }
                 if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
-                    AppLog.e(TAG, "Profile uses documentation IP (demo) — import real smoke JSON")
+                    AppLog.e(TAG, "Profile uses documentation IP — import JSON from VPS")
                     _ui.value = _ui.value.copy(
                         state = ConnState.Error,
                         probe = fresh,
-                        lastError = "Профиль demo с фейковым IP (203.0.113.x). Импортируйте smoke JSON с VPS.",
+                        lastError = "Профиль с документационным IP (203.0.113.x). Импортируйте JSON с VPS.",
                         connectEnabled = true,
                         softInfo = softInfoFor(fresh),
                     )
@@ -852,7 +852,7 @@ class ConnectionManager(
             return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
         }
         if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
-            parts += "Сейчас demo-профиль с фейковым IP — импортируйте smoke JSON (159.194.225.162)."
+            parts += "Профиль указывает на документационный IP — импортируйте JSON с вашего VPS."
         }
         when (result.networkClass) {
             NetworkClass.OpenNeedBypass ->
@@ -1096,6 +1096,7 @@ class ConnectionManager(
 
     companion object {
         private const val TAG = "ConnMgr"
+        private const val DEFAULT_WORKERS = 3
 
         @Volatile
         private var instance: ConnectionManager? = null

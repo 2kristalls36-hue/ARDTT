@@ -73,7 +73,6 @@ fun AppRoot(
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
-    val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val navController = rememberNavController()
@@ -167,9 +166,9 @@ fun AppRoot(
         AppLog.i("App", if (admin) "Подробные логи (админ)" else "Минимальные логи")
     }
 
-    LaunchedEffect(silent, economy, dial, pathModeSetting) {
+    LaunchedEffect(silent, dial, pathModeSetting) {
         conn.setSilentRecreate(silent)
-        conn.setWorkers(if (economy) 1 else 3)
+        conn.setWorkers(3)
         conn.setDialPath(
             when (dial) {
                 "vkcalls" -> DialPath.VkCalls
