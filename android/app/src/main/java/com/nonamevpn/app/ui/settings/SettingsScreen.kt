@@ -39,6 +39,7 @@ fun SettingsScreen(settings: AppSettingsRepository) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val hasPin by settings.hasAdminPin.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
@@ -160,6 +161,12 @@ fun SettingsScreen(settings: AppSettingsRepository) {
                 Text(if (hasPin) "Разблокировать админа" else "Создать PIN и войти")
             }
         } else {
+            RowSetting(
+                title = "Тестирование",
+                subtitle = "Вкладка с полной телеметрией и записью логов",
+                checked = testingMode,
+                onCheckedChange = { scope.launch { settings.setTestingMode(it) } },
+            )
             OutlinedButton(
                 onClick = {
                     scope.launch {

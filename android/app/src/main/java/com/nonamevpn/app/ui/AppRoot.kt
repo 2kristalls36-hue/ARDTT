@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.ListAlt
+import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.Icon
@@ -36,8 +37,11 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.admin.DeployScreen
 import com.nonamevpn.app.ui.admin.LogsScreen
 import com.nonamevpn.app.ui.admin.ServersScreen
+import com.nonamevpn.app.ui.admin.TestingScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
+import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
+import com.nonamevpn.app.telemetry.TelemetryRecorder
 
 @Composable
 fun AppRoot(
@@ -49,6 +53,7 @@ fun AppRoot(
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -57,7 +62,16 @@ fun AppRoot(
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
     var deployInitial by remember { mutableStateOf<DeployTarget?>(null) }
 
-    val tabs = AppDestination.entries.filter { !it.adminOnly || admin }
+    val recorder = remember { TelemetryRecorder.get(context) }
+    val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
+
+    val tabs = AppDestination.entries.filter { dest ->
+        when {
+            dest == AppDestination.Testing -> admin && testingMode
+            dest.adminOnly -> admin
+            else -> true
+        }
+    }
 
     LaunchedEffect(silent, economy, dial) {
         conn.setSilentRecreate(silent)
@@ -71,9 +85,14 @@ fun AppRoot(
         )
     }
 
-    LaunchedEffect(admin, currentRoute) {
+    LaunchedEffect(admin, testingMode, currentRoute) {
         val dest = AppDestination.entries.find { it.route == currentRoute }
-        if (!admin && dest?.adminOnly == true) {
+        val blocked = when {
+            dest == AppDestination.Testing -> !admin || !testingMode
+            dest?.adminOnly == true -> !admin
+            else -> false
+        }
+        if (blocked) {
             navController.navigate(AppDestination.Tunnel.route) {
                 popUpTo(AppDestination.Tunnel.route) { inclusive = true }
                 launchSingleTop = true
@@ -81,6 +100,18 @@ fun AppRoot(
         }
     }
 
+    var previousRoute by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentRoute, isRecording) {
+        if (isRecording && previousRoute != currentRoute) {
+            recorder.logNavigation(previousRoute, currentRoute)
+        }
+        previousRoute = currentRoute
+    }
+
+    TelemetryRecordingOverlay(
+        isRecording = isRecording,
+        currentScreen = currentRoute,
+    ) {
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -133,7 +164,11 @@ fun AppRoot(
             composable(AppDestination.Logs.route) {
                 LogsScreen()
             }
+            composable(AppDestination.Testing.route) {
+                TestingScreen(profiles = profiles)
+            }
         }
+    }
     }
 }
 
@@ -143,4 +178,5 @@ private fun AppDestination.icon(): ImageVector = when (this) {
     AppDestination.Servers -> Icons.Outlined.Dns
     AppDestination.Deploy -> Icons.Outlined.CloudUpload
     AppDestination.Logs -> Icons.Outlined.ListAlt
+    AppDestination.Testing -> Icons.Outlined.Science
 }

@@ -75,5 +75,17 @@ services:
     # Intentionally avoid restart-on-OOM loops — soft memory policy in-process
     restart: unless-stopped
 
+  telemetry:
+    build: ./telemetry-upload
+    container_name: nvpn-telemetry
+    network_mode: host
+    environment:
+      TELEMETRY_LOG_ROOT: ${NVPN_TELEMETRY_LOG_ROOT:-/var/logs/app}
+      TELEMETRY_LISTEN: ${NVPN_TELEMETRY_LISTEN:-0.0.0.0:9200}
+    volumes:
+      - telemetry-logs:/var/logs/app
+    restart: unless-stopped
+
 volumes:
   bypass-config:
+  telemetry-logs:
