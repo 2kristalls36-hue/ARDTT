@@ -18,6 +18,8 @@ cd android
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
+`assembleRelease` даёт **unsigned** `app-release-unsigned.apk` — Android отклоняет его как повреждённый; для релиза нужен `signingConfig` в `build.gradle` или подпись через `apksigner`.
+
 ## Модули
 
 - `app` — UI, ConnectionManager, VpnTunnelService, bypass session
