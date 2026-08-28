@@ -52,7 +52,6 @@ object NetworkProbe {
         val tcpMs = if (quick) 1_500 else 2_000
         val captiveMs = if (quick) 1_000 else 1_500
         val healthMs = if (quick) 1_500 else 2_000
-        val udpMs = if (quick) 1_000 else 2_000
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
@@ -62,20 +61,23 @@ object NetworkProbe {
                 val bigtechDef = async { anyBigtechReachable(tcpMs, bindNetwork) }
                 val captiveDef = async { detectCaptive(bindNetwork, captiveMs) }
                 val provisionDef = async { provisionHealth(provisionBaseUrl, healthMs, bindNetwork) }
-                val awgDef = async { awgUdpReachable(directEndpoint, udpMs, bindNetwork) }
 
                 val provisionOk = provisionDef.await()
-                val awgUdpOk = awgDef.await()
                 val yandexOk = yandexDef.await()
                 val bigtechOk = bigtechDef.await()
                 val captive = captiveDef.await()
+                // AWG UDP-lite is not used: this stack has Jc/H1 obfuscation and
+                // silently drops junk initiations even on an open network (measured
+                // from 159.194.225.162:51820). Waiting for a reply only delayed
+                // Connect/handover by 1–2s. Direct is selected via TCP /health;
+                // if AWG then fails, Auto falls back to Bypass.
 
                 classify(
                     systemOnline = systemOnline,
                     yandexOk = yandexOk,
                     bigtechOk = bigtechOk,
                     captive = captive,
-                    awgUdpOk = awgUdpOk,
+                    awgUdpOk = false,
                     provisionOk = provisionOk,
                 )
             }
