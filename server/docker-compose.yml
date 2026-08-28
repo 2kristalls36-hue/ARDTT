@@ -97,6 +97,8 @@ services:
     environment:
       TELEMETRY_LOG_ROOT: /var/logs/app
       TELEMETRY_LISTEN: ${NVPN_TELEMETRY_LISTEN:-0.0.0.0:9200}
+      # Optional: when set, review/list/mark-read APIs require Bearer auth.
+      TELEMETRY_REVIEW_TOKEN: ${TELEMETRY_REVIEW_TOKEN:-}
     volumes:
       - ${NVPN_TELEMETRY_LOG_ROOT:-/var/logs/app}:/var/logs/app
     restart: unless-stopped

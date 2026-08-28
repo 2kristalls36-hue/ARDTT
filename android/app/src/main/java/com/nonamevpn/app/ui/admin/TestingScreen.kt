@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +49,8 @@ import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.telemetry.TelemetryUploadClient
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyBottomScaffold
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import java.text.SimpleDateFormat
@@ -69,6 +72,8 @@ fun TestingScreen(profiles: ProfileRepository) {
     var message by remember { mutableStateOf<String?>(null) }
     var uploadingFile by remember { mutableStateOf<String?>(null) }
     var uploadProgress by remember { mutableFloatStateOf(0f) }
+    var uploadTarget by remember { mutableStateOf<TelemetryLogEntry?>(null) }
+    var uploadComment by remember { mutableStateOf("") }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -127,6 +132,36 @@ fun TestingScreen(profiles: ProfileRepository) {
         } else {
             recorder.start(serverIp)
             message = "Запись начата"
+        }
+    }
+
+    fun uploadWithComment(entry: TelemetryLogEntry, comment: String) {
+        scope.launch {
+            uploadingFile = entry.file.name
+            uploadProgress = 0f
+            message = "Встраиваем комментарий…"
+            val embedded = runCatching {
+                TelemetryFileManager.embedUserComment(entry.file, comment)
+            }
+            if (embedded.isFailure) {
+                uploadingFile = null
+                message = embedded.exceptionOrNull()?.message ?: "Не удалось добавить комментарий"
+                return@launch
+            }
+            refreshLogs()
+            message = "Отправка ${entry.displayName}…"
+            val clientId = TelemetryClientId.getAsync(context)
+            val result = uploadClient.upload(
+                file = entry.file,
+                clientId = clientId,
+                uploadUrl = uploadUrl,
+                onProgress = { uploadProgress = it },
+            )
+            uploadingFile = null
+            message = result.fold(
+                onSuccess = { "Отправлено с комментарием: ${entry.displayName}" },
+                onFailure = { it.message ?: "Ошибка отправки" },
+            )
         }
     }
 
@@ -212,23 +247,8 @@ fun TestingScreen(profiles: ProfileRepository) {
                             }
                         },
                         onUpload = {
-                            scope.launch {
-                                uploadingFile = entry.file.name
-                                uploadProgress = 0f
-                                message = "Отправка ${entry.displayName}…"
-                                val clientId = TelemetryClientId.getAsync(context)
-                                val result = uploadClient.upload(
-                                    file = entry.file,
-                                    clientId = clientId,
-                                    uploadUrl = uploadUrl,
-                                    onProgress = { uploadProgress = it },
-                                )
-                                uploadingFile = null
-                                message = result.fold(
-                                    onSuccess = { "Отправлено: ${entry.displayName}" },
-                                    onFailure = { it.message ?: "Ошибка отправки" },
-                                )
-                            }
+                            uploadTarget = entry
+                            uploadComment = ""
                         },
                     )
                 }
@@ -251,6 +271,39 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+    }
+
+    uploadTarget?.let { entry ->
+        NvpnDialog(
+            title = "Комментарий к логу",
+            onDismissRequest = { uploadTarget = null },
+            confirmAction = NvpnDialogAction(
+                text = "Встроить и отправить",
+                onClick = {
+                    val comment = uploadComment
+                    uploadTarget = null
+                    uploadWithComment(entry, comment)
+                },
+                enabled = uploadComment.isNotBlank(),
+            ),
+            dismissAction = NvpnDialogAction("Отмена", { uploadTarget = null }),
+        ) {
+            Text(
+                "Опишите, что произошло и что ожидалось. Комментарий станет частью JSONL-файла и будет учтён при разборе.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = uploadComment,
+                onValueChange = { uploadComment = it.take(2_048) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(150.dp),
+                label = { Text("Комментарий пользователя") },
+                placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
+                shape = RoundedCornerShape(16.dp),
+            )
+        }
     }
 }
 
