@@ -304,6 +304,13 @@ object VpnLiveStats {
         return "↓${d.value.trim()} ${d.unit.trim()}  ↑${u.value.trim()} ${u.unit.trim()}"
     }
 
+    /** Compact notification form: `↓27.2 Кб/с  ↑27.1 Кб/с`. */
+    fun formatCompactRateLine(downBytesPerSec: Long, upBytesPerSec: Long): String {
+        val d = formatRateParts(downBytesPerSec)
+        val u = formatRateParts(upBytesPerSec)
+        return "↓${compactNumber(d.value)} ${d.unit.trim()}  ↑${compactNumber(u.value)} ${u.unit.trim()}"
+    }
+
     /** Example: `↓ 71.5 КБ  ↑ 52.6 КБ` */
     fun formatBytesLine(downBytes: Long, upBytes: Long): String {
         val d = formatBytesParts(downBytes)
@@ -312,6 +319,15 @@ object VpnLiveStats {
     }
 
     data class FixedParts(val value: String, val unit: String)
+
+    private fun compactNumber(raw: String): String {
+        val number = raw.trim().toDoubleOrNull() ?: return raw.trim()
+        return if (number >= 100) {
+            String.format(Locale.US, "%.0f", number)
+        } else {
+            String.format(Locale.US, "%.1f", number)
+        }
+    }
 
     fun formatRateParts(bytesPerSec: Long): FixedParts {
         val bits = bytesPerSec.coerceAtLeast(0L) * 8L

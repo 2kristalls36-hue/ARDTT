@@ -20,9 +20,10 @@ import org.json.JSONObject
  * ifconfig endpoints are only a last-resort fallback.
  */
 object EgressIpProbe {
-    private val endpoints = listOf(
+    internal const val PRIMARY_ENDPOINT = "https://api.ipify.org/"
+    internal val endpoints = listOf(
+        PRIMARY_ENDPOINT,
         "https://ifconfig.me/ip",
-        "https://api.ipify.org",
         "https://icanhazip.com",
     )
 

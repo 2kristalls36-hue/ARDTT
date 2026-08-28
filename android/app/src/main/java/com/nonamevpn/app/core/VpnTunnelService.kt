@@ -1264,7 +1264,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
             if (pathColor != 0) {
                 setTextColor(R.id.notif_title, pathColor)
-                setTextColor(R.id.notif_path, pathColor)
             }
             val status = shade.statusText
             if (!status.isNullOrBlank()) {
@@ -1275,18 +1274,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 setViewVisibility(R.id.notif_status, android.view.View.GONE)
                 setViewVisibility(R.id.notif_stats_row, android.view.View.VISIBLE)
                 setTextViewText(R.id.notif_rates, shade.rates)
-                setTextViewText(R.id.notif_totals, shade.totals)
-                setViewVisibility(
-                    R.id.notif_totals,
-                    if (shade.showTotals) android.view.View.VISIBLE else android.view.View.GONE,
-                )
             }
             setTextViewText(R.id.notif_ip, shade.ip)
-            setTextViewText(R.id.notif_path, shade.pathLabel)
-            setViewVisibility(
-                R.id.notif_path,
-                if (shade.pathLabel.isNotBlank()) android.view.View.VISIBLE else android.view.View.GONE,
-            )
             setViewVisibility(
                 R.id.notif_warp_icon,
                 if (shade.showWarpIcon) android.view.View.VISIBLE else android.view.View.GONE,

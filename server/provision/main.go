@@ -737,8 +737,8 @@ func (s *Store) TouchPresence(deviceID, name, externalIP string) (User, error) {
 	return User{}, fmt.Errorf("not found")
 }
 
-// probeEgressIP returns the VPS (or WARP) public IPv4 as seen by ifconfig-style services.
-// viaWarp binds curl to warp0 so the answer is the Cloudflare egress IP.
+// probeEgressIP returns the VPS (or WARP) public IP. api.ipify.org is primary;
+// viaWarp binds the request to warp0 so it observes the Cloudflare egress.
 func probeEgressIP(viaWarp bool) (string, error) {
 	endpoints := []string{
 		"https://api.ipify.org",
