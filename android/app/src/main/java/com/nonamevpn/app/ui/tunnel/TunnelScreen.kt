@@ -51,8 +51,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,7 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.widget.Toast
-import com.nonamevpn.app.R
+import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.VkCallHashGenerator
 import com.nonamevpn.app.bypass.VkLoginActivity
 import com.nonamevpn.app.bypass.VkSession
@@ -70,7 +68,7 @@ import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
-import com.nonamevpn.app.core.VpnLiveStats
+import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.profile.DEFAULT_PROFILE_FOLDER
 import com.nonamevpn.app.profile.ProfileCatalog
@@ -119,8 +117,6 @@ fun TunnelScreen(
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
     var ipError by remember { mutableStateOf(EgressIpProbe.lastError) }
-    var trafficRates by remember { mutableStateOf("—") }
-    var trafficTotals by remember { mutableStateOf("—") }
 
     fun applyImported() {
         showImport = false
@@ -223,15 +219,10 @@ fun TunnelScreen(
         while (sessionUp) {
             publicIp = EgressIpProbe.current()
             ipError = EgressIpProbe.lastError
-            VpnLiveStats.sample()
-            trafficRates = VpnLiveStats.formatCompactRateLine(VpnLiveStats.downBps, VpnLiveStats.upBps)
-            trafficTotals = VpnLiveStats.formatBytesLine(VpnLiveStats.totalRx, VpnLiveStats.totalTx)
             delay(1_000)
         }
         publicIp = EgressIpProbe.current()
         ipError = EgressIpProbe.lastError
-        trafficRates = "—"
-        trafficTotals = "—"
     }
 
     val buttonColor by animateColorAsState(
@@ -289,45 +280,7 @@ fun TunnelScreen(
 
             AppPageHeader(
                 title = "ARDTT",
-                subtitle = profile?.name?.takeIf { it.isNotBlank() } ?: "Туннель",
-            )
-
-            val ipDisplay = when {
-                !publicIp.isNullOrBlank() -> publicIp!!
-                !ipError.isNullOrBlank() && sessionUp -> "не удалось · нажмите"
-                sessionUp -> "…"
-                else -> "—"
-            }
-            val showCloudflareIp = hideIp || EgressIpProbe.isLikelyCloudflare(publicIp)
-
-            TunnelInfoPanel(
-                statusText = ui.statusText.ifBlank { "—" },
-                statusColor = when {
-                    connected || pausedTrusted -> NvpnColors.connected
-                    ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
-                pathModeLabel = when (pathMode) {
-                    "direct" -> "Прямое"
-                    "bypass" -> "Обход"
-                    else -> "Авто"
-                },
-                activePathLabel = when (ui.activePath) {
-                    VpnPath.Direct -> "Прямое"
-                    VpnPath.Bypass -> "Обход"
-                    null -> null
-                },
-                ipText = ipDisplay,
-                showCloudflareIcon = showCloudflareIp && !publicIp.isNullOrBlank(),
-                ipFailed = sessionUp && publicIp.isNullOrBlank() && !ipError.isNullOrBlank(),
-                onIpClick = if (sessionUp) {
-                    { conn.requestEgressIpRefresh() }
-                } else {
-                    null
-                },
-                trafficRates = if (sessionUp) trafficRates else "—",
-                trafficTotals = if (sessionUp) trafficTotals else "—",
-                errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
+                subtitle = "Туннель и быстрые настройки",
             )
 
             if (!admin && profile != null) {
@@ -552,27 +505,59 @@ fun TunnelScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
-
-                if (vkLoggedIn) {
-                    TextButton(
-                        onClick = {
-                            VkSession.clear()
-                            vkLoggedIn = false
-                            callMessage = "Сессия VK сброшена"
-                        },
-                        enabled = !callBusy,
-                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
-                    ) {
-                        Text(
-                            "Выйти из VK",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
             }
+
+            // ═══ Статус сессии — структурированная панель ═══
+            TunnelStatusPanel(
+                statusText = ui.statusText.ifBlank { "—" },
+                statusColor = when {
+                    connected || pausedTrusted -> NvpnColors.connected
+                    ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+                pathModeLabel = when (pathMode) {
+                    "direct" -> "Прямое"
+                    "bypass" -> "Обход"
+                    else -> "Авто"
+                },
+                activePathLabel = when (ui.activePath) {
+                    VpnPath.Direct -> "Прямое"
+                    VpnPath.Bypass -> "Обход"
+                    null -> null
+                },
+                publicIp = when {
+                    !publicIp.isNullOrBlank() -> publicIp!!
+                    !ipError.isNullOrBlank() && sessionUp -> "не удалось · нажмите"
+                    sessionUp -> "…"
+                    else -> "—"
+                },
+                ipFailed = sessionUp && publicIp.isNullOrBlank() && !ipError.isNullOrBlank(),
+                onIpClick = if (sessionUp) {
+                    { conn.requestEgressIpRefresh() }
+                } else {
+                    null
+                },
+                profileName = profile?.name?.takeIf { it.isNotBlank() },
+                version = BuildConfig.VERSION_NAME,
+                directEndpoint = profile?.direct?.endpoint,
+                bypassPeer = profile?.bypass?.peer,
+                provisionLine = profile?.let { p ->
+                    p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
+                },
+                probe = ui.probe,
+                softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
+                errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
+                showVkLogout = vkLoggedIn,
+                vkLogoutEnabled = !callBusy,
+                onVkLogout = {
+                    VkSession.clear()
+                    vkLoggedIn = false
+                    callMessage = "Сессия VK сброшена"
+                },
+            )
         }
 
+        // Sticky «Подключить» / «Отменить» (same button) above tab bar
         val cancelMode = connecting || probing
         StickyPrimaryButton(
             text = when {
@@ -729,103 +714,121 @@ private fun ChoiceChipButton(
 }
 
 @Composable
-private fun TunnelInfoPanel(
+private fun TunnelStatusPanel(
     statusText: String,
     statusColor: Color,
     pathModeLabel: String,
     activePathLabel: String?,
-    ipText: String,
-    showCloudflareIcon: Boolean,
+    publicIp: String,
     ipFailed: Boolean = false,
     onIpClick: (() -> Unit)? = null,
-    trafficRates: String,
-    trafficTotals: String,
+    profileName: String?,
+    version: String,
+    directEndpoint: String?,
+    bypassPeer: String?,
+    provisionLine: String?,
+    probe: ProbeResult?,
+    softInfo: String?,
     errorText: String?,
+    showVkLogout: Boolean,
+    vkLogoutEnabled: Boolean,
+    onVkLogout: () -> Unit,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     AppSectionCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 0.dp,
     ) {
-        Text(
-            statusText,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = statusColor,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "Статус",
+                style = MaterialTheme.typography.labelLarge,
+                color = muted,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                statusText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = statusColor,
+            )
+        }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Режим", style = MaterialTheme.typography.labelMedium, color = muted)
-                Text(pathModeLabel, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        HorizontalDivider(color = dividerColor)
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatusFactRow(label = "Режим", value = pathModeLabel)
+            activePathLabel?.let {
+                val pathColor = when (it) {
+                    "Прямое" -> NvpnColors.pathDirect
+                    "Обход" -> NvpnColors.pathBypass
+                    else -> null
+                }
+                StatusFactRow(label = "Активный путь", value = it, valueColor = pathColor)
             }
-            activePathLabel?.let { path ->
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Путь", style = MaterialTheme.typography.labelMedium, color = muted)
-                    Text(
-                        path,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = when (path) {
-                            "Прямое" -> NvpnColors.pathDirect
-                            "Обход" -> NvpnColors.pathBypass
-                            else -> MaterialTheme.colorScheme.onSurface
-                        },
-                    )
+            StatusFactRow(
+                label = "IP",
+                value = publicIp,
+                valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
+                onClick = onIpClick,
+            )
+            profileName?.let { StatusFactRow(label = "Профиль", value = it) }
+            StatusFactRow(label = "Версия", value = "v$version")
+        }
+
+        val hasEndpoints = !directEndpoint.isNullOrBlank() ||
+            !bypassPeer.isNullOrBlank() ||
+            !provisionLine.isNullOrBlank()
+        if (hasEndpoints) {
+            HorizontalDivider(color = dividerColor)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Эндпоинты",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = muted,
+                    fontWeight = FontWeight.Medium,
+                )
+                directEndpoint?.takeIf { it.isNotBlank() }?.let {
+                    StatusFactRow(label = "Direct", value = it)
+                }
+                bypassPeer?.takeIf { it.isNotBlank() }?.let {
+                    StatusFactRow(label = "Bypass", value = it)
+                }
+                provisionLine?.takeIf { it.isNotBlank() }?.let {
+                    StatusFactRow(label = "Provision", value = it)
                 }
             }
         }
 
-        HorizontalDivider(color = dividerColor)
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Скорость", style = MaterialTheme.typography.labelMedium, color = muted)
-            Text(
-                trafficRates,
-                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                trafficTotals,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                color = muted,
-            )
-        }
-
-        HorizontalDivider(color = dividerColor)
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (onIpClick != null) Modifier.clickable(onClick = onIpClick) else Modifier),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (showCloudflareIcon) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_cloudflare),
-                    contentDescription = "Cloudflare",
-                    modifier = Modifier.size(18.dp),
-                    tint = Color.Unspecified,
+        probe?.let { p ->
+            HorizontalDivider(color = dividerColor)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Проверка сети",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = muted,
+                    fontWeight = FontWeight.Medium,
                 )
+                StatusFactRow(label = "Сеть", value = p.networkClass.name)
+                StatusFactRow(label = "Yandex", value = if (p.yandexOk) "ok" else "—")
+                StatusFactRow(label = "Bigtech", value = if (p.bigtechOk) "ok" else "—")
+                StatusFactRow(label = "Health", value = if (p.provisionOk) "ok" else "—")
+                if (p.elapsedMs > 0) {
+                    StatusFactRow(label = "Время", value = "${p.elapsedMs} мс")
+                }
             }
-            Text(
-                ipText,
-                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-                fontWeight = FontWeight.SemiBold,
-                color = if (ipFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
 
+        softInfo?.let { info ->
+            Text(
+                info,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+        }
         errorText?.let { err ->
             Text(
                 err,
@@ -833,6 +836,52 @@ private fun TunnelInfoPanel(
                 color = MaterialTheme.colorScheme.error,
             )
         }
+        if (showVkLogout) {
+            TextButton(
+                onClick = onVkLogout,
+                enabled = vkLogoutEnabled,
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+            ) {
+                Text(
+                    "Выйти из VK",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = muted,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusFactRow(
+    label: String,
+    value: String,
+    valueColor: Color? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(112.dp),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
