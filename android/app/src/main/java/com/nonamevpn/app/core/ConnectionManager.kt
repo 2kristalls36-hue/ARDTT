@@ -322,6 +322,10 @@ class ConnectionManager(
             return
         }
         if (current.state == ConnState.Connected) return
+        if (current.state == ConnState.PausedTrustedWifi) {
+            AppLog.i(TAG, "Connect ignored — paused on trusted Wi‑Fi (leave network or disable feature)")
+            return
+        }
         if (mode == ConnPathMode.Auto && probePreferred == null) {
             AppLog.w(TAG, "Connect ignored (auto, no probe path)")
             return

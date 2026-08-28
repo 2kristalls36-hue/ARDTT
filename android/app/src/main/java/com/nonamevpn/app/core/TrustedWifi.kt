@@ -50,7 +50,10 @@ fun decideTrustedWifiTransition(
     }
     if (waiting) {
         if (!wifi.connected) return TrustedWifiTransition.ResumeVpn
-        if (!wifi.ssidAvailable) return TrustedWifiTransition.ResumeVpn
+        if (!wifi.ssidAvailable) {
+            // SSID APIs often flicker while VPN is paused; stay waiting if Wi‑Fi is still up.
+            return TrustedWifiTransition.None
+        }
         return if (isTrustedSsid(wifi.ssid, trustedSsids)) {
             TrustedWifiTransition.None
         } else {
