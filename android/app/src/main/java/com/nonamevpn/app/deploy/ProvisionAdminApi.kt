@@ -28,7 +28,12 @@ object ProvisionAdminApi {
         val lastExternalIp: String = "",
         val online: Boolean = false,
         val offlineForSec: Long = 0L,
-    )
+        val downBytes: Long = 0L,
+        val upBytes: Long = 0L,
+        val trafficLimitBytes: Long = 0L,
+    ) {
+        val usedBytes: Long get() = (downBytes + upBytes).coerceAtLeast(0L)
+    }
 
     fun provisionBase(target: DeployTarget): String {
         val host = target.publicHost.ifBlank { target.host }.trim()
@@ -123,6 +128,7 @@ object ProvisionAdminApi {
         days: Int? = null,
         deactivated: Boolean? = null,
         clearDevices: Boolean = false,
+        trafficLimitGb: Int? = null,
     ): Result<UserSummary> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users/update")
@@ -131,6 +137,7 @@ object ProvisionAdminApi {
             days?.let { payload.put("days", it.coerceAtLeast(0)) }
             deactivated?.let { payload.put("deactivated", it) }
             if (clearDevices) payload.put("clearDevices", true)
+            trafficLimitGb?.let { payload.put("trafficLimitGb", it.coerceAtLeast(0)) }
             postJsonUser(url, payload)
         }
     }
@@ -282,6 +289,9 @@ object ProvisionAdminApi {
             lastExternalIp = o.optString("lastExternalIp"),
             online = o.optBoolean("online", false),
             offlineForSec = o.optLong("offlineForSec", 0L),
+            downBytes = o.optLong("downBytes", 0L),
+            upBytes = o.optLong("upBytes", 0L),
+            trafficLimitBytes = o.optLong("trafficLimitBytes", 0L),
         )
     }
 }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,14 +27,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -120,6 +119,7 @@ private fun ClientsScreen(
     var editUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var editMaxDevices by remember { mutableStateOf("1") }
     var editDays by remember { mutableStateOf("") }
+    var editTrafficGb by remember { mutableStateOf("0") }
     var editing by remember { mutableStateOf(false) }
     var deleteUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var deleting by remember { mutableStateOf(false) }
@@ -286,7 +286,21 @@ private fun ClientsScreen(
                                 ClientCard(
                                     user = user,
                                     busy = busyUser != null,
-                                    onShare = {
+                                    onCopyPassword = {
+                                        loadProfile(user.name) { json ->
+                                            val password = runCatching {
+                                                org.json.JSONObject(json)
+                                                    .getJSONObject("bypass")
+                                                    .optString("password")
+                                            }.getOrDefault("")
+                                            if (password.isBlank()) {
+                                                toast("В профиле нет пароля")
+                                            } else {
+                                                copyText("ARDTT password", password)
+                                            }
+                                        }
+                                    },
+                                    onShareProfile = {
                                         loadProfile(user.name) { json ->
                                             profilePreview = user.name to json
                                         }
@@ -313,7 +327,7 @@ private fun ClientsScreen(
                                             busyUser = null
                                         }
                                     },
-                                    onToggle = {
+                                    onBan = {
                                         busyUser = user.name
                                         scope.launch {
                                             val result = ProvisionAdminApi.updateUser(
@@ -328,10 +342,16 @@ private fun ClientsScreen(
                                             busyUser = null
                                         }
                                     },
-                                    onEdit = {
+                                    onEditLimits = {
                                         editUser = user
                                         editMaxDevices = user.maxDevices.toString()
                                         editDays = ""
+                                        editTrafficGb = if (user.trafficLimitBytes <= 0L) {
+                                            "0"
+                                        } else {
+                                            ((user.trafficLimitBytes + 1024L * 1024L * 1024L - 1) /
+                                                (1024L * 1024L * 1024L)).toString()
+                                        }
                                     },
                                     onUnbindOne = { deviceId ->
                                         busyUser = user.name
@@ -477,6 +497,7 @@ private fun ClientsScreen(
                             target.name,
                             maxDevices = editMaxDevices.toIntOrNull()?.coerceAtLeast(1),
                             days = editDays.toIntOrNull()?.takeIf { it > 0 },
+                            trafficLimitGb = editTrafficGb.toIntOrNull()?.coerceAtLeast(0),
                         )
                         editing = false
                         result.fold(
@@ -512,6 +533,15 @@ private fun ClientsScreen(
                 value = editDays,
                 onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editDays = v },
                 label = { Text("Продлить на N дней (опц.)") },
+                singleLine = true,
+                enabled = !editing,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = editTrafficGb,
+                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editTrafficGb = v },
+                label = { Text("Лимит трафика, ГБ (0 = без лимита)") },
                 singleLine = true,
                 enabled = !editing,
                 shape = RoundedCornerShape(16.dp),
@@ -601,19 +631,31 @@ private fun ClientsScreen(
 private fun ClientCard(
     user: ProvisionAdminApi.UserSummary,
     busy: Boolean,
-    onShare: () -> Unit,
+    onCopyPassword: () -> Unit,
+    onShareProfile: () -> Unit,
     onUnbindAll: () -> Unit,
-    onToggle: () -> Unit,
-    onEdit: () -> Unit,
+    onBan: () -> Unit,
+    onEditLimits: () -> Unit,
     onUnbindOne: (String) -> Unit,
     onDelete: () -> Unit,
 ) {
-    var menu by remember { mutableStateOf(false) }
     val subActive = !user.deactivated &&
         (user.expiresAt <= 0L || user.expiresAt * 1000L > System.currentTimeMillis())
+    val used = user.usedBytes
+    val limit = user.trafficLimitBytes
+    val progress = when {
+        limit <= 0L -> 0f
+        else -> (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
+    }
+    val trafficColor = when {
+        limit <= 0L -> NvpnColors.connected
+        progress >= 0.85f -> MaterialTheme.colorScheme.error
+        progress >= 0.55f -> NvpnColors.warning
+        else -> NvpnColors.connected
+    }
     AppSectionCard(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         shape = RoundedCornerShape(24.dp),
         border = BorderStroke(
             2.dp,
@@ -634,68 +676,76 @@ private fun ClientCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (user.online) {
-                    NvpnColors.connected.copy(alpha = 0.18f)
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
+                shape = RoundedCornerShape(50),
+                color = if (user.online) NvpnColors.connected else MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier
+                    .padding(end = 6.dp)
+                    .size(10.dp),
+            ) {}
+            Text(
+                if (user.online) "онлайн" else "оффлайн",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    if (user.online) "онлайн" else "оффлайн",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    "Трафик",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    if (limit > 0L) {
+                        "${formatClientBytes(used)} / ${formatClientBytes(limit)}"
+                    } else {
+                        formatClientBytes(used)
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (user.online) {
-                        NvpnColors.connected
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    color = trafficColor,
                 )
             }
-            IconButton(onClick = { menu = true }, enabled = !busy) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Ещё")
-            }
-            DropdownMenu(
-                expanded = menu,
-                onDismissRequest = { menu = false },
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                DropdownMenuItem(text = { Text("Лимиты…") }, onClick = { menu = false; onEdit() })
-                DropdownMenuItem(text = { Text("Удалить") }, onClick = { menu = false; onDelete() })
+            if (limit > 0L) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    color = trafficColor,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
             }
         }
+
         Text(
-            "hostId ${user.hostId} · устройств ${user.deviceIds.size}/${user.maxDevices}",
+            "hostId ${user.hostId} · устройств ${user.deviceIds.size}/${user.maxDevices} · до ${formatClientExpires(user.expiresAt)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            buildString {
-                append("До ${formatClientExpires(user.expiresAt)}")
-                when {
-                    user.deactivated -> append(" · выключен")
-                    !subActive -> append(" · истёк")
-                    else -> append(" · активен")
-                }
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (subActive) NvpnColors.connected else MaterialTheme.colorScheme.error,
         )
         Text(
             when {
+                user.deactivated -> "Забанен"
+                !subActive -> "Подписка истекла"
                 user.online -> "Последнее подключение: сейчас"
                 user.lastSeenAt > 0L ->
-                    "Последнее: ${formatClientRelative(user.lastSeenAt * 1000L)} · нет активности ${formatClientOffline(user.offlineForSec)}"
+                    "Последнее: ${formatClientRelative(user.lastSeenAt * 1000L)}"
                 else -> "Ещё не подключался"
             },
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = when {
+                user.deactivated || !subActive -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
         )
         if (user.lastExternalIp.isNotBlank()) {
             Text(
-                "Внешний IP: ${user.lastExternalIp}",
-                style = MaterialTheme.typography.bodySmall,
+                user.lastExternalIp,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -719,40 +769,56 @@ private fun ClientCard(
                 }
             }
         }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedButton(
-                onClick = onShare,
-                enabled = !busy,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) { Text("Профиль", fontWeight = FontWeight.SemiBold) }
-            OutlinedButton(
-                onClick = onUnbindAll,
-                enabled = !busy,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) { Text("Отвязать", fontWeight = FontWeight.SemiBold) }
-            OutlinedButton(
-                onClick = onToggle,
-                enabled = !busy,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text(
-                    if (user.deactivated) "Вкл" else "Выкл",
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            ClientActionButton("Пароль", busy, Modifier.weight(1f), onCopyPassword)
+            ClientActionButton("Профиль", busy, Modifier.weight(1f), onShareProfile)
+            ClientActionButton("Лимит", busy, Modifier.weight(1f), onEditLimits)
         }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ClientActionButton("Отвязать", busy, Modifier.weight(1f), onUnbindAll)
+            ClientActionButton(
+                if (user.deactivated) "Разбан" else "Бан",
+                busy,
+                Modifier.weight(1f),
+                onBan,
+            )
+            ClientActionButton("Удалить", busy, Modifier.weight(1f), onDelete)
+        }
+    }
+}
+
+@Composable
+private fun ClientActionButton(
+    label: String,
+    busy: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = !busy,
+        modifier = modifier.height(42.dp),
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp),
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+private fun formatClientBytes(bytes: Long): String {
+    val b = bytes.coerceAtLeast(0L)
+    return when {
+        b < 1024L -> "$b Б"
+        b < 1024L * 1024L -> String.format(Locale.US, "%.1f КБ", b / 1024.0)
+        b < 1024L * 1024L * 1024L -> String.format(Locale.US, "%.2f МБ", b / (1024.0 * 1024.0))
+        else -> String.format(Locale.US, "%.2f ГБ", b / (1024.0 * 1024.0 * 1024.0))
     }
 }
 
@@ -776,15 +842,3 @@ private fun formatClientRelative(ms: Long): String {
     }
 }
 
-private fun formatClientOffline(sec: Long): String {
-    if (sec <= 0L) return "—"
-    val m = sec / 60
-    val h = sec / 3600
-    val d = sec / 86400
-    return when {
-        sec < 60 -> "$sec с"
-        m < 60 -> "$m мин"
-        h < 48 -> "$h ч"
-        else -> "$d дн"
-    }
-}

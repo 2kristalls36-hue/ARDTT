@@ -55,7 +55,7 @@ services:
       NVPN_DATA: /data
       NVPN_BYPASS_DNS: ${NVPN_BYPASS_DNS:-10.9.0.1}
     volumes:
-      - ./data:/data:ro
+      - ./data:/data
       - bypass-config:/etc/wdtt
     depends_on:
       - provision

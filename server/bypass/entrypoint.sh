@@ -37,7 +37,10 @@ ensure_main_password() {
 }
 
 sync_passwords() {
-  /usr/local/bin/bypass-sync -users "${USERS}" -out "${CFG_DIR}/passwords.json"
+  /usr/local/bin/bypass-sync \
+    -users "${USERS}" \
+    -out "${CFG_DIR}/passwords.json" \
+    -traffic "${DATA}/bypass-traffic.json"
 }
 
 wait_for_users
@@ -60,14 +63,23 @@ SERVER_PID=$!
 
 (
   last=$(stat -c %Y "${USERS}" 2>/dev/null || echo 0)
+  ticks=0
   while kill -0 "${SERVER_PID}" 2>/dev/null; do
     sleep 5
+    ticks=$((ticks + 1))
     now=$(stat -c %Y "${USERS}" 2>/dev/null || echo 0)
     if [[ "${now}" != "${last}" ]]; then
       echo "[bypass] users.json changed — sync + SIGHUP"
       sync_passwords
       kill -HUP "${SERVER_PID}" 2>/dev/null || true
       last="${now}"
+    elif [[ $((ticks % 6)) -eq 0 ]]; then
+      # Refresh traffic snapshot ~every 30s for provision admin UI.
+      /usr/local/bin/bypass-sync \
+        -users "${USERS}" \
+        -out "${CFG_DIR}/passwords.json" \
+        -traffic "${DATA}/bypass-traffic.json" \
+        -traffic-only >/dev/null 2>&1 || true
     fi
   done
 ) &
