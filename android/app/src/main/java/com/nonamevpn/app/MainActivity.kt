@@ -18,7 +18,9 @@ import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.ui.AppRoot
+import com.nonamevpn.app.ui.telemetry.RecordingBorderOverlay
 import com.nonamevpn.app.ui.theme.NonameTheme
 
 class MainActivity : ComponentActivity() {
@@ -32,25 +34,30 @@ class MainActivity : ComponentActivity() {
         val servers = ServersRepository(applicationContext)
         val deploy = DeployEngine(applicationContext)
         setContent {
+            val recorder = androidx.compose.runtime.remember { TelemetryRecorder.get(applicationContext) }
+            val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
             val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
             val palette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
             val dynamic by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
-            NonameTheme(
-                themeMode = themeMode,
-                palette = palette,
-                dynamicColor = dynamic,
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = androidx.compose.ui.graphics.Color.Transparent,
+            androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                NonameTheme(
+                    themeMode = themeMode,
+                    palette = palette,
+                    dynamicColor = dynamic,
                 ) {
-                    AppRoot(
-                        settings = settings,
-                        profiles = profiles,
-                        serversRepo = servers,
-                        deployEngine = deploy,
-                    )
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = androidx.compose.ui.graphics.Color.Transparent,
+                    ) {
+                        AppRoot(
+                            settings = settings,
+                            profiles = profiles,
+                            serversRepo = servers,
+                            deployEngine = deploy,
+                        )
+                    }
                 }
+                RecordingBorderOverlay(isRecording = isRecording)
             }
         }
     }
