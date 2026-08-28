@@ -468,7 +468,7 @@ private fun ServerListScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.NavZoneHeight + NvpnBottomChrome.StickyGap),
+                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
 
     }
@@ -1006,7 +1006,7 @@ private fun ServerOverviewScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.NavZoneHeight + NvpnBottomChrome.StickyGap),
+                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
     }
 }
@@ -1492,7 +1492,7 @@ private fun ClientsScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.NavZoneHeight + NvpnBottomChrome.StickyGap),
+                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
     } // Box
 

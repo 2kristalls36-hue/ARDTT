@@ -111,7 +111,7 @@ fun LogsScreen() {
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp)
-            .padding(bottom = NvpnBottomChrome.NavZoneHeight + 12.dp),
+            .padding(bottom = NvpnBottomChrome.navigationReserve() + 12.dp),
     ) {
         EdgeFeedTopInset()
         AppPageHeader(

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -45,8 +46,16 @@ object NvpnBottomChrome {
     val ButtonHeight: Dp = 58.dp
 
     /** Bottom padding so the last scroll items can pass under the sticky CTA. */
+    @Composable
+    fun navigationReserve(): Dp =
+        NavZoneHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    @Composable
+    fun stickyBottomPadding(): Dp = navigationReserve() + StickyGap
+
+    @Composable
     fun scrollContentPadding(extra: Dp = 16.dp): Dp =
-        NavZoneHeight + StickyGap + ButtonHeight + extra
+        navigationReserve() + StickyGap + ButtonHeight + extra
 }
 
 /**
@@ -77,7 +86,7 @@ fun StickyBottomScaffold(
                 .fillMaxWidth()
                 .zIndex(2f)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.NavZoneHeight + NvpnBottomChrome.StickyGap),
+                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
             content = stickyContent,
         )
     }
@@ -100,7 +109,7 @@ fun EdgeFeedTopInset(extra: Dp = 8.dp) {
 @Composable
 fun EdgeFeedColumn(
     modifier: Modifier = Modifier,
-    bottomReserve: Dp = NvpnBottomChrome.NavZoneHeight + 24.dp,
+    bottomExtra: Dp = 24.dp,
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -109,7 +118,7 @@ fun EdgeFeedColumn(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
-            .padding(bottom = bottomReserve),
+            .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
         verticalArrangement = verticalArrangement,
     ) {
         EdgeFeedTopInset()

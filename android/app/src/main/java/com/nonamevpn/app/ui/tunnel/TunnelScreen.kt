@@ -245,7 +245,7 @@ fun TunnelScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             EdgeFeedTopInset()
 
@@ -545,7 +545,7 @@ fun TunnelScreen(
                 .fillMaxWidth()
                 .zIndex(2f)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.NavZoneHeight + NvpnBottomChrome.StickyGap),
+                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
     }
 

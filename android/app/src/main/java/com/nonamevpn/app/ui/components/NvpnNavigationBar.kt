@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
@@ -177,8 +178,8 @@ fun NvpnNavigationBar(
                             Text(
                                 text = item.label,
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 9.5.sp,
-                                    letterSpacing = 0.1.sp,
+                                    fontSize = 10.sp,
+                                    letterSpacing = 0.sp,
                                 ),
                                 fontWeight = if (emphasis > 0.55f) {
                                     FontWeight.SemiBold
@@ -187,6 +188,8 @@ fun NvpnNavigationBar(
                                 },
                                 color = iconColor.copy(alpha = if (emphasis > 0.4f) 1f else 0.5f),
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                softWrap = false,
                             )
                         }
                     }
