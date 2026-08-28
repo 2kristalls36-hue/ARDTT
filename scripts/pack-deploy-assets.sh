@@ -11,7 +11,8 @@ tar -czf "$TMP" \
   -C "$ROOT/server" \
   --exclude='data' \
   --exclude='*.tmp' \
-  docker-compose.yml .env.example README.md scripts provision direct bypass warp
+  docker-compose.yml .env.example DEPLOY_VERSION README.md scripts \
+  provision direct bypass dns warp telemetry-upload
 cp -f "$TMP" "$OUT/stack.tar.gz.bin"
 cp -f "$TMP" "$OUT/stack.tar.gz"
 rm -f "$TMP"

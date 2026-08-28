@@ -97,6 +97,18 @@ fi
 STACK="$INSTALL_DIR/stack"
 [ -f "$STACK/docker-compose.yml" ] || die "В архиве нет docker-compose.yml"
 
+prog 0.22 "Проверка состава стека"
+missing_contexts=""
+for context in provision direct bypass dns warp telemetry-upload; do
+  if grep -Eq "build:[[:space:]]*(\\./)?${context}([[:space:]]|$)" "$STACK/docker-compose.yml" 2>/dev/null &&
+     [ ! -d "$STACK/$context" ]; then
+    missing_contexts="$missing_contexts $context"
+  fi
+done
+if [ -n "$missing_contexts" ]; then
+  die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Обновите APK или пересоберите архив scripts/pack-deploy-assets.sh"
+fi
+
 prog 0.25 "Установка Docker (если нужно)"
 if ! command -v docker >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
@@ -165,10 +177,14 @@ export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 export BUILDKIT_PROGRESS=plain
 export COMPOSE_ANSI=never
 compose pull 2>/dev/null || true
-if ! compose build; then
+BUILD_LOG="$(mktemp /tmp/nvpn-compose-build.XXXXXX.log)"
+if ! compose build 2>&1 | tee "$BUILD_LOG"; then
+  build_tail="$(tail -n 20 "$BUILD_LOG" | tr '\n' ' ' | cut -c1-1000)"
+  rm -f "$BUILD_LOG"
   cleanup_docker_build_junk
-  die "Сборка Docker не удалась (часто из‑за нехватки места на диске). Свободно: $(df -h / | awk 'NR==2{print $4}')"
+  die "Сборка Docker не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}')"
 fi
+rm -f "$BUILD_LOG"
 compose up -d
 
 prog 0.80 "Очистка build-кэша и временных файлов"
