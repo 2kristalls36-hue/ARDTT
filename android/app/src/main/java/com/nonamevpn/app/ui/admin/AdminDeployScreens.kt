@@ -383,7 +383,7 @@ private fun ServerListScreen(
                     enabled = !probing,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .padding(vertical = 4.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -399,8 +399,7 @@ private fun ServerListScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 16.dp),
+                        .weight(1f),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(
@@ -428,7 +427,7 @@ private fun ServerListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(servers, key = { it.id }) { server ->

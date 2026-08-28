@@ -16,6 +16,8 @@ import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.ServersRepository
+import com.nonamevpn.app.profile.PendingProfileImport
+import com.nonamevpn.app.profile.ProfileLinkCodec
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.telemetry.TelemetryRecorder
@@ -73,6 +75,17 @@ class MainActivity : ComponentActivity() {
             AppShortcuts.ACTION_START_TUNNEL -> startTunnelFromShortcut()
             AppShortcuts.ACTION_STOP_TUNNEL -> {
                 ConnectionManager.get(applicationContext).disconnect()
+            }
+            Intent.ACTION_VIEW -> {
+                val uri = intent.dataString?.trim().orEmpty()
+                if (ProfileLinkCodec.looksLikeLink(uri)) {
+                    PendingProfileImport.link = uri
+                    Toast.makeText(
+                        this,
+                        "Ссылка профиля — откройте вкладку «Профили»",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
             }
         }
     }

@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -53,7 +52,12 @@ import com.nonamevpn.app.profile.DEFAULT_PROFILE_FOLDER
 import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.StoredProfile
+import com.nonamevpn.app.profile.ProfileImportResolver
+import com.nonamevpn.app.profile.PendingProfileImport
+import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.profile.VpnProfileJson
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -77,6 +81,10 @@ fun ProfilesScreen(
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
     var selectedFolder by remember { mutableStateOf(DEFAULT_PROFILE_FOLDER) }
+    var showAddSheet by remember { mutableStateOf(false) }
+    var showSubscription by remember { mutableStateOf(false) }
+    var subscriptionUrl by remember { mutableStateOf("") }
+    var shareProfile by remember { mutableStateOf<VpnProfile?>(null) }
     var showPaste by remember { mutableStateOf(false) }
     var pasteText by remember { mutableStateOf("") }
     var showFolder by remember { mutableStateOf(false) }
@@ -113,6 +121,36 @@ fun ProfilesScreen(
         }
     }
 
+    fun importResolved(raw: String, message: String? = null) {
+        scope.launch {
+            busy = true
+            error = null
+            runCatching {
+                val imported = ProfileImportResolver.resolve(raw)
+                imported.forEachIndexed { index, profile ->
+                    profiles.upsert(profile, selectedFolder, activate = index == imported.lastIndex)
+                }
+                val last = imported.last()
+                settings.setProfileName(last.name)
+                conn.updateProfile(last)
+                AppLog.i("Profiles", "imported ${imported.size} via link/url/json")
+                afterChange(message ?: "Импортировано: ${imported.size}")
+            }.onFailure { t ->
+                busy = false
+                error = t.message ?: "Ошибка импорта"
+                AppLog.e("Profiles", "import failed: ${t.message}")
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        PendingProfileImport.take()?.let { importResolved(it, "Профиль из ссылки импортирован") }
+    }
+
+    val scanQr = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { importResolved(it, "Профиль из QR импортирован") }
+    }
+
     val pickFile = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -143,10 +181,10 @@ fun ProfilesScreen(
     StickyBottomScaffold(
         stickyContent = {
             StickyPrimaryButton(
-                text = if (busy) "Читаем…" else "Импорт из файла",
-                onClick = { pickFile.launch(arrayOf("application/json", "text/*", "*/*")) },
+                text = if (busy) "Импорт…" else "Добавить",
+                onClick = { showAddSheet = true },
                 enabled = !busy,
-                icon = Icons.Default.FolderOpen,
+                icon = Icons.Default.Add,
             )
         },
     ) {
@@ -181,21 +219,8 @@ fun ProfilesScreen(
             }
         }
 
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            OutlinedButton(
-                onClick = { showPaste = true },
-                enabled = !busy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text("Вставить JSON…")
-            }
-            error?.let {
+        error?.let {
+            AppSectionCard(contentPadding = PaddingValues(16.dp)) {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -227,15 +252,7 @@ fun ProfilesScreen(
                         cm.setPrimaryClip(ClipData.newPlainText("ARDTT profile", json))
                         Toast.makeText(context, "JSON скопирован", Toast.LENGTH_SHORT).show()
                     },
-                    onShare = {
-                        val json = VpnProfileJson.encode(item.profile)
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/json"
-                            putExtra(Intent.EXTRA_TEXT, json)
-                            putExtra(Intent.EXTRA_SUBJECT, item.profile.name)
-                        }
-                        context.startActivity(Intent.createChooser(send, "Поделиться профилем"))
-                    },
+                    onShare = { shareProfile = item.profile },
                     onRename = {
                         renameTarget = item
                         renameText = item.profile.name
@@ -258,28 +275,82 @@ fun ProfilesScreen(
         }
     }
 
+    if (showAddSheet) {
+        ProfileAddSheet(
+            onDismissRequest = { showAddSheet = false },
+            onSubscription = { showSubscription = true },
+            onManual = { pasteText = ""; showPaste = true },
+            onFromFile = { pickFile.launch(arrayOf("application/json", "text/*", "*/*")) },
+            onFromClipboard = {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                if (clip.isBlank()) {
+                    Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+                } else {
+                    importResolved(clip)
+                }
+            },
+            onScanQr = {
+                scanQr.launch(
+                    ScanOptions().apply {
+                        setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                        setPrompt("Наведите на QR-код профиля ARDTT")
+                        setBeepEnabled(false)
+                        setOrientationLocked(false)
+                    },
+                )
+            },
+        )
+    }
+
+    shareProfile?.let { profile ->
+        ProfileShareDialog(
+            profile = profile,
+            onDismissRequest = { shareProfile = null },
+        )
+    }
+
+    if (showSubscription) {
+        NvpnDialog(
+            title = "Подписка",
+            onDismissRequest = { if (!busy) showSubscription = false },
+            confirmAction = NvpnDialogAction(
+                text = "Загрузить",
+                onClick = {
+                    showSubscription = false
+                    importResolved(subscriptionUrl.trim(), "Подписка обновлена")
+                },
+                enabled = subscriptionUrl.isNotBlank() && !busy,
+            ),
+            dismissAction = NvpnDialogAction("Отмена", { showSubscription = false }, enabled = !busy),
+            dismissOnBackPress = !busy,
+            dismissOnClickOutside = !busy,
+        ) {
+            Text(
+                "URL JSON на сервере, например http://VPS:9100/v1/profile/имя или список профилей.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = subscriptionUrl,
+                onValueChange = { subscriptionUrl = it },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                placeholder = { Text("https://…/profile.json") },
+                singleLine = true,
+            )
+        }
+    }
+
     if (showPaste) {
         NvpnDialog(
-            title = "Импорт JSON",
+            title = "Импорт вручную",
             onDismissRequest = { if (!busy) showPaste = false },
             confirmAction = NvpnDialogAction(
                 text = "Импорт",
                 onClick = {
-                    scope.launch {
-                        busy = true
-                        error = null
-                        runCatching {
-                            val imported = profiles.importMany(pasteText, selectedFolder)
-                            val last = imported.last()
-                            settings.setProfileName(last.name)
-                            conn.updateProfile(last)
-                            AppLog.i("Profiles", "imported ${imported.size} profiles")
-                            afterChange("Импортировано: ${imported.size}")
-                        }.onFailure { t ->
-                            busy = false
-                            error = t.message ?: "Ошибка импорта"
-                        }
-                    }
+                    showPaste = false
+                    importResolved(pasteText)
                 },
                 enabled = pasteText.isNotBlank() && !busy,
             ),
@@ -288,7 +359,7 @@ fun ProfilesScreen(
             dismissOnClickOutside = !busy,
         ) {
             Text(
-                "Один профиль, массив или {\"profiles\":[…]}. Импорт попадёт в папку «$selectedFolder».",
+                "JSON, ссылка ardtt:// или URL подписки. Импорт в папку «$selectedFolder».",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -299,7 +370,7 @@ fun ProfilesScreen(
                     .fillMaxWidth()
                     .height(180.dp),
                 shape = RoundedCornerShape(16.dp),
-                placeholder = { Text("{ \"name\": … }") },
+                placeholder = { Text("ardtt://config?… или { \"name\": … }") },
             )
         }
     }
@@ -484,7 +555,7 @@ private fun ProfileCard(
             ) {
                 DropdownMenuItem(text = { Text("Подключить") }, onClick = { menu = false; onOpen() })
                 DropdownMenuItem(text = { Text("Копировать JSON") }, onClick = { menu = false; onCopy() })
-                DropdownMenuItem(text = { Text("Поделиться") }, onClick = { menu = false; onShare() })
+                DropdownMenuItem(text = { Text("Ссылка / QR") }, onClick = { menu = false; onShare() })
                 DropdownMenuItem(text = { Text("Переименовать") }, onClick = { menu = false; onRename() })
                 if (folders.size > 1) {
                     DropdownMenuItem(text = { Text("В папку…") }, onClick = { menu = false; onMove() })

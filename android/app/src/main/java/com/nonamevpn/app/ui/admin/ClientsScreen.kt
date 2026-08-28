@@ -3,7 +3,6 @@ package com.nonamevpn.app.ui.admin
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
@@ -58,6 +57,9 @@ import androidx.compose.ui.unit.dp
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.profile.ProfileRepository
+import com.nonamevpn.app.profile.VpnProfile
+import com.nonamevpn.app.profile.VpnProfileJson
+import com.nonamevpn.app.ui.profiles.ProfileShareDialog
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
@@ -114,7 +116,7 @@ private fun ClientsScreen(
     var createDays by remember { mutableIntStateOf(30) }
     var createMaxDevices by remember { mutableIntStateOf(1) }
     var creating by remember { mutableStateOf(false) }
-    var profilePreview by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var profileShare by remember { mutableStateOf<VpnProfile?>(null) }
     var busyUser by remember { mutableStateOf<String?>(null) }
     var editUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var editMaxDevices by remember { mutableStateOf("1") }
@@ -128,15 +130,6 @@ private fun ClientsScreen(
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText(label, text))
         Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-    }
-
-    fun shareJson(name: String, json: String) {
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "application/json"
-            putExtra(Intent.EXTRA_TEXT, json)
-            putExtra(Intent.EXTRA_SUBJECT, name)
-        }
-        context.startActivity(Intent.createChooser(send, "Поделиться профилем"))
     }
 
     fun addToPhone(json: String) {
@@ -302,7 +295,7 @@ private fun ClientsScreen(
                                     },
                                     onShareProfile = {
                                         loadProfile(user.name) { json ->
-                                            profilePreview = user.name to json
+                                            profileShare = VpnProfileJson.parse(json)
                                         }
                                     },
                                     onUnbindAll = {
@@ -414,7 +407,7 @@ private fun ClientsScreen(
                         result.fold(
                             onSuccess = { body ->
                                 showCreate = false
-                                profilePreview = name to body
+                                profileShare = VpnProfileJson.parse(body)
                                 refresh()
                             },
                             onFailure = { toast(it.message ?: "Ошибка создания") },
@@ -586,44 +579,20 @@ private fun ClientsScreen(
         }
     }
 
-    profilePreview?.let { (name, json) ->
-        NvpnDialog(
-            title = "Профиль · $name",
-            onDismissRequest = { profilePreview = null },
-            confirmAction = NvpnDialogAction(
-                "Поделиться",
-                {
-                    shareJson(name, json)
-                    profilePreview = null
-                },
-            ),
-            dismissAction = NvpnDialogAction("Закрыть", { profilePreview = null }),
-            secondaryAction = NvpnDialogAction(
-                "Копировать",
-                { copyText("ARDTT profile", json) },
-            ),
-        ) {
-            Text(
-                "Раздайте JSON клиенту или добавьте на этот телефон.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                json.take(1200),
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 220.dp)
-                    .verticalScroll(rememberScrollState()),
-            )
-            OutlinedButton(
-                onClick = { addToPhone(json) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text("Добавить на этот телефон")
-            }
-        }
+    profileShare?.let { profile ->
+        ProfileShareDialog(
+            profile = profile,
+            onDismissRequest = { profileShare = null },
+            extraActions = {
+                OutlinedButton(
+                    onClick = { addToPhone(VpnProfileJson.encode(profile)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text("Добавить на этот телефон")
+                }
+            },
+        )
     }
 }
 
