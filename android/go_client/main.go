@@ -266,7 +266,7 @@ func main() {
 		}
 	} else {
 		// nonameVPN: honour -n as 1..max (economy=1, default=3).
-		// Upstream qWDTT forced multiples of workersPerGroup (9); we keep
+		// Upstream WDTT forced multiples of workersPerGroup (9); we keep
 		// grouping math below but do not bump a small -n up to 9.
 		if *numW < 1 {
 			*numW = 1

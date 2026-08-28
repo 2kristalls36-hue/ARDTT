@@ -1,13 +1,18 @@
 package com.nonamevpn.app.profile
 
 import android.content.Context
+import android.net.Uri
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 private val Context.profileStore: DataStore<Preferences> by preferencesDataStore("nvpn_profile")
 
@@ -23,6 +28,15 @@ class ProfileRepository(private val context: Context) {
         val parsed = VpnProfileJson.parse(raw)
         context.profileStore.edit { it[profileJsonKey] = VpnProfileJson.encode(parsed) }
         return parsed
+    }
+
+    /** Read profile JSON via SAF / Downloads / Files app. */
+    suspend fun importUri(uri: Uri): VpnProfile = withContext(Dispatchers.IO) {
+        val raw = context.contentResolver.openInputStream(uri)?.use { stream ->
+            BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).readText()
+        } ?: throw IllegalStateException("Не удалось открыть файл")
+        if (raw.isBlank()) throw IllegalStateException("Файл пустой")
+        importJson(raw)
     }
 
     suspend fun importDemo(): VpnProfile = importJson(VpnProfileJson.encode(VpnProfileJson.demo()))

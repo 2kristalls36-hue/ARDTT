@@ -65,22 +65,42 @@ class SshClient(
         }
     }
 
+    /**
+     * Decode SSH bytes as UTF-8 lines. The old byte→Char path broke Cyrillic
+     * (e.g. «Сборка и запуск Compose…» became Hangul/symbol garbage).
+     */
     private class LineOutputStream(private val onLine: (String) -> Unit) : java.io.OutputStream() {
-        private val buf = StringBuilder()
+        private val buf = ByteArrayOutputStream(512)
+
         override fun write(b: Int) {
-            val c = b.toChar()
-            if (c == '\n') {
-                onLine(buf.toString())
-                buf.clear()
-            } else if (c != '\r') {
-                buf.append(c)
+            when (b) {
+                '\n'.code -> flushLine()
+                '\r'.code -> Unit
+                else -> buf.write(b)
             }
         }
-        fun flushLine() {
-            if (buf.isNotEmpty()) {
-                onLine(buf.toString())
-                buf.clear()
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            var i = off
+            val end = off + len
+            while (i < end) {
+                write(b[i].toInt() and 0xff)
+                i++
             }
+        }
+
+        fun flushLine() {
+            if (buf.size() == 0) return
+            val raw = buf.toString(Charsets.UTF_8.name())
+            buf.reset()
+            val cleaned = stripAnsi(raw).trimEnd()
+            if (cleaned.isNotEmpty()) onLine(cleaned)
+        }
+
+        companion object {
+            private val ANSI_RE = Regex("\u001B\\[[0-9;?]*[A-Za-z]|\u001B\\].*?\u0007|\u001B.")
+
+            fun stripAnsi(s: String): String = ANSI_RE.replace(s, "")
         }
     }
 

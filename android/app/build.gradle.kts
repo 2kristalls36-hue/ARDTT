@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0-phone-integrate"
+        versionCode = 74
+        versionName = "0.5.56-telemetry"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -70,9 +70,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    // mwiede JSch (SSH deploy) — same family as qWDTT
     implementation("com.github.mwiede:jsch:0.2.21")
-    // OkHttp for VK OAuth / calls.start (create-call)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")

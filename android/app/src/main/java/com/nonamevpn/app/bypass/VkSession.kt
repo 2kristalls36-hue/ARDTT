@@ -49,6 +49,7 @@ object VkSession {
     }
 
     fun loginStartUrl(attempt: Int): String = when (attempt) {
+        // Login sequence: mobile vk.ru → home → desktop login.
         0 -> "https://m.vk.ru/login"
         1 -> "https://m.vk.ru/"
         else -> "https://vk.ru/login"
@@ -56,7 +57,11 @@ object VkSession {
 
     fun looksLikeLoginUrl(url: String): Boolean {
         val u = url.lowercase()
-        return u.contains("login") || u.contains("id.vk.") || u.contains("/oauth") ||
-            u.contains("act=auth") || u.contains("act=login")
+        return u.contains("/login") ||
+            u.contains("id.vk.") ||
+            u.contains("/oauth") ||
+            u.contains("act=auth") ||
+            u.contains("act=login") ||
+            u.contains("authorize")
     }
 }

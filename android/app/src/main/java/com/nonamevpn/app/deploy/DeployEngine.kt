@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPOutputStream
 
 /**
  * Admin deploy: SSH → upload stack.tar.gz + install.sh → run Compose on VPS.
@@ -51,7 +53,7 @@ class DeployEngine(private val appContext: Context) {
             ssh.exec("mkdir -p /opt/nonamevpn && chmod 755 /opt/nonamevpn")
 
             emit(0.12f, "Загрузка stack.tar.gz…")
-            val stackBytes = appContext.assets.open("deploy/stack.tar.gz").use { it.readBytes() }
+            val stackBytes = loadStackArchiveBytes()
             ssh.uploadBytes(stackBytes, "/opt/nonamevpn/stack.tar.gz")
             append("Загружен stack.tar.gz (${stackBytes.size / 1024} КБ)")
 
@@ -60,12 +62,22 @@ class DeployEngine(private val appContext: Context) {
             ssh.uploadBytes(installBytes, "/opt/nonamevpn/install.sh")
             ssh.exec("chmod +x /opt/nonamevpn/install.sh")
 
+            val deployVersion = DeployBundle.expectedVersion(appContext)
+            runCatching {
+                ssh.uploadBytes(
+                    (deployVersion + "\n").toByteArray(Charsets.UTF_8),
+                    "/opt/nonamevpn/DEPLOY_VERSION",
+                )
+            }
+            append("Версия деплоя $deployVersion")
+
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
             emit(0.25f, "Запуск установщика…")
             val env = buildString {
                 append("NVPN_PUBLIC_HOST="); append(SshClient.shellQuote(publicHost)); append(' ')
                 append("NVPN_DIRECT_PORT="); append(target.directPort); append(' ')
                 append("NVPN_BYPASS_PORT="); append(target.bypassPort); append(' ')
+                append("NVPN_DEPLOY_VERSION="); append(SshClient.shellQuote(deployVersion)); append(' ')
                 append("bash /opt/nonamevpn/install.sh")
             }
             var failed: String? = null
@@ -73,18 +85,27 @@ class DeployEngine(private val appContext: Context) {
                 append(line)
                 when {
                     line.startsWith("NVPN_PROGRESS|") -> {
-                        val parts = line.split('|')
+                        val parts = line.split('|', limit = 3)
                         val frac = parts.getOrNull(1)?.toFloatOrNull() ?: _progress.value
-                        val step = parts.getOrNull(2) ?: ""
-                        emit(frac.coerceIn(0f, 1f), step)
+                        val step = parts.getOrNull(2)?.take(160).orEmpty()
+                        if (step.isNotBlank()) emit(frac.coerceIn(0f, 1f), step)
                     }
                     line.startsWith("NVPN_ERROR|") -> failed = line.removePrefix("NVPN_ERROR|")
                     line.startsWith("NVPN_DONE|") -> emit(1f, "Готово")
                 }
             }
             if (failed != null) error(failed!!)
-            if (code != 0) error("install.sh exit=$code")
-
+            if (code != 0) {
+                val hint = _log.value.takeLast(8).joinToString(" ")
+                val diskHint = when {
+                    hint.contains("no space", ignoreCase = true) ||
+                        hint.contains("write /") ||
+                        hint.contains("Мало места") ->
+                        " — на VPS закончилось место на диске"
+                    else -> ""
+                }
+                error("install.sh exit=$code$diskHint")
+            }
             // Belt-and-suspenders: ensure archive/logs from older installs are gone
             runCatching {
                 ssh.exec(
@@ -116,6 +137,39 @@ class DeployEngine(private val appContext: Context) {
         activeSession = null
         _busy.value = false
         append("Отменено")
+    }
+
+    /**
+     * aapt/aapt2 may unpack `*.gz` assets and drop the `.gz` suffix (leaving `stack.tar`).
+     * Prefer the opaque `.bin` name; fall back to gz / uncompressed tar (re-gzipped).
+     */
+    private fun loadStackArchiveBytes(): ByteArray {
+        val assets = appContext.assets
+        val names = listOf(
+            "deploy/stack.tar.gz.bin",
+            "deploy/stack.tar.gz",
+            "deploy/stack.tar",
+        )
+        for (name in names) {
+            val bytes = runCatching { assets.open(name).use { it.readBytes() } }.getOrNull()
+                ?: continue
+            if (bytes.isEmpty()) continue
+            return if (name.endsWith(".tar") && !name.endsWith(".tar.gz") && !name.endsWith(".tar.gz.bin")) {
+                gzipBytes(bytes)
+            } else {
+                bytes
+            }
+        }
+        error(
+            "В APK нет deploy/stack.tar.gz (aapt мог переименовать в stack.tar). " +
+                "Выполните scripts/pack-deploy-assets.sh и пересоберите приложение.",
+        )
+    }
+
+    private fun gzipBytes(raw: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream(raw.size / 2)
+        GZIPOutputStream(out).use { it.write(raw) }
+        return out.toByteArray()
     }
 
     private fun emit(fraction: Float, step: String) {

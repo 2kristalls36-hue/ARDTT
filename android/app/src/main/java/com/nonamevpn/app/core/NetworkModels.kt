@@ -20,7 +20,6 @@ data class ProbeResult(
     val yandexOk: Boolean,
     val bigtechOk: Boolean,
     val captive: Boolean,
-    val vpsUdpOk: Boolean,
     val provisionOk: Boolean,
     val message: String,
     val elapsedMs: Long,

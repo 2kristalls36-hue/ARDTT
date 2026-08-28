@@ -1,5 +1,8 @@
-nonameVPN
-==========
+ARDTT (Amnezia + RAW Dial via TURN)
+===================================
+
+Formerly "nonameVPN", briefly "AWDTT". Product name is **ARDTT**
+(Amnezia + RAW Dial via TURN — not WireGuard-in-TURN).
 
 This product combines code and ideas from multiple upstream projects.
 Copyright notices in individual source files take precedence where present.
@@ -25,25 +28,31 @@ You may obtain a copy of the License at:
   http://www.apache.org/licenses/LICENSE-2.0
 
 ---------------------------------------------------------------------------
-WDTT / qWDTT (TURN / WRAP / RAW bypass)
+Path B bypass: classic WDTT vs RAW (qWDTT / SpaceNeuroX)
 ---------------------------------------------------------------------------
 
-Portions derived from WDTT and qWDTT (WireGuard / RAW over VK TURN),
-typically licensed under the GNU General Public License v3.0.
+**Classic WDTT** (amurcanov) is **WireGuard over TURN/DTLS** — not the Path B
+mode used by ARDTT:
 
-The server `bypass` image builds `wdtt-server` from:
+  https://github.com/amurcanov/proxy-turn-vk-android
 
-  https://github.com/SpaceNeuroX/proxy-turn-vk-android  (qWDTT)
-  https://github.com/amurcanov/proxy-turn-vk-android  (original WDTT, archived)
+**RAW Path B** (`-listen-raw`, `raw.go`, RAWCONF / GETCONF_RAW, no nested
+WireGuard, no DTLS on that listener) comes from the **qWDTT / SpaceNeuroX**
+lineage (fork/continuation of the WDTT idea), GPL-3.0:
 
-A small subnet patch (`server/bypass/patches/raw-subnet.patch`) aligns the
-RAW TUN with nonameVPN `10.9.0.0/24`.
+  https://github.com/SpaceNeuroX/proxy-turn-vk-android
 
-The Android Path B client vendors `android/go_client/` (same upstream) and
-builds it as `libclient.so` via `scripts/build-bypass-client.sh`. A small
-patch allows `-n` workers of 1–9 without forcing multiples of 9.
+Vendored server sources under `server/bypass/wdtt-server/` (built as
+`wdtt-server`) and the Android Path B client under `android/go_client/`
+(`libclient.so` via `scripts/build-bypass-client.sh`) follow that RAW-capable
+tree. A small subnet patch (`server/bypass/patches/raw-subnet.patch`) aligns
+the RAW TUN with ARDTT `10.9.0.0/24`. A small client patch allows `-n`
+workers of 1–9 without forcing multiples of 9.
 
-Copyright (c) WDTT / qWDTT contributors
+Directory names may still say `wdtt-*` for historical/vendor reasons; the
+**product** name is ARDTT (Amnezia + RAW Dial via TURN), not WDTT.
+
+Copyright (c) WDTT / qWDTT / SpaceNeuroX contributors
 (see upstream repositories for full copyright lists).
 
 Licensed under the GNU General Public License, version 3.
@@ -66,6 +75,15 @@ here and/or in module manifests as they are vendored into the tree.
 Combined work
 ---------------------------------------------------------------------------
 
-The nonameVPN application and server packaging, as a combined work that
+The ARDTT application and server packaging, as a combined work that
 includes GPL-licensed bypass components, are distributed under the
 GNU General Public License, version 3 (see LICENSE).
+
+---------------------------------------------------------------------------
+Inter font (UI typography)
+---------------------------------------------------------------------------
+
+Inter typeface by Rasmus Andersson, licensed under the SIL Open Font License 1.1.
+Bundled TTF files under android/app/src/main/res/font/.
+
+  https://github.com/rsms/inter
