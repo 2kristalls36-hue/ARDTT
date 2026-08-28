@@ -124,22 +124,51 @@ else
 fi
 
 prog 0.40 "Запись .env"
+DEPLOY_VERSION="${NVPN_DEPLOY_VERSION:-}"
+if [ -z "$DEPLOY_VERSION" ] && [ -f "$STACK/DEPLOY_VERSION" ]; then
+  DEPLOY_VERSION="$(tr -d '[:space:]' < "$STACK/DEPLOY_VERSION")"
+fi
+if [ -z "$DEPLOY_VERSION" ] && [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
+  DEPLOY_VERSION="$(tr -d '[:space:]' < "$INSTALL_DIR/DEPLOY_VERSION")"
+fi
+[ -n "$DEPLOY_VERSION" ] || DEPLOY_VERSION="unknown"
+# Persist on host so provision can read even if env is missing after recreate.
+printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
+printf '%s\n' "$DEPLOY_VERSION" > "$STACK/DEPLOY_VERSION"
 cat > "$STACK/.env" <<EOF
 NVPN_PUBLIC_HOST=$PUBLIC_HOST
 NVPN_DIRECT_PORT=$DIRECT_PORT
 NVPN_BYPASS_PORT=$BYPASS_PORT
 NVPN_PROVISION_LISTEN=$PROVISION_LISTEN
+NVPN_DEPLOY_VERSION=$DEPLOY_VERSION
 NVPN_WARP_GOMEMLIMIT=400MiB
 EOF
 
 mkdir -p "$STACK/data"
 chmod 700 "$STACK/data"
 
+prog 0.45 "Очистка места перед сборкой"
+cleanup_docker_build_junk
+cleanup_host_packages
+# Drop unused images from previous deploys (keep running containers).
+docker image prune -af >/dev/null 2>&1 || true
+
+avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
+if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt 1800 ] 2>/dev/null; then
+  die "Мало места на диске VPS: свободно ${avail_mb} МБ (нужно ≥1800 МБ). Увеличьте диск или очистите: docker system prune -af && apt-get clean"
+fi
+
 prog 0.50 "Сборка и запуск Compose (может занять несколько минут)"
 cd "$STACK"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
+# Plain progress — avoid fancy TTY banners in the app log.
+export BUILDKIT_PROGRESS=plain
+export COMPOSE_ANSI=never
 compose pull 2>/dev/null || true
-compose build
+if ! compose build; then
+  cleanup_docker_build_junk
+  die "Сборка Docker не удалась (часто из‑за нехватки места на диске). Свободно: $(df -h / | awk 'NR==2{print $4}')"
+fi
 compose up -d
 
 prog 0.80 "Очистка build-кэша и временных файлов"

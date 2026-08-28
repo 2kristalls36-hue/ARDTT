@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build qWDTT go_client as libclient.so for Android ABIs (Path B).
+# Build WDTT go_client as libclient.so for Android ABIs (Path B).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

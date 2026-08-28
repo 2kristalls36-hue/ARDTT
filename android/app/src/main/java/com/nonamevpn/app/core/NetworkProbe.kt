@@ -2,9 +2,8 @@ package com.nonamevpn.app.core
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
-import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -12,13 +11,19 @@ import java.net.URL
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Parallel lightweight probes at app start / before Connect.
- * Does NOT bring up VpnService. No TCP probe to RAW UDP port.
+ * Parallel lightweight probes at app start / before Connect / on network handover.
+ * Does NOT bring up VpnService.
+ *
+ * Direct reachability is judged by provision `/health` on the VPS host (TCP),
+ * not by junk UDP to the AmneziaWG port (AWG silently drops invalid packets).
+ *
+ * When [bindNetwork] is set (Wi‑Fi/LTE under the VPN), sockets are bound to that
+ * network so classification reflects the real underlay — not tunnel egress.
  */
 object NetworkProbe {
 
@@ -31,37 +36,34 @@ object NetworkProbe {
 
     suspend fun probe(
         context: Context,
-        directEndpoint: String?,
         provisionBaseUrl: String?,
+        bindNetwork: Network? = null,
+        /** Shorter timeouts (handover / Connect re-probe). */
+        quick: Boolean = false,
     ): ProbeResult = withContext(Dispatchers.IO) {
+        val tcpMs = if (quick) 1_500 else 2_000
+        val captiveMs = if (quick) 1_000 else 1_500
+        val healthMs = if (quick) 1_500 else 2_000
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
-                val systemOnline = isSystemOnline(context)
+                val systemOnline = isSystemOnline(context, bindNetwork)
 
-                val yandexDef = async { tcpReachable("yandex.ru", 443, 4_000) }
-                val bigtechDef = async {
-                    bigtechHosts.any { tcpReachable(it, 443, 4_000) }
-                }
-                val captiveDef = async { detectCaptive() }
-                val udpDef = async { udpLite(directEndpoint, 2_000) }
-                val provisionDef = async { provisionHealth(provisionBaseUrl, 2_500) }
+                val yandexDef = async { tcpReachable("yandex.ru", 443, tcpMs, bindNetwork) }
+                val bigtechDef = async { anyBigtechReachable(tcpMs, bindNetwork) }
+                val captiveDef = async { detectCaptive(bindNetwork, captiveMs) }
+                val provisionDef = async { provisionHealth(provisionBaseUrl, healthMs, bindNetwork) }
 
+                val provisionOk = provisionDef.await()
                 val yandexOk = yandexDef.await()
                 val bigtechOk = bigtechDef.await()
                 val captive = captiveDef.await()
-                val vpsUdpOk = udpDef.await()
-                val provisionOk = provisionDef.await()
-
-                // VPS "ok" for Direct: UDP response preferred; provision health is host-alive hint only
-                val vpsOk = vpsUdpOk
 
                 classify(
                     systemOnline = systemOnline,
                     yandexOk = yandexOk,
                     bigtechOk = bigtechOk,
                     captive = captive,
-                    vpsUdpOk = vpsOk,
                     provisionOk = provisionOk,
                 )
             }
@@ -69,12 +71,20 @@ object NetworkProbe {
         result.copy(elapsedMs = elapsed)
     }
 
-    private fun classify(
+    /** Bigtech hosts in parallel — wall time ≈ one TCP timeout, not 4×. */
+    private suspend fun anyBigtechReachable(timeoutMs: Int, bindNetwork: Network?): Boolean =
+        coroutineScope {
+            bigtechHosts
+                .map { host -> async { tcpReachable(host, 443, timeoutMs, bindNetwork) } }
+                .awaitAll()
+                .any { it }
+        }
+
+    internal fun classify(
         systemOnline: Boolean,
         yandexOk: Boolean,
         bigtechOk: Boolean,
         captive: Boolean,
-        vpsUdpOk: Boolean,
         provisionOk: Boolean,
     ): ProbeResult {
         if (captive) {
@@ -85,7 +95,6 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = true,
-                vpsUdpOk = vpsUdpOk,
                 provisionOk = provisionOk,
                 message = "Войдите в сеть (captive portal)",
                 elapsedMs = 0,
@@ -99,13 +108,12 @@ object NetworkProbe {
                 yandexOk = false,
                 bigtechOk = false,
                 captive = false,
-                vpsUdpOk = vpsUdpOk,
                 provisionOk = provisionOk,
                 message = "Нет сети",
                 elapsedMs = 0,
             )
         }
-        if (vpsUdpOk) {
+        if (provisionOk) {
             return ProbeResult(
                 networkClass = NetworkClass.DirectOk,
                 preselectedPath = VpnPath.Direct,
@@ -113,13 +121,12 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = false,
-                vpsUdpOk = true,
-                provisionOk = provisionOk,
+                provisionOk = true,
                 message = "Готово: прямое",
                 elapsedMs = 0,
             )
         }
-        if (yandexOk || bigtechOk || provisionOk) {
+        if (yandexOk || bigtechOk) {
             val open = bigtechOk
             return ProbeResult(
                 networkClass = if (open) NetworkClass.OpenNeedBypass else NetworkClass.NeedBypass,
@@ -128,10 +135,9 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = false,
-                vpsUdpOk = false,
-                provisionOk = provisionOk,
+                provisionOk = false,
                 message = if (open) {
-                    "Готово: обход (открытая сеть, VPS по UDP не ответил)"
+                    "Готово: обход (VPS health недоступен — Direct не подтверждён)"
                 } else {
                     "Готово: обход"
                 },
@@ -145,23 +151,28 @@ object NetworkProbe {
             yandexOk = yandexOk,
             bigtechOk = bigtechOk,
             captive = false,
-            vpsUdpOk = vpsUdpOk,
             provisionOk = provisionOk,
             message = "Нет сети",
             elapsedMs = 0,
         )
     }
 
-    private fun isSystemOnline(context: Context): Boolean {
+    private fun isSystemOnline(context: Context, bindNetwork: Network?): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = cm.activeNetwork ?: return false
+        val network = bindNetwork ?: cm.activeNetwork ?: return false
         val caps = cm.getNetworkCapabilities(network) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    private fun tcpReachable(host: String, port: Int, timeoutMs: Int): Boolean {
+    private fun tcpReachable(
+        host: String,
+        port: Int,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
         return try {
             Socket().use { socket ->
+                bindNetwork?.bindSocket(socket)
                 socket.connect(InetSocketAddress(host, port), timeoutMs)
                 true
             }
@@ -170,13 +181,13 @@ object NetworkProbe {
         }
     }
 
-    private fun detectCaptive(): Boolean {
+    private fun detectCaptive(bindNetwork: Network?, timeoutMs: Int = 1500): Boolean {
         return try {
             val url = URL("http://connectivitycheck.gstatic.com/generate_204")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = openHttp(url, bindNetwork).apply {
                 instanceFollowRedirects = false
-                connectTimeout = 2500
-                readTimeout = 2500
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
                 requestMethod = "GET"
             }
             val code = conn.responseCode
@@ -188,11 +199,15 @@ object NetworkProbe {
         }
     }
 
-    private fun provisionHealth(baseUrl: String?, timeoutMs: Int): Boolean {
+    private fun provisionHealth(
+        baseUrl: String?,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
         if (baseUrl.isNullOrBlank()) return false
         return try {
             val url = URL(baseUrl.trimEnd('/') + "/health")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = openHttp(url, bindNetwork).apply {
                 connectTimeout = timeoutMs
                 readTimeout = timeoutMs
                 requestMethod = "GET"
@@ -205,34 +220,13 @@ object NetworkProbe {
         }
     }
 
-    /**
-     * Send a small UDP datagram to AWG endpoint and wait for any reply.
-     * Valid Noise handshake needs keys; this is a LOS hint only.
-     */
-    private suspend fun udpLite(endpoint: String?, timeoutMs: Int): Boolean {
-        val parsed = parseEndpoint(endpoint) ?: return false
-        return withTimeoutOrNull(timeoutMs.toLong() + 200L) {
-            withContext(Dispatchers.IO) {
-                DatagramSocket().use { socket ->
-                    socket.soTimeout = timeoutMs
-                    val payload = ByteArray(64) { 0x01 }
-                    val packet = DatagramPacket(
-                        payload,
-                        payload.size,
-                        InetSocketAddress(parsed.first, parsed.second),
-                    )
-                    socket.send(packet)
-                    val buf = ByteArray(256)
-                    val resp = DatagramPacket(buf, buf.size)
-                    try {
-                        socket.receive(resp)
-                        true
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-            }
-        } ?: false
+    private fun openHttp(url: URL, bindNetwork: Network?): HttpURLConnection {
+        val raw = if (bindNetwork != null) {
+            bindNetwork.openConnection(url)
+        } else {
+            url.openConnection()
+        }
+        return raw as HttpURLConnection
     }
 
     fun parseEndpoint(endpoint: String?): Pair<String, Int>? {

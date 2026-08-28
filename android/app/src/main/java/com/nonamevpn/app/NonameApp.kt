@@ -9,5 +9,6 @@ class NonameApp : Application() {
         super.onCreate()
         TelemetryBootstrap.install(this)
         ConnectionManager.get(this)
+        AppShortcuts.refreshAsync(this)
     }
 }
