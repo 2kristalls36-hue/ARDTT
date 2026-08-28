@@ -86,6 +86,7 @@ import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
@@ -353,12 +354,14 @@ private fun ServerListScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+        ) {
             EdgeFeedTopInset()
-            AppPageHeader(
-                applyStatusBarsPadding = false,
-                contentHorizontalPadding = true,
-                title = "Серверы",
+            AppTabPageHeader(
+                tabTitle = "Серверы",
                 subtitle = "Управление вашими VPS",
                 actions = {
                     IconButton(

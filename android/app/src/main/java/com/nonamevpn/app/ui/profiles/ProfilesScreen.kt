@@ -55,7 +55,7 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.profile.VpnProfileJson
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -150,8 +150,8 @@ fun ProfilesScreen(
             )
         },
     ) {
-        AppPageHeader(
-            title = "Профили",
+        AppTabPageHeader(
+            tabTitle = "Профили",
             subtitle = if (catalog.items.isEmpty()) {
                 "Импортируйте JSON с сервера. Можно несколько профилей и папки."
             } else {
