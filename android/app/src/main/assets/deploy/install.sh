@@ -185,7 +185,27 @@ if ! compose build 2>&1 | tee "$BUILD_LOG"; then
   die "Сборка Docker не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}')"
 fi
 rm -f "$BUILD_LOG"
-compose up -d
+
+# Remove only legacy/unmanaged nvpn containers. Compose-managed containers are
+# left intact and will be recreated normally. This handles older manual
+# telemetry installs that used the same fixed container_name without labels.
+for managed_name in nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry; do
+  if docker inspect "$managed_name" >/dev/null 2>&1; then
+    compose_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$managed_name" 2>/dev/null || true)"
+    if [ -z "$compose_project" ] || [ "$compose_project" = "<no value>" ]; then
+      echo "NVPN_WARN|Удаляется устаревший unmanaged-контейнер $managed_name"
+      docker rm -f "$managed_name" >/dev/null
+    fi
+  fi
+done
+
+UP_LOG="$(mktemp /tmp/nvpn-compose-up.XXXXXX.log)"
+if ! compose up -d 2>&1 | tee "$UP_LOG"; then
+  up_tail="$(tail -n 20 "$UP_LOG" | tr '\n' ' ' | cut -c1-1000)"
+  rm -f "$UP_LOG"
+  die "Запуск Compose не удался: ${up_tail:-причина не определена}"
+fi
+rm -f "$UP_LOG"
 
 prog 0.80 "Очистка build-кэша и временных файлов"
 cleanup_docker_build_junk
