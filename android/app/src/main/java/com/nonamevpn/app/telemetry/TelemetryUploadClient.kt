@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okio.Buffer
@@ -57,7 +58,9 @@ class TelemetryUploadClient {
             .build()
 
         onProgress(0.05f)
-        val client = AppHttpClient.builder()
+        // Do not feed a telemetry log upload back into the telemetry interceptor:
+        // buffering a multipart body can duplicate the whole (up to 100 MB) file in RAM.
+        val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)

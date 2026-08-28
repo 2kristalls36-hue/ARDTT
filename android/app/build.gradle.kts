@@ -14,7 +14,11 @@ android {
         targetSdk = 35
         versionCode = 4
         versionName = "0.4.0-phone-integrate"
-        buildConfigField("String", "TELEMETRY_UPLOAD_URL", "\"\"")
+        buildConfigField(
+            "String",
+            "TELEMETRY_UPLOAD_URL",
+            "\"http://159.194.225.162:9200/api/upload-log\"",
+        )
     }
 
     ndkVersion = "27.0.12077973"

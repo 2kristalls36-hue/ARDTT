@@ -14,6 +14,7 @@ app = Flask(__name__)
 
 LOG_ROOT = Path(os.environ.get("TELEMETRY_LOG_ROOT", "/var/logs/app"))
 MAX_CONTENT_LENGTH = 120 * 1024 * 1024  # 120 MB
+app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 CLIENT_ID_RE = re.compile(r"^[a-zA-Z0-9._-]{1,128}$")
 
 
