@@ -53,7 +53,9 @@ fun AppPageHeader(
             .fillMaxWidth()
             .then(if (applyStatusBarsPadding) Modifier.statusBarsPadding() else Modifier)
             .padding(start = startPad, end = endPad, top = 8.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        // Keep every page title on the same baseline. Centering moved titles
+        // down whenever a screen added 48dp back/action IconButtons.
+        verticalAlignment = Alignment.Top,
     ) {
         if (onBack != null) {
             IconButton(onClick = onBack) {

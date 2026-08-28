@@ -29,11 +29,12 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -547,25 +548,25 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     }
 
     if (showClearConfirm) {
-        AlertDialog(
+        NvpnDialog(
+            title = "Очистить сайты?",
             onDismissRequest = { showClearConfirm = false },
-            title = { Text("Очистить сайты?") },
-            text = { Text("Будут удалены все ${orderedSites.size} правил.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showClearConfirm = false
-                        persistSites(emptyList())
-                    },
-                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                        contentColor = colors.error,
-                    ),
-                ) { Text("Удалить") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearConfirm = false }) { Text("Отмена") }
-            },
-        )
+            confirmAction = NvpnDialogAction(
+                text = "Удалить",
+                onClick = {
+                    showClearConfirm = false
+                    persistSites(emptyList())
+                },
+                destructive = true,
+            ),
+            dismissAction = NvpnDialogAction("Отмена", { showClearConfirm = false }),
+        ) {
+            Text(
+                "Будут удалены все ${orderedSites.size} правил.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

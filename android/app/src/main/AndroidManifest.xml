@@ -48,7 +48,7 @@
             android:name=".VpnPermissionActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@style/Theme.NonameVPN.VpnPermission" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

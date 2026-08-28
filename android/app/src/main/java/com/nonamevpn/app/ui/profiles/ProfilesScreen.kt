@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -37,6 +36,8 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyBottomScaffold
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import kotlinx.coroutines.launch
@@ -213,44 +214,46 @@ fun ProfilesScreen(
     }
 
     if (showPaste) {
-        AlertDialog(
+        NvpnDialog(
+            title = "Импорт JSON",
             onDismissRequest = { if (!busy) showPaste = false },
-            title = { Text("Импорт JSON") },
-            text = {
-                OutlinedTextField(
-                    value = pasteText,
-                    onValueChange = { pasteText = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    placeholder = { Text("{ \"name\": … }") },
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            error = null
-                            runCatching {
-                                val p = profiles.importJson(pasteText)
-                                settings.setProfileName(p.name)
-                                conn.updateProfile(p)
-                                AppLog.i("Profiles", "imported paste profile=${p.name}")
-                                afterImport()
-                            }.onFailure { t ->
-                                busy = false
-                                error = t.message ?: "Ошибка импорта"
-                            }
+            confirmAction = NvpnDialogAction(
+                text = "Импорт",
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        error = null
+                        runCatching {
+                            val p = profiles.importJson(pasteText)
+                            settings.setProfileName(p.name)
+                            conn.updateProfile(p)
+                            AppLog.i("Profiles", "imported paste profile=${p.name}")
+                            afterImport()
+                        }.onFailure { t ->
+                            busy = false
+                            error = t.message ?: "Ошибка импорта"
                         }
-                    },
-                    enabled = pasteText.isNotBlank() && !busy,
-                ) { Text("Импортировать") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPaste = false }, enabled = !busy) { Text("Отмена") }
-            },
-            shape = RoundedCornerShape(24.dp),
-        )
+                    }
+                },
+                enabled = pasteText.isNotBlank() && !busy,
+            ),
+            dismissAction = NvpnDialogAction(
+                text = "Отмена",
+                onClick = { showPaste = false },
+                enabled = !busy,
+            ),
+            dismissOnBackPress = !busy,
+            dismissOnClickOutside = !busy,
+        ) {
+            OutlinedTextField(
+                value = pasteText,
+                onValueChange = { pasteText = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp),
+                shape = RoundedCornerShape(16.dp),
+                placeholder = { Text("{ \"name\": … }") },
+            )
+        }
     }
 }

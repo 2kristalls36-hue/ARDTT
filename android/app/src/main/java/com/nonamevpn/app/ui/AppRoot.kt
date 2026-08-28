@@ -17,6 +17,8 @@ import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +56,7 @@ import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -90,9 +93,11 @@ fun AppRoot(
         NavBarItem(route = dest.route, label = dest.navLabel, icon = dest.icon())
     }
     val selectedNavRoute = currentRoute
+    var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
+        vpnConsentBackgroundVisible = false
         if (result.resultCode == Activity.RESULT_OK) {
             AppLog.i("VpnPrep", "VPN permission granted")
             conn.connect()
@@ -107,7 +112,16 @@ fun AppRoot(
             val prep = runCatching { VpnService.prepare(activity ?: context) }.getOrNull()
             if (prep != null) {
                 AppLog.i("VpnPrep", "Launching system VPN consent")
-                vpnPermission.launch(prep)
+                // Some vendor Android builds render the system VPN consent
+                // surface translucent. Paint an opaque app surface first so
+                // system text never overlaps the busy tunnel screen.
+                vpnConsentBackgroundVisible = true
+                delay(100)
+                runCatching { vpnPermission.launch(prep) }
+                    .onFailure {
+                        vpnConsentBackgroundVisible = false
+                        conn.reportUserError("Не удалось открыть системное разрешение VPN")
+                    }
             } else {
                 AppLog.i("VpnPrep", "VPN already permitted — connect")
                 conn.connect()
@@ -242,6 +256,13 @@ fun AppRoot(
                 onSelect = { route -> navigateTab(route) },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+
+            if (vpnConsentBackgroundVisible) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {}
+            }
         }
     }
 }
