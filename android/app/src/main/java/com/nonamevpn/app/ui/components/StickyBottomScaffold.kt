@@ -1,10 +1,12 @@
 package com.nonamevpn.app.ui.components
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -19,12 +21,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -126,7 +128,7 @@ fun EdgeFeedColumn(
     }
 }
 
-/** Primary full-width sticky action button (opaque). */
+/** Primary full-width sticky action — floating shell above the tab bar. */
 @Composable
 fun StickyPrimaryButton(
     text: String,
@@ -137,32 +139,40 @@ fun StickyPrimaryButton(
     contentColor: Color = MaterialTheme.colorScheme.onPrimary,
     icon: ImageVector? = null,
 ) {
-    Button(
+    val fill = if (enabled) {
+        NvpnFloatingShell.tintedShell(containerColor)
+    } else {
+        NvpnFloatingShell.shellColor().copy(alpha = NvpnFloatingShell.shellColor().alpha * 0.65f)
+    }
+    val labelColor = if (enabled) contentColor else contentColor.copy(alpha = 0.45f)
+    Surface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
             .height(NvpnBottomChrome.ButtonHeight),
         shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-        ),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 6.dp,
-            pressedElevation = 2.dp,
-            disabledElevation = 0.dp,
-        ),
+        color = fill,
+        contentColor = labelColor,
+        border = NvpnFloatingShell.shellBorder(),
+        shadowElevation = if (enabled) NvpnFloatingShell.shadowElevation else 0.dp,
+        interactionSource = remember { MutableInteractionSource() },
     ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
-            Spacer(modifier = Modifier.width(8.dp))
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
         }
-        Text(
-            text,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-        )
     }
 }
