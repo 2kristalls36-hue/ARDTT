@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 75
-        versionName = "0.5.57-trusted-wifi-fix"
+        versionCode = 76
+        versionName = "0.5.58-telemetry-ui"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -78,4 +78,5 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20260814")
 }

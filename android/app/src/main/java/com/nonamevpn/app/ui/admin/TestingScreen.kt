@@ -6,23 +6,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Send
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +45,10 @@ import com.nonamevpn.app.telemetry.TelemetryFileManager
 import com.nonamevpn.app.telemetry.TelemetryLogEntry
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.telemetry.TelemetryUploadClient
+import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.StickyBottomScaffold
+import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -116,104 +118,168 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    fun toggleRecording() {
+        if (isRecording) {
+            recorder.stop()
+            refreshLogs()
+            message = "Запись остановлена"
+        } else {
+            recorder.start(serverIp)
+            message = "Запись начата"
+        }
+    }
+
+    StickyBottomScaffold(
+        stickyContent = {
+            StickyPrimaryButton(
+                text = if (isRecording) "Остановить запись" else "Начать запись",
+                onClick = { toggleRecording() },
+                containerColor = if (isRecording) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                contentColor = if (isRecording) {
+                    MaterialTheme.colorScheme.onError
+                } else {
+                    MaterialTheme.colorScheme.onPrimary
+                },
+            )
+        },
     ) {
-        Text("Тестирование", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "Полная телеметрия для отладки. Во время записи по периметру экрана — пульсирующая красная рамка.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+        AppPageHeader(
+            title = "Тестирование",
+            subtitle = "Запись полной телеметрии и отправка логов на тестовый VPS",
         )
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("Сохранённые логи", style = MaterialTheme.typography.titleMedium)
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Статус записи", style = MaterialTheme.typography.titleMedium)
+            StatusPill(
+                text = if (isRecording) "Идёт запись" else "Запись остановлена",
+                accent = isRecording,
+            )
+            Text(
+                "Во время записи весь интерфейс подсвечивается пульсирующей тёмно-красной рамкой.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Сервер: ${uploadUrl.ifBlank { "не задан" }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Сохранённые логи", style = MaterialTheme.typography.titleMedium)
+            Text(
                 if (logs.isEmpty()) {
-                    Text(
-                        "Записей пока нет",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    )
+                    "Записей пока нет"
                 } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(280.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(logs, key = { it.file.absolutePath }) { entry ->
-                            LogRow(
-                                entry = entry,
-                                uploading = uploadingFile == entry.file.name,
-                                progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
-                                onDelete = {
-                                    scope.launch {
-                                        fileManager.delete(entry.file)
-                                        refreshLogs()
-                                        message = "Удалено: ${entry.displayName}"
-                                    }
-                                },
-                                onUpload = {
-                                    scope.launch {
-                                        uploadingFile = entry.file.name
-                                        uploadProgress = 0f
-                                        message = "Отправка ${entry.displayName}…"
-                                        val clientId = TelemetryClientId.getAsync(context)
-                                        val result = uploadClient.upload(
-                                            file = entry.file,
-                                            clientId = clientId,
-                                            uploadUrl = uploadUrl,
-                                            onProgress = { uploadProgress = it },
-                                        )
-                                        uploadingFile = null
-                                        message = result.fold(
-                                            onSuccess = { "Отправлено: ${entry.displayName}" },
-                                            onFailure = { it.message ?: "Ошибка отправки" },
-                                        )
-                                    }
-                                },
-                            )
-                        }
-                    }
+                    "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (logs.isEmpty()) {
+                EmptyLogsBlock()
+            } else {
+                logs.forEach { entry ->
+                    LogRow(
+                        entry = entry,
+                        uploading = uploadingFile == entry.file.name,
+                        progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
+                        onDelete = {
+                            scope.launch {
+                                fileManager.delete(entry.file)
+                                refreshLogs()
+                                message = "Удалено: ${entry.displayName}"
+                            }
+                        },
+                        onUpload = {
+                            scope.launch {
+                                uploadingFile = entry.file.name
+                                uploadProgress = 0f
+                                message = "Отправка ${entry.displayName}…"
+                                val clientId = TelemetryClientId.getAsync(context)
+                                val result = uploadClient.upload(
+                                    file = entry.file,
+                                    clientId = clientId,
+                                    uploadUrl = uploadUrl,
+                                    onProgress = { uploadProgress = it },
+                                )
+                                uploadingFile = null
+                                message = result.fold(
+                                    onSuccess = { "Отправлено: ${entry.displayName}" },
+                                    onFailure = { it.message ?: "Ошибка отправки" },
+                                )
+                            }
+                        },
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Button(
-            onClick = {
-                if (isRecording) {
-                    recorder.stop()
-                    refreshLogs()
-                    message = "Запись остановлена"
-                } else {
-                    recorder.start(serverIp)
-                    message = "Запись начата"
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-        ) {
-            Text(if (isRecording) "Остановить запись" else "Начать запись")
-        }
-
         message?.let {
-            Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    it,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun EmptyLogsBlock() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Text(
-            "Загрузка: ${uploadUrl.ifBlank { "не задана (импортируйте профиль или TELEMETRY_UPLOAD_URL)" }}",
+            "Нажмите «Начать запись», выполните действия в приложении и остановите запись — файл появится здесь.",
+            modifier = Modifier.padding(14.dp),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+        )
+    }
+}
+
+@Composable
+private fun StatusPill(text: String, accent: Boolean) {
+    Surface(
+        color = if (accent) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        },
+        contentColor = if (accent) {
+            MaterialTheme.colorScheme.onErrorContainer
+        } else {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        },
+        shape = RoundedCornerShape(999.dp),
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelLarge,
         )
     }
 }
@@ -227,13 +293,18 @@ private fun LogRow(
     onUpload: () -> Unit,
 ) {
     val dateFmt = remember { SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()) }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(entry.displayName, style = MaterialTheme.typography.bodyMedium)
             Text(
                 "${dateFmt.format(Date(entry.createdAtMs))} · ${formatDuration(entry.durationMs)} · ${formatSize(entry.sizeBytes)}",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -241,10 +312,18 @@ private fun LogRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onUpload, enabled = !uploading) {
-                    Icon(Icons.Outlined.Send, contentDescription = "Отправить")
+                    Icon(
+                        Icons.AutoMirrored.Outlined.Send,
+                        contentDescription = "Отправить",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
                 IconButton(onClick = onDelete, enabled = !uploading) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "Удалить")
+                    Icon(
+                        Icons.Outlined.Delete,
+                        contentDescription = "Удалить",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
             if (uploading) {
