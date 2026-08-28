@@ -4,7 +4,10 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
@@ -19,8 +22,8 @@ import kotlinx.coroutines.withContext
  * Parallel lightweight probes at app start / before Connect / on network handover.
  * Does NOT bring up VpnService.
  *
- * Direct reachability is judged by provision `/health` on the VPS host (TCP),
- * not by junk UDP to the AmneziaWG port (AWG silently drops invalid packets).
+ * Direct reachability uses AWG UDP-lite (handshake initiation → any reply),
+ * not TCP `/health` alone — on operator whitelists TCP :9100 may work while UDP AWG is blocked.
  *
  * When [bindNetwork] is set (Wi‑Fi/LTE under the VPN), sockets are bound to that
  * network so classification reflects the real underlay — not tunnel egress.
@@ -37,6 +40,7 @@ object NetworkProbe {
     suspend fun probe(
         context: Context,
         provisionBaseUrl: String?,
+        directEndpoint: String? = null,
         bindNetwork: Network? = null,
         /** Shorter timeouts (handover / Connect re-probe). */
         quick: Boolean = false,
@@ -44,6 +48,7 @@ object NetworkProbe {
         val tcpMs = if (quick) 1_500 else 2_000
         val captiveMs = if (quick) 1_000 else 1_500
         val healthMs = if (quick) 1_500 else 2_000
+        val udpMs = if (quick) 1_000 else 2_000
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
@@ -53,8 +58,10 @@ object NetworkProbe {
                 val bigtechDef = async { anyBigtechReachable(tcpMs, bindNetwork) }
                 val captiveDef = async { detectCaptive(bindNetwork, captiveMs) }
                 val provisionDef = async { provisionHealth(provisionBaseUrl, healthMs, bindNetwork) }
+                val awgDef = async { awgUdpReachable(directEndpoint, udpMs, bindNetwork) }
 
                 val provisionOk = provisionDef.await()
+                val awgUdpOk = awgDef.await()
                 val yandexOk = yandexDef.await()
                 val bigtechOk = bigtechDef.await()
                 val captive = captiveDef.await()
@@ -64,6 +71,7 @@ object NetworkProbe {
                     yandexOk = yandexOk,
                     bigtechOk = bigtechOk,
                     captive = captive,
+                    awgUdpOk = awgUdpOk,
                     provisionOk = provisionOk,
                 )
             }
@@ -85,6 +93,7 @@ object NetworkProbe {
         yandexOk: Boolean,
         bigtechOk: Boolean,
         captive: Boolean,
+        awgUdpOk: Boolean,
         provisionOk: Boolean,
     ): ProbeResult {
         if (captive) {
@@ -95,6 +104,7 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = true,
+                awgUdpOk = awgUdpOk,
                 provisionOk = provisionOk,
                 message = "Войдите в сеть (captive portal)",
                 elapsedMs = 0,
@@ -108,12 +118,13 @@ object NetworkProbe {
                 yandexOk = false,
                 bigtechOk = false,
                 captive = false,
+                awgUdpOk = awgUdpOk,
                 provisionOk = provisionOk,
                 message = "Нет сети",
                 elapsedMs = 0,
             )
         }
-        if (provisionOk) {
+        if (awgUdpOk) {
             return ProbeResult(
                 networkClass = NetworkClass.DirectOk,
                 preselectedPath = VpnPath.Direct,
@@ -121,7 +132,8 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = false,
-                provisionOk = true,
+                awgUdpOk = true,
+                provisionOk = provisionOk,
                 message = "Готово: прямое",
                 elapsedMs = 0,
             )
@@ -135,9 +147,10 @@ object NetworkProbe {
                 yandexOk = yandexOk,
                 bigtechOk = bigtechOk,
                 captive = false,
-                provisionOk = false,
+                awgUdpOk = false,
+                provisionOk = provisionOk,
                 message = if (open) {
-                    "Готово: обход (VPS health недоступен — Direct не подтверждён)"
+                    "Готово: обход (AWG UDP недоступен)"
                 } else {
                     "Готово: обход"
                 },
@@ -151,6 +164,7 @@ object NetworkProbe {
             yandexOk = yandexOk,
             bigtechOk = bigtechOk,
             captive = false,
+            awgUdpOk = awgUdpOk,
             provisionOk = provisionOk,
             message = "Нет сети",
             elapsedMs = 0,
@@ -178,6 +192,35 @@ object NetworkProbe {
             }
         } catch (_: Exception) {
             false
+        }
+    }
+
+    /**
+     * Send a WireGuard handshake-initiation (type 1) and wait for any UDP reply.
+     * AWG may add junk, but servers still answer invalid initiations with cookie/response.
+     */
+    internal fun awgUdpReachable(
+        endpoint: String?,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
+        val (host, port) = parseEndpoint(endpoint) ?: return false
+        var socket: DatagramSocket? = null
+        return try {
+            socket = DatagramSocket()
+            bindNetwork?.bindSocket(socket)
+            socket.soTimeout = timeoutMs
+            val initiation = ByteArray(148).also { it[0] = 1 }
+            val addr = InetAddress.getByName(host)
+            socket.send(DatagramPacket(initiation, initiation.size, addr, port))
+            val buf = ByteArray(256)
+            val reply = DatagramPacket(buf, buf.size)
+            socket.receive(reply)
+            reply.length > 0
+        } catch (_: Exception) {
+            false
+        } finally {
+            runCatching { socket?.close() }
         }
     }
 

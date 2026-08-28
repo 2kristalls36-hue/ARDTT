@@ -104,7 +104,18 @@ class ConnectionManager(
 
     private fun hideIpViaVpn(): Boolean {
         val s = _ui.value.state
+        if (shouldProvisionViaVpn()) return true
         return s == ConnState.Connected || s == ConnState.Connecting
+    }
+
+    /** On whitelist / Bypass path, provision :9100 is only reachable through the tunnel. */
+    private fun shouldProvisionViaVpn(probe: ProbeResult? = _ui.value.probe): Boolean {
+        val path = _ui.value.activePath ?: TunnelSessionHolder.config?.path
+        if (path == VpnPath.Bypass) return true
+        val p = probe ?: return false
+        return p.preselectedPath == VpnPath.Bypass ||
+            p.networkClass == NetworkClass.NeedBypass ||
+            p.networkClass == NetworkClass.OpenNeedBypass
     }
 
     private suspend fun syncHideIpToProvision(
@@ -153,7 +164,7 @@ class ConnectionManager(
                 return@launch
             }
             val viaVpn = hideIpViaVpn()
-            if (!viaVpn && enabled && _ui.value.probe?.provisionOk != true) {
+            if (!viaVpn && enabled && shouldProvisionViaVpn()) {
                 pendingHideIpSync = true
                 AppLog.v(TAG, "Hide-IP queued until tunnel (provision unreachable on underlay)")
                 return@launch
@@ -298,11 +309,16 @@ class ConnectionManager(
                 connectEnabled = false,
                 lastError = null,
             )
-            val result = NetworkProbe.probe(appContext, provisionUrl, quick = true)
+            val result = NetworkProbe.probe(
+                appContext,
+                provisionUrl,
+                directEndpoint = directEndpoint,
+                quick = true,
+            )
             AppLog.v(
                 TAG,
                 "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
-                    "health=${result.provisionOk} ${result.elapsedMs}ms",
+                    "awg=${result.awgUdpOk} health=${result.provisionOk} ${result.elapsedMs}ms",
             )
             // Don't clobber an in-flight Connect started while we probed.
             if (_ui.value.state == ConnState.Connecting || _ui.value.state == ConnState.Connected) {
@@ -360,7 +376,7 @@ class ConnectionManager(
 
                 val deferHideIp =
                     snap.hideIp &&
-                        snap.probe?.provisionOk != true &&
+                        shouldProvisionViaVpn(snap.probe) &&
                         (labelPreferred == VpnPath.Bypass || snap.probe?.preselectedPath == VpnPath.Bypass)
                 if (snap.hideIp && !deferHideIp) {
                     val r = syncHideIpToProvision(true, viaVpn = false)
@@ -382,22 +398,32 @@ class ConnectionManager(
                         .onSuccess { lastHideIpSent = false }
                 }
                 // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
-                var fresh = NetworkProbe.probe(appContext, provisionUrl, quick = true)
+                var fresh = NetworkProbe.probe(
+                    appContext,
+                    provisionUrl,
+                    directEndpoint = directEndpoint,
+                    quick = true,
+                )
                 if (
                     mode == ConnPathMode.Auto &&
                     probePreferred == VpnPath.Direct &&
                     lastGood?.networkClass == NetworkClass.DirectOk &&
                     fresh.preselectedPath == VpnPath.Bypass &&
-                    !fresh.provisionOk
+                    !fresh.awgUdpOk
                 ) {
-                    AppLog.w(TAG, "Connect re-probe flaked health — retry once")
-                    fresh = NetworkProbe.probe(appContext, provisionUrl, quick = true)
+                    AppLog.w(TAG, "Connect re-probe flaked AWG UDP — retry once")
+                    fresh = NetworkProbe.probe(
+                        appContext,
+                        provisionUrl,
+                        directEndpoint = directEndpoint,
+                        quick = true,
+                    )
                 }
                 val usePath = resolveConnectPath(mode, probePreferred, lastGood, fresh)
                 AppLog.v(
                     TAG,
                     "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
-                        "mode=$mode health=${fresh.provisionOk}",
+                        "mode=$mode awg=${fresh.awgUdpOk} health=${fresh.provisionOk}",
                 )
                 if (usePath == null) {
                     applyProbe(fresh)
@@ -492,10 +518,10 @@ class ConnectionManager(
         if (
             probePreferred == VpnPath.Direct &&
             lastGood?.networkClass == NetworkClass.DirectOk &&
-            lastGood.provisionOk &&
+            lastGood.awgUdpOk &&
             freshPath == VpnPath.Bypass
         ) {
-            AppLog.w(TAG, "Keeping Direct despite flaky re-probe (last health=${lastGood.provisionOk})")
+            AppLog.w(TAG, "Keeping Direct despite flaky re-probe (last awg=${lastGood.awgUdpOk})")
             return VpnPath.Direct
         }
         return freshPath ?: probePreferred.takeIf {
@@ -617,6 +643,7 @@ class ConnectionManager(
         val fresh = NetworkProbe.probe(
             context = appContext,
             provisionBaseUrl = base,
+            directEndpoint = directEndpoint,
             bindNetwork = bindNetwork,
             quick = true,
         )
@@ -624,7 +651,7 @@ class ConnectionManager(
             TAG,
             "Handover probe done class=${fresh.networkClass} path=${fresh.preselectedPath} " +
                 "yandex=${fresh.yandexOk} bigtech=${fresh.bigtechOk} " +
-                "health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
+                "awg=${fresh.awgUdpOk} health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
         )
 
         // Update UI probe snapshot without leaving Connected/Connecting.
@@ -726,6 +753,21 @@ class ConnectionManager(
     fun onTunnelRunning(path: VpnPath) {
         scope.launch {
             softRestartInProgress = false
+            if (path == VpnPath.Bypass) {
+                _ui.value = _ui.value.copy(
+                    state = ConnState.Connecting,
+                    activePath = path,
+                    statusText = "Ожидание каналов обхода…",
+                    connectEnabled = false,
+                    lastError = null,
+                    softInfo = softInfoFor(_ui.value.probe),
+                )
+                if (!waitForBypassWorkers()) {
+                    AppLog.e(TAG, "Bypass: no active TURN workers after ${BYPASS_WORKERS_WAIT_MS}ms")
+                    onTunnelFailed("Обход: нет активных каналов — проверьте hash звонка и сеть")
+                    return@launch
+                }
+            }
             _ui.value = _ui.value.copy(
                 state = ConnState.Connected,
                 activePath = path,
@@ -857,7 +899,7 @@ class ConnectionManager(
         when (result.networkClass) {
             NetworkClass.OpenNeedBypass ->
                 if (pathMode == ConnPathMode.Auto) {
-                    parts += "Сеть открыта, но VPS health не подтвердил Direct — будет обход."
+                    parts += "AWG UDP недоступен — будет обход через звонок."
                 }
             NetworkClass.DirectOk -> Unit
             NetworkClass.Captive ->
@@ -1006,7 +1048,7 @@ class ConnectionManager(
                     provisionBaseUrl = resolveProvisionUrl(),
                     deviceId = profile?.deviceId,
                     context = appContext,
-                    viaVpn = false,
+                    viaVpn = shouldProvisionViaVpn(),
                 )
                 refreshVpnNotification()
                 if (!ip.isNullOrBlank()) return@launch
@@ -1096,9 +1138,20 @@ class ConnectionManager(
         appContext.startService(intent)
     }
 
+    private suspend fun waitForBypassWorkers(): Boolean {
+        val deadline = System.currentTimeMillis() + BYPASS_WORKERS_WAIT_MS
+        while (System.currentTimeMillis() < deadline) {
+            if (TransportHealth.activeWorkers > 0) return true
+            delay(BYPASS_WORKERS_POLL_MS)
+        }
+        return TransportHealth.activeWorkers > 0
+    }
+
     companion object {
         private const val TAG = "ConnMgr"
         private const val DEFAULT_WORKERS = 3
+        private const val BYPASS_WORKERS_WAIT_MS = 25_000L
+        private const val BYPASS_WORKERS_POLL_MS = 250L
 
         @Volatile
         private var instance: ConnectionManager? = null

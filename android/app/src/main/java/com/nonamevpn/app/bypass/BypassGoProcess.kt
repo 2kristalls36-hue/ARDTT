@@ -79,7 +79,7 @@ class BypassGoProcess(
             "-turn-tcp",
             "-mode", "rawtun",
             "-tun-fd-sock", TunFdBridge.goSockPath(args.tunSockName),
-            "-go-dns", "system",
+            "-go-dns", "yandex",
             "-obfs", "audio",
             "-notls",
         )
