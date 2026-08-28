@@ -3,8 +3,6 @@ package com.nonamevpn.app.ui.tunnel
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -21,18 +19,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +52,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.widget.Toast
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.VkCallHashGenerator
 import com.nonamevpn.app.bypass.VkLoginActivity
@@ -70,10 +64,7 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
-import com.nonamevpn.app.profile.DEFAULT_PROFILE_FOLDER
-import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.ProfileRepository
-import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -105,67 +96,13 @@ fun TunnelScreen(
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
-    val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
-    var pickerFolder by remember { mutableStateOf(DEFAULT_PROFILE_FOLDER) }
-    var showImport by remember { mutableStateOf(false) }
     var showHash by remember { mutableStateOf(false) }
-    var importError by remember { mutableStateOf<String?>(null) }
-    var importBusy by remember { mutableStateOf(false) }
     var callBusy by remember { mutableStateOf(false) }
     var callMessage by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
     var ipError by remember { mutableStateOf(EgressIpProbe.lastError) }
-
-    fun applyImported() {
-        showImport = false
-        importError = null
-        importBusy = false
-    }
-
-    val pickProfileFile = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) {
-            AppLog.w("Import", "File pick cancelled")
-            return@rememberLauncherForActivityResult
-        }
-        scope.launch {
-            importBusy = true
-            importError = null
-            runCatching {
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri,
-                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                    )
-                }
-                profiles.importUri(uri)
-            }.onSuccess { p ->
-                AppLog.i("Import", "Profile from file: ${p.name} hostId=${p.hostId}")
-                applyImported()
-            }.onFailure { e ->
-                AppLog.e("Import", e.message ?: "import failed")
-                importBusy = false
-                importError = e.message ?: "Не удалось импортировать файл"
-                showImport = true
-            }
-        }
-    }
-
-    fun launchFilePicker() {
-        AppLog.i("Import", "Opening file picker")
-        pickProfileFile.launch(
-            arrayOf(
-                "application/json",
-                "text/plain",
-                "text/*",
-                "application/octet-stream",
-                "*/*",
-            ),
-        )
-    }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
@@ -193,27 +130,6 @@ fun TunnelScreen(
     val disconnecting = ui.state == ConnState.Disconnecting
     val busy = probing || connecting || disconnecting
     val pathBusy = connecting || disconnecting
-
-    val pickerFolders = catalog.folders.ifEmpty { listOf(DEFAULT_PROFILE_FOLDER) }
-    LaunchedEffect(pickerFolders) {
-        if (pickerFolder !in pickerFolders) pickerFolder = pickerFolders.first()
-    }
-    val pickerItems = catalog.inFolder(pickerFolder)
-
-    fun activateStored(item: StoredProfile) {
-        if (item.id == catalog.activeId) return
-        scope.launch {
-            profiles.setActive(item.id)
-            AppLog.i("Tunnel", "profile=${item.profile.name}")
-            if (sessionUp) {
-                Toast.makeText(
-                    context,
-                    "Профиль выбран — переподключите туннель",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-    }
 
     LaunchedEffect(sessionUp, hideIp) {
         while (sessionUp) {
@@ -316,71 +232,16 @@ fun TunnelScreen(
                 }
             }
 
-            AppSectionCard(
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                shape = RoundedCornerShape(28.dp),
-            ) {
-                Text(
-                    "Профиль",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (pickerFolders.size > 1) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        pickerFolders.forEach { folder ->
-                            FilterChip(
-                                selected = pickerFolder == folder,
-                                onClick = { pickerFolder = folder },
-                                label = { Text(folder) },
-                            )
-                        }
-                    }
-                }
-                if (catalog.items.isEmpty()) {
-                    Text(
-                        "Импортируйте JSON с сервера или создайте клиента на вкладке VPS.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        pickerItems.forEach { item ->
-                            ChoiceChipButton(
-                                label = item.profile.name.ifBlank { item.id },
-                                selected = item.id == catalog.activeId,
-                                enabled = true,
-                                onClick = { activateStored(item) },
-                            )
-                        }
-                    }
-                    if (pickerItems.isEmpty()) {
-                        Text(
-                            "В этой папке пока пусто",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                OutlinedButton(
-                    onClick = { showImport = true },
-                    enabled = !importBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Text(if (importBusy) "Читаем…" else "Импорт JSON…")
-                }
-            }
+            Text(
+                text = when {
+                    profile == null -> "Профиль не выбран"
+                    profile!!.name.isBlank() -> "Профиль выбран"
+                    else -> "Профиль: ${profile!!.name}"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
 
             // ═══ Быстрые настройки ═══
             AppSectionCard(
@@ -588,31 +449,6 @@ fun TunnelScreen(
                 .zIndex(2f)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
-        )
-    }
-
-    if (showImport) {
-        ImportDialog(
-            error = importError,
-            busy = importBusy,
-            onDismiss = {
-                showImport = false
-                importError = null
-            },
-            onPickFile = { launchFilePicker() },
-            onPaste = { text ->
-                scope.launch {
-                    importBusy = true
-                    runCatching { profiles.importJson(text) }
-                        .onSuccess {
-                            AppLog.i("Import", "Profile from paste: ${it.name}")
-                            applyImported()
-                        }.onFailure {
-                            importBusy = false
-                            importError = it.message ?: "Неверный JSON профиля"
-                        }
-                }
-            },
         )
     }
 
@@ -882,60 +718,6 @@ private fun StatusFactRow(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-    }
-}
-
-@Composable
-private fun ImportDialog(
-    error: String?,
-    busy: Boolean,
-    onDismiss: () -> Unit,
-    onPickFile: () -> Unit,
-    onPaste: (String) -> Unit,
-) {
-    var text by remember { mutableStateOf("") }
-    NvpnDialog(
-        title = "Импорт профиля",
-        onDismissRequest = { if (!busy) onDismiss() },
-        confirmAction = NvpnDialogAction(
-            text = "Импорт",
-            onClick = { onPaste(text) },
-            enabled = text.isNotBlank() && !busy,
-        ),
-        dismissAction = NvpnDialogAction("Отмена", onDismiss, enabled = !busy),
-        dismissOnBackPress = !busy,
-        dismissOnClickOutside = !busy,
-    ) {
-        Text(
-            "Выберите JSON с телефона или вставьте текст.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Button(
-            onClick = onPickFile,
-            enabled = !busy,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            shape = RoundedCornerShape(16.dp),
-        ) {
-            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(if (busy) "Читаем…" else "Выбрать файл…", fontWeight = FontWeight.SemiBold)
-        }
-        Text("Или вставьте JSON:", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            enabled = !busy,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 100.dp),
-            shape = RoundedCornerShape(16.dp),
-        )
-        error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
     }
 }
 
