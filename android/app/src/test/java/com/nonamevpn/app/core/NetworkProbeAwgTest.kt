@@ -1,15 +1,16 @@
 package com.nonamevpn.app.core
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NetworkProbeAwgTest {
     @Test
-    fun tcpHealthUnlocksDirectEvenIfAwgSilent() {
+    fun vpsTcpUnlocksDirectEvenIfAwgSilent() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
-            bigtechOk = true,
+            bigtechOk = false,
             captive = false,
             awgUdpOk = false,
             provisionOk = true,

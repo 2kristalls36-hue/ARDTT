@@ -14,7 +14,6 @@ import java.net.URL
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
@@ -22,24 +21,24 @@ import kotlinx.coroutines.withContext
  * Parallel lightweight probes at app start / before Connect / on network handover.
  * Does NOT bring up VpnService.
  *
- * Direct vs Bypass cannot be proven by one packet:
- * - AWG often **drops** junk UDP (no reply ≠ blocked).
- * - TCP `/health` can work on a whitelist while AWG UDP does not.
+ * Network type is two literal IPs (no DNS, no SNI):
+ * - **77.88.8.8** (Yandex DNS) — reachable on operator whitelist (БС) and open nets.
+ * - **VPS IP** (provision :9100) — reachable only when the underlay can talk to
+ *   our server, i.e. open internet. Replaces a 1.1.1.1 “foreign DNS” check so
+ *   Direct is chosen only when the actual Direct target is reachable.
  *
- * Connect policy: if the VPS answers TCP or UDP, **try Direct**. If Direct
- * then fails, Auto falls back to Bypass. Bypass-first only when the VPS is
- * unreachable but Yandex/bigtech still work.
+ * Connect: VPS IP ok → Direct (Auto falls back to Bypass if AWG then fails).
+ * Yandex DNS ok but VPS unreachable → Bypass. Neither → NoNetwork.
  *
  * When [bindNetwork] is set, sockets bind to that underlay (not the tunnel).
  */
 object NetworkProbe {
 
-    private val bigtechHosts = listOf(
-        "google.com",
-        "amazon.com",
-        "apple.com",
-        "microsoft.com",
-    )
+    /** Yandex DNS — typically allowed on RU operator whitelists. */
+    val YANDEX_DNS: InetAddress = InetAddress.getByAddress(byteArrayOf(77, 88, 8, 8))
+
+    const val YANDEX_DNS_PORT = 53
+    const val DEFAULT_VPS_PROBE_PORT = 9100
 
     suspend fun probe(
         context: Context,
@@ -51,48 +50,48 @@ object NetworkProbe {
     ): ProbeResult = withContext(Dispatchers.IO) {
         val tcpMs = if (quick) 1_500 else 2_000
         val captiveMs = if (quick) 1_000 else 1_500
-        val healthMs = if (quick) 1_500 else 2_000
+        val udpMs = if (quick) 1_000 else 1_500
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
                 val systemOnline = isSystemOnline(context, bindNetwork)
+                val vpsTarget = vpsProbeTarget(provisionBaseUrl, directEndpoint)
 
-                val yandexDef = async { tcpReachable("yandex.ru", 443, tcpMs, bindNetwork) }
-                val bigtechDef = async { anyBigtechReachable(tcpMs, bindNetwork) }
+                val yandexDef = async { yandexDnsReachable(udpMs, tcpMs, bindNetwork) }
+                val vpsDef = async {
+                    vpsTarget?.let { (host, port) ->
+                        tcpReachable(host, port, tcpMs, bindNetwork)
+                    } ?: false
+                }
                 val captiveDef = async { detectCaptive(bindNetwork, captiveMs) }
-                val provisionDef = async { provisionHealth(provisionBaseUrl, healthMs, bindNetwork) }
 
-                val provisionOk = provisionDef.await()
                 val yandexOk = yandexDef.await()
-                val bigtechOk = bigtechDef.await()
+                val vpsOk = vpsDef.await()
                 val captive = captiveDef.await()
-                // AWG UDP-lite is not used: this stack has Jc/H1 obfuscation and
-                // silently drops junk initiations even on an open network (measured
-                // from 159.194.225.162:51820). Waiting for a reply only delayed
-                // Connect/handover by 1–2s. Direct is selected via TCP /health;
-                // if AWG then fails, Auto falls back to Bypass.
 
                 classify(
                     systemOnline = systemOnline,
                     yandexOk = yandexOk,
-                    bigtechOk = bigtechOk,
+                    bigtechOk = false,
                     captive = captive,
                     awgUdpOk = false,
-                    provisionOk = provisionOk,
+                    provisionOk = vpsOk,
                 )
             }
         }
         result.copy(elapsedMs = elapsed)
     }
 
-    /** Bigtech hosts in parallel — wall time ≈ one TCP timeout, not 4×. */
-    private suspend fun anyBigtechReachable(timeoutMs: Int, bindNetwork: Network?): Boolean =
-        coroutineScope {
-            bigtechHosts
-                .map { host -> async { tcpReachable(host, 443, timeoutMs, bindNetwork) } }
-                .awaitAll()
-                .any { it }
-        }
+    /**
+     * UDP DNS query to 77.88.8.8:53, then TCP :53. Numeric address — no resolver.
+     */
+    internal fun yandexDnsReachable(
+        udpTimeoutMs: Int,
+        tcpTimeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean =
+        udpDnsReachable(YANDEX_DNS, YANDEX_DNS_PORT, udpTimeoutMs, bindNetwork) ||
+            tcpReachableAddr(YANDEX_DNS, YANDEX_DNS_PORT, tcpTimeoutMs, bindNetwork)
 
     internal fun classify(
         systemOnline: Boolean,
@@ -116,7 +115,7 @@ object NetworkProbe {
                 elapsedMs = 0,
             )
         }
-        if (!systemOnline && !yandexOk && !bigtechOk) {
+        if (!systemOnline && !yandexOk && !provisionOk) {
             return ProbeResult(
                 networkClass = NetworkClass.NoNetwork,
                 preselectedPath = null,
@@ -130,6 +129,8 @@ object NetworkProbe {
                 elapsedMs = 0,
             )
         }
+        // VPS IP reachable → open enough for Direct (AWG). Auto still falls
+        // back to Bypass if the tunnel then fails.
         if (awgUdpOk || provisionOk) {
             return ProbeResult(
                 networkClass = NetworkClass.DirectOk,
@@ -144,22 +145,18 @@ object NetworkProbe {
                 elapsedMs = 0,
             )
         }
-        if (yandexOk || bigtechOk) {
-            val open = bigtechOk
+        // 77.88.8.8 lives on whitelist; VPS IP does not → Bypass.
+        if (yandexOk) {
             return ProbeResult(
-                networkClass = if (open) NetworkClass.OpenNeedBypass else NetworkClass.NeedBypass,
+                networkClass = NetworkClass.NeedBypass,
                 preselectedPath = VpnPath.Bypass,
                 systemOnline = systemOnline,
-                yandexOk = yandexOk,
+                yandexOk = true,
                 bigtechOk = bigtechOk,
                 captive = false,
                 awgUdpOk = false,
                 provisionOk = false,
-                message = if (open) {
-                    "Готово: обход (VPS недоступен)"
-                } else {
-                    "Готово: обход"
-                },
+                message = "Готово: обход",
                 elapsedMs = 0,
             )
         }
@@ -177,6 +174,55 @@ object NetworkProbe {
         )
     }
 
+    /**
+     * Host:port to probe for “can we reach our VPS IP”.
+     * Prefer provision URL (already an IP in real profiles); else Direct endpoint host :9100.
+     */
+    internal fun vpsProbeTarget(
+        provisionBaseUrl: String?,
+        directEndpoint: String?,
+    ): Pair<String, Int>? {
+        if (!provisionBaseUrl.isNullOrBlank()) {
+            val url = runCatching { URL(provisionBaseUrl) }.getOrNull()
+            val host = url?.host?.trim().orEmpty()
+            if (host.isNotEmpty()) {
+                val port = if (url != null && url.port > 0) url.port else DEFAULT_VPS_PROBE_PORT
+                return host to port
+            }
+        }
+        val host = parseEndpoint(directEndpoint)?.first ?: return null
+        return host to DEFAULT_VPS_PROBE_PORT
+    }
+
+    internal fun buildDnsQuery(name: String = "ya.ru"): ByteArray {
+        val encoded = encodeDnsName(name)
+        val packet = ByteArray(12 + encoded.size + 4)
+        packet[0] = 0x12
+        packet[1] = 0x34
+        packet[2] = 0x01 // recursion desired
+        packet[5] = 0x01 // 1 question
+        encoded.copyInto(packet, 12)
+        val q = 12 + encoded.size
+        packet[q + 1] = 1 // A
+        packet[q + 3] = 1 // IN
+        return packet
+    }
+
+    internal fun encodeDnsName(host: String): ByteArray {
+        val labels = host.split('.').filter { it.isNotEmpty() }
+        val size = 1 + labels.sumOf { 1 + it.length }
+        val out = ByteArray(size)
+        var i = 0
+        for (label in labels) {
+            out[i++] = label.length.toByte()
+            val bytes = label.encodeToByteArray()
+            bytes.copyInto(out, i)
+            i += bytes.size
+        }
+        out[i] = 0
+        return out
+    }
+
     private fun isSystemOnline(context: Context, bindNetwork: Network?): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = bindNetwork ?: cm.activeNetwork ?: return false
@@ -184,7 +230,41 @@ object NetworkProbe {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
+    private fun udpDnsReachable(
+        addr: InetAddress,
+        port: Int,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
+        var socket: DatagramSocket? = null
+        return try {
+            socket = DatagramSocket()
+            bindNetwork?.bindSocket(socket)
+            socket.soTimeout = timeoutMs
+            val query = buildDnsQuery()
+            socket.send(DatagramPacket(query, query.size, addr, port))
+            val buf = ByteArray(512)
+            val reply = DatagramPacket(buf, buf.size)
+            socket.receive(reply)
+            reply.length > 0
+        } catch (_: Exception) {
+            false
+        } finally {
+            runCatching { socket?.close() }
+        }
+    }
+
     private fun tcpReachable(
+        host: String,
+        port: Int,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
+        val addr = numericIpv4(host) ?: return tcpReachableHost(host, port, timeoutMs, bindNetwork)
+        return tcpReachableAddr(addr, port, timeoutMs, bindNetwork)
+    }
+
+    private fun tcpReachableHost(
         host: String,
         port: Int,
         timeoutMs: Int,
@@ -201,9 +281,38 @@ object NetworkProbe {
         }
     }
 
+    private fun tcpReachableAddr(
+        addr: InetAddress,
+        port: Int,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
+        return try {
+            Socket().use { socket ->
+                bindNetwork?.bindSocket(socket)
+                socket.connect(InetSocketAddress(addr, port), timeoutMs)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    internal fun numericIpv4(host: String): InetAddress? {
+        val parts = host.trim().split('.')
+        if (parts.size != 4) return null
+        val bytes = ByteArray(4)
+        for (i in 0..3) {
+            val n = parts[i].toIntOrNull() ?: return null
+            if (n !in 0..255) return null
+            bytes[i] = n.toByte()
+        }
+        return InetAddress.getByAddress(bytes)
+    }
+
     /**
      * Send a WireGuard handshake-initiation (type 1) and wait for any UDP reply.
-     * AWG may add junk, but servers still answer invalid initiations with cookie/response.
+     * Unused in live probe: this stack's Jc/H1 drops junk initiations.
      */
     internal fun awgUdpReachable(
         endpoint: String?,
@@ -243,27 +352,6 @@ object NetworkProbe {
             conn.disconnect()
             // 204 = OK online; 200/302/other often captive
             code != 204 && code != -1
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun provisionHealth(
-        baseUrl: String?,
-        timeoutMs: Int,
-        bindNetwork: Network?,
-    ): Boolean {
-        if (baseUrl.isNullOrBlank()) return false
-        return try {
-            val url = URL(baseUrl.trimEnd('/') + "/health")
-            val conn = openHttp(url, bindNetwork).apply {
-                connectTimeout = timeoutMs
-                readTimeout = timeoutMs
-                requestMethod = "GET"
-            }
-            val ok = conn.responseCode in 200..299
-            conn.disconnect()
-            ok
         } catch (_: Exception) {
             false
         }

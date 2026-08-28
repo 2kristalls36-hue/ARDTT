@@ -261,34 +261,9 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
-    fun handoverAutoSwitchesPathWhenProbeDisagrees() {
-        assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
-            decideNetworkHandoverAction(
-                pathMode = ConnPathMode.Auto,
-                currentPath = VpnPath.Bypass,
-                probedPath = VpnPath.Direct,
-                bypassAllowed = true,
-                underlayVpsReachable = true,
-            ),
-        )
+    fun handoverAutoSwitchesToBypassOnWhitelist() {
         assertEquals(
             NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
-            decideNetworkHandoverAction(
-                pathMode = ConnPathMode.Auto,
-                currentPath = VpnPath.Direct,
-                probedPath = VpnPath.Bypass,
-                bypassAllowed = true,
-                currentPathHealthy = false,
-                underlayVpsReachable = false,
-            ),
-        )
-    }
-
-    @Test
-    fun handoverDoesNotKillHealthyDirectWhenUnderlayMissesVps() {
-        assertEquals(
-            NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -298,6 +273,43 @@ class NetworkRecoveryPolicyTest {
                 underlayVpsReachable = false,
             ),
         )
+    }
+
+    @Test
+    fun handoverBypassToDirectNeedsTwoVpsHits() {
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                sameProbeStreak = 1,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                sameProbeStreak = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun updateProbeStreakCountsConsecutivePaths() {
+        val first = updateProbeStreak(ProbeStreak(), VpnPath.Direct)
+        assertEquals(ProbeStreak(VpnPath.Direct, 1), first)
+        val second = updateProbeStreak(first, VpnPath.Direct)
+        assertEquals(ProbeStreak(VpnPath.Direct, 2), second)
+        val switched = updateProbeStreak(second, VpnPath.Bypass)
+        assertEquals(ProbeStreak(VpnPath.Bypass, 1), switched)
+        assertEquals(ProbeStreak(), updateProbeStreak(switched, null))
     }
 
     @Test
