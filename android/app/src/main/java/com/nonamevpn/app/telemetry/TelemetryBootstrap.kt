@@ -9,15 +9,15 @@ import androidx.lifecycle.ProcessLifecycleOwner
 
 object TelemetryBootstrap {
     fun install(app: Application) {
-        AppHttpClient.appContextHolder = app
+        AppHttpClient.initialize(app)
         TelemetryExceptionHandler.install(app)
-        ProcessLifecycleOwner.get().lifecycle.addObserver(AppLifecycleObserver())
-        app.registerActivityLifecycleCallbacks(ActivityScreenObserver())
+        ProcessLifecycleOwner.get().lifecycle.addObserver(AppLifecycleObserver(app))
+        app.registerActivityLifecycleCallbacks(ActivityScreenObserver(app))
     }
 }
 
-private class AppLifecycleObserver : DefaultLifecycleObserver {
-    private val recorder by lazy { TelemetryRecorder.get(AppHttpClient.appContextHolder) }
+private class AppLifecycleObserver(app: Application) : DefaultLifecycleObserver {
+    private val recorder by lazy { TelemetryRecorder.get(app) }
 
     override fun onStart(owner: LifecycleOwner) {
         if (recorder.isRecording.value) {
@@ -32,8 +32,8 @@ private class AppLifecycleObserver : DefaultLifecycleObserver {
     }
 }
 
-private class ActivityScreenObserver : Application.ActivityLifecycleCallbacks {
-    private val recorder by lazy { TelemetryRecorder.get(AppHttpClient.appContextHolder) }
+private class ActivityScreenObserver(app: Application) : Application.ActivityLifecycleCallbacks {
+    private val recorder by lazy { TelemetryRecorder.get(app) }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
         if (recorder.isRecording.value) {

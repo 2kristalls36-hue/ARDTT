@@ -16,12 +16,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 
 private val RecordingRed = Color(0xFF8B0000)
@@ -52,7 +50,6 @@ fun TelemetryRecordingOverlay(
                                     y = down.position.y,
                                     elementId = null,
                                 )
-                                var last = down.position
                                 do {
                                     val event = awaitPointerEvent()
                                     val change = event.changes.firstOrNull() ?: break
@@ -60,7 +57,6 @@ fun TelemetryRecordingOverlay(
                                     if (delta != Offset.Zero) {
                                         recorder.logScroll(currentScreen, delta.x, delta.y)
                                     }
-                                    last = change.position
                                 } while (event.changes.any { it.pressed })
                             }
                         }
