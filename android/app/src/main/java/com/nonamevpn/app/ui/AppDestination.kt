@@ -6,4 +6,5 @@ enum class AppDestination(val route: String, val label: String, val adminOnly: B
     Servers("servers", "Серверы", adminOnly = true),
     Deploy("deploy", "Деплой", adminOnly = true),
     Logs("logs", "Логи", adminOnly = true),
+    Testing("testing", "Тестирование", adminOnly = true),
 }

@@ -14,6 +14,7 @@ android {
         targetSdk = 35
         versionCode = 4
         versionName = "0.4.0-phone-integrate"
+        buildConfigField("String", "TELEMETRY_UPLOAD_URL", "\"\"")
     }
 
     ndkVersion = "27.0.12077973"
@@ -60,6 +61,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.navigation:navigation-compose:2.8.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")

@@ -8,6 +8,7 @@ Compose-стек из четырёх сервисов (см. [архитекту
 | **direct** | **AmneziaWG 2.0** | `amneziawg-go` + `awg`, conf из `users.json` |
 | **bypass** | **RAW `-listen-raw`** | `wdtt-server` (qWDTT), пароли из `users.json`, подсеть `10.9.0.0/24` |
 | **warp** | stub | hide-IP egress (wireproxy→tun2socks) |
+| **telemetry** | рабочий | приём debug-логов с Android (`POST /api/upload-log`, порт 9200) |
 
 ## Быстрый старт (без Docker)
 

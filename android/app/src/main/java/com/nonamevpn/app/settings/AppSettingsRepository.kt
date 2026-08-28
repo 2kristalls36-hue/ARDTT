@@ -21,8 +21,10 @@ class AppSettingsRepository(private val context: Context) {
     private val silentRecreate = booleanPreferencesKey("silent_recreate")
     private val economyWorkers = booleanPreferencesKey("economy_workers")
     private val dialPath = stringPreferencesKey("dial_path")
+    private val testingMode = booleanPreferencesKey("testing_mode")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
+    val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
     val hasAdminPin: Flow<Boolean> = context.dataStore.data.map { !it[adminPinHash].isNullOrBlank() }
     val currentProfileName: Flow<String> = context.dataStore.data.map { it[profileName] ?: "" }
@@ -78,6 +80,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun lockAdmin() {
         context.dataStore.edit { it[adminUnlocked] = false }
+    }
+
+    suspend fun setTestingMode(enabled: Boolean) {
+        context.dataStore.edit { it[testingMode] = enabled }
     }
 
     private fun sha256(value: String): String {

@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
+import com.nonamevpn.app.telemetry.AppHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -43,7 +43,7 @@ object VkCallHashGenerator {
     private fun obtainAccessTokenViaHttp(context: Context): String? {
         val cookieHeader = VkSession.cookieHeader()
         if (cookieHeader.isBlank()) return null
-        val client = OkHttpClient.Builder()
+        val client = AppHttpClient.builder()
             .followRedirects(false)
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
@@ -113,7 +113,7 @@ object VkCallHashGenerator {
             .addQueryParameter("access_token", accessToken)
             .addQueryParameter("v", API_VERSION)
             .build()
-        val client = OkHttpClient.Builder()
+        val client = AppHttpClient.builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()
