@@ -132,6 +132,7 @@ const val WATCHDOG_POLL_MS = 3_000L
 
 const val TRUSTED_WIFI_ENTER_DELAY_MS = 2_000L
 const val TRUSTED_WIFI_EXIT_DELAY_MS = 5_000L
+// SSID wait/retry live in TrustedWifi.kt (TRUSTED_WIFI_SSID_WAIT_MS).
 
 /**
  * After Wi‑Fi↔LTE settle, Auto mode may switch Direct↔Bypass when underlay

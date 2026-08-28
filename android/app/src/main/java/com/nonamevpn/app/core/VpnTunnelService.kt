@@ -162,7 +162,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         if (userStopRequested) return
         val (enabled, ssids) = runCatching { settingsRepo.trustedWifiSnapshot() }
             .getOrDefault(false to emptySet())
-        val wifi = readConnectedWifiState(this)
+        var wifi = readConnectedWifiState(this)
+        if (enabled && ssids.isNotEmpty() && wifi.connected && !wifi.ssidAvailable) {
+            AppLog.v(TAG, "start: Wi‑Fi up but SSID unread — wait up to ${TRUSTED_WIFI_SSID_WAIT_MS}ms")
+            val deadline = System.currentTimeMillis() + TRUSTED_WIFI_SSID_WAIT_MS
+            while (System.currentTimeMillis() < deadline && !userStopRequested) {
+                delay(TRUSTED_WIFI_SSID_RETRY_MS)
+                wifi = readConnectedWifiState(this)
+                if (wifi.ssidAvailable || !wifi.connected) break
+            }
+        }
         val enter = decideTrustedWifiTransition(
             enabled = enabled,
             tunnelRunning = true,
@@ -622,7 +631,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 AppLog.i(TAG, "trusted wifi resume (enabled=$enabled ssids=${ssids.size})")
                 resumeFromTrustedWifi("trusted wifi settings/network change")
             }
-            TrustedWifiTransition.None -> Unit
+            TrustedWifiTransition.None -> {
+                // Keep polling: SSID often arrives after VALIDATED. Pause as soon as it matches.
+                if (
+                    enabled &&
+                    ssids.isNotEmpty() &&
+                    !trustedWifiWaiting &&
+                    wifi.connected &&
+                    !wifi.ssidAvailable &&
+                    tunnelSessionActive
+                ) {
+                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_SSID_RETRY_MS)
+                }
+            }
         }
     }
 
@@ -874,18 +895,69 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             try {
                 val (trustedOn, trustedSsids) = runCatching { settingsRepo.trustedWifiSnapshot() }
                     .getOrDefault(false to emptySet())
-                val settleMs = if (trustedOn && trustedSsids.isNotEmpty()) {
-                    // Wait long enough for Wi‑Fi SSID APIs before probe soft-restart.
-                    maxOf(recoveryPolicy.networkSettleDelayMs, TRUSTED_WIFI_ENTER_DELAY_MS)
+                delay(recoveryPolicy.networkSettleDelayMs)
+                if (trustedOn && trustedSsids.isNotEmpty()) {
+                    val waitStarted = System.currentTimeMillis()
+                    while (!userStopRequested) {
+                        evaluateTrustedWifi()
+                        if (trustedWifiWaiting) {
+                            AppLog.v(TAG, "skip handover after trusted wifi exclusion ($reason)")
+                            return@launch
+                        }
+                        val wifi = readConnectedWifiState(this@VpnTunnelService)
+                        val (enabledNow, ssidsNow) = runCatching { settingsRepo.trustedWifiSnapshot() }
+                            .getOrDefault(false to emptySet())
+                        val waited = System.currentTimeMillis() - waitStarted
+                        when (
+                            decideTrustedWifiHandoverGate(
+                                trustedEnabled = enabledNow,
+                                trustedSsids = ssidsNow,
+                                wifi = wifi,
+                                waitedMs = waited,
+                            )
+                        ) {
+                            TrustedWifiHandoverGate.PauseVpn -> {
+                                evaluateTrustedWifi()
+                                AppLog.v(TAG, "skip handover after trusted wifi pause ($reason)")
+                                return@launch
+                            }
+                            TrustedWifiHandoverGate.WaitForSsid -> {
+                                AppLog.v(TAG, "handover wait for SSID ${waited}ms ($reason)")
+                                ConnectionManager.getOrNull()?.onTrustedWifiIdentifying()
+                                delay(TRUSTED_WIFI_SSID_RETRY_MS)
+                            }
+                            TrustedWifiHandoverGate.HoldPath -> {
+                                AppLog.w(
+                                    TAG,
+                                    "SSID unread after ${waited}ms — keep path, skip Direct probe " +
+                                        "problem=${wifi.accessProblem} ($reason)",
+                                )
+                                ConnectionManager.getOrNull()
+                                    ?.onTrustedWifiSsidUnreadable(wifi.accessProblem)
+                                if (
+                                    shouldRunUnderlyingNetworkReconnect(
+                                        tunnelRunning = tunnelSessionActive,
+                                        userStopRequested = userStopRequested,
+                                        softRestartInProgress = softRestartInProgress,
+                                        realNetworkAvailable = activeNetworks.isNotEmpty(),
+                                    )
+                                ) {
+                                    requestSoftRestart(
+                                        reason = "[СЕТЬ] $reason (SSID неизвестен — тот же путь)",
+                                        force = true,
+                                    )
+                                }
+                                return@launch
+                            }
+                            TrustedWifiHandoverGate.Proceed -> break
+                        }
+                    }
                 } else {
-                    recoveryPolicy.networkSettleDelayMs
-                }
-                delay(settleMs)
-                // Cellular → whitelisted Wi‑Fi: pause VPN instead of soft-restart.
-                evaluateTrustedWifi()
-                if (trustedWifiWaiting) {
-                    AppLog.v(TAG, "skip handover after trusted wifi exclusion ($reason)")
-                    return@launch
+                    evaluateTrustedWifi()
+                    if (trustedWifiWaiting) {
+                        AppLog.v(TAG, "skip handover after trusted wifi exclusion ($reason)")
+                        return@launch
+                    }
                 }
                 if (
                     !shouldRunUnderlyingNetworkReconnect(

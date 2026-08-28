@@ -139,4 +139,89 @@ class TrustedWifiTest {
         )
         assertTrue(isTrustedSsid("Cafe", setOf("cafe")))
     }
+
+    @Test
+    fun handoverGateWaitsThenHoldsWhenSsidUnknown() {
+        val wifi = ConnectedWifiState(connected = true, ssid = "")
+        val ssids = setOf("Home")
+        assertEquals(
+            TrustedWifiHandoverGate.WaitForSsid,
+            decideTrustedWifiHandoverGate(true, ssids, wifi, waitedMs = 1_000L),
+        )
+        assertEquals(
+            TrustedWifiHandoverGate.HoldPath,
+            decideTrustedWifiHandoverGate(true, ssids, wifi, waitedMs = 8_000L),
+        )
+    }
+
+    @Test
+    fun handoverGateHoldsImmediatelyWhenPermissionMissing() {
+        assertEquals(
+            TrustedWifiHandoverGate.HoldPath,
+            decideTrustedWifiHandoverGate(
+                true,
+                setOf("Home"),
+                ConnectedWifiState(
+                    connected = true,
+                    accessProblem = TrustedWifiAccessProblem.ForegroundPermission,
+                ),
+                waitedMs = 0L,
+            ),
+        )
+    }
+
+    @Test
+    fun handoverGatePausesTrustedAndProbesUntrusted() {
+        val ssids = setOf("Home")
+        assertEquals(
+            TrustedWifiHandoverGate.PauseVpn,
+            decideTrustedWifiHandoverGate(
+                true,
+                ssids,
+                ConnectedWifiState(connected = true, ssid = "Home"),
+                waitedMs = 0L,
+            ),
+        )
+        assertEquals(
+            TrustedWifiHandoverGate.Proceed,
+            decideTrustedWifiHandoverGate(
+                true,
+                ssids,
+                ConnectedWifiState(connected = true, ssid = "Cafe"),
+                waitedMs = 0L,
+            ),
+        )
+    }
+
+    @Test
+    fun handoverGateDisabledOrNoWifiProceeds() {
+        val ssids = setOf("Home")
+        assertEquals(
+            TrustedWifiHandoverGate.Proceed,
+            decideTrustedWifiHandoverGate(
+                false,
+                ssids,
+                ConnectedWifiState(connected = true, ssid = ""),
+                waitedMs = 0L,
+            ),
+        )
+        assertEquals(
+            TrustedWifiHandoverGate.Proceed,
+            decideTrustedWifiHandoverGate(
+                true,
+                ssids,
+                ConnectedWifiState(connected = false),
+                waitedMs = 0L,
+            ),
+        )
+        assertEquals(
+            TrustedWifiHandoverGate.Proceed,
+            decideTrustedWifiHandoverGate(
+                true,
+                emptySet(),
+                ConnectedWifiState(connected = true, ssid = ""),
+                waitedMs = 0L,
+            ),
+        )
+    }
 }
