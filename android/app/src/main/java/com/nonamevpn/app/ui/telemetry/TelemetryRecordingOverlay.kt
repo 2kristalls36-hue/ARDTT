@@ -6,23 +6,29 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 
-private val RecordingRed = Color(0xFF8B0000)
+// Bright red — visible on dark espresso theme; original #8B0000 was nearly invisible.
+private val RecordingRed = Color(0xFFFF3B30)
 
 @Composable
 fun TelemetryRecordingOverlay(
@@ -33,7 +39,6 @@ fun TelemetryRecordingOverlay(
 ) {
     val context = LocalContext.current
     val recorder = rememberRecorder(context)
-    val alpha by rememberRecordingAlpha(isRecording)
 
     Box(modifier = modifier.fillMaxSize()) {
         Box(
@@ -67,12 +72,45 @@ fun TelemetryRecordingOverlay(
         ) {
             content()
         }
+    }
+}
 
-        if (isRecording) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(width = 2.5.dp, color = RecordingRed.copy(alpha = alpha)),
+@Composable
+fun RecordingBorderOverlay(
+    isRecording: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (!isRecording) return
+    val alpha by rememberRecordingAlpha(isRecording)
+    RecordingBorder(
+        alpha = alpha,
+        modifier = modifier
+            .fillMaxSize()
+            .zIndex(1000f),
+    )
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun RecordingBorder(
+    alpha: Float,
+    modifier: Modifier = Modifier,
+) {
+    val borderColor = RecordingRed.copy(alpha = alpha)
+    val strokeWidth = 3.dp
+
+  // Pass touches through to the UI below; only draw the frame.
+    Box(
+        modifier = modifier.pointerInteropFilter { false },
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val strokePx = strokeWidth.toPx()
+            val inset = strokePx / 2f
+            drawRect(
+                color = borderColor,
+                topLeft = Offset(inset, inset),
+                size = Size(size.width - strokePx, size.height - strokePx),
+                style = Stroke(width = strokePx),
             )
         }
     }
@@ -84,9 +122,9 @@ private fun rememberRecordingAlpha(isRecording: Boolean): androidx.compose.runti
     return if (isRecording) {
         transition.animateFloat(
             initialValue = 1f,
-            targetValue = 0.5f,
+            targetValue = 0.72f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1000, easing = LinearEasing),
+                animation = tween(durationMillis = 900, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "recording-alpha",
