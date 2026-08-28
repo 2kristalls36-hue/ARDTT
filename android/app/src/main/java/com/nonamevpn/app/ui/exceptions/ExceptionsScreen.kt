@@ -76,7 +76,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnectionManager
-import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.settings.AppSettingsRepository
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -236,8 +236,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             .padding(bottom = NvpnBottomChrome.navigationReserve()),
     ) {
         EdgeFeedTopInset()
-        AppPageHeader(
-            title = "Обход",
+        AppTabPageHeader(
+            tabTitle = "Обход",
             subtitle = "Сайты и приложения вне туннеля",
         )
 

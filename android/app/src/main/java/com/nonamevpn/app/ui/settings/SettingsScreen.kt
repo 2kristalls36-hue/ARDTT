@@ -58,7 +58,7 @@ import com.nonamevpn.app.core.readConnectedWifiState
 import com.nonamevpn.app.core.trustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiAccessProblem
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.update.AppUpdateInfo
@@ -135,8 +135,8 @@ fun SettingsScreen(
 
     EdgeFeedColumn {
         val modeLabel = if (admin) "администратор" else "пользователь"
-        AppPageHeader(
-            title = "Настройки",
+        AppTabPageHeader(
+            tabTitle = "Настройки",
             subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
         )
 

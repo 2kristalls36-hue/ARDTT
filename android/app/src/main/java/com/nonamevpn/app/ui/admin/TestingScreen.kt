@@ -47,7 +47,7 @@ import com.nonamevpn.app.telemetry.TelemetryFileManager
 import com.nonamevpn.app.telemetry.TelemetryLogEntry
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.telemetry.TelemetryUploadClient
-import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -183,9 +183,9 @@ fun TestingScreen(profiles: ProfileRepository) {
             )
         },
     ) {
-        AppPageHeader(
-            title = "Тестирование",
-            subtitle = "ARDTT ${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на VPS",
+        AppTabPageHeader(
+            tabTitle = "Тестирование",
+            subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на VPS",
         )
 
         AppSectionCard(

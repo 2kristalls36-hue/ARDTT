@@ -92,3 +92,21 @@ fun AppPageHeader(
         actions()
     }
 }
+
+/** Main bottom-tab chrome: bold ARDTT title with the tab name on the subtitle line. */
+@Composable
+fun AppTabPageHeader(
+    tabTitle: String,
+    subtitle: String? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    val line = when {
+        subtitle.isNullOrBlank() -> tabTitle
+        else -> "$tabTitle · $subtitle"
+    }
+    AppPageHeader(
+        title = "ARDTT",
+        subtitle = line,
+        actions = actions,
+    )
+}
