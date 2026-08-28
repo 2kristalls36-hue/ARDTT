@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.widget.Toast
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.VkCallHashGenerator
 import com.nonamevpn.app.bypass.VkLoginActivity
@@ -67,7 +70,10 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
+import com.nonamevpn.app.profile.DEFAULT_PROFILE_FOLDER
+import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.ProfileRepository
+import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -99,7 +105,9 @@ fun TunnelScreen(
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
+    val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
+    var pickerFolder by remember { mutableStateOf(DEFAULT_PROFILE_FOLDER) }
     var showImport by remember { mutableStateOf(false) }
     var showHash by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
@@ -171,7 +179,6 @@ fun TunnelScreen(
 
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
-    val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     LaunchedEffect(profile?.deviceId) {
         if (profile == null) return@LaunchedEffect
@@ -186,6 +193,27 @@ fun TunnelScreen(
     val disconnecting = ui.state == ConnState.Disconnecting
     val busy = probing || connecting || disconnecting
     val pathBusy = connecting || disconnecting
+
+    val pickerFolders = catalog.folders.ifEmpty { listOf(DEFAULT_PROFILE_FOLDER) }
+    LaunchedEffect(pickerFolders) {
+        if (pickerFolder !in pickerFolders) pickerFolder = pickerFolders.first()
+    }
+    val pickerItems = catalog.inFolder(pickerFolder)
+
+    fun activateStored(item: StoredProfile) {
+        if (item.id == catalog.activeId) return
+        scope.launch {
+            profiles.setActive(item.id)
+            AppLog.i("Tunnel", "profile=${item.profile.name}")
+            if (sessionUp) {
+                Toast.makeText(
+                    context,
+                    "Профиль выбран — переподключите туннель",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
 
     LaunchedEffect(sessionUp, hideIp) {
         while (sessionUp) {
@@ -288,6 +316,72 @@ fun TunnelScreen(
                 }
             }
 
+            AppSectionCard(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                shape = RoundedCornerShape(28.dp),
+            ) {
+                Text(
+                    "Профиль",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (pickerFolders.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        pickerFolders.forEach { folder ->
+                            FilterChip(
+                                selected = pickerFolder == folder,
+                                onClick = { pickerFolder = folder },
+                                label = { Text(folder) },
+                            )
+                        }
+                    }
+                }
+                if (catalog.items.isEmpty()) {
+                    Text(
+                        "Импортируйте JSON с сервера или создайте клиента на вкладке VPS.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        pickerItems.forEach { item ->
+                            ChoiceChipButton(
+                                label = item.profile.name.ifBlank { item.id },
+                                selected = item.id == catalog.activeId,
+                                enabled = true,
+                                onClick = { activateStored(item) },
+                            )
+                        }
+                    }
+                    if (pickerItems.isEmpty()) {
+                        Text(
+                            "В этой папке пока пусто",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                OutlinedButton(
+                    onClick = { showImport = true },
+                    enabled = !importBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text(if (importBusy) "Читаем…" else "Импорт JSON…")
+                }
+            }
+
             // ═══ Быстрые настройки ═══
             AppSectionCard(
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
@@ -345,42 +439,6 @@ fun TunnelScreen(
                                 settings.setPathMode("bypass")
                                 conn.setPathMode(ConnPathMode.Bypass)
                                 AppLog.i("PathMode", "bypass")
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                QuickSettingRow(
-                    title = "Мощность",
-                    subtitle = if (economy) {
-                        "Оптимально — 1 worker"
-                    } else {
-                        "Максимум — 3 workers"
-                    },
-                ) {
-                    ChoiceChipButton(
-                        label = "Оптимально",
-                        selected = economy,
-                        enabled = !pathBusy,
-                        onClick = {
-                            scope.launch {
-                                settings.setEconomyWorkers(true)
-                                conn.setWorkers(1)
-                                AppLog.i("Power", "optimal (1 worker)")
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ChoiceChipButton(
-                        label = "Максимум",
-                        selected = !economy,
-                        enabled = !pathBusy,
-                        onClick = {
-                            scope.launch {
-                                settings.setEconomyWorkers(false)
-                                conn.setWorkers(3)
-                                AppLog.i("Power", "max (3 workers)")
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -447,22 +505,6 @@ fun TunnelScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
-
-                if (profile == null) {
-                    Text(
-                        "Профиль не загружен — импортируйте во вкладке «Профили».",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedButton(
-                        onClick = { showImport = true },
-                        enabled = !importBusy,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                    ) {
-                        Text("Импорт профиля…")
-                    }
-                }
             }
 
             // ═══ Статус сессии — структурированная панель ═══
@@ -483,7 +525,6 @@ fun TunnelScreen(
                     VpnPath.Bypass -> "Обход"
                     null -> null
                 },
-                powerLabel = if (economy) "Оптимально (1)" else "Максимум (3)",
                 publicIp = when {
                     !publicIp.isNullOrBlank() -> publicIp!!
                     !ipError.isNullOrBlank() && sessionUp -> "не удалось · нажмите"
@@ -570,13 +611,6 @@ fun TunnelScreen(
                             importBusy = false
                             importError = it.message ?: "Неверный JSON профиля"
                         }
-                }
-            },
-            onDemo = {
-                scope.launch {
-                    profiles.importDemo()
-                    AppLog.w("Import", "Demo profile loaded (fake IP)")
-                    applyImported()
                 }
             },
         )
@@ -685,7 +719,6 @@ private fun TunnelStatusPanel(
     statusColor: Color,
     pathModeLabel: String,
     activePathLabel: String?,
-    powerLabel: String,
     publicIp: String,
     ipFailed: Boolean = false,
     onIpClick: (() -> Unit)? = null,
@@ -736,7 +769,6 @@ private fun TunnelStatusPanel(
                 }
                 StatusFactRow(label = "Активный путь", value = it, valueColor = pathColor)
             }
-            StatusFactRow(label = "Мощность", value = powerLabel)
             StatusFactRow(
                 label = "IP",
                 value = publicIp,
@@ -860,7 +892,6 @@ private fun ImportDialog(
     onDismiss: () -> Unit,
     onPickFile: () -> Unit,
     onPaste: (String) -> Unit,
-    onDemo: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
     NvpnDialog(
@@ -872,7 +903,6 @@ private fun ImportDialog(
             enabled = text.isNotBlank() && !busy,
         ),
         dismissAction = NvpnDialogAction("Отмена", onDismiss, enabled = !busy),
-        secondaryAction = NvpnDialogAction("Демо", onDemo, enabled = !busy),
         dismissOnBackPress = !busy,
         dismissOnClickOutside = !busy,
     ) {

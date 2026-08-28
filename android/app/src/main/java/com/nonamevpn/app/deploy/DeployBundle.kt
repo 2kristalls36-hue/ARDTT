@@ -11,7 +11,7 @@ object DeployBundle {
     const val ASSET_VERSION_FILE = "deploy/DEPLOY_VERSION"
 
     /** Fallback when the asset is missing (must match assets/deploy/DEPLOY_VERSION). */
-    const val FALLBACK_VERSION = "1.0.1"
+    const val FALLBACK_VERSION = "1.0.3"
 
     fun expectedVersion(context: Context): String =
         runCatching {

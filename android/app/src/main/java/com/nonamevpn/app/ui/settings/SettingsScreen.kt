@@ -77,7 +77,6 @@ fun SettingsScreen(
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
-    val economy by settings.economyWorkersEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
@@ -105,9 +104,9 @@ fun SettingsScreen(
         }
     }
 
-    LaunchedEffect(silent, economy, dial, pathMode) {
+    LaunchedEffect(silent, dial, pathMode) {
         conn.setSilentRecreate(silent)
-        conn.setWorkers(if (economy) 1 else 3)
+        conn.setWorkers(3)
         conn.setDialPath(
             when (dial) {
                 "vkcalls" -> DialPath.VkCalls
@@ -359,12 +358,6 @@ fun SettingsScreen(
                 subtitle = "Без диалога, если hash «умер» (нужна сессия VK)",
                 checked = silent,
                 onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
-            )
-            RowSetting(
-                title = "Экономия workers",
-                subtitle = "1 вместо 3",
-                checked = economy,
-                onCheckedChange = { scope.launch { settings.setEconomyWorkers(it) } },
             )
         }
 

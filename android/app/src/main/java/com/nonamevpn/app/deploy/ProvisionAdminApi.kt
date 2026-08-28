@@ -149,6 +149,32 @@ object ProvisionAdminApi {
         }
     }
 
+    suspend fun deleteUser(
+        baseUrl: String,
+        name: String,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = URL("${baseUrl.trimEnd('/')}/v1/users/delete")
+            val payload = JSONObject().put("name", name.trim()).toString()
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 5_000
+                readTimeout = 12_000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
+            conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            val body = runCatching {
+                (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.readText().orEmpty()
+            }.getOrDefault("")
+            conn.disconnect()
+            if (code !in 200..299) error("HTTP $code: $body")
+            Unit
+        }
+    }
+
     suspend fun reportPresence(
         baseUrl: String,
         deviceId: String,

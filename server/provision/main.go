@@ -242,6 +242,24 @@ func runServer(store *Store, listen string) error {
 		}
 		writeJSON(w, store.ToPublic(u))
 	})
+	mux.HandleFunc("/v1/users/delete", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+			http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
+			return
+		}
+		if err := store.DeleteUser(body.Name); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "name": strings.TrimSpace(body.Name)})
+	})
 	mux.HandleFunc("/v1/presence", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -666,6 +684,30 @@ func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool
 	return User{}, fmt.Errorf("not found")
 }
 
+func (s *Store) DeleteUser(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name = strings.TrimSpace(name)
+	next := make([]User, 0, len(s.Users))
+	found := false
+	for _, u := range s.Users {
+		if u.Name == name {
+			found = true
+			continue
+		}
+		next = append(next, u)
+	}
+	if !found {
+		return fmt.Errorf("not found")
+	}
+	s.Users = next
+	if err := s.saveLocked(); err != nil {
+		return err
+	}
+	log.Printf("deleted user %q", name)
+	return nil
+}
+
 func (s *Store) UnbindDevice(name, deviceID string) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -845,7 +887,7 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.Bypass.Peer = fmt.Sprintf("%s:%d", host, cfg.BypassPort)
 	p.Bypass.Address = fmt.Sprintf("%s.%d/32", bypassBase, u.HostID)
 	p.Bypass.Password = u.Password
-	p.Bypass.Workers = cfg.Workers
+	p.Bypass.Workers = defaultWorkers
 	p.Bypass.Transport = "tcp"
 	p.Bypass.Mode = "raw"
 	p.Bypass.Dial = "auto"
