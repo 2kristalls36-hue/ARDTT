@@ -20,4 +20,11 @@ class EgressIpProbeTest {
         assertFalse(EgressIpProbe.looksLikeIp("<html>nope</html>"))
         assertFalse(EgressIpProbe.looksLikeIp("not an ip"))
     }
+
+    @Test
+    fun detectsLikelyCloudflareIpv4() {
+        assertTrue(EgressIpProbe.isLikelyCloudflare("104.16.132.229"))
+        assertTrue(EgressIpProbe.isLikelyCloudflare("172.64.0.1"))
+        assertFalse(EgressIpProbe.isLikelyCloudflare("8.8.8.8"))
+    }
 }

@@ -238,5 +238,25 @@ object EgressIpProbe {
         return false
     }
 
+    /** Heuristic for Cloudflare / WARP egress (Hide-IP). */
+    fun isLikelyCloudflare(ip: String?): Boolean {
+        if (ip.isNullOrBlank()) return false
+        val trimmed = ip.trim()
+        if (!looksLikeIp(trimmed) || trimmed.contains(':')) return false
+        val parts = trimmed.split('.')
+        if (parts.size != 4) return false
+        val octets = parts.mapNotNull { it.toIntOrNull() }
+        if (octets.size != 4 || octets.any { it !in 0..255 }) return false
+        val (a, b) = octets
+        return when (a) {
+            104 -> b in 16..31
+            172 -> b in 64..71
+            162 -> b == 159
+            141 -> b == 101
+            173 -> b == 245
+            else -> false
+        }
+    }
+
     private const val TAG = "EgressIp"
 }

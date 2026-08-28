@@ -3,7 +3,6 @@ package com.nonamevpn.app.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,19 +61,10 @@ fun NvpnNavigationBar(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val isDark = colors.background.luminance() < 0.22f
     val selectedColor = colors.primary
     val unselectedColor = colors.onSurfaceVariant.copy(alpha = 0.55f)
-    val shellColor = if (isDark) {
-        colors.surface.copy(alpha = 0.78f)
-    } else {
-        lerp(colors.surface, colors.surfaceVariant, 0.48f).copy(alpha = 0.95f)
-    }
-    val shellBorder = if (isDark) {
-        colors.outlineVariant.copy(alpha = 0.42f)
-    } else {
-        colors.outline.copy(alpha = 0.16f)
-    }
+    val shellColor = NvpnFloatingShell.shellColor()
+    val isDark = NvpnFloatingShell.isDarkTheme()
     val indicatorColor = if (isDark) {
         colors.primary.copy(alpha = 0.18f)
     } else {
@@ -117,9 +107,9 @@ fun NvpnNavigationBar(
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = shellColor,
-            border = BorderStroke(1.dp, shellBorder),
+            border = NvpnFloatingShell.shellBorder(),
             tonalElevation = 0.dp,
-            shadowElevation = if (isDark) 10.dp else 8.dp,
+            shadowElevation = NvpnFloatingShell.shadowElevation,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Box(

@@ -926,12 +926,13 @@ class ConnectionManager(
         }
         if (softRestartInProgress || u.state == ConnState.Connecting) {
             val t = u.statusText.ifBlank { "Переподключение…" }
+            val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() }
             return ShadeContent(
                 title = title,
-                ip = "…",
+                ip = rawIp ?: "…",
                 pathLabel = pathShort,
                 showTotals = false,
-                showWarpIcon = u.hideIp,
+                showWarpIcon = u.hideIp || EgressIpProbe.isLikelyCloudflare(rawIp),
                 showWhitelistIcon = appsWhitelist,
                 statusText = t,
             )
@@ -941,17 +942,18 @@ class ConnectionManager(
         val totals = VpnLiveStats.formatBytesLine(VpnLiveStats.totalRx, VpnLiveStats.totalTx)
         val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() }
         val ip = when {
-            rawIp != null -> "IP: $rawIp"
-            !EgressIpProbe.lastError.isNullOrBlank() -> "IP: определяем…"
-            else -> "IP: …"
+            rawIp != null -> rawIp
+            !EgressIpProbe.lastError.isNullOrBlank() -> "определяем…"
+            else -> "…"
         }
+        val cloudflare = u.hideIp || EgressIpProbe.isLikelyCloudflare(rawIp)
         return ShadeContent(
             title = title,
             rates = rates,
             totals = totals,
             ip = ip,
             pathLabel = pathShort,
-            showWarpIcon = u.hideIp,
+            showWarpIcon = cloudflare,
             showWhitelistIcon = appsWhitelist,
         )
     }
