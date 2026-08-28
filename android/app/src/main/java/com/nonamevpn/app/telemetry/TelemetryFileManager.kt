@@ -2,8 +2,10 @@ package com.nonamevpn.app.telemetry
 
 import android.content.Context
 import com.nonamevpn.app.BuildConfig
+import java.io.FileWriter
 import java.io.File
 import java.util.regex.Pattern
+import org.json.JSONObject
 
 class TelemetryFileManager(private val context: Context) {
     val logsDir: File
@@ -77,5 +79,38 @@ class TelemetryFileManager(private val context: Context) {
 
     companion object {
         const val MAX_FILE_BYTES = 100L * 1024 * 1024
+
+        fun embedUserComment(file: File, comment: String) {
+            require(file.isFile) { "Лог-файл не найден" }
+            val cleaned = TelemetryRedactor.redact(comment.trim())
+            require(cleaned.isNotBlank()) { "Введите комментарий" }
+            FileWriter(file, true).buffered().use { writer ->
+                if (file.length() > 0L && !fileEndsWithNewline(file)) {
+                    writer.newLine()
+                }
+                writer.write(buildUserCommentLine(cleaned))
+                writer.newLine()
+            }
+        }
+
+        internal fun buildUserCommentLine(comment: String, timestamp: Long = System.currentTimeMillis()): String =
+            JSONObject()
+                .put("timestamp", timestamp)
+                .put("event_type", TelemetryEventType.UserComment.wire)
+                .put("session_id", "user-comment")
+                .put(
+                    "data",
+                    JSONObject()
+                        .put("comment", TelemetryRedactor.redact(comment.trim()))
+                        .put("source", "testing_screen"),
+                )
+                .toString()
+
+        private fun fileEndsWithNewline(file: File): Boolean =
+            file.inputStream().use { stream ->
+                if (file.length() <= 0L) return@use true
+                stream.skip(file.length() - 1)
+                stream.read() == '\n'.code
+            }
     }
 }

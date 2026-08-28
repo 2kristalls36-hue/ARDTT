@@ -4,6 +4,7 @@ import org.json.JSONObject
 import java.io.File
 
 enum class TelemetryEventType(val wire: String) {
+    UserComment("user_comment"),
     Touch("touch"),
     Navigation("navigation"),
     Scroll("scroll"),
