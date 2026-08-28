@@ -104,6 +104,9 @@ class VpnLiveStatsTest {
         assertTrue(line.contains("↓"))
         assertTrue(line.contains("↑"))
         assertTrue(line.contains("Кб/с") || line.contains("б/с"))
+        val compact = VpnLiveStats.formatCompactRateLine(12_300, 1)
+        assertTrue(compact.contains("↓98.4 Кб/с"))
+        assertTrue(compact.contains("↑8.0 б/с"))
         val totals = VpnLiveStats.formatBytesLine(100, 999)
         assertTrue(totals.contains("КБ") || totals.contains("Б"))
     }

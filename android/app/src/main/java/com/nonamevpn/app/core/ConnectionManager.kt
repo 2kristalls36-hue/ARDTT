@@ -937,14 +937,13 @@ class ConnectionManager(
             )
         }
 
-        val rates = VpnLiveStats.formatRateLine(VpnLiveStats.downBps, VpnLiveStats.upBps)
+        val rates = VpnLiveStats.formatCompactRateLine(VpnLiveStats.downBps, VpnLiveStats.upBps)
         val totals = VpnLiveStats.formatBytesLine(VpnLiveStats.totalRx, VpnLiveStats.totalTx)
         val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() }
         val ip = when {
-            rawIp != null && u.hideIp -> "$rawIp (скрыт)"
-            rawIp != null -> rawIp
-            !EgressIpProbe.lastError.isNullOrBlank() -> "IP…"
-            else -> "…"
+            rawIp != null -> "IP: $rawIp"
+            !EgressIpProbe.lastError.isNullOrBlank() -> "IP: определяем…"
+            else -> "IP: …"
         }
         return ShadeContent(
             title = title,
