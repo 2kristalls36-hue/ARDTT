@@ -42,7 +42,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -94,6 +93,8 @@ import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
@@ -680,110 +681,106 @@ private fun ServerOverviewHost(
             )
         }
         if (showDeleteConfirm) {
-            AlertDialog(
+            NvpnDialog(
+                title = "Удалить сервер?",
                 onDismissRequest = { showDeleteConfirm = false },
-                title = { Text("Удалить сервер?") },
-                text = {
-                    Text(
-                        "Из приложения будут удалены только данные подключения. " +
-                            "Сервер и пользователи на VPS останутся без изменений.",
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            serversRepo.delete(server.id)
-                            showDeleteConfirm = false
-                            onBack()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    ) { Text("Удалить") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteConfirm = false }) { Text("Отмена") }
-                },
-            )
+                confirmAction = NvpnDialogAction(
+                    text = "Удалить",
+                    onClick = {
+                        serversRepo.delete(server.id)
+                        showDeleteConfirm = false
+                        onBack()
+                    },
+                    destructive = true,
+                ),
+                dismissAction = NvpnDialogAction("Отмена", { showDeleteConfirm = false }),
+            ) {
+                Text(
+                    "Из приложения будут удалены только данные подключения. " +
+                        "Сервер и пользователи на VPS останутся без изменений.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (showRedeployConfirm) {
-            AlertDialog(
+            NvpnDialog(
+                title = "Обновить деплой?",
                 onDismissRequest = { if (!busy) showRedeployConfirm = false },
-                title = { Text("Обновить деплой?") },
-                text = {
-                    Text(
-                        "Стек версии $expectedVersion будет заново залит на ${server.host} " +
-                            "по сохранённым SSH-данным. Параметры подключения менять не нужно.",
-                    )
-                },
-                confirmButton = {
-                    Button(onClick = { startRedeploy(server) }) {
-                        Text("Обновить")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showRedeployConfirm = false }) { Text("Отмена") }
-                },
-            )
+                confirmAction = NvpnDialogAction(
+                    text = "Обновить",
+                    onClick = { startRedeploy(server) },
+                    enabled = !busy,
+                ),
+                dismissAction = NvpnDialogAction(
+                    text = "Отмена",
+                    onClick = { showRedeployConfirm = false },
+                    enabled = !busy,
+                ),
+                dismissOnBackPress = !busy,
+                dismissOnClickOutside = !busy,
+            ) {
+                Text(
+                    "Стек версии $expectedVersion будет заново залит на ${server.host} " +
+                        "по сохранённым SSH-данным. Параметры подключения менять не нужно.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (showRedeployProgress) {
-            AlertDialog(
+            NvpnDialog(
+                title = when {
+                    busy -> "Обновление деплоя…"
+                    redeployStatus?.startsWith("Ошибка") == true -> "Ошибка"
+                    else -> "Готово"
+                },
                 onDismissRequest = {
                     if (!busy) showRedeployProgress = false
                 },
-                title = {
+                confirmAction = if (busy) {
+                    NvpnDialogAction("Отменить", { engine.cancel() }, destructive = true)
+                } else {
+                    NvpnDialogAction("Закрыть", { showRedeployProgress = false })
+                },
+                dismissOnBackPress = !busy,
+                dismissOnClickOutside = !busy,
+            ) {
+                Text(
+                    step.ifBlank { "…" },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                redeployStatus?.let {
                     Text(
-                        when {
-                            busy -> "Обновление деплоя…"
-                            redeployStatus?.startsWith("Ошибка") == true -> "Ошибка"
-                            else -> "Готово"
+                        it,
+                        color = if (it.startsWith("Ошибка")) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            NvpnColors.connected
                         },
+                        style = MaterialTheme.typography.bodyMedium,
                     )
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            step.ifBlank { "…" },
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        redeployStatus?.let {
-                            Text(
-                                it,
-                                color = if (it.startsWith("Ошибка")) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    NvpnColors.connected
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                        Text(
-                            "Лог",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            deployLog.takeLast(12).joinToString("\n").ifBlank { "—" },
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 220.dp)
-                                .verticalScroll(rememberScrollState()),
-                        )
-                    }
-                },
-                confirmButton = {
-                    if (busy) {
-                        TextButton(onClick = { engine.cancel() }) { Text("Отменить") }
-                    } else {
-                        TextButton(onClick = { showRedeployProgress = false }) { Text("Закрыть") }
-                    }
-                },
-            )
+                }
+                Text(
+                    "Лог",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    deployLog.takeLast(24).joinToString("\n").ifBlank { "—" },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 240.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
+            }
         }
     }
 }
@@ -1068,27 +1065,24 @@ private fun RenameServerDialog(
     onConfirm: (String) -> Unit,
 ) {
     var name by rememberSaveable { mutableStateOf(initialName) }
-    AlertDialog(
+    NvpnDialog(
+        title = "Переименовать",
         onDismissRequest = onDismiss,
-        title = { Text("Переименовать") },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Имя сервера") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(name.trim().ifBlank { initialName }) }) {
-                Text("Сохранить")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Отмена") }
-        },
-    )
+        confirmAction = NvpnDialogAction(
+            "Сохранить",
+            { onConfirm(name.trim().ifBlank { initialName }) },
+        ),
+        dismissAction = NvpnDialogAction("Отмена", onDismiss),
+    ) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Имя сервера") },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 @Composable
@@ -1497,170 +1491,168 @@ private fun ClientsScreen(
     } // Box
 
     if (showCreate) {
-        AlertDialog(
+        NvpnDialog(
+            title = "Новый пользователь",
             onDismissRequest = { if (!creating) showCreate = false },
-            title = { Text("Новый пользователь") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = createName,
-                        onValueChange = { createName = it },
-                        label = { Text("Имя") },
-                        singleLine = true,
-                        enabled = !creating,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = createDays,
-                        onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) createDays = v },
-                        label = { Text("Дней подписки (0 = без срока)") },
-                        singleLine = true,
-                        enabled = !creating,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = createMaxDevices,
-                        onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) createMaxDevices = v },
-                        label = { Text("Устройств") },
-                        singleLine = true,
-                        enabled = !creating,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val name = createName.trim()
-                        if (name.isBlank()) return@Button
-                        creating = true
-                        scope.launch {
-                            val result = ProvisionAdminApi.createUser(
-                                base,
-                                name,
-                                days = createDays.toIntOrNull() ?: 0,
-                                maxDevices = createMaxDevices.toIntOrNull()?.coerceAtLeast(1) ?: 1,
-                            )
-                            creating = false
-                            result.fold(
-                                onSuccess = { body ->
-                                    showCreate = false
-                                    profilePreview = body
-                                    refresh()
-                                },
-                                onFailure = {
-                                    Toast.makeText(
-                                        context,
-                                        it.message ?: "Ошибка создания",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                },
-                            )
-                        }
-                    },
-                    enabled = !creating && createName.isNotBlank(),
-                ) {
-                    Text(if (creating) "Создание…" else "Создать")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreate = false }, enabled = !creating) {
-                    Text("Отмена")
-                }
-            },
-        )
+            confirmAction = NvpnDialogAction(
+                text = if (creating) "Создание…" else "Создать",
+                onClick = create@{
+                    val name = createName.trim()
+                    if (name.isBlank()) return@create
+                    creating = true
+                    scope.launch {
+                        val result = ProvisionAdminApi.createUser(
+                            base,
+                            name,
+                            days = createDays.toIntOrNull() ?: 0,
+                            maxDevices = createMaxDevices.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                        )
+                        creating = false
+                        result.fold(
+                            onSuccess = { body ->
+                                showCreate = false
+                                profilePreview = body
+                                refresh()
+                            },
+                            onFailure = {
+                                Toast.makeText(
+                                    context,
+                                    it.message ?: "Ошибка создания",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            },
+                        )
+                    }
+                },
+                enabled = !creating && createName.isNotBlank(),
+            ),
+            dismissAction = NvpnDialogAction(
+                "Отмена",
+                { showCreate = false },
+                enabled = !creating,
+            ),
+            dismissOnBackPress = !creating,
+            dismissOnClickOutside = !creating,
+        ) {
+            OutlinedTextField(
+                value = createName,
+                onValueChange = { createName = it },
+                label = { Text("Имя") },
+                singleLine = true,
+                enabled = !creating,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = createDays,
+                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) createDays = v },
+                label = { Text("Дней подписки (0 = без срока)") },
+                singleLine = true,
+                enabled = !creating,
+                shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = createMaxDevices,
+                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) createMaxDevices = v },
+                label = { Text("Устройств") },
+                singleLine = true,
+                enabled = !creating,
+                shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 
     editUser?.let { target ->
-        AlertDialog(
+        NvpnDialog(
+            title = "Устройства · ${target.name}",
             onDismissRequest = { if (!editing) editUser = null },
-            title = { Text("Устройства · ${target.name}") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Сейчас ${target.deviceIds.size}/${target.maxDevices}",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedTextField(
-                        value = editMaxDevices,
-                        onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) editMaxDevices = v },
-                        label = { Text("Лимит устройств") },
-                        singleLine = true,
-                        enabled = !editing,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = editDays,
-                        onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editDays = v },
-                        label = { Text("Продлить на N дней (опц.)") },
-                        singleLine = true,
-                        enabled = !editing,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        editing = true
-                        scope.launch {
-                            val result = ProvisionAdminApi.updateUser(
-                                base,
-                                target.name,
-                                maxDevices = editMaxDevices.toIntOrNull()?.coerceAtLeast(1),
-                                days = editDays.toIntOrNull()?.takeIf { it > 0 },
-                            )
-                            editing = false
-                            result.fold(
-                                onSuccess = { refreshed ->
-                                    users = users.map { if (it.name == refreshed.name) refreshed else it }
-                                    editUser = null
-                                },
-                                onFailure = {
-                                    Toast.makeText(
-                                        context,
-                                        it.message ?: "Ошибка",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                },
-                            )
-                        }
-                    },
-                    enabled = !editing,
-                ) { Text(if (editing) "Сохранение…" else "Сохранить") }
-            },
-            dismissButton = {
-                TextButton(onClick = { editUser = null }, enabled = !editing) { Text("Отмена") }
-            },
-        )
+            confirmAction = NvpnDialogAction(
+                text = if (editing) "Сохранение…" else "Сохранить",
+                onClick = {
+                    editing = true
+                    scope.launch {
+                        val result = ProvisionAdminApi.updateUser(
+                            base,
+                            target.name,
+                            maxDevices = editMaxDevices.toIntOrNull()?.coerceAtLeast(1),
+                            days = editDays.toIntOrNull()?.takeIf { it > 0 },
+                        )
+                        editing = false
+                        result.fold(
+                            onSuccess = { refreshed ->
+                                users = users.map { if (it.name == refreshed.name) refreshed else it }
+                                editUser = null
+                            },
+                            onFailure = {
+                                Toast.makeText(
+                                    context,
+                                    it.message ?: "Ошибка",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            },
+                        )
+                    }
+                },
+                enabled = !editing,
+            ),
+            dismissAction = NvpnDialogAction("Отмена", { editUser = null }, enabled = !editing),
+            dismissOnBackPress = !editing,
+            dismissOnClickOutside = !editing,
+        ) {
+            Text(
+                "Сейчас ${target.deviceIds.size}/${target.maxDevices}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = editMaxDevices,
+                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) editMaxDevices = v },
+                label = { Text("Лимит устройств") },
+                singleLine = true,
+                enabled = !editing,
+                shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = editDays,
+                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editDays = v },
+                label = { Text("Продлить на N дней (опц.)") },
+                singleLine = true,
+                enabled = !editing,
+                shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 
     profilePreview?.let { json ->
-        AlertDialog(
+        NvpnDialog(
+            title = "Профиль создан",
             onDismissRequest = { profilePreview = null },
-            title = { Text("Профиль создан") },
-            text = {
-                Text(
-                    json.take(1200),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        copyText("ARDTT profile", json)
-                        profilePreview = null
-                    },
-                ) { Text("Копировать") }
-            },
-            dismissButton = {
-                TextButton(onClick = { profilePreview = null }) { Text("Закрыть") }
-            },
-        )
+            confirmAction = NvpnDialogAction(
+                "Копировать",
+                {
+                    copyText("ARDTT profile", json)
+                    profilePreview = null
+                },
+            ),
+            dismissAction = NvpnDialogAction("Закрыть", { profilePreview = null }),
+        ) {
+            Text(
+                json.take(1200),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(rememberScrollState()),
+            )
+        }
     }
 }
 
@@ -1735,8 +1727,9 @@ fun DeployScreen(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        EdgeFeedTopInset()
         AppPageHeader(
-            applyStatusBarsPadding = true,
+            applyStatusBarsPadding = false,
             contentHorizontalPadding = true,
             title = if (isUpdate) "Обновить деплой" else "Деплой",
             subtitle = if (isUpdate) {

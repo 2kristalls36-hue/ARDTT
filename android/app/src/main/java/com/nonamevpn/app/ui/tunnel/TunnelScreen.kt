@@ -29,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -74,6 +73,8 @@ import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
@@ -397,14 +398,14 @@ fun TunnelScreen(
                 ) {
                     ChoiceChipButton(
                         label = "Вход в ВК",
-                        selected = vkLoggedIn || ui.hasCallHash,
+                        selected = vkLoggedIn,
                         enabled = profile != null && !callBusy,
                         onClick = { onVkAction() },
                         modifier = Modifier.weight(1f),
                     )
                     ChoiceChipButton(
                         label = "Ручное",
-                        selected = false,
+                        selected = ui.hasCallHash && !vkLoggedIn,
                         enabled = profile != null && !sessionUp && !callBusy,
                         onClick = { showHash = true },
                         modifier = Modifier.weight(1f),
@@ -664,7 +665,7 @@ private fun ChoiceChipButton(
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(
                 1.dp,
-                (selectedContainer ?: colors.outline).copy(alpha = if (selectedContainer != null) 0.55f else 0.45f),
+                colors.outline.copy(alpha = 0.45f),
             ),
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
@@ -672,7 +673,7 @@ private fun ChoiceChipButton(
                 label,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
-                color = selectedContainer ?: colors.onSurface,
+                color = colors.onSurface,
             )
         }
     }
@@ -862,56 +863,50 @@ private fun ImportDialog(
     onDemo: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
-    AlertDialog(
+    NvpnDialog(
+        title = "Импорт профиля",
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Импорт профиля") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "Выберите JSON с телефона или вставьте текст.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Button(
-                    onClick = onPickFile,
-                    enabled = !busy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (busy) "Читаем…" else "Выбрать файл…", fontWeight = FontWeight.SemiBold)
-                }
-                Text("Или вставьте JSON:", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    enabled = !busy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 100.dp),
-                    shape = RoundedCornerShape(16.dp),
-                )
-                error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onPaste(text) },
-                enabled = text.isNotBlank() && !busy,
-            ) { Text("Импортировать текст") }
-        },
-        dismissButton = {
-            Column {
-                TextButton(onClick = onDemo, enabled = !busy) { Text("Демо (фейковый IP)") }
-                TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") }
-            }
-        },
-        shape = RoundedCornerShape(24.dp),
-    )
+        confirmAction = NvpnDialogAction(
+            text = "Импорт",
+            onClick = { onPaste(text) },
+            enabled = text.isNotBlank() && !busy,
+        ),
+        dismissAction = NvpnDialogAction("Отмена", onDismiss, enabled = !busy),
+        secondaryAction = NvpnDialogAction("Демо", onDemo, enabled = !busy),
+        dismissOnBackPress = !busy,
+        dismissOnClickOutside = !busy,
+    ) {
+        Text(
+            "Выберите JSON с телефона или вставьте текст.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(
+            onClick = onPickFile,
+            enabled = !busy,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(if (busy) "Читаем…" else "Выбрать файл…", fontWeight = FontWeight.SemiBold)
+        }
+        Text("Или вставьте JSON:", style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            enabled = !busy,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 100.dp),
+            shape = RoundedCornerShape(16.dp),
+        )
+        error?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }
 
 @Composable
@@ -921,30 +916,32 @@ private fun HashDialog(
     onClear: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
-    AlertDialog(
+    NvpnDialog(
+        title = "Hash звонка",
         onDismissRequest = onDismiss,
-        title = { Text("Hash звонка") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Ссылка vk.com/call/join/… или сам hash.")
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    singleLine = true,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(text) }, enabled = text.isNotBlank()) { Text("Сохранить") }
-        },
-        dismissButton = {
-            Column {
-                TextButton(onClick = onClear) { Text("Очистить") }
-                TextButton(onClick = onDismiss) { Text("Отмена") }
-            }
-        },
-        shape = RoundedCornerShape(24.dp),
-    )
+        confirmAction = NvpnDialogAction(
+            text = "Сохранить",
+            onClick = { onSave(text) },
+            enabled = text.isNotBlank(),
+        ),
+        dismissAction = NvpnDialogAction("Отмена", onDismiss),
+        secondaryAction = NvpnDialogAction(
+            text = "Очистить",
+            onClick = onClear,
+            destructive = true,
+        ),
+    ) {
+        Text(
+            "Ссылка vk.com/call/join/… или сам hash.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true,
+        )
+    }
 }
