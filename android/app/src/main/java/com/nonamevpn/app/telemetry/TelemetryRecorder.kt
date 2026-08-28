@@ -41,7 +41,7 @@ class TelemetryRecorder private constructor(
     private val bytesWritten = AtomicLong(0)
     private var writerJob: Job? = null
     private var pollJob: Job? = null
-    private val eventChannel = Channel<TelemetryEvent>(capacity = Channel.BUFFERED)
+    private val eventChannel = Channel<TelemetryEvent?>(capacity = Channel.BUFFERED)
 
     fun start(serverIp: String) {
         if (_isRecording.value) return
@@ -70,6 +70,7 @@ class TelemetryRecorder private constructor(
         pollJob?.cancel()
         log(TelemetryEventType.System, JSONObject().put("action", "recording_stopped"))
         _isRecording.value = false
+        eventChannel.trySend(null)
         runBlocking {
             withTimeoutOrNull(5_000) {
                 writerJob?.join()
@@ -155,8 +156,8 @@ class TelemetryRecorder private constructor(
 
     private suspend fun drainEvents() {
         var pendingFlush = 0
-        while (scope.isActive && (_isRecording.value || !eventChannel.isEmpty)) {
-            val event = eventChannel.receive()
+        while (scope.isActive) {
+            val event = eventChannel.receive() ?: break
             writeEvent(event)
             pendingFlush++
             if (pendingFlush >= 40) {

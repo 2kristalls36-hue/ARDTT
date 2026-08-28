@@ -1,6 +1,7 @@
 package com.nonamevpn.app
 
 import android.app.Application
+import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.telemetry.TelemetryBootstrap
 
 class NonameApp : Application() {
