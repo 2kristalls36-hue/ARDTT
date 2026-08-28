@@ -97,6 +97,18 @@ fi
 STACK="$INSTALL_DIR/stack"
 [ -f "$STACK/docker-compose.yml" ] || die "В архиве нет docker-compose.yml"
 
+prog 0.22 "Проверка состава стека"
+missing_contexts=""
+for context in provision direct bypass dns warp telemetry-upload; do
+  if grep -Eq "build:[[:space:]]*(\\./)?${context}([[:space:]]|$)" "$STACK/docker-compose.yml" 2>/dev/null &&
+     [ ! -d "$STACK/$context" ]; then
+    missing_contexts="$missing_contexts $context"
+  fi
+done
+if [ -n "$missing_contexts" ]; then
+  die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Обновите APK или пересоберите архив scripts/pack-deploy-assets.sh"
+fi
+
 prog 0.25 "Установка Docker (если нужно)"
 if ! command -v docker >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
@@ -124,23 +136,76 @@ else
 fi
 
 prog 0.40 "Запись .env"
+DEPLOY_VERSION="${NVPN_DEPLOY_VERSION:-}"
+if [ -z "$DEPLOY_VERSION" ] && [ -f "$STACK/DEPLOY_VERSION" ]; then
+  DEPLOY_VERSION="$(tr -d '[:space:]' < "$STACK/DEPLOY_VERSION")"
+fi
+if [ -z "$DEPLOY_VERSION" ] && [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
+  DEPLOY_VERSION="$(tr -d '[:space:]' < "$INSTALL_DIR/DEPLOY_VERSION")"
+fi
+[ -n "$DEPLOY_VERSION" ] || DEPLOY_VERSION="unknown"
+# Persist on host so provision can read even if env is missing after recreate.
+printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
+printf '%s\n' "$DEPLOY_VERSION" > "$STACK/DEPLOY_VERSION"
 cat > "$STACK/.env" <<EOF
 NVPN_PUBLIC_HOST=$PUBLIC_HOST
 NVPN_DIRECT_PORT=$DIRECT_PORT
 NVPN_BYPASS_PORT=$BYPASS_PORT
 NVPN_PROVISION_LISTEN=$PROVISION_LISTEN
+NVPN_DEPLOY_VERSION=$DEPLOY_VERSION
 NVPN_WARP_GOMEMLIMIT=400MiB
 EOF
 
 mkdir -p "$STACK/data"
 chmod 700 "$STACK/data"
 
+prog 0.45 "Очистка места перед сборкой"
+cleanup_docker_build_junk
+cleanup_host_packages
+# Drop unused images from previous deploys (keep running containers).
+docker image prune -af >/dev/null 2>&1 || true
+
+avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
+if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt 1800 ] 2>/dev/null; then
+  die "Мало места на диске VPS: свободно ${avail_mb} МБ (нужно ≥1800 МБ). Увеличьте диск или очистите: docker system prune -af && apt-get clean"
+fi
+
 prog 0.50 "Сборка и запуск Compose (может занять несколько минут)"
 cd "$STACK"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
+# Plain progress — avoid fancy TTY banners in the app log.
+export BUILDKIT_PROGRESS=plain
+export COMPOSE_ANSI=never
 compose pull 2>/dev/null || true
-compose build
-compose up -d
+BUILD_LOG="$(mktemp /tmp/nvpn-compose-build.XXXXXX.log)"
+if ! compose build 2>&1 | tee "$BUILD_LOG"; then
+  build_tail="$(tail -n 20 "$BUILD_LOG" | tr '\n' ' ' | cut -c1-1000)"
+  rm -f "$BUILD_LOG"
+  cleanup_docker_build_junk
+  die "Сборка Docker не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}')"
+fi
+rm -f "$BUILD_LOG"
+
+# Remove only legacy/unmanaged nvpn containers. Compose-managed containers are
+# left intact and will be recreated normally. This handles older manual
+# telemetry installs that used the same fixed container_name without labels.
+for managed_name in nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry; do
+  if docker inspect "$managed_name" >/dev/null 2>&1; then
+    compose_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$managed_name" 2>/dev/null || true)"
+    if [ -z "$compose_project" ] || [ "$compose_project" = "<no value>" ]; then
+      echo "NVPN_WARN|Удаляется устаревший unmanaged-контейнер $managed_name"
+      docker rm -f "$managed_name" >/dev/null
+    fi
+  fi
+done
+
+UP_LOG="$(mktemp /tmp/nvpn-compose-up.XXXXXX.log)"
+if ! compose up -d 2>&1 | tee "$UP_LOG"; then
+  up_tail="$(tail -n 20 "$UP_LOG" | tr '\n' ' ' | cut -c1-1000)"
+  rm -f "$UP_LOG"
+  die "Запуск Compose не удался: ${up_tail:-причина не определена}"
+fi
+rm -f "$UP_LOG"
 
 prog 0.80 "Очистка build-кэша и временных файлов"
 cleanup_docker_build_junk

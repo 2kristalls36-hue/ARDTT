@@ -31,7 +31,8 @@ data class BypassGoArgs(
 )
 
 /**
- * Runs vendored qWDTT go_client as [libclient.so] subprocess (Path B: vkcalls + TURN TCP + WRAP/RAW).
+ * Runs vendored Path B go_client as [libclient.so] subprocess (vkcalls + TURN TCP + WRAP/RAW;
+ * qWDTT / SpaceNeuroX lineage).
  */
 class BypassGoProcess(
     private val context: Context,
@@ -171,7 +172,7 @@ class BypassGoProcess(
             if (ip.isBlank()) return null
             return RawConf(
                 ip = ip,
-                dnsCsv = fields["DNS"].orEmpty().ifBlank { "1.1.1.1" },
+                dnsCsv = fields["DNS"].orEmpty().ifBlank { "10.9.0.1" },
                 mtu = fields["MTU"]?.toIntOrNull() ?: 1300,
             )
         }
@@ -183,7 +184,7 @@ class BypassGoProcess(
             val mtu = parts[2].trim().toIntOrNull() ?: return null
             val ip = parts[0].trim()
             if (ip.isBlank()) return null
-            return RawConf(ip, parts[1].trim().ifBlank { "1.1.1.1" }, mtu)
+            return RawConf(ip, parts[1].trim().ifBlank { "10.9.0.1" }, mtu)
         }
 
         private fun classifyFatal(line: String): String? {

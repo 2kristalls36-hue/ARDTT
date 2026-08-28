@@ -3,6 +3,8 @@ package com.nonamevpn.app.bypass
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.nonamevpn.app.core.AppLog
+import com.nonamevpn.app.core.TransportHealth
 import com.nonamevpn.app.profile.VpnProfile
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
@@ -33,7 +35,7 @@ sealed class BypassPhase {
 }
 
 /**
- * Path B: launches qWDTT go_client (vkcalls → TURN TCP → WRAP → RAW),
+ * Path B: launches go_client (vkcalls → TURN TCP → WRAP → RAW; qWDTT/SpaceNeuroX lineage),
  * establishes VpnService TUN from RAWCONF, sends FD via [TunFdBridge].
  */
 class BypassSession {
@@ -53,6 +55,7 @@ class BypassSession {
     ) {
         stop()
         running.set(true)
+        TransportHealth.noteBackendStarted()
         job = scope.launch {
             try {
                 setPhase(BypassPhase.Dialing, onPhase)
@@ -85,6 +88,8 @@ class BypassSession {
                         if (!rawReady.isCompleted) rawReady.complete(conf)
                     },
                     onLog = { line ->
+                        TransportHealth.onLogLine(line)
+                        AppLog.i("go_client", line.take(300))
                         when {
                             line.contains("[VKCalls]") || line.contains("[VK Auth]") ->
                                 Log.i(TAG, line)
@@ -93,17 +98,20 @@ class BypassSession {
                         }
                     },
                     onFatal = { msg ->
+                        AppLog.e(TAG, msg)
                         if (!fatal.isCompleted) fatal.complete(msg)
                     },
                 )
 
                 setPhase(BypassPhase.Allocating, onPhase)
+                AppLog.i(TAG, "waiting RAWCONF…")
                 val conf = select {
                     rawReady.onAwait { it }
                     fatal.onAwait { throw IllegalStateException(it) }
                 }
 
                 setPhase(BypassPhase.Wrapping, onPhase)
+                AppLog.i(TAG, "RAWCONF ip=${conf.ip} dns=${conf.dnsCsv} mtu=${conf.mtu}")
                 Log.i(TAG, "RAWCONF ip=${conf.ip} dns=${conf.dnsCsv} mtu=${conf.mtu}")
                 val pfd = establishTun(conf.ip, conf.dnsCsv, conf.mtu)
                 if (pfd == null) {
@@ -148,6 +156,7 @@ class BypassSession {
         go = null
         runCatching { tun?.close() }
         tun = null
+        TransportHealth.noteBackendStopped()
     }
 
     private fun setPhase(p: BypassPhase, onPhase: (BypassPhase) -> Unit) {

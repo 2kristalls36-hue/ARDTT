@@ -1,67 +1,32 @@
-# Android-клиент nonameVPN
+# Android-клиент ARDTT
 
-Jetpack Compose (`applicationId`: `com.nonamevpn.app`), minSdk 28.
+Jetpack Compose. Отображаемое имя: **ARDTT** (Amnezia + RAW Dial via TURN).  
+`applicationId` пока `com.nonamevpn.app` (совместимость / установка рядом с официальной AmneziaWG), minSdk 28.
 
-## Уже есть
+Легенда: [../docs/LEGEND.md](../docs/LEGEND.md).
 
-- Parallel **NetworkProbe** + **ConnectionManager**
-- **VpnTunnelService** — один VpnService, бэкенды Direct / Bypass
-- **Path A (Direct):** модуль `:tunnel` с `libwg-go` (AmneziaWG userspace) → `DirectBackend` / `awgTurnOn`
-- Импорт профиля JSON (provision)
-- **Path B (Bypass):** `libclient.so` (qWDTT go_client) — vkcalls → TURN TCP → WRAP → RAW; TUN после RAWCONF
-- **Bypass scaffold:** `CallHashStore`, dial policy, `WrapCrypto` (совместим с сервером)
-- **Создать звонок:** WebView вход VK → `calls.start` → hash в `CallHashStore` (Connect остаётся анонимным)
-- **Dial path:** Настройки → Авто / vkcalls / Капча (legacy), сохраняется в DataStore
-- **Админ-деплой:** SSH (JSch) → upload `stack.tar.gz` + `install.sh` → Docker Compose на VPS
-- Настройки: тихий recreate, экономика workers
+## Иконка
 
-## Ещё нет (следующий слой)
-
-- Legacy captcha WebView (fallback), если go_client captcha недостаточно
-- Нативный WARP egress на VPS (сейчас stub)
-
-## Сборка native Path B
-
-```bash
-# Нужны ANDROID_HOME / NDK 27+ и Go 1.26+
-chmod +x scripts/build-bypass-client.sh
-./scripts/build-bypass-client.sh          # arm64-v8a + x86_64 → jniLibs/
-cd android && ./gradlew :app:assembleDebug
-```
-
-## Деплой с телефона
-
-1. Настройки → PIN админа → вкладка **Деплой** (или **Серверы** → Деплой).
-2. Host, SSH user/port, пароль или PEM-ключ, публичный host.
-3. «Установить на VPS» загружает актуальный `assets/deploy/stack.tar.gz` и гоняет `install.sh`.
-
-После успеха на VPS остаётся только `/opt/nonamevpn/stack/` (+ data) и рабочие образы:
-`stack.tar.gz`, Docker build cache и apt-кэш установщик удаляет сам.
-
-Обновить архив стека после правок `server/`:
-
-```bash
-chmod +x scripts/pack-deploy-assets.sh
-./scripts/pack-deploy-assets.sh
-```
+Круглый знак: белая стилизованная **A** (Amnezia) на тёмно-синем (`#0B1F4A`) с тонкой белой обводкой — `mipmap-*/ic_launcher(_round).png`, adaptive `mipmap-anydpi-v26`.
 
 ## Сборка
 
 ```bash
 cd android
-./gradlew :app:assembleDebug
+./gradlew assembleDebug
 ```
 
-## Структура
+APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-```
-app/…/core/       NetworkProbe, ConnectionManager, VpnTunnelService
-app/…/tunnel/     TunnelBackend, DirectBackend, BypassBackend, AwgUserspaceConfig
-app/…/bypass/     WrapCrypto, CallHashStore, VkDialer, BypassSession
-app/…/profile/    VpnProfile JSON
-app/…/ui/         Tunnel / Settings / Admin
-tunnel/           AmneziaWG libwg-go (JNI) — форк tools из amneziawg-android
-```
+`assembleRelease` даёт **unsigned** `app-release-unsigned.apk` — Android отклоняет его как повреждённый; для релиза нужен `signingConfig` в `build.gradle` или подпись через `apksigner`.
 
-Сборка `:tunnel` тянет NDK + Go (Makefile `libwg-go` сам скачает toolchain в Gradle cache).
-Нужны `ANDROID_HOME` / `local.properties` → `sdk.dir`, NDK 27+.
+## Модули
+
+- `app` — UI, ConnectionManager, VpnTunnelService, bypass session
+- `tunnel` — AmneziaWG userspace (`libwg-go`)
+- `go_client` — Path B RAW (qWDTT / SpaceNeuroX) → `libclient.so`
+- **Режим тестирования:** полная телеметрия, JSONL, upload на VPS — [../docs/TELEMETRY.md](../docs/TELEMETRY.md)
+- **Обновления:** Настройки → «Обновления» читает `http://159.194.225.162:8088/update.json`,
+  скачивает APK внутри приложения, проверяет SHA-256 и запускает системный установщик.
+
+После деплоя сервера на VPS обычно остаётся `/opt/nonamevpn/stack/` (исторический путь каталога) и рабочие образы.

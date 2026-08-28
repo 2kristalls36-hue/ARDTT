@@ -1,13 +1,15 @@
-# Сервер nonameVPN
+# Сервер ARDTT
 
-Compose-стек из четырёх сервисов (см. [архитектуру](../docs/ARCHITECTURE.md)):
+Compose-стек из пяти сервисов (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
 
 | Сервис | Статус сейчас | Назначение |
 |--------|---------------|------------|
 | **provision** | рабочий | `/health`, пользователи, `host_id`, AWG-ключи, JSON-профиль |
 | **direct** | **AmneziaWG 2.0** | `amneziawg-go` + `awg`, conf из `users.json` |
-| **bypass** | **RAW `-listen-raw`** | `wdtt-server` (qWDTT), пароли из `users.json`, подсеть `10.9.0.0/24` |
-| **warp** | stub | hide-IP egress (wireproxy→tun2socks) |
+| **bypass** | **RAW `-listen-raw`** | `wdtt-server` из **qWDTT / SpaceNeuroX** (не classic WDTT), пароли из `users.json`, подсеть `10.9.0.0/24`, DNS клиентам `10.9.0.1` |
+| **dns** | **dnsmasq** | шлюзы `10.8.0.1` / `10.9.0.1` (/ `10.66.66.1`); upstream `1.1.1.1`/`1.0.0.1` через main |
+| **warp** | **WARP egress** | `wgcf` → `warp0`; hideIp → table `51820` (prio 300+). DNS к шлюзу локально; `:53` наружу — main (prio 100) |
+| **telemetry** | рабочий | приём debug-логов с Android (`POST /api/upload-log`, порт 9200) |
 
 ## Быстрый старт (без Docker)
 
@@ -28,7 +30,8 @@ Call hash звонка на сервер **не** кладётся — толь�
 ## Docker Compose
 
 Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет
-`amneziawg-go` / `amneziawg-tools` и исходники qWDTT server (GPL-3).
+`amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B (GPL-3, `bypass/wdtt-server/` —
+линия [SpaceNeuroX/qWDTT](https://github.com/SpaceNeuroX/proxy-turn-vk-android)).
 
 ```bash
 cd server

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simplified orange Cloudflare-style cloud mark (WARP / Hide-IP). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Soft cloud body -->
+    <path
+        android:fillColor="#F6821F"
+        android:pathData="M19.35,10.04C18.67,6.59 15.64,4 12,4 9.11,4 6.6,5.64 5.35,8.04 2.34,8.36 0,10.91 0,14c0,3.31 2.69,6 6,6h13c2.76,0 5,-2.24 5,-5 0,-2.64 -2.05,-4.78 -4.65,-4.96z" />
+    <!-- Accent band (CF-like stripe feel) -->
+    <path
+        android:fillColor="#FBAD41"
+        android:pathData="M6.2,15.2h12.3c0.7,0 1.25,-0.45 1.25,-1.05 0,-0.55 -0.45,-1 -1.05,-1.05l-1.1,-0.05c-0.15,-1.7 -1.55,-3.05 -3.3,-3.05 -0.85,0 -1.65,0.35 -2.25,0.9 -0.55,-1.15 -1.7,-1.95 -3.05,-1.95 -1.85,0 -3.35,1.5 -3.35,3.35 0,0.15 0,0.3 0.05,0.45H6.2c-0.7,0 -1.25,0.55 -1.25,1.2 0,0.65 0.55,1.2 1.25,1.2z" />
+</vector>
