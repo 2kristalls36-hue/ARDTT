@@ -59,6 +59,17 @@ android {
     }
 }
 
+val bypassClientLib = file("src/main/jniLibs/arm64-v8a/libclient.so")
+val buildBypassClient = tasks.register<Exec>("buildBypassClient") {
+    onlyIf { !bypassClientLib.exists() }
+    workingDir = rootProject.projectDir.parentFile
+    commandLine("bash", "scripts/build-bypass-client.sh")
+}
+
+tasks.named("preBuild") {
+    dependsOn(buildBypassClient)
+}
+
 dependencies {
     implementation(project(":tunnel"))
 
