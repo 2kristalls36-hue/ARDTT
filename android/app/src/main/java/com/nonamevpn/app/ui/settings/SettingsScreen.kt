@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -60,6 +61,9 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.update.AppUpdateInfo
+import com.nonamevpn.app.update.AppUpdateManager
+import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -82,7 +86,14 @@ fun SettingsScreen(
     val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
     val dynamicColor by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
     val scope = rememberCoroutineScope()
+    val updateManager = remember { AppUpdateManager(context) }
     var adminHint by remember { mutableStateOf<String?>(null) }
+    var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var downloadedUpdate by remember { mutableStateOf<File?>(null) }
+    var updateChecking by remember { mutableStateOf(false) }
+    var updateDownloading by remember { mutableStateOf(false) }
+    var updateProgress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var updateMessage by remember { mutableStateOf<String?>(null) }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -107,11 +118,78 @@ fun SettingsScreen(
         conn.setPathMode(ConnPathMode.fromSetting(pathMode))
     }
 
+    LaunchedEffect(Unit) {
+        updateChecking = true
+        val result = updateManager.check()
+        updateChecking = false
+        result.onSuccess { info ->
+            updateInfo = info
+            updateMessage = if (info.isNewer) {
+                "Доступна версия ${info.versionName}"
+            } else {
+                "Установлена актуальная версия"
+            }
+        }.onFailure {
+            updateMessage = it.message ?: "Не удалось проверить обновления"
+        }
+    }
+
     EdgeFeedColumn {
         val modeLabel = if (admin) "администратор" else "пользователь"
         AppPageHeader(
             title = "Настройки",
             subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
+        )
+
+        UpdateSettingsCard(
+            info = updateInfo,
+            checking = updateChecking,
+            downloading = updateDownloading,
+            progress = updateProgress,
+            message = updateMessage,
+            downloadedFile = downloadedUpdate,
+            onCheck = {
+                scope.launch {
+                    updateChecking = true
+                    updateMessage = "Проверяем обновления…"
+                    val result = updateManager.check()
+                    updateChecking = false
+                    result.onSuccess { info ->
+                        updateInfo = info
+                        downloadedUpdate = null
+                        updateMessage = if (info.isNewer) {
+                            "Доступна версия ${info.versionName}"
+                        } else {
+                            "Установлена актуальная версия"
+                        }
+                    }.onFailure {
+                        updateMessage = it.message ?: "Не удалось проверить обновления"
+                    }
+                }
+            },
+            onDownload = {
+                val info = updateInfo ?: return@UpdateSettingsCard
+                scope.launch {
+                    updateDownloading = true
+                    updateProgress = 0f
+                    updateMessage = "Скачиваем ${info.versionName}…"
+                    val result = updateManager.download(info) { updateProgress = it }
+                    updateDownloading = false
+                    result.onSuccess { file ->
+                        downloadedUpdate = file
+                        updateMessage = "APK скачан — запускаем установку"
+                        runCatching { updateManager.install(file) }
+                            .onFailure { updateMessage = it.message ?: "Не удалось открыть установщик" }
+                    }.onFailure {
+                        updateMessage = it.message ?: "Не удалось скачать APK"
+                    }
+                }
+            },
+            onInstall = {
+                val file = downloadedUpdate ?: return@UpdateSettingsCard
+                runCatching { updateManager.install(file) }
+                    .onFailure { updateMessage = it.message ?: "Не удалось открыть установщик" }
+            },
         )
 
         AppSectionCard(
@@ -343,6 +421,127 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun UpdateSettingsCard(
+    info: AppUpdateInfo?,
+    checking: Boolean,
+    downloading: Boolean,
+    progress: Float,
+    message: String?,
+    downloadedFile: File?,
+    onCheck: () -> Unit,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+) {
+    AppSectionCard(
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Обновления", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Текущая версия: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (info != null) {
+            Surface(
+                color = if (info.isNewer) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                },
+                contentColor = if (info.isNewer) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                },
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        if (info.isNewer) {
+                            "Доступна ${info.versionName} (${info.versionCode})"
+                        } else {
+                            "Обновлений нет"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (info.sizeBytes > 0) {
+                        Text(
+                            "Размер: ${formatUpdateSize(info.sizeBytes)}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (info.notes.isNotBlank()) {
+                        Text(info.notes, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+        if (downloading) {
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "${(progress * 100).toInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        message?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = onCheck,
+                enabled = !checking && !downloading,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text(if (checking) "Проверка…" else "Проверить")
+            }
+            if (downloadedFile != null) {
+                OutlinedButton(
+                    onClick = onInstall,
+                    enabled = !checking && !downloading,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Text("Установить")
+                }
+            } else if (info?.isNewer == true) {
+                OutlinedButton(
+                    onClick = onDownload,
+                    enabled = !checking && !downloading,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Text("Скачать")
+                }
+            }
+        }
+    }
+}
+
+private fun formatUpdateSize(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> String.format(java.util.Locale.getDefault(), "%.1f MB", bytes / (1024.0 * 1024.0))
+    bytes >= 1024 -> String.format(java.util.Locale.getDefault(), "%.1f KB", bytes / 1024.0)
+    else -> "$bytes B"
 }
 
 @Composable
