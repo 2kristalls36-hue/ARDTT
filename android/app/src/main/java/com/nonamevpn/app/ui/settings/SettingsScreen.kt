@@ -52,6 +52,7 @@ import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.hasNearbyWifiDevicesPermission
 import com.nonamevpn.app.core.hasTrustedWifiBackgroundPermission
 import com.nonamevpn.app.core.hasTrustedWifiForegroundPermission
 import com.nonamevpn.app.core.readConnectedWifiState
@@ -580,14 +581,37 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         refreshWifi()
         if (granted) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                !hasTrustedWifiBackgroundPermission(context)
+                !hasTrustedWifiBackgroundPermission(context) &&
+                !hasNearbyWifiDevicesPermission(context)
             ) {
                 bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             } else {
                 hint = "Локация разрешена — можно добавить текущую сеть"
             }
         } else {
-            hint = "Нужна локация, чтобы читать имя Wi‑Fi"
+            hint = "Нужна локация или «Устройства поблизости», чтобы читать имя Wi‑Fi"
+        }
+    }
+    val nearbyLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        refreshWifi()
+        if (granted) {
+            hint = "Имя Wi‑Fi можно читать без геолокации"
+        } else if (!hasTrustedWifiForegroundPermission(context)) {
+            fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        } else {
+            hint = "Без доступа к Wi‑Fi имя сети может не прочитаться"
+        }
+    }
+
+    fun requestSsidPermission() {
+        when {
+            hasTrustedWifiForegroundPermission(context) -> Unit
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                !hasNearbyWifiDevicesPermission(context) ->
+                nearbyLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+            else -> fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
@@ -597,17 +621,24 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     ) {
         Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            "В этих сетях VPN сам выключается. При выходе, отключении опции или удалении сети — поднимается снова. Добавляется только текущая Wi‑Fi (списка всех сетей нет).",
+            "В этих сетях VPN сам выключается. При выходе, отключении опции или удалении сети — поднимается снова. Добавляется только текущая Wi‑Fi. Пока имя сети не прочиталось, Auto не переключит обход на Direct — домашняя сеть не должна «мелькнуть» как открытый интернет.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         RowSetting(
             title = "Включить",
             subtitle = when (val p = trustedWifiAccessProblem(context, requireBackground = false)) {
-                TrustedWifiAccessProblem.ForegroundPermission -> "Нужно разрешение локации"
+                TrustedWifiAccessProblem.ForegroundPermission ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        "Нужно разрешение «Устройства поблизости» или локация"
+                    } else {
+                        "Нужно разрешение локации"
+                    }
                 TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе"
                 TrustedWifiAccessProblem.BackgroundPermission -> "Нужна фоновая локация"
                 null -> when {
+                    hasNearbyWifiDevicesPermission(context) ->
+                        if (ssids.isEmpty()) "Добавьте хотя бы одну сеть" else "${ssids.size} сетей"
                     !hasTrustedWifiBackgroundPermission(context) ->
                         "Для авто-паузы в фоне выдайте «Локация → Всегда»"
                     ssids.isEmpty() -> "Добавьте хотя бы одну сеть"
@@ -616,9 +647,10 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
             },
             checked = enabled,
             onCheckedChange = { on ->
-                if (on && !hasTrustedWifiForegroundPermission(context)) {
-                    fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                } else if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                if (on) requestSsidPermission()
+                if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    hasTrustedWifiForegroundPermission(context) &&
+                    !hasNearbyWifiDevicesPermission(context) &&
                     !hasTrustedWifiBackgroundPermission(context)
                 ) {
                     bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
@@ -635,9 +667,10 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         } else if (wifi.connected) {
             Text(
                 when (wifi.accessProblem) {
-                    TrustedWifiAccessProblem.ForegroundPermission -> "Wi‑Fi есть, но нет разрешения локации"
+                    TrustedWifiAccessProblem.ForegroundPermission ->
+                        "Wi‑Fi есть, но нет разрешения на имя сети"
                     TrustedWifiAccessProblem.LocationDisabled -> "Wi‑Fi есть, но геолокация выключена"
-                    else -> "Wi‑Fi есть, имя сети недоступно — выдайте локацию или включите геолокацию"
+                    else -> "Wi‑Fi есть, имя сети недоступно — подождите или выдайте доступ к Wi‑Fi"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -646,7 +679,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         OutlinedButton(
             onClick = {
                 if (!hasTrustedWifiForegroundPermission(context)) {
-                    fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    requestSsidPermission()
                     return@OutlinedButton
                 }
                 val fresh = readConnectedWifiState(context, requireBackground = false)

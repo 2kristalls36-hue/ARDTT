@@ -34,6 +34,53 @@ enum class TrustedWifiTransition {
     ResumeVpn,
 }
 
+/**
+ * Gate between trusted-SSID pause and Auto handover (77.88.8.8 / VPS IP).
+ * Unknown SSID must not be treated as open Wi‑Fi.
+ */
+enum class TrustedWifiHandoverGate {
+    /** Feature off, no Wi‑Fi, or SSID known and not in the list — run Auto probe. */
+    Proceed,
+    /** SSID known and trusted — pause VPN, skip probe. */
+    PauseVpn,
+    /** Wi‑Fi is up but SSID not readable yet — retry, do not probe. */
+    WaitForSsid,
+    /**
+     * Gave up reading SSID. Keep the current path (soft-restart underlay only).
+     * Never Bypass→Direct: this Wi‑Fi might be the home network.
+     */
+    HoldPath,
+}
+
+/** How long to wait for SSID APIs after Wi‑Fi appears before giving up. */
+const val TRUSTED_WIFI_SSID_WAIT_MS = 8_000L
+const val TRUSTED_WIFI_SSID_RETRY_MS = 1_000L
+
+fun decideTrustedWifiHandoverGate(
+    trustedEnabled: Boolean,
+    trustedSsids: Set<String>,
+    wifi: ConnectedWifiState,
+    waitedMs: Long,
+    maxWaitMs: Long = TRUSTED_WIFI_SSID_WAIT_MS,
+): TrustedWifiHandoverGate {
+    if (!trustedEnabled || trustedSsids.isEmpty()) return TrustedWifiHandoverGate.Proceed
+    if (!wifi.connected) return TrustedWifiHandoverGate.Proceed
+    if (wifi.ssidAvailable) {
+        return if (isTrustedSsid(wifi.ssid, trustedSsids)) {
+            TrustedWifiHandoverGate.PauseVpn
+        } else {
+            TrustedWifiHandoverGate.Proceed
+        }
+    }
+    // Permission/location missing will not clear itself in 8s — don't wait, don't probe Direct.
+    if (wifi.accessProblem != null) return TrustedWifiHandoverGate.HoldPath
+    return if (waitedMs < maxWaitMs) {
+        TrustedWifiHandoverGate.WaitForSsid
+    } else {
+        TrustedWifiHandoverGate.HoldPath
+    }
+}
+
 fun decideTrustedWifiTransition(
     enabled: Boolean,
     tunnelRunning: Boolean,
@@ -93,8 +140,16 @@ fun sanitizeTrustedWifiSsid(value: String): String {
     return result.toString()
 }
 
+fun hasNearbyWifiDevicesPermission(context: Context): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.NEARBY_WIFI_DEVICES,
+        ) == PackageManager.PERMISSION_GRANTED
+
 fun hasTrustedWifiForegroundPermission(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+    hasNearbyWifiDevicesPermission(context) ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
 
 fun hasTrustedWifiBackgroundPermission(context: Context): Boolean =
@@ -108,6 +163,11 @@ fun trustedWifiAccessProblem(
 ): TrustedWifiAccessProblem? {
     if (!hasTrustedWifiForegroundPermission(context)) {
         return TrustedWifiAccessProblem.ForegroundPermission
+    }
+    // Android 13+: NEARBY_WIFI_DEVICES (neverForLocation) can read SSID without
+    // the location toggle or background-location grant.
+    if (hasNearbyWifiDevicesPermission(context)) {
+        return null
     }
     if (requireBackground && !hasTrustedWifiBackgroundPermission(context)) {
         return TrustedWifiAccessProblem.BackgroundPermission

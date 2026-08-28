@@ -729,6 +729,32 @@ class ConnectionManager(
         }
     }
 
+    fun onTrustedWifiIdentifying() {
+        if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
+        scope.launch {
+            _ui.value = _ui.value.copy(
+                softInfo = "Определяю Wi‑Fi — Direct не включаю, пока нет имени сети.",
+            )
+        }
+    }
+
+    fun onTrustedWifiSsidUnreadable(problem: TrustedWifiAccessProblem?) {
+        if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
+        val hint = when (problem) {
+            TrustedWifiAccessProblem.ForegroundPermission ->
+                "Не вижу имя Wi‑Fi. Выдайте «Устройства поблизости» или локацию в настройках — иначе VPN не отличит домашнюю сеть и не выключится."
+            TrustedWifiAccessProblem.LocationDisabled ->
+                "Включите геолокацию, чтобы доверенный Wi‑Fi узнал сеть."
+            TrustedWifiAccessProblem.BackgroundPermission ->
+                "Для паузы VPN в фоне нужна локация «Всегда»."
+            null ->
+                "Имя Wi‑Fi не прочиталось — оставляю текущий путь, без переключения на Direct."
+        }
+        scope.launch {
+            _ui.value = _ui.value.copy(softInfo = hint)
+        }
+    }
+
     fun onTrustedWifiResuming() {
         scope.launch {
             _ui.value = _ui.value.copy(
