@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -149,14 +150,18 @@ fun TestingScreen(profiles: ProfileRepository) {
     ) {
         AppPageHeader(
             title = "Тестирование",
-            subtitle = "Запись полной телеметрии и отправка логов на тестовый VPS",
+            subtitle = "ARDTT ${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на VPS",
         )
 
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Статус записи", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Статус записи",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
             StatusPill(
                 text = if (isRecording) "Идёт запись" else "Запись остановлена",
                 accent = isRecording,
@@ -177,7 +182,11 @@ fun TestingScreen(profiles: ProfileRepository) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Сохранённые логи", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Сохранённые логи",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
             Text(
                 if (logs.isEmpty()) {
                     "Записей пока нет"
@@ -254,7 +263,7 @@ private fun EmptyLogsBlock() {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            "Нажмите «Начать запись», выполните действия в приложении и остановите запись — файл появится здесь.",
+            "Запись запускается кнопкой внизу экрана. После остановки файл появится здесь.",
             modifier = Modifier.padding(14.dp),
             style = MaterialTheme.typography.bodySmall,
         )

@@ -87,7 +87,7 @@ fun AppRoot(
         }
     }
     val navItems = tabs.map { dest ->
-        NavBarItem(route = dest.route, label = dest.label, icon = dest.icon())
+        NavBarItem(route = dest.route, label = dest.navLabel, icon = dest.icon())
     }
     val selectedNavRoute = currentRoute
     val vpnPermission = rememberLauncherForActivityResult(

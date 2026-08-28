@@ -232,7 +232,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp)
-            .padding(bottom = NvpnBottomChrome.NavZoneHeight),
+            .padding(bottom = NvpnBottomChrome.navigationReserve()),
     ) {
         EdgeFeedTopInset()
         AppPageHeader(
