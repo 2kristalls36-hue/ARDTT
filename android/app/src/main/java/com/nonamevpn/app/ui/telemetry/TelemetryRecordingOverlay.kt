@@ -97,7 +97,7 @@ private fun RecordingBorder(
     modifier: Modifier = Modifier,
 ) {
     val borderColor = RecordingRed.copy(alpha = alpha)
-    val strokeWidth = 3.dp
+    val strokeWidth = 12.dp
 
   // Pass touches through to the UI below; only draw the frame.
     Box(
