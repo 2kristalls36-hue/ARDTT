@@ -87,6 +87,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     @Volatile private var trustedWifiWaiting = false
     @Volatile private var trustedWifiWaitingSsid = ""
+    @Volatile private var trustedWifiPausedAtMs = 0L
     @Volatile private var trustedWifiEvalJob: Job? = null
     private val settingsRepo by lazy { AppSettingsRepository(applicationContext) }
 
@@ -597,6 +598,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 enterTrustedWifiWaiting(ssid)
             }
             TrustedWifiTransition.ResumeVpn -> {
+                val sincePause = System.currentTimeMillis() - trustedWifiPausedAtMs
+                if (trustedWifiWaiting && wifi.connected && !wifi.ssidAvailable &&
+                    sincePause < TRUSTED_WIFI_RESUME_GUARD_MS
+                ) {
+                    AppLog.v(TAG, "trusted wifi resume suppressed (${sincePause}ms, SSID unreadable)")
+                    return
+                }
                 AppLog.i(TAG, "trusted wifi resume (enabled=$enabled ssids=${ssids.size})")
                 resumeFromTrustedWifi("trusted wifi settings/network change")
             }
@@ -608,6 +616,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         if (trustedWifiWaiting) return
         trustedWifiWaiting = true
         trustedWifiWaitingSsid = ssid
+        trustedWifiPausedAtMs = System.currentTimeMillis()
         tunnelSessionActive = false
         softRestartInProgress = false
         ++backendEpoch
@@ -662,26 +671,22 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         trustedWifiNetworkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 if (trustedWifiWaiting) {
-                    scheduleTrustedWifiEvaluation(0L)
+                    // While paused, only debounced exit checks — avoid SSID API flicker loops.
+                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
                 } else {
                     scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
                 }
             }
 
             override fun onLost(network: Network) {
-                if (trustedWifiWaiting) {
-                    scheduleTrustedWifiEvaluation(0L)
-                } else {
-                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
-                }
+                scheduleTrustedWifiEvaluation(
+                    if (trustedWifiWaiting) 0L else TRUSTED_WIFI_EXIT_DELAY_MS,
+                )
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                if (trustedWifiWaiting) {
-                    scheduleTrustedWifiEvaluation(0L)
-                } else {
-                    scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
-                }
+                if (trustedWifiWaiting) return
+                scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
             }
         }
         val request = NetworkRequest.Builder()
@@ -1306,5 +1311,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         private const val NOTIF_ID = 42
         private const val CHANNEL_SHADE = "ardtt_vpn_shade_v6"
         private const val CHANNEL_MIN = "ardtt_vpn_min_v6"
+        private const val TRUSTED_WIFI_RESUME_GUARD_MS = 8_000L
     }
 }

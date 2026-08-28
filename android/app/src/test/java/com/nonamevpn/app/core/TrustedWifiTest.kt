@@ -109,6 +109,23 @@ class TrustedWifiTest {
     }
 
     @Test
+    fun stayWaitingWhenSsidTemporarilyUnavailable() {
+        assertEquals(
+            TrustedWifiTransition.None,
+            decideTrustedWifiTransition(
+                enabled = true,
+                tunnelRunning = false,
+                waiting = true,
+                wifi = ConnectedWifiState(
+                    connected = true,
+                    accessProblem = TrustedWifiAccessProblem.ForegroundPermission,
+                ),
+                trustedSsids = setOf("Home"),
+            ),
+        )
+    }
+
+    @Test
     fun trustedSsidMatchIsCaseInsensitive() {
         assertEquals(
             TrustedWifiTransition.EnterWaiting,
