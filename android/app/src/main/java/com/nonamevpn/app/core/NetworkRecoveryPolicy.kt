@@ -151,12 +151,32 @@ sealed class NetworkHandoverDecision {
  */
 const val HANDOVER_IGNORE_GRACE_MS = 12_000L
 
+/** Direct → Bypass on first stable “VPS IP down, 77.88.8.8 up” (БС). */
+const val HANDOVER_DIRECT_TO_BYPASS_STREAK = 1
+
 /**
- * Auto handover:
- * - Direct stays Direct while it is healthy; underlay `/health` failure is
- *   expected on whitelist and after VPN bind — it is not a reason to switch.
- * - Bypass → Direct only when the underlay can reach the VPS again (open Wi‑Fi).
- * - Direct → Bypass only when Direct is already down and Bypass is allowed.
+ * Bypass → Direct only after this many consecutive “VPS IP up” probes.
+ * One 163 ms `/health` blip must not yank a working Bypass.
+ */
+const val HANDOVER_BYPASS_TO_DIRECT_STREAK = 2
+
+data class ProbeStreak(
+    val path: VpnPath? = null,
+    val count: Int = 0,
+)
+
+fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak {
+    if (probedPath == null) return ProbeStreak()
+    if (probedPath == previous.path) return ProbeStreak(probedPath, previous.count + 1)
+    return ProbeStreak(probedPath, 1)
+}
+
+/**
+ * Auto handover from 77.88.8.8 + VPS IP:
+ * - Direct → Bypass when Yandex DNS is up and the VPS IP is not (whitelist).
+ *   Do not keep a “Connected” Direct with no underlay to the server.
+ * - Bypass → Direct only after [HANDOVER_BYPASS_TO_DIRECT_STREAK] consecutive
+ *   VPS-IP successes (open Wi‑Fi), not a single flaky TCP.
  */
 fun decideNetworkHandoverAction(
     pathMode: ConnPathMode,
@@ -166,6 +186,7 @@ fun decideNetworkHandoverAction(
     sessionAgeMs: Long = Long.MAX_VALUE,
     currentPathHealthy: Boolean = false,
     underlayVpsReachable: Boolean = probedPath == VpnPath.Direct,
+    sameProbeStreak: Int = 1,
 ): NetworkHandoverDecision {
     if (sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS) {
         return NetworkHandoverDecision.NoAction
@@ -173,23 +194,27 @@ fun decideNetworkHandoverAction(
     if (pathMode != ConnPathMode.Auto) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
+    val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
     if (currentPath == VpnPath.Direct) {
-        if (currentPathHealthy) {
-            // Underlay `/health` often fails while Direct AWG still works (whitelist,
-            // VPN bind). Only reconnect AWG when the underlay still sees the VPS.
-            return if (underlayVpsReachable || probedPath == VpnPath.Direct) {
-                NetworkHandoverDecision.SoftRestartSamePath
-            } else {
-                NetworkHandoverDecision.NoAction
-            }
-        }
-        if (probedPath == VpnPath.Bypass && bypassAllowed && !underlayVpsReachable) {
+        if (probedPath == VpnPath.Bypass && bypassAllowed && !vpsUp &&
+            sameProbeStreak >= HANDOVER_DIRECT_TO_BYPASS_STREAK
+        ) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
         }
-        return NetworkHandoverDecision.SoftRestartSamePath
+        if (vpsUp) {
+            return NetworkHandoverDecision.SoftRestartSamePath
+        }
+        return if (currentPathHealthy && probedPath != VpnPath.Bypass) {
+            NetworkHandoverDecision.NoAction
+        } else {
+            NetworkHandoverDecision.SoftRestartSamePath
+        }
     }
-    if (underlayVpsReachable || probedPath == VpnPath.Direct) {
+    if (vpsUp && sameProbeStreak >= HANDOVER_BYPASS_TO_DIRECT_STREAK) {
         return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
+    }
+    if (vpsUp) {
+        return NetworkHandoverDecision.NoAction
     }
     return NetworkHandoverDecision.SoftRestartSamePath
 }

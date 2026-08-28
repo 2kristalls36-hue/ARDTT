@@ -67,6 +67,8 @@ class ConnectionManager(
     /** Soft transport restart in progress (Wi‑Fi↔LTE); do not treat as user disconnect. */
     @Volatile private var softRestartInProgress: Boolean = false
     @Volatile private var tunnelStartedAtMs: Long = 0L
+    /** Consecutive identical Auto probe paths — Bypass→Direct needs two VPS-IP hits. */
+    private var handoverProbeStreak = ProbeStreak()
 
     fun updateProfile(profile: VpnProfile?) {
         this.profile = profile
@@ -319,7 +321,7 @@ class ConnectionManager(
             AppLog.v(
                 TAG,
                 "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
-                    "awg=${result.awgUdpOk} health=${result.provisionOk} ${result.elapsedMs}ms",
+                    "yandex=${result.yandexOk} vps=${result.provisionOk} ${result.elapsedMs}ms",
             )
             // Don't clobber an in-flight Connect started while we probed.
             if (_ui.value.state == ConnState.Connecting || _ui.value.state == ConnState.Connected) {
@@ -351,6 +353,7 @@ class ConnectionManager(
             AppLog.w(TAG, "Connect ignored — no profile")
             return
         }
+        handoverProbeStreak = ProbeStreak()
 
         // Sync Hide-IP preference to VPS (policy route via warp0). WARP must be up.
         if (current.hideIp) {
@@ -398,33 +401,17 @@ class ConnectionManager(
                     runCatching { syncHideIpToProvision(false, viaVpn = false) }
                         .onSuccess { lastHideIpSent = false }
                 }
-                // Soft re-probe for Auto/Direct stickiness. Forced Bypass still probes for UI status.
-                var fresh = NetworkProbe.probe(
+                val fresh = NetworkProbe.probe(
                     appContext,
                     provisionUrl,
                     directEndpoint = directEndpoint,
                     quick = true,
                 )
-                if (
-                    mode == ConnPathMode.Auto &&
-                    probePreferred == VpnPath.Direct &&
-                    lastGood?.networkClass == NetworkClass.DirectOk &&
-                    fresh.preselectedPath == VpnPath.Bypass &&
-                    !fresh.awgUdpOk
-                ) {
-                    AppLog.w(TAG, "Connect re-probe flaked AWG UDP — retry once")
-                    fresh = NetworkProbe.probe(
-                        appContext,
-                        provisionUrl,
-                        directEndpoint = directEndpoint,
-                        quick = true,
-                    )
-                }
                 val usePath = resolveConnectPath(mode, probePreferred, lastGood, fresh)
                 AppLog.v(
                     TAG,
                     "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
-                        "mode=$mode awg=${fresh.awgUdpOk} health=${fresh.provisionOk}",
+                        "mode=$mode yandex=${fresh.yandexOk} vps=${fresh.provisionOk}",
                 )
                 if (usePath == null) {
                     applyProbe(fresh)
@@ -500,8 +487,8 @@ class ConnectionManager(
     }
 
     /**
-     * Respect Settings path mode. In Auto, stick to a recent DirectOk when Connect
-     * re-probe briefly loses /health (otherwise we bounce to Bypass without hash).
+     * Auto follows the fresh 77.88.8.8 + VPS-IP probe. Do not keep Direct when
+     * the VPS IP just disappeared — that is how whitelist looks after Wi‑Fi→LTE.
      */
     private fun resolveConnectPath(
         mode: ConnPathMode,
@@ -514,18 +501,7 @@ class ConnectionManager(
             ConnPathMode.Bypass -> return VpnPath.Bypass
             ConnPathMode.Auto -> Unit
         }
-        val freshPath = fresh.preselectedPath
-        if (freshPath == VpnPath.Direct) return VpnPath.Direct
-        if (
-            probePreferred == VpnPath.Direct &&
-            lastGood?.networkClass == NetworkClass.DirectOk &&
-            (lastGood.awgUdpOk || lastGood.provisionOk) &&
-            freshPath == VpnPath.Bypass
-        ) {
-            AppLog.w(TAG, "Keeping Direct despite flaky re-probe (awg=${lastGood.awgUdpOk} health=${lastGood.provisionOk})")
-            return VpnPath.Direct
-        }
-        return freshPath ?: probePreferred.takeIf {
+        return fresh.preselectedPath ?: probePreferred.takeIf {
             lastGood?.networkClass == NetworkClass.DirectOk || lastGood?.preselectedPath != null
         }
     }
@@ -563,6 +539,7 @@ class ConnectionManager(
             return
         }
         softRestartInProgress = false
+        handoverProbeStreak = ProbeStreak()
         presenceJob?.cancel()
         presenceJob = null
         connectJob?.cancel()
@@ -651,8 +628,7 @@ class ConnectionManager(
         AppLog.v(
             TAG,
             "Handover probe done class=${fresh.networkClass} path=${fresh.preselectedPath} " +
-                "yandex=${fresh.yandexOk} bigtech=${fresh.bigtechOk} " +
-                "awg=${fresh.awgUdpOk} health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
+                "yandex=${fresh.yandexOk} vps=${fresh.provisionOk} ${fresh.elapsedMs}ms",
         )
 
         // Update UI probe snapshot without leaving Connected/Connecting.
@@ -663,7 +639,8 @@ class ConnectionManager(
         )
 
         val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
-        val vpsReachable = fresh.provisionOk || fresh.awgUdpOk
+        val vpsReachable = fresh.provisionOk
+        handoverProbeStreak = updateProbeStreak(handoverProbeStreak, fresh.preselectedPath)
         val decision = decideNetworkHandoverAction(
             pathMode = mode,
             currentPath = currentPath,
@@ -672,13 +649,15 @@ class ConnectionManager(
             sessionAgeMs = handoverSessionAgeMs(),
             currentPathHealthy = _ui.value.state == ConnState.Connected,
             underlayVpsReachable = vpsReachable,
+            sameProbeStreak = handoverProbeStreak.count,
         )
         when (decision) {
             NetworkHandoverDecision.NoAction -> {
                 AppLog.v(
                     TAG,
                     "Handover: no action path=$currentPath probe=${fresh.preselectedPath} " +
-                        "vps=$vpsReachable connected=${_ui.value.state == ConnState.Connected}",
+                        "vps=$vpsReachable streak=${handoverProbeStreak.count} " +
+                        "connected=${_ui.value.state == ConnState.Connected}",
                 )
             }
             is NetworkHandoverDecision.SwitchPath -> {
@@ -931,9 +910,9 @@ class ConnectionManager(
             parts += "Профиль указывает на документационный IP — импортируйте JSON с вашего VPS."
         }
         when (result.networkClass) {
-            NetworkClass.OpenNeedBypass ->
+            NetworkClass.NeedBypass, NetworkClass.OpenNeedBypass ->
                 if (pathMode == ConnPathMode.Auto) {
-                    parts += "VPS недоступен — будет обход через звонок."
+                    parts += "VPS недоступен (белый список или нет маршрута) — будет обход."
                 }
             NetworkClass.DirectOk -> Unit
             NetworkClass.Captive ->
