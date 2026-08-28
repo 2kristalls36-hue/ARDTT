@@ -1,12 +1,11 @@
 package com.nonamevpn.app.core
 
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NetworkProbeAwgTest {
     @Test
-    fun tcpHealthAloneDoesNotUnlockDirect() {
+    fun tcpHealthUnlocksDirectEvenIfAwgSilent() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -15,8 +14,8 @@ class NetworkProbeAwgTest {
             awgUdpOk = false,
             provisionOk = true,
         )
-        assertTrue(r.preselectedPath == VpnPath.Bypass)
-        assertFalse(r.networkClass == NetworkClass.DirectOk)
+        assertTrue(r.preselectedPath == VpnPath.Direct)
+        assertTrue(r.networkClass == NetworkClass.DirectOk)
     }
 
     @Test

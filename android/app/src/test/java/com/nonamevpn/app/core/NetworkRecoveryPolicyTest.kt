@@ -263,21 +263,55 @@ class NetworkRecoveryPolicyTest {
     @Test
     fun handoverAutoSwitchesPathWhenProbeDisagrees() {
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
-            decideNetworkHandoverAction(
-                pathMode = ConnPathMode.Auto,
-                currentPath = VpnPath.Direct,
-                probedPath = VpnPath.Bypass,
-                bypassAllowed = true,
-            ),
-        )
-        assertEquals(
             NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Bypass,
                 probedPath = VpnPath.Direct,
                 bypassAllowed = true,
+                underlayVpsReachable = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                currentPathHealthy = false,
+                underlayVpsReachable = false,
+            ),
+        )
+    }
+
+    @Test
+    fun handoverDoesNotKillHealthyDirectWhenUnderlayMissesVps() {
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                currentPathHealthy = true,
+                underlayVpsReachable = false,
+            ),
+        )
+    }
+
+    @Test
+    fun handoverIgnoresEventsDuringGrace() {
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                sessionAgeMs = 3_000L,
+                currentPathHealthy = true,
+                underlayVpsReachable = false,
             ),
         )
     }

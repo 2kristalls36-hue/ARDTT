@@ -66,6 +66,7 @@ class ConnectionManager(
     private var pathMode: ConnPathMode = ConnPathMode.Auto
     /** Soft transport restart in progress (Wi‑Fi↔LTE); do not treat as user disconnect. */
     @Volatile private var softRestartInProgress: Boolean = false
+    @Volatile private var tunnelStartedAtMs: Long = 0L
 
     fun updateProfile(profile: VpnProfile?) {
         this.profile = profile
@@ -518,10 +519,10 @@ class ConnectionManager(
         if (
             probePreferred == VpnPath.Direct &&
             lastGood?.networkClass == NetworkClass.DirectOk &&
-            lastGood.awgUdpOk &&
+            (lastGood.awgUdpOk || lastGood.provisionOk) &&
             freshPath == VpnPath.Bypass
         ) {
-            AppLog.w(TAG, "Keeping Direct despite flaky re-probe (last awg=${lastGood.awgUdpOk})")
+            AppLog.w(TAG, "Keeping Direct despite flaky re-probe (awg=${lastGood.awgUdpOk} health=${lastGood.provisionOk})")
             return VpnPath.Direct
         }
         return freshPath ?: probePreferred.takeIf {
@@ -662,13 +663,24 @@ class ConnectionManager(
         )
 
         val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
+        val vpsReachable = fresh.provisionOk || fresh.awgUdpOk
         val decision = decideNetworkHandoverAction(
             pathMode = mode,
             currentPath = currentPath,
             probedPath = fresh.preselectedPath,
             bypassAllowed = bypassAllowed,
+            sessionAgeMs = handoverSessionAgeMs(),
+            currentPathHealthy = _ui.value.state == ConnState.Connected,
+            underlayVpsReachable = vpsReachable,
         )
         when (decision) {
+            NetworkHandoverDecision.NoAction -> {
+                AppLog.v(
+                    TAG,
+                    "Handover: no action path=$currentPath probe=${fresh.preselectedPath} " +
+                        "vps=$vpsReachable connected=${_ui.value.state == ConnState.Connected}",
+                )
+            }
             is NetworkHandoverDecision.SwitchPath -> {
                 AppLog.v(TAG, "Handover: switch $currentPath → ${decision.path}")
                 applySessionPath(decision.path)
@@ -804,14 +816,35 @@ class ConnectionManager(
         }
     }
 
-    fun onTunnelFailed(message: String) {
-        // Ignore cancel noise if UI already left the tunnel (Stop / reconnect).
+    /**
+     * @return true if the VPN service should switch to Bypass instead of stopping.
+     */
+    fun onTunnelFailed(message: String): Boolean {
         if (
             message.contains("cancelled", ignoreCase = true) ||
             message.contains("StandaloneCoroutine", ignoreCase = true)
         ) {
             AppLog.w(TAG, "Ignoring cancel as tunnel failure: $message")
-            return
+            return false
+        }
+        val failedPath = TunnelSessionHolder.config?.path ?: _ui.value.activePath
+        val canFallback =
+            pathMode == ConnPathMode.Auto &&
+                failedPath == VpnPath.Direct &&
+                callHashOrNull() != null &&
+                _ui.value.state != ConnState.Disconnecting &&
+                _ui.value.state != ConnState.Ready
+        if (canFallback) {
+            AppLog.i(TAG, "Direct failed — Auto fallback to Bypass: $message")
+            applySessionPath(VpnPath.Bypass)
+            _ui.value = _ui.value.copy(
+                state = ConnState.Connecting,
+                activePath = VpnPath.Bypass,
+                statusText = "Прямое недоступно — обход…",
+                lastError = null,
+                connectEnabled = true,
+            )
+            return true
         }
         val wasSoft = softRestartInProgress
         softRestartInProgress = false
@@ -829,6 +862,7 @@ class ConnectionManager(
                 connectEnabled = connectAllowed(_ui.value.probe),
             )
         }
+        return false
     }
 
     fun onServiceStopped() {
@@ -899,7 +933,7 @@ class ConnectionManager(
         when (result.networkClass) {
             NetworkClass.OpenNeedBypass ->
                 if (pathMode == ConnPathMode.Auto) {
-                    parts += "AWG UDP недоступен — будет обход через звонок."
+                    parts += "VPS недоступен — будет обход через звонок."
                 }
             NetworkClass.DirectOk -> Unit
             NetworkClass.Captive ->
@@ -1048,7 +1082,7 @@ class ConnectionManager(
                     provisionBaseUrl = resolveProvisionUrl(),
                     deviceId = profile?.deviceId,
                     context = appContext,
-                    viaVpn = shouldProvisionViaVpn(),
+                    viaVpn = false,
                 )
                 refreshVpnNotification()
                 if (!ip.isNullOrBlank()) return@launch
@@ -1091,7 +1125,13 @@ class ConnectionManager(
         }
     }
 
+    private fun handoverSessionAgeMs(): Long {
+        if (tunnelStartedAtMs <= 0L) return Long.MAX_VALUE
+        return System.currentTimeMillis() - tunnelStartedAtMs
+    }
+
     private fun startTunnel(path: VpnPath) {
+        tunnelStartedAtMs = System.currentTimeMillis()
         val addr = when (path) {
             VpnPath.Direct -> profile?.direct?.address ?: tunAddress
             VpnPath.Bypass -> profile?.bypass?.address ?: tunAddress
