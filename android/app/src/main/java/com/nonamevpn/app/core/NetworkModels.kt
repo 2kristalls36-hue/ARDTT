@@ -20,6 +20,9 @@ data class ProbeResult(
     val yandexOk: Boolean,
     val bigtechOk: Boolean,
     val captive: Boolean,
+    /** AWG UDP handshake response from direct.endpoint (real Direct viability). */
+    val awgUdpOk: Boolean,
+    /** TCP provision /health (host alive; not sufficient for Direct on whitelist). */
     val provisionOk: Boolean,
     val message: String,
     val elapsedMs: Long,

@@ -651,6 +651,7 @@ private fun TunnelStatusPanel(
                 StatusFactRow(label = "Сеть", value = p.networkClass.name)
                 StatusFactRow(label = "Yandex", value = if (p.yandexOk) "ok" else "—")
                 StatusFactRow(label = "Bigtech", value = if (p.bigtechOk) "ok" else "—")
+                StatusFactRow(label = "AWG UDP", value = if (p.awgUdpOk) "ok" else "—")
                 StatusFactRow(label = "Health", value = if (p.provisionOk) "ok" else "—")
                 if (p.elapsedMs > 0) {
                     StatusFactRow(label = "Время", value = "${p.elapsedMs} мс")

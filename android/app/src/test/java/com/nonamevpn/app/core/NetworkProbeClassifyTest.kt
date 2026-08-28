@@ -7,12 +7,28 @@ import org.junit.Test
 
 class NetworkProbeClassifyTest {
     @Test
+    fun awgUdpUnlocksDirect() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = true,
+            captive = false,
+            awgUdpOk = true,
+            provisionOk = false,
+        )
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertTrue(r.message.contains("прямое"))
+    }
+
+    @Test
     fun provisionHealthUnlocksDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = true,
             captive = false,
+            awgUdpOk = true,
             provisionOk = true,
         )
         assertEquals(VpnPath.Direct, r.preselectedPath)
@@ -27,7 +43,8 @@ class NetworkProbeClassifyTest {
             yandexOk = true,
             bigtechOk = true,
             captive = false,
-            provisionOk = false,
+            awgUdpOk = false,
+            provisionOk = true,
         )
         assertEquals(VpnPath.Bypass, r.preselectedPath)
         assertEquals(NetworkClass.OpenNeedBypass, r.networkClass)
@@ -40,6 +57,7 @@ class NetworkProbeClassifyTest {
             yandexOk = true,
             bigtechOk = true,
             captive = true,
+            awgUdpOk = true,
             provisionOk = true,
         )
         assertNull(r.preselectedPath)
