@@ -21,9 +21,9 @@
 
 Во время записи по периметру всего Compose-интерфейса (включая диалоги внутри `MainActivity`) отображается пульсирующая рамка:
 
-- цвет: тёмно-красный (`#8B0000`);
-- толщина: 2.5 px;
-- анимация: opacity 1.0 ↔ 0.5, ~1 Гц;
+- цвет: ярко-красный (`#FF3B30`);
+- толщина: 6 dp;
+- анимация: opacity 1.0 ↔ 0.72, ~1 Гц;
 - при остановке — мгновенно исчезает.
 
 > **Ограничение:** отдельные Activity (например, WebView-вход VK) не обёрнуты Compose-оверлеем. Для них lifecycle-события всё равно пишутся в лог.
@@ -36,7 +36,7 @@
 {"timestamp":1712345678000,"event_type":"touch","session_id":"uuid","data":{"screen":"tunnel","x":120.5,"y":340.0,"element_id":null}}
 ```
 
-Типы событий: `touch`, `navigation`, `scroll`, `network`, `error`, `system`, `lifecycle`.
+Типы событий: `touch`, `navigation`, `scroll`, `network`, `error`, `app_log`, `deploy`, `system`, `lifecycle`.
 
 ### Что собирается
 
@@ -50,6 +50,11 @@
 | **scroll** | Свайпы/скроллы (dx/dy) |
 | **lifecycle** | onCreate/onResume/onPause/onDestroy, фон/передний план |
 | **error** | Исключения + stack trace |
+| **app_log** | Внутренние события VPN, подключения, trusted Wi‑Fi, WARP и фоновых сервисов |
+| **deploy** | Старт, SSH, версия архива, прогресс, полный вывод install/Compose, exit code, итог и удалённый install.log при ошибке |
+
+Пароли, приватные ключи, токены, Cookie/Authorization и PEM-блоки
+маскируются до записи. Длинные строки и stack trace ограничиваются по размеру.
 
 ### Имя файла
 
@@ -163,6 +168,8 @@ telemetry/
   TelemetryFileManager.kt   — имена файлов, список/удаление
   TelemetryUploadClient.kt  — POST + прогресс + retry
   AppHttpClient.kt          — OkHttp + перехват HTTP
+  TelemetryBridge.kt        — AppLog/deploy → активная запись
+  TelemetryRedactor.kt      — удаление секретов и ограничение строк
   collectors/               — device + network snapshots
 ui/
   admin/TestingScreen.kt    — вкладка «Тестирование»
