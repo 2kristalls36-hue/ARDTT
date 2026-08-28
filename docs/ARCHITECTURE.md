@@ -1,4 +1,8 @@
-# nonameVPN — архитектура
+# ARDTT — архитектура
+
+Легенда имени и смыслов: [LEGEND.md](LEGEND.md).  
+**ARDTT** = Amnezia + RAW Dial via TURN (черновики: nonameVPN → AWDTT).  
+Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DTLS); см. [LEGEND.md](LEGEND.md).
 
 Клиентский VPN с двумя путями до своего VPS:
 
@@ -13,20 +17,26 @@
 
 | Тема | Решение |
 |------|---------|
-| Платформа | Android; форк `amneziawg-android` + bypass из qWDTT |
+| Платформа | Android; форк `amneziawg-android` + RAW bypass из qWDTT / SpaceNeuroX |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
-| Деплой | Compose: `direct` + `bypass` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
-| WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0` |
+| Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
+| WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
+
 | Call hash | **1 hash на пользователя VPN**, только на телефоне (не в серверном `nvpn` как обязательное поле) |
 | Дозвон | **`vkcalls` по умолчанию** + **`legacy` (капча) как fallback** |
 | VK-аккаунт | Только чтобы **создать** звонок/hash; Connect — анонимный `vkcalls` (или legacy) по hash |
 | Мёртвый звонок | По умолчанию спросить; настройка «тихий режим» — recreate в фоне |
 | TURN transport | **TCP** |
 | Workers | **Default 3** на один hash (TCP); в настройках можно 1 («экономия») |
-| Имя | Временно `nonameVPN` / `nvpn://` |
+| Имя | **ARDTT** (Amnezia + RAW Dial via TURN); см. [LEGEND.md](LEGEND.md). Внутренние id/`nvpn`/каталоги `wdtt-*` — совместимость |
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
+| Переподключение | Мягкий restart при смене Wi‑Fi/LTE: settle ~1 с, затем **re-probe underlay** (Auto) и при необходимости смена Direct↔Bypass; иначе тот же path. VpnService живёт, backend/`libclient` перезапускается |
+| Wake rescue | После `SCREEN_ON` через ~60 с: если Path B без активных воркеров — soft restart |
+| Watchdog | Path B: 0 воркеров ≥5 мин (экран вкл.) или мёртвый backend ≥60 с → soft restart |
+| Trusted Wi‑Fi | Список SSID: на сети VPN пауза; при выходе — авто-подъём (нужна локация для SSID) |
+
 
 ---
 
@@ -76,7 +86,7 @@ Android
 | Раздел | Содержимое |
 |--------|------------|
 | **Логи** | Подробные логи tunnel / bypass / probe; export |
-| **Деплой** | Установка/обновление сервера (SSH), как Deploy в qWDTT |
+| **Деплой** | Установка/обновление сервера (SSH), как Deploy в WDTT |
 | **Серверы / provision** | Пользователи, host_id, выдача профилей |
 | **Сеть / обход** | dial auto\|vkcalls\|legacy, workers, тихий recreate |
 | **AWG** | Обфускация, endpoint, ключи |
@@ -101,16 +111,26 @@ Android
 
 ## WARP = скрытие IP (egress), не третий path
 
-UI перед Connect: чекбокс **«Скрыть свой IP адрес»** (per-session или запомнить в профиле).
+UI перед Connect: чекбокс **«Скрыть свой IP»** (per-session или запомнить в профиле).
 
-- Выкл: NAT с `awg0`/`raw0` в интернет напрямую (IP VPS).
-- Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` (wireproxy→tun2socks).
+- Выкл: NAT с `awg0`/`wdttraw0` в интернет напрямую (IP VPS).
+- Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` (wgcf / kernel WG).
 
-На клиенте **нет** отдельного `10.10.0.{id}` как path подключения. Подсеть `10.10.0.0/24` на VPS — только под интерфейс WARP/маршрутизацию, не адрес клиента в `nvpn`.
+**DNS не через WARP.** Иначе резолв ломается (таймауты, «IP есть — сайты нет»), особенно на tun2socks/SOCKS и часто на WARP-пути.
+
+```
+prio 100: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → lookup main   # DNS → WAN
+prio 300+: from 10.8.0.x / 10.9.0.x → lookup 51820 → warp0         # остальное
++ MASQUERADE :53 на eth0 для 10.8/10.9/10.66
+```
+
+Клиентский DNS — **шлюз туннеля** (`10.8.0.1` Direct / `10.9.0.1` Bypass) → **dnsmasq** (`nvpn-dns`) → upstream `1.1.1.1`/`1.0.0.1` по `main`. Запросы на внешний `:53` (старые профили) по-прежнему уводятся `ip rule` prio 100 → main.
+
+На клиенте **нет** отдельного `10.10.0.{id}` как path подключения.
 
 ```
 provision: host_id → 10.8.0.id + 10.9.0.id
-warp flag (клиент) → на сервере mark/policy для этого id → warp0
+hideIp → policy from client → table 51820 → warp0 (кроме :53)
 ```
 
 ---
@@ -122,7 +142,11 @@ warp flag (клиент) → на сервере mark/policy для этого i
 - Полный AWG handshake / подъём туннеля на каждый старт приложения.
 - TCP connect на UDP-порт `-listen-raw` как доказательство «VPS жив».
 
-### Что делаем при старте / смене сети (параллельно, ~3–4 с)
+### Что делаем при старте / смене сети (параллельно, ~1–2 с)
+
+Те же проверки. На **смене сети при активном туннеле** сокеты биндятся к underlay (`NOT_VPN`), чтобы не классифицировать мир через уже поднятый Direct/Bypass. В режиме Auto при смене класса сети — переключение пути; иначе soft-restart того же path.
+
+Таймауты (полный / handover `quick`): TCP 2 с / 1.5 с, captive 1.5 / 1 с, UDP 1 с, `/health` 2 / 1.5 с. Bigtech — 4 хоста параллельно. Если `/health` ok — UDP не ждём. Settle после смены сети ~1 с. Connect re-probe использует `quick`.
 
 | Probe | Как | Зачем |
 |-------|-----|--------|
@@ -148,7 +172,7 @@ warp flag (клиент) → на сервере mark/policy для этого i
 | **NeedBypass** | VPS UDP-lite fail, но yandex‖bigtech | Path B | «Обход» |
 | **OpenNeedBypass** | NeedBypass и bigtech ok | Path B | Мягкий info, **не** blocking dialog |
 
-**Убрали** qWDTT-style hard-block «не используйте без БС». На открытой сети при недоступном VPS обход как раз нужен. Info-текст можно показать, Connect не запрещаем.
+**Убрали** hard-block «не используйте без БС». На открытой сети при недоступном VPS обход как раз нужен. Info-текст можно показать, Connect не запрещаем.
 
 Инициализация клиента (профиль, `.so`, проверка VPN permission) — **параллельно** с probe. TURN Allocate — только после Connect на Path B.
 
@@ -156,7 +180,7 @@ warp flag (клиент) → на сервере mark/policy для этого i
 
 ## Нагрузка Path B (workers)
 
-Слепой `workers=1` сильно режет скорость (qWDTT RAW как раз от параллельных каналов).
+Слепой `workers=1` сильно режет скорость (RAW Path B как раз от параллельных каналов).
 
 **Зафиксировано (подтверждено):**
 
@@ -166,7 +190,7 @@ warp flag (клиент) → на сервере mark/policy для этого i
 | «Экономия» в настройках | 1 | Слабые сети / отладка |
 | Потолок (позже) | 6–9 | Только после замеров |
 
-Один **hash** на пользователя; несколько workers = несколько TURN allocations на тот же hash (как qWDTT), не несколько звонков.
+Один **hash** на пользователя; несколько workers = несколько TURN allocations на тот же hash (как WDTT), не несколько звонков.
 
 ---
 
@@ -192,9 +216,9 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 Звонок мёртв: спросить | тихий recreate (настройка)
 ```
 
-### Как в qWDTT сейчас (#7 — сессия / тихий режим)
+### Как в WDTT (#7 — сессия / тихий режим)
 
-| Что | Поведение qWDTT |
+| Что | Поведение WDTT |
 |-----|-----------------|
 | Anonymous `vkcalls` | API: anonymous_token → call preview → anonym call token → `turn_server`; **без** долгого аккаунта |
 | Account mode | WebView логин; `turn_server` с страницы звонка; Go получает `TURN_CREDS` через stdin; кэш кредов **~9 мин** в памяти |
@@ -202,11 +226,11 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 | Hash | В профиле приложения (пользователь/генератор хешей) |
 | Refresh | При ошибках Allocate — refresh creds; смена hash; цепочка captcha для legacy |
 
-**Для нас (тихий recreate):** хранить hash + возможность открыть WebView/сессию VK при recreate; TURN creds кэшировать ≤9 мин как qWDTT; не хранить пароль VK — только cookies/сессия WebView (как qWDTT) в app-private storage. Тихий режим = auto WebView/API recreate без диалога (нужна ещё живая cookie-сессия; иначе всё равно показать логин).
+**Для нас (тихий recreate):** хранить hash + возможность открыть WebView/сессию VK при recreate; TURN creds кэшировать ≤9 мин как WDTT; не хранить пароль VK — только cookies/сессия WebView (как WDTT) в app-private storage. Тихий режим = auto WebView/API recreate без диалога (нужна ещё живая cookie-сессия; иначе всё равно показать логин).
 
 ### Зависимость от VK (#10)
 
-**Как в qWDTT:** форк API/WebView под текущий VK; при поломке — обновление приложения; Path всегда только через TURN VK; несколько hash/workers как смягчение; captcha/account как запасные ветки.
+**Как в WDTT:** форк API/WebView под текущий VK; при поломке — обновление приложения; Path всегда только через TURN VK; несколько hash/workers как смягчение; captcha/account как запасные ветки.
 
 **Наше предложение:**
 
@@ -227,11 +251,13 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 
 ## Лицензии GPL × Apache (#9)
 
-qWDTT/WDTT ≈ **GPL-3.0**, amneziawg-android ≈ **Apache-2.0**.
+- amneziawg-android / AmneziaWG ≈ **Apache-2.0**
+- Path B RAW (qWDTT / SpaceNeuroX) ≈ **GPL-3.0** — см. [NOTICE](../NOTICE), [LEGEND.md](LEGEND.md)
+- Классический WDTT (amurcanov) — идейный предок (WG/TURN/DTLS), не источник RAW
 
 **Сделать:**
 
-1. В репо: `LICENSE` (решение для **всего APK** — практично **GPL-3.0**), `NOTICE` с атрибуцией Amnezia (Apache) и qWDTT/WDTT (GPL).
+1. В репо: `LICENSE` (решение для **всего APK** — практично **GPL-3.0**), `NOTICE` с атрибуцией Amnezia (Apache) и SpaceNeuroX/qWDTT RAW (GPL).
 2. Не удалять copyright headers из форкнутых файлов.
 3. README: откуда код, что продукт — комбинированное произведение под GPL-3.
 4. Play/распространение: готовность отдать corresponding source (GPL).
@@ -322,7 +348,7 @@ Call hash — **локально на устройстве**, не обязан 
 1. Форк AmneziaWG Android + AWG direct.
 2. Bypass RAW + TCP + dial auto (vkcalls→legacy).
 3. Hash на телефоне; VK только create/recreate call.
-4. Compose: direct + bypass + warp (hide-IP egress) + provision.
+4. Compose: direct + bypass + dns + warp (hide-IP egress) + provision.
 5. Лёгкий parallel probe + re-probe на Connect; без hard-block OpenNoVps.
 6. LICENSE/NOTICE (GPL-3 + атрибуции).
 7. warp без restart-on-OOM; GOMEMLIMIT/soft recycle.

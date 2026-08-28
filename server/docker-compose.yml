@@ -1,4 +1,4 @@
-# nonameVPN server stack
+# ARDTT server stack
 # Usage:
 #   export NVPN_PUBLIC_HOST=1.2.3.4
 #   docker compose -f server/docker-compose.yml up -d --build
@@ -7,7 +7,9 @@
 # - host network + NET_ADMIN required for TUN (direct/bypass/warp).
 # - provision exposes TCP :9100 /health and generates AWG keypairs.
 # - direct: amneziawg-go + awg (AmneziaWG 2.0 userspace).
-# - bypass: wdtt-server -listen-raw (qWDTT/WDTT, GPL-3).
+# - bypass: wdtt-server -listen-raw (qWDTT / SpaceNeuroX RAW, GPL-3).
+# - dns: dnsmasq on 10.8.0.1 / 10.9.0.1 (client DNS; upstream 1.1.1.1 via main).
+# - warp: hideIp → table 51820; DNS :53 stays on main (prio 100) or hits local dnsmasq.
 
 services:
   provision:
@@ -18,6 +20,7 @@ services:
       NVPN_PUBLIC_HOST: ${NVPN_PUBLIC_HOST:-}
       NVPN_PROVISION_LISTEN: ${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}
       NVPN_DATA: /data
+      NVPN_DEPLOY_VERSION: ${NVPN_DEPLOY_VERSION:-}
     volumes:
       - ./data:/data
     restart: unless-stopped
@@ -50,11 +53,21 @@ services:
     environment:
       NVPN_BYPASS_PORT: ${NVPN_BYPASS_PORT:-56003}
       NVPN_DATA: /data
+      NVPN_BYPASS_DNS: ${NVPN_BYPASS_DNS:-10.9.0.1}
     volumes:
-      - ./data:/data:ro
+      - ./data:/data
       - bypass-config:/etc/wdtt
     depends_on:
       - provision
+    restart: unless-stopped
+
+  dns:
+    build: ./dns
+    container_name: nvpn-dns
+    network_mode: host
+    depends_on:
+      - direct
+      - bypass
     restart: unless-stopped
 
   warp:
@@ -68,11 +81,26 @@ services:
     environment:
       GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-400MiB}
       NVPN_DATA: /data
+      NVPN_WARP_STATE: /var/lib/nvpn-warp
     volumes:
       - ./data:/data:ro
+      - ./data/warp:/var/lib/nvpn-warp
     depends_on:
       - provision
-    # Intentionally avoid restart-on-OOM loops — soft memory policy in-process
+      - dns
+    restart: unless-stopped
+
+  telemetry:
+    build: ./telemetry-upload
+    container_name: nvpn-telemetry
+    network_mode: host
+    environment:
+      TELEMETRY_LOG_ROOT: /var/logs/app
+      TELEMETRY_LISTEN: ${NVPN_TELEMETRY_LISTEN:-0.0.0.0:9200}
+      # Optional: when set, review/list/mark-read APIs require Bearer auth.
+      TELEMETRY_REVIEW_TOKEN: ${TELEMETRY_REVIEW_TOKEN:-}
+    volumes:
+      - ${NVPN_TELEMETRY_LOG_ROOT:-/var/logs/app}:/var/logs/app
     restart: unless-stopped
 
 volumes:

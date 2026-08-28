@@ -12,7 +12,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 
 /**
- * Path B — RAW over TURN via qWDTT go_client (libclient.so):
+ * Path B — RAW over TURN via qWDTT/SpaceNeuroX go_client (libclient.so):
  * dial (vkcalls) → TURN TCP → WRAP → VPS -listen-raw. No DTLS. No nested WG.
  *
  * TUN is established after RAWCONF (not before), so go_client can dial without

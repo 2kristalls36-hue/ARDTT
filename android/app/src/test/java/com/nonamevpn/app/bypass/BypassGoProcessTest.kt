@@ -24,6 +24,14 @@ class BypassGoProcessTest {
         val conf = BypassGoProcess.parseRawConfLine("RAWCONF:10.9.0.5|1.1.1.1|1280")
         assertNotNull(conf)
         assertEquals("10.9.0.5", conf!!.ip)
+        assertEquals("1.1.1.1", conf.dnsCsv)
         assertEquals(1280, conf.mtu)
+    }
+
+    @Test
+    fun rawConfLineBlankDnsFallsBackToGateway() {
+        val conf = BypassGoProcess.parseRawConfLine("RAWCONF:10.9.0.5||1280")
+        assertNotNull(conf)
+        assertEquals("10.9.0.1", conf!!.dnsCsv)
     }
 }

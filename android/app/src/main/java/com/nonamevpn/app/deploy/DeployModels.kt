@@ -16,6 +16,8 @@ data class DeployTarget(
     val publicHost: String = "",
     val directPort: Int = 51820,
     val bypassPort: Int = 56003,
+    /** Epoch ms of last successful deploy from this app; 0 = unknown. */
+    val lastDeployedAtMs: Long = 0L,
 )
 
 sealed class DeployAuth {

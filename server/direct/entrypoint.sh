@@ -34,10 +34,26 @@ setup_forwarding() {
   if [ -w /proc/sys/net/ipv4/ip_forward ]; then
     echo 1 >/proc/sys/net/ipv4/ip_forward || true
   fi
-  if command -v iptables >/dev/null 2>&1; then
-    iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -j MASQUERADE 2>/dev/null \
-      || iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE || true
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
   fi
+
+  local wan comment="AWG_DIRECT_MANAGED"
+  wan="$(ip route show default 0.0.0.0/0 2>/dev/null | awk '{print $5; exit}')"
+  [[ -z "${wan}" ]] && wan="eth0"
+
+  # FORWARD accept for awg0 (FORWARD policy is often DROP on Docker hosts).
+  iptables -C FORWARD -i "${IFACE}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
+    || iptables -I FORWARD 1 -i "${IFACE}" -m comment --comment "${comment}" -j ACCEPT || true
+  iptables -C FORWARD -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
+    || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT || true
+
+  # Prefer WAN-scoped MASQ so we do not NAT into warp0 by accident.
+  iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null \
+    || iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE || true
+  # Keep a broad fallback for unusual routing setups.
+  iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -j MASQUERADE 2>/dev/null \
+    || iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE || true
 }
 
 wait_for_users
