@@ -14,8 +14,8 @@ import androidx.compose.ui.unit.dp
  * Slightly more transparent than opaque cards so content reads underneath.
  */
 object NvpnFloatingShell {
-    const val DarkShellAlpha = 0.73f
-    const val LightShellAlpha = 0.90f
+    const val DarkShellAlpha = 0.88f
+    const val LightShellAlpha = 0.96f
 
     @Composable
     fun isDarkTheme(): Boolean = MaterialTheme.colorScheme.background.luminance() < 0.22f

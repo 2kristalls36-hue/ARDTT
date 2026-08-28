@@ -62,7 +62,7 @@ fun NvpnNavigationBar(
 ) {
     val colors = MaterialTheme.colorScheme
     val selectedColor = colors.primary
-    val unselectedColor = colors.onSurfaceVariant.copy(alpha = 0.55f)
+    val unselectedColor = colors.onSurfaceVariant.copy(alpha = 0.72f)
     val shellColor = NvpnFloatingShell.shellColor()
     val isDark = NvpnFloatingShell.isDarkTheme()
     val indicatorColor = if (isDark) {
