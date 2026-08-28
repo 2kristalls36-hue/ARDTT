@@ -9,6 +9,8 @@ enum class TelemetryEventType(val wire: String) {
     Scroll("scroll"),
     Network("network"),
     Error("error"),
+    AppLog("app_log"),
+    Deploy("deploy"),
     System("system"),
     Lifecycle("lifecycle"),
 }

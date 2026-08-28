@@ -1,5 +1,6 @@
 package com.nonamevpn.app.core
 
+import com.nonamevpn.app.telemetry.TelemetryBridge
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -107,5 +108,11 @@ object AppLog {
             Level.W -> android.util.Log.w(tag, msg)
             Level.I -> if (verbose) android.util.Log.d(tag, msg) else android.util.Log.i(tag, msg)
         }
+        TelemetryBridge.appLog(
+            level = level.name,
+            tag = tag,
+            message = msg,
+            verbose = verbose,
+        )
     }
 }

@@ -41,13 +41,18 @@ private class TelemetryOkHttpInterceptor : Interceptor {
 
         val reqHeaders = JSONObject()
         for (name in request.headers.names()) {
-            reqHeaders.put(name, request.header(name))
+            val value = request.header(name).orEmpty()
+            reqHeaders.put(
+                name,
+                if (isSensitiveHeader(name)) "[REDACTED]"
+                else TelemetryRedactor.redact(value),
+            )
         }
         val reqBodyPreview = request.body?.let { body ->
             runCatching {
                 val buffer = okio.Buffer()
                 body.writeTo(buffer)
-                truncate(buffer.readUtf8())
+                TelemetryRedactor.redact(buffer.readUtf8(), MAX_BODY_BYTES)
             }.getOrNull()
         }
 
@@ -55,7 +60,7 @@ private class TelemetryOkHttpInterceptor : Interceptor {
             TelemetryEventType.Network,
             JSONObject()
                 .put("phase", "request")
-                .put("url", request.url.toString())
+                .put("url", TelemetryRedactor.redact(request.url.toString()))
                 .put("method", request.method)
                 .put("headers", reqHeaders)
                 .put("body", reqBodyPreview ?: JSONObject.NULL),
@@ -68,7 +73,7 @@ private class TelemetryOkHttpInterceptor : Interceptor {
                 TelemetryEventType.Network,
                 JSONObject()
                     .put("phase", "error")
-                    .put("url", request.url.toString())
+                    .put("url", TelemetryRedactor.redact(request.url.toString()))
                     .put("method", request.method)
                     .put("message", e.message ?: e.javaClass.simpleName)
                     .put("elapsed_ms", System.currentTimeMillis() - start),
@@ -85,19 +90,21 @@ private class TelemetryOkHttpInterceptor : Interceptor {
             TelemetryEventType.Network,
             JSONObject()
                 .put("phase", "response")
-                .put("url", request.url.toString())
+                .put("url", TelemetryRedactor.redact(request.url.toString()))
                 .put("method", request.method)
                 .put("status", response.code)
                 .put("elapsed_ms", elapsed)
-                .put("body", truncate(bodyString)),
+                .put("body", TelemetryRedactor.redact(bodyString, MAX_BODY_BYTES)),
         )
 
         return response
     }
 
-    private fun truncate(raw: String): String {
-        if (raw.length <= MAX_BODY_BYTES) return raw
-        return raw.take(MAX_BODY_BYTES) + "…[truncated ${raw.length} bytes]"
+    private fun isSensitiveHeader(name: String): Boolean {
+        return name.equals("Authorization", ignoreCase = true) ||
+            name.equals("Cookie", ignoreCase = true) ||
+            name.equals("Set-Cookie", ignoreCase = true) ||
+            name.startsWith("X-Auth-", ignoreCase = true)
     }
 
     companion object {
