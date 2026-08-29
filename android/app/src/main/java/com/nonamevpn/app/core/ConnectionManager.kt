@@ -433,7 +433,7 @@ class ConnectionManager(
                         AppLog.e(TAG, "hide-ip enable failed: ${r.exceptionOrNull()?.message}")
                         _ui.value = _ui.value.copy(
                             state = ConnState.Error,
-                            lastError = "Не удалось включить сокрытие исходящего адреса: ${r.exceptionOrNull()?.message}",
+                            lastError = "Не удалось скрыть адрес: ${r.exceptionOrNull()?.message}",
                             connectEnabled = true,
                         )
                         return@launch
@@ -1006,7 +1006,7 @@ class ConnectionManager(
             parts += "Для обхода сохраните код звонка на устройстве."
         }
         if (_ui.value.hideIp) {
-            parts += "Сокрытие исходящего адреса: исходящий трафик направляется через Cloudflare WARP."
+            parts += "Скрыт адрес: выход через Cloudflare WARP."
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
@@ -1017,7 +1017,7 @@ class ConnectionManager(
     }
 
     private fun hideSuffix(enabled: Boolean = _ui.value.hideIp): String =
-        if (enabled) " · исходящий адрес скрыт" else ""
+        if (enabled) " · адрес скрыт" else ""
 
     /**
      * Content for the custom VPN shade RemoteViews (qWDTT-style plate).

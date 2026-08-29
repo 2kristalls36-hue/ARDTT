@@ -6,7 +6,7 @@
     <string name="notif_direct">ARDTT · прямое</string>
     <string name="notif_bypass">ARDTT · обход</string>
     <string name="notif_running">Подключено</string>
-    <string name="notif_running_masked">Подключено · исходящий адрес скрыт</string>
+    <string name="notif_running_masked">Подключено · адрес скрыт</string>
     <string name="notif_stop">Отключить</string>
     <string name="widget_description">Быстрое подключение ARDTT</string>
     <string name="widget_status_dot">Статус</string>

@@ -28,7 +28,7 @@ class DeviceUnlockCopyTest {
     @Test
     fun lockMessagesStayFormal() {
         assertTrue(DeviceUnlockCopy.wrongCode(0).startsWith("Код указан неверно"))
-        assertTrue(DeviceUnlockCopy.wrongCode(30_000L).contains("Повторите попытку"))
-        assertTrue(DeviceUnlockCopy.locked(30_000L).startsWith("Превышено допустимое число попыток"))
+        assertTrue(DeviceUnlockCopy.wrongCode(30_000L).contains("Повтор"))
+        assertTrue(DeviceUnlockCopy.locked(30_000L).startsWith("Слишком много попыток"))
     }
 }

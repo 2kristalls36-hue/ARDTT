@@ -266,9 +266,9 @@ fun TunnelScreen(
                 )
                 Text(
                     if (vpnLocked) {
-                        "Изменение параметров недоступно, пока установлено соединение."
+                        "Недоступно во время соединения."
                     } else {
-                        "Маршрут и исходящий адрес. Код звонка задаётся в разделе «Настройки»."
+                        "Маршрут и исходящий адрес. Код звонка — в «Настройках»."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -278,8 +278,8 @@ fun TunnelScreen(
                     title = "Маршрут",
                     subtitle = when (pathMode) {
                         "direct" -> "Только прямое подключение."
-                        "bypass" -> "Только обход. Код звонка задаётся в настройках."
-                        else -> "Автоматический выбор: прямое подключение, при недоступности — обход."
+                        "bypass" -> "Только обход. Код звонка — в настройках."
+                        else -> "Сначала прямое, при недоступности — обход."
                     },
                 ) {
                     ChoiceChipButton(
@@ -328,9 +328,9 @@ fun TunnelScreen(
                 QuickSettingRow(
                     title = "Исходящий адрес",
                     subtitle = if (hideIp) {
-                        "Исходящий трафик направляется через Cloudflare WARP."
+                        "Выход через Cloudflare WARP."
                     } else {
-                        "Исходящий трафик использует адрес сервера."
+                        "Выход с адреса сервера."
                     },
                 ) {
                     ChoiceChipButton(

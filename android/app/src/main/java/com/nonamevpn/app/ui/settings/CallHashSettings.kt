@@ -67,16 +67,16 @@ fun CallHashSettingsCard() {
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            "Код звонка необходим для режима обхода. Он сохраняется на устройстве и не входит в состав профиля.",
+            "Нужен для обхода. Хранится на устройстве, в профиль не входит.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             when {
-                vpnActive -> "Изменение кода недоступно, пока установлено соединение."
+                vpnActive -> "Недоступно во время соединения."
                 !message.isNullOrBlank() -> message.orEmpty()
                 ui.hasCallHash -> "Код сохранён на этом устройстве."
-                vkLoggedIn -> "Авторизация ВКонтакте выполнена. Создайте код звонка."
+                vkLoggedIn -> "Вход выполнен. Создайте код звонка."
                 profile == null -> "Сначала выберите профиль."
                 else -> "Код не задан."
             },
@@ -100,8 +100,8 @@ fun CallHashSettingsCard() {
                         vkLoggedIn = VkSession.hasSessionCookie()
                         message = when {
                             r.isSuccess && vkLoggedIn ->
-                                "Авторизация выполнена. Создайте код звонка."
-                            r.isSuccess -> "Сессия не подтверждена. Повторите попытку."
+                                "Вход выполнен. Создайте код звонка."
+                            r.isSuccess -> "Сессия не подтверждена. Повторите вход."
                             else -> r.exceptionOrNull()?.message ?: "Авторизация отменена."
                         }
                     }

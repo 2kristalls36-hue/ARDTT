@@ -206,7 +206,7 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                DialChip("Системная", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
+                DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
                 DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
                 DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
             }
@@ -260,11 +260,9 @@ fun SettingsScreen(
             Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 if (vpnLocked) {
-                    "Изменение маршрута и исходящего адреса недоступно, пока установлено соединение."
+                    "Недоступно во время соединения."
                 } else {
-                    "В автоматическом режиме используется прямое подключение; " +
-                        "при его недоступности выполняется переход на обход. " +
-                        "Маршрут можно задать принудительно."
+                    "Авто: прямое подключение, иначе обход. Маршрут можно задать вручную."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -305,11 +303,11 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary,
             )
             RowSetting(
-                title = "Сокрытие исходящего адреса",
+                title = "Скрыть адрес",
                 subtitle = if (hideIp) {
-                    "Исходящий трафик направляется через Cloudflare WARP."
+                    "Выход через Cloudflare WARP."
                 } else {
-                    "Исходящий трафик использует адрес сервера."
+                    "Выход с адреса сервера."
                 },
                 checked = hideIp,
                 enabled = !vpnLocked,
@@ -321,11 +319,11 @@ fun SettingsScreen(
                 },
             )
             RowSetting(
-                title = "Уведомление о состоянии VPN",
+                title = "Уведомление VPN",
                 subtitle = if (notifVisible) {
-                    "В области уведомлений отображаются состояние, скорость и команда остановки."
+                    "Состояние, скорость и остановка в уведомлениях."
                 } else {
-                    "Уведомление скрыто из области уведомлений. Система может оставлять служебную запись без звука."
+                    "Скрыто. Система может оставить служебную запись."
                 },
                 checked = notifVisible,
                 enabled = true,
@@ -350,9 +348,7 @@ fun SettingsScreen(
         ) {
             Text("Обход", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Способ получения параметров обхода. Автоматический режим использует vkcalls " +
-                    "и при необходимости резервный вариант. Подключение выполняется по сохранённому коду звонка. " +
-                    "Код звонка задаётся в разделе ниже.",
+                "Источник параметров обхода. Авто — vkcalls, иначе резерв. Нужен код звонка ниже.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -365,8 +361,8 @@ fun SettingsScreen(
                 DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
             }
             RowSetting(
-                title = "Автоматическое обновление звонка",
-                subtitle = "При недействительном коде звонок создаётся без дополнительного подтверждения. Требуется сессия ВКонтакте.",
+                title = "Обновлять звонок автоматически",
+                subtitle = "Новый звонок без подтверждения. Нужна сессия ВКонтакте.",
                 checked = silent,
                 onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
             )
@@ -383,9 +379,9 @@ fun SettingsScreen(
             Text("Администратор", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 if (admin) {
-                    "Доступны разделы «Серверы», «Деплой» и «Журналы». Для вкладки телеметрии включите режим тестирования."
+                    "Открыты «Серверы», «Деплой» и «Журналы». Телеметрия — после включения тестирования."
                 } else {
-                    "Переместите ползунок вправо до конца шкалы, чтобы открыть функции администратора."
+                    "Переместите ползунок вправо до конца."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -400,13 +396,13 @@ fun SettingsScreen(
                         }
                     },
                     onIncomplete = {
-                        adminHint = "Переместите ползунок до конца шкалы."
+                        adminHint = "Доведите ползунок до конца."
                     },
                 )
             } else {
                 RowSetting(
                     title = "Тестирование",
-                    subtitle = "Диагностические журналы доступны только после принятия соглашения.",
+                    subtitle = "Журналы — после принятия соглашения.",
                     checked = testingMode,
                     onCheckedChange = { enabled ->
                         if (!enabled) {
@@ -654,7 +650,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     ) {
         Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            "В указанных сетях VPN приостанавливается автоматически. При выходе из сети, отключении параметра или удалении записи подключение восстанавливается. Добавляется только текущая сеть Wi‑Fi. Пока имя сети не определено, автоматический режим не переводит обход на прямое подключение.",
+            "В этих сетях VPN приостанавливается. При выходе подключение восстанавливается. Добавляется только текущая сеть.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

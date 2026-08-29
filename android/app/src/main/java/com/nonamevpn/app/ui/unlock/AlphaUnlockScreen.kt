@@ -1,6 +1,7 @@
 package com.nonamevpn.app.ui.unlock
 
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,8 +50,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -59,9 +63,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nonamevpn.app.R
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.components.AppBackdrop
-import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.unlock.AlphaGate
 import com.nonamevpn.app.unlock.AlphaUnlockResult
@@ -85,7 +88,17 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AppBackdrop(modifier = Modifier.fillMaxSize())
+        Image(
+            painter = painterResource(R.drawable.ic_unlock_hero),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0x66081428)),
+        )
         val hex = challenge
         if (hex == null) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -121,16 +134,25 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                 )
                 .padding(horizontal = 16.dp),
         ) {
-            AppPageHeader(
-                title = "ARDTT",
-                subtitle = DeviceUnlockCopy.SUBTITLE,
-                showBrandMark = true,
+            val onHero = Color.White
+            Text(
+                "ARDTT",
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+                color = onHero,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                DeviceUnlockCopy.SUBTITLE,
+                style = MaterialTheme.typography.bodyMedium,
+                color = onHero.copy(alpha = 0.78f),
+                modifier = Modifier.padding(top = 2.dp, bottom = 18.dp),
             )
 
             Text(
                 DeviceUnlockCopy.CONFIRMATION_TITLE,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
+                color = onHero,
                 modifier = Modifier.padding(bottom = 10.dp),
             )
             SixDigitCodeField(
@@ -184,21 +206,26 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                         }
                     },
                     singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White.copy(alpha = 0.94f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.90f),
+                        disabledContainerColor = Color.White.copy(alpha = 0.90f),
+                    ),
                 )
                 Text(
                     DeviceUnlockCopy.INTRO,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = onHero.copy(alpha = 0.88f),
                 )
                 Text(
                     DeviceUnlockCopy.STEPS,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = onHero.copy(alpha = 0.88f),
                 )
                 Text(
                     DeviceUnlockCopy.FOOTNOTE,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = onHero.copy(alpha = 0.70f),
                 )
             }
 
