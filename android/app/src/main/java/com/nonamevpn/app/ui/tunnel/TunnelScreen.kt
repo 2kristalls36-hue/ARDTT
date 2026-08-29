@@ -274,10 +274,13 @@ fun TunnelScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    if (vpnLocked) {
-                        "Недоступно во время соединения. Разблокировка — в «Настройках»."
-                    } else {
-                        "Маршрут, исходящий адрес и доверенная Wi‑Fi. Код звонка — в «Настройках»."
+                    when {
+                        vpnLocked ->
+                            "Недоступно во время соединения. Разблокировка — в «Настройках»."
+                        (connected || connecting || pausedTrusted) && unlockConnControls ->
+                            "Нажатие «Прямое» или «Обход» переключает маршрут на лету, без отключения."
+                        else ->
+                            "Маршрут, исходящий адрес и доверенная Wi‑Fi. Код звонка — в «Настройках»."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -301,7 +304,7 @@ fun TunnelScreen(
                         onClick = {
                             scope.launch {
                                 settings.setPathMode("auto")
-                                conn.setPathMode(ConnPathMode.Auto)
+                                conn.setPathMode(ConnPathMode.Auto, switchLive = true)
                                 AppLog.i("PathMode", "auto")
                             }
                         },
@@ -315,7 +318,7 @@ fun TunnelScreen(
                         onClick = {
                             scope.launch {
                                 settings.setPathMode("direct")
-                                conn.setPathMode(ConnPathMode.Direct)
+                                conn.setPathMode(ConnPathMode.Direct, switchLive = true)
                                 AppLog.i("PathMode", "direct")
                             }
                         },
@@ -334,7 +337,7 @@ fun TunnelScreen(
                             }
                             scope.launch {
                                 settings.setPathMode("bypass")
-                                conn.setPathMode(ConnPathMode.Bypass)
+                                conn.setPathMode(ConnPathMode.Bypass, switchLive = true)
                                 AppLog.i("PathMode", "bypass")
                             }
                         },

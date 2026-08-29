@@ -178,7 +178,7 @@ fun SettingsScreen(
                 when {
                     vpnLocked -> "Недоступно во время соединения."
                     vpnSessionActive && unlockConnControls ->
-                        "Соединение установлено. Кнопки маршрута и адреса разблокированы."
+                        "Соединение установлено. Смена маршрута применяется сразу, без отключения."
                     else -> "Авто: прямое подключение, иначе обход. Маршрут можно задать вручную."
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -191,14 +191,24 @@ fun SettingsScreen(
                 DialChip(
                     "Авто",
                     pathMode == "auto",
-                    { scope.launch { settings.setPathMode("auto") } },
+                    {
+                        scope.launch {
+                            settings.setPathMode("auto")
+                            conn.setPathMode(ConnPathMode.Auto, switchLive = true)
+                        }
+                    },
                     Modifier.weight(1f),
                     enabled = !vpnLocked,
                 )
                 DialChip(
                     "Прямое",
                     pathMode == "direct",
-                    { scope.launch { settings.setPathMode("direct") } },
+                    {
+                        scope.launch {
+                            settings.setPathMode("direct")
+                            conn.setPathMode(ConnPathMode.Direct, switchLive = true)
+                        }
+                    },
                     Modifier.weight(1f),
                     enabled = !vpnLocked,
                 )
@@ -213,7 +223,10 @@ fun SettingsScreen(
                                 runCatching { callHashBringIntoView.bringIntoView() }
                             }
                         } else {
-                            scope.launch { settings.setPathMode("bypass") }
+                            scope.launch {
+                                settings.setPathMode("bypass")
+                                conn.setPathMode(ConnPathMode.Bypass, switchLive = true)
+                            }
                         }
                     },
                     Modifier.weight(1f),
@@ -261,7 +274,7 @@ fun SettingsScreen(
             RowSetting(
                 title = "Кнопки во время соединения",
                 subtitle = if (unlockConnControls) {
-                    "Маршрут и исходящий адрес можно менять, пока туннель включён."
+                    "Маршрут и исходящий адрес можно менять на лету, пока туннель включён."
                 } else {
                     "Пока туннель включён, маршрут и адрес заблокированы."
                 },

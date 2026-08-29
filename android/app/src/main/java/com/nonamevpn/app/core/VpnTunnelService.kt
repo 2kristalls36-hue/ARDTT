@@ -113,10 +113,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     if (trustedWifiWaiting) {
                         resumeFromTrustedWifi("manual restart")
                     } else {
+                        val pathOverride = intent.getStringExtra(EXTRA_PATH)?.let { name ->
+                            runCatching { VpnPath.valueOf(name) }.getOrNull()
+                        }
                         requestSoftRestart(
                             reason = intent.getStringExtra(EXTRA_RESTART_REASON)
                                 ?: "Запрошено переподключение транспорта",
                             force = true,
+                            pathOverride = pathOverride,
                         )
                     }
                 }
@@ -212,11 +216,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             enterTrustedWifiWaiting(ssid)
             return
         }
-        launchBackend(path, softRestart = false)
+        launchBackend(TunnelSessionHolder.config?.path ?: path, softRestart = false)
         scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
     }
 
-    private fun launchBackend(path: VpnPath, softRestart: Boolean) {
+    private fun launchBackend(requestedPath: VpnPath, softRestart: Boolean) {
         val config = TunnelSessionHolder.config
         if (config == null) {
             AppLog.e(TAG, "No session config")
@@ -224,6 +228,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             ConnectionManager.getOrNull()?.onTunnelFailed("Нет конфигурации сессии")
             stopSelf()
             return
+        }
+        val path = config.path
+        if (path != requestedPath) {
+            AppLog.v(TAG, "launchBackend holder=$path requested=$requestedPath")
         }
 
         val epoch = ++backendEpoch
@@ -417,6 +425,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             softRestartInProgress = false
             AppLog.e(TAG, "soft restart aborted: no session path")
             return
+        }
+        if (pathOverride != null && TunnelSessionHolder.config?.path != pathOverride) {
+            ConnectionManager.getOrNull()?.applySessionPath(pathOverride)
         }
         AppLog.v(TAG, "soft restart #$softRestartCount path=$path: $reason")
         ConnectionManager.getOrNull()?.onTransportRestarting(reason)
