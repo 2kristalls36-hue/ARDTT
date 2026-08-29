@@ -8,6 +8,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,13 +68,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -555,6 +557,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         BypassSearchBar(
             value = searchQuery,
             onValueChange = { searchQuery = it },
+            keyboardVisible = imePad > 12.dp,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -675,26 +678,26 @@ private fun BypassInputBar(
 private fun BypassSearchBar(
     value: String,
     onValueChange: (String) -> Unit,
+    keyboardVisible: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     val surfaceAlpha by animateFloatAsState(
-        targetValue = if (focused) 1f else 0.70f,
+        targetValue = if (keyboardVisible) 1f else 0.70f,
         label = "bypass_search_alpha",
     )
     val elevation by animateDpAsState(
-        targetValue = if (focused) 6.dp else 3.dp,
+        targetValue = if (keyboardVisible) 6.dp else 3.dp,
         label = "bypass_search_elev",
     )
     Surface(
-        onClick = { focusRequester.requestFocus() },
         modifier = modifier.height(NvpnBottomChrome.ButtonHeight),
         shape = RoundedCornerShape(20.dp),
         color = colors.surface.copy(alpha = surfaceAlpha),
         shadowElevation = elevation,
-        tonalElevation = if (focused) 2.dp else 0.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
@@ -705,7 +708,15 @@ private fun BypassSearchBar(
             Icon(
                 Icons.Outlined.Search,
                 contentDescription = "Поиск",
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier
+                    .size(22.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {
+                        focusRequester.requestFocus()
+                        keyboard?.show()
+                    },
                 tint = colors.onSurfaceVariant,
             )
             Spacer(Modifier.width(12.dp))
@@ -718,10 +729,13 @@ private fun BypassSearchBar(
                     fontWeight = FontWeight.SemiBold,
                 ),
                 cursorBrush = SolidColor(colors.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = { keyboard?.hide() },
+                ),
                 modifier = Modifier
                     .weight(1f)
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { focused = it.isFocused },
+                    .focusRequester(focusRequester),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (value.isEmpty()) {
