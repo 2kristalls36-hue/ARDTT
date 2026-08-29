@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Offline unlock helper for ARDTT alpha APKs.
+"""Офлайн-разблокировка альфа-сборки ARDTT.
 
-The tester copies a 16-hex device code from the first-launch screen and sends it
-to you. This script prints the matching 6-digit code. No network is used.
+Запуск в терминале (интерактивно — просто вставляете код с телефона):
 
-Keep this file private. Anyone with it (or a decompiled APK) can mint codes.
+    python3 scripts/alpha-unlock.py
 
-Usage:
+Или сразу с кодом:
+
     python3 scripts/alpha-unlock.py A1B2-C3D4-E5F6-7890
-    python3 scripts/alpha-unlock.py a1b2c3d4e5f67890
+
+Интернет не нужен. Файл не отдавать тестерам.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import hashlib
 import hmac
 import re
 import struct
+import subprocess
 import sys
 
 # Must stay in lockstep with AlphaGate.kt (MASK xor OBFUSCATED = HMAC secret).
@@ -97,12 +99,23 @@ _SECRET = bytes(a ^ b for a, b in zip(_OBFUSCATED, _MASK))
 _HEX16 = re.compile(r"^[0-9a-f]{16}$")
 
 
+class BadChallenge(ValueError):
+    pass
+
+
 def normalize_challenge(raw: str) -> str:
-    compact = raw.strip().lower().replace("-", "").replace(" ", "").replace("\n", "").replace("\r", "")
+    compact = (
+        raw.strip()
+        .lower()
+        .replace("-", "")
+        .replace(" ", "")
+        .replace("\n", "")
+        .replace("\r", "")
+    )
     if not _HEX16.fullmatch(compact):
-        raise SystemExit(
+        raise BadChallenge(
             "Ожидаю 16 шестнадцатеричных символов (можно с дефисами), "
-            f"получено: {raw!r}"
+            f"получено: {raw.strip()!r}"
         )
     return compact
 
@@ -115,6 +128,70 @@ def one_time_code(challenge_hex: str) -> str:
     return f"{binary % 1_000_000:06d}"
 
 
+def copy_to_clipboard(text: str) -> bool:
+    for cmd in (
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+        ["pbcopy"],
+        ["clip"],
+    ):
+        try:
+            subprocess.run(
+                cmd,
+                input=text.encode("utf-8"),
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError, OSError):
+            continue
+    return False
+
+
+def print_unlock_code(otp: str, *, labeled: bool) -> None:
+    if labeled:
+        copied = copy_to_clipboard(otp)
+        extra = "  (скопирован)" if copied else ""
+        print(f"Код разблокировки: {otp}{extra}")
+    else:
+        print(otp)
+
+
+def interactive_loop() -> None:
+    print("ARDTT — офлайн-разблокировка альфа-сборки")
+    print("Вставьте код устройства с телефона и нажмите Enter.")
+    print("Пустая строка или Ctrl+C — выход. Интернет не нужен.\n")
+    while True:
+        try:
+            raw = input("Код устройства: ")
+        except EOFError:
+            print()
+            return
+        except KeyboardInterrupt:
+            print()
+            return
+        if not raw.strip():
+            return
+        try:
+            print_unlock_code(one_time_code(raw), labeled=True)
+        except BadChallenge as exc:
+            print(f"Ошибка: {exc}")
+        print()
+
+
+def codes_from_stdin() -> None:
+    had_any = False
+    for line in sys.stdin:
+        raw = line.strip()
+        if not raw:
+            continue
+        had_any = True
+        print_unlock_code(one_time_code(raw), labeled=False)
+    if not had_any:
+        raise SystemExit("Нет кода устройства во вводе.")
+
+
 def _self_test() -> None:
     assert one_time_code("0123456789abcdef") == "302184"
     assert one_time_code("A1B2-C3D4-E5F6-0718") == "881716"
@@ -122,14 +199,31 @@ def _self_test() -> None:
 
 
 def main(argv: list[str]) -> None:
-    if len(argv) != 2 or argv[1] in {"-h", "--help"}:
-        print(__doc__.strip(), file=sys.stderr)
-        raise SystemExit(2)
-    if argv[1] == "--self-test":
+    args = argv[1:]
+    if args and args[0] in {"-h", "--help"}:
+        print(__doc__.strip())
+        return
+    if args == ["--self-test"]:
         _self_test()
         return
-    print(one_time_code(argv[1]))
+    if args:
+        try:
+            for raw in args:
+                print_unlock_code(one_time_code(raw), labeled=False)
+        except BadChallenge as exc:
+            raise SystemExit(str(exc)) from exc
+        return
+    if sys.stdin.isatty():
+        interactive_loop()
+        return
+    try:
+        codes_from_stdin()
+    except BadChallenge as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":
-    main(sys.argv)
+    try:
+        main(sys.argv)
+    except KeyboardInterrupt:
+        sys.exit(130)
