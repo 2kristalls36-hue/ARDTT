@@ -3,6 +3,8 @@ package com.nonamevpn.app.ui.exceptions
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -20,7 +22,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -63,6 +64,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -91,7 +95,7 @@ private enum class ExceptionsPane { Apps, Sites }
 
 private val CardShape = RoundedCornerShape(24.dp)
 private val ControlShape = RoundedCornerShape(14.dp)
-private val AppCardShape = RoundedCornerShape(16.dp)
+private val AppCardShape = RoundedCornerShape(14.dp)
 
 @Stable
 data class ExceptionAppItem(
@@ -674,12 +678,23 @@ private fun BypassSearchBar(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    var focused by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    val surfaceAlpha by animateFloatAsState(
+        targetValue = if (focused) 1f else 0.70f,
+        label = "bypass_search_alpha",
+    )
+    val elevation by animateDpAsState(
+        targetValue = if (focused) 6.dp else 3.dp,
+        label = "bypass_search_elev",
+    )
     Surface(
+        onClick = { focusRequester.requestFocus() },
         modifier = modifier.height(NvpnBottomChrome.ButtonHeight),
         shape = RoundedCornerShape(20.dp),
-        color = colors.surface,
-        shadowElevation = 6.dp,
-        tonalElevation = 2.dp,
+        color = colors.surface.copy(alpha = surfaceAlpha),
+        shadowElevation = elevation,
+        tonalElevation = if (focused) 2.dp else 0.dp,
     ) {
         Row(
             modifier = Modifier
@@ -703,7 +718,10 @@ private fun BypassSearchBar(
                     fontWeight = FontWeight.SemiBold,
                 ),
                 cursorBrush = SolidColor(colors.primary),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { focused = it.isFocused },
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (value.isEmpty()) {
@@ -783,22 +801,18 @@ private fun AppExceptionRow(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 5.dp)
-            .offset(y = if (isSelected) 1.dp else 0.dp),
+            .padding(horizontal = 12.dp, vertical = 3.dp),
         shape = AppCardShape,
-        color = if (isSelected) colors.secondaryContainer else colors.surface,
-        contentColor = if (isSelected) colors.onSecondaryContainer else colors.onSurface,
-        shadowElevation = if (isSelected) 0.dp else 2.dp,
-        tonalElevation = if (isSelected) 6.dp else 0.dp,
-        border = BorderStroke(
-            width = if (isSelected) 2.dp else 1.dp,
-            color = if (isSelected) colors.secondary else colors.outline.copy(alpha = 0.35f),
-        ),
+        color = colors.surface,
+        contentColor = colors.onSurface,
+        shadowElevation = 1.dp,
+        tonalElevation = 0.dp,
+        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.35f)),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (app.icon != null) {
@@ -806,25 +820,25 @@ private fun AppExceptionRow(
                     bitmap = app.icon,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(10.dp)),
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp)),
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .background(colors.surfaceVariant, RoundedCornerShape(10.dp)),
+                        .size(36.dp)
+                        .background(colors.surfaceVariant, RoundedCornerShape(8.dp)),
                 )
             }
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 12.dp),
+                    .padding(end = 8.dp),
             ) {
                 Text(
                     text = app.name,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
