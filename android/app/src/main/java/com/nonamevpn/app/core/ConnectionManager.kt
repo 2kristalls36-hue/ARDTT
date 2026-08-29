@@ -1050,7 +1050,7 @@ class ConnectionManager(
         val title = shadeTitle(u.activePath)
         val pathShort = shadePathShort(u.activePath)
         if (u.state == ConnState.PausedTrustedWifi) {
-            val t = u.statusText.ifBlank { "VPN выключен в доверенной сети" }
+            val t = u.statusText.ifBlank { "Пауза в доверенной сети" }
             return ShadeContent(
                 title = "Доверенная Wi‑Fi",
                 ip = "—",
@@ -1177,6 +1177,7 @@ class ConnectionManager(
                             deviceId = p.deviceId,
                             name = p.name,
                             externalIp = ext,
+                            deviceModel = PhoneModelLabel.current(),
                         )
                     }
                 }

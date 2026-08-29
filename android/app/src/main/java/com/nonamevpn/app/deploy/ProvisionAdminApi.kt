@@ -31,6 +31,7 @@ object ProvisionAdminApi {
         val downBytes: Long = 0L,
         val upBytes: Long = 0L,
         val trafficLimitBytes: Long = 0L,
+        val deviceModels: Map<String, String> = emptyMap(),
     ) {
         val usedBytes: Long get() = (downBytes + upBytes).coerceAtLeast(0L)
     }
@@ -187,6 +188,7 @@ object ProvisionAdminApi {
         deviceId: String,
         name: String,
         externalIp: String = "",
+        deviceModel: String = "",
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/presence")
@@ -194,6 +196,7 @@ object ProvisionAdminApi {
                 .put("deviceId", deviceId.trim())
                 .put("name", name.trim())
                 .put("externalIp", externalIp.trim())
+                .put("deviceModel", deviceModel.trim())
                 .toString()
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -249,7 +252,7 @@ object ProvisionAdminApi {
         return parseUser(JSONObject(body))
     }
 
-    private fun parseUsers(raw: String): List<UserSummary> {
+    internal fun parseUsers(raw: String): List<UserSummary> {
         val trimmed = raw.trim()
         val arr = when {
             trimmed.startsWith("[") -> JSONArray(trimmed)
@@ -266,7 +269,7 @@ object ProvisionAdminApi {
         }
     }
 
-    private fun parseUser(o: JSONObject): UserSummary {
+    internal fun parseUser(o: JSONObject): UserSummary {
         val deviceIds = mutableListOf<String>()
         o.optJSONArray("deviceIds")?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -275,6 +278,14 @@ object ProvisionAdminApi {
         }
         val primary = o.optString("deviceId")
         if (primary.isNotBlank() && primary !in deviceIds) deviceIds.add(0, primary)
+        val deviceModels = linkedMapOf<String, String>()
+        o.optJSONObject("deviceModels")?.let { mo ->
+            val keys = mo.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                mo.optString(key).trim().takeIf { it.isNotEmpty() }?.let { deviceModels[key] = it }
+            }
+        }
         return UserSummary(
             name = o.optString("name"),
             hostId = o.optInt("hostId", 0),
@@ -292,6 +303,23 @@ object ProvisionAdminApi {
             downBytes = o.optLong("downBytes", 0L),
             upBytes = o.optLong("upBytes", 0L),
             trafficLimitBytes = o.optLong("trafficLimitBytes", 0L),
+            deviceModels = deviceModels,
         )
+    }
+}
+
+/** Labels for bound devices: phone model when known, never a raw `dev-…` id. */
+fun deviceDisplayLabels(
+    deviceIds: List<String>,
+    deviceModels: Map<String, String>,
+): List<String> {
+    val ids = deviceIds.map { it.trim() }.filter { it.isNotEmpty() }
+    return ids.mapIndexed { index, id ->
+        val model = deviceModels[id]?.trim().orEmpty()
+        when {
+            model.isNotEmpty() -> model
+            ids.size <= 1 -> "Телефон"
+            else -> "Телефон ${index + 1}"
+        }
     }
 }
