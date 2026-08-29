@@ -1,5 +1,5 @@
 #!/bin/bash
-# nonameVPN VPS installer — run on the server after stack.tar.gz is uploaded.
+# ARDTT VPS installer — run on the server after stack.tar.gz is uploaded.
 # Expects: /opt/nonamevpn/stack.tar.gz and this script.
 # Leaves only: stack/ (compose + data), running images/containers. No build cache / apt junk.
 set -euo pipefail

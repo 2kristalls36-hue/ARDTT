@@ -36,7 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.nonamevpn.app.core.AppLog
-import com.nonamevpn.app.ui.theme.NonameTheme
+import com.nonamevpn.app.ui.theme.ArdttTheme
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
@@ -73,7 +73,7 @@ class VkLoginActivity : ComponentActivity() {
         }
 
         setContent {
-            NonameTheme {
+            ArdttTheme {
                 var loading by remember { mutableStateOf(true) }
                 Column(
                     modifier = Modifier
