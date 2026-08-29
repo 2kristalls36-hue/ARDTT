@@ -105,7 +105,8 @@ fun AppRoot(
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
         when (dest) {
-            AppDestination.Testing -> admin && testingMode
+            AppDestination.Testing ->
+                TestingSessionGuard.testingTabVisible(admin, testingMode, isRecording)
             else -> !dest.adminOnly || admin
         }
     }
@@ -207,10 +208,11 @@ fun AppRoot(
         conn.setPathMode(ConnPathMode.fromSetting(pathModeSetting))
     }
 
-    LaunchedEffect(admin, testingMode, currentRoute) {
+    LaunchedEffect(admin, testingMode, isRecording, currentRoute) {
         val dest = AppDestination.entries.find { it.route == currentRoute }
         val blocked = when {
-            dest == AppDestination.Testing -> !admin || !testingMode
+            dest == AppDestination.Testing ->
+                !TestingSessionGuard.testingTabVisible(admin, testingMode, isRecording)
             dest?.adminOnly == true -> !admin
             else -> false
         }

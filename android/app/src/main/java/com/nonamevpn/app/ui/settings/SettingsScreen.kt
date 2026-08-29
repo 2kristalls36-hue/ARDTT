@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import android.widget.Toast
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
@@ -58,7 +59,9 @@ import com.nonamevpn.app.core.TrustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiPermissionAsk
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.PendingUiAction
+import com.nonamevpn.app.ui.TestingSessionGuard
 import com.nonamevpn.app.legal.TestingModeAgreement
+import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -79,6 +82,8 @@ fun SettingsScreen(
     val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val recorder = remember { TelemetryRecorder.get(context) }
+    val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -97,6 +102,14 @@ fun SettingsScreen(
     val updateUi by updates.ui.collectAsStateWithLifecycle()
     var adminHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
+    val refuseLeaveTestingSession: () -> Unit = {
+        adminHint = TestingSessionGuard.STOP_RECORDING_FIRST
+        Toast.makeText(
+            context,
+            TestingSessionGuard.STOP_RECORDING_FIRST,
+            Toast.LENGTH_LONG,
+        ).show()
+    }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -333,7 +346,11 @@ fun SettingsScreen(
                     checked = testingMode,
                     onCheckedChange = { enabled ->
                         if (!enabled) {
-                            scope.launch { settings.setTestingMode(false) }
+                            if (!TestingSessionGuard.canLeaveTestingSession(isRecording)) {
+                                refuseLeaveTestingSession()
+                            } else {
+                                scope.launch { settings.setTestingMode(false) }
+                            }
                         } else {
                             showTestingAgreement = true
                         }
@@ -341,9 +358,13 @@ fun SettingsScreen(
                 )
                 OutlinedButton(
                     onClick = {
-                        scope.launch {
-                            settings.lockAdmin()
-                            adminHint = null
+                        if (!TestingSessionGuard.canLeaveTestingSession(isRecording)) {
+                            refuseLeaveTestingSession()
+                        } else {
+                            scope.launch {
+                                settings.lockAdmin()
+                                adminHint = null
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
