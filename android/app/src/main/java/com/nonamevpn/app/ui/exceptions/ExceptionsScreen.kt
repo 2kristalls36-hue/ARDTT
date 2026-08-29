@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
@@ -38,7 +37,6 @@ import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -96,7 +94,6 @@ import kotlinx.coroutines.withContext
 private enum class ExceptionsPane { Apps, Sites }
 
 private val CardShape = RoundedCornerShape(24.dp)
-private val ControlShape = RoundedCornerShape(14.dp)
 private val AppCardShape = RoundedCornerShape(14.dp)
 
 @Stable
@@ -135,6 +132,11 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 
     val orderedSites = remember(siteRules) { siteRules.sortedBy { it.lowercase(Locale.getDefault()) } }
     var newRule by remember { mutableStateOf("") }
+    val visibleSites = remember(orderedSites, newRule) {
+        val query = newRule.trim()
+        if (query.isEmpty()) orderedSites
+        else orderedSites.filter { it.contains(query, ignoreCase = true) }
+    }
     var hint by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
@@ -475,17 +477,14 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             }
                         }
 
-                        BypassInputBar(
-                            value = newRule,
-                            onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
-                            enabled = !busy,
-                            canAdd = !busy && newRule.isNotBlank(),
-                            busy = busy,
-                            onAdd = { addSite() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 4.dp),
-                        )
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                            Text(
+                                "Исключение сайтов по IP требует Android 13+",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+                            )
+                        }
 
                         hint?.let {
                             Text(
@@ -496,17 +495,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             )
                         }
 
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                            Text(
-                                "Исключение сайтов по IP требует Android 13+",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = colors.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-                            )
-                        }
-
                         HorizontalDivider(
-                            modifier = Modifier.padding(top = 10.dp),
+                            modifier = Modifier.padding(top = 4.dp),
                             color = colors.outlineVariant.copy(alpha = 0.35f),
                         )
 
@@ -522,14 +512,27 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
                             }
+                        } else if (visibleSites.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "Нет совпадений",
+                                    textAlign = TextAlign.Center,
+                                    color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(
-                                    bottom = NvpnBottomChrome.navigationReserve() + 16.dp,
+                                    top = 8.dp,
+                                    bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp),
                                 ),
                             ) {
-                                items(orderedSites, key = { it }) { rule ->
+                                items(visibleSites, key = { it }) { rule ->
                                     BypassRuleRow(
                                         rule = rule,
                                         enabled = !busy,
@@ -550,20 +553,44 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         }
     }
 
+    val chromePad = NvpnBottomChrome.stickyBottomPadding()
+    val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val keyboardVisible = imePad > 12.dp
+    val floatingBarModifier = Modifier
+        .align(Alignment.BottomCenter)
+        .fillMaxWidth()
+        .zIndex(2f)
+        .padding(horizontal = 16.dp)
+        .padding(bottom = maxOf(chromePad, imePad + 8.dp))
     if (pane == ExceptionsPane.Apps) {
-        val chromePad = NvpnBottomChrome.stickyBottomPadding()
-        val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
         BypassSearchBar(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            keyboardVisible = imePad > 12.dp,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .zIndex(2f)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = maxOf(chromePad, imePad + 8.dp)),
+            keyboardVisible = keyboardVisible,
+            modifier = floatingBarModifier,
         )
+    } else {
+        Row(
+            modifier = floatingBarModifier,
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BypassSearchBar(
+                value = newRule,
+                onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
+                keyboardVisible = keyboardVisible,
+                placeholder = "домен или IP",
+                imeAction = ImeAction.Done,
+                onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
+                modifier = Modifier.weight(1f),
+            )
+            BypassAddButton(
+                enabled = !busy && newRule.isNotBlank(),
+                busy = busy,
+                keyboardVisible = keyboardVisible,
+                onClick = { addSite() },
+            )
+        }
     }
     }
 
@@ -591,83 +618,51 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 }
 
 @Composable
-private fun BypassInputBar(
-    value: String,
-    onValueChange: (String) -> Unit,
+private fun BypassAddButton(
     enabled: Boolean,
-    canAdd: Boolean,
     busy: Boolean,
-    onAdd: () -> Unit,
+    keyboardVisible: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val surfaceAlpha by animateFloatAsState(
+        targetValue = if (keyboardVisible) 1f else 0.88f,
+        label = "bypass_add_alpha",
+    )
+    val elevation by animateDpAsState(
+        targetValue = if (keyboardVisible) 6.dp else 3.dp,
+        label = "bypass_add_elev",
+    )
     Surface(
-        modifier = modifier.height(52.dp),
-        shape = ControlShape,
-        color = colors.surface,
-        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.55f)),
+        onClick = onClick,
+        enabled = enabled && !busy,
+        modifier = modifier
+            .height(NvpnBottomChrome.ButtonHeight)
+            .graphicsLayer { alpha = surfaceAlpha },
+        shape = RoundedCornerShape(20.dp),
+        color = colors.primary,
+        contentColor = colors.onPrimary,
+        shadowElevation = elevation,
+        tonalElevation = 0.dp,
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier.padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                enabled = enabled,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = colors.onSurface,
-                    fontSize = 14.sp,
-                ),
-                cursorBrush = SolidColor(colors.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (canAdd) onAdd() }),
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 14.dp),
-                decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (value.isEmpty()) {
-                            Text(
-                                "домен или IP…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = colors.onSurfaceVariant.copy(alpha = 0.65f),
-                                fontSize = 14.sp,
-                            )
-                        }
-                        inner()
-                    }
-                },
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(1.dp)
-                    .background(colors.outlineVariant.copy(alpha = 0.45f)),
-            )
-            IconButton(
-                onClick = onAdd,
-                enabled = canAdd,
-                modifier = Modifier.size(52.dp),
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = colors.primary,
-                    )
-                } else {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = "Добавить",
-                        tint = if (canAdd) {
-                            colors.primary
-                        } else {
-                            colors.onSurfaceVariant.copy(alpha = 0.35f)
-                        },
-                    )
-                }
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.onPrimary,
+                )
+            } else {
+                Text(
+                    "Добавить",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -679,6 +674,9 @@ private fun BypassSearchBar(
     onValueChange: (String) -> Unit,
     keyboardVisible: Boolean,
     modifier: Modifier = Modifier,
+    placeholder: String = "Поиск",
+    imeAction: ImeAction = ImeAction.Search,
+    onImeAction: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val focusRequester = remember { FocusRequester() }
@@ -693,6 +691,7 @@ private fun BypassSearchBar(
     )
     Surface(
         modifier = modifier
+            .fillMaxWidth()
             .height(NvpnBottomChrome.ButtonHeight)
             .graphicsLayer { alpha = surfaceAlpha },
         shape = RoundedCornerShape(20.dp),
@@ -732,9 +731,10 @@ private fun BypassSearchBar(
                 singleLine = true,
                 textStyle = fieldStyle,
                 cursorBrush = SolidColor(colors.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardOptions = KeyboardOptions(imeAction = imeAction),
                 keyboardActions = KeyboardActions(
-                    onSearch = { keyboard?.hide() },
+                    onSearch = { onImeAction?.invoke() ?: keyboard?.hide() },
+                    onDone = { onImeAction?.invoke() ?: keyboard?.hide() },
                 ),
                 modifier = Modifier
                     .weight(1f)
@@ -747,7 +747,7 @@ private fun BypassSearchBar(
                     ) {
                         if (value.isEmpty()) {
                             Text(
-                                "Поиск",
+                                placeholder,
                                 style = fieldStyle.copy(
                                     color = colors.onSurfaceVariant.copy(alpha = 0.65f),
                                     background = Color.Transparent,
