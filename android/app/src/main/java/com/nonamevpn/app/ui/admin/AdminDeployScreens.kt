@@ -164,12 +164,6 @@ private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
     },
 )
 
-private sealed class HealthUi {
-    data object Checking : HealthUi()
-    data class Online(val deployVersion: String = "") : HealthUi()
-    data object Offline : HealthUi()
-}
-
 private fun formatDeployRelative(ms: Long): String {
     if (ms <= 0L) return ""
     val diff = (System.currentTimeMillis() - ms).coerceAtLeast(0L)
@@ -190,29 +184,18 @@ private fun healthStatusLine(
     lastDeployedAtMs: Long,
     expectedVersion: String,
 ): Pair<String, Color?> {
-    return when (health) {
-        null, HealthUi.Checking -> "● Проверка…" to null
-        is HealthUi.Online -> {
-            val ver = health.deployVersion.ifBlank { "—" }
-            val current = DeployBundle.isCurrent(health.deployVersion, expectedVersion)
-            val freshness = if (current) "актуален" else "нужно обновить"
-            val base = "● Онлайн · деплой $ver · $freshness"
-            val text = if (lastDeployedAtMs > 0L) {
-                "$base · ${formatDeployRelative(lastDeployedAtMs)}"
+    val relative = if (lastDeployedAtMs > 0L) formatDeployRelative(lastDeployedAtMs) else ""
+    val text = healthStatusLabel(health, lastDeployedAtMs, relative)
+    val hint = when (health) {
+        is HealthUi.Online ->
+            if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
+                NvpnColors.connected
             } else {
-                base
+                NvpnColors.warning
             }
-            text to if (current) NvpnColors.connected else NvpnColors.warning
-        }
-        HealthUi.Offline -> {
-            val text = if (lastDeployedAtMs == 0L) {
-                "● Не установлен / нет связи"
-            } else {
-                "● Нет связи"
-            }
-            text to null // error color applied by caller when null + offline
-        }
+        else -> null
     }
+    return text to hint
 }
 
 /** Green = current stack; orange = online but outdated; null = no special border. */
@@ -228,11 +211,6 @@ private fun deployFreshnessBorder(
     } else {
         BorderStroke(2.dp, NvpnColors.warning)
     }
-}
-
-private fun isDeployOutdated(health: HealthUi?, expectedVersion: String): Boolean {
-    val online = health as? HealthUi.Online ?: return true
-    return !DeployBundle.isCurrent(online.deployVersion, expectedVersion)
 }
 
 @Composable
@@ -509,30 +487,18 @@ private fun ServerCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (isActiveDeploy) {
-                    val online = health as? HealthUi.Online
-                    val installed = online?.deployVersion.orEmpty().ifBlank { "—" }
-                    val current = online != null &&
-                        DeployBundle.isCurrent(online.deployVersion, expectedVersion)
+                deployFreshnessChipText(health, expectedVersion)?.let { chip ->
                     Spacer(modifier = Modifier.height(8.dp))
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = if (current) {
-                            NvpnColors.connected.copy(alpha = 0.18f)
-                        } else {
-                            NvpnColors.warning.copy(alpha = 0.18f)
-                        },
+                        color = NvpnColors.warning.copy(alpha = 0.18f),
                     ) {
                         Text(
-                            if (current) {
-                                "Актуальный деплой · $installed"
-                            } else {
-                                "Требуется обновление · $installed → $expectedVersion"
-                            },
+                            chip,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (current) NvpnColors.connected else NvpnColors.warning,
+                            color = NvpnColors.warning,
                         )
                     }
                 }
@@ -768,6 +734,9 @@ private fun ServerOverviewScreen(
         else -> MaterialTheme.colorScheme.primary
     }
     val activeBorder = deployFreshnessBorder(health, isActiveDeploy, expectedVersion)
+    val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
+    val publicHostLine = distinctPublicHost(server.host, server.publicHost)
+    val freshnessChip = deployFreshnessChipText(health, expectedVersion)
 
     Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -798,6 +767,16 @@ private fun ServerOverviewScreen(
                         tonalElevation = 2.dp,
                         shadowElevation = 6.dp,
                     ) {
+                        DropdownMenuItem(
+                            modifier = Modifier.heightIn(min = 54.dp),
+                            contentPadding = PaddingValues(horizontal = 18.dp),
+                            text = { Text("Обновить деплой", fontWeight = FontWeight.Medium) },
+                            leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
+                            onClick = {
+                                onShowActions(false)
+                                onUpdateDeploy()
+                            },
+                        )
                         DropdownMenuItem(
                             modifier = Modifier.heightIn(min = 54.dp),
                             contentPadding = PaddingValues(horizontal = 18.dp),
@@ -837,7 +816,16 @@ private fun ServerOverviewScreen(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 8.dp,
+                bottom = if (showUpdateButton) {
+                    NvpnBottomChrome.scrollContentPadding()
+                } else {
+                    NvpnBottomChrome.navigationReserve() + 16.dp
+                },
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -875,11 +863,13 @@ private fun ServerOverviewScreen(
                             )
                         }
                     }
-                    Text(
-                        "Публичный host: ${server.publicHost.ifBlank { server.host }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (publicHostLine != null) {
+                        Text(
+                            "Публичный host: $publicHostLine",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
                         "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}",
                         style = MaterialTheme.typography.bodySmall,
@@ -891,35 +881,19 @@ private fun ServerOverviewScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = statusColor,
                     )
-                    if (isActiveDeploy || health is HealthUi.Online || health == HealthUi.Offline) {
-                        val online = health as? HealthUi.Online
-                        val installed = online?.deployVersion.orEmpty().ifBlank {
-                            if (health == HealthUi.Offline) "нет связи" else "—"
-                        }
-                        val outdated = isDeployOutdated(health, expectedVersion)
-                        val current = !outdated && online != null
+                    if (freshnessChip != null) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = when {
-                                current -> NvpnColors.connected.copy(alpha = 0.18f)
-                                else -> NvpnColors.warning.copy(alpha = 0.18f)
-                            },
+                            color = NvpnColors.warning.copy(alpha = 0.18f),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Column(
+                            Text(
+                                freshnessChip,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Text(
-                                    when {
-                                        current -> "Актуальный деплой · $installed"
-                                        else -> "Неактуальный деплой · $installed → $expectedVersion"
-                                    },
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (current) NvpnColors.connected else NvpnColors.warning,
-                                )
-                            }
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NvpnColors.warning,
+                            )
                         }
                     }
                 }
@@ -952,20 +926,18 @@ private fun ServerOverviewScreen(
         }
     }
 
-        StickyPrimaryButton(
-            text = "Обновить деплой",
-            onClick = onUpdateDeploy,
-            containerColor = if (isDeployOutdated(health, expectedVersion)) {
-                NvpnColors.warning
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
-            icon = Icons.Filled.CloudUpload,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
-        )
+        if (showUpdateButton) {
+            StickyPrimaryButton(
+                text = "Обновить деплой",
+                onClick = onUpdateDeploy,
+                containerColor = NvpnColors.warning,
+                icon = Icons.Filled.CloudUpload,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
+            )
+        }
     }
 }
 
