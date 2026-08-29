@@ -243,8 +243,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = NvpnBottomChrome.navigationReserve()),
+            .padding(horizontal = 16.dp),
     ) {
         AppTabPageHeader(
             title = "Исключения",
@@ -308,8 +307,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 
         Surface(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 4.dp),
+                .weight(1f)
+                .fillMaxWidth(),
             shape = CardShape,
             color = colors.surfaceVariant.copy(alpha = 0.35f),
             border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
@@ -418,8 +417,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(
                                     top = 8.dp,
-                                    bottom = NvpnBottomChrome.ButtonHeight +
-                                        NvpnBottomChrome.StickyGap + 16.dp,
+                                    bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp),
                                 ),
                             ) {
                                 items(filteredApps, key = { it.packageName }) { app ->
@@ -527,7 +525,9 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 24.dp),
+                                contentPadding = PaddingValues(
+                                    bottom = NvpnBottomChrome.navigationReserve() + 16.dp,
+                                ),
                             ) {
                                 items(orderedSites, key = { it }) { rule ->
                                     BypassRuleRow(
@@ -684,7 +684,7 @@ private fun BypassSearchBar(
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val surfaceAlpha by animateFloatAsState(
-        targetValue = if (keyboardVisible) 1f else 0.70f,
+        targetValue = if (keyboardVisible) 1f else 0.88f,
         label = "bypass_search_alpha",
     )
     val elevation by animateDpAsState(
