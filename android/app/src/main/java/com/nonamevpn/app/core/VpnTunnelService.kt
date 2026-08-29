@@ -39,6 +39,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Single VpnService for Path A (AWG) and Path B (RAW/WRAP).
@@ -137,6 +138,23 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         val path = config?.path ?: VpnPath.Direct
 
         startForegroundNotification(path, getString(R.string.notif_running))
+        scope.launch {
+            if (!settingsRepo.alphaUnlockedSnapshot()) {
+                AppLog.w(TAG, "session start blocked — alpha lock")
+                withContext(Dispatchers.Main) {
+                    stopSession(keepService = false)
+                    ConnectionManager.getOrNull()?.onServiceStopped()
+                    stopSelf()
+                }
+                return@launch
+            }
+            withContext(Dispatchers.Main) {
+                startUnlockedSession(path)
+            }
+        }
+    }
+
+    private fun startUnlockedSession(path: VpnPath) {
         ConnectionManager.getOrNull()?.onServiceStarted(path)
         AppLog.v(TAG, "session start path=$path")
 

@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.deploy.DeployEngine
@@ -24,6 +25,7 @@ import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.ui.AppRoot
 import com.nonamevpn.app.ui.telemetry.RecordingBorderOverlay
 import com.nonamevpn.app.ui.theme.NonameTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,6 +93,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startTunnelFromShortcut() {
+        val settings = AppSettingsRepository(applicationContext)
+        lifecycleScope.launch {
+            if (!settings.alphaUnlockedSnapshot()) return@launch
+            startTunnelFromShortcutUnlocked()
+        }
+    }
+
+    private fun startTunnelFromShortcutUnlocked() {
         val conn = ConnectionManager.get(applicationContext)
         val state = conn.ui.value.state
         if (

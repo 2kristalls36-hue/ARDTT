@@ -18,6 +18,7 @@ bin/
 dist/
 android/app/src/main/jniLibs/
 android/**/.cxx/
+android/.kotlin/
 
 # OS / editor
 .DS_Store
