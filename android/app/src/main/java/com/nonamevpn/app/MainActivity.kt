@@ -24,7 +24,7 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.ui.AppRoot
 import com.nonamevpn.app.ui.telemetry.RecordingBorderOverlay
-import com.nonamevpn.app.ui.theme.NonameTheme
+import com.nonamevpn.app.ui.theme.ArdttTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
             val palette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
             val dynamic by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
             androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
-                NonameTheme(
+                ArdttTheme(
                     themeMode = themeMode,
                     palette = palette,
                     dynamicColor = dynamic,

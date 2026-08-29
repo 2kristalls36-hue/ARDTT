@@ -7,7 +7,7 @@ Jetpack Compose. Отображаемое имя: **ARDTT** (Amnezia + RAW Dial 
 
 ## Иконка
 
-Круглый знак: белая стилизованная **A** (Amnezia) на тёмно-синем (`#0B1F4A`) с тонкой белой обводкой — `mipmap-*/ic_launcher(_round).png`, adaptive `mipmap-anydpi-v26`.
+Круглый и квадратный знак: белая монограмма **AR** на красном (`#FF1800`) — `mipmap-*/ic_launcher(_round).png`, adaptive foreground `mipmap-*/ic_launcher_foreground.png`, монохром `drawable/ic_launcher_monochrome.png`. Исходники — `docs/assets/brand/`.
 
 ## Сборка
 

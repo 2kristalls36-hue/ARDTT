@@ -212,7 +212,7 @@ object NvpnColors {
 }
 
 @Composable
-fun NonameTheme(
+fun ArdttTheme(
     themeMode: String = "system",
     /** `espresso` (default) | `indigo` | `forest`. */
     palette: String = "espresso",

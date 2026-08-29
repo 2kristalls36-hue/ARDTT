@@ -265,7 +265,7 @@ func main() {
 			*numW = 1
 		}
 	} else {
-		// nonameVPN: honour -n as 1..max (economy=1, default=3).
+		// ARDTT: honour -n as 1..max (economy=1, default=3).
 		// Upstream WDTT forced multiples of workersPerGroup (9); we keep
 		// grouping math below but do not bump a small -n up to 9.
 		if *numW < 1 {
