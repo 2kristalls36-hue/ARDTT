@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ARDTT</string>
-    <string name="notif_channel_tunnel">Плашка VPN</string>
-    <string name="notif_channel_tunnel_min">VPN (скрытая)</string>
+    <string name="notif_channel_tunnel">Уведомление VPN</string>
+    <string name="notif_channel_tunnel_min">VPN (скрытое)</string>
     <string name="notif_direct">ARDTT · прямое</string>
     <string name="notif_bypass">ARDTT · обход</string>
     <string name="notif_running">Подключено</string>
-    <string name="notif_running_masked">Подключено · IP скрыт</string>
+    <string name="notif_running_masked">Подключено · исходящий адрес скрыт</string>
     <string name="notif_stop">Отключить</string>
     <string name="widget_description">Быстрое подключение ARDTT</string>
     <string name="widget_status_dot">Статус</string>

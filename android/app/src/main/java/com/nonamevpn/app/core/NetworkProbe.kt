@@ -111,7 +111,7 @@ object NetworkProbe {
                 captive = true,
                 awgUdpOk = awgUdpOk,
                 provisionOk = provisionOk,
-                message = "Войдите в сеть (captive portal)",
+                message = "Требуется авторизация в сети",
                 elapsedMs = 0,
             )
         }

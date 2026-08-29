@@ -20,8 +20,8 @@ data class TurnCredentials(
 
 sealed class DialResult {
     data class Ok(val creds: TurnCredentials) : DialResult()
-    data class NeedHash(val message: String = "Нужен hash звонка на этом устройстве") : DialResult()
-    data class NeedVkLogin(val message: String = "Войдите в VK, чтобы создать звонок") : DialResult()
+    data class NeedHash(val message: String = "Для обхода необходим код звонка на этом устройстве") : DialResult()
+    data class NeedVkLogin(val message: String = "Для создания кода звонка требуется авторизация во ВКонтакте") : DialResult()
     data class Failed(val message: String, val path: DialPath) : DialResult()
 }
 

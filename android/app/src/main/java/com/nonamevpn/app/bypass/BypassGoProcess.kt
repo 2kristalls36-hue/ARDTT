@@ -138,7 +138,7 @@ class BypassGoProcess(
             }
             val code = runCatching { proc.waitFor() }.getOrDefault(-1)
             if (!rawDelivered) {
-                val msg = lastError ?: "go_client завершился (код $code) без RAWCONF — проверьте hash звонка"
+                val msg = lastError ?: "Модуль обхода завершился (код $code) без конфигурации. Проверьте код звонка."
                 lastError = msg
                 onFatal(msg)
             }
@@ -193,9 +193,9 @@ class BypassGoProcess(
                 l.contains("fatal_auth") || l.contains("неверный пароль") ->
                     "Неверный пароль обхода (WRAP)"
                 l.contains("хеш мёртв") || l.contains("call not found") || l.contains("callunavailable") ->
-                    "Звонок не найден или закрыт — создайте новый hash"
+                    "Звонок не найден или закрыт. Создайте новый код звонка."
                 l.contains("captcha") && (l.contains("required") || l.contains("wait")) ->
-                    "VK просит капчу (нужен legacy / WebView)"
+                    "Требуется проверка капчи. Выберите способ «Капча» в настройках обхода."
                 l.contains("all vk credentials failed") ->
                     "Не удалось получить TURN (vkcalls/legacy)"
                 else -> null

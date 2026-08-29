@@ -1,8 +1,5 @@
 package com.nonamevpn.app.ui.tunnel
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.os.Build
 import android.telephony.SubscriptionManager
 import androidx.compose.animation.animateColorAsState
@@ -15,11 +12,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,9 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -59,10 +52,6 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
-import com.nonamevpn.app.bypass.VkCallHashGenerator
-import com.nonamevpn.app.bypass.VkLoginActivity
-import com.nonamevpn.app.bypass.VkSession
-import com.nonamevpn.app.bypass.VkUrl
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
@@ -80,21 +69,10 @@ import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
-import com.nonamevpn.app.ui.components.NvpnDialog
-import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private fun Context.findActivity(): Activity? {
-    var ctx: Context? = this
-    while (ctx is ContextWrapper) {
-        if (ctx is Activity) return ctx
-        ctx = ctx.baseContext
-    }
-    return null
-}
 
 @Composable
 fun TunnelScreen(
@@ -107,10 +85,6 @@ fun TunnelScreen(
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
-    var showHash by remember { mutableStateOf(false) }
-    var callBusy by remember { mutableStateOf(false) }
-    var callMessage by remember { mutableStateOf<String?>(null) }
-    var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
     var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
     var providerIpError by remember { mutableStateOf(EgressIpProbe.lastUnderlayError) }
@@ -162,7 +136,7 @@ fun TunnelScreen(
     val probing = ui.state == ConnState.Probing
     val disconnecting = ui.state == ConnState.Disconnecting
     val busy = probing || connecting || disconnecting
-    val pathBusy = connecting || disconnecting
+    val vpnLocked = connecting || connected || pausedTrusted || disconnecting
 
     LaunchedEffect(ui.state, hideIp) {
         val watchEgress =
@@ -219,39 +193,6 @@ fun TunnelScreen(
         label = "btn_color",
     )
 
-    fun onVkAction() {
-        scope.launch {
-            if (!vkLoggedIn) {
-                callBusy = true
-                callMessage = "Открываем вход VK…"
-                AppLog.i("VK", "Login button pressed")
-                val activityCtx = context.findActivity() ?: context
-                val r = runCatching { VkLoginActivity.login(activityCtx) }
-                    .getOrElse { Result.failure(it) }
-                callBusy = false
-                vkLoggedIn = VkSession.hasSessionCookie()
-                callMessage = when {
-                    r.isSuccess && vkLoggedIn -> "Вход выполнен — можно создать звонок"
-                    r.isSuccess -> "Сессия не подтвердилась — попробуйте ещё раз"
-                    else -> r.exceptionOrNull()?.message ?: "Вход отменён"
-                }
-                AppLog.i("VK", "Login result success=${r.isSuccess} cookie=$vkLoggedIn")
-                return@launch
-            }
-            callBusy = true
-            callMessage = "Создаём звонок…"
-            val r = VkCallHashGenerator.generateOne(context)
-            callBusy = false
-            r.onSuccess { hash ->
-                conn.saveCallHash(hash)
-                callMessage = "Звонок создан, hash сохранён"
-            }.onFailure { e ->
-                callMessage = e.message ?: "Не удалось создать звонок"
-                vkLoggedIn = VkSession.hasSessionCookie()
-            }
-        }
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -265,13 +206,13 @@ fun TunnelScreen(
 
             AppPageHeader(
                 title = "ARDTT",
-                subtitle = "Туннель и быстрые настройки",
+                subtitle = "Подключение",
             )
 
             if (!admin && profile != null) {
                 val active = profile!!.subscriptionActive
                 val expiresText = when {
-                    profile!!.expiresAt <= 0L -> "без срока"
+                    profile!!.expiresAt <= 0L -> "срок не ограничен"
                     else -> {
                         val fmt = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale("ru"))
                         fmt.format(java.util.Date(profile!!.expiresAt * 1000L))
@@ -312,30 +253,38 @@ fun TunnelScreen(
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
 
-            // ═══ Быстрые настройки ═══
             AppSectionCard(
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
                 shape = RoundedCornerShape(28.dp),
             ) {
                 Text(
-                    "Быстрые настройки",
+                    "Параметры подключения",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
+                Text(
+                    if (vpnLocked) {
+                        "Изменение параметров недоступно, пока установлено соединение."
+                    } else {
+                        "Маршрут и исходящий адрес. Код звонка задаётся в разделе «Настройки»."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
                 QuickSettingRow(
-                    title = "Путь",
+                    title = "Маршрут",
                     subtitle = when (pathMode) {
-                        "direct" -> "Только AmneziaWG (AWG)"
-                        "bypass" -> "Только обход RAW через звонок"
-                        else -> "Авто: AWG, резерв обход"
+                        "direct" -> "Только прямое подключение."
+                        "bypass" -> "Только обход. Код звонка задаётся в настройках."
+                        else -> "Автоматический выбор: прямое подключение, при недоступности — обход."
                     },
                 ) {
                     ChoiceChipButton(
                         label = "Авто",
                         selected = pathMode == "auto",
-                        enabled = !pathBusy,
+                        enabled = !vpnLocked,
                         onClick = {
                             scope.launch {
                                 settings.setPathMode("auto")
@@ -348,7 +297,7 @@ fun TunnelScreen(
                     ChoiceChipButton(
                         label = "Прямое",
                         selected = pathMode == "direct",
-                        enabled = !pathBusy,
+                        enabled = !vpnLocked,
                         selectedContainer = NvpnColors.pathDirect,
                         onClick = {
                             scope.launch {
@@ -362,7 +311,7 @@ fun TunnelScreen(
                     ChoiceChipButton(
                         label = "Обход",
                         selected = pathMode == "bypass",
-                        enabled = !pathBusy,
+                        enabled = !vpnLocked,
                         selectedContainer = NvpnColors.pathBypass,
                         onClick = {
                             scope.launch {
@@ -376,42 +325,17 @@ fun TunnelScreen(
                 }
 
                 QuickSettingRow(
-                    title = "Хэш звонка",
-                    subtitle = when {
-                        callMessage != null -> callMessage
-                        ui.hasCallHash -> "Hash сохранён на этом телефоне"
-                        vkLoggedIn -> "VK: вход выполнен — нажмите ещё раз, чтобы создать звонок"
-                        else -> "Нужен для обхода (Path B)"
-                    },
-                ) {
-                    ChoiceChipButton(
-                        label = "Вход в ВК",
-                        selected = vkLoggedIn,
-                        enabled = profile != null && !callBusy,
-                        onClick = { onVkAction() },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ChoiceChipButton(
-                        label = "Ручное",
-                        selected = ui.hasCallHash && !vkLoggedIn,
-                        enabled = profile != null && !sessionUp && !callBusy,
-                        onClick = { showHash = true },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                QuickSettingRow(
-                    title = "Скрыть IP",
+                    title = "Исходящий адрес",
                     subtitle = if (hideIp) {
-                        "Выход через Cloudflare WARP"
+                        "Исходящий трафик направляется через Cloudflare WARP."
                     } else {
-                        "Выход напрямую (IP VPS)"
+                        "Исходящий трафик использует адрес сервера."
                     },
                 ) {
                     ChoiceChipButton(
-                        label = "На прямую",
+                        label = "Прямой",
                         selected = !hideIp,
-                        enabled = !pathBusy,
+                        enabled = !vpnLocked,
                         onClick = {
                             scope.launch {
                                 settings.setHideIp(false)
@@ -424,7 +348,7 @@ fun TunnelScreen(
                     ChoiceChipButton(
                         label = "WARP",
                         selected = hideIp,
-                        enabled = !pathBusy,
+                        enabled = !vpnLocked,
                         onClick = {
                             scope.launch {
                                 settings.setHideIp(true)
@@ -470,7 +394,7 @@ fun TunnelScreen(
                 accessLabel = accessLabel,
                 providerIp = when {
                     !providerIp.isNullOrBlank() -> providerIp!!
-                    !providerIpError.isNullOrBlank() -> "не удалось · нажмите"
+                    !providerIpError.isNullOrBlank() -> "не удалось определить"
                     else -> "…"
                 },
                 providerIpFailed = providerIp.isNullOrBlank() && !providerIpError.isNullOrBlank(),
@@ -499,13 +423,6 @@ fun TunnelScreen(
                 probe = ui.probe,
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
-                showVkLogout = vkLoggedIn,
-                vkLogoutEnabled = !callBusy,
-                onVkLogout = {
-                    VkSession.clear()
-                    vkLoggedIn = false
-                    callMessage = "Сессия VK сброшена"
-                },
             )
         }
 
@@ -514,9 +431,9 @@ fun TunnelScreen(
         StickyPrimaryButton(
             text = when {
                 cancelMode -> "Отменить"
-                sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
-                sessionUp -> "Остановить"
-                else -> "Подключить"
+                sessionUp && pausedTrusted -> "Отключить (пауза по доверенной сети)"
+                sessionUp -> "Отключить"
+                else -> "Подключиться"
             },
             onClick = {
                 when {
@@ -540,25 +457,6 @@ fun TunnelScreen(
                 .zIndex(2f)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
-        )
-    }
-
-    if (showHash) {
-        HashDialog(
-            onDismiss = { showHash = false },
-            onSave = { hash ->
-                val cleaned = VkUrl.strip(hash)
-                if (VkUrl.isPlausibleHash(cleaned)) {
-                    conn.saveCallHash(cleaned)
-                    showHash = false
-                    callMessage = "Hash сохранён вручную"
-                }
-            },
-            onClear = {
-                conn.clearCallHash()
-                showHash = false
-                callMessage = "Hash очищен"
-            },
         )
     }
 }
@@ -630,12 +528,7 @@ private fun ChoiceChipButton(
             ),
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
-            Text(
-                label,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                color = colors.onSurface,
-            )
+            Text(label, fontWeight = FontWeight.Medium, maxLines = 1)
         }
     }
 }
@@ -662,9 +555,6 @@ private fun TunnelStatusPanel(
     probe: ProbeResult?,
     softInfo: String?,
     errorText: String?,
-    showVkLogout: Boolean,
-    vkLogoutEnabled: Boolean,
-    onVkLogout: () -> Unit,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
@@ -727,19 +617,19 @@ private fun TunnelStatusPanel(
             HorizontalDivider(color = dividerColor)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Эндпоинты",
+                    "Узлы",
                     style = MaterialTheme.typography.labelLarge,
                     color = muted,
                     fontWeight = FontWeight.Medium,
                 )
                 directEndpoint?.takeIf { it.isNotBlank() }?.let {
-                    StatusFactRow(label = "Direct", value = it)
+                    StatusFactRow(label = "Прямое", value = it)
                 }
                 bypassPeer?.takeIf { it.isNotBlank() }?.let {
-                    StatusFactRow(label = "Bypass", value = it)
+                    StatusFactRow(label = "Обход", value = it)
                 }
                 provisionLine?.takeIf { it.isNotBlank() }?.let {
-                    StatusFactRow(label = "Provision", value = it)
+                    StatusFactRow(label = "Управление", value = it)
                 }
             }
         }
@@ -754,8 +644,8 @@ private fun TunnelStatusPanel(
                     fontWeight = FontWeight.Medium,
                 )
                 StatusFactRow(label = "Сеть", value = p.networkClass.name)
-                StatusFactRow(label = "77.88.8.8", value = if (p.yandexOk) "ok" else "—")
-                StatusFactRow(label = "VPS IP", value = if (p.provisionOk) "ok" else "—")
+                StatusFactRow(label = "77.88.8.8", value = if (p.yandexOk) "доступен" else "—")
+                StatusFactRow(label = "Узел управления", value = if (p.provisionOk) "доступен" else "—")
                 if (p.elapsedMs > 0) {
                     StatusFactRow(label = "Время", value = "${p.elapsedMs} мс")
                 }
@@ -775,19 +665,6 @@ private fun TunnelStatusPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
-        }
-        if (showVkLogout) {
-            TextButton(
-                onClick = onVkLogout,
-                enabled = vkLogoutEnabled,
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
-            ) {
-                Text(
-                    "Выйти из VK",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = muted,
-                )
-            }
         }
     }
 }
@@ -838,42 +715,5 @@ private fun StatusFactRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-    }
-}
-
-@Composable
-private fun HashDialog(
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
-    onClear: () -> Unit,
-) {
-    var text by remember { mutableStateOf("") }
-    NvpnDialog(
-        title = "Hash звонка",
-        onDismissRequest = onDismiss,
-        confirmAction = NvpnDialogAction(
-            text = "Сохранить",
-            onClick = { onSave(text) },
-            enabled = text.isNotBlank(),
-        ),
-        dismissAction = NvpnDialogAction("Отмена", onDismiss),
-        secondaryAction = NvpnDialogAction(
-            text = "Очистить",
-            onClick = onClear,
-            destructive = true,
-        ),
-    ) {
-        Text(
-            "Ссылка vk.com/call/join/… или сам hash.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            singleLine = true,
-        )
     }
 }

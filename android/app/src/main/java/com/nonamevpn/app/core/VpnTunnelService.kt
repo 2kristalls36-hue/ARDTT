@@ -1269,9 +1269,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     enableVibration(false)
                     enableLights(false)
                     description = if (showInShade) {
-                        "Плашка VPN: живой статус и «Остановить»"
+                        "Уведомление VPN: состояние соединения и команда остановки"
                     } else {
-                        "Техническая запись службы (Android не даёт убрать полностью)"
+                        "Служебная запись службы VPN. Система не позволяет скрыть её полностью."
                     }
                     lockscreenVisibility = if (showInShade) {
                         Notification.VISIBILITY_PUBLIC

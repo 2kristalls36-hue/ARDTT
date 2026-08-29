@@ -39,11 +39,11 @@ class BypassBackend(
         }
         val hash = config.callHash
         if (hash.isNullOrBlank()) {
-            onState(TunnelBackendState.Failed("Нужен hash звонка — сохраните его в настройках туннеля"))
+            onState(TunnelBackendState.Failed("Для обхода необходимо сохранить код звонка в настройках"))
             return
         }
         if (profile.bypass.password.isBlank() || profile.bypass.peer.isBlank()) {
-            onState(TunnelBackendState.Failed("В профиле нет bypass peer/password"))
+            onState(TunnelBackendState.Failed("В профиле отсутствуют параметры обхода."))
             return
         }
 

@@ -223,7 +223,7 @@ class ConnectionManager(
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
                 if (viaVpn) {
                     _ui.value = _ui.value.copy(
-                        lastError = "Скрытие IP не синхронизировано с VPS: ${r.exceptionOrNull()?.message}",
+                        lastError = "Сокрытие исходящего адреса не синхронизировано с сервером: ${r.exceptionOrNull()?.message}",
                     )
                 } else {
                     pendingHideIpSync = enabled
@@ -433,7 +433,7 @@ class ConnectionManager(
                         AppLog.e(TAG, "hide-ip enable failed: ${r.exceptionOrNull()?.message}")
                         _ui.value = _ui.value.copy(
                             state = ConnState.Error,
-                            lastError = "Не удалось включить «Скрыть свой IP»: ${r.exceptionOrNull()?.message}",
+                            lastError = "Не удалось включить сокрытие исходящего адреса: ${r.exceptionOrNull()?.message}",
                             connectEnabled = true,
                         )
                         return@launch
@@ -496,7 +496,7 @@ class ConnectionManager(
                     _ui.value = _ui.value.copy(
                         state = ConnState.Error,
                         probe = fresh,
-                        lastError = "Для обхода нужен hash звонка (сохраните на этом телефоне)",
+                        lastError = "Для обхода необходимо сохранить код звонка на устройстве.",
                         connectEnabled = true,
                         softInfo = softInfoFor(fresh),
                     )
@@ -556,7 +556,7 @@ class ConnectionManager(
         _ui.value = _ui.value.copy(
             state = ConnState.Error,
             lastError = message,
-            statusText = "Нужно действие",
+            statusText = "Требуется действие",
             connectEnabled = connectAllowed(_ui.value.probe),
         )
     }
@@ -626,9 +626,9 @@ class ConnectionManager(
         val path = _ui.value.activePath
         AppLog.v(TAG, "Transport soft restart: $reason")
         val status = when {
-            reason.startsWith("Hide-IP") -> "Смена выхода — переподключение…"
-            reason.startsWith("[СЕТЬ]") -> "Сеть сменилась — переподключение…"
-            else -> "Переподключение транспорта…"
+            reason.startsWith("Hide-IP") -> "Смена исходящего адреса. Выполняется повторное подключение…"
+            reason.startsWith("[СЕТЬ]") -> "Сеть изменилась. Выполняется повторное подключение…"
+            else -> "Выполняется повторное подключение…"
         }
         _ui.value = _ui.value.copy(
             state = ConnState.Connecting,
@@ -722,7 +722,7 @@ class ConnectionManager(
                 _ui.value = _ui.value.copy(
                     state = ConnState.Connecting,
                     activePath = decision.path,
-                    statusText = "Сеть сменилась — путь ${pathLabel(decision.path)}…",
+                    statusText = "Сеть изменилась. Выполняется переход на путь ${pathLabel(decision.path)}…",
                     softInfo = fresh.message,
                     lastError = null,
                     connectEnabled = true,
@@ -766,7 +766,7 @@ class ConnectionManager(
         scope.launch {
             _ui.value = _ui.value.copy(
                 statusText = "Ожидание сети…",
-                softInfo = "Подключение восстановится на новой Wi‑Fi/LTE.",
+                softInfo = "Подключение будет восстановлено при появлении сети.",
             )
         }
     }
@@ -776,8 +776,8 @@ class ConnectionManager(
         scope.launch {
             _ui.value = _ui.value.copy(
                 state = ConnState.PausedTrustedWifi,
-                statusText = "VPN выключен в «$ssid»",
-                softInfo = "Выйдите из доверенной сети — VPN поднимется сам.",
+                statusText = "VPN приостановлен в сети «$ssid»",
+                softInfo = "При выходе из доверенной сети подключение будет восстановлено автоматически.",
                 connectEnabled = true,
                 lastError = null,
             )
@@ -788,7 +788,7 @@ class ConnectionManager(
         if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
         scope.launch {
             _ui.value = _ui.value.copy(
-                softInfo = "Определяю Wi‑Fi — Direct не включаю, пока нет имени сети.",
+                softInfo = "Определяется сеть Wi‑Fi. Прямое подключение не запускается до получения имени сети.",
             )
         }
     }
@@ -797,13 +797,13 @@ class ConnectionManager(
         if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
         val hint = when (problem) {
             TrustedWifiAccessProblem.ForegroundPermission ->
-                "Не вижу имя Wi‑Fi. Выдайте «Устройства поблизости» или локацию в настройках — иначе VPN не отличит домашнюю сеть и не выключится."
+                "Не удалось определить имя сети Wi‑Fi. Предоставьте доступ к устройствам поблизости или к геолокации, иначе доверенная сеть не будет распознана."
             TrustedWifiAccessProblem.LocationDisabled ->
-                "Включите геолокацию, чтобы доверенный Wi‑Fi узнал сеть."
+                "Включите геолокацию, чтобы определить доверенную сеть Wi‑Fi."
             TrustedWifiAccessProblem.BackgroundPermission ->
-                "Для паузы VPN в фоне нужна локация «Всегда»."
+                "Для приостановки VPN в фоне требуется разрешение геолокации «Всегда»."
             null ->
-                "Имя Wi‑Fi не прочиталось — оставляю текущий путь, без переключения на Direct."
+                "Не удалось определить имя сети Wi‑Fi. Текущий маршрут сохранён."
         }
         scope.launch {
             _ui.value = _ui.value.copy(softInfo = hint)
@@ -814,7 +814,7 @@ class ConnectionManager(
         scope.launch {
             _ui.value = _ui.value.copy(
                 state = ConnState.Connecting,
-                statusText = "Выход из доверенной сети — подключение…",
+                statusText = "Выход из доверенной сети. Выполняется подключение…",
                 softInfo = null,
                 connectEnabled = true,
                 lastError = null,
@@ -836,7 +836,7 @@ class ConnectionManager(
                 )
                 if (!waitForBypassWorkers()) {
                     AppLog.e(TAG, "Bypass: no active TURN workers after ${BYPASS_WORKERS_WAIT_MS}ms")
-                    onTunnelFailed("Обход: нет активных каналов — проверьте hash звонка и сеть")
+                    onTunnelFailed("Обход недоступен: нет активных каналов. Проверьте код звонка и сеть.")
                     return@launch
                 }
             }
@@ -865,7 +865,7 @@ class ConnectionManager(
                         AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
                         if (want) {
                             _ui.value = _ui.value.copy(
-                                lastError = "Скрыть свой IP: ${r.exceptionOrNull()?.message}",
+                                lastError = "Сокрытие исходящего адреса: ${r.exceptionOrNull()?.message}",
                             )
                         }
                     }
@@ -900,7 +900,7 @@ class ConnectionManager(
             _ui.value = _ui.value.copy(
                 state = ConnState.Connecting,
                 activePath = VpnPath.Bypass,
-                statusText = "Прямое недоступно — обход…",
+                statusText = "Прямое подключение недоступно. Выполняется переход на обход…",
                 lastError = null,
                 connectEnabled = true,
             )
@@ -980,8 +980,8 @@ class ConnectionManager(
     private fun softInfoFor(result: ProbeResult?): String? {
         val parts = mutableListOf<String>()
         when (pathMode) {
-            ConnPathMode.Direct -> parts += "Режим: только прямое (AmneziaWG)."
-            ConnPathMode.Bypass -> parts += "Режим: только обход (RAW / звонок)."
+            ConnPathMode.Direct -> parts += "Режим: только прямое подключение."
+            ConnPathMode.Bypass -> parts += "Режим: только обход. Требуется код звонка."
             ConnPathMode.Auto -> Unit
         }
         if (result == null) {
@@ -993,20 +993,20 @@ class ConnectionManager(
         when (result.networkClass) {
             NetworkClass.NeedBypass, NetworkClass.OpenNeedBypass ->
                 if (pathMode == ConnPathMode.Auto) {
-                    parts += "VPS недоступен (белый список или нет маршрута) — будет обход."
+                    parts += "Узел управления недоступен. Будет использован обход."
                 }
             NetworkClass.DirectOk -> Unit
             NetworkClass.Captive ->
-                parts += "Похоже на captive portal — сначала войдите в Wi‑Fi."
+                parts += "Обнаружена страница авторизации сети. Сначала выполните вход в Wi‑Fi."
             else -> Unit
         }
         val needsHash = pathMode == ConnPathMode.Bypass ||
             (pathMode == ConnPathMode.Auto && result.preselectedPath == VpnPath.Bypass)
         if (needsHash && !_ui.value.hasCallHash) {
-            parts += "Для обхода сохраните hash звонка на телефоне."
+            parts += "Для обхода сохраните код звонка на устройстве."
         }
         if (_ui.value.hideIp) {
-            parts += "Скрыть свой IP: выход через Cloudflare, не с адреса VPS."
+            parts += "Сокрытие исходящего адреса: исходящий трафик направляется через Cloudflare WARP."
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
@@ -1017,7 +1017,7 @@ class ConnectionManager(
     }
 
     private fun hideSuffix(enabled: Boolean = _ui.value.hideIp): String =
-        if (enabled) " · IP скрыт" else ""
+        if (enabled) " · исходящий адрес скрыт" else ""
 
     /**
      * Content for the custom VPN shade RemoteViews (qWDTT-style plate).
