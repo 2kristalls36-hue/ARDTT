@@ -6,22 +6,26 @@ import org.junit.Test
 
 class DeviceUnlockCopyTest {
     @Test
-    fun usesFormalWordingWithoutTestingJargon() {
+    fun explainsClosedBetaWithoutNamingTheProduct() {
         val text = DeviceUnlockCopy.userFacingStrings.joinToString("\n").lowercase()
         for (banned in listOf(
             "альфа",
             "alpha",
-            "тест",
             "утечк",
             "apk",
             "как есть",
             "офлайн-код",
-            "разработчик",
+            "vpn",
+            "туннел",
+            "wireguard",
+            "amnezia",
         )) {
             assertFalse("unexpected '$banned' in unlock copy:\n$text", text.contains(banned))
         }
         assertTrue(text.contains("подтвержд"))
         assertTrue(text.contains("устройств"))
+        assertTrue(text.contains("бета"))
+        assertTrue(text.contains("автор"))
         assertTrue(text.contains("шестизнач") || text.contains("шесть цифр"))
     }
 

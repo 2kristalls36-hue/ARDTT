@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -174,41 +175,56 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                         )
                     }
                 }
-                AppSectionCard {
-                    Text(
-                        DeviceUnlockCopy.DEVICE_CODE_TITLE,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                AppSectionCard(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            AlphaGate.formatDisplay(hex),
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.4.sp,
-                            ),
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.primary,
+                            DeviceUnlockCopy.DEVICE_CODE_TITLE,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
                         )
-                        IconButton(onClick = { copyDeviceCode() }) {
+                        IconButton(
+                            onClick = { copyDeviceCode() },
+                            modifier = Modifier.size(40.dp),
+                        ) {
                             Icon(
                                 Icons.Outlined.ContentCopy,
                                 contentDescription = DeviceUnlockCopy.COPY_CODE,
+                                modifier = Modifier.size(22.dp),
                             )
                         }
                     }
+                    Text(
+                        AlphaGate.formatDisplay(hex),
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.6.sp,
+                            fontSize = 20.sp,
+                        ),
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
                 if (!imeVisible) {
-                    AppSectionCard {
+                    AppSectionCard(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         Text(
                             DeviceUnlockCopy.INTRO,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
                             DeviceUnlockCopy.STEPS,
