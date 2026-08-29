@@ -35,6 +35,17 @@ class ClientPresentationTest {
         assertEquals("—", clientDeviceSummary(user()))
     }
 
+    @Test
+    fun expiresToneHighlightsLicenseDate() {
+        val now = 1_700_000_000_000L
+        assertEquals(ClientExpiresTone.Unlimited, clientExpiresTone(0L, now))
+        assertEquals(ClientExpiresTone.Expired, clientExpiresTone(1L, now))
+        val soonSec = (now + 3L * 24L * 60L * 60L * 1000L) / 1000L
+        assertEquals(ClientExpiresTone.ExpiringSoon, clientExpiresTone(soonSec, now))
+        val laterSec = (now + 30L * 24L * 60L * 60L * 1000L) / 1000L
+        assertEquals(ClientExpiresTone.Active, clientExpiresTone(laterSec, now))
+    }
+
     private fun user(
         deactivated: Boolean = false,
         expiresAt: Long = 0L,

@@ -57,6 +57,28 @@ internal fun formatOfflineDuration(sec: Long): String {
     }
 }
 
+internal enum class ClientExpiresTone {
+    Unlimited,
+    Active,
+    ExpiringSoon,
+    Expired,
+}
+
+internal const val EXPIRES_SOON_MS = 7L * 24L * 60L * 60L * 1000L
+
+internal fun clientExpiresTone(
+    expiresAt: Long,
+    nowMs: Long = System.currentTimeMillis(),
+): ClientExpiresTone {
+    if (expiresAt <= 0L) return ClientExpiresTone.Unlimited
+    val endMs = expiresAt * 1000L
+    return when {
+        endMs <= nowMs -> ClientExpiresTone.Expired
+        endMs - nowMs <= EXPIRES_SOON_MS -> ClientExpiresTone.ExpiringSoon
+        else -> ClientExpiresTone.Active
+    }
+}
+
 internal fun formatClientExpires(expiresAt: Long): String {
     if (expiresAt <= 0L) return "без срока"
     return SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(expiresAt * 1000L))

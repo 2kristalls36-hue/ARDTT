@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,13 +29,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,7 +42,7 @@ import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.deviceDisplayLabels
 import com.nonamevpn.app.profile.ProfileLinkCodec
 import com.nonamevpn.app.profile.VpnProfile
-import com.nonamevpn.app.ui.profiles.rememberQrBitmap
+import com.nonamevpn.app.ui.profiles.QrCodeImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,7 +60,6 @@ internal fun ClientSettingsSheet(
     val colors = MaterialTheme.colorScheme
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val link = profile?.let { ProfileLinkCodec.buildLink(it) }.orEmpty()
-    val qr = rememberQrBitmap(link.ifBlank { "-" }, 640)
     val deviceLabels = deviceDisplayLabels(user.deviceIds, user.deviceModels)
     val offlineTime = if (user.online) "—" else formatOfflineDuration(user.offlineForSec)
     val ip = user.lastExternalIp.trim().ifBlank { "—" }
@@ -79,12 +75,13 @@ internal fun ClientSettingsSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 22.dp)
                 .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -113,28 +110,18 @@ internal fun ClientSettingsSheet(
                     loadingProfile -> {
                         CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
                     }
-                    qr != null && link.isNotBlank() -> {
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = colors.surface,
-                            shadowElevation = 4.dp,
-                            tonalElevation = 0.dp,
-                        ) {
-                            Image(
-                                bitmap = qr,
-                                contentDescription = "QR-код профиля",
-                                modifier = Modifier
-                                    .size(208.dp)
-                                    .padding(12.dp)
-                                    .clip(RoundedCornerShape(12.dp)),
-                            )
-                        }
+                    link.isNotBlank() -> {
+                        QrCodeImage(
+                            content = link,
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                        )
                     }
                 }
             }
 
             if (link.isNotBlank()) {
                 SheetCopyRow(
+                    modifier = Modifier.padding(horizontal = 22.dp),
                     label = "Ссылка ARDTT",
                     value = link,
                     onCopy = {
@@ -152,10 +139,15 @@ internal fun ClientSettingsSheet(
                 )
             }
 
-            HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.55f))
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 22.dp),
+                color = colors.outlineVariant.copy(alpha = 0.55f),
+            )
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 SheetStat(
@@ -170,7 +162,9 @@ internal fun ClientSettingsSheet(
                 )
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 SheetStat(
@@ -187,30 +181,39 @@ internal fun ClientSettingsSheet(
             SheetStat(
                 label = "IP-адрес",
                 value = ip,
+                modifier = Modifier.padding(horizontal = 22.dp),
             )
             SheetStat(
                 label = "Устройство",
                 value = clientDeviceSummary(user),
+                modifier = Modifier.padding(horizontal = 22.dp),
             )
 
-            HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.55f))
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 22.dp),
+                color = colors.outlineVariant.copy(alpha = 0.55f),
+            )
 
             Text(
                 "Привязанные устройства",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 22.dp),
             )
             if (user.deviceIds.isEmpty()) {
                 Text(
                     "Нет привязанных устройств",
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 22.dp),
                 )
             } else {
                 user.deviceIds.forEachIndexed { index, id ->
                     val label = deviceLabels.getOrNull(index)?.ifBlank { null } ?: "Телефон"
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 22.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -239,7 +242,9 @@ internal fun ClientSettingsSheet(
                 OutlinedButton(
                     onClick = onAddToPhone,
                     enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 22.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Text("Добавить на этот телефон")
@@ -279,9 +284,10 @@ private fun SheetCopyRow(
     value: String,
     onCopy: () -> Unit,
     onShare: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,

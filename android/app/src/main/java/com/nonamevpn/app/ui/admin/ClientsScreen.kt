@@ -1,7 +1,6 @@
 package com.nonamevpn.app.ui.admin
 
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -685,16 +684,19 @@ private fun ClientCard(
         user.deactivated || !subActive -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val expiresTone = clientExpiresTone(user.expiresAt)
+    val expiresColor = when (expiresTone) {
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> NvpnColors.connected
+        ClientExpiresTone.ExpiringSoon -> NvpnColors.warning
+        ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
+    }
     AppSectionCard(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         shape = RoundedCornerShape(18.dp),
         shadowElevation = 4.dp,
         tonalElevation = 0.dp,
-        border = BorderStroke(
-            1.dp,
-            if (subActive) NvpnColors.connected.copy(alpha = 0.7f) else MaterialTheme.colorScheme.error,
-        ),
+        showBorder = false,
     ) {
         Column(
             modifier = Modifier
@@ -748,13 +750,31 @@ private fun ClientCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    "${user.deviceIds.size}/${user.maxDevices} · ${formatClientExpires(user.expiresAt)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "${user.deviceIds.size}/${user.maxDevices}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = expiresColor.copy(alpha = 0.18f),
+                    ) {
+                        Text(
+                            formatClientExpires(user.expiresAt),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = expiresColor,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
             if (limit > 0L) {
                 LinearProgressIndicator(

@@ -148,7 +148,7 @@ object VpnProfileJson {
                     .put("mode", profile.bypass.mode)
                     .put("dial", profile.bypass.dial),
             )
-            .toString(2)
+            .toString()
     }
 
     fun parseMany(raw: String): List<VpnProfile> {
