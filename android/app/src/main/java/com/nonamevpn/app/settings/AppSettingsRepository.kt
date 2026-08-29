@@ -28,6 +28,7 @@ class AppSettingsRepository(private val context: Context) {
     private val trustedWifiSsids = stringPreferencesKey("trusted_wifi_ssids")
     private val vpnNotificationVisible = booleanPreferencesKey("vpn_notification_visible")
     private val excludedApps = stringPreferencesKey("excluded_apps")
+    private val warpApps = stringPreferencesKey("warp_apps")
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
@@ -60,6 +61,10 @@ class AppSettingsRepository(private val context: Context) {
     /** Package names that bypass the VPN (disallowed applications). */
     val excludedAppsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         parseLineSet(prefs[excludedApps])
+    }
+    /** Packages forced into the tunnel for Hide-IP/WARP (overrides ЧС exclude). */
+    val warpAppsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        parseLineSet(prefs[warpApps])
     }
     /** Hostnames / IPv4 that should leave the tunnel (API 33+ excludeRoute). */
     val excludedHostsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
@@ -173,6 +178,35 @@ class AppSettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun setWarpApps(packages: Set<String>) {
+        context.dataStore.edit {
+            it[warpApps] = packages
+                .map { p -> p.trim() }
+                .filter { p -> p.isNotBlank() }
+                .distinct()
+                .sorted()
+                .joinToString("\n")
+        }
+    }
+
+    suspend fun addWarpApp(packageName: String) {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val current = parseLineSet(prefs[warpApps]).toMutableSet()
+            current.add(clean)
+            prefs[warpApps] = current.sorted().joinToString("\n")
+        }
+    }
+
+    suspend fun removeWarpApp(packageName: String) {
+        context.dataStore.edit { prefs ->
+            val current = parseLineSet(prefs[warpApps]).toMutableSet()
+            current.remove(packageName.trim())
+            prefs[warpApps] = current.sorted().joinToString("\n")
+        }
+    }
+
     suspend fun setExcludedHosts(hosts: Set<String>) {
         context.dataStore.edit {
             it[excludedHosts] = hosts
@@ -217,6 +251,11 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun excludedAppsSnapshot(): Set<String> {
         val prefs = context.dataStore.data.first()
         return parseLineSet(prefs[excludedApps])
+    }
+
+    suspend fun warpAppsSnapshot(): Set<String> {
+        val prefs = context.dataStore.data.first()
+        return parseLineSet(prefs[warpApps])
     }
 
     suspend fun excludedHostsSnapshot(): Set<String> {
