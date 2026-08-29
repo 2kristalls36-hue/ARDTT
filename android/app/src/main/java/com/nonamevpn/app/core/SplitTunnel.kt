@@ -4,14 +4,10 @@ package com.nonamevpn.app.core
  * Resolves Android VpnService split-tunnel lists.
  *
  * VpnService cannot mix [android.net.VpnService.Builder.addAllowedApplication]
- * and [android.net.VpnService.Builder.addDisallowedApplication]. WARP-marked
- * apps are always forced into the tunnel:
+ * and [android.net.VpnService.Builder.addDisallowedApplication]:
  *
- * - ЧС (blacklist): disallowed = selected − warp (self stays disallowed)
- * - БС (whitelist): allowed = selected ∪ warp ∪ self
- *
- * Hide-IP/WARP itself is a VPS-wide egress policy: every tunneled app shares
- * the same exit IP. Per-app WARP only chooses who is inside the TUN.
+ * - ЧС (blacklist): disallowed = selected ∪ self
+ * - БС (whitelist): allowed = selected ∪ self
  */
 data class SplitTunnelPlan(
     val whitelistMode: Boolean,
@@ -23,23 +19,21 @@ object SplitTunnel {
     fun resolve(
         whitelistMode: Boolean,
         selectedApps: Set<String>,
-        warpApps: Set<String>,
         selfPackage: String,
     ): SplitTunnelPlan {
         val self = selfPackage.trim()
         val selected = sanitizePackages(selectedApps, self)
-        val warp = sanitizePackages(warpApps, self)
         return if (whitelistMode) {
             SplitTunnelPlan(
                 whitelistMode = true,
-                allowed = selected + warp + self,
+                allowed = selected + self,
                 disallowed = emptySet(),
             )
         } else {
             SplitTunnelPlan(
                 whitelistMode = false,
                 allowed = emptySet(),
-                disallowed = (selected - warp) + self,
+                disallowed = selected + self,
             )
         }
     }

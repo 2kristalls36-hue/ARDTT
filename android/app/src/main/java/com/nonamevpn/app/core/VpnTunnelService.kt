@@ -1054,12 +1054,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             runCatching { builder.addDnsServer(d) }
         }
         // App split-tunnel: ЧС = disallowed, БС = allowed.
-        // WARP-marked apps are forced into the TUN (override ЧС, union БС).
         val excludedApps = runCatching {
             kotlinx.coroutines.runBlocking { settingsRepo.excludedAppsSnapshot() }
-        }.getOrDefault(emptySet())
-        val warpApps = runCatching {
-            kotlinx.coroutines.runBlocking { settingsRepo.warpAppsSnapshot() }
         }.getOrDefault(emptySet())
         val whitelist = runCatching {
             kotlinx.coroutines.runBlocking { settingsRepo.appsWhitelistModeSnapshot() }
@@ -1067,7 +1063,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         val plan = SplitTunnel.resolve(
             whitelistMode = whitelist,
             selectedApps = excludedApps,
-            warpApps = warpApps,
             selfPackage = packageName,
         )
         if (plan.whitelistMode) {
@@ -1095,7 +1090,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         Log.i(
             TAG,
             "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd} " +
-                "apps=${excludedApps.size} warp=${warpApps.size} whitelist=$whitelist " +
+                "apps=${excludedApps.size} whitelist=$whitelist " +
                 "hosts=${excludedHosts.size}",
             )
         return pfd

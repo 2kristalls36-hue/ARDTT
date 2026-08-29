@@ -6,7 +6,6 @@ import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -62,14 +60,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -78,8 +74,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nonamevpn.app.R
-import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.appIconDecodeSize
 import com.nonamevpn.app.ui.components.AppTabPageHeader
@@ -94,7 +88,6 @@ private enum class ExceptionsPane { Apps, Sites }
 private val CardShape = RoundedCornerShape(24.dp)
 private val ControlShape = RoundedCornerShape(14.dp)
 private val AppCardShape = RoundedCornerShape(16.dp)
-private val WarpOrange = Color(0xFFF6821F)
 
 @Stable
 data class ExceptionAppItem(
@@ -122,7 +115,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     var pane by rememberSaveable { mutableStateOf(ExceptionsPane.Apps) }
 
     val selectedPackages by settings.excludedAppsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
-    val warpPackages by settings.warpAppsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val siteRules by settings.excludedHostsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val isWhitelist by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
 
@@ -220,7 +212,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     }
 
     // Выбранные вверх, внутри групп — алфавит (как qWDTT).
-    val filteredApps = remember(appsList, showSystemApps, searchQuery, selectedPackages, warpPackages) {
+    val filteredApps = remember(appsList, showSystemApps, searchQuery, selectedPackages) {
         val base = if (showSystemApps) appsList else appsList.filter { !it.isSystem }
         val matching = if (searchQuery.isBlank()) {
             base
@@ -231,9 +223,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             }
         }
         matching.sortedWith(
-            compareByDescending<ExceptionAppItem> {
-                it.packageName in selectedPackages || it.packageName in warpPackages
-            }
+            compareByDescending<ExceptionAppItem> { it.packageName in selectedPackages }
                 .thenBy { it.name.lowercase(Locale.getDefault()) }
                 .thenBy { it.packageName },
         )
@@ -248,7 +238,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         EdgeFeedTopInset()
         AppTabPageHeader(
             tabTitle = "Обход",
-            subtitle = "Карточка — ЧС/БС. Облако — WARP через VPN",
+            subtitle = "Сайты и приложения вне туннеля",
         )
 
         if (busy) {
@@ -394,7 +384,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         }
 
                         Text(
-                            "Карточка — список ЧС/БС. Облако — через WARP (в ЧС облако снимает исключение).",
+                            "Нажмите карточку, чтобы добавить в список ЧС или БС.",
                             style = MaterialTheme.typography.labelSmall,
                             color = colors.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
@@ -435,48 +425,18 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             ) {
                                 items(filteredApps, key = { it.packageName }) { app ->
                                     val isSelected = app.packageName in selectedPackages
-                                    val warpEnabled = app.packageName in warpPackages
                                     AppExceptionRow(
                                         app = app,
                                         isSelected = isSelected,
-                                        warpEnabled = warpEnabled,
                                         onClick = {
                                             scope.launch {
                                                 val selected = settings.excludedAppsSnapshot()
-                                                val whitelist = settings.appsWhitelistModeSnapshot()
                                                 if (app.packageName in selected) {
                                                     settings.removeExcludedApp(app.packageName)
-                                                    settings.removeWarpApp(app.packageName)
                                                 } else {
                                                     settings.addExcludedApp(app.packageName)
-                                                    if (!whitelist) {
-                                                        settings.removeWarpApp(app.packageName)
-                                                    }
                                                 }
                                                 applyTransport("Обновлены исключения приложений")
-                                            }
-                                        },
-                                        onWarpClick = {
-                                            scope.launch {
-                                                val warpOn = app.packageName in settings.warpAppsSnapshot()
-                                                val whitelist = settings.appsWhitelistModeSnapshot()
-                                                if (warpOn) {
-                                                    settings.removeWarpApp(app.packageName)
-                                                } else {
-                                                    settings.addWarpApp(app.packageName)
-                                                    if (whitelist) {
-                                                        settings.addExcludedApp(app.packageName)
-                                                    } else {
-                                                        settings.removeExcludedApp(app.packageName)
-                                                    }
-                                                    settings.setHideIp(true)
-                                                    ConnectionManager.getOrNull()?.setHideIp(true)
-                                                    AppLog.i(
-                                                        "HideIP",
-                                                        "enabled (per-app WARP ${app.packageName})",
-                                                    )
-                                                }
-                                                applyTransport("Обновлён per-app WARP")
                                             }
                                         },
                                     )
@@ -788,12 +748,11 @@ private fun BypassRuleRow(
 private fun AppExceptionRow(
     app: ExceptionAppItem,
     isSelected: Boolean,
-    warpEnabled: Boolean,
     onClick: () -> Unit,
-    onWarpClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 4.dp)
@@ -809,92 +768,39 @@ private fun AppExceptionRow(
         ),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onClick)
-                    .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (app.icon != null) {
-                    Image(
-                        bitmap = app.icon,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(colors.surfaceVariant, RoundedCornerShape(8.dp)),
-                    )
-                }
-                Spacer(modifier = Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = app.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = app.packageName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
+            if (app.icon != null) {
+                Image(
+                    bitmap = app.icon,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(colors.surfaceVariant, RoundedCornerShape(8.dp)),
+                )
             }
-            WarpAppButton(
-                warpOn = warpEnabled,
-                onClick = onWarpClick,
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-        }
-    }
-}
-
-@Composable
-private fun WarpAppButton(
-    warpOn: Boolean,
-    onClick: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
-        modifier = Modifier
-            .size(42.dp)
-            .offset(y = if (warpOn) 1.dp else 0.dp),
-        shape = CircleShape,
-        color = if (warpOn) WarpOrange.copy(alpha = 0.30f) else colors.surface,
-        shadowElevation = if (warpOn) 0.dp else 3.dp,
-        tonalElevation = 0.dp,
-        border = BorderStroke(
-            width = if (warpOn) 2.dp else 1.dp,
-            color = if (warpOn) WarpOrange else colors.outline.copy(alpha = 0.45f),
-        ),
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_cloudflare),
-                contentDescription = if (warpOn) {
-                    "WARP включён для приложения"
-                } else {
-                    "Включить WARP для приложения"
-                },
-                modifier = Modifier
-                    .size(22.dp)
-                    .alpha(if (warpOn) 1f else 0.45f),
-                tint = Color.Unspecified,
-            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = app.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+                Text(
+                    text = app.packageName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

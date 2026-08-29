@@ -387,6 +387,7 @@ class ConnectionManager(
                     ConnPathMode.Auto -> probePreferred ?: VpnPath.Direct
                 }
                 AppLog.v(TAG, "Connect requested mode=$mode preferred=$labelPreferred hideIp=${snap.hideIp}")
+                EgressIpProbe.invalidate()
                 _ui.value = snap.copy(
                     state = ConnState.Connecting,
                     statusText = "Подключение (${pathLabel(labelPreferred)})…",
@@ -593,6 +594,7 @@ class ConnectionManager(
     /** WDTT-Plus-style soft reconnect: keep Connected UI, show progress. */
     fun onTransportRestarting(reason: String) {
         softRestartInProgress = true
+        EgressIpProbe.invalidate()
         val path = _ui.value.activePath
         AppLog.v(TAG, "Transport soft restart: $reason")
         val status = when {
@@ -1035,10 +1037,10 @@ class ConnectionManager(
             val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() }
             return ShadeContent(
                 title = title,
-                ip = rawIp ?: "…",
+                ip = rawIp ?: VPN_EGRESS_CONNECTING_LABEL,
                 pathLabel = pathShort,
                 showTotals = false,
-                showWarpIcon = u.hideIp || EgressIpProbe.isLikelyCloudflare(rawIp),
+                showWarpIcon = rawIp != null && (u.hideIp || EgressIpProbe.isLikelyCloudflare(rawIp)),
                 showWhitelistIcon = appsWhitelist,
                 statusText = t,
             )
@@ -1047,12 +1049,8 @@ class ConnectionManager(
         val rates = VpnLiveStats.formatCompactRateLine(VpnLiveStats.downBps, VpnLiveStats.upBps)
         val totals = VpnLiveStats.formatBytesLine(VpnLiveStats.totalRx, VpnLiveStats.totalTx)
         val rawIp = EgressIpProbe.current()?.takeIf { it.isNotBlank() }
-        val ip = when {
-            rawIp != null -> rawIp
-            !EgressIpProbe.lastError.isNullOrBlank() -> "определяем…"
-            else -> "…"
-        }
-        val cloudflare = u.hideIp || EgressIpProbe.isLikelyCloudflare(rawIp)
+        val ip = rawIp ?: VPN_EGRESS_CONNECTING_LABEL
+        val cloudflare = rawIp != null && (u.hideIp || EgressIpProbe.isLikelyCloudflare(rawIp))
         return ShadeContent(
             title = title,
             rates = rates,
@@ -1123,7 +1121,11 @@ class ConnectionManager(
 
     /** Manual retry from Tunnel status panel. */
     fun requestEgressIpRefresh() {
-        if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.PausedTrustedWifi) {
+        if (
+            _ui.value.state != ConnState.Connected &&
+            _ui.value.state != ConnState.PausedTrustedWifi &&
+            _ui.value.state != ConnState.Connecting
+        ) {
             return
         }
         EgressIpProbe.invalidate()
