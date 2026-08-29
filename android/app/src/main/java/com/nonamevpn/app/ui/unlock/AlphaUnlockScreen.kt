@@ -4,16 +4,20 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -54,6 +58,7 @@ import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.unlock.AlphaGate
 import com.nonamevpn.app.unlock.AlphaUnlockResult
+import com.nonamevpn.app.unlock.DeviceUnlockCopy
 import kotlinx.coroutines.launch
 
 @Composable
@@ -65,6 +70,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
     var otp by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val scroll = rememberScrollState()
 
     LaunchedEffect(settings) {
         challenge = settings.ensureAlphaChallengeHex()
@@ -78,78 +84,96 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
             return@Box
         }
 
+        val imeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 8.dp
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .windowInsetsPadding(
+                    WindowInsets.statusBars.union(WindowInsets.navigationBars).union(WindowInsets.ime),
+                ),
         ) {
-            AppPageHeader(
-                title = "ARDTT",
-                subtitle = "Альфа-доступ · один раз на это устройство",
-            )
-            AppSectionCard {
-                Icon(
-                    Icons.Outlined.Lock,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(scroll)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                AppPageHeader(
+                    title = "ARDTT",
+                    subtitle = DeviceUnlockCopy.SUBTITLE,
                 )
-                Text(
-                    "Сборка в альфа-тесте. Чтобы ею нельзя было пользоваться «как есть» " +
-                        "после утечки APK, устройство нужно разблокировать офлайн-кодом.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "1. Скопируйте код устройства и отправьте разработчику.\n" +
-                        "2. Вам вернут 6 цифр — введите их ниже.\n" +
-                        "3. Интернет не нужен. После обновления приложения код " +
-                        "спрашивать больше не будут, пока его не удалят или не сотрут данные.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            AppSectionCard {
-                Text(
-                    "Код устройства",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    AlphaGate.formatDisplay(hex),
-                    modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.4.sp,
-                    ),
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                OutlinedButton(
-                    onClick = {
-                        clipboard.setText(AnnotatedString(hex))
-                        Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
+                AppSectionCard {
                     Icon(
-                        Icons.Outlined.ContentCopy,
+                        Icons.Outlined.Lock,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Копировать код")
+                    Text(
+                        DeviceUnlockCopy.INTRO,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        DeviceUnlockCopy.STEPS,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                AppSectionCard {
+                    Text(
+                        DeviceUnlockCopy.DEVICE_CODE_TITLE,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        AlphaGate.formatDisplay(hex),
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.4.sp,
+                        ),
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(hex))
+                            Toast.makeText(
+                                context,
+                                DeviceUnlockCopy.CODE_COPIED,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(DeviceUnlockCopy.COPY_CODE)
+                    }
+                }
+                if (!imeVisible) {
+                    Text(
+                        DeviceUnlockCopy.FOOTNOTE,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
                 }
             }
-            AppSectionCard {
+
+            AppSectionCard(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 4.dp),
+            ) {
                 Text(
-                    "Код разблокировки",
+                    DeviceUnlockCopy.CONFIRMATION_TITLE,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -162,7 +186,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     singleLine = true,
-                    placeholder = { Text("6 цифр") },
+                    placeholder = { Text(DeviceUnlockCopy.CONFIRMATION_PLACEHOLDER) },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Number,
                         imeAction = ImeAction.Done,
@@ -214,16 +238,9 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                     } else {
-                        Text("Разблокировать")
+                        Text(DeviceUnlockCopy.CONFIRM)
                     }
                 }
-            }
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "Код привязан к этому телефону. На другом устройстве будет другой код.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
@@ -239,21 +256,8 @@ private suspend fun submitUnlock(
     try {
         when (val result = settings.tryAlphaUnlock(otp)) {
             AlphaUnlockResult.Success -> setError(null)
-            is AlphaUnlockResult.WrongCode -> {
-                setError(
-                    if (result.lockMs > 0L) {
-                        "Неверный код. Подождите ${AlphaGate.formatLockRemaining(result.lockMs)}"
-                    } else {
-                        "Неверный код"
-                    },
-                )
-            }
-            is AlphaUnlockResult.Locked -> {
-                setError(
-                    "Слишком много попыток. Подождите " +
-                        AlphaGate.formatLockRemaining(result.remainingMs),
-                )
-            }
+            is AlphaUnlockResult.WrongCode -> setError(DeviceUnlockCopy.wrongCode(result.lockMs))
+            is AlphaUnlockResult.Locked -> setError(DeviceUnlockCopy.locked(result.remainingMs))
         }
     } finally {
         setBusy(false)
