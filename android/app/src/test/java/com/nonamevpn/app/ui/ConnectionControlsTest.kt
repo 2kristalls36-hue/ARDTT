@@ -15,6 +15,12 @@ class ConnectionControlsTest {
     }
 
     @Test
+    fun tunnelParamsHiddenWhenQuickSettingsHidden() {
+        assertFalse(tunnelConnectionParamsVisible(hideQuickSettings = true))
+        assertTrue(tunnelConnectionParamsVisible(hideQuickSettings = false))
+    }
+
+    @Test
     fun latestCodeTakesMaximum() {
         assertEquals(131, latestAppVersionCode(130, 131))
         assertEquals(130, latestAppVersionCode(130, 0))

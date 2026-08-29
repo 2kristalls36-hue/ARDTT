@@ -31,6 +31,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -68,6 +69,7 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.connectionControlsLocked
+import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
@@ -128,6 +130,9 @@ fun TunnelScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
+    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
+    val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     LaunchedEffect(profile?.deviceId, hideIp) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
@@ -257,7 +262,8 @@ fun TunnelScreen(
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
 
-            AppSectionCard(
+            if (showConnectionParams) {
+                AppSectionCard(
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
                 shape = RoundedCornerShape(28.dp),
@@ -271,7 +277,7 @@ fun TunnelScreen(
                     if (vpnLocked) {
                         "Недоступно во время соединения. Разблокировка — в «Настройках»."
                     } else {
-                        "Маршрут и исходящий адрес. Код звонка — в «Настройках»."
+                        "Маршрут, исходящий адрес и доверенная Wi‑Fi. Код звонка — в «Настройках»."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -367,6 +373,40 @@ fun TunnelScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp),
+                    ) {
+                        Text(
+                            "Доверенная Wi‑Fi",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            if (trustedWifiEnabled) {
+                                "В сохранённых сетях туннель ставится на паузу. Список сетей — в «Настройках»."
+                            } else {
+                                "Пауза в Wi‑Fi выключена. Список сетей — в «Настройках»."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = trustedWifiEnabled,
+                        onCheckedChange = { on ->
+                            scope.launch { settings.setTrustedWifiEnabled(on) }
+                        },
+                    )
+                }
+            }
             }
 
             // ═══ Статус сессии — структурированная панель ═══

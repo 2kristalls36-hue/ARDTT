@@ -61,7 +61,6 @@ import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.TestingSessionGuard
 import com.nonamevpn.app.ui.connectionControlsLocked
-import com.nonamevpn.app.applyQuickSettingsTileHidden
 import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
@@ -91,9 +90,8 @@ fun SettingsScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
-    val qsTileHidden by settings.qsTileHiddenFlow.collectAsStateWithLifecycle(initialValue = false)
+    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = true)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
-    val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
@@ -250,17 +248,14 @@ fun SettingsScreen(
             )
             RowSetting(
                 title = "Скрыть быстрые настройки",
-                subtitle = if (qsTileHidden) {
-                    "Плитка ARDTT убрана из быстрых настроек."
+                subtitle = if (hideTunnelQuickSettings) {
+                    "Раздел «Параметры подключения» на вкладке «Туннель» скрыт."
                 } else {
-                    "Плитка в шторке включает и выключает туннель."
+                    "На вкладке «Туннель» показаны маршрут, адрес и доверенная Wi‑Fi."
                 },
-                checked = qsTileHidden,
+                checked = hideTunnelQuickSettings,
                 onCheckedChange = { hidden ->
-                    scope.launch {
-                        settings.setQsTileHidden(hidden)
-                        applyQuickSettingsTileHidden(context, hidden)
-                    }
+                    scope.launch { settings.setHideTunnelQuickSettings(hidden) }
                 },
             )
             RowSetting(
@@ -272,18 +267,6 @@ fun SettingsScreen(
                 },
                 checked = unlockConnControls,
                 onCheckedChange = { scope.launch { settings.setUnlockConnControls(it) } },
-            )
-            RowSetting(
-                title = "Доверенная Wi‑Fi",
-                subtitle = if (trustedWifiEnabled) {
-                    "В сохранённых сетях туннель ставится на паузу."
-                } else {
-                    "Пауза в Wi‑Fi выключена."
-                },
-                checked = trustedWifiEnabled,
-                onCheckedChange = { on ->
-                    scope.launch { settings.setTrustedWifiEnabled(on) }
-                },
             )
         }
 
