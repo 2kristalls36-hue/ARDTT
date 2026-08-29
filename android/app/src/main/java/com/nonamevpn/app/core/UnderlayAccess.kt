@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 
@@ -59,25 +60,85 @@ fun cellularGenerationLabel(type: Int): String? = when (type) {
     else -> null
 }
 
+/**
+ * Dual-SIM: prefer the carrier of the data SIM actually in use, not the
+ * default [TelephonyManager] (which stays on SIM 1 after a data switch).
+ */
+fun pickOperatorName(
+    carrierName: String?,
+    networkOperatorName: String?,
+    simOperatorName: String? = null,
+    displayName: String? = null,
+): String? {
+    fun useful(raw: String?): String? {
+        val t = raw?.trim().orEmpty()
+        if (t.isEmpty() || t.equals("null", ignoreCase = true)) return null
+        if (t.matches(Regex("""(?i)sim\s*\d+"""))) return null
+        return t
+    }
+    return useful(carrierName)
+        ?: useful(networkOperatorName)
+        ?: useful(simOperatorName)
+        ?: useful(displayName)
+}
+
+data class CellularOperatorInfo(
+    val connected: Boolean,
+    val operator: String? = null,
+    val generation: String? = null,
+    val subscriptionId: Int = SubscriptionManager.INVALID_SUBSCRIPTION_ID,
+)
+
 fun readUnderlayAccessLabel(context: Context): String {
     val app = context.applicationContext
     val wifi = readConnectedWifiState(app, requireBackground = false)
-    val cellular = hasCellularUnderlay(app)
-    val (operator, generation) = if (cellular) {
-        readCellularOperator(app)
-    } else {
-        null to null
-    }
+    val cellular = readCellularOperatorInfo(app)
     return formatUnderlayAccessLabel(
         wifiConnected = wifi.connected,
         wifiSsid = wifi.ssid.takeIf { wifi.ssidAvailable },
-        cellularConnected = cellular,
-        operatorName = operator,
-        generation = generation,
+        cellularConnected = cellular.connected,
+        operatorName = cellular.operator,
+        generation = cellular.generation,
     )
 }
 
-private fun hasCellularUnderlay(context: Context): Boolean {
+fun readCellularOperatorInfo(context: Context): CellularOperatorInfo {
+    val app = context.applicationContext
+    if (!hasCellularUnderlay(app)) {
+        return CellularOperatorInfo(connected = false)
+    }
+    val defaultTm = app.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        ?: return CellularOperatorInfo(connected = true)
+    val subId = activeCellularSubscriptionId(app)
+    val tm = if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+        runCatching { defaultTm.createForSubscriptionId(subId) }.getOrDefault(defaultTm)
+    } else {
+        defaultTm
+    }
+    val operator = pickOperatorName(
+        carrierName = subscriptionCarrierName(app, subId),
+        networkOperatorName = tm.networkOperatorName,
+        simOperatorName = tm.simOperatorName,
+        displayName = subscriptionDisplayName(app, subId),
+    )
+    val generation = runCatching {
+        val granted = ContextCompat.checkSelfPermission(
+            app,
+            Manifest.permission.READ_PHONE_STATE,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) return@runCatching null
+        @Suppress("MissingPermission")
+        cellularGenerationLabel(tm.dataNetworkType)
+    }.getOrNull()
+    return CellularOperatorInfo(
+        connected = true,
+        operator = operator,
+        generation = generation,
+        subscriptionId = subId,
+    )
+}
+
+internal fun hasCellularUnderlay(context: Context): Boolean {
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         ?: return false
     return runCatching {
@@ -89,25 +150,33 @@ private fun hasCellularUnderlay(context: Context): Boolean {
     }.getOrDefault(false)
 }
 
-    @Suppress("MissingPermission")
-    private fun readCellularOperator(context: Context): Pair<String?, String?> {
-    val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
-        ?: return null to null
-    val name = tm.networkOperatorName?.trim().orEmpty()
-        .ifBlank { tm.simOperatorName?.trim().orEmpty() }
-        .ifBlank { null }
-    val gen = runCatching {
+internal fun activeCellularSubscriptionId(context: Context): Int {
+    context.getSystemService(SubscriptionManager::class.java)
+        ?: return SubscriptionManager.INVALID_SUBSCRIPTION_ID
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val active = runCatching { SubscriptionManager.getActiveDataSubscriptionId() }
+            .getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+        if (active != SubscriptionManager.INVALID_SUBSCRIPTION_ID) return active
+    }
+    return runCatching { SubscriptionManager.getDefaultDataSubscriptionId() }
+        .getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+}
+
+@Suppress("MissingPermission")
+private fun subscriptionInfo(context: Context, subId: Int) =
+    runCatching {
+        if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return@runCatching null
         val granted = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.READ_PHONE_STATE,
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) return@runCatching null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            cellularGenerationLabel(tm.dataNetworkType)
-        } else {
-            @Suppress("DEPRECATION")
-            cellularGenerationLabel(tm.networkType)
-        }
+        val sm = context.getSystemService(SubscriptionManager::class.java) ?: return@runCatching null
+        sm.getActiveSubscriptionInfo(subId)
     }.getOrNull()
-    return name to gen
-}
+
+private fun subscriptionCarrierName(context: Context, subId: Int): String? =
+    subscriptionInfo(context, subId)?.carrierName?.toString()
+
+private fun subscriptionDisplayName(context: Context, subId: Int): String? =
+    subscriptionInfo(context, subId)?.displayName?.toString()

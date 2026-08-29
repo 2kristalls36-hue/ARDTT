@@ -88,4 +88,40 @@ class UnderlayAccessTest {
         assertEquals("5G", cellularGenerationLabel(TelephonyManager.NETWORK_TYPE_NR))
         assertNull(cellularGenerationLabel(TelephonyManager.NETWORK_TYPE_UNKNOWN))
     }
+
+    @Test
+    fun pickOperatorNameSkipsGenericSimLabels() {
+        assertEquals(
+            "Beeline",
+            pickOperatorName(
+                carrierName = "Beeline",
+                networkOperatorName = "T-Mobile",
+                simOperatorName = "Beeline",
+                displayName = "SIM 2",
+            ),
+        )
+        assertEquals(
+            "MegaFon",
+            pickOperatorName(
+                carrierName = null,
+                networkOperatorName = "MegaFon",
+                displayName = "SIM 1",
+            ),
+        )
+        assertEquals(
+            "Work SIM",
+            pickOperatorName(
+                carrierName = null,
+                networkOperatorName = null,
+                displayName = "Work SIM",
+            ),
+        )
+        assertNull(
+            pickOperatorName(
+                carrierName = "  ",
+                networkOperatorName = null,
+                displayName = "SIM 2",
+            ),
+        )
+    }
 }
