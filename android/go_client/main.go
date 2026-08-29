@@ -449,7 +449,7 @@ func main() {
 				fmt.Printf("║ %-44s ║\n", line)
 			}
 			fmt.Println("╚══════════════════════════════════════════════╝")
-			if err := os.WriteFile("wg-turn.conf", []byte(finalConf+"\n"), 0600); err != nil {
+			if err := os.WriteFile(statePath("wg-turn.conf"), []byte(finalConf+"\n"), 0600); err != nil {
 				log.Printf("[КОНФИГ] Ошибка сохранения: %v", err)
 			} else {
 				log.Println("[КОНФИГ] Сохранён в wg-turn.conf")
