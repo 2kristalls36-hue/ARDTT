@@ -755,7 +755,7 @@ private fun AppExceptionRow(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .padding(horizontal = 12.dp, vertical = 5.dp)
             .offset(y = if (isSelected) 1.dp else 0.dp),
         shape = AppCardShape,
         color = if (isSelected) colors.secondaryContainer else colors.surface,
@@ -768,7 +768,9 @@ private fun AppExceptionRow(
         ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (app.icon != null) {
@@ -776,31 +778,41 @@ private fun AppExceptionRow(
                     bitmap = app.icon,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(10.dp)),
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .background(colors.surfaceVariant, RoundedCornerShape(8.dp)),
+                        .size(44.dp)
+                        .background(colors.surfaceVariant, RoundedCornerShape(10.dp)),
                 )
             }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp),
+            ) {
                 Text(
                     text = app.name,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = app.packageName,
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+            Switch(
+                checked = isSelected,
+                onCheckedChange = { onClick() },
+            )
         }
     }
 }

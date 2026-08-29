@@ -1294,7 +1294,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             val builder = NotificationCompat.Builder(this, channelId)
                 .setContentTitle("ARDTT")
                 .setContentText("VPN")
-                .setSmallIcon(R.drawable.ic_vpn_key)
+                .setSmallIcon(R.drawable.ic_stat_connected)
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)

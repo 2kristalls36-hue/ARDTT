@@ -207,6 +207,7 @@ fun TunnelScreen(
             AppPageHeader(
                 title = "ARDTT",
                 subtitle = "Подключение",
+                showBrandMark = true,
             )
 
             if (!admin && profile != null) {
