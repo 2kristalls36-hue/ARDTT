@@ -99,7 +99,7 @@ fun scoreUnderlayCandidate(
     var s = 1
     if (validated) s += 10 else s -= 6
     when {
-        wifiTransport && wifiActuallyConnected -> s += 24
+        wifiTransport && wifiActuallyConnected -> s += 26
         wifiTransport && !wifiActuallyConnected -> s -= 12
         cellularTransport && !wifiActuallyConnected -> {
             s += 8
