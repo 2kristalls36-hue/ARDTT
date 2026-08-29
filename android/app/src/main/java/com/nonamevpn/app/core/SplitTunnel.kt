@@ -7,7 +7,9 @@ package com.nonamevpn.app.core
  * and [android.net.VpnService.Builder.addDisallowedApplication]:
  *
  * - ЧС (blacklist): disallowed = selected ∪ self
- * - БС (whitelist): allowed = selected ∪ self
+ * - БС (whitelist) with apps: allowed = selected ∪ self
+ * - Empty БС: full tunnel (same as empty ЧС) — otherwise only this app
+ *   would enter the TUN and the session looks connected with no internet.
  */
 data class SplitTunnelPlan(
     val whitelistMode: Boolean,
@@ -23,7 +25,9 @@ object SplitTunnel {
     ): SplitTunnelPlan {
         val self = selfPackage.trim()
         val selected = sanitizePackages(selectedApps, self)
-        return if (whitelistMode) {
+        // Empty БС would only include this app → “connected” with no user traffic
+        // (0.09 MB keepalives). Fall back to full tunnel like empty ЧС / 0.5.83.
+        return if (whitelistMode && selected.isNotEmpty()) {
             SplitTunnelPlan(
                 whitelistMode = true,
                 allowed = selected + self,

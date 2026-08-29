@@ -56,6 +56,14 @@ class HostExclusionTest {
         assertTrue(keys.any { it.endsWith("/128") })
         assertEquals(32, routes.first { it.address.hostAddress?.startsWith("93.") == true }.prefixLength)
         assertEquals(128, routes.first { it.address is java.net.Inet6Address }.prefixLength)
+        val ipv4Only = HostExclusion.ipv4RoutesFor(setOf("example.com")) { name ->
+            when (name) {
+                "example.com" -> listOf(v4)
+                "www.example.com" -> listOf(v6)
+                else -> emptyList()
+            }
+        }
+        assertEquals(listOf("93.184.216.34/32"), ipv4Only.map { it.key })
     }
 
     @Test

@@ -43,14 +43,15 @@ class SplitTunnelTest {
     }
 
     @Test
-    fun emptyWhitelistOnlyAllowsSelf() {
+    fun emptyWhitelistFallsBackToFullTunnel() {
         val plan = SplitTunnel.resolve(
             whitelistMode = true,
             selectedApps = emptySet(),
             selfPackage = self,
         )
-        assertEquals(setOf(self), plan.allowed)
-        assertTrue(plan.disallowed.isEmpty())
+        assertEquals(false, plan.whitelistMode)
+        assertEquals(setOf(self), plan.disallowed)
+        assertTrue(plan.allowed.isEmpty())
     }
 
     @Test
