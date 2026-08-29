@@ -19,6 +19,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
 import com.google.zxing.EncodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.RGBLuminanceSource
@@ -77,22 +78,35 @@ internal fun encodeQrMatrix(content: String): BitMatrix {
     return QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, 0, 0, hints)
 }
 
-internal fun bitMatrixToRgb(matrix: BitMatrix): IntArray {
-    val width = matrix.width
-    val height = matrix.height
+internal fun decodeQrFromMatrix(matrix: BitMatrix, scale: Int = QR_MODULE_PX): String {
+    val px = scale.coerceAtLeast(4)
+    val width = matrix.width * px
+    val height = matrix.height * px
     val pixels = IntArray(width * height)
-    var i = 0
-    for (y in 0 until height) {
-        for (x in 0 until width) {
-            pixels[i++] = if (matrix[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+    for (y in 0 until matrix.height) {
+        for (x in 0 until matrix.width) {
+            val color = if (matrix[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+            val destX = x * px
+            val destY = y * px
+            var dy = 0
+            while (dy < px) {
+                val row = (destY + dy) * width + destX
+                var dx = 0
+                while (dx < px) {
+                    pixels[row + dx] = color
+                    dx++
+                }
+                dy++
+            }
         }
     }
-    return pixels
-}
-
-internal fun decodeQrFromMatrix(matrix: BitMatrix): String {
-    val source = RGBLuminanceSource(matrix.width, matrix.height, bitMatrixToRgb(matrix))
-    return MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(source))).text
+    val source = RGBLuminanceSource(width, height, pixels)
+    val hints = mapOf(
+        DecodeHintType.TRY_HARDER to true,
+        DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
+        DecodeHintType.CHARACTER_SET to "UTF-8",
+    )
+    return MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(source)), hints).text
 }
 
 internal fun encodeQrBitmap(content: String, modulePx: Int = QR_MODULE_PX): Bitmap {
