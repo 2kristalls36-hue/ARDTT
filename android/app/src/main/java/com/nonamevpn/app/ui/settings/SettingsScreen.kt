@@ -2,19 +2,13 @@ package com.nonamevpn.app.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
@@ -32,8 +26,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -77,8 +69,6 @@ fun SettingsScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-    val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
-    val dynamicColor by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val vpnLocked = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
@@ -194,67 +184,6 @@ fun SettingsScreen(
 
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Тема оформления",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
-                DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
-                DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text("Динамические цвета", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Material You",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = dynamicColor,
-                        onCheckedChange = { scope.launch { settings.setDynamicColor(it) } },
-                    )
-                }
-            }
-            if (!dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                Text(
-                    "Цветовая палитра",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    PaletteCircle("indigo", 0xFF5B588D, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("forest", 0xFF5F5D68, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                }
-            }
-        }
-
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -342,13 +271,17 @@ fun SettingsScreen(
             )
         }
 
+        TrustedWifiSettingsCard(settings = settings)
+
+        CallHashSettingsCard()
+
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Обход", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Источник параметров обхода. Авто — vkcalls, иначе резерв. Нужен код звонка ниже.",
+                "Источник параметров обхода. Авто — vkcalls, иначе резерв. Нужен код звонка выше.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -368,9 +301,20 @@ fun SettingsScreen(
             )
         }
 
-        CallHashSettingsCard()
-
-        TrustedWifiSettingsCard(settings = settings)
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
+                DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
+                DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
+            }
+        }
 
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
@@ -796,28 +740,4 @@ private fun RowSetting(
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
-}
-
-@Composable
-private fun PaletteCircle(
-    paletteId: String,
-    colorHex: Long,
-    selectedId: String,
-    onClick: (String) -> Unit,
-) {
-    val selected = paletteId == selectedId
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(Color(colorHex))
-            .then(
-                if (selected) {
-                    Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                } else {
-                    Modifier
-                },
-            )
-            .clickable { onClick(paletteId) },
-    )
 }

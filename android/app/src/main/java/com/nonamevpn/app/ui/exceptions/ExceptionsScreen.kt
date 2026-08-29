@@ -15,8 +15,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -72,6 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnectionManager
@@ -229,6 +233,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         )
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -309,18 +314,10 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             when (pane) {
                 ExceptionsPane.Apps -> {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        BypassSearchBar(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 14.dp),
-                        )
-
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 18.dp),
+                                .padding(start = 18.dp, end = 18.dp, top = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
@@ -383,13 +380,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             }
                         }
 
-                        Text(
-                            "Нажмите карточку, чтобы добавить в список ЧС или БС.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
-                        )
-
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -397,7 +387,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                "Системные",
+                                "Системные приложения",
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.weight(1f),
                             )
@@ -421,7 +411,11 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             LazyColumn(
                                 state = rememberLazyListState(),
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+                                contentPadding = PaddingValues(
+                                    top = 8.dp,
+                                    bottom = NvpnBottomChrome.ButtonHeight +
+                                        NvpnBottomChrome.StickyGap + 16.dp,
+                                ),
                             ) {
                                 items(filteredApps, key = { it.packageName }) { app ->
                                     val isSelected = app.packageName in selectedPackages
@@ -551,6 +545,22 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         }
     }
 
+    if (pane == ExceptionsPane.Apps) {
+        val chromePad = NvpnBottomChrome.stickyBottomPadding()
+        val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+        BypassSearchBar(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .zIndex(2f)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = maxOf(chromePad, imePad + 8.dp)),
+        )
+    }
+    }
+
     if (showClearConfirm) {
         NvpnDialog(
             title = "Очистить сайты?",
@@ -665,37 +675,42 @@ private fun BypassSearchBar(
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
-        modifier = modifier.height(48.dp),
-        shape = ControlShape,
+        modifier = modifier.height(NvpnBottomChrome.ButtonHeight),
+        shape = RoundedCornerShape(20.dp),
         color = colors.surface,
-        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.55f)),
+        shadowElevation = 6.dp,
+        tonalElevation = 2.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 Icons.Outlined.Search,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                contentDescription = "Поиск",
+                modifier = Modifier.size(22.dp),
                 tint = colors.onSurfaceVariant,
             )
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
+                textStyle = MaterialTheme.typography.titleMedium.copy(
+                    color = colors.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                ),
                 cursorBrush = SolidColor(colors.primary),
                 modifier = Modifier.weight(1f),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (value.isEmpty()) {
                             Text(
-                                "Поиск…",
-                                style = MaterialTheme.typography.bodyMedium,
+                                "Поиск",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
                                 color = colors.onSurfaceVariant.copy(alpha = 0.65f),
                             )
                         }
@@ -703,6 +718,19 @@ private fun BypassSearchBar(
                     }
                 },
             )
+            if (value.isNotEmpty()) {
+                IconButton(
+                    onClick = { onValueChange("") },
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Очистить",
+                        modifier = Modifier.size(18.dp),
+                        tint = colors.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
