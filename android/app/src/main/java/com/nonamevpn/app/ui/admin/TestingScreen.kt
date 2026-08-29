@@ -61,7 +61,6 @@ import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.telemetry.TelemetryUploadClient
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.AppTabPageHeader
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -199,7 +198,6 @@ fun TestingScreen(profiles: ProfileRepository) {
                 .padding(bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp)),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            EdgeFeedTopInset()
             AppTabPageHeader(
                 title = "Режим тестирования",
                 subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",

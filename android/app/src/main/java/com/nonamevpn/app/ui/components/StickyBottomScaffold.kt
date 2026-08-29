@@ -80,7 +80,6 @@ fun StickyBottomScaffold(
                 .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            EdgeFeedTopInset()
             content()
         }
         Box(
@@ -124,7 +123,6 @@ fun EdgeFeedColumn(
             .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
         verticalArrangement = verticalArrangement,
     ) {
-        EdgeFeedTopInset()
         content()
     }
 }

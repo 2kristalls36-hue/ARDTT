@@ -34,7 +34,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -247,7 +246,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             .padding(horizontal = 16.dp)
             .padding(bottom = NvpnBottomChrome.navigationReserve()),
     ) {
-        EdgeFeedTopInset()
         AppTabPageHeader(
             title = "Исключения",
             subtitle = "Приложения и сайты вне туннеля",
