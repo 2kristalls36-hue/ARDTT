@@ -54,7 +54,6 @@ import com.nonamevpn.app.deploy.deviceDisplayLabels
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.profile.VpnProfileJson
-import com.nonamevpn.app.ui.profiles.ProfileShareDialog
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
@@ -63,9 +62,6 @@ import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.launch
 
 private val createDayOptions = listOf(0 to "∞", 7 to "7 дн", 30 to "30 дн", 90 to "90 дн")
@@ -111,7 +107,12 @@ private fun ClientsScreen(
     var createDays by remember { mutableIntStateOf(30) }
     var createMaxDevices by remember { mutableIntStateOf(1) }
     var creating by remember { mutableStateOf(false) }
-    var profileShare by remember { mutableStateOf<VpnProfile?>(null) }
+    var sheetUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
+    var sheetProfile by remember { mutableStateOf<VpnProfile?>(null) }
+    var sheetLoadingProfile by remember { mutableStateOf(false) }
+    var renameUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
+    var renameDraft by remember { mutableStateOf("") }
+    var renaming by remember { mutableStateOf(false) }
     var busyUser by remember { mutableStateOf<String?>(null) }
     var editUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var editMaxDevices by remember { mutableStateOf("1") }
@@ -156,6 +157,13 @@ private fun ClientsScreen(
         }
     }
 
+    fun replaceUser(previousName: String, updated: ProvisionAdminApi.UserSummary) {
+        users = users.map { if (it.name == previousName) updated else it }
+        if (sheetUser?.name == previousName) sheetUser = updated
+        if (renameUser?.name == previousName) renameUser = updated
+        if (editUser?.name == previousName) editUser = updated
+    }
+
     fun loadProfile(name: String, after: (String) -> Unit) {
         busyUser = name
         scope.launch {
@@ -163,13 +171,23 @@ private fun ClientsScreen(
             busyUser = null
             result.fold(
                 onSuccess = after,
-                onFailure = { toast(it.message ?: "Ошибка профиля") },
+                onFailure = {
+                    sheetLoadingProfile = false
+                    toast(it.message ?: "Ошибка профиля")
+                },
             )
         }
     }
 
     fun applyUser(updated: ProvisionAdminApi.UserSummary) {
-        users = users.map { if (it.name == updated.name) updated else it }
+        replaceUser(updated.name, updated)
+    }
+
+    LaunchedEffect(users, sheetUser?.name) {
+        val openName = sheetUser?.name ?: return@LaunchedEffect
+        users.find { it.name == openName }?.let { latest ->
+            if (latest != sheetUser) sheetUser = latest
+        }
     }
 
     LaunchedEffect(base) { refresh() }
@@ -269,8 +287,12 @@ private fun ClientsScreen(
                                     user = user,
                                     busy = busyUser != null,
                                     onOpenProfile = {
+                                        sheetUser = user
+                                        sheetProfile = null
+                                        sheetLoadingProfile = true
                                         loadProfile(user.name) { json ->
-                                            profileShare = VpnProfileJson.parse(json)
+                                            sheetProfile = VpnProfileJson.parse(json)
+                                            sheetLoadingProfile = false
                                         }
                                     },
                                     onEditLimits = {
@@ -330,7 +352,10 @@ private fun ClientsScreen(
                         result.fold(
                             onSuccess = { body ->
                                 showCreate = false
-                                profileShare = VpnProfileJson.parse(body)
+                                val profile = VpnProfileJson.parse(body)
+                                sheetProfile = profile
+                                sheetLoadingProfile = false
+                                sheetUser = userStubFromProfile(profile)
                                 refresh()
                             },
                             onFailure = { toast(it.message ?: "Ошибка создания") },
@@ -480,6 +505,10 @@ private fun ClientsScreen(
                         result.fold(
                             onSuccess = {
                                 users = users.filterNot { it.name == target.name }
+                                if (sheetUser?.name == target.name) {
+                                    sheetUser = null
+                                    sheetProfile = null
+                                }
                                 deleteUser = null
                                 Toast.makeText(context, "Клиент удалён", Toast.LENGTH_SHORT).show()
                             },
@@ -502,22 +531,106 @@ private fun ClientsScreen(
         }
     }
 
-    profileShare?.let { profile ->
-        ProfileShareDialog(
-            profile = profile,
-            onDismissRequest = { profileShare = null },
-            extraActions = {
-                OutlinedButton(
-                    onClick = { addToPhone(VpnProfileJson.encode(profile)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Text("Добавить на этот телефон")
+    renameUser?.let { target ->
+        NvpnDialog(
+            title = "Имя клиента",
+            onDismissRequest = { if (!renaming) renameUser = null },
+            confirmAction = NvpnDialogAction(
+                text = if (renaming) "Сохранение…" else "Сохранить",
+                onClick = click@{
+                    val next = renameDraft.trim()
+                    if (next.isBlank()) return@click
+                    if (next == target.name) {
+                        renameUser = null
+                        return@click
+                    }
+                    renaming = true
+                    scope.launch {
+                        val result = ProvisionAdminApi.updateUser(
+                            base,
+                            target.name,
+                            newName = next,
+                        )
+                        renaming = false
+                        result.fold(
+                            onSuccess = { updated ->
+                                if (updated.name != next) {
+                                    toast("Сервер не сменил имя")
+                                    return@fold
+                                }
+                                replaceUser(target.name, updated)
+                                renameUser = null
+                                loadProfile(updated.name) { json ->
+                                    sheetProfile = VpnProfileJson.parse(json)
+                                    sheetLoadingProfile = false
+                                }
+                            },
+                            onFailure = { toast(it.message ?: "Не удалось изменить имя") },
+                        )
+                    }
+                },
+                enabled = !renaming && renameDraft.trim().isNotBlank(),
+            ),
+            dismissAction = NvpnDialogAction("Отмена", { renameUser = null }, enabled = !renaming),
+            dismissOnBackPress = !renaming,
+            dismissOnClickOutside = !renaming,
+        ) {
+            OutlinedTextField(
+                value = renameDraft,
+                onValueChange = { renameDraft = it },
+                label = { Text("Имя") },
+                singleLine = true,
+                enabled = !renaming,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    sheetUser?.let { user ->
+        ClientSettingsSheet(
+            user = user,
+            profile = sheetProfile,
+            loadingProfile = sheetLoadingProfile,
+            busy = busyUser != null || renaming,
+            onDismissRequest = {
+                sheetUser = null
+                sheetProfile = null
+                sheetLoadingProfile = false
+            },
+            onEditName = {
+                renameDraft = user.name
+                renameUser = user
+            },
+            onUnbindDevice = { deviceId ->
+                busyUser = user.name
+                scope.launch {
+                    val result = ProvisionAdminApi.unbindDevice(base, user.name, deviceId)
+                    busyUser = null
+                    result.fold(
+                        onSuccess = { replaceUser(user.name, it) },
+                        onFailure = { toast(it.message ?: "Не удалось отвязать") },
+                    )
                 }
+            },
+            onAddToPhone = {
+                sheetProfile?.let { addToPhone(VpnProfileJson.encode(it)) }
             },
         )
     }
 }
+
+private fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSummary(
+    name = profile.name,
+    hostId = profile.hostId,
+    deviceId = profile.deviceId,
+    deviceIds = listOf(profile.deviceId).filter { it.isNotBlank() },
+    maxDevices = profile.maxDevices,
+    hideIp = profile.hideIp,
+    createdAt = "",
+    expiresAt = profile.expiresAt,
+    deactivated = profile.deactivated,
+)
 
 @Composable
 private fun ClientCard(
@@ -527,8 +640,7 @@ private fun ClientCard(
     onEditLimits: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val subActive = !user.deactivated &&
-        (user.expiresAt <= 0L || user.expiresAt * 1000L > System.currentTimeMillis())
+    val subActive = clientSubscriptionActive(user)
     val used = user.usedBytes
     val limit = user.trafficLimitBytes
     val progress = when {
@@ -679,34 +791,3 @@ private fun ClientActionButton(
         Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
-
-private fun formatClientBytes(bytes: Long): String {
-    val b = bytes.coerceAtLeast(0L)
-    return when {
-        b < 1024L -> "$b Б"
-        b < 1024L * 1024L -> String.format(Locale.US, "%.1f КБ", b / 1024.0)
-        b < 1024L * 1024L * 1024L -> String.format(Locale.US, "%.2f МБ", b / (1024.0 * 1024.0))
-        else -> String.format(Locale.US, "%.2f ГБ", b / (1024.0 * 1024.0 * 1024.0))
-    }
-}
-
-private fun formatClientExpires(expiresAt: Long): String {
-    if (expiresAt <= 0L) return "без срока"
-    return SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(expiresAt * 1000L))
-}
-
-private fun formatClientRelative(ms: Long): String {
-    if (ms <= 0L) return ""
-    val diff = (System.currentTimeMillis() - ms).coerceAtLeast(0L)
-    val minutes = diff / 60_000L
-    val hours = diff / 3_600_000L
-    val days = diff / 86_400_000L
-    return when {
-        minutes < 1L -> "только что"
-        minutes < 60L -> "$minutes мин назад"
-        hours < 24L -> "$hours ч назад"
-        days < 30L -> "$days дн назад"
-        else -> SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(ms))
-    }
-}
-
