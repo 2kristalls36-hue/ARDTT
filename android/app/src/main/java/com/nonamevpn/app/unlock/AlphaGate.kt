@@ -81,7 +81,8 @@ object AlphaGate {
 
     fun otpMatches(challengeHex: String, otpRaw: String): Boolean {
         val otp = normalizeOtp(otpRaw) ?: return false
-        val expected = oneTimeCode(challengeHex).toByteArray(Charsets.US_ASCII)
+        val challenge = normalizeChallenge(challengeHex) ?: return false
+        val expected = oneTimeCode(challenge).toByteArray(Charsets.US_ASCII)
         val given = otp.toByteArray(Charsets.US_ASCII)
         return MessageDigest.isEqual(expected, given)
     }
