@@ -2,16 +2,21 @@ package com.nonamevpn.app.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -50,8 +55,10 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.update.AppUpdateInfo
+import com.nonamevpn.app.update.updatePrimaryActionLabel
 import kotlinx.coroutines.launch
 
 @Composable
@@ -121,6 +128,7 @@ fun SettingsScreen(
                 message = updateUi.message,
                 downloadedFile = updateUi.downloadedFile != null,
                 onDownload = { updates.download() },
+                onCancel = { updates.cancel() },
                 onInstall = { updates.install() },
             )
         }
@@ -303,7 +311,7 @@ fun SettingsScreen(
                     onClick = {
                         scope.launch {
                             settings.lockAdmin()
-                            adminHint = "Сессия администратора завершена."
+                            adminHint = null
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -341,6 +349,7 @@ private fun UpdateSettingsCard(
     message: String?,
     downloadedFile: Boolean,
     onDownload: () -> Unit,
+    onCancel: () -> Unit,
     onInstall: () -> Unit,
 ) {
     AppSectionCard(
@@ -376,17 +385,6 @@ private fun UpdateSettingsCard(
                 }
             }
         }
-        if (downloading) {
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                "${(progress * 100).toInt()}%",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
         message?.let {
             Text(
                 it,
@@ -394,24 +392,68 @@ private fun UpdateSettingsCard(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        if (downloadedFile) {
-            OutlinedButton(
-                onClick = onInstall,
-                enabled = !downloading,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Text("Установить")
+        if (downloading || downloadedFile || info?.isNewer == true) {
+            UpdateFillButton(
+                text = updatePrimaryActionLabel(downloading, downloadedFile),
+                filling = downloading,
+                progress = progress,
+                onClick = {
+                    when {
+                        downloading -> onCancel()
+                        downloadedFile -> onInstall()
+                        else -> onDownload()
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun UpdateFillButton(
+    text: String,
+    filling: Boolean,
+    progress: Float,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val animatedProgress by animateFloatAsState(
+        targetValue = if (filling) progress.coerceIn(0f, 1f) else 0f,
+        label = "update_fill_progress",
+    )
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(NvpnBottomChrome.ButtonHeight),
+        shape = RoundedCornerShape(20.dp),
+        color = if (filling) colors.primary.copy(alpha = 0.18f) else colors.primary,
+        contentColor = colors.onPrimary,
+        shadowElevation = 6.dp,
+        tonalElevation = 0.dp,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            if (filling) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .fillMaxWidth(animatedProgress)
+                        .background(colors.primary),
+                )
             }
-        } else if (info?.isNewer == true) {
-            OutlinedButton(
-                onClick = onDownload,
-                enabled = !downloading,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Text(if (downloading) "Загрузка…" else "Скачать")
-            }
+            Text(
+                text = text,
+                modifier = Modifier.align(Alignment.Center),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (!filling || animatedProgress >= 0.42f) {
+                    colors.onPrimary
+                } else {
+                    colors.primary
+                },
+            )
         }
     }
 }

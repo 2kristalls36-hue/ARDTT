@@ -73,31 +73,48 @@ class AppUpdateController private constructor(context: Context) {
                 it.copy(
                     downloading = true,
                     progress = 0f,
-                    message = "Выполняется загрузка ${info.versionName}…",
+                    message = null,
                 )
             }
-            val result = manager.download(info) { progress ->
-                _ui.update { it.copy(progress = progress) }
-            }
-            result.onSuccess { file ->
+            try {
+                val result = manager.download(info) { progress ->
+                    _ui.update { it.copy(progress = progress) }
+                }
+                result.onSuccess { file ->
+                    _ui.update {
+                        it.copy(
+                            downloading = false,
+                            progress = 1f,
+                            downloadedFile = file,
+                            message = null,
+                        )
+                    }
+                }.onFailure { error ->
+                    _ui.update {
+                        it.copy(
+                            downloading = false,
+                            progress = 0f,
+                            message = error.message ?: "Не удалось загрузить APK",
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
                 _ui.update {
                     it.copy(
                         downloading = false,
-                        progress = 1f,
-                        downloadedFile = file,
-                        message = "Файл загружен. Можно установить.",
+                        progress = 0f,
+                        downloadedFile = null,
+                        message = null,
                     )
                 }
-                runCatching { manager.install(file) }
-            }.onFailure { error ->
-                if (error is CancellationException) throw error
-                _ui.update {
-                    it.copy(
-                        downloading = false,
-                        message = error.message ?: "Не удалось скачать APK",
-                    )
-                }
+                throw e
             }
+        }
+    }
+
+    fun cancel() {
+        if (downloadJob?.isActive == true) {
+            downloadJob?.cancel()
         }
     }
 
@@ -128,3 +145,9 @@ fun shouldShowUpdateCard(
     downloading: Boolean,
     hasApk: Boolean,
 ): Boolean = availableNewer || downloading || hasApk
+
+fun updatePrimaryActionLabel(downloading: Boolean, hasApk: Boolean): String = when {
+    downloading -> "Отмена"
+    hasApk -> "Установить"
+    else -> "Загрузить"
+}

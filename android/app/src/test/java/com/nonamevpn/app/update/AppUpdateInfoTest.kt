@@ -36,4 +36,12 @@ class AppUpdateInfoTest {
         assertTrue(shouldShowUpdateCard(availableNewer = false, downloading = false, hasApk = true))
         assertFalse(shouldShowUpdateCard(availableNewer = false, downloading = false, hasApk = false))
     }
+
+    @Test
+    fun updateButtonLabelFollowsDownloadState() {
+        assertEquals("Загрузить", updatePrimaryActionLabel(downloading = false, hasApk = false))
+        assertEquals("Отмена", updatePrimaryActionLabel(downloading = true, hasApk = false))
+        assertEquals("Установить", updatePrimaryActionLabel(downloading = false, hasApk = true))
+        assertEquals("Отмена", updatePrimaryActionLabel(downloading = true, hasApk = true))
+    }
 }
