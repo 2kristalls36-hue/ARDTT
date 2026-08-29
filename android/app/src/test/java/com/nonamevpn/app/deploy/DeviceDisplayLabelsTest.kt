@@ -38,6 +38,9 @@ class ProvisionUserSummaryParseTest {
               "maxDevices": 1,
               "hideIp": false,
               "createdAt": "2026-01-01T00:00:00Z",
+              "lastExternalIp": "203.0.113.10",
+              "online": false,
+              "offlineForSec": 90,
               "deviceModels": {"dev-abc12345": "Pixel 8"}
             }]
             """.trimIndent(),
@@ -45,5 +48,8 @@ class ProvisionUserSummaryParseTest {
         assertEquals(1, users.size)
         assertEquals("Pixel 8", users[0].deviceModels["dev-abc12345"])
         assertEquals(listOf("Pixel 8"), deviceDisplayLabels(users[0].deviceIds, users[0].deviceModels))
+        assertEquals(90L, users[0].offlineForSec)
+        assertEquals("203.0.113.10", users[0].lastExternalIp)
+        assertFalse(users[0].online)
     }
 }

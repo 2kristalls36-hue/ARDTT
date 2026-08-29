@@ -130,6 +130,7 @@ object ProvisionAdminApi {
         deactivated: Boolean? = null,
         clearDevices: Boolean = false,
         trafficLimitGb: Int? = null,
+        newName: String? = null,
     ): Result<UserSummary> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users/update")
@@ -139,6 +140,7 @@ object ProvisionAdminApi {
             deactivated?.let { payload.put("deactivated", it) }
             if (clearDevices) payload.put("clearDevices", true)
             trafficLimitGb?.let { payload.put("trafficLimitGb", it.coerceAtLeast(0)) }
+            newName?.trim()?.takeIf { it.isNotEmpty() }?.let { payload.put("newName", it) }
             postJsonUser(url, payload)
         }
     }

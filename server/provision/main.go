@@ -212,6 +212,7 @@ func runServer(store *Store, listen string) error {
 		}
 		var body struct {
 			Name              string `json:"name"`
+			NewName           *string `json:"newName"`
 			MaxDevices        *int   `json:"maxDevices"`
 			Days              *int   `json:"days"`
 			Deactivated       *bool  `json:"deactivated"`
@@ -233,7 +234,7 @@ func runServer(store *Store, listen string) error {
 			}
 			limitBytes = &v
 		}
-		u, err := store.UpdateUser(body.Name, body.MaxDevices, body.Days, body.Deactivated, body.ClearDevices, limitBytes)
+		u, err := store.UpdateUser(body.Name, body.MaxDevices, body.Days, body.Deactivated, body.ClearDevices, limitBytes, body.NewName)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
@@ -683,6 +684,32 @@ type bypassTrafficFile struct {
 	} `json:"byName"`
 }
 
+func (s *Store) renameBypassTrafficLocked(oldName, newName string) {
+	if oldName == "" || newName == "" || oldName == newName {
+		return
+	}
+	path := filepath.Join(filepath.Dir(s.path), "bypass-traffic.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var snap bypassTrafficFile
+	if json.Unmarshal(raw, &snap) != nil || snap.ByName == nil {
+		return
+	}
+	t, ok := snap.ByName[oldName]
+	if !ok {
+		return
+	}
+	delete(snap.ByName, oldName)
+	snap.ByName[newName] = t
+	out, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, out, 0o600)
+}
+
 func loadBypassTrafficLocked(dataDir string) map[string]struct{ DownBytes, UpBytes int64 } {
 	out := map[string]struct{ DownBytes, UpBytes int64 }{}
 	raw, err := os.ReadFile(filepath.Join(dataDir, "bypass-traffic.json"))
@@ -699,13 +726,29 @@ func loadBypassTrafficLocked(dataDir string) map[string]struct{ DownBytes, UpByt
 	return out
 }
 
-func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool, clearDevices bool, trafficLimitBytes *int64) (User, error) {
+func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool, clearDevices bool, trafficLimitBytes *int64, newName *string) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.Users {
 		u := &s.Users[i]
 		if u.Name != name {
 			continue
+		}
+		if newName != nil {
+			next := strings.TrimSpace(*newName)
+			if next == "" {
+				return User{}, fmt.Errorf("newName required")
+			}
+			if next != u.Name {
+				for _, other := range s.Users {
+					if other.Name == next {
+						return User{}, fmt.Errorf("user %q already exists", next)
+					}
+				}
+				oldName := u.Name
+				u.Name = next
+				s.renameBypassTrafficLocked(oldName, next)
+			}
 		}
 		if maxDevices != nil {
 			if *maxDevices <= 0 {
