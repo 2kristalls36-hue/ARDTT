@@ -1,9 +1,7 @@
 package com.nonamevpn.app.core
 
 import android.content.Context
-import android.net.ConnectivityManager
 import android.net.Network
-import android.net.NetworkCapabilities
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +34,7 @@ object HideIpApi {
         }
         // Prefer underlay so hide-ip still works while the VPN tunnel is up / broken.
         // If bind is denied (EPERM) or fails, fall back to default route immediately.
-        val underlay = context?.let { pickUnderlayNetwork(it) }
+        val underlay = context?.let { pickBestUnderlayNetwork(it) }
         val first = if (underlay != null) {
             postHideIp(base, deviceId, enabled, bindNetwork = underlay)
         } else {
@@ -88,20 +86,5 @@ object HideIpApi {
     private fun openHttp(url: URL, bindNetwork: Network?): HttpURLConnection {
         val raw = if (bindNetwork != null) bindNetwork.openConnection(url) else url.openConnection()
         return raw as HttpURLConnection
-    }
-
-    private fun pickUnderlayNetwork(context: Context): Network? {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        fun score(n: Network): Int {
-            val caps = cm.getNetworkCapabilities(n) ?: return -1
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return -1
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return -1
-            var s = 1
-            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) s += 4
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) s += 8
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) s += 2
-            return s
-        }
-        return cm.allNetworks.maxByOrNull { score(it) }?.takeIf { score(it) > 0 }
     }
 }

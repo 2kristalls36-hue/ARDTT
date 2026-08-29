@@ -138,7 +138,7 @@ object EgressIpProbe {
      * tab even when the VPN is down.
      */
     suspend fun refreshUnderlay(context: Context): String? = withContext(Dispatchers.IO) {
-        val bind = pickUnderlayNetwork(context)
+        val bind = pickBestUnderlayNetwork(context)
         val errors = mutableListOf<String>()
         for (url in endpoints) {
             val ip = runCatching { fetchIp(url, bind) }.getOrElse {
@@ -180,7 +180,7 @@ object EgressIpProbe {
         }
         // Prefer underlay when tunnel is up but app is excluded from TUN —
         // provision :9100 is on the VPS public host, reachable without VPN.
-        val underlay = context?.let { pickUnderlayNetwork(it) }
+        val underlay = context?.let { pickBestUnderlayNetwork(it) }
         val firstBind = when {
             !viaVpn -> underlay
             underlay != null -> underlay
@@ -254,21 +254,6 @@ object EgressIpProbe {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         }
-    }
-
-    private fun pickUnderlayNetwork(context: Context): Network? {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        fun score(n: Network): Int {
-            val caps = cm.getNetworkCapabilities(n) ?: return -1
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return -1
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return -1
-            var s = 1
-            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) s += 4
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) s += 8
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) s += 2
-            return s
-        }
-        return cm.allNetworks.maxByOrNull { score(it) }?.takeIf { score(it) > 0 }
     }
 
     internal fun looksLikeIp(value: String): Boolean {
