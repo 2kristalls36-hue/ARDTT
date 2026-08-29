@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -448,6 +449,7 @@ fun TunnelScreen(
             },
             icon = when {
                 cancelMode -> Icons.Default.Stop
+                pausedTrusted -> Icons.Default.Pause
                 sessionUp -> Icons.Default.Stop
                 else -> Icons.Default.PowerSettingsNew
             },

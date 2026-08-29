@@ -88,7 +88,7 @@ class AppSettingsRepository(private val context: Context) {
         normalizeThemePalette(it[themePalette])
     }
     val dynamicColorFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[dynamicColor] == true }
+        context.dataStore.data.map { it[dynamicColor] != false }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
 

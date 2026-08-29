@@ -41,14 +41,8 @@ class MainActivity : ComponentActivity() {
             val recorder = androidx.compose.runtime.remember { TelemetryRecorder.get(applicationContext) }
             val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
             val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-            val palette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
-            val dynamic by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
             androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
-                ArdttTheme(
-                    themeMode = themeMode,
-                    palette = palette,
-                    dynamicColor = dynamic,
-                ) {
+                ArdttTheme(themeMode = themeMode) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = androidx.compose.ui.graphics.Color.Transparent,
