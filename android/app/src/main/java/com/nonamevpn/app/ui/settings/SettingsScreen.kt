@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,6 +60,7 @@ import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.update.AppUpdateInfo
+import com.nonamevpn.app.update.updateCardCopy
 import com.nonamevpn.app.update.updatePrimaryActionLabel
 import kotlinx.coroutines.launch
 
@@ -358,6 +360,32 @@ private fun UpdateSettingsCard(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text("Обновление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (info != null) {
+            val copy = updateCardCopy(info.versionName, info.sizeBytes, info.notes)
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        copy.headline,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    copy.sizeLabel?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
+                    copy.notes?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
         message?.let {
             Text(
                 it,

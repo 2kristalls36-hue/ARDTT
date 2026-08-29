@@ -44,4 +44,40 @@ class AppUpdateInfoTest {
         assertEquals("Установить", updatePrimaryActionLabel(downloading = false, hasApk = true))
         assertEquals("Отмена", updatePrimaryActionLabel(downloading = true, hasApk = true))
     }
+
+    @Test
+    fun updateCardShowsVersionAndSizeWhenNotesAreEmpty() {
+        val copy = updateCardCopy(
+            versionName = "0.5.105-update-info",
+            sizeBytes = 12_582_912L,
+            notes = "",
+        )
+        assertEquals("Доступна 0.5.105-update-info", copy.headline)
+        assertEquals("Размер: 12,0 МБ", copy.sizeLabel)
+        assertEquals(null, copy.notes)
+    }
+
+    @Test
+    fun updateCardOmitsSizeWhenUnknownAndShowsNotesWhenPresent() {
+        val empty = updateCardCopy(versionName = "0.5.60", sizeBytes = 0L, notes = "   ")
+        assertEquals("Доступна 0.5.60", empty.headline)
+        assertEquals(null, empty.sizeLabel)
+        assertEquals(null, empty.notes)
+
+        val withNotes = updateCardCopy(
+            versionName = "0.5.60",
+            sizeBytes = 123_456L,
+            notes = "  Исправления загрузки  ",
+        )
+        assertEquals("Доступна 0.5.60", withNotes.headline)
+        assertEquals("Размер: 120,6 КБ", withNotes.sizeLabel)
+        assertEquals("Исправления загрузки", withNotes.notes)
+    }
+
+    @Test
+    fun formatUpdateSizeUsesRussianUnits() {
+        assertEquals("512 Б", formatUpdateSize(512L))
+        assertEquals("1,0 КБ", formatUpdateSize(1024L))
+        assertEquals("1,0 МБ", formatUpdateSize(1024L * 1024L))
+    }
 }
