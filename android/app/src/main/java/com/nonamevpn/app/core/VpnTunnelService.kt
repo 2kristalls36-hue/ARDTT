@@ -1046,24 +1046,30 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         dnsCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { d ->
             runCatching { builder.addDnsServer(d) }
         }
-        // App split-tunnel: ЧС = disallowed, БС = allowed (self always included).
+        // App split-tunnel: ЧС = disallowed, БС = allowed.
+        // WARP-marked apps are forced into the TUN (override ЧС, union БС).
         val excludedApps = runCatching {
             kotlinx.coroutines.runBlocking { settingsRepo.excludedAppsSnapshot() }
+        }.getOrDefault(emptySet())
+        val warpApps = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.warpAppsSnapshot() }
         }.getOrDefault(emptySet())
         val whitelist = runCatching {
             kotlinx.coroutines.runBlocking { settingsRepo.appsWhitelistModeSnapshot() }
         }.getOrDefault(false)
-        if (whitelist) {
-            runCatching { builder.addAllowedApplication(packageName) }
-            for (pkg in excludedApps) {
-                if (pkg == packageName) continue
+        val plan = SplitTunnel.resolve(
+            whitelistMode = whitelist,
+            selectedApps = excludedApps,
+            warpApps = warpApps,
+            selfPackage = packageName,
+        )
+        if (plan.whitelistMode) {
+            for (pkg in plan.allowed) {
                 runCatching { builder.addAllowedApplication(pkg) }
                     .onFailure { Log.w(TAG, "skip allowed app $pkg: ${it.message}") }
             }
         } else {
-            runCatching { builder.addDisallowedApplication(packageName) }
-            for (pkg in excludedApps) {
-                if (pkg == packageName) continue
+            for (pkg in plan.disallowed) {
                 runCatching { builder.addDisallowedApplication(pkg) }
                     .onFailure { Log.w(TAG, "skip disallowed app $pkg: ${it.message}") }
             }
@@ -1082,7 +1088,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         Log.i(
             TAG,
             "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd} " +
-                "apps=${excludedApps.size} whitelist=$whitelist hosts=${excludedHosts.size}",
+                "apps=${excludedApps.size} warp=${warpApps.size} whitelist=$whitelist " +
+                "hosts=${excludedHosts.size}",
             )
         return pfd
     }
