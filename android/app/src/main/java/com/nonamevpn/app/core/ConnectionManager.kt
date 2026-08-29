@@ -4,9 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import com.nonamevpn.app.bypass.CallHashStore
 import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.profile.VpnProfile
+import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.tunnel.TunnelSessionConfig
 import com.nonamevpn.app.tunnel.TunnelSessionHolder
 import kotlinx.coroutines.CancellationException
@@ -52,6 +54,8 @@ class ConnectionManager(
     private val _ui = MutableStateFlow(ConnUiState())
     val ui: StateFlow<ConnUiState> = _ui.asStateFlow()
     private val hashStore = CallHashStore(appContext)
+    private val settingsRepo = AppSettingsRepository(appContext)
+    @Volatile private var alphaUnlockedCached: Boolean? = null
 
     private var probeJob: Job? = null
     private var connectJob: Job? = null
@@ -69,6 +73,21 @@ class ConnectionManager(
     @Volatile private var tunnelStartedAtMs: Long = 0L
     /** Consecutive identical Auto probe paths — Bypass→Direct needs two VPS-IP hits. */
     private var handoverProbeStreak = ProbeStreak()
+
+    init {
+        scope.launch {
+            settingsRepo.alphaUnlockedFlow.collect { alphaUnlockedCached = it }
+        }
+    }
+
+    private fun rejectLockedConnect() {
+        AppLog.w(TAG, "Connect ignored — alpha lock")
+        Toast.makeText(
+            appContext,
+            "Сначала разблокируйте приложение",
+            Toast.LENGTH_LONG,
+        ).show()
+    }
 
     fun updateProfile(profile: VpnProfile?) {
         this.profile = profile
@@ -349,6 +368,10 @@ class ConnectionManager(
     }
 
     fun connect() {
+        if (alphaUnlockedCached == false) {
+            rejectLockedConnect()
+            return
+        }
         val current = _ui.value
         val mode = pathMode
         val probePreferred = current.probe?.preselectedPath
@@ -378,6 +401,10 @@ class ConnectionManager(
 
         connectJob?.cancel()
         connectJob = scope.launch {
+            if (!settingsRepo.alphaUnlockedSnapshot()) {
+                rejectLockedConnect()
+                return@launch
+            }
             try {
                 val snap = _ui.value
                 val lastGood = snap.probe

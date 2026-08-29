@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -56,6 +57,7 @@ import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
+import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -67,6 +69,24 @@ fun AppRoot(
     deployEngine: DeployEngine,
 ) {
     val context = LocalContext.current
+    var alphaUnlocked by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(settings) {
+        settings.alphaUnlockedFlow.collect { alphaUnlocked = it }
+    }
+    when (alphaUnlocked) {
+        null -> {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AppBackdrop(modifier = Modifier.fillMaxSize())
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
+            return
+        }
+        false -> {
+            AlphaUnlockScreen(settings = settings)
+            return
+        }
+        true -> Unit
+    }
     val activity = context as? Activity
     val conn = remember { ConnectionManager.get(context) }
     val scope = rememberCoroutineScope()

@@ -6,9 +6,12 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.nonamevpn.app.core.sanitizeTrustedWifiSsid
+import com.nonamevpn.app.unlock.AlphaGate
+import com.nonamevpn.app.unlock.AlphaUnlockResult
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -35,6 +38,10 @@ class AppSettingsRepository(private val context: Context) {
     private val themeMode = stringPreferencesKey("theme_mode")
     private val themePalette = stringPreferencesKey("theme_palette")
     private val dynamicColor = booleanPreferencesKey("is_dynamic_color")
+    private val alphaChallengeHex = stringPreferencesKey("alpha_challenge_hex")
+    private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
+    private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
+    private val alphaUnlockLockUntil = longPreferencesKey("alpha_unlock_lock_until")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
@@ -82,6 +89,8 @@ class AppSettingsRepository(private val context: Context) {
     }
     val dynamicColorFlow: Flow<Boolean> =
         context.dataStore.data.map { it[dynamicColor] == true }
+    val alphaUnlockedFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[alphaUnlocked] == true }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -265,6 +274,63 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setDynamicColor(enabled: Boolean) {
         context.dataStore.edit { it[dynamicColor] = enabled }
+    }
+
+    suspend fun alphaUnlockedSnapshot(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[alphaUnlocked] == true
+    }
+
+    /**
+     * Device challenge is created once and never rotated. Regenerating it would
+     * invalidate a code the developer already issued.
+     */
+    suspend fun ensureAlphaChallengeHex(): String {
+        var result = ""
+        context.dataStore.edit { prefs ->
+            val existing = AlphaGate.normalizeChallenge(prefs[alphaChallengeHex].orEmpty())
+            if (existing != null) {
+                result = existing
+            } else {
+                val generated = AlphaGate.newChallengeHex()
+                prefs[alphaChallengeHex] = generated
+                result = generated
+            }
+        }
+        return result
+    }
+
+    suspend fun tryAlphaUnlock(otp: String): AlphaUnlockResult {
+        var result: AlphaUnlockResult = AlphaUnlockResult.WrongCode(fails = 0, lockMs = 0L)
+        context.dataStore.edit { prefs ->
+            if (prefs[alphaUnlocked] == true) {
+                result = AlphaUnlockResult.Success
+                return@edit
+            }
+            val now = System.currentTimeMillis()
+            val lockUntil = prefs[alphaUnlockLockUntil] ?: 0L
+            if (now < lockUntil) {
+                result = AlphaUnlockResult.Locked(lockUntil - now)
+                return@edit
+            }
+            val challenge = AlphaGate.normalizeChallenge(prefs[alphaChallengeHex].orEmpty())
+                ?: AlphaGate.newChallengeHex().also { prefs[alphaChallengeHex] = it }
+            if (AlphaGate.otpMatches(challenge, otp)) {
+                prefs[alphaUnlocked] = true
+                prefs[alphaUnlockFails] = 0
+                prefs[alphaUnlockLockUntil] = 0L
+                result = AlphaUnlockResult.Success
+                return@edit
+            }
+            val fails = (prefs[alphaUnlockFails] ?: 0) + 1
+            val lockMs = AlphaGate.lockMsAfterFails(fails)
+            prefs[alphaUnlockFails] = fails
+            if (lockMs > 0L) {
+                prefs[alphaUnlockLockUntil] = now + lockMs
+            }
+            result = AlphaUnlockResult.WrongCode(fails = fails, lockMs = lockMs)
+        }
+        return result
     }
 
     private fun sha256(value: String): String {
