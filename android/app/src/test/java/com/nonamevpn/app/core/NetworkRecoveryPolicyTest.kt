@@ -271,6 +271,7 @@ class NetworkRecoveryPolicyTest {
                 bypassAllowed = true,
                 currentPathHealthy = true,
                 underlayVpsReachable = false,
+                sameProbeStreak = 2,
             ),
         )
     }
@@ -326,6 +327,101 @@ class NetworkRecoveryPolicyTest {
                 underlayVpsReachable = false,
             ),
         )
+    }
+
+    @Test
+    fun handoverGraceRebindsWhenUnderlayActuallyChanged() {
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                sessionAgeMs = 3_000L,
+                currentPathHealthy = true,
+                underlayVpsReachable = true,
+                underlayChanged = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                sessionAgeMs = 3_000L,
+                currentPathHealthy = true,
+                underlayVpsReachable = true,
+                underlayChanged = false,
+            ),
+        )
+    }
+
+    @Test
+    fun handoverDirectToBypassNeedsTwoHits() {
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                currentPathHealthy = true,
+                underlayVpsReachable = false,
+                sameProbeStreak = 1,
+                underlayChanged = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                currentPathHealthy = true,
+                underlayVpsReachable = false,
+                sameProbeStreak = 2,
+                underlayChanged = true,
+            ),
+        )
+    }
+
+    @Test
+    fun handoverUnderlayChangeRebindsBypassInsteadOfWaiting() {
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                sameProbeStreak = 1,
+                underlayChanged = false,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                sameProbeStreak = 1,
+                underlayChanged = true,
+            ),
+        )
+    }
+
+    @Test
+    fun confirmedUnderlayChangeUsesLossOrNewNetworkId() {
+        assertTrue(isConfirmedUnderlayChange(previousNetworkWasLost = true, previousNetworkId = null))
+        assertTrue(isConfirmedUnderlayChange(previousNetworkWasLost = false, previousNetworkId = 7L))
+        assertFalse(isConfirmedUnderlayChange(previousNetworkWasLost = false, previousNetworkId = null))
     }
 
     @Test

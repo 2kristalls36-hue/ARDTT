@@ -4,6 +4,13 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +64,7 @@ import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -69,6 +78,7 @@ fun TestingScreen(profiles: ProfileRepository) {
     val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
 
     val logs = remember { mutableStateListOf<TelemetryLogEntry>() }
+    var dismissingNames by remember { mutableStateOf(setOf<String>()) }
     var message by remember { mutableStateOf<String?>(null) }
     var uploadingFile by remember { mutableStateOf<String?>(null) }
     var uploadProgress by remember { mutableFloatStateOf(0f) }
@@ -98,8 +108,12 @@ fun TestingScreen(profiles: ProfileRepository) {
     }
 
     fun refreshLogs() {
+        val animating = logs.filter { it.file.name in dismissingNames }
+        val fromDisk = fileManager.listLogs()
+            .filter { disk -> animating.none { it.file.name == disk.file.name } }
         logs.clear()
-        logs.addAll(fileManager.listLogs())
+        logs.addAll(fromDisk)
+        logs.addAll(animating)
     }
 
     LaunchedEffect(isRecording) {
@@ -158,9 +172,18 @@ fun TestingScreen(profiles: ProfileRepository) {
                 onProgress = { uploadProgress = it },
             )
             uploadingFile = null
-            message = result.fold(
-                onSuccess = { "Отправлено с комментарием: ${entry.displayName}" },
-                onFailure = { it.message ?: "Ошибка отправки" },
+            result.fold(
+                onSuccess = {
+                    message = "Отправлено с комментарием: ${entry.displayName}"
+                    dismissingNames = dismissingNames + entry.file.name
+                    delay(LOG_DISMISS_MS + 40L)
+                    fileManager.delete(entry.file)
+                    logs.removeAll { it.file.name == entry.file.name }
+                    dismissingNames = dismissingNames - entry.file.name
+                },
+                onFailure = {
+                    message = it.message ?: "Ошибка отправки"
+                },
             )
         }
     }
@@ -235,22 +258,37 @@ fun TestingScreen(profiles: ProfileRepository) {
                 EmptyLogsBlock()
             } else {
                 logs.forEach { entry ->
-                    LogRow(
-                        entry = entry,
-                        uploading = uploadingFile == entry.file.name,
-                        progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
-                        onDelete = {
-                            scope.launch {
-                                fileManager.delete(entry.file)
-                                refreshLogs()
-                                message = "Удалено: ${entry.displayName}"
-                            }
-                        },
-                        onUpload = {
-                            uploadTarget = entry
-                            uploadComment = ""
-                        },
-                    )
+                    key(entry.file.name) {
+                        AnimatedVisibility(
+                            visible = entry.file.name !in dismissingNames,
+                            modifier = Modifier.fillMaxWidth(),
+                            enter = EnterTransition.None,
+                            exit = fadeOut(
+                                animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                            ) + slideOutVertically(
+                                animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                            ) { -it } + shrinkVertically(
+                                animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                            ),
+                        ) {
+                            LogRow(
+                                entry = entry,
+                                uploading = uploadingFile == entry.file.name,
+                                progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
+                                onDelete = {
+                                    scope.launch {
+                                        fileManager.delete(entry.file)
+                                        refreshLogs()
+                                        message = "Удалено: ${entry.displayName}"
+                                    }
+                                },
+                                onUpload = {
+                                    uploadTarget = entry
+                                    uploadComment = ""
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -418,3 +456,5 @@ private fun formatDuration(ms: Long): String {
         else -> "${sec}с"
     }
 }
+
+private const val LOG_DISMISS_MS = 480L

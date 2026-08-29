@@ -28,6 +28,7 @@ object EgressIpProbe {
     )
 
     private val cached = AtomicReference<String?>(null)
+    private val underlayCached = AtomicReference<String?>(null)
 
     @Volatile
     var lastError: String? = null
@@ -38,7 +39,18 @@ object EgressIpProbe {
     var lastVia: String? = null
         private set
 
+    @Volatile
+    var lastUnderlayError: String? = null
+        private set
+
+    @Volatile
+    var lastUnderlayVia: String? = null
+        private set
+
     fun current(): String? = cached.get()
+
+    /** Public IP of the phone's provider path (Wi‑Fi / LTE), never through the VPN TUN. */
+    fun currentUnderlay(): String? = underlayCached.get()
 
     fun clear() {
         cached.set(null)
@@ -50,6 +62,11 @@ object EgressIpProbe {
     fun invalidate() {
         cached.set(null)
         lastError = null
+    }
+
+    fun invalidateUnderlay() {
+        underlayCached.set(null)
+        lastUnderlayError = null
     }
 
     /**
@@ -113,6 +130,31 @@ object EgressIpProbe {
 
         lastError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
         AppLog.w(TAG, "egress ip failed: $lastError")
+        null
+    }
+
+    /**
+     * Provider public IP bound to the underlay (NOT_VPN). Used on the tunnel
+     * tab even when the VPN is down.
+     */
+    suspend fun refreshUnderlay(context: Context): String? = withContext(Dispatchers.IO) {
+        val bind = pickUnderlayNetwork(context)
+        val errors = mutableListOf<String>()
+        for (url in endpoints) {
+            val ip = runCatching { fetchIp(url, bind) }.getOrElse {
+                errors += "${hostOf(url)}: ${it.message}"
+                null
+            }
+            if (!ip.isNullOrBlank()) {
+                underlayCached.set(ip)
+                lastUnderlayError = null
+                lastUnderlayVia = url
+                AppLog.v(TAG, "underlay ip=$ip via=$url bind=${bind?.networkHandle}")
+                return@withContext ip
+            }
+        }
+        lastUnderlayError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
+        AppLog.w(TAG, "underlay ip failed: $lastUnderlayError")
         null
     }
 

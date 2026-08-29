@@ -149,17 +149,29 @@ sealed class NetworkHandoverDecision {
  * Ignore Android "network changed" for this long after the tunnel starts.
  * Bringing up VpnService looks like an underlay handover and must not
  * tear down a working Direct session.
+ *
+ * Real underlay loss (Wi‑Fi→LTE, SIM swap) skips this grace: sockets must
+ * rebind even if Connect was a few seconds ago.
  */
 const val HANDOVER_IGNORE_GRACE_MS = 12_000L
 
-/** Direct → Bypass on first stable “VPS IP down, 77.88.8.8 up” (БС). */
-const val HANDOVER_DIRECT_TO_BYPASS_STREAK = 1
+/**
+ * Direct → Bypass only after this many consecutive “VPS IP down, 77.88.8.8 up”
+ * probes. A single TCP timeout while LTE attaches is not a whitelist.
+ */
+const val HANDOVER_DIRECT_TO_BYPASS_STREAK = 2
 
 /**
  * Bypass → Direct only after this many consecutive “VPS IP up” probes.
  * One 163 ms `/health` blip must not yank a working Bypass.
  */
 const val HANDOVER_BYPASS_TO_DIRECT_STREAK = 2
+
+/** True when Android lost the previous underlay or reported a new network id. */
+fun isConfirmedUnderlayChange(
+    previousNetworkWasLost: Boolean,
+    previousNetworkId: Long?,
+): Boolean = previousNetworkWasLost || previousNetworkId != null
 
 data class ProbeStreak(
     val path: VpnPath? = null,
@@ -174,10 +186,16 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
 
 /**
  * Auto handover from 77.88.8.8 + VPS IP:
- * - Direct → Bypass when Yandex DNS is up and the VPS IP is not (whitelist).
- *   Do not keep a “Connected” Direct with no underlay to the server.
+ * - Direct → Bypass when Yandex DNS is up and the VPS IP is not (whitelist),
+ *   only after [HANDOVER_DIRECT_TO_BYPASS_STREAK] consecutive hits. The first
+ *   miss rebinds Direct instead of switching.
  * - Bypass → Direct only after [HANDOVER_BYPASS_TO_DIRECT_STREAK] consecutive
  *   VPS-IP successes (open Wi‑Fi), not a single flaky TCP.
+ * - A confirmed underlay change (lost network / new id) always rebinds the
+ *   current path when we are not switching — sockets stay glued to the old
+ *   Wi‑Fi otherwise.
+ * - VPN-bind ghosts during [HANDOVER_IGNORE_GRACE_MS] stay [NoAction] unless
+ *   [underlayChanged] is true.
  */
 fun decideNetworkHandoverAction(
     pathMode: ConnPathMode,
@@ -188,8 +206,10 @@ fun decideNetworkHandoverAction(
     currentPathHealthy: Boolean = false,
     underlayVpsReachable: Boolean = probedPath == VpnPath.Direct,
     sameProbeStreak: Int = 1,
+    underlayChanged: Boolean = false,
 ): NetworkHandoverDecision {
-    if (sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS) {
+    val inGrace = sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS
+    if (inGrace && !underlayChanged) {
         return NetworkHandoverDecision.NoAction
     }
     if (pathMode != ConnPathMode.Auto) {
@@ -205,14 +225,20 @@ fun decideNetworkHandoverAction(
         if (vpsUp) {
             return NetworkHandoverDecision.SoftRestartSamePath
         }
-        return if (currentPathHealthy && probedPath != VpnPath.Bypass) {
-            NetworkHandoverDecision.NoAction
-        } else {
+        if (probedPath == VpnPath.Bypass) {
+            return NetworkHandoverDecision.SoftRestartSamePath
+        }
+        return if (underlayChanged || !currentPathHealthy) {
             NetworkHandoverDecision.SoftRestartSamePath
+        } else {
+            NetworkHandoverDecision.NoAction
         }
     }
     if (vpsUp && sameProbeStreak >= HANDOVER_BYPASS_TO_DIRECT_STREAK) {
         return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
+    }
+    if (underlayChanged) {
+        return NetworkHandoverDecision.SoftRestartSamePath
     }
     if (vpsUp) {
         return NetworkHandoverDecision.NoAction
