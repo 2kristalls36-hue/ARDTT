@@ -14,11 +14,13 @@ fun resolveLiveSwitchPath(
     currentPath: VpnPath,
     probePath: VpnPath?,
     hasCallHash: Boolean,
+    forceBypass: Boolean = false,
 ): VpnPath? {
     return when (mode) {
         ConnPathMode.Direct -> VpnPath.Direct
         ConnPathMode.Bypass -> if (hasCallHash) VpnPath.Bypass else null
         ConnPathMode.Auto -> {
+            if (forceBypass && hasCallHash) return VpnPath.Bypass
             val preferred = probePath ?: currentPath
             if (preferred == VpnPath.Bypass && !hasCallHash) VpnPath.Direct else preferred
         }

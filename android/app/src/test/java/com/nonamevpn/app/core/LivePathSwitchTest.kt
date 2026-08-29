@@ -95,4 +95,18 @@ class LivePathSwitchTest {
             ),
         )
     }
+
+    @Test
+    fun autoPinnedByAppWhitelistUsesBypassEvenIfProbeIsDirect() {
+        assertEquals(
+            VpnPath.Bypass,
+            resolveLiveSwitchPath(
+                mode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probePath = VpnPath.Direct,
+                hasCallHash = true,
+                forceBypass = true,
+            ),
+        )
+    }
 }

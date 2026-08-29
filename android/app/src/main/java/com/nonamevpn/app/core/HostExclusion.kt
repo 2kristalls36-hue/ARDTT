@@ -78,6 +78,16 @@ object HostExclusion {
         return out.values.toList()
     }
 
+    /**
+     * VpnService `excludeRoute` of IPv6 /128 enables IPv6 on the TUN.
+     * Happy Eyeballs then black-holes HTTPS while IPv4 keepalives still look
+     * “connected”. 0.5.83 only excluded IPv4 /32.
+     */
+    fun ipv4RoutesFor(
+        hosts: Set<String>,
+        resolve: (String) -> List<InetAddress>,
+    ): List<IpRoute> = routesFor(hosts, resolve).filter { it.prefixLength == 32 }
+
     fun isExcludable(address: InetAddress): Boolean =
         !address.isAnyLocalAddress &&
             !address.isLoopbackAddress &&

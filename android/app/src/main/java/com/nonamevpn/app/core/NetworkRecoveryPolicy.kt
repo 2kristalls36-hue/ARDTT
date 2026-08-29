@@ -209,6 +209,7 @@ fun decideNetworkHandoverAction(
     underlayVpsReachable: Boolean = probedPath == VpnPath.Direct,
     sameProbeStreak: Int = 1,
     underlayChanged: Boolean = false,
+    pinBypassForAppWhitelist: Boolean = false,
 ): NetworkHandoverDecision {
     val inGrace = sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS
     if (inGrace && !underlayChanged) {
@@ -221,6 +222,17 @@ fun decideNetworkHandoverAction(
                 NetworkHandoverDecision.NoAction
             }
         }
+    // In-app БС (selected apps): keep RAW even when the VPS IP is reachable.
+    if (pinBypassForAppWhitelist && bypassAllowed) {
+        if (currentPath != VpnPath.Bypass) {
+            return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
+        }
+        return if (underlayChanged) {
+            NetworkHandoverDecision.SoftRestartSamePath
+        } else {
+            NetworkHandoverDecision.NoAction
+        }
+    }
     val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
     if (currentPath == VpnPath.Direct) {
         if (probedPath == VpnPath.Bypass && bypassAllowed && !vpsUp &&

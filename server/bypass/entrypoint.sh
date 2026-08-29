@@ -52,6 +52,40 @@ if [ -w /proc/sys/net/ipv4/ip_forward ]; then
   echo 1 >/proc/sys/net/ipv4/ip_forward || true
 fi
 
+setup_forwarding() {
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  local wan comment="NVPN_BYPASS_MANAGED"
+  local iface="${NVPN_BYPASS_IFACE:-wdttraw0}"
+  wan="$(ip route show default 0.0.0.0/0 2>/dev/null | awk '{print $5; exit}')"
+  [[ -z "${wan}" ]] && wan="eth0"
+
+  # Same as Direct: FORWARD policy is DROP; Docker inserts DOCKER-FORWARD
+  # before qWDTT's appended WDTT_MANAGED rules. Insert at top so RAW
+  # (10.9.0.0/24) is accepted like awg0.
+  iptables -C FORWARD -i "${iface}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
+    || iptables -I FORWARD 1 -i "${iface}" -m comment --comment "${comment}" -j ACCEPT || true
+  iptables -C FORWARD -o "${iface}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
+    || iptables -I FORWARD 1 -o "${iface}" -m comment --comment "${comment}" -j ACCEPT || true
+
+  iptables -t nat -C POSTROUTING -s 10.9.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null \
+    || iptables -t nat -A POSTROUTING -s 10.9.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE || true
+
+  # Inner TCP over RAW (MTU 1300) plus TURN overhead black-holes HTTPS
+  # without MSS clamp — small keepalives work, pages stall (~0.09 MB).
+  iptables -t mangle -C FORWARD -o "${iface}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+    || iptables -t mangle -A FORWARD -o "${iface}" -p tcp --tcp-flags SYN,RST SYN \
+      -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu || true
+  iptables -t mangle -C FORWARD -i "${iface}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+    || iptables -t mangle -A FORWARD -i "${iface}" -p tcp --tcp-flags SYN,RST SYN \
+      -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu || true
+}
+
+setup_forwarding
+
 /usr/local/bin/wdtt-server \
   -listen "${DTLS_PORT}" \
   -wg-port "${WG_PORT}" \
