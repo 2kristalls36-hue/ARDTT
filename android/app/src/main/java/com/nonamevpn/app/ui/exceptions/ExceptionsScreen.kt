@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -693,9 +694,11 @@ private fun BypassSearchBar(
         label = "bypass_search_elev",
     )
     Surface(
-        modifier = modifier.height(NvpnBottomChrome.ButtonHeight),
+        modifier = modifier
+            .height(NvpnBottomChrome.ButtonHeight)
+            .graphicsLayer { alpha = surfaceAlpha },
         shape = RoundedCornerShape(20.dp),
-        color = colors.surface.copy(alpha = surfaceAlpha),
+        color = colors.surface,
         shadowElevation = elevation,
         tonalElevation = 0.dp,
     ) {
@@ -720,14 +723,16 @@ private fun BypassSearchBar(
                 tint = colors.onSurfaceVariant,
             )
             Spacer(Modifier.width(12.dp))
+            val fieldStyle = MaterialTheme.typography.titleMedium.copy(
+                color = colors.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                background = Color.Transparent,
+            )
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                textStyle = MaterialTheme.typography.titleMedium.copy(
-                    color = colors.onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                ),
+                textStyle = fieldStyle,
                 cursorBrush = SolidColor(colors.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(
@@ -735,15 +740,20 @@ private fun BypassSearchBar(
                 ),
                 modifier = Modifier
                     .weight(1f)
+                    .background(Color.Transparent)
                     .focusRequester(focusRequester),
                 decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
+                    Box(
+                        modifier = Modifier.background(Color.Transparent),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
                         if (value.isEmpty()) {
                             Text(
                                 "Поиск",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.onSurfaceVariant.copy(alpha = 0.65f),
+                                style = fieldStyle.copy(
+                                    color = colors.onSurfaceVariant.copy(alpha = 0.65f),
+                                    background = Color.Transparent,
+                                ),
                             )
                         }
                         inner()
