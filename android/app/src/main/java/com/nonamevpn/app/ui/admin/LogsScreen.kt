@@ -115,7 +115,7 @@ fun LogsScreen() {
     ) {
         EdgeFeedTopInset()
         AppTabPageHeader(
-            tabTitle = "Логи",
+            title = "Журнал событий",
             subtitle = if (AppLog.isDetailedEnabled()) {
                 "Подробные события (админ)"
             } else {

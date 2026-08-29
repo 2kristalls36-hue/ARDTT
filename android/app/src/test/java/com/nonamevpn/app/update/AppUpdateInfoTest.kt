@@ -1,6 +1,7 @@
 package com.nonamevpn.app.update
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,5 +27,13 @@ class AppUpdateInfoTest {
         assertEquals("abcdef", info.sha256)
         assertEquals(123456, info.sizeBytes)
         assertTrue(info.notes.contains("test"))
+    }
+
+    @Test
+    fun showsCardOnlyWhenUpdateIsReal() {
+        assertTrue(shouldShowUpdateCard(availableNewer = true, downloading = false, hasApk = false))
+        assertTrue(shouldShowUpdateCard(availableNewer = false, downloading = true, hasApk = false))
+        assertTrue(shouldShowUpdateCard(availableNewer = false, downloading = false, hasApk = true))
+        assertFalse(shouldShowUpdateCard(availableNewer = false, downloading = false, hasApk = false))
     }
 }

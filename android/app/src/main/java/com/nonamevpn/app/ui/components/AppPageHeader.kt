@@ -1,15 +1,12 @@
 package com.nonamevpn.app.ui.components
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -19,15 +16,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.nonamevpn.app.R
 
 /**
- * Shared page chrome for ARDTT tabs and nested admin screens.
+ * Shared page chrome for tabs and nested admin screens.
  *
  * Title: headlineMedium ExtraBold primary.
  * Subtitle: bodyMedium onSurfaceVariant.
@@ -43,7 +37,6 @@ fun AppPageHeader(
     onBack: (() -> Unit)? = null,
     applyStatusBarsPadding: Boolean = false,
     contentHorizontalPadding: Boolean = false,
-    showBrandMark: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val startPad = when {
@@ -73,16 +66,6 @@ fun AppPageHeader(
                 )
             }
         }
-        if (showBrandMark) {
-            Image(
-                painter = painterResource(R.drawable.ic_logo_full),
-                contentDescription = null,
-                modifier = Modifier
-                    .padding(top = 2.dp, end = 12.dp)
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(9.dp)),
-            )
-        }
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -110,21 +93,16 @@ fun AppPageHeader(
     }
 }
 
-/** Main bottom-tab chrome: bold ARDTT title with the tab name on the subtitle line. */
+/** Main bottom-tab chrome: the tab’s own title, not the app name. */
 @Composable
 fun AppTabPageHeader(
-    tabTitle: String,
+    title: String,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    val line = when {
-        subtitle.isNullOrBlank() -> tabTitle
-        else -> "$tabTitle · $subtitle"
-    }
     AppPageHeader(
-        title = "ARDTT",
-        subtitle = line,
-        showBrandMark = true,
+        title = title,
+        subtitle = subtitle,
         actions = actions,
     )
 }

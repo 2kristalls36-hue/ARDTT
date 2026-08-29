@@ -207,8 +207,8 @@ fun TestingScreen(profiles: ProfileRepository) {
         },
     ) {
         AppTabPageHeader(
-            tabTitle = "Тестирование",
-            subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на VPS",
+            title = "Режим тестирования",
+            subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
         )
 
         AppSectionCard(

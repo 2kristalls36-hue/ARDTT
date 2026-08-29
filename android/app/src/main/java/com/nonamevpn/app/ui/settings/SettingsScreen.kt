@@ -50,9 +50,8 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.update.AppUpdateInfo
-import com.nonamevpn.app.update.AppUpdateManager
-import java.io.File
 import kotlinx.coroutines.launch
 
 @Composable
@@ -75,15 +74,10 @@ fun SettingsScreen(
         connUi.state == ConnState.PausedTrustedWifi ||
         connUi.state == ConnState.Disconnecting
     val scope = rememberCoroutineScope()
-    val updateManager = remember { AppUpdateManager(context) }
+    val updates = remember { AppUpdateController.get(context) }
+    val updateUi by updates.ui.collectAsStateWithLifecycle()
     var adminHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
-    var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
-    var downloadedUpdate by remember { mutableStateOf<File?>(null) }
-    var updateChecking by remember { mutableStateOf(false) }
-    var updateDownloading by remember { mutableStateOf(false) }
-    var updateProgress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var updateMessage by remember { mutableStateOf<String?>(null) }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -109,78 +103,27 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(Unit) {
-        updateChecking = true
-        val result = updateManager.check()
-        updateChecking = false
-        result.onSuccess { info ->
-            updateInfo = info
-            updateMessage = if (info.isNewer) {
-                "Доступна версия ${info.versionName}"
-            } else {
-                "Установлена актуальная версия"
-            }
-        }.onFailure {
-            updateMessage = it.message ?: "Не удалось проверить обновления"
-        }
+        updates.checkInBackground()
     }
 
     EdgeFeedColumn {
         val modeLabel = if (admin) "администратор" else "пользователь"
         AppTabPageHeader(
-            tabTitle = "Настройки",
+            title = "Настройки приложения",
             subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
         )
 
-        UpdateSettingsCard(
-            info = updateInfo,
-            checking = updateChecking,
-            downloading = updateDownloading,
-            progress = updateProgress,
-            message = updateMessage,
-            downloadedFile = downloadedUpdate,
-            onCheck = {
-                scope.launch {
-                    updateChecking = true
-                    updateMessage = "Проверяем обновления…"
-                    val result = updateManager.check()
-                    updateChecking = false
-                    result.onSuccess { info ->
-                        updateInfo = info
-                        downloadedUpdate = null
-                        updateMessage = if (info.isNewer) {
-                            "Доступна версия ${info.versionName}"
-                        } else {
-                            "Установлена актуальная версия"
-                        }
-                    }.onFailure {
-                        updateMessage = it.message ?: "Не удалось проверить обновления"
-                    }
-                }
-            },
-            onDownload = {
-                val info = updateInfo ?: return@UpdateSettingsCard
-                scope.launch {
-                    updateDownloading = true
-                    updateProgress = 0f
-                    updateMessage = "Выполняется загрузка ${info.versionName}…"
-                    val result = updateManager.download(info) { updateProgress = it }
-                    updateDownloading = false
-                    result.onSuccess { file ->
-                        downloadedUpdate = file
-                        updateMessage = "Файл загружен. Запускается установка."
-                        runCatching { updateManager.install(file) }
-                            .onFailure { updateMessage = it.message ?: "Не удалось открыть установщик" }
-                    }.onFailure {
-                        updateMessage = it.message ?: "Не удалось скачать APK"
-                    }
-                }
-            },
-            onInstall = {
-                val file = downloadedUpdate ?: return@UpdateSettingsCard
-                runCatching { updateManager.install(file) }
-                    .onFailure { updateMessage = it.message ?: "Не удалось открыть установщик" }
-            },
-        )
+        if (updateUi.visible) {
+            UpdateSettingsCard(
+                info = updateUi.available,
+                downloading = updateUi.downloading,
+                progress = updateUi.progress,
+                message = updateUi.message,
+                downloadedFile = updateUi.downloadedFile != null,
+                onDownload = { updates.download() },
+                onInstall = { updates.install() },
+            )
+        }
 
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
@@ -323,7 +266,7 @@ fun SettingsScreen(
             Text("Администратор", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 if (admin) {
-                    "Открыты «Серверы», «Деплой» и «Журналы». Телеметрия — после включения тестирования."
+                    "Открыты «Сервера», «Деплой» и «Журналы». Телеметрия — после включения тестирования."
                 } else {
                     "Переместите ползунок вправо до конца."
                 },
@@ -393,12 +336,10 @@ fun SettingsScreen(
 @Composable
 private fun UpdateSettingsCard(
     info: AppUpdateInfo?,
-    checking: Boolean,
     downloading: Boolean,
     progress: Float,
     message: String?,
-    downloadedFile: File?,
-    onCheck: () -> Unit,
+    downloadedFile: Boolean,
     onDownload: () -> Unit,
     onInstall: () -> Unit,
 ) {
@@ -406,24 +347,11 @@ private fun UpdateSettingsCard(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Обновления", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(
-            "Текущая версия: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text("Обновление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         if (info != null) {
             Surface(
-                color = if (info.isNewer) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.secondaryContainer
-                },
-                contentColor = if (info.isNewer) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                },
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 shape = RoundedCornerShape(18.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -432,11 +360,7 @@ private fun UpdateSettingsCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
-                        if (info.isNewer) {
-                            "Доступна ${info.versionName} (${info.versionCode})"
-                        } else {
-                            "Обновлений нет"
-                        },
+                        "Доступна ${info.versionName}",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -470,36 +394,23 @@ private fun UpdateSettingsCard(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        if (downloadedFile) {
             OutlinedButton(
-                onClick = onCheck,
-                enabled = !checking && !downloading,
-                modifier = Modifier.weight(1f),
+                onClick = onInstall,
+                enabled = !downloading,
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
             ) {
-                Text(if (checking) "Проверка…" else "Проверить")
+                Text("Установить")
             }
-            if (downloadedFile != null) {
-                OutlinedButton(
-                    onClick = onInstall,
-                    enabled = !checking && !downloading,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text("Установить")
-                }
-            } else if (info?.isNewer == true) {
-                OutlinedButton(
-                    onClick = onDownload,
-                    enabled = !checking && !downloading,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text("Скачать")
-                }
+        } else if (info?.isNewer == true) {
+            OutlinedButton(
+                onClick = onDownload,
+                enabled = !downloading,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text(if (downloading) "Загрузка…" else "Скачать")
             }
         }
     }

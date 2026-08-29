@@ -66,7 +66,7 @@ import com.nonamevpn.app.core.vpnEgressIpLabel
 import com.nonamevpn.app.core.vpnSessionStatusText
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
@@ -205,10 +205,8 @@ fun TunnelScreen(
         ) {
             EdgeFeedTopInset()
 
-            AppPageHeader(
-                title = "ARDTT",
-                subtitle = "Подключение",
-                showBrandMark = true,
+            AppTabPageHeader(
+                title = "Подключение",
             )
 
             if (!admin && profile != null) {

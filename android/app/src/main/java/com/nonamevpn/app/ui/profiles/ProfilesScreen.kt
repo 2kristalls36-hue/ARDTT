@@ -189,7 +189,7 @@ fun ProfilesScreen(
         },
     ) {
         AppTabPageHeader(
-            tabTitle = "Профили",
+            title = "Профили подключения",
             subtitle = if (catalog.items.isEmpty()) {
                 "Импортируйте JSON с сервера. Можно несколько профилей и папки."
             } else {
@@ -233,7 +233,7 @@ fun ProfilesScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "Импортируйте JSON пользователя или создайте клиента на вкладке VPS.",
+                    "Импортируйте JSON пользователя или создайте клиента на вкладке «Сервера».",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
