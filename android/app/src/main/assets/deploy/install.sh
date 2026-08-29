@@ -26,7 +26,7 @@ cleanup_host_packages() {
 cleanup_docker_build_junk() {
   docker builder prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
-  docker volume prune -f >/dev/null 2>&1 || true
+  # Never prune volumes: bypass-config and other named volumes must survive redeploy.
 }
 
 cleanup_install_artifacts() {
@@ -76,6 +76,15 @@ mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 if [ -f "$INSTALL_DIR/stack.tar.gz" ]; then
+  prog 0.12 "Остановка контейнеров перед заменой стека"
+  # Bind mounts pin the data directory inode. `rm -rf stack` while containers
+  # are up leaves provision/direct/bypass/warp on a deleted empty /data
+  # (hide-ip then returns 404: users.json.tmp: no such file or directory).
+  if [ -f "$INSTALL_DIR/stack/docker-compose.yml" ]; then
+    (cd "$INSTALL_DIR/stack" && docker compose down) 2>/dev/null || \
+      (cd "$INSTALL_DIR/stack" && docker-compose down) 2>/dev/null || \
+      docker rm -f nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry >/dev/null 2>&1 || true
+  fi
   prog 0.15 "Распаковка стека"
   if [ -d "$INSTALL_DIR/stack/data" ]; then
     rm -rf /tmp/nvpn-data-bak
@@ -217,6 +226,11 @@ if curl -fsS "http://127.0.0.1:9100/health" >/dev/null 2>&1; then
   prog 0.92 "provision /health OK"
 else
   echo "NVPN_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml logs"
+fi
+if docker exec nvpn-provision test -s /data/users.json 2>/dev/null; then
+  prog 0.93 "provision видит /data/users.json"
+else
+  echo "NVPN_WARN|provision не видит /data/users.json — контейнер, скорее всего, на старом inode. Выполните: cd $STACK && docker compose up -d --force-recreate"
 fi
 
 prog 0.96 "Открытие портов (best-effort)"
