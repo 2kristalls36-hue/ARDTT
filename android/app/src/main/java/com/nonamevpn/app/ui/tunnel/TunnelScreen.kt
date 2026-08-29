@@ -3,9 +3,12 @@ package com.nonamevpn.app.ui.tunnel
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.os.Build
+import android.telephony.SubscriptionManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.BuildConfig
+import com.nonamevpn.app.R
 import com.nonamevpn.app.bypass.VkCallHashGenerator
 import com.nonamevpn.app.bypass.VkLoginActivity
 import com.nonamevpn.app.bypass.VkSession
@@ -149,6 +155,26 @@ fun TunnelScreen(
         while (true) {
             accessLabel = readUnderlayAccessLabel(context)
             delay(2_000)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        val sm = context.getSystemService(SubscriptionManager::class.java)
+        val listener = object : SubscriptionManager.OnSubscriptionsChangedListener() {
+            override fun onSubscriptionsChanged() {
+                accessLabel = readUnderlayAccessLabel(context)
+            }
+        }
+        if (sm != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                sm.addOnSubscriptionsChangedListener(context.mainExecutor, listener)
+            } else {
+                @Suppress("DEPRECATION")
+                sm.addOnSubscriptionsChangedListener(listener)
+            }
+        }
+        onDispose {
+            runCatching { sm?.removeOnSubscriptionsChangedListener(listener) }
         }
     }
 
@@ -441,6 +467,8 @@ fun TunnelScreen(
                         accessLabel = readUnderlayAccessLabel(context)
                     }
                 },
+                showWarpIcon = (hideIp && sessionUp) ||
+                    EgressIpProbe.isLikelyCloudflare(publicIp),
                 profileName = profile?.name?.takeIf { it.isNotBlank() },
                 version = BuildConfig.VERSION_NAME,
                 directEndpoint = profile?.direct?.endpoint,
@@ -605,6 +633,7 @@ private fun TunnelStatusPanel(
     providerIp: String,
     providerIpFailed: Boolean = false,
     onProviderIpClick: (() -> Unit)? = null,
+    showWarpIcon: Boolean = false,
     profileName: String?,
     version: String,
     directEndpoint: String?,
@@ -664,6 +693,8 @@ private fun TunnelStatusPanel(
                 value = publicIp,
                 valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
                 onClick = onIpClick,
+                valueLeadingIcon = if (showWarpIcon) R.drawable.ic_cloudflare else null,
+                valueLeadingContentDescription = if (showWarpIcon) "Cloudflare WARP" else null,
             )
             profileName?.let { StatusFactRow(label = "Профиль", value = it) }
             StatusFactRow(label = "Версия", value = "v$version")
@@ -747,13 +778,15 @@ private fun StatusFactRow(
     value: String,
     valueColor: Color? = null,
     onClick: (() -> Unit)? = null,
+    valueLeadingIcon: Int? = null,
+    valueLeadingContentDescription: String? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             label,
@@ -761,16 +794,30 @@ private fun StatusFactRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(128.dp),
         )
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = valueColor ?: MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.End,
+        Row(
             modifier = Modifier.weight(1f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (valueLeadingIcon != null) {
+                Image(
+                    painter = painterResource(valueLeadingIcon),
+                    contentDescription = valueLeadingContentDescription,
+                    modifier = Modifier
+                        .padding(end = 6.dp)
+                        .size(16.dp),
+                )
+            }
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.End,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

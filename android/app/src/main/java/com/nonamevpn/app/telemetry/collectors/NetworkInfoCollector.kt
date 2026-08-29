@@ -7,8 +7,10 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
+import com.nonamevpn.app.core.readCellularOperatorInfo
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import org.json.JSONObject
@@ -51,7 +53,8 @@ object NetworkInfoCollector {
 
     @Suppress("DEPRECATION")
     private fun cellularSnapshot(context: Context, caps: NetworkCapabilities?): JSONObject {
-        val onCell = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        val info = readCellularOperatorInfo(context)
+        val onCell = info.connected || caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
         val out = JSONObject().put("connected", onCell)
         if (!onCell) return out
 
@@ -61,12 +64,21 @@ object NetworkInfoCollector {
         ) == PackageManager.PERMISSION_GRANTED
         if (!hasPhoneState) {
             out.put("permission", "READ_PHONE_STATE_denied")
+            info.operator?.let { out.put("operator", it) }
             return out
         }
 
-        val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        out.put("operator", tm.networkOperatorName)
-        out.put("network_type", networkGeneration(tm.dataNetworkType))
+        val defaultTm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        val tm = if (info.subscriptionId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            runCatching { defaultTm.createForSubscriptionId(info.subscriptionId) }.getOrDefault(defaultTm)
+        } else {
+            defaultTm
+        }
+        out.put("operator", info.operator ?: tm.networkOperatorName)
+        out.put("network_type", info.generation ?: networkGeneration(tm.dataNetworkType))
+        if (info.subscriptionId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            out.put("subscription_id", info.subscriptionId)
+        }
         out.put("roaming", tm.isNetworkRoaming)
 
         val signal = runCatching {
