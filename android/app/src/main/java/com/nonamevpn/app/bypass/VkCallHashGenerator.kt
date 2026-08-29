@@ -22,18 +22,18 @@ object VkCallHashGenerator {
 
     suspend fun generateOne(context: Context): Result<String> = withContext(Dispatchers.IO) {
         if (!VkSession.hasSessionCookie()) {
-            return@withContext Result.failure(IllegalStateException("Сначала войдите в аккаунт VK"))
+            return@withContext Result.failure(IllegalStateException("Требуется авторизация во ВКонтакте"))
         }
         val token = obtainAccessTokenViaHttp(context)
             ?: runCatching { VkLoginActivity.awaitAccessToken(context) }.getOrNull()
             ?: return@withContext Result.failure(
-                IllegalStateException("Не удалось получить токен VK. Перелогиньтесь."),
+                IllegalStateException("Не удалось получить токен ВКонтакте. Повторите авторизацию."),
             )
         val joinLink = startCall(token)
-            ?: return@withContext Result.failure(IllegalStateException("Не удалось создать звонок VK"))
+            ?: return@withContext Result.failure(IllegalStateException("Не удалось создать звонок ВКонтакте"))
         val hash = VkUrl.strip(joinLink)
         if (!VkUrl.isPlausibleHash(hash)) {
-            return@withContext Result.failure(IllegalStateException("VK вернул некорректную ссылку"))
+            return@withContext Result.failure(IllegalStateException("Получена некорректная ссылка на звонок"))
         }
         Result.success(hash)
     }

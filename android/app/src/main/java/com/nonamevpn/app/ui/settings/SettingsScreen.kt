@@ -45,6 +45,7 @@ import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
+import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.hasNearbyWifiDevicesPermission
 import com.nonamevpn.app.core.hasTrustedWifiBackgroundPermission
@@ -78,6 +79,11 @@ fun SettingsScreen(
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
     val dynamicColor by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
+    val connUi by conn.ui.collectAsStateWithLifecycle()
+    val vpnLocked = connUi.state == ConnState.Connecting ||
+        connUi.state == ConnState.Connected ||
+        connUi.state == ConnState.PausedTrustedWifi ||
+        connUi.state == ConnState.Disconnecting
     val scope = rememberCoroutineScope()
     val updateManager = remember { AppUpdateManager(context) }
     var adminHint by remember { mutableStateOf<String?>(null) }
@@ -95,7 +101,7 @@ fun SettingsScreen(
         AppLog.i("NotifPrep", "settings POST_NOTIFICATIONS granted=$granted")
         conn.refreshVpnNotification()
         if (!granted) {
-            adminHint = "Без разрешения Android плашка в шторке не появится"
+            adminHint = "Без разрешения система не сможет отображать уведомление о состоянии VPN."
         }
     }
 
@@ -166,12 +172,12 @@ fun SettingsScreen(
                 scope.launch {
                     updateDownloading = true
                     updateProgress = 0f
-                    updateMessage = "Скачиваем ${info.versionName}…"
+                    updateMessage = "Выполняется загрузка ${info.versionName}…"
                     val result = updateManager.download(info) { updateProgress = it }
                     updateDownloading = false
                     result.onSuccess { file ->
                         downloadedUpdate = file
-                        updateMessage = "APK скачан — запускаем установку"
+                        updateMessage = "Файл загружен. Запускается установка."
                         runCatching { updateManager.install(file) }
                             .onFailure { updateMessage = it.message ?: "Не удалось открыть установщик" }
                     }.onFailure {
@@ -200,9 +206,9 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                DialChip("Сист.", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
-                DialChip("Свет.", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
-                DialChip("Темн.", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
+                DialChip("Системная", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
+                DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
+                DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 Row(
@@ -253,8 +259,13 @@ fun SettingsScreen(
         ) {
             Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Авто — прямое (AmneziaWG), при недоступности резерв обход (RAW через TURN). " +
-                    "Можно принудительно выбрать один путь для теста.",
+                if (vpnLocked) {
+                    "Изменение маршрута и исходящего адреса недоступно, пока установлено соединение."
+                } else {
+                    "В автоматическом режиме используется прямое подключение; " +
+                        "при его недоступности выполняется переход на обход. " +
+                        "Маршрут можно задать принудительно."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -267,38 +278,41 @@ fun SettingsScreen(
                     pathMode == "auto",
                     { scope.launch { settings.setPathMode("auto") } },
                     Modifier.weight(1f),
+                    enabled = !vpnLocked,
                 )
                 DialChip(
                     "Прямое",
                     pathMode == "direct",
                     { scope.launch { settings.setPathMode("direct") } },
                     Modifier.weight(1f),
+                    enabled = !vpnLocked,
                 )
                 DialChip(
                     "Обход",
                     pathMode == "bypass",
                     { scope.launch { settings.setPathMode("bypass") } },
                     Modifier.weight(1f),
+                    enabled = !vpnLocked,
                 )
             }
             Text(
                 when (pathMode) {
-                    "direct" -> "Только AmneziaWG (AWG)."
-                    "bypass" -> "Только обход RAW через звонок (нужен hash)."
-                    else -> "Приоритет AWG, резерв RAW/обход."
+                    "direct" -> "Используется только прямое подключение."
+                    "bypass" -> "Используется только обход. Требуется код звонка."
+                    else -> "Приоритет прямого подключения, резерв — обход."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             RowSetting(
-                title = "Скрыть свой IP",
+                title = "Сокрытие исходящего адреса",
                 subtitle = if (hideIp) {
-                    "Включено — выход через Cloudflare (не IP VPS)"
+                    "Исходящий трафик направляется через Cloudflare WARP."
                 } else {
-                    "Выход в интернет через Cloudflare вместо адреса VPS"
+                    "Исходящий трафик использует адрес сервера."
                 },
                 checked = hideIp,
-                enabled = true,
+                enabled = !vpnLocked,
                 onCheckedChange = {
                     scope.launch {
                         settings.setHideIp(it)
@@ -307,11 +321,11 @@ fun SettingsScreen(
                 },
             )
             RowSetting(
-                title = "Плашка VPN в шторке",
+                title = "Уведомление о состоянии VPN",
                 subtitle = if (notifVisible) {
-                    "Живой статус, скорость и кнопка «Остановить»"
+                    "В области уведомлений отображаются состояние, скорость и команда остановки."
                 } else {
-                    "Скрыта из основной шторки; Android всё равно оставляет тихую запись службы в «Без звука»"
+                    "Уведомление скрыто из области уведомлений. Система может оставлять служебную запись без звука."
                 },
                 checked = notifVisible,
                 enabled = true,
@@ -334,9 +348,11 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Обход (дозвон)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Обход", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Как получать TURN для обхода (RAW). Авто: vkcalls → legacy. Connect анонимный по hash.",
+                "Способ получения параметров обхода. Автоматический режим использует vkcalls " +
+                    "и при необходимости резервный вариант. Подключение выполняется по сохранённому коду звонка. " +
+                    "Код звонка задаётся в разделе ниже.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -349,12 +365,14 @@ fun SettingsScreen(
                 DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
             }
             RowSetting(
-                title = "Тихий recreate звонка",
-                subtitle = "Без диалога, если hash «умер» (нужна сессия VK)",
+                title = "Автоматическое обновление звонка",
+                subtitle = "При недействительном коде звонок создаётся без дополнительного подтверждения. Требуется сессия ВКонтакте.",
                 checked = silent,
                 onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
             )
         }
+
+        CallHashSettingsCard()
 
         TrustedWifiSettingsCard(settings = settings)
 
@@ -365,9 +383,9 @@ fun SettingsScreen(
             Text("Администратор", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 if (admin) {
-                    "Открыты Серверы / Деплой / Логи. Включите «Тестирование» для вкладки телеметрии."
+                    "Доступны разделы «Серверы», «Деплой» и «Журналы». Для вкладки телеметрии включите режим тестирования."
                 } else {
-                    "Перетащите ползунок вправо, чтобы открыть функции администратора."
+                    "Переместите ползунок вправо до конца шкалы, чтобы открыть функции администратора."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -377,18 +395,18 @@ fun SettingsScreen(
                     onUnlocked = {
                         scope.launch {
                             settings.unlockAdmin()
-                            adminHint = "Режим администратора включён"
+                            adminHint = "Режим администратора включён."
                             AppLog.i("Admin", "Unlocked via slider")
                         }
                     },
                     onIncomplete = {
-                        adminHint = "Доведите ползунок до конца"
+                        adminHint = "Переместите ползунок до конца шкалы."
                     },
                 )
             } else {
                 RowSetting(
                     title = "Тестирование",
-                    subtitle = "Диагностические журналы — только после принятия соглашения",
+                    subtitle = "Диагностические журналы доступны только после принятия соглашения.",
                     checked = testingMode,
                     onCheckedChange = { enabled ->
                         if (!enabled) {
@@ -402,13 +420,13 @@ fun SettingsScreen(
                     onClick = {
                         scope.launch {
                             settings.lockAdmin()
-                            adminHint = "Снова режим пользователя"
+                            adminHint = "Сессия администратора завершена."
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                 ) {
-                    Text("Выйти из режима админа")
+                    Text("Завершить сессию администратора")
                 }
             }
             adminHint?.let {
@@ -601,10 +619,10 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
             ) {
                 bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             } else {
-                hint = "Локация разрешена — можно добавить текущую сеть"
+                hint = "Разрешение геолокации получено. Можно добавить текущую сеть."
             }
         } else {
-            hint = "Нужна локация или «Устройства поблизости», чтобы читать имя Wi‑Fi"
+            hint = "Для определения имени сети Wi‑Fi требуется геолокация или доступ к устройствам поблизости."
         }
     }
     val nearbyLauncher = rememberLauncherForActivityResult(
@@ -612,11 +630,11 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     ) { granted ->
         refreshWifi()
         if (granted) {
-            hint = "Имя Wi‑Fi можно читать без геолокации"
+            hint = "Имя сети Wi‑Fi можно определять без геолокации."
         } else if (!hasTrustedWifiForegroundPermission(context)) {
             fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         } else {
-            hint = "Без доступа к Wi‑Fi имя сети может не прочитаться"
+            hint = "Без доступа к Wi‑Fi имя сети может быть недоступно."
         }
     }
 
@@ -636,7 +654,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     ) {
         Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            "В этих сетях VPN сам выключается. При выходе, отключении опции или удалении сети — поднимается снова. Добавляется только текущая Wi‑Fi. Пока имя сети не прочиталось, Auto не переключит обход на Direct — домашняя сеть не должна «мелькнуть» как открытый интернет.",
+            "В указанных сетях VPN приостанавливается автоматически. При выходе из сети, отключении параметра или удалении записи подключение восстанавливается. Добавляется только текущая сеть Wi‑Fi. Пока имя сети не определено, автоматический режим не переводит обход на прямое подключение.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -645,17 +663,17 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
             subtitle = when (val p = trustedWifiAccessProblem(context, requireBackground = false)) {
                 TrustedWifiAccessProblem.ForegroundPermission ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        "Нужно разрешение «Устройства поблизости» или локация"
+                        "Требуется разрешение «Устройства поблизости» или доступ к геолокации."
                     } else {
-                        "Нужно разрешение локации"
+                        "Требуется разрешение геолокации."
                     }
-                TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе"
-                TrustedWifiAccessProblem.BackgroundPermission -> "Нужна фоновая локация"
+                TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе."
+                TrustedWifiAccessProblem.BackgroundPermission -> "Требуется фоновая геолокация."
                 null -> when {
                     hasNearbyWifiDevicesPermission(context) ->
-                        if (ssids.isEmpty()) "Добавьте хотя бы одну сеть" else "${ssids.size} сетей"
+                        if (ssids.isEmpty()) "Добавьте хотя бы одну сеть." else "${ssids.size} сетей"
                     !hasTrustedWifiBackgroundPermission(context) ->
-                        "Для авто-паузы в фоне выдайте «Локация → Всегда»"
+                        "Для автоматической паузы в фоне предоставьте геолокацию «Всегда»."
                     ssids.isEmpty() -> "Добавьте хотя бы одну сеть"
                     else -> "${ssids.size} сетей"
                 }
@@ -683,9 +701,9 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
             Text(
                 when (wifi.accessProblem) {
                     TrustedWifiAccessProblem.ForegroundPermission ->
-                        "Wi‑Fi есть, но нет разрешения на имя сети"
-                    TrustedWifiAccessProblem.LocationDisabled -> "Wi‑Fi есть, но геолокация выключена"
-                    else -> "Wi‑Fi есть, имя сети недоступно — подождите или выдайте доступ к Wi‑Fi"
+                        "Сеть Wi‑Fi подключена, но нет разрешения на определение имени."
+                    TrustedWifiAccessProblem.LocationDisabled -> "Сеть Wi‑Fi подключена, но геолокация выключена."
+                    else -> "Сеть Wi‑Fi подключена, имя сети недоступно. Предоставьте доступ к Wi‑Fi."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -702,9 +720,9 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 val ssid = fresh.ssid
                 if (ssid.isBlank()) {
                     hint = when (fresh.accessProblem) {
-                        TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию"
-                        TrustedWifiAccessProblem.ForegroundPermission -> "Выдайте локацию"
-                        else -> "Имя сети не прочиталось — подключитесь к Wi‑Fi и выдайте локацию"
+                        TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию."
+                        TrustedWifiAccessProblem.ForegroundPermission -> "Предоставьте разрешение геолокации."
+                        else -> "Имя сети не определено. Подключитесь к Wi‑Fi и предоставьте доступ к геолокации."
                     }
                 } else {
                     scope.launch {
@@ -732,7 +750,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 OutlinedButton(
                     onClick = { scope.launch { settings.removeTrustedWifiSsid(ssid) } },
                     shape = RoundedCornerShape(12.dp),
-                ) { Text("Убрать") }
+                ) { Text("Удалить") }
             }
         }
         hint?.let {
@@ -747,10 +765,12 @@ private fun DialChip(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     FilterChip(
         selected = selected,
         onClick = onClick,
+        enabled = enabled,
         label = { Text(label) },
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),

@@ -289,7 +289,7 @@ object EgressIpProbe {
 }
 
 /** Shown for IP VPN / status until provision reports a public egress address. */
-const val VPN_EGRESS_CONNECTING_LABEL = "VPN ещё подключается…"
+const val VPN_EGRESS_CONNECTING_LABEL = "Выполняется подключение…"
 
 fun vpnEgressIpLabel(
     publicIp: String?,
