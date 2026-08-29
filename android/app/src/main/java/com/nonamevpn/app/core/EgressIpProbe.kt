@@ -287,3 +287,29 @@ object EgressIpProbe {
 
     private const val TAG = "EgressIp"
 }
+
+/** Shown for IP VPN / status until provision reports a public egress address. */
+const val VPN_EGRESS_CONNECTING_LABEL = "VPN ещё подключается…"
+
+fun vpnEgressIpLabel(
+    publicIp: String?,
+    vpnSessionActive: Boolean,
+    pausedOnTrustedWifi: Boolean = false,
+): String {
+    if (pausedOnTrustedWifi) return "—"
+    val ip = publicIp?.trim().orEmpty()
+    if (ip.isNotEmpty()) return ip
+    if (vpnSessionActive) return VPN_EGRESS_CONNECTING_LABEL
+    return "—"
+}
+
+fun vpnSessionStatusText(
+    state: ConnState,
+    statusText: String,
+    publicIp: String?,
+): String {
+    if (state == ConnState.Connected && publicIp.isNullOrBlank()) {
+        return VPN_EGRESS_CONNECTING_LABEL
+    }
+    return statusText.ifBlank { "—" }
+}

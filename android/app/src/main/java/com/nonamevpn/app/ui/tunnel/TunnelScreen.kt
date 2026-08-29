@@ -72,6 +72,8 @@ import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
+import com.nonamevpn.app.core.vpnEgressIpLabel
+import com.nonamevpn.app.core.vpnSessionStatusText
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
@@ -110,7 +112,6 @@ fun TunnelScreen(
     var callMessage by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
-    var ipError by remember { mutableStateOf(EgressIpProbe.lastError) }
     var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
     var providerIpError by remember { mutableStateOf(EgressIpProbe.lastUnderlayError) }
     var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
@@ -163,14 +164,19 @@ fun TunnelScreen(
     val busy = probing || connecting || disconnecting
     val pathBusy = connecting || disconnecting
 
-    LaunchedEffect(sessionUp, hideIp) {
-        while (sessionUp) {
+    LaunchedEffect(ui.state, hideIp) {
+        val watchEgress =
+            ui.state == ConnState.Connecting ||
+                ui.state == ConnState.Connected ||
+                ui.state == ConnState.PausedTrustedWifi
+        if (!watchEgress) {
             publicIp = EgressIpProbe.current()
-            ipError = EgressIpProbe.lastError
-            delay(1_000)
+            return@LaunchedEffect
         }
-        publicIp = EgressIpProbe.current()
-        ipError = EgressIpProbe.lastError
+        while (true) {
+            publicIp = EgressIpProbe.current()
+            delay(500)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -433,9 +439,10 @@ fun TunnelScreen(
 
             // ═══ Статус сессии — структурированная панель ═══
             TunnelStatusPanel(
-                statusText = ui.statusText.ifBlank { "—" },
+                statusText = vpnSessionStatusText(ui.state, ui.statusText, publicIp),
                 statusColor = when {
-                    connected || pausedTrusted -> NvpnColors.connected
+                    pausedTrusted -> NvpnColors.connected
+                    connected && !publicIp.isNullOrBlank() -> NvpnColors.connected
                     ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurface
                 },
@@ -449,14 +456,13 @@ fun TunnelScreen(
                     VpnPath.Bypass -> "Обход"
                     null -> null
                 },
-                publicIp = when {
-                    !publicIp.isNullOrBlank() -> publicIp!!
-                    !ipError.isNullOrBlank() && sessionUp -> "не удалось · нажмите"
-                    sessionUp -> "…"
-                    else -> "—"
-                },
-                ipFailed = sessionUp && publicIp.isNullOrBlank() && !ipError.isNullOrBlank(),
-                onIpClick = if (sessionUp) {
+                publicIp = vpnEgressIpLabel(
+                    publicIp = publicIp,
+                    vpnSessionActive = connecting || connected,
+                    pausedOnTrustedWifi = pausedTrusted,
+                ),
+                ipFailed = false,
+                onIpClick = if (connecting || connected) {
                     { conn.requestEgressIpRefresh() }
                 } else {
                     null
@@ -480,8 +486,9 @@ fun TunnelScreen(
                         accessLabel = readUnderlayAccessLabel(context)
                     }
                 },
-                showWarpIcon = (hideIp && sessionUp) ||
-                    EgressIpProbe.isLikelyCloudflare(publicIp),
+                showWarpIcon = !publicIp.isNullOrBlank() && (
+                    (hideIp && sessionUp) || EgressIpProbe.isLikelyCloudflare(publicIp)
+                    ),
                 profileName = profile?.name?.takeIf { it.isNotBlank() },
                 version = BuildConfig.VERSION_NAME,
                 directEndpoint = profile?.direct?.endpoint,
