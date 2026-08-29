@@ -12,15 +12,18 @@ import android.util.Log
 import android.widget.Toast
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.ui.PendingUiAction
+import com.nonamevpn.app.ui.qsTileOpensCallHashSettings
 
 /**
  * Quick Settings tile — qWDTT-parity toggle wired to [ConnectionManager].
+ * Without a call hash the tile stays inactive and opens «Код звонка».
  */
 class QuickToggleTileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
-        updateTile(isRunning())
+        updateTile()
     }
 
     override fun onClick() {
@@ -28,9 +31,15 @@ class QuickToggleTileService : TileService() {
         runCatching {
             val app = applicationContext
             val conn = ConnectionManager.get(app)
+            val hasHash = conn.ui.value.hasCallHash
+            if (qsTileOpensCallHashSettings(hasHash, isRunning())) {
+                openCallHashSettings()
+                updateTile()
+                return
+            }
             if (isRunning()) {
                 conn.disconnect()
-                updateTile(false)
+                updateTile()
                 return
             }
             val prep = runCatching { VpnService.prepare(this) }.getOrNull()
@@ -43,7 +52,7 @@ class QuickToggleTileService : TileService() {
                 openVpnPermissionActivity()
             } else {
                 conn.connect()
-                updateTile(true)
+                updateTile()
             }
         }.onFailure { e ->
             Log.e(TAG, "QS tile onClick failed", e)
@@ -57,22 +66,35 @@ class QuickToggleTileService : TileService() {
             state == ConnState.PausedTrustedWifi
     }
 
-    private fun updateTile(running: Boolean) {
+    private fun updateTile() {
         val tile = qsTile ?: return
-        if (running) {
-            tile.state = Tile.STATE_ACTIVE
-            tile.label = "ARDTT"
-            if (Build.VERSION.SDK_INT >= 29) {
-                tile.subtitle = "Подключено"
+        val hasHash = ConnectionManager.getOrNull()?.ui?.value?.hasCallHash == true
+        val running = isRunning()
+        tile.label = "ARDTT"
+        when {
+            running -> {
+                tile.state = Tile.STATE_ACTIVE
+                if (Build.VERSION.SDK_INT >= 29) tile.subtitle = "Подключено"
             }
-        } else {
-            tile.state = Tile.STATE_INACTIVE
-            tile.label = "ARDTT"
-            if (Build.VERSION.SDK_INT >= 29) {
-                tile.subtitle = "Отключено"
+            !hasHash -> {
+                tile.state = Tile.STATE_INACTIVE
+                if (Build.VERSION.SDK_INT >= 29) tile.subtitle = "Код звонка"
+            }
+            else -> {
+                tile.state = Tile.STATE_INACTIVE
+                if (Build.VERSION.SDK_INT >= 29) tile.subtitle = "Отключено"
             }
         }
         tile.updateTile()
+    }
+
+    private fun openCallHashSettings() {
+        PendingUiAction.requestCallHashSettings()
+        val intent = Intent(this, MainActivity::class.java).apply {
+            action = MainActivity.ACTION_OPEN_CALL_HASH
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        openActivity(intent, 102)
     }
 
     private fun openVpnPermissionActivity() {

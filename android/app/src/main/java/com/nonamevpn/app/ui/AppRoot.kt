@@ -52,6 +52,7 @@ import com.nonamevpn.app.ui.admin.TestingScreen
 import com.nonamevpn.app.ui.components.AppBackdrop
 import com.nonamevpn.app.ui.components.NavBarItem
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
+import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
@@ -177,6 +178,13 @@ fun AppRoot(
         }
     }
 
+    val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
+    LaunchedEffect(openCallHash) {
+        if (openCallHash && currentRoute != AppDestination.Settings.route) {
+            navigateTab(AppDestination.Settings.route)
+        }
+    }
+
     LaunchedEffect(Unit) {
         AppLog.i("App", "UI ready")
     }
@@ -239,6 +247,10 @@ fun AppRoot(
                         settings = settings,
                         profiles = profiles,
                         onRequestConnect = { requestVpnThenConnect() },
+                        onOpenCallHashSettings = {
+                            PendingUiAction.requestCallHashSettings()
+                            navigateTab(AppDestination.Settings.route)
+                        },
                     )
                 }
                 composable(AppDestination.Servers.route) {

@@ -332,6 +332,7 @@ class ConnectionManager(
         _ui.value = _ui.value.copy(
             hasCallHash = name != null && hashStore.hasHash(name),
         )
+        com.nonamevpn.app.QuickToggleTileService.requestTileUpdate(appContext)
     }
 
     fun startInitialProbe() {
@@ -1012,7 +1013,7 @@ class ConnectionManager(
             parts += "Для обхода сохраните код звонка на устройстве."
         }
         if (_ui.value.hideIp) {
-            parts += "Скрыт адрес: выход через Cloudflare WARP."
+            parts += "Исходящий адрес скрыт."
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }

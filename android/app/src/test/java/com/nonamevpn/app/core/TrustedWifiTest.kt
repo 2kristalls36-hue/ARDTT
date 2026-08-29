@@ -224,4 +224,53 @@ class TrustedWifiTest {
             ),
         )
     }
+
+    @Test
+    fun nextPermissionAskRequestsLocationFirst() {
+        assertEquals(
+            TrustedWifiPermissionAsk.Location,
+            nextTrustedWifiPermissionAsk(
+                hasLocation = false,
+                hasBackground = false,
+                sdkInt = 33,
+                wantBackground = true,
+            ),
+        )
+        assertEquals(
+            TrustedWifiPermissionAsk.Background,
+            nextTrustedWifiPermissionAsk(
+                hasLocation = true,
+                hasBackground = false,
+                sdkInt = 33,
+                wantBackground = true,
+            ),
+        )
+        assertEquals(
+            TrustedWifiPermissionAsk.None,
+            nextTrustedWifiPermissionAsk(
+                hasLocation = true,
+                hasBackground = true,
+                sdkInt = 33,
+                wantBackground = true,
+            ),
+        )
+        assertEquals(
+            TrustedWifiPermissionAsk.None,
+            nextTrustedWifiPermissionAsk(
+                hasLocation = true,
+                hasBackground = false,
+                sdkInt = 33,
+                wantBackground = false,
+            ),
+        )
+        assertEquals(
+            TrustedWifiPermissionAsk.None,
+            nextTrustedWifiPermissionAsk(
+                hasLocation = true,
+                hasBackground = false,
+                sdkInt = 28,
+                wantBackground = true,
+            ),
+        )
+    }
 }

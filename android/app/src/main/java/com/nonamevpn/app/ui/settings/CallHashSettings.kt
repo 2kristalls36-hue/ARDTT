@@ -39,7 +39,9 @@ import com.nonamevpn.app.ui.components.NvpnDialogAction
 import kotlinx.coroutines.launch
 
 @Composable
-fun CallHashSettingsCard() {
+fun CallHashSettingsCard(
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val profiles = remember { ProfileRepository(context) }
@@ -58,6 +60,7 @@ fun CallHashSettingsCard() {
     val canEdit = profile != null && !vpnActive && !busy
 
     AppSectionCard(
+        modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
