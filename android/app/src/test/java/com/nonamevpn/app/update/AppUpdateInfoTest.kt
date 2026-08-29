@@ -48,28 +48,38 @@ class AppUpdateInfoTest {
     @Test
     fun updateCardShowsVersionAndSizeWhenNotesAreEmpty() {
         val copy = updateCardCopy(
-            versionName = "0.5.105-update-info",
+            installedVersionName = "0.5.110-callhash-wifi",
+            versionName = "0.5.111-changelog",
             sizeBytes = 12_582_912L,
             notes = "",
         )
-        assertEquals("Доступна 0.5.105-update-info", copy.headline)
+        assertEquals("Новая версия 0.5.111-changelog", copy.headline)
+        assertEquals("Установлена 0.5.110-callhash-wifi", copy.installedLabel)
         assertEquals("Размер: 12,0 МБ", copy.sizeLabel)
         assertEquals(null, copy.notes)
     }
 
     @Test
     fun updateCardOmitsSizeWhenUnknownAndShowsNotesWhenPresent() {
-        val empty = updateCardCopy(versionName = "0.5.60", sizeBytes = 0L, notes = "   ")
-        assertEquals("Доступна 0.5.60", empty.headline)
+        val empty = updateCardCopy(
+            installedVersionName = "0.5.60",
+            versionName = "0.5.60",
+            sizeBytes = 0L,
+            notes = "   ",
+        )
+        assertEquals("Новая версия 0.5.60", empty.headline)
+        assertEquals(null, empty.installedLabel)
         assertEquals(null, empty.sizeLabel)
         assertEquals(null, empty.notes)
 
         val withNotes = updateCardCopy(
+            installedVersionName = "0.5.59",
             versionName = "0.5.60",
             sizeBytes = 123_456L,
             notes = "  Исправления загрузки  ",
         )
-        assertEquals("Доступна 0.5.60", withNotes.headline)
+        assertEquals("Новая версия 0.5.60", withNotes.headline)
+        assertEquals("Установлена 0.5.59", withNotes.installedLabel)
         assertEquals("Размер: 120,6 КБ", withNotes.sizeLabel)
         assertEquals("Исправления загрузки", withNotes.notes)
     }

@@ -155,16 +155,21 @@ fun updatePrimaryActionLabel(downloading: Boolean, hasApk: Boolean): String = wh
 /** Copy shown between the «Обновление» title and the fill button. */
 data class UpdateCardCopy(
     val headline: String,
+    val installedLabel: String?,
     val sizeLabel: String?,
     val notes: String?,
 )
 
 fun updateCardCopy(
+    installedVersionName: String,
     versionName: String,
     sizeBytes: Long,
     notes: String,
 ): UpdateCardCopy = UpdateCardCopy(
-    headline = "Доступна $versionName",
+    headline = "Новая версия $versionName",
+    installedLabel = installedVersionName.trim()
+        .takeIf { it.isNotEmpty() && !it.equals(versionName, ignoreCase = true) }
+        ?.let { "Установлена $it" },
     sizeLabel = if (sizeBytes > 0L) "Размер: ${formatUpdateSize(sizeBytes)}" else null,
     notes = notes.trim().takeIf { it.isNotEmpty() },
 )

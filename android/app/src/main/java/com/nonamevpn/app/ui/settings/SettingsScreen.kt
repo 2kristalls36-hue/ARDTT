@@ -390,7 +390,12 @@ private fun UpdateSettingsCard(
     ) {
         Text("Обновление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         if (info != null) {
-            val copy = updateCardCopy(info.versionName, info.sizeBytes, info.notes)
+            val copy = updateCardCopy(
+                installedVersionName = BuildConfig.VERSION_NAME,
+                versionName = info.versionName,
+                sizeBytes = info.sizeBytes,
+                notes = info.notes,
+            )
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -406,6 +411,9 @@ private fun UpdateSettingsCard(
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    copy.installedLabel?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
                     copy.sizeLabel?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall)
                     }
