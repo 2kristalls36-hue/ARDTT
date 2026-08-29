@@ -2,17 +2,17 @@ package com.nonamevpn.app.unlock
 
 /**
  * User-visible copy for the first-launch device confirmation screen.
- * Keep wording formal and short so it fits the layout.
+ * Formal, no product jargon (VPN / tunnel).
  */
 object DeviceUnlockCopy {
     const val SUBTITLE = "Подтверждение доступа"
 
     const val INTRO =
-        "Подтвердите доступ на этом устройстве."
+        "Приложение доступно в рамках закрытого бета-тестирования."
 
     const val STEPS =
-        "Скопируйте код устройства и введите полученный шестизначный код. " +
-            "Сеть не требуется. Повторно — только после удаления приложения."
+        "Скопируйте код устройства и отправьте его автору приложения. " +
+            "После проверки вы получите шестизначный код доступа — введите его в поле выше."
 
     const val DEVICE_CODE_TITLE = "Код устройства"
     const val COPY_CODE = "Копировать"
@@ -22,7 +22,8 @@ object DeviceUnlockCopy {
     const val CONFIRMATION_PLACEHOLDER = "Шесть цифр"
     const val CONFIRM = "Подтвердить"
 
-    const val FOOTNOTE = "На другом устройстве код будет другим."
+    const val FOOTNOTE =
+        "Код устройства действует только на этом телефоне: на другом устройстве он будет другим."
 
     const val WRONG_CODE = "Код указан неверно"
     const val LOCKED_PREFIX = "Слишком много попыток. Повтор через "
