@@ -427,7 +427,7 @@ class NetworkRecoveryPolicyTest {
     @Test
     fun handoverKeepsPathWhenForcedModeOrSameOrNoHash() {
         assertEquals(
-            NetworkHandoverDecision.SoftRestartSamePath,
+            NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Direct,
                 currentPath = VpnPath.Direct,
@@ -437,6 +437,16 @@ class NetworkRecoveryPolicyTest {
         )
         assertEquals(
             NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Direct,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayChanged = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Bypass,
@@ -460,6 +470,33 @@ class NetworkRecoveryPolicyTest {
                 currentPath = VpnPath.Direct,
                 probedPath = null,
                 bypassAllowed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun handoverDoesNotRestartStableWhitelistBypass() {
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                currentPathHealthy = false,
+                underlayVpsReachable = false,
+                underlayChanged = false,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayVpsReachable = false,
+                underlayChanged = true,
             ),
         )
     }

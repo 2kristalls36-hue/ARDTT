@@ -319,6 +319,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             AppLog.v(TAG, "handover probe skipped — soft restart already in progress ($reason)")
             return
         }
+        if (
+            !underlayChanged &&
+            ConnectionManager.getOrNull()?.bypassWarming() == true
+        ) {
+            AppLog.v(TAG, "handover probe skipped — Bypass still waiting for workers ($reason)")
+            return
+        }
         softRestartInProgress = true
         try {
             val underlay = pickBestUnderlyingNetwork()

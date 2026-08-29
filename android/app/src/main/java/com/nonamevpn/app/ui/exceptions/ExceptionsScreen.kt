@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.R
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.appIconDecodeSize
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.settings.AppSettingsRepository
 import java.util.Locale
@@ -198,8 +199,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
                 val drawable = app.loadIcon(pm)
                 val iconBitmap = if (drawable != null) {
-                    val w = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128
-                    val h = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128
+                    val (w, h) = appIconDecodeSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
                     runCatching { drawable.toBitmap(w, h).asImageBitmap() }.getOrNull()
                 } else {
                     null
@@ -394,7 +394,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         }
 
                         Text(
-                            "Нажмите карточку, чтобы добавить в список. Облако Cloudflare — выход через WARP.",
+                            "Карточка — список ЧС/БС. Облако — через WARP (в ЧС облако снимает исключение).",
                             style = MaterialTheme.typography.labelSmall,
                             color = colors.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
@@ -442,20 +442,33 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                         warpEnabled = warpEnabled,
                                         onClick = {
                                             scope.launch {
-                                                if (isSelected) {
+                                                val selected = settings.excludedAppsSnapshot()
+                                                val whitelist = settings.appsWhitelistModeSnapshot()
+                                                if (app.packageName in selected) {
                                                     settings.removeExcludedApp(app.packageName)
+                                                    settings.removeWarpApp(app.packageName)
                                                 } else {
                                                     settings.addExcludedApp(app.packageName)
+                                                    if (!whitelist) {
+                                                        settings.removeWarpApp(app.packageName)
+                                                    }
                                                 }
                                                 applyTransport("Обновлены исключения приложений")
                                             }
                                         },
                                         onWarpClick = {
                                             scope.launch {
-                                                if (warpEnabled) {
+                                                val warpOn = app.packageName in settings.warpAppsSnapshot()
+                                                val whitelist = settings.appsWhitelistModeSnapshot()
+                                                if (warpOn) {
                                                     settings.removeWarpApp(app.packageName)
                                                 } else {
                                                     settings.addWarpApp(app.packageName)
+                                                    if (whitelist) {
+                                                        settings.addExcludedApp(app.packageName)
+                                                    } else {
+                                                        settings.removeExcludedApp(app.packageName)
+                                                    }
                                                     settings.setHideIp(true)
                                                     ConnectionManager.getOrNull()?.setHideIp(true)
                                                     AppLog.i(

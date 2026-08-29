@@ -53,7 +53,7 @@ fun shouldTreatInitialValidatedAsHandover(
     softRestartInProgress: Boolean,
     sessionStartedAtMs: Long,
     nowMs: Long,
-    graceAfterStartMs: Long = 5_000L,
+    graceAfterStartMs: Long = HANDOVER_IGNORE_GRACE_MS,
 ): Boolean {
     if (!tunnelRunning || userStopRequested || softRestartInProgress) return false
     if (sessionStartedAtMs <= 0L) return false
@@ -191,6 +191,8 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
  *   miss rebinds Direct instead of switching.
  * - Bypass → Direct only after [HANDOVER_BYPASS_TO_DIRECT_STREAK] consecutive
  *   VPS-IP successes (open Wi‑Fi), not a single flaky TCP.
+ * - Forced Direct/Bypass only rebind when the underlay actually changed.
+ * - Stable whitelist Bypass (VPS down, no underlay change) is [NoAction].
  * - A confirmed underlay change (lost network / new id) always rebinds the
  *   current path when we are not switching — sockets stay glued to the old
  *   Wi‑Fi otherwise.
@@ -212,9 +214,13 @@ fun decideNetworkHandoverAction(
     if (inGrace && !underlayChanged) {
         return NetworkHandoverDecision.NoAction
     }
-    if (pathMode != ConnPathMode.Auto) {
-        return NetworkHandoverDecision.SoftRestartSamePath
-    }
+        if (pathMode != ConnPathMode.Auto) {
+            return if (underlayChanged) {
+                NetworkHandoverDecision.SoftRestartSamePath
+            } else {
+                NetworkHandoverDecision.NoAction
+            }
+        }
     val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
     if (currentPath == VpnPath.Direct) {
         if (probedPath == VpnPath.Bypass && bypassAllowed && !vpsUp &&
@@ -243,7 +249,9 @@ fun decideNetworkHandoverAction(
     if (vpsUp) {
         return NetworkHandoverDecision.NoAction
     }
-    return NetworkHandoverDecision.SoftRestartSamePath
+    // Whitelist Bypass: VPS IP is down by design. Do not soft-restart on
+    // every probe / VPN-bind ghost — that kills TURN workers during warmup.
+    return NetworkHandoverDecision.NoAction
 }
 
 fun shouldReconnectTunnelAfterWake(
