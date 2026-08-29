@@ -65,6 +65,10 @@ object AlphaGate {
         return digits.takeIf { it.length == OTP_LEN }
     }
 
+    /** Digits from a paste blob (spaces, dashes, surrounding text). */
+    fun otpDigitsFromClipboard(raw: String?): String =
+        raw.orEmpty().filter { it.isDigit() }.take(OTP_LEN)
+
     fun oneTimeCode(challengeHex: String): String {
         val challenge = requireNotNull(normalizeChallenge(challengeHex)) { "bad challenge" }
         val mac = Mac.getInstance("HmacSHA256")

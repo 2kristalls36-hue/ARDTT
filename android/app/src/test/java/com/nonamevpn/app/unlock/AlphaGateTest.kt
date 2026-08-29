@@ -59,6 +59,17 @@ class AlphaGateTest {
     }
 
     @Test
+    fun otpDigitsFromClipboardExtractsCode() {
+        assertEquals("302184", AlphaGate.otpDigitsFromClipboard("302184"))
+        assertEquals("302184", AlphaGate.otpDigitsFromClipboard(" 302-184 "))
+        assertEquals("302184", AlphaGate.otpDigitsFromClipboard("код: 302184."))
+        assertEquals("30218", AlphaGate.otpDigitsFromClipboard("30218"))
+        assertEquals("123456", AlphaGate.otpDigitsFromClipboard("123456789"))
+        assertEquals("", AlphaGate.otpDigitsFromClipboard(null))
+        assertEquals("", AlphaGate.otpDigitsFromClipboard("нет цифр"))
+    }
+
+    @Test
     fun lockoutSchedule() {
         assertEquals(0L, AlphaGate.lockMsAfterFails(1))
         assertEquals(0L, AlphaGate.lockMsAfterFails(4))
