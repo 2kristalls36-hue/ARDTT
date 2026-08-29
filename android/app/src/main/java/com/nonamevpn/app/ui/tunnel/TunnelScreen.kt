@@ -432,7 +432,6 @@ fun TunnelScreen(
         StickyPrimaryButton(
             text = when {
                 cancelMode -> "Отменить"
-                sessionUp && pausedTrusted -> "Отключить (пауза по доверенной сети)"
                 sessionUp -> "Отключить"
                 else -> "Подключиться"
             },

@@ -44,22 +44,23 @@ type Config struct {
 }
 
 type User struct {
-	Name              string    `json:"name"`
-	HostID            int       `json:"hostId"`
-	DeviceID          string    `json:"deviceId"`
-	DeviceIDs         []string  `json:"deviceIds,omitempty"`
-	MaxDevices        int       `json:"maxDevices"`
-	Password          string    `json:"password"`
-	HideIP            bool      `json:"hideIp"`
-	ExpiresAt         int64     `json:"expiresAt"` // unix seconds; 0 = no expiry
-	Deactivated       bool      `json:"deactivated"`
-	TrafficLimitBytes int64     `json:"trafficLimitBytes,omitempty"` // 0 = unlimited
-	LastSeenAt        int64     `json:"lastSeenAt,omitempty"`
-	LastExternalIP    string    `json:"lastExternalIp,omitempty"`
-	CreatedAt         time.Time `json:"createdAt"`
-	DirectPrivateKey  string    `json:"directPrivateKey,omitempty"`
-	DirectPublicKey   string    `json:"directPublicKey,omitempty"`
-	ServerPublicKey   string    `json:"serverPublicKey,omitempty"`
+	Name              string            `json:"name"`
+	HostID            int               `json:"hostId"`
+	DeviceID          string            `json:"deviceId"`
+	DeviceIDs         []string          `json:"deviceIds,omitempty"`
+	MaxDevices        int               `json:"maxDevices"`
+	Password          string            `json:"password"`
+	HideIP            bool              `json:"hideIp"`
+	ExpiresAt         int64             `json:"expiresAt"` // unix seconds; 0 = no expiry
+	Deactivated       bool              `json:"deactivated"`
+	TrafficLimitBytes int64             `json:"trafficLimitBytes,omitempty"` // 0 = unlimited
+	LastSeenAt        int64             `json:"lastSeenAt,omitempty"`
+	LastExternalIP    string            `json:"lastExternalIp,omitempty"`
+	DeviceModels      map[string]string `json:"deviceModels,omitempty"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	DirectPrivateKey  string            `json:"directPrivateKey,omitempty"`
+	DirectPublicKey   string            `json:"directPublicKey,omitempty"`
+	ServerPublicKey   string            `json:"serverPublicKey,omitempty"`
 }
 
 const onlineGraceSeconds = 120
@@ -102,22 +103,23 @@ type Profile struct {
 
 // UserPublic is the admin list/detail shape (includes online presence).
 type UserPublic struct {
-	Name              string   `json:"name"`
-	HostID            int      `json:"hostId"`
-	DeviceID          string   `json:"deviceId"`
-	DeviceIDs         []string `json:"deviceIds"`
-	MaxDevices        int      `json:"maxDevices"`
-	HideIP            bool     `json:"hideIp"`
-	ExpiresAt         int64    `json:"expiresAt"`
-	Deactivated       bool     `json:"deactivated"`
-	CreatedAt         string   `json:"createdAt"`
-	LastSeenAt        int64    `json:"lastSeenAt"`
-	LastExternalIP    string   `json:"lastExternalIp"`
-	Online            bool     `json:"online"`
-	OfflineForSec     int64    `json:"offlineForSec"`
-	DownBytes         int64    `json:"downBytes"`
-	UpBytes           int64    `json:"upBytes"`
-	TrafficLimitBytes int64    `json:"trafficLimitBytes"`
+	Name              string            `json:"name"`
+	HostID            int               `json:"hostId"`
+	DeviceID          string            `json:"deviceId"`
+	DeviceIDs         []string          `json:"deviceIds"`
+	MaxDevices        int               `json:"maxDevices"`
+	HideIP            bool              `json:"hideIp"`
+	ExpiresAt         int64             `json:"expiresAt"`
+	Deactivated       bool              `json:"deactivated"`
+	CreatedAt         string            `json:"createdAt"`
+	LastSeenAt        int64             `json:"lastSeenAt"`
+	LastExternalIP    string            `json:"lastExternalIp"`
+	Online            bool              `json:"online"`
+	OfflineForSec     int64             `json:"offlineForSec"`
+	DownBytes         int64             `json:"downBytes"`
+	UpBytes           int64             `json:"upBytes"`
+	TrafficLimitBytes int64             `json:"trafficLimitBytes"`
+	DeviceModels      map[string]string `json:"deviceModels,omitempty"`
 }
 
 func main() {
@@ -282,9 +284,10 @@ func runServer(store *Store, listen string) error {
 			return
 		}
 		var body struct {
-			DeviceID   string `json:"deviceId"`
-			Name       string `json:"name"`
-			ExternalIP string `json:"externalIp"`
+			DeviceID    string `json:"deviceId"`
+			Name        string `json:"name"`
+			ExternalIP  string `json:"externalIp"`
+			DeviceModel string `json:"deviceModel"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
@@ -298,7 +301,7 @@ func runServer(store *Store, listen string) error {
 		if ext == "" {
 			ext = clientIP(r)
 		}
-		u, err := store.TouchPresence(body.DeviceID, body.Name, ext)
+		u, err := store.TouchPresence(body.DeviceID, body.Name, ext, body.DeviceModel)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
@@ -318,7 +321,7 @@ func runServer(store *Store, listen string) error {
 			return
 		}
 		// Best-effort presence when profile is fetched (connect / import).
-		_, _ = store.TouchPresence(u.DeviceID, u.Name, clientIP(r))
+		_, _ = store.TouchPresence(u.DeviceID, u.Name, clientIP(r), "")
 		u2, _ := store.FindUser(name)
 		if u2.Name != "" {
 			u = u2
@@ -348,7 +351,7 @@ func runServer(store *Store, listen string) error {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
 		}
-		_, _ = store.TouchPresence(body.DeviceID, body.Name, clientIP(r))
+		_, _ = store.TouchPresence(body.DeviceID, body.Name, clientIP(r), "")
 		store.mu.Lock()
 		directBase := subnetBase(store.Config.DirectSubnet)
 		bypassBase := subnetBase(store.Config.BypassSubnet)
@@ -669,6 +672,7 @@ func toPublicLocked(u User, now int64) UserPublic {
 		Online:            online,
 		OfflineForSec:     offlineFor,
 		TrafficLimitBytes: u.TrafficLimitBytes,
+		DeviceModels:      copyDeviceModels(u.DeviceModels),
 	}
 }
 
@@ -726,6 +730,7 @@ func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool
 		if clearDevices {
 			u.DeviceIDs = nil
 			u.DeviceID = ""
+			u.DeviceModels = nil
 		}
 		if trafficLimitBytes != nil {
 			if *trafficLimitBytes < 0 {
@@ -782,6 +787,9 @@ func (s *Store) UnbindDevice(name, deviceID string) (User, error) {
 			}
 		}
 		u.DeviceIDs = next
+		if u.DeviceModels != nil {
+			delete(u.DeviceModels, deviceID)
+		}
 		if u.DeviceID == deviceID {
 			if len(next) > 0 {
 				u.DeviceID = next[0]
@@ -797,7 +805,7 @@ func (s *Store) UnbindDevice(name, deviceID string) (User, error) {
 	return User{}, fmt.Errorf("not found")
 }
 
-func (s *Store) TouchPresence(deviceID, name, externalIP string) (User, error) {
+func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel string) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.Users {
@@ -828,7 +836,16 @@ func (s *Store) TouchPresence(deviceID, name, externalIP string) (User, error) {
 					}
 				}
 			}
+			if containsString(u.DeviceIDs, deviceID) {
+				if model := sanitizeDeviceModel(deviceModel); model != "" {
+					if u.DeviceModels == nil {
+						u.DeviceModels = map[string]string{}
+					}
+					u.DeviceModels[deviceID] = model
+				}
+			}
 		}
+		normalizeUserDevices(u)
 		if err := s.saveLocked(); err != nil {
 			return User{}, err
 		}
@@ -1094,7 +1111,79 @@ func normalizeUserDevices(u *User) bool {
 		u.DeviceID = out[0]
 		changed = true
 	}
+	if pruneDeviceModels(u) {
+		changed = true
+	}
 	return changed
+}
+
+func pruneDeviceModels(u *User) bool {
+	if len(u.DeviceModels) == 0 {
+		if u.DeviceModels != nil {
+			u.DeviceModels = nil
+			return true
+		}
+		return false
+	}
+	allowed := map[string]bool{}
+	for _, id := range u.DeviceIDs {
+		allowed[id] = true
+	}
+	next := make(map[string]string, len(u.DeviceIDs))
+	changed := false
+	for id, model := range u.DeviceModels {
+		model = strings.TrimSpace(model)
+		if !allowed[id] || model == "" {
+			changed = true
+			continue
+		}
+		next[id] = model
+	}
+	if !changed && len(next) == len(u.DeviceModels) {
+		return false
+	}
+	if len(next) == 0 {
+		u.DeviceModels = nil
+	} else {
+		u.DeviceModels = next
+	}
+	return true
+}
+
+func copyDeviceModels(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		if s := strings.TrimSpace(v); s != "" {
+			out[k] = s
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sanitizeDeviceModel(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	s = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	rs := []rune(s)
+	const maxRunes = 80
+	if len(rs) > maxRunes {
+		s = string(rs[:maxRunes])
+	}
+	return s
 }
 
 func containsString(list []string, want string) bool {

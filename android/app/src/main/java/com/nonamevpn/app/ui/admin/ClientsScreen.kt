@@ -1,10 +1,8 @@
 package com.nonamevpn.app.ui.admin
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -23,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
@@ -37,7 +33,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,13 +44,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
+import com.nonamevpn.app.deploy.deviceDisplayLabels
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.profile.VpnProfileJson
@@ -125,12 +120,6 @@ private fun ClientsScreen(
     var editing by remember { mutableStateOf(false) }
     var deleteUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var deleting by remember { mutableStateOf(false) }
-
-    fun copyText(label: String, text: String) {
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText(label, text))
-        Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-    }
 
     fun addToPhone(json: String) {
         scope.launch {
@@ -273,66 +262,15 @@ private fun ClientsScreen(
                                 top = 8.dp,
                                 bottom = NvpnBottomChrome.scrollContentPadding(),
                             ),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             items(users, key = { "${it.name}-${it.hostId}" }) { user ->
                                 ClientCard(
                                     user = user,
                                     busy = busyUser != null,
-                                    onCopyPassword = {
-                                        loadProfile(user.name) { json ->
-                                            val password = runCatching {
-                                                org.json.JSONObject(json)
-                                                    .getJSONObject("bypass")
-                                                    .optString("password")
-                                            }.getOrDefault("")
-                                            if (password.isBlank()) {
-                                                toast("В профиле нет пароля")
-                                            } else {
-                                                copyText("ARDTT password", password)
-                                            }
-                                        }
-                                    },
-                                    onShareProfile = {
+                                    onOpenProfile = {
                                         loadProfile(user.name) { json ->
                                             profileShare = VpnProfileJson.parse(json)
-                                        }
-                                    },
-                                    onUnbindAll = {
-                                        busyUser = user.name
-                                        scope.launch {
-                                            val result = ProvisionAdminApi.updateUser(
-                                                base,
-                                                user.name,
-                                                clearDevices = true,
-                                            )
-                                            result.fold(
-                                                onSuccess = {
-                                                    applyUser(it)
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Устройства отвязаны",
-                                                        Toast.LENGTH_SHORT,
-                                                    ).show()
-                                                },
-                                                onFailure = { toast(it.message ?: "Не удалось отвязать") },
-                                            )
-                                            busyUser = null
-                                        }
-                                    },
-                                    onBan = {
-                                        busyUser = user.name
-                                        scope.launch {
-                                            val result = ProvisionAdminApi.updateUser(
-                                                base,
-                                                user.name,
-                                                deactivated = !user.deactivated,
-                                            )
-                                            result.fold(
-                                                onSuccess = ::applyUser,
-                                                onFailure = { toast(it.message ?: "Ошибка") },
-                                            )
-                                            busyUser = null
                                         }
                                     },
                                     onEditLimits = {
@@ -344,21 +282,6 @@ private fun ClientsScreen(
                                         } else {
                                             ((user.trafficLimitBytes + 1024L * 1024L * 1024L - 1) /
                                                 (1024L * 1024L * 1024L)).toString()
-                                        }
-                                    },
-                                    onUnbindOne = { deviceId ->
-                                        busyUser = user.name
-                                        scope.launch {
-                                            val result = ProvisionAdminApi.unbindDevice(
-                                                base,
-                                                user.name,
-                                                deviceId,
-                                            )
-                                            result.fold(
-                                                onSuccess = ::applyUser,
-                                                onFailure = { toast(it.message ?: "Не удалось открепить") },
-                                            )
-                                            busyUser = null
                                         }
                                     },
                                     onDelete = { deleteUser = user },
@@ -600,12 +523,8 @@ private fun ClientsScreen(
 private fun ClientCard(
     user: ProvisionAdminApi.UserSummary,
     busy: Boolean,
-    onCopyPassword: () -> Unit,
-    onShareProfile: () -> Unit,
-    onUnbindAll: () -> Unit,
-    onBan: () -> Unit,
+    onOpenProfile: () -> Unit,
     onEditLimits: () -> Unit,
-    onUnbindOne: (String) -> Unit,
     onDelete: () -> Unit,
 ) {
     val subActive = !user.deactivated &&
@@ -622,61 +541,89 @@ private fun ClientCard(
         progress >= 0.55f -> NvpnColors.warning
         else -> NvpnColors.connected
     }
+    val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
+        .joinToString(" · ")
+        .ifBlank { "" }
+    val presence = when {
+        user.deactivated -> "отключён"
+        !subActive -> "истекла"
+        user.online -> "онлайн"
+        user.lastSeenAt > 0L -> formatClientRelative(user.lastSeenAt * 1000L)
+        else -> "оффлайн"
+    }
+    val presenceColor = when {
+        user.deactivated || !subActive -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     AppSectionCard(
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        shape = RoundedCornerShape(24.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = 4.dp,
+        tonalElevation = 0.dp,
         border = BorderStroke(
-            2.dp,
-            if (subActive) NvpnColors.connected else MaterialTheme.colorScheme.error,
+            1.dp,
+            if (subActive) NvpnColors.connected.copy(alpha = 0.7f) else MaterialTheme.colorScheme.error,
         ),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !busy, onClick = onOpenProfile),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                user.name.ifBlank { "user" },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = if (user.online) NvpnColors.connected else MaterialTheme.colorScheme.outlineVariant,
-                modifier = Modifier
-                    .padding(end = 6.dp)
-                    .size(10.dp),
-            ) {}
-            Text(
-                if (user.online) "онлайн" else "оффлайн",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    user.name.ifBlank { "user" },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (user.online) NvpnColors.connected else MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier
+                        .padding(end = 6.dp)
+                        .size(8.dp),
+                ) {}
+                Text(
+                    presence,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = presenceColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "Трафик",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 Text(
                     if (limit > 0L) {
                         "${formatClientBytes(used)} / ${formatClientBytes(limit)}"
                     } else {
                         formatClientBytes(used)
                     },
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = trafficColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${user.deviceIds.size}/${user.maxDevices} · ${formatClientExpires(user.expiresAt)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             if (limit > 0L) {
@@ -684,58 +631,24 @@ private fun ClientCard(
                     progress = { progress },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(8.dp),
+                        .height(4.dp),
                     color = trafficColor,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
             }
-        }
 
-        Text(
-            "hostId ${user.hostId} · устройств ${user.deviceIds.size}/${user.maxDevices} · до ${formatClientExpires(user.expiresAt)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            when {
-                user.deactivated -> "Забанен"
-                !subActive -> "Подписка истекла"
-                user.online -> "Последнее подключение: сейчас"
-                user.lastSeenAt > 0L ->
-                    "Последнее: ${formatClientRelative(user.lastSeenAt * 1000L)}"
-                else -> "Ещё не подключался"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = when {
-                user.deactivated || !subActive -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
-        if (user.lastExternalIp.isNotBlank()) {
-            Text(
-                user.lastExternalIp,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (user.deviceIds.isNotEmpty()) {
-            user.deviceIds.forEach { deviceId ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        deviceId,
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    TextButton(
-                        onClick = { onUnbindOne(deviceId) },
-                        enabled = !busy,
-                    ) { Text("Открепить") }
-                }
+            val detail = listOfNotNull(
+                deviceLine.takeIf { it.isNotBlank() },
+                user.lastExternalIp.takeIf { it.isNotBlank() },
+            ).joinToString(" · ")
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 
@@ -743,21 +656,7 @@ private fun ClientCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ClientActionButton("Пароль", busy, Modifier.weight(1f), onCopyPassword)
-            ClientActionButton("Профиль", busy, Modifier.weight(1f), onShareProfile)
             ClientActionButton("Лимит", busy, Modifier.weight(1f), onEditLimits)
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ClientActionButton("Отвязать", busy, Modifier.weight(1f), onUnbindAll)
-            ClientActionButton(
-                if (user.deactivated) "Разбан" else "Бан",
-                busy,
-                Modifier.weight(1f),
-                onBan,
-            )
             ClientActionButton("Удалить", busy, Modifier.weight(1f), onDelete)
         }
     }
@@ -773,8 +672,8 @@ private fun ClientActionButton(
     OutlinedButton(
         onClick = onClick,
         enabled = !busy,
-        modifier = modifier.height(42.dp),
-        shape = RoundedCornerShape(14.dp),
+        modifier = modifier.height(36.dp),
+        shape = RoundedCornerShape(12.dp),
         contentPadding = PaddingValues(horizontal = 8.dp),
     ) {
         Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
