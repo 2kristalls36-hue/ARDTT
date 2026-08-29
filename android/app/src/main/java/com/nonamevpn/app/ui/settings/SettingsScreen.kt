@@ -58,6 +58,7 @@ import com.nonamevpn.app.core.hasTrustedWifiForegroundPermission
 import com.nonamevpn.app.core.readConnectedWifiState
 import com.nonamevpn.app.core.trustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiAccessProblem
+import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -88,6 +89,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val updateManager = remember { AppUpdateManager(context) }
     var adminHint by remember { mutableStateOf<String?>(null) }
+    var showTestingAgreement by remember { mutableStateOf(false) }
     var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var downloadedUpdate by remember { mutableStateOf<File?>(null) }
     var updateChecking by remember { mutableStateOf(false) }
@@ -393,9 +395,15 @@ fun SettingsScreen(
             } else {
                 RowSetting(
                     title = "Тестирование",
-                    subtitle = "Вкладка с полной телеметрией и записью логов",
+                    subtitle = "Диагностические журналы — только после принятия соглашения",
                     checked = testingMode,
-                    onCheckedChange = { scope.launch { settings.setTestingMode(it) } },
+                    onCheckedChange = { enabled ->
+                        if (!enabled) {
+                            scope.launch { settings.setTestingMode(false) }
+                        } else {
+                            showTestingAgreement = true
+                        }
+                    },
                 )
                 OutlinedButton(
                     onClick = {
@@ -414,6 +422,20 @@ fun SettingsScreen(
                 Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+
+    if (showTestingAgreement) {
+        TestingModeAgreementDialog(
+            onAccept = {
+                showTestingAgreement = false
+                scope.launch {
+                    settings.setTestingAgreementVersion(TestingModeAgreement.VERSION)
+                    settings.setTestingMode(true)
+                    AppLog.i("Testing", "agreement v${TestingModeAgreement.VERSION} accepted")
+                }
+            },
+            onDismiss = { showTestingAgreement = false },
+        )
     }
 }
 

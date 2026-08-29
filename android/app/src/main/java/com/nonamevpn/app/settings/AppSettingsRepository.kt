@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.nonamevpn.app.core.sanitizeTrustedWifiSsid
@@ -23,6 +24,7 @@ class AppSettingsRepository(private val context: Context) {
     private val silentRecreate = booleanPreferencesKey("silent_recreate")
     private val dialPath = stringPreferencesKey("dial_path")
     private val testingMode = booleanPreferencesKey("testing_mode")
+    private val testingAgreementVersion = intPreferencesKey("testing_agreement_version")
     private val pathMode = stringPreferencesKey("conn_path_mode")
     private val trustedWifiEnabled = booleanPreferencesKey("trusted_wifi_enabled")
     private val trustedWifiSsids = stringPreferencesKey("trusted_wifi_ssids")
@@ -36,6 +38,8 @@ class AppSettingsRepository(private val context: Context) {
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
+    val testingAgreementVersionFlow: Flow<Int> =
+        context.dataStore.data.map { it[testingAgreementVersion] ?: 0 }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
     val hasAdminPin: Flow<Boolean> = context.dataStore.data.map { !it[adminPinHash].isNullOrBlank() }
     val currentProfileName: Flow<String> = context.dataStore.data.map { it[profileName] ?: "" }
@@ -245,6 +249,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setTestingMode(enabled: Boolean) {
         context.dataStore.edit { it[testingMode] = enabled }
+    }
+
+    suspend fun setTestingAgreementVersion(version: Int) {
+        context.dataStore.edit { it[testingAgreementVersion] = version }
     }
 
     suspend fun setThemeMode(mode: String) {
