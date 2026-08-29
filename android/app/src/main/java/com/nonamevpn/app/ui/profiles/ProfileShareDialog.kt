@@ -5,10 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,17 +13,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -45,7 +39,6 @@ fun ProfileShareDialog(
 ) {
     val context = LocalContext.current
     val link = ProfileLinkCodec.buildLink(profile)
-    val qr = rememberQrBitmap(link, 720)
 
     NvpnDialog(
         title = "Ссылка ARDTT",
@@ -68,28 +61,10 @@ fun ProfileShareDialog(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (qr != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                ) {
-                    Image(
-                        bitmap = qr,
-                        contentDescription = "QR-код профиля",
-                        modifier = Modifier
-                            .size(220.dp)
-                            .padding(12.dp)
-                            .clip(RoundedCornerShape(12.dp)),
-                    )
-                }
-            }
-        }
+        QrCodeImage(
+            content = link,
+            modifier = Modifier.padding(horizontal = (-8).dp, vertical = 4.dp),
+        )
         Text(
             "Ссылка ARDTT",
             style = MaterialTheme.typography.labelLarge,
