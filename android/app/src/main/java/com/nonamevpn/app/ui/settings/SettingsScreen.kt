@@ -5,8 +5,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,10 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.AwaitPointerEventScope
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToUp
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,8 +60,6 @@ import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.update.AppUpdateInfo
 import com.nonamevpn.app.update.AppUpdateManager
 import java.io.File
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -375,21 +367,22 @@ fun SettingsScreen(
                 if (admin) {
                     "Открыты Серверы / Деплой / Логи. Включите «Тестирование» для вкладки телеметрии."
                 } else {
-                    "Короткое нажатие — подсказка. Удерживайте кнопку 4 секунды."
+                    "Перетащите ползунок вправо, чтобы открыть функции администратора."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!admin) {
-                AdminHoldButton(
-                    hint = adminHint,
-                    onHint = { adminHint = it },
+                AdminUnlockSlider(
                     onUnlocked = {
                         scope.launch {
                             settings.unlockAdmin()
-                            adminHint = "Режим админа включён"
-                            AppLog.i("Admin", "Unlocked via 4s hold")
+                            adminHint = "Режим администратора включён"
+                            AppLog.i("Admin", "Unlocked via slider")
                         }
+                    },
+                    onIncomplete = {
+                        adminHint = "Доведите ползунок до конца"
                     },
                 )
             } else {
@@ -744,78 +737,6 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         }
         hint?.let {
             Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
-private fun AdminHoldButton(
-    hint: String?,
-    onHint: (String) -> Unit,
-    onUnlocked: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    var holdJob by remember { mutableStateOf<Job?>(null) }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    val startedAt = System.currentTimeMillis()
-                    holdJob?.cancel()
-                    holdJob = scope.launch {
-                        for (left in 4 downTo 1) {
-                            onHint("Удерживайте… ещё $left с")
-                            delay(1_000)
-                        }
-                        onUnlocked()
-                    }
-                    // Only release cancels the hold — sliding off the button must not.
-                    waitForPointerUpIgnoringBounds()
-                    val heldMs = System.currentTimeMillis() - startedAt
-                    val finished = holdJob?.isCompleted == true
-                    holdJob?.cancel()
-                    holdJob = null
-                    if (!finished) {
-                        onHint(
-                            if (heldMs < 350) {
-                                "Удерживайте кнопку 4 секунды для режима админа"
-                            } else {
-                                "Отпущено рано — держите полные 4 секунды"
-                            },
-                        )
-                    }
-                }
-            },
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.primary,
-    ) {
-        Text(
-            text = hint?.takeIf { it.startsWith("Удерживайте") } ?: "Удерживать 4 сек — админ",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            color = MaterialTheme.colorScheme.onPrimary,
-            fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-    }
-}
-
-/**
- * Like [androidx.compose.foundation.gestures.waitForUpOrCancellation], but does
- * **not** cancel when the finger slides outside the hit bounds. Hold continues
- * until the pointer is actually released.
- */
-private suspend fun AwaitPointerEventScope.waitForPointerUpIgnoringBounds() {
-    while (true) {
-        val event = awaitPointerEvent(PointerEventPass.Main)
-        if (event.changes.all { it.changedToUp() }) {
-            event.changes.forEach { it.consume() }
-            return
-        }
-        if (event.changes.none { it.pressed }) {
-            return
         }
     }
 }
