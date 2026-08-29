@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 123
-        versionName = "0.5.105-update-info"
+        versionCode = 124
+        versionName = "0.5.106-browser-exceptions"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",

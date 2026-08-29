@@ -92,6 +92,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var trustedWifiPausedAtMs = 0L
     @Volatile private var trustedWifiEvalJob: Job? = null
     private val settingsRepo by lazy { AppSettingsRepository(applicationContext) }
+    private val learnedExclusionAddresses = ConcurrentHashMap<String, MutableSet<String>>()
+    @Volatile private var appliedExclusionKeys: Set<String> = emptySet()
+    @Volatile private var lastHostSetKey: String = ""
+    @Volatile private var hostExclusionRefreshAttempted = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -161,6 +165,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         tunnelSessionActive = true
         softRestartInProgress = false
         sessionStartedAtMs = System.currentTimeMillis()
+        learnedExclusionAddresses.clear()
+        appliedExclusionKeys = emptySet()
+        lastHostSetKey = ""
+        hostExclusionRefreshAttempted = false
         TransportHealth.reset()
         VpnLiveStats.reset()
         setupNetworkCallback()
@@ -280,6 +288,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                     ?: getString(R.string.notif_running),
                             )
                             scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
+                            scheduleHostExclusionRefresh()
                         }
                         is TunnelBackendState.Failed -> {
                             if (userStopRequested || trustedWifiWaiting) {
@@ -446,6 +455,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             return s
         }
         return activeNetworks.maxByOrNull { score(it) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun pickVpnNetwork(): Network? {
+        val cm = connectivityManager ?: return null
+        fun isVpn(n: Network): Boolean =
+            cm.getNetworkCapabilities(n)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        cm.activeNetwork?.let { if (isVpn(it)) return it }
+        return cm.allNetworks.firstOrNull { isVpn(it) }
     }
 
     // ── Screen / Doze wake rescue ───────────────────────────────────────────
@@ -1115,40 +1133,99 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     }
 
     private fun applyExcludedHostRoutes(builder: Builder, hosts: Set<String>) {
-        if (hosts.isEmpty()) return
+        if (hosts.isEmpty()) {
+            appliedExclusionKeys = emptySet()
+            return
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             Log.i(TAG, "host exclusions need API 33+; stored ${hosts.size} but not applied")
             return
         }
-        for (host in hosts) {
-            val ips = resolveHostIps(host)
-            for (ip in ips) {
-                runCatching {
-                    val prefix = android.net.IpPrefix(java.net.InetAddress.getByName(ip), 32)
-                    builder.excludeRoute(prefix)
-                    Log.i(TAG, "excludeRoute $host → $ip/32")
-                }.onFailure { Log.w(TAG, "excludeRoute $host/$ip: ${it.message}") }
-            }
+        val hostKey = hosts
+            .map { HostExclusion.normalize(it) }
+            .filter { it.isNotBlank() }
+            .sorted()
+            .joinToString("\n")
+        if (hostKey != lastHostSetKey) {
+            lastHostSetKey = hostKey
+            hostExclusionRefreshAttempted = false
+            pruneLearnedHosts(hosts)
+        }
+        val routes = HostExclusion.routesFor(hosts) { resolveHostAddresses(it) }
+        appliedExclusionKeys = routes.map { it.key }.toSet()
+        for (route in routes) {
+            runCatching {
+                val prefix = android.net.IpPrefix(route.address, route.prefixLength)
+                builder.excludeRoute(prefix)
+                Log.i(TAG, "excludeRoute ${route.key}")
+            }.onFailure { Log.w(TAG, "excludeRoute ${route.key}: ${it.message}") }
         }
     }
 
-    private fun resolveHostIps(host: String): List<String> {
-        val clean = host.trim().lowercase().removePrefix("http://").removePrefix("https://")
-            .substringBefore('/').substringBefore(':')
-        if (clean.isBlank()) return emptyList()
-        // Literal IPv4
-        if (clean.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))) return listOf(clean)
-        return runCatching {
-            java.net.InetAddress.getAllByName(clean)
-                .mapNotNull { it.hostAddress }
-                .filter { !it.contains(':') } // IPv4 only for now
-                .distinct()
-                .take(8)
-        }.getOrDefault(emptyList())
+    private fun pruneLearnedHosts(hosts: Set<String>) {
+        val keep = hosts.flatMap { HostExclusion.expandNames(it) }.toSet()
+        learnedExclusionAddresses.keys.removeAll { it !in keep }
+    }
+
+    private fun resolveHostAddresses(name: String): List<java.net.InetAddress> {
+        val found = LinkedHashSet<java.net.InetAddress>()
+        fun absorb(addrs: Array<out java.net.InetAddress>?) {
+            addrs?.forEach { found.add(it) }
+        }
+        pickVpnNetwork()?.let { net ->
+            runCatching { absorb(net.getAllByName(name)) }
+                .onFailure { Log.w(TAG, "VPN DNS $name: ${it.message}") }
+        }
+        pickBestUnderlyingNetwork()?.let { net ->
+            runCatching { absorb(net.getAllByName(name)) }
+                .onFailure { Log.w(TAG, "underlay DNS $name: ${it.message}") }
+        }
+        runCatching { absorb(java.net.InetAddress.getAllByName(name)) }
+            .onFailure { Log.w(TAG, "system DNS $name: ${it.message}") }
+        val bucket = learnedExclusionAddresses.getOrPut(name) {
+            ConcurrentHashMap.newKeySet()
+        }
+        for (addr in found) {
+            if (HostExclusion.isExcludable(addr)) {
+                bucket.add(HostExclusion.numericHost(addr))
+            }
+        }
+        val out = LinkedHashSet<java.net.InetAddress>(found)
+        for (raw in bucket) {
+            runCatching { java.net.InetAddress.getByName(raw) }.getOrNull()?.let { out.add(it) }
+        }
+        return out.toList()
+    }
+
+    /**
+     * First TUN build resolves via underlay (VPN DNS is not up yet). Chrome later
+     * uses tunnel DNS and may get different CDN IPs — learn those and rebuild once.
+     */
+    private fun scheduleHostExclusionRefresh() {
+        if (hostExclusionRefreshAttempted) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        hostExclusionRefreshAttempted = true
+        scope.launch(Dispatchers.IO) {
+            delay(1_500)
+            if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) return@launch
+            val hosts = runCatching { settingsRepo.excludedHostsSnapshot() }
+                .getOrDefault(emptySet())
+            if (hosts.isEmpty()) return@launch
+            val routes = HostExclusion.routesFor(hosts) { resolveHostAddresses(it) }
+            val learnedKeys = routes.map { it.key }.toSet()
+            val extra = learnedKeys - appliedExclusionKeys
+            if (extra.isEmpty()) return@launch
+            AppLog.i(TAG, "host exclusion learned ${extra.size} extra IPs; restart TUN")
+            requestSoftRestart("уточнены IP исключений сайтов", force = true)
+        }
     }
 
     private fun stopSession(keepService: Boolean) {
         tunnelSessionActive = false
+        learnedExclusionAddresses.clear()
+        appliedExclusionKeys = emptySet()
+        lastHostSetKey = ""
+        hostExclusionRefreshAttempted = false
         if (!keepService) {
             cancelAllRecovery()
         }
