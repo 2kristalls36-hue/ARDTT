@@ -66,6 +66,7 @@ import com.nonamevpn.app.core.vpnEgressIpLabel
 import com.nonamevpn.app.core.vpnSessionStatusText
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
@@ -79,6 +80,7 @@ fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     onRequestConnect: () -> Unit,
+    onOpenCallHashSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -272,9 +274,12 @@ fun TunnelScreen(
 
                 QuickSettingRow(
                     title = "Маршрут",
-                    subtitle = when (pathMode) {
-                        "direct" -> "Только прямое подключение."
-                        "bypass" -> "Только обход. Код звонка — в настройках."
+                    subtitle = when {
+                        pathMode == "direct" -> "Только прямое подключение."
+                        pathMode == "bypass" && ui.hasCallHash ->
+                            "Только обход. Код звонка — в настройках."
+                        pathMode == "bypass" ->
+                            "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку."
                         else -> "Сначала прямое, при недоступности — обход."
                     },
                 ) {
@@ -309,8 +314,13 @@ fun TunnelScreen(
                         label = "Обход",
                         selected = pathMode == "bypass",
                         enabled = !vpnLocked,
+                        dimmed = !ui.hasCallHash,
                         selectedContainer = NvpnColors.pathBypass,
                         onClick = {
+                            if (!ui.hasCallHash) {
+                                onOpenCallHashSettings()
+                                return@ChoiceChipButton
+                            }
                             scope.launch {
                                 settings.setPathMode("bypass")
                                 conn.setPathMode(ConnPathMode.Bypass)
@@ -323,34 +333,30 @@ fun TunnelScreen(
 
                 QuickSettingRow(
                     title = "Исходящий адрес",
-                    subtitle = if (hideIp) {
-                        "Выход через Cloudflare WARP."
-                    } else {
-                        "Выход с адреса сервера."
-                    },
+                    subtitle = HideIpCopy.subtitle(hideIp),
                 ) {
                     ChoiceChipButton(
-                        label = "Прямой",
+                        label = HideIpCopy.SERVER_CHIP,
                         selected = !hideIp,
                         enabled = !vpnLocked,
                         onClick = {
                             scope.launch {
                                 settings.setHideIp(false)
                                 conn.setHideIp(false)
-                                AppLog.i("HideIP", "disabled (direct)")
+                                AppLog.i("HideIP", "disabled (server address)")
                             }
                         },
                         modifier = Modifier.weight(1f),
                     )
                     ChoiceChipButton(
-                        label = "WARP",
+                        label = HideIpCopy.HIDDEN_CHIP,
                         selected = hideIp,
                         enabled = !vpnLocked,
                         onClick = {
                             scope.launch {
                                 settings.setHideIp(true)
                                 conn.setHideIp(true)
-                                AppLog.i("HideIP", "enabled (WARP)")
+                                AppLog.i("HideIP", "enabled (hidden address)")
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -493,37 +499,53 @@ private fun ChoiceChipButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selectedContainer: Color? = null,
+    dimmed: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
+    val lookEnabled = enabled
     if (selected) {
         Button(
             onClick = onClick,
-            enabled = enabled,
+            enabled = lookEnabled,
             modifier = modifier.height(44.dp),
             shape = RoundedCornerShape(16.dp),
             colors = if (selectedContainer != null) {
                 ButtonDefaults.buttonColors(
                     containerColor = selectedContainer,
                     contentColor = Color.White,
+                    disabledContainerColor = selectedContainer.copy(alpha = 0.45f),
+                    disabledContentColor = Color.White.copy(alpha = 0.7f),
                 )
             } else {
                 ButtonDefaults.buttonColors()
             },
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp),
         ) {
-            Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(
+                label,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                color = if (dimmed) Color.White.copy(alpha = 0.7f) else Color.Unspecified,
+            )
         }
     } else {
         OutlinedButton(
             onClick = onClick,
-            enabled = enabled,
+            enabled = lookEnabled,
             modifier = modifier.height(44.dp),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(
                 1.dp,
-                colors.outline.copy(alpha = 0.45f),
+                colors.outline.copy(alpha = if (dimmed) 0.22f else 0.45f),
             ),
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = if (dimmed) {
+                    colors.onSurface.copy(alpha = 0.45f)
+                } else {
+                    colors.primary
+                },
+            ),
+            contentPadding = PaddingValues(horizontal = 8.dp),
         ) {
             Text(label, fontWeight = FontWeight.Medium, maxLines = 1)
         }
@@ -601,7 +623,7 @@ private fun TunnelStatusPanel(
                 valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
                 onClick = onIpClick,
                 valueLeadingIcon = if (showWarpIcon) R.drawable.ic_cloudflare else null,
-                valueLeadingContentDescription = if (showWarpIcon) "Cloudflare WARP" else null,
+                valueLeadingContentDescription = if (showWarpIcon) HideIpCopy.STATUS_HIDDEN else null,
             )
             profileName?.let { StatusFactRow(label = "Профиль", value = it) }
             StatusFactRow(label = "Версия", value = "v$version")

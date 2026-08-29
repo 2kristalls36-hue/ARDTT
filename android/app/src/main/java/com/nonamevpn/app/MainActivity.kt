@@ -24,6 +24,7 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.ui.AppRoot
 import com.nonamevpn.app.ui.telemetry.RecordingBorderOverlay
+import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.theme.ArdttTheme
 import kotlinx.coroutines.launch
 
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingIntent(intent: Intent?) {
         when (intent?.action) {
+            ACTION_OPEN_CALL_HASH -> PendingUiAction.requestCallHashSettings()
             AppShortcuts.ACTION_START_TUNNEL -> startTunnelFromShortcut()
             AppShortcuts.ACTION_STOP_TUNNEL -> {
                 ConnectionManager.get(applicationContext).disconnect()
@@ -115,5 +117,9 @@ class MainActivity : ComponentActivity() {
         } else {
             conn.connect()
         }
+    }
+
+    companion object {
+        const val ACTION_OPEN_CALL_HASH = "com.nonamevpn.app.OPEN_CALL_HASH"
     }
 }

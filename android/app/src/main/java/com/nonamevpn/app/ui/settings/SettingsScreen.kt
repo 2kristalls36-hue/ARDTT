@@ -3,6 +3,7 @@ package com.nonamevpn.app.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -46,12 +49,15 @@ import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
-import com.nonamevpn.app.core.hasNearbyWifiDevicesPermission
 import com.nonamevpn.app.core.hasTrustedWifiBackgroundPermission
-import com.nonamevpn.app.core.hasTrustedWifiForegroundPermission
+import com.nonamevpn.app.core.hasTrustedWifiLocationPermission
+import com.nonamevpn.app.core.nextTrustedWifiPermissionAsk
 import com.nonamevpn.app.core.readConnectedWifiState
 import com.nonamevpn.app.core.trustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiAccessProblem
+import com.nonamevpn.app.core.TrustedWifiPermissionAsk
+import com.nonamevpn.app.ui.HideIpCopy
+import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
@@ -64,6 +70,7 @@ import com.nonamevpn.app.update.updateCardCopy
 import com.nonamevpn.app.update.updatePrimaryActionLabel
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
     settings: AppSettingsRepository,
@@ -79,6 +86,8 @@ fun SettingsScreen(
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val connUi by conn.ui.collectAsStateWithLifecycle()
+    val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
+    val callHashBringIntoView = remember { BringIntoViewRequester() }
     val vpnLocked = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
         connUi.state == ConnState.PausedTrustedWifi ||
@@ -110,6 +119,13 @@ fun SettingsScreen(
             },
         )
         conn.setPathMode(ConnPathMode.fromSetting(pathMode))
+    }
+
+    LaunchedEffect(openCallHash) {
+        if (!openCallHash) return@LaunchedEffect
+        kotlinx.coroutines.delay(120)
+        runCatching { callHashBringIntoView.bringIntoView() }
+        PendingUiAction.consumeCallHashSettings()
     }
 
     LaunchedEffect(Unit) {
@@ -171,15 +187,30 @@ fun SettingsScreen(
                 DialChip(
                     "Обход",
                     pathMode == "bypass",
-                    { scope.launch { settings.setPathMode("bypass") } },
+                    {
+                        if (!connUi.hasCallHash) {
+                            PendingUiAction.requestCallHashSettings()
+                            scope.launch {
+                                kotlinx.coroutines.delay(80)
+                                runCatching { callHashBringIntoView.bringIntoView() }
+                            }
+                        } else {
+                            scope.launch { settings.setPathMode("bypass") }
+                        }
+                    },
                     Modifier.weight(1f),
                     enabled = !vpnLocked,
+                    dimmed = !connUi.hasCallHash,
                 )
             }
             Text(
                 when (pathMode) {
                     "direct" -> "Используется только прямое подключение."
-                    "bypass" -> "Используется только обход. Требуется код звонка."
+                    "bypass" -> if (connUi.hasCallHash) {
+                        "Используется только обход. Требуется код звонка."
+                    } else {
+                        "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку."
+                    }
                     else -> "Приоритет прямого подключения, резерв — обход."
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -187,11 +218,7 @@ fun SettingsScreen(
             )
             RowSetting(
                 title = "Скрыть адрес",
-                subtitle = if (hideIp) {
-                    "Выход через Cloudflare WARP."
-                } else {
-                    "Выход с адреса сервера."
-                },
+                subtitle = HideIpCopy.subtitle(hideIp),
                 checked = hideIp,
                 enabled = !vpnLocked,
                 onCheckedChange = {
@@ -227,7 +254,9 @@ fun SettingsScreen(
 
         TrustedWifiSettingsCard(settings = settings)
 
-        CallHashSettingsCard()
+        CallHashSettingsCard(
+            modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
+        )
 
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
@@ -481,53 +510,89 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     }
     LaunchedEffect(enabled, ssids) { refreshWifi() }
 
+    var pendingAddAfterLocation by remember { mutableStateOf(false) }
+    var pendingBackgroundAfterLocation by remember { mutableStateOf(false) }
+
+    fun tryAddCurrentSsid() {
+        val fresh = readConnectedWifiState(context, requireBackground = false)
+        wifi = fresh
+        val ssid = fresh.ssid
+        if (ssid.isBlank()) {
+            hint = when (fresh.accessProblem) {
+                TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе."
+                TrustedWifiAccessProblem.ForegroundPermission -> "Предоставьте разрешение геолокации."
+                else -> "Имя сети не определено. Подключитесь к Wi‑Fi и предоставьте доступ к геолокации."
+            }
+        } else {
+            scope.launch {
+                settings.addTrustedWifiSsid(ssid)
+                hint = "Добавлено: $ssid"
+            }
+        }
+    }
+
     val bgLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         refreshWifi()
         hint = if (granted) {
-            "Фоновый доступ к локации разрешён"
+            "Фоновый доступ к геолокации разрешён"
         } else {
-            "Без фоновой локации туннель не увидит SSID в фоне — для добавления в настройках хватает обычной локации"
+            "Без фоновой геолокации туннель может не увидеть сеть в фоне. Для добавления текущей сети достаточно обычной геолокации."
         }
     }
-    val fineLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
+    val locationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
         refreshWifi()
+        val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                !hasTrustedWifiBackgroundPermission(context) &&
-                !hasNearbyWifiDevicesPermission(context)
+            hint = "Разрешение геолокации получено. Можно добавить текущую сеть."
+            if (pendingAddAfterLocation) {
+                pendingAddAfterLocation = false
+                tryAddCurrentSsid()
+            }
+            if (pendingBackgroundAfterLocation &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                !hasTrustedWifiBackgroundPermission(context)
             ) {
+                pendingBackgroundAfterLocation = false
                 bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            } else {
-                hint = "Разрешение геолокации получено. Можно добавить текущую сеть."
             }
         } else {
-            hint = "Для определения имени сети Wi‑Fi требуется геолокация или доступ к устройствам поблизости."
-        }
-    }
-    val nearbyLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        refreshWifi()
-        if (granted) {
-            hint = "Имя сети Wi‑Fi можно определять без геолокации."
-        } else if (!hasTrustedWifiForegroundPermission(context)) {
-            fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        } else {
-            hint = "Без доступа к Wi‑Fi имя сети может быть недоступно."
+            pendingAddAfterLocation = false
+            pendingBackgroundAfterLocation = false
+            hint = "Для определения имени сети Wi‑Fi требуется разрешение геолокации."
         }
     }
 
-    fun requestSsidPermission() {
-        when {
-            hasTrustedWifiForegroundPermission(context) -> Unit
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                !hasNearbyWifiDevicesPermission(context) ->
-                nearbyLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
-            else -> fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    fun askTrustedWifiPermissions(wantBackground: Boolean, addAfter: Boolean) {
+        pendingAddAfterLocation = addAfter
+        pendingBackgroundAfterLocation = wantBackground
+        when (
+            nextTrustedWifiPermissionAsk(
+                hasLocation = hasTrustedWifiLocationPermission(context),
+                hasBackground = hasTrustedWifiBackgroundPermission(context),
+                sdkInt = Build.VERSION.SDK_INT,
+                wantBackground = wantBackground,
+            )
+        ) {
+            TrustedWifiPermissionAsk.Location -> locationLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
+            TrustedWifiPermissionAsk.Background -> {
+                pendingAddAfterLocation = false
+                bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
+            TrustedWifiPermissionAsk.None -> {
+                pendingAddAfterLocation = false
+                pendingBackgroundAfterLocation = false
+                if (addAfter) tryAddCurrentSsid()
+            }
         }
     }
 
@@ -545,31 +610,20 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
             title = "Включить",
             subtitle = when (val p = trustedWifiAccessProblem(context, requireBackground = false)) {
                 TrustedWifiAccessProblem.ForegroundPermission ->
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        "Требуется разрешение «Устройства поблизости» или доступ к геолокации."
-                    } else {
-                        "Требуется разрешение геолокации."
-                    }
+                    "Требуется разрешение геолокации, чтобы определить имя сети."
                 TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе."
                 TrustedWifiAccessProblem.BackgroundPermission -> "Требуется фоновая геолокация."
                 null -> when {
-                    hasNearbyWifiDevicesPermission(context) ->
-                        if (ssids.isEmpty()) "Добавьте хотя бы одну сеть." else "${ssids.size} сетей"
                     !hasTrustedWifiBackgroundPermission(context) ->
                         "Для автоматической паузы в фоне предоставьте геолокацию «Всегда»."
-                    ssids.isEmpty() -> "Добавьте хотя бы одну сеть"
+                    ssids.isEmpty() -> "Добавьте хотя бы одну сеть."
                     else -> "${ssids.size} сетей"
                 }
             },
             checked = enabled,
             onCheckedChange = { on ->
-                if (on) requestSsidPermission()
-                if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    hasTrustedWifiForegroundPermission(context) &&
-                    !hasNearbyWifiDevicesPermission(context) &&
-                    !hasTrustedWifiBackgroundPermission(context)
-                ) {
-                    bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                if (on) {
+                    askTrustedWifiPermissions(wantBackground = true, addAfter = false)
                 }
                 scope.launch { settings.setTrustedWifiEnabled(on) }
             },
@@ -584,7 +638,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
             Text(
                 when (wifi.accessProblem) {
                     TrustedWifiAccessProblem.ForegroundPermission ->
-                        "Сеть Wi‑Fi подключена, но нет разрешения на определение имени."
+                        "Сеть Wi‑Fi подключена, но нет разрешения геолокации на определение имени."
                     TrustedWifiAccessProblem.LocationDisabled -> "Сеть Wi‑Fi подключена, но геолокация выключена."
                     else -> "Сеть Wi‑Fi подключена, имя сети недоступно. Предоставьте доступ к Wi‑Fi."
                 },
@@ -594,25 +648,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         }
         OutlinedButton(
             onClick = {
-                if (!hasTrustedWifiForegroundPermission(context)) {
-                    requestSsidPermission()
-                    return@OutlinedButton
-                }
-                val fresh = readConnectedWifiState(context, requireBackground = false)
-                wifi = fresh
-                val ssid = fresh.ssid
-                if (ssid.isBlank()) {
-                    hint = when (fresh.accessProblem) {
-                        TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию."
-                        TrustedWifiAccessProblem.ForegroundPermission -> "Предоставьте разрешение геолокации."
-                        else -> "Имя сети не определено. Подключитесь к Wi‑Fi и предоставьте доступ к геолокации."
-                    }
-                } else {
-                    scope.launch {
-                        settings.addTrustedWifiSsid(ssid)
-                        hint = "Добавлено: $ssid"
-                    }
-                }
+                askTrustedWifiPermissions(wantBackground = false, addAfter = true)
             },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -649,6 +685,7 @@ private fun DialChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    dimmed: Boolean = false,
 ) {
     FilterChip(
         selected = selected,
@@ -657,6 +694,13 @@ private fun DialChip(
         label = { Text(label) },
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
+        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+            labelColor = if (dimmed) {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        ),
     )
 }
 

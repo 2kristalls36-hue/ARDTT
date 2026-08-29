@@ -147,27 +147,46 @@ fun hasNearbyWifiDevicesPermission(context: Context): Boolean =
             Manifest.permission.NEARBY_WIFI_DEVICES,
         ) == PackageManager.PERMISSION_GRANTED
 
-fun hasTrustedWifiForegroundPermission(context: Context): Boolean =
-    hasNearbyWifiDevicesPermission(context) ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+fun hasTrustedWifiLocationPermission(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
+
+fun hasTrustedWifiForegroundPermission(context: Context): Boolean =
+    hasTrustedWifiLocationPermission(context)
 
 fun hasTrustedWifiBackgroundPermission(context: Context): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
         ContextCompat.checkSelfPermission(context, BACKGROUND_LOCATION_PERMISSION) ==
         PackageManager.PERMISSION_GRANTED
 
+enum class TrustedWifiPermissionAsk {
+    None,
+    Location,
+    Background,
+}
+
+/** Next system dialog to show when enabling or adding a trusted Wi‑Fi. */
+fun nextTrustedWifiPermissionAsk(
+    hasLocation: Boolean,
+    hasBackground: Boolean,
+    sdkInt: Int,
+    wantBackground: Boolean,
+): TrustedWifiPermissionAsk {
+    if (!hasLocation) return TrustedWifiPermissionAsk.Location
+    if (wantBackground && sdkInt >= Build.VERSION_CODES.Q && !hasBackground) {
+        return TrustedWifiPermissionAsk.Background
+    }
+    return TrustedWifiPermissionAsk.None
+}
+
 fun trustedWifiAccessProblem(
     context: Context,
     requireBackground: Boolean = true,
 ): TrustedWifiAccessProblem? {
-    if (!hasTrustedWifiForegroundPermission(context)) {
+    if (!hasTrustedWifiLocationPermission(context)) {
         return TrustedWifiAccessProblem.ForegroundPermission
-    }
-    // Android 13+: NEARBY_WIFI_DEVICES (neverForLocation) can read SSID without
-    // the location toggle or background-location grant.
-    if (hasNearbyWifiDevicesPermission(context)) {
-        return null
     }
     if (requireBackground && !hasTrustedWifiBackgroundPermission(context)) {
         return TrustedWifiAccessProblem.BackgroundPermission
