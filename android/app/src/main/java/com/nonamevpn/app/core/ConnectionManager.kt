@@ -223,7 +223,7 @@ class ConnectionManager(
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
                 if (viaVpn) {
                     _ui.value = _ui.value.copy(
-                        lastError = "Сокрытие исходящего адреса не синхронизировано с сервером: ${r.exceptionOrNull()?.message}",
+                        lastError = "Скрытие адреса не синхронизировано: ${r.exceptionOrNull()?.message}",
                     )
                 } else {
                     pendingHideIpSync = enabled
@@ -865,7 +865,7 @@ class ConnectionManager(
                         AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
                         if (want) {
                             _ui.value = _ui.value.copy(
-                                lastError = "Сокрытие исходящего адреса: ${r.exceptionOrNull()?.message}",
+                                lastError = "Скрытие адреса: ${r.exceptionOrNull()?.message}",
                             )
                         }
                     }
