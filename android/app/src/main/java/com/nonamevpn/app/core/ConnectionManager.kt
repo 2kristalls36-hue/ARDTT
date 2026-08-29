@@ -249,7 +249,7 @@ class ConnectionManager(
     }
 
     /** Soft-restart transport if a session is up (exclusions / network / manual). */
-    fun requestTransportRestart(reason: String) {
+    fun requestTransportRestart(reason: String, pathOverride: VpnPath? = null) {
         val state = _ui.value.state
         if (
             state != ConnState.Connected &&
@@ -272,6 +272,9 @@ class ConnectionManager(
             val intent = Intent(appContext, VpnTunnelService::class.java)
                 .setAction(VpnTunnelService.ACTION_RESTART_TRANSPORT)
                 .putExtra(VpnTunnelService.EXTRA_RESTART_REASON, reason)
+            if (pathOverride != null) {
+                intent.putExtra(VpnTunnelService.EXTRA_PATH, pathOverride.name)
+            }
             runCatching { appContext.startService(intent) }
                 .onFailure { AppLog.e(TAG, "restart transport failed: ${it.message}") }
         }
@@ -303,11 +306,78 @@ class ConnectionManager(
         dialPath = path
     }
 
-    fun setPathMode(mode: ConnPathMode) {
+    /**
+     * @param switchLive when true (user tapped Авто / Прямое / Обход), switch
+     * the running tunnel. DataStore sync from composition must pass false so
+     * the initial «auto» value does not tear down Bypass.
+     */
+    fun setPathMode(mode: ConnPathMode, switchLive: Boolean = false) {
         pathMode = mode
         _ui.value = _ui.value.copy(
             pathMode = mode,
             softInfo = softInfoFor(_ui.value.probe),
+        )
+        if (switchLive) {
+            maybeSwitchLivePath(mode)
+        }
+    }
+
+    /**
+     * Mid-session Direct ↔ Bypass (or Auto re-probe target) without a full
+     * disconnect. No-op when already on that path, paused on trusted Wi‑Fi
+     * (config is updated for the next resume), or Bypass lacks a call hash.
+     */
+    private fun maybeSwitchLivePath(mode: ConnPathMode) {
+        val state = _ui.value.state
+        if (
+            state != ConnState.Connected &&
+            state != ConnState.Connecting &&
+            state != ConnState.PausedTrustedWifi
+        ) {
+            return
+        }
+        val holderPath = TunnelSessionHolder.config?.path
+        val current = holderPath ?: _ui.value.activePath
+        if (current == null || holderPath == null) {
+            AppLog.v(TAG, "Live path switch deferred until tunnel start mode=$mode")
+            return
+        }
+        val hasHash = !callHashOrNull().isNullOrBlank()
+        val target = resolveLiveSwitchPath(
+            mode = mode,
+            currentPath = current,
+            probePath = _ui.value.probe?.preselectedPath,
+            hasCallHash = hasHash,
+        )
+        if (target == null) {
+            AppLog.w(TAG, "Live path switch skipped — Bypass needs call hash")
+            return
+        }
+        applySessionPath(target)
+        if (!livePathRestartRequired(current, target)) {
+            AppLog.v(TAG, "Live path switch: already on $target (mode=$mode)")
+            return
+        }
+        AppLog.i(TAG, "Live path switch: $current → $target (mode=$mode)")
+        if (state == ConnState.PausedTrustedWifi) {
+            _ui.value = _ui.value.copy(
+                activePath = target,
+                softInfo = "При возобновлении будет использован путь ${pathLabel(target)}.",
+            )
+            return
+        }
+        softRestartInProgress = true
+        _ui.value = _ui.value.copy(
+            state = ConnState.Connecting,
+            activePath = target,
+            statusText = "Выполняется переход на путь ${pathLabel(target)}…",
+            lastError = null,
+            connectEnabled = true,
+        )
+        refreshVpnNotification()
+        requestTransportRestart(
+            reason = "Переключение маршрута: ${pathLabel(current)} → ${pathLabel(target)}",
+            pathOverride = target,
         )
     }
 
@@ -416,12 +486,13 @@ class ConnectionManager(
             try {
                 val snap = _ui.value
                 val lastGood = snap.probe
-                val labelPreferred = when (mode) {
+                val liveMode = pathMode
+                val labelPreferred = when (liveMode) {
                     ConnPathMode.Direct -> VpnPath.Direct
                     ConnPathMode.Bypass -> VpnPath.Bypass
                     ConnPathMode.Auto -> probePreferred ?: VpnPath.Direct
                 }
-                AppLog.v(TAG, "Connect requested mode=$mode preferred=$labelPreferred hideIp=${snap.hideIp}")
+                AppLog.v(TAG, "Connect requested mode=$liveMode preferred=$labelPreferred hideIp=${snap.hideIp}")
                 EgressIpProbe.invalidate()
                 _ui.value = snap.copy(
                     state = ConnState.Connecting,
@@ -459,11 +530,11 @@ class ConnectionManager(
                     directEndpoint = directEndpoint,
                     quick = true,
                 )
-                val usePath = resolveConnectPath(mode, probePreferred, lastGood, fresh)
+                val usePath = resolveConnectPath(pathMode, probePreferred, lastGood, fresh)
                 AppLog.v(
                     TAG,
                     "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
-                        "mode=$mode yandex=${fresh.yandexOk} vps=${fresh.provisionOk}",
+                        "mode=$pathMode yandex=${fresh.yandexOk} vps=${fresh.provisionOk}",
                 )
                 if (usePath == null) {
                     applyProbe(fresh)
@@ -635,6 +706,8 @@ class ConnectionManager(
         val status = when {
             reason.startsWith("Hide-IP") -> "Смена исходящего адреса. Выполняется повторное подключение…"
             reason.startsWith("[СЕТЬ]") -> "Сеть изменилась. Выполняется повторное подключение…"
+            reason.startsWith("Переключение") ->
+                "Выполняется переход на путь ${pathLabel(path ?: VpnPath.Direct)}…"
             else -> "Выполняется повторное подключение…"
         }
         _ui.value = _ui.value.copy(
