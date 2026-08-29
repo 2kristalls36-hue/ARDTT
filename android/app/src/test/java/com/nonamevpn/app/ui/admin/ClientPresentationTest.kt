@@ -36,6 +36,43 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun deviceSummaryFallsBackToDeviceId() {
+        assertEquals(
+            "dev-QM3xXdhZ83bnWoFp",
+            clientDeviceSummary(user(deviceIds = listOf("dev-QM3xXdhZ83bnWoFp"))),
+        )
+    }
+
+    @Test
+    fun appVersionToneMarksOutdatedBuild() {
+        val current = clientAppVersionView(
+            user(
+                deviceIds = listOf("dev-a"),
+                deviceAppVersions = mapOf("dev-a" to "0.5.113-device-id-fallback"),
+                deviceAppVersionCodes = mapOf("dev-a" to 131),
+            ),
+            latestCode = 131,
+        )
+        assertEquals("0.5.113-device-id-fallback", current.label)
+        assertEquals(ClientAppVersionTone.Current, current.tone)
+
+        val outdated = clientAppVersionView(
+            user(
+                deviceIds = listOf("dev-a"),
+                deviceAppVersions = mapOf("dev-a" to "0.5.100"),
+                deviceAppVersionCodes = mapOf("dev-a" to 100),
+            ),
+            latestCode = 131,
+        )
+        assertEquals("0.5.100", outdated.label)
+        assertEquals(ClientAppVersionTone.Outdated, outdated.tone)
+
+        val unknown = clientAppVersionView(user(), latestCode = 131)
+        assertEquals("нет версии", unknown.label)
+        assertEquals(ClientAppVersionTone.Unknown, unknown.tone)
+    }
+
+    @Test
     fun expiresToneHighlightsLicenseDate() {
         val now = 1_700_000_000_000L
         assertEquals(ClientExpiresTone.Unlimited, clientExpiresTone(0L, now))
@@ -53,6 +90,8 @@ class ClientPresentationTest {
         lastSeenAt: Long = 0L,
         deviceIds: List<String> = emptyList(),
         deviceModels: Map<String, String> = emptyMap(),
+        deviceAppVersions: Map<String, String> = emptyMap(),
+        deviceAppVersionCodes: Map<String, Int> = emptyMap(),
     ) = ProvisionAdminApi.UserSummary(
         name = "alice",
         hostId = 2,
@@ -66,5 +105,7 @@ class ClientPresentationTest {
         lastSeenAt = lastSeenAt,
         online = online,
         deviceModels = deviceModels,
+        deviceAppVersions = deviceAppVersions,
+        deviceAppVersionCodes = deviceAppVersionCodes,
     )
 }

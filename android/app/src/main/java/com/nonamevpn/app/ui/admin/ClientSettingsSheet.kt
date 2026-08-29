@@ -48,6 +48,7 @@ import com.nonamevpn.app.ui.profiles.QrCodeImage
 @Composable
 internal fun ClientSettingsSheet(
     user: ProvisionAdminApi.UserSummary,
+    latestVersionCode: Int,
     profile: VpnProfile?,
     loadingProfile: Boolean,
     busy: Boolean,
@@ -188,6 +189,11 @@ internal fun ClientSettingsSheet(
                 value = clientDeviceSummary(user),
                 modifier = Modifier.padding(horizontal = 22.dp),
             )
+            SheetStat(
+                label = "Версия приложения",
+                value = clientAppVersionView(user, latestVersionCode).label,
+                modifier = Modifier.padding(horizontal = 22.dp),
+            )
 
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = 22.dp),
@@ -209,7 +215,7 @@ internal fun ClientSettingsSheet(
                 )
             } else {
                 user.deviceIds.forEachIndexed { index, id ->
-                    val label = deviceLabels.getOrNull(index)?.ifBlank { null } ?: "Телефон"
+                    val label = deviceLabels.getOrNull(index)?.ifBlank { null } ?: id
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

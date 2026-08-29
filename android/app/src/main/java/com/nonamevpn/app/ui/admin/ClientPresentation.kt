@@ -98,3 +98,52 @@ internal fun formatClientRelative(ms: Long): String {
         else -> SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(ms))
     }
 }
+
+internal enum class ClientAppVersionTone {
+    Current,
+    Outdated,
+    Unknown,
+}
+
+internal data class ClientAppVersionView(
+    val label: String,
+    val tone: ClientAppVersionTone,
+)
+
+internal fun clientAppVersionView(
+    user: ProvisionAdminApi.UserSummary,
+    latestCode: Int,
+): ClientAppVersionView {
+    val entries = linkedMapOf<String, Pair<String, Int>>()
+    val ids = (user.deviceAppVersions.keys + user.deviceAppVersionCodes.keys +
+        listOf(user.deviceId).filter { it.isNotBlank() }).toSet()
+    for (id in ids) {
+        val name = user.deviceAppVersions[id]?.trim().orEmpty()
+        val code = user.deviceAppVersionCodes[id] ?: 0
+        if (name.isNotEmpty() || code > 0) {
+            entries[id] = name to code
+        }
+    }
+    if (entries.isEmpty()) {
+        val fallbackName = user.appVersion.trim()
+        val fallbackCode = user.appVersionCode
+        if (fallbackName.isNotEmpty() || fallbackCode > 0) {
+            entries["_"] = fallbackName to fallbackCode
+        }
+    }
+    if (entries.isEmpty()) {
+        return ClientAppVersionView("нет версии", ClientAppVersionTone.Unknown)
+    }
+    val worst = entries.values.minBy { pair ->
+        if (pair.second > 0) pair.second else Int.MAX_VALUE
+    }
+    val label = worst.first.ifBlank {
+        if (worst.second > 0) "сборка ${worst.second}" else "нет версии"
+    }
+    val tone = when {
+        worst.second <= 0 -> ClientAppVersionTone.Unknown
+        latestCode > 0 && worst.second < latestCode -> ClientAppVersionTone.Outdated
+        else -> ClientAppVersionTone.Current
+    }
+    return ClientAppVersionView(label, tone)
+}

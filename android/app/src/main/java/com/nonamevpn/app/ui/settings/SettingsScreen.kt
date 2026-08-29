@@ -60,6 +60,8 @@ import com.nonamevpn.app.core.TrustedWifiPermissionAsk
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.TestingSessionGuard
+import com.nonamevpn.app.ui.connectionControlsLocked
+import com.nonamevpn.app.applyQuickSettingsTileHidden
 import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
@@ -89,14 +91,18 @@ fun SettingsScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
+    val qsTileHidden by settings.qsTileHiddenFlow.collectAsStateWithLifecycle(initialValue = false)
+    val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
+    val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
-    val vpnLocked = connUi.state == ConnState.Connecting ||
+    val vpnSessionActive = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
         connUi.state == ConnState.PausedTrustedWifi ||
         connUi.state == ConnState.Disconnecting
+    val vpnLocked = connectionControlsLocked(vpnSessionActive, unlockConnControls)
     val scope = rememberCoroutineScope()
     val updates = remember { AppUpdateController.get(context) }
     val updateUi by updates.ui.collectAsStateWithLifecycle()
@@ -171,10 +177,11 @@ fun SettingsScreen(
         ) {
             Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                if (vpnLocked) {
-                    "Недоступно во время соединения."
-                } else {
-                    "Авто: прямое подключение, иначе обход. Маршрут можно задать вручную."
+                when {
+                    vpnLocked -> "Недоступно во время соединения."
+                    vpnSessionActive && unlockConnControls ->
+                        "Соединение установлено. Кнопки маршрута и адреса разблокированы."
+                    else -> "Авто: прямое подключение, иначе обход. Маршрут можно задать вручную."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -242,25 +249,40 @@ fun SettingsScreen(
                 },
             )
             RowSetting(
-                title = "Уведомление",
-                subtitle = if (notifVisible) {
-                    "Состояние, скорость и остановка в уведомлениях."
+                title = "Скрыть быстрые настройки",
+                subtitle = if (qsTileHidden) {
+                    "Плитка ARDTT убрана из быстрых настроек."
                 } else {
-                    "Скрыто. Система может оставить служебную запись."
+                    "Плитка в шторке включает и выключает туннель."
                 },
-                checked = notifVisible,
-                enabled = true,
-                onCheckedChange = {
+                checked = qsTileHidden,
+                onCheckedChange = { hidden ->
                     scope.launch {
-                        settings.setVpnNotificationVisible(it)
-                        if (it && needsNotificationPermission(context) &&
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                        ) {
-                            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            conn.refreshVpnNotification()
-                        }
+                        settings.setQsTileHidden(hidden)
+                        applyQuickSettingsTileHidden(context, hidden)
                     }
+                },
+            )
+            RowSetting(
+                title = "Кнопки во время соединения",
+                subtitle = if (unlockConnControls) {
+                    "Маршрут и исходящий адрес можно менять, пока туннель включён."
+                } else {
+                    "Пока туннель включён, маршрут и адрес заблокированы."
+                },
+                checked = unlockConnControls,
+                onCheckedChange = { scope.launch { settings.setUnlockConnControls(it) } },
+            )
+            RowSetting(
+                title = "Доверенная Wi‑Fi",
+                subtitle = if (trustedWifiEnabled) {
+                    "В сохранённых сетях туннель ставится на паузу."
+                } else {
+                    "Пауза в Wi‑Fi выключена."
+                },
+                checked = trustedWifiEnabled,
+                onCheckedChange = { on ->
+                    scope.launch { settings.setTrustedWifiEnabled(on) }
                 },
             )
         }
@@ -310,6 +332,27 @@ fun SettingsScreen(
                 DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
                 DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
             }
+            RowSetting(
+                title = "Уведомление",
+                subtitle = if (notifVisible) {
+                    "Состояние, скорость и остановка в уведомлениях."
+                } else {
+                    "Скрыто. Система может оставить служебную запись."
+                },
+                checked = notifVisible,
+                onCheckedChange = {
+                    scope.launch {
+                        settings.setVpnNotificationVisible(it)
+                        if (it && needsNotificationPermission(context) &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                        ) {
+                            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            conn.refreshVpnNotification()
+                        }
+                    }
+                },
+            )
         }
 
         AppSectionCard(

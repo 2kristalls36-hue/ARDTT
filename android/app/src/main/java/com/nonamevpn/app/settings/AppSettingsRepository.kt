@@ -33,6 +33,8 @@ class AppSettingsRepository(private val context: Context) {
     private val trustedWifiEnabled = booleanPreferencesKey("trusted_wifi_enabled")
     private val trustedWifiSsids = stringPreferencesKey("trusted_wifi_ssids")
     private val vpnNotificationVisible = booleanPreferencesKey("vpn_notification_visible")
+    private val qsTileHidden = booleanPreferencesKey("qs_tile_hidden")
+    private val unlockConnControls = booleanPreferencesKey("unlock_conn_controls")
     private val excludedApps = stringPreferencesKey("excluded_apps")
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
@@ -69,6 +71,12 @@ class AppSettingsRepository(private val context: Context) {
     /** Default true — show VPN status in notification shade. */
     val vpnNotificationVisibleFlow: Flow<Boolean> =
         context.dataStore.data.map { it[vpnNotificationVisible] != false }
+    /** Hide the Quick Settings tile by disabling the TileService component. */
+    val qsTileHiddenFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[qsTileHidden] == true }
+    /** Allow path / Hide-IP changes while the tunnel is up. */
+    val unlockConnControlsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[unlockConnControls] == true }
     /** Package names that bypass the VPN (disallowed applications). */
     val excludedAppsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         parseLineSet(prefs[excludedApps])
@@ -147,6 +155,14 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setVpnNotificationVisible(visible: Boolean) {
         context.dataStore.edit { it[vpnNotificationVisible] = visible }
+    }
+
+    suspend fun setQsTileHidden(hidden: Boolean) {
+        context.dataStore.edit { it[qsTileHidden] = hidden }
+    }
+
+    suspend fun setUnlockConnControls(enabled: Boolean) {
+        context.dataStore.edit { it[unlockConnControls] = enabled }
     }
 
     suspend fun setAppsWhitelistMode(whitelist: Boolean) {

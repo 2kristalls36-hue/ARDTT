@@ -47,12 +47,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.deviceDisplayLabels
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.profile.VpnProfileJson
+import com.nonamevpn.app.ui.latestAppVersionCode
+import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
@@ -94,6 +98,12 @@ private fun ClientsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val updates = remember { AppUpdateController.get(context) }
+    val updateUi by updates.ui.collectAsStateWithLifecycle()
+    val latestVersionCode = latestAppVersionCode(
+        installedCode = BuildConfig.VERSION_CODE,
+        catalogCode = updateUi.available?.versionCode ?: 0,
+    )
     val base = remember(server.id, server.host, server.publicHost) {
         ProvisionAdminApi.provisionBase(server)
     }
@@ -284,6 +294,7 @@ private fun ClientsScreen(
                             items(users, key = { "${it.name}-${it.hostId}" }) { user ->
                                 ClientCard(
                                     user = user,
+                                    latestVersionCode = latestVersionCode,
                                     busy = busyUser != null,
                                     onOpenProfile = {
                                         sheetUser = user
@@ -607,6 +618,7 @@ private fun ClientsScreen(
     sheetUser?.let { user ->
         ClientSettingsSheet(
             user = user,
+            latestVersionCode = latestVersionCode,
             profile = sheetProfile,
             loadingProfile = sheetLoadingProfile,
             busy = busyUser != null || renaming,
@@ -652,6 +664,7 @@ private fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSum
 @Composable
 private fun ClientCard(
     user: ProvisionAdminApi.UserSummary,
+    latestVersionCode: Int,
     busy: Boolean,
     onOpenProfile: () -> Unit,
     onEditLimits: () -> Unit,
@@ -752,7 +765,7 @@ private fun ClientCard(
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(
                         "${user.deviceIds.size}/${user.maxDevices}",
@@ -761,6 +774,26 @@ private fun ClientCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    val appVer = clientAppVersionView(user, latestVersionCode)
+                    val appVerColor = when (appVer.tone) {
+                        ClientAppVersionTone.Current -> NvpnColors.connected
+                        ClientAppVersionTone.Outdated -> MaterialTheme.colorScheme.error
+                        ClientAppVersionTone.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = appVerColor.copy(alpha = 0.18f),
+                    ) {
+                        Text(
+                            appVer.label,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = appVerColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = expiresColor.copy(alpha = 0.18f),
