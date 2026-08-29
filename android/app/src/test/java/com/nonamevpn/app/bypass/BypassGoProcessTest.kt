@@ -34,4 +34,13 @@ class BypassGoProcessTest {
         assertNotNull(conf)
         assertEquals("10.9.0.1", conf!!.dnsCsv)
     }
+
+    @Test
+    fun stateDirLivesUnderAppFilesNotNativeLib() {
+        val files = java.io.File("/data/user/0/com.nonamevpn.app/files")
+        val dir = bypassGoStateDir(files)
+        assertEquals("bypass", dir.name)
+        assertEquals(files, dir.parentFile)
+        assertEquals("NVPN_STATE_DIR", BypassGoProcess.STATE_DIR_ENV)
+    }
 }

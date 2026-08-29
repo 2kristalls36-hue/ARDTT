@@ -28,7 +28,7 @@ const (
 )
 
 func LoadProfileFromDisk() (*SavedProfile, error) {
-	data, err := os.ReadFile(profileFile)
+	data, err := os.ReadFile(statePath(profileFile))
 	if err != nil {
 		return nil, err
 	}
@@ -60,10 +60,10 @@ func rotateCaptchaProfile() (*SavedProfile, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(profileFile, data, 0644); err != nil {
+	if err := os.WriteFile(statePath(profileFile), data, 0644); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(captchaBrowserFpFile, []byte(fp), 0644); err != nil {
+	if err := os.WriteFile(statePath(captchaBrowserFpFile), []byte(fp), 0644); err != nil {
 		return nil, err
 	}
 	log.Printf("[КАПЧА] captcha profile rotated (fp=%s...)", fp[:8])

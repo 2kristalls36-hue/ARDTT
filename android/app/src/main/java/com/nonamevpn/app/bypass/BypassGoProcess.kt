@@ -2,6 +2,7 @@ package com.nonamevpn.app.bypass
 
 import android.content.Context
 import android.util.Log
+import com.nonamevpn.app.core.AppLog
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -87,7 +88,11 @@ class BypassGoProcess(
 
         val pb = ProcessBuilder(cmd)
         pb.redirectErrorStream(true)
+        val stateDir = bypassGoStateDir(context.filesDir).also { it.mkdirs() }
+        pb.directory(stateDir)
         pb.environment()["LD_LIBRARY_PATH"] = context.applicationInfo.nativeLibraryDir
+        pb.environment()[STATE_DIR_ENV] = stateDir.absolutePath
+        AppLog.i(TAG, "state dir=${stateDir.absolutePath}")
         val proc = pb.start()
         processRef.set(proc)
 
@@ -162,6 +167,7 @@ class BypassGoProcess(
 
     companion object {
         private const val TAG = "BypassGo"
+        internal const val STATE_DIR_ENV = "NVPN_STATE_DIR"
 
         fun parseRawBox(box: String): RawConf? {
             val fields = box.lines().mapNotNull { line ->
@@ -203,3 +209,6 @@ class BypassGoProcess(
         }
     }
 }
+
+/** Writable dir for libclient.so (`vk_profile.json`). The APK native dir is read-only. */
+internal fun bypassGoStateDir(filesDir: File): File = File(filesDir, "bypass")
