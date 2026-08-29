@@ -1,5 +1,6 @@
 package com.nonamevpn.app.deploy
 
+import com.nonamevpn.app.core.AppLog
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
@@ -85,7 +86,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code: $body")
+            if (code !in 200..299) error(fail(code, body, "listUsers"))
             parseUsers(body)
         }
     }
@@ -117,7 +118,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code: $body")
+            if (code !in 200..299) error(fail(code, body, "createUser"))
             body
         }
     }
@@ -180,7 +181,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code: $body")
+            if (code !in 200..299) error(fail(code, body, "deleteUser"))
             Unit
         }
     }
@@ -217,7 +218,7 @@ object ProvisionAdminApi {
 
     suspend fun profileJson(baseUrl: String, name: String): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val enc = java.net.URLEncoder.encode(name.trim(), Charsets.UTF_8.name())
+            val enc = encodePathSegment(name.trim())
             val url = URL("${baseUrl.trimEnd('/')}/v1/profile/$enc")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -230,7 +231,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code: $body")
+            if (code !in 200..299) error(fail(code, body, "profileJson name=$name"))
             body
         }
     }
@@ -250,7 +251,7 @@ object ProvisionAdminApi {
                 ?.bufferedReader()?.readText().orEmpty()
         }.getOrDefault("")
         conn.disconnect()
-        if (code !in 200..299) error("HTTP $code: $body")
+        if (code !in 200..299) error(fail(code, body, "postJson ${url.path}"))
         return parseUser(JSONObject(body))
     }
 
@@ -307,6 +308,29 @@ object ProvisionAdminApi {
             trafficLimitBytes = o.optLong("trafficLimitBytes", 0L),
             deviceModels = deviceModels,
         )
+    }
+
+    private fun fail(code: Int, body: String, op: String): String {
+        val message = httpErrorMessage(code, body)
+        AppLog.e("Provision", "$op → $message")
+        return message
+    }
+}
+
+internal fun encodePathSegment(value: String): String =
+    java.net.URLEncoder.encode(value.trim(), Charsets.UTF_8.name()).replace("+", "%20")
+
+internal fun httpErrorMessage(code: Int, body: String): String {
+    val parsed = runCatching { JSONObject(body).optString("error") }.getOrNull()
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    val detail = parsed ?: body.trim().take(180)
+    return when {
+        code == 409 && detail.contains("already exists", ignoreCase = true) ->
+            "Клиент с таким именем уже есть"
+        code == 404 -> "Клиент не найден"
+        detail.isNotBlank() -> detail
+        else -> "Ошибка сервера ($code)"
     }
 }
 
