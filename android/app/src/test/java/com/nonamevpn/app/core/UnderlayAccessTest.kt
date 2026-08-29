@@ -3,6 +3,7 @@ package com.nonamevpn.app.core
 import android.telephony.TelephonyManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnderlayAccessTest {
@@ -123,5 +124,92 @@ class UnderlayAccessTest {
                 displayName = "SIM 2",
             ),
         )
+    }
+
+    @Test
+    fun zombieWifiLosesToValidatedCellular() {
+        val zombieWifi = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = false,
+            wifiTransport = true,
+            cellularTransport = false,
+            wifiActuallyConnected = false,
+            networkSubId = -1,
+            activeDataSubId = 2,
+        )
+        val liveCell = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = false,
+            networkSubId = 2,
+            activeDataSubId = 2,
+        )
+        assertTrue(liveCell > zombieWifi)
+        assertTrue(liveCell > 0)
+        assertTrue(zombieWifi <= 0)
+    }
+
+    @Test
+    fun activeDataSimBeatsOtherCellular() {
+        val otherSim = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = false,
+            networkSubId = 1,
+            activeDataSubId = 2,
+        )
+        val dataSim = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = false,
+            networkSubId = 2,
+            activeDataSubId = 2,
+        )
+        assertTrue(dataSim > otherSim)
+    }
+
+    @Test
+    fun connectedValidatedWifiBeatsCellular() {
+        val wifi = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = true,
+            cellularTransport = false,
+            wifiActuallyConnected = true,
+            networkSubId = -1,
+            activeDataSubId = 2,
+        )
+        val cell = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = false,
+            networkSubId = 2,
+            activeDataSubId = 2,
+        )
+        assertTrue(wifi > cell)
+    }
+
+    @Test
+    fun subscriptionIdFromSpecifierUsesReflection() {
+        class FakeSpec {
+            fun getSubscriptionId(): Int = 42
+        }
+        assertEquals(42, subscriptionIdFromSpecifier(FakeSpec()))
+        assertEquals(-1, subscriptionIdFromSpecifier(null))
+        assertEquals(-1, subscriptionIdFromSpecifier("nope"))
     }
 }

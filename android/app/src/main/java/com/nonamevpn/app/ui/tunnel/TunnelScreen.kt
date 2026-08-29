@@ -71,6 +71,7 @@ import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
+import com.nonamevpn.app.core.underlayIdentity
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
@@ -113,6 +114,27 @@ fun TunnelScreen(
     var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
     var providerIpError by remember { mutableStateOf(EgressIpProbe.lastUnderlayError) }
     var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
+    var lastUnderlayId by remember { mutableStateOf("") }
+
+    suspend fun refreshUnderlayStats(forceProviderIp: Boolean) {
+        accessLabel = readUnderlayAccessLabel(context)
+        val id = underlayIdentity(context)
+        if (!forceProviderIp && id == lastUnderlayId) {
+            providerIp = EgressIpProbe.currentUnderlay() ?: providerIp
+            providerIpError = EgressIpProbe.lastUnderlayError
+            return
+        }
+        if (id != lastUnderlayId) {
+            AppLog.v("Tunnel", "underlay identity $lastUnderlayId → $id")
+            EgressIpProbe.invalidateUnderlay()
+            providerIp = null
+            providerIpError = null
+        }
+        lastUnderlayId = id
+        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
+        providerIp = ip ?: EgressIpProbe.currentUnderlay()
+        providerIpError = EgressIpProbe.lastUnderlayError
+    }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
@@ -153,8 +175,8 @@ fun TunnelScreen(
 
     LaunchedEffect(Unit) {
         while (true) {
-            accessLabel = readUnderlayAccessLabel(context)
-            delay(2_000)
+            refreshUnderlayStats(forceProviderIp = false)
+            delay(1_500)
         }
     }
 
@@ -162,7 +184,7 @@ fun TunnelScreen(
         val sm = context.getSystemService(SubscriptionManager::class.java)
         val listener = object : SubscriptionManager.OnSubscriptionsChangedListener() {
             override fun onSubscriptionsChanged() {
-                accessLabel = readUnderlayAccessLabel(context)
+                scope.launch { refreshUnderlayStats(forceProviderIp = true) }
             }
         }
         if (sm != null) {
@@ -178,18 +200,8 @@ fun TunnelScreen(
         }
     }
 
-    LaunchedEffect(sessionUp, ui.probe?.networkClass) {
-        accessLabel = readUnderlayAccessLabel(context)
-        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
-        providerIp = ip ?: EgressIpProbe.currentUnderlay()
-        providerIpError = EgressIpProbe.lastUnderlayError
-        while (true) {
-            delay(30_000)
-            accessLabel = readUnderlayAccessLabel(context)
-            val again = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
-            providerIp = again ?: EgressIpProbe.currentUnderlay()
-            providerIpError = EgressIpProbe.lastUnderlayError
-        }
+    LaunchedEffect(sessionUp, ui.probe?.networkClass, ui.probe?.elapsedMs) {
+        refreshUnderlayStats(forceProviderIp = true)
     }
 
     val buttonColor by animateColorAsState(
@@ -464,6 +476,7 @@ fun TunnelScreen(
                         val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
                         providerIp = ip ?: EgressIpProbe.currentUnderlay()
                         providerIpError = EgressIpProbe.lastUnderlayError
+                        lastUnderlayId = underlayIdentity(context)
                         accessLabel = readUnderlayAccessLabel(context)
                     }
                 },

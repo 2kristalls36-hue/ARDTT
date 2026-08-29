@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.os.Build
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
@@ -82,6 +81,40 @@ fun pickOperatorName(
         ?: useful(displayName)
 }
 
+/**
+ * Score a candidate underlay so a zombie Wi‑Fi does not beat live LTE,
+ * and the cellular network of the active data SIM wins over the other SIM.
+ */
+fun scoreUnderlayCandidate(
+    hasInternet: Boolean,
+    notVpn: Boolean,
+    validated: Boolean,
+    wifiTransport: Boolean,
+    cellularTransport: Boolean,
+    wifiActuallyConnected: Boolean,
+    networkSubId: Int,
+    activeDataSubId: Int,
+): Int {
+    if (!hasInternet || !notVpn) return -1
+    var s = 1
+    if (validated) s += 10 else s -= 6
+    when {
+        wifiTransport && wifiActuallyConnected -> s += 24
+        wifiTransport && !wifiActuallyConnected -> s -= 12
+        cellularTransport && !wifiActuallyConnected -> {
+            s += 8
+            if (
+                activeDataSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID &&
+                networkSubId == activeDataSubId
+            ) {
+                s += 16
+            }
+        }
+        cellularTransport -> s += 2
+    }
+    return s
+}
+
 data class CellularOperatorInfo(
     val connected: Boolean,
     val operator: String? = null,
@@ -100,6 +133,43 @@ fun readUnderlayAccessLabel(context: Context): String {
         operatorName = cellular.operator,
         generation = cellular.generation,
     )
+}
+
+/** Stable key so the tunnel tab can refresh provider IP when the underlay changes. */
+fun underlayIdentity(context: Context): String {
+    val app = context.applicationContext
+    val wifi = readConnectedWifiState(app, requireBackground = false)
+    val cell = readCellularOperatorInfo(app)
+    val handle = pickBestUnderlayNetwork(app)?.networkHandle ?: 0L
+    return when {
+        wifi.connected -> "wifi:${wifi.ssid.ifBlank { "?" }}:$handle"
+        cell.connected -> "cell:${cell.subscriptionId}:${cell.operator.orEmpty()}:$handle"
+        else -> "none"
+    }
+}
+
+fun pickBestUnderlayNetwork(context: Context): android.net.Network? {
+    val app = context.applicationContext
+    val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        ?: return null
+    val wifi = readConnectedWifiState(app, requireBackground = false)
+    val activeSub = activeCellularSubscriptionId(app)
+    fun score(n: android.net.Network): Int {
+        val caps = cm.getNetworkCapabilities(n) ?: return -1
+        return scoreUnderlayCandidate(
+            hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+            notVpn = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN),
+            validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+            wifiTransport = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+            cellularTransport = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+            wifiActuallyConnected = wifi.connected,
+            networkSubId = subscriptionIdFromSpecifier(caps.networkSpecifier),
+            activeDataSubId = activeSub,
+        )
+    }
+    return runCatching {
+        cm.allNetworks.maxByOrNull { score(it) }?.takeIf { score(it) > 0 }
+    }.getOrNull()
 }
 
 fun readCellularOperatorInfo(context: Context): CellularOperatorInfo {
@@ -151,15 +221,38 @@ internal fun hasCellularUnderlay(context: Context): Boolean {
 }
 
 internal fun activeCellularSubscriptionId(context: Context): Int {
-    context.getSystemService(SubscriptionManager::class.java)
-        ?: return SubscriptionManager.INVALID_SUBSCRIPTION_ID
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val active = runCatching { SubscriptionManager.getActiveDataSubscriptionId() }
-            .getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
-        if (active != SubscriptionManager.INVALID_SUBSCRIPTION_ID) return active
-    }
-    return runCatching { SubscriptionManager.getDefaultDataSubscriptionId() }
+    val active = runCatching { SubscriptionManager.getActiveDataSubscriptionId() }
         .getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+    if (active != SubscriptionManager.INVALID_SUBSCRIPTION_ID) return active
+    val fallback = runCatching { SubscriptionManager.getDefaultDataSubscriptionId() }
+        .getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+    if (fallback != SubscriptionManager.INVALID_SUBSCRIPTION_ID) return fallback
+    return subscriptionIdFromCellularUnderlay(context)
+}
+
+internal fun subscriptionIdFromSpecifier(specifier: Any?): Int {
+    if (specifier == null) return SubscriptionManager.INVALID_SUBSCRIPTION_ID
+    return runCatching {
+        val method = specifier.javaClass.methods.firstOrNull {
+            it.name == "getSubscriptionId" && it.parameterCount == 0
+        } ?: return SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        (method.invoke(specifier) as? Int)
+            ?: SubscriptionManager.INVALID_SUBSCRIPTION_ID
+    }.getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+}
+
+private fun subscriptionIdFromCellularUnderlay(context: Context): Int {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        ?: return SubscriptionManager.INVALID_SUBSCRIPTION_ID
+    return runCatching {
+        cm.allNetworks.firstNotNullOfOrNull { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@firstNotNullOfOrNull null
+            if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return@firstNotNullOfOrNull null
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return@firstNotNullOfOrNull null
+            subscriptionIdFromSpecifier(caps.networkSpecifier)
+                .takeIf { it != SubscriptionManager.INVALID_SUBSCRIPTION_ID }
+        } ?: SubscriptionManager.INVALID_SUBSCRIPTION_ID
+    }.getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
 }
 
 @Suppress("MissingPermission")
