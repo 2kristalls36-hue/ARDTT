@@ -118,11 +118,11 @@ fun AppRoot(
     ) { result ->
         vpnConsentBackgroundVisible = false
         if (result.resultCode == Activity.RESULT_OK) {
-            AppLog.i("VpnPrep", "VPN permission granted")
+            AppLog.i("TunnelPrep", "Tunnel permission granted")
             conn.connect()
         } else {
-            AppLog.w("VpnPrep", "VPN permission denied/cancelled")
-            conn.reportUserError("Нужно разрешить VPN в системном диалоге")
+            AppLog.w("TunnelPrep", "Tunnel permission denied/cancelled")
+            conn.reportUserError("Нужно разрешить создание туннеля в системном диалоге")
         }
     }
 
@@ -130,7 +130,7 @@ fun AppRoot(
         scope.launch {
             val prep = runCatching { VpnService.prepare(activity ?: context) }.getOrNull()
             if (prep != null) {
-                AppLog.i("VpnPrep", "Launching system VPN consent")
+                AppLog.i("TunnelPrep", "Launching system tunnel consent")
                 // Some vendor Android builds render the system VPN consent
                 // surface translucent. Paint an opaque app surface first so
                 // system text never overlaps the busy tunnel screen.
@@ -139,10 +139,10 @@ fun AppRoot(
                 runCatching { vpnPermission.launch(prep) }
                     .onFailure {
                         vpnConsentBackgroundVisible = false
-                        conn.reportUserError("Не удалось открыть системное разрешение VPN")
+                        conn.reportUserError("Не удалось открыть системное разрешение туннеля")
                     }
             } else {
-                AppLog.i("VpnPrep", "VPN already permitted — connect")
+                AppLog.i("TunnelPrep", "Tunnel already permitted — connect")
                 conn.connect()
             }
         }

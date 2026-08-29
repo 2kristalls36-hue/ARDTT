@@ -596,7 +596,7 @@ private fun TunnelStatusPanel(
                 onClick = onProviderIpClick,
             )
             StatusFactRow(
-                label = "IP VPN",
+                label = "IP туннеля",
                 value = publicIp,
                 valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
                 onClick = onIpClick,

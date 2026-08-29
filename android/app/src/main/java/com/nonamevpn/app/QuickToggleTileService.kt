@@ -37,7 +37,7 @@ class QuickToggleTileService : TileService() {
             if (prep != null) {
                 Toast.makeText(
                     this,
-                    "Разрешите ARDTT создать VPN-подключение",
+                    "Разрешите ARDTT создать туннель",
                     Toast.LENGTH_LONG,
                 ).show()
                 openVpnPermissionActivity()

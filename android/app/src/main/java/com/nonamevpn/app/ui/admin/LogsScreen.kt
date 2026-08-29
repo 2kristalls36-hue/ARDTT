@@ -219,7 +219,7 @@ fun LogsScreen() {
 
                 if (entries.isEmpty()) {
                     Text(
-                        "Пока пусто. Нажмите «Сеть» или «Подключить» — сюда пойдут probe / VPN / go_client.",
+                        "Пока пусто. Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client.",
                         modifier = Modifier.padding(16.dp),
                         color = NvpnColors.terminalText.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall,

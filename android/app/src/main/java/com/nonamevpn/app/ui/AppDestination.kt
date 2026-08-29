@@ -12,7 +12,7 @@ enum class AppDestination(
     val adminOnly: Boolean,
     val inBottomNav: Boolean = true,
 ) {
-    Tunnel("tunnel", "Туннель", navLabel = "VPN", adminOnly = false),
+    Tunnel("tunnel", "Туннель", navLabel = "Туннель", adminOnly = false),
     Servers("servers", "Серверы", navLabel = "Сервера", adminOnly = true),
     Profiles("profiles", "Профили", adminOnly = false),
     Exceptions("exceptions", "Обход", adminOnly = false),

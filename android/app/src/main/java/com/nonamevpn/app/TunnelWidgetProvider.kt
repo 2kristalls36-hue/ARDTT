@@ -37,7 +37,7 @@ class TunnelWidgetProvider : AppWidgetProvider() {
             if (prep != null) {
                 Toast.makeText(
                     app,
-                    "Разрешите ARDTT создать VPN-подключение",
+                    "Разрешите ARDTT создать туннель",
                     Toast.LENGTH_LONG,
                 ).show()
                 openVpnPermission(app)

@@ -509,7 +509,7 @@ class ConnectionManager(
                     return@launch
                 }
                 startTunnel(usePath)
-                AppLog.v(TAG, "VpnTunnelService start path=$usePath")
+                AppLog.v(TAG, "Tunnel service start path=$usePath")
                 val probeForUi = when {
                     usePath == VpnPath.Direct && fresh.preselectedPath != VpnPath.Direct ->
                         lastGood ?: fresh
@@ -782,7 +782,7 @@ class ConnectionManager(
         scope.launch {
             _ui.value = _ui.value.copy(
                 state = ConnState.PausedTrustedWifi,
-                statusText = "VPN приостановлен в сети «$ssid»",
+                statusText = "Туннель приостановлен в сети «$ssid»",
                 softInfo = "При выходе из доверенной сети подключение будет восстановлено автоматически.",
                 connectEnabled = true,
                 lastError = null,
@@ -807,7 +807,7 @@ class ConnectionManager(
             TrustedWifiAccessProblem.LocationDisabled ->
                 "Включите геолокацию, чтобы определить доверенную сеть Wi‑Fi."
             TrustedWifiAccessProblem.BackgroundPermission ->
-                "Для приостановки VPN в фоне требуется разрешение геолокации «Всегда»."
+                "Для приостановки туннеля в фоне требуется разрешение геолокации «Всегда»."
             null ->
                 "Не удалось определить имя сети Wi‑Fi. Текущий маршрут сохранён."
         }

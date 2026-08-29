@@ -7,7 +7,7 @@ import org.junit.Test
 class TestingModeAgreementTest {
     @Test
     fun hasStructuredSectionsAndVersion() {
-        assertEquals(1, TestingModeAgreement.VERSION)
+        assertEquals(2, TestingModeAgreement.VERSION)
         assertEquals("Соглашение о режиме тестирования", TestingModeAgreement.TITLE)
         assertEquals(9, TestingModeAgreement.sections.size)
         TestingModeAgreement.sections.forEachIndexed { index, section ->
