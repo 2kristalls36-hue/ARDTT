@@ -64,6 +64,7 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
+import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
@@ -103,6 +104,9 @@ fun TunnelScreen(
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
     var ipError by remember { mutableStateOf(EgressIpProbe.lastError) }
+    var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
+    var providerIpError by remember { mutableStateOf(EgressIpProbe.lastUnderlayError) }
+    var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
@@ -139,6 +143,27 @@ fun TunnelScreen(
         }
         publicIp = EgressIpProbe.current()
         ipError = EgressIpProbe.lastError
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            accessLabel = readUnderlayAccessLabel(context)
+            delay(2_000)
+        }
+    }
+
+    LaunchedEffect(sessionUp, ui.probe?.networkClass) {
+        accessLabel = readUnderlayAccessLabel(context)
+        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
+        providerIp = ip ?: EgressIpProbe.currentUnderlay()
+        providerIpError = EgressIpProbe.lastUnderlayError
+        while (true) {
+            delay(30_000)
+            accessLabel = readUnderlayAccessLabel(context)
+            val again = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
+            providerIp = again ?: EgressIpProbe.currentUnderlay()
+            providerIpError = EgressIpProbe.lastUnderlayError
+        }
     }
 
     val buttonColor by animateColorAsState(
@@ -398,6 +423,24 @@ fun TunnelScreen(
                 } else {
                     null
                 },
+                accessLabel = accessLabel,
+                providerIp = when {
+                    !providerIp.isNullOrBlank() -> providerIp!!
+                    !providerIpError.isNullOrBlank() -> "не удалось · нажмите"
+                    else -> "…"
+                },
+                providerIpFailed = providerIp.isNullOrBlank() && !providerIpError.isNullOrBlank(),
+                onProviderIpClick = {
+                    scope.launch {
+                        EgressIpProbe.invalidateUnderlay()
+                        providerIp = null
+                        providerIpError = null
+                        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
+                        providerIp = ip ?: EgressIpProbe.currentUnderlay()
+                        providerIpError = EgressIpProbe.lastUnderlayError
+                        accessLabel = readUnderlayAccessLabel(context)
+                    }
+                },
                 profileName = profile?.name?.takeIf { it.isNotBlank() },
                 version = BuildConfig.VERSION_NAME,
                 directEndpoint = profile?.direct?.endpoint,
@@ -558,6 +601,10 @@ private fun TunnelStatusPanel(
     publicIp: String,
     ipFailed: Boolean = false,
     onIpClick: (() -> Unit)? = null,
+    accessLabel: String,
+    providerIp: String,
+    providerIpFailed: Boolean = false,
+    onProviderIpClick: (() -> Unit)? = null,
     profileName: String?,
     version: String,
     directEndpoint: String?,
@@ -605,8 +652,15 @@ private fun TunnelStatusPanel(
                 }
                 StatusFactRow(label = "Активный путь", value = it, valueColor = pathColor)
             }
+            StatusFactRow(label = "Оператор", value = accessLabel)
             StatusFactRow(
-                label = "IP",
+                label = "IP провайдера",
+                value = providerIp,
+                valueColor = if (providerIpFailed) MaterialTheme.colorScheme.error else null,
+                onClick = onProviderIpClick,
+            )
+            StatusFactRow(
+                label = "IP VPN",
                 value = publicIp,
                 valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
                 onClick = onIpClick,
@@ -705,7 +759,7 @@ private fun StatusFactRow(
             label,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(112.dp),
+            modifier = Modifier.width(128.dp),
         )
         Text(
             value,

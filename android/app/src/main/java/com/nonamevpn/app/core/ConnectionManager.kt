@@ -602,6 +602,7 @@ class ConnectionManager(
      */
     suspend fun decideNetworkHandover(
         bindNetwork: android.net.Network?,
+        underlayChanged: Boolean = false,
     ): NetworkHandoverDecision {
         val currentPath = TunnelSessionHolder.config?.path
             ?: _ui.value.activePath
@@ -640,6 +641,10 @@ class ConnectionManager(
 
         val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
         val vpsReachable = fresh.provisionOk
+        if (underlayChanged) {
+            handoverProbeStreak = ProbeStreak()
+            AppLog.v(TAG, "Handover: underlay changed — reset probe streak")
+        }
         handoverProbeStreak = updateProbeStreak(handoverProbeStreak, fresh.preselectedPath)
         val decision = decideNetworkHandoverAction(
             pathMode = mode,
@@ -650,6 +655,7 @@ class ConnectionManager(
             currentPathHealthy = _ui.value.state == ConnState.Connected,
             underlayVpsReachable = vpsReachable,
             sameProbeStreak = handoverProbeStreak.count,
+            underlayChanged = underlayChanged,
         )
         when (decision) {
             NetworkHandoverDecision.NoAction -> {
@@ -657,6 +663,7 @@ class ConnectionManager(
                     TAG,
                     "Handover: no action path=$currentPath probe=${fresh.preselectedPath} " +
                         "vps=$vpsReachable streak=${handoverProbeStreak.count} " +
+                        "underlayChanged=$underlayChanged " +
                         "connected=${_ui.value.state == ConnState.Connected}",
                 )
             }
