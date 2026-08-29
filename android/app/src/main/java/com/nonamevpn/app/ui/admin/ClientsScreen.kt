@@ -291,8 +291,15 @@ private fun ClientsScreen(
                                         sheetProfile = null
                                         sheetLoadingProfile = true
                                         loadProfile(user.name) { json ->
-                                            sheetProfile = VpnProfileJson.parse(json)
-                                            sheetLoadingProfile = false
+                                            runCatching { VpnProfileJson.parse(json) }
+                                                .onSuccess {
+                                                    sheetProfile = it
+                                                    sheetLoadingProfile = false
+                                                }
+                                                .onFailure {
+                                                    sheetLoadingProfile = false
+                                                    toast(it.message ?: "Ошибка профиля")
+                                                }
                                         }
                                     },
                                     onEditLimits = {
@@ -351,8 +358,12 @@ private fun ClientsScreen(
                         creating = false
                         result.fold(
                             onSuccess = { body ->
+                                val profile = runCatching { VpnProfileJson.parse(body) }.getOrElse {
+                                    toast(it.message ?: "Ответ сервера не разобран")
+                                    refresh()
+                                    return@fold
+                                }
                                 showCreate = false
-                                val profile = VpnProfileJson.parse(body)
                                 sheetProfile = profile
                                 sheetLoadingProfile = false
                                 sheetUser = userStubFromProfile(profile)
@@ -561,8 +572,15 @@ private fun ClientsScreen(
                                 replaceUser(target.name, updated)
                                 renameUser = null
                                 loadProfile(updated.name) { json ->
-                                    sheetProfile = VpnProfileJson.parse(json)
-                                    sheetLoadingProfile = false
+                                    runCatching { VpnProfileJson.parse(json) }
+                                        .onSuccess {
+                                            sheetProfile = it
+                                            sheetLoadingProfile = false
+                                        }
+                                        .onFailure {
+                                            sheetLoadingProfile = false
+                                            toast(it.message ?: "Ошибка профиля")
+                                        }
                                 }
                             },
                             onFailure = { toast(it.message ?: "Не удалось изменить имя") },

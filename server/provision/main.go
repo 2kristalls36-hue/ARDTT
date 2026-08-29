@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -315,7 +316,7 @@ func runServer(store *Store, listen string) error {
 		})
 	})
 	mux.HandleFunc("/v1/profile/", func(w http.ResponseWriter, r *http.Request) {
-		name := filepath.Base(r.URL.Path)
+		name := profileNameFromPath(r.URL.Path)
 		u, err := store.FindUser(name)
 		if err != nil {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
@@ -1043,6 +1044,14 @@ func randomToken(n int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func profileNameFromPath(path string) string {
+	raw := filepath.Base(path)
+	if unesc, err := url.PathUnescape(raw); err == nil {
+		raw = unesc
+	}
+	return strings.TrimSpace(strings.ReplaceAll(raw, "+", " "))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
