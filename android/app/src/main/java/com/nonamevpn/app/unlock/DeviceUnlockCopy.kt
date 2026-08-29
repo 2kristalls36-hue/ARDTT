@@ -2,35 +2,32 @@ package com.nonamevpn.app.unlock
 
 /**
  * User-visible copy for the first-launch device confirmation screen.
- * Keep wording formal; do not mention testing, alpha, leaks, or APK.
+ * Keep wording formal and short so it fits the layout.
  */
 object DeviceUnlockCopy {
-    const val SUBTITLE = "Подтверждение доступа · однократно на этом устройстве"
+    const val SUBTITLE = "Подтверждение доступа"
 
     const val INTRO =
-        "Для начала работы необходимо подтвердить доступ к приложению на данном устройстве."
+        "Подтвердите доступ на этом устройстве."
 
     const val STEPS =
-        "Скопируйте код устройства и направьте его для получения кода подтверждения. " +
-            "Введите полученный шестизначный код в форму в верхней части экрана. " +
-            "Подключение к сети не требуется. После установки обновлений повторный ввод " +
-            "не запрашивается, за исключением удаления приложения или очистки его данных."
+        "Скопируйте код устройства и введите полученный шестизначный код. " +
+            "Сеть не требуется. Повторно — только после удаления приложения."
 
     const val DEVICE_CODE_TITLE = "Код устройства"
-    const val COPY_CODE = "Скопировать код"
-    const val CODE_COPIED = "Код устройства скопирован"
+    const val COPY_CODE = "Копировать"
+    const val CODE_COPIED = "Код скопирован"
 
     const val CONFIRMATION_TITLE = "Код подтверждения"
     const val CONFIRMATION_PLACEHOLDER = "Шесть цифр"
     const val CONFIRM = "Подтвердить"
 
-    const val FOOTNOTE =
-        "Код действует только на этом устройстве. На другом устройстве формируется отдельный код."
+    const val FOOTNOTE = "На другом устройстве код будет другим."
 
     const val WRONG_CODE = "Код указан неверно"
-    const val LOCKED_PREFIX = "Превышено допустимое число попыток. Повторите ввод через "
-    const val WRONG_AND_WAIT_PREFIX = "Код указан неверно. Повторите попытку через "
-    const val CONNECT_BLOCKED = "Необходимо подтвердить доступ к приложению"
+    const val LOCKED_PREFIX = "Слишком много попыток. Повтор через "
+    const val WRONG_AND_WAIT_PREFIX = "Неверный код. Повтор через "
+    const val CONNECT_BLOCKED = "Подтвердите доступ к приложению"
 
     fun wrongCode(lockMs: Long): String =
         if (lockMs > 0L) {

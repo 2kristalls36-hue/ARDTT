@@ -238,7 +238,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         EdgeFeedTopInset()
         AppTabPageHeader(
             tabTitle = "Обход",
-            subtitle = "Сайты и приложения вне туннеля",
+            subtitle = "Исключения из туннеля",
         )
 
         if (busy) {
