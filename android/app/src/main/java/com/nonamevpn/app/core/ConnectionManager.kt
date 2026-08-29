@@ -1185,6 +1185,8 @@ class ConnectionManager(
                             name = p.name,
                             externalIp = ext,
                             deviceModel = PhoneModelLabel.current(),
+                            appVersion = com.nonamevpn.app.BuildConfig.VERSION_NAME,
+                            appVersionCode = com.nonamevpn.app.BuildConfig.VERSION_CODE,
                         )
                     }
                 }

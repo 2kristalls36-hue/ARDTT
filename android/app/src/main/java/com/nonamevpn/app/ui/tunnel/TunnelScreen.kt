@@ -67,6 +67,7 @@ import com.nonamevpn.app.core.vpnSessionStatusText
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
+import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
@@ -126,6 +127,7 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     LaunchedEffect(profile?.deviceId, hideIp) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
@@ -138,7 +140,10 @@ fun TunnelScreen(
     val probing = ui.state == ConnState.Probing
     val disconnecting = ui.state == ConnState.Disconnecting
     val busy = probing || connecting || disconnecting
-    val vpnLocked = connecting || connected || pausedTrusted || disconnecting
+    val vpnLocked = connectionControlsLocked(
+        sessionActive = connecting || connected || pausedTrusted || disconnecting,
+        unlockWhileConnected = unlockConnControls,
+    )
 
     LaunchedEffect(ui.state, hideIp) {
         val watchEgress =
@@ -264,7 +269,7 @@ fun TunnelScreen(
                 )
                 Text(
                     if (vpnLocked) {
-                        "Недоступно во время соединения."
+                        "Недоступно во время соединения. Разблокировка — в «Настройках»."
                     } else {
                         "Маршрут и исходящий адрес. Код звонка — в «Настройках»."
                     },

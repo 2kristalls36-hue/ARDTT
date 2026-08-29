@@ -33,6 +33,10 @@ object ProvisionAdminApi {
         val upBytes: Long = 0L,
         val trafficLimitBytes: Long = 0L,
         val deviceModels: Map<String, String> = emptyMap(),
+        val appVersion: String = "",
+        val appVersionCode: Int = 0,
+        val deviceAppVersions: Map<String, String> = emptyMap(),
+        val deviceAppVersionCodes: Map<String, Int> = emptyMap(),
     ) {
         val usedBytes: Long get() = (downBytes + upBytes).coerceAtLeast(0L)
     }
@@ -192,6 +196,8 @@ object ProvisionAdminApi {
         name: String,
         externalIp: String = "",
         deviceModel: String = "",
+        appVersion: String = "",
+        appVersionCode: Int = 0,
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/presence")
@@ -200,6 +206,8 @@ object ProvisionAdminApi {
                 .put("name", name.trim())
                 .put("externalIp", externalIp.trim())
                 .put("deviceModel", deviceModel.trim())
+                .put("appVersion", appVersion.trim())
+                .put("appVersionCode", appVersionCode)
                 .toString()
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -289,6 +297,23 @@ object ProvisionAdminApi {
                 mo.optString(key).trim().takeIf { it.isNotEmpty() }?.let { deviceModels[key] = it }
             }
         }
+        val deviceAppVersions = linkedMapOf<String, String>()
+        o.optJSONObject("deviceAppVersions")?.let { mo ->
+            val keys = mo.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                mo.optString(key).trim().takeIf { it.isNotEmpty() }?.let { deviceAppVersions[key] = it }
+            }
+        }
+        val deviceAppVersionCodes = linkedMapOf<String, Int>()
+        o.optJSONObject("deviceAppVersionCodes")?.let { mo ->
+            val keys = mo.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val code = mo.optInt(key, 0)
+                if (code > 0) deviceAppVersionCodes[key] = code
+            }
+        }
         return UserSummary(
             name = o.optString("name"),
             hostId = o.optInt("hostId", 0),
@@ -307,6 +332,10 @@ object ProvisionAdminApi {
             upBytes = o.optLong("upBytes", 0L),
             trafficLimitBytes = o.optLong("trafficLimitBytes", 0L),
             deviceModels = deviceModels,
+            appVersion = o.optString("appVersion").trim(),
+            appVersionCode = o.optInt("appVersionCode", 0),
+            deviceAppVersions = deviceAppVersions,
+            deviceAppVersionCodes = deviceAppVersionCodes,
         )
     }
 
@@ -334,18 +363,14 @@ internal fun httpErrorMessage(code: Int, body: String): String {
     }
 }
 
-/** Labels for bound devices: phone model when known, never a raw `dev-…` id. */
+/** Labels for bound devices: phone model when known, otherwise the device id. */
 fun deviceDisplayLabels(
     deviceIds: List<String>,
     deviceModels: Map<String, String>,
 ): List<String> {
     val ids = deviceIds.map { it.trim() }.filter { it.isNotEmpty() }
-    return ids.mapIndexed { index, id ->
+    return ids.map { id ->
         val model = deviceModels[id]?.trim().orEmpty()
-        when {
-            model.isNotEmpty() -> model
-            ids.size <= 1 -> "Телефон"
-            else -> "Телефон ${index + 1}"
-        }
+        if (model.isNotEmpty()) model else id
     }
 }

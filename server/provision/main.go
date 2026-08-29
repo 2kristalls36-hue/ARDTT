@@ -55,9 +55,11 @@ type User struct {
 	ExpiresAt         int64             `json:"expiresAt"` // unix seconds; 0 = no expiry
 	Deactivated       bool              `json:"deactivated"`
 	TrafficLimitBytes int64             `json:"trafficLimitBytes,omitempty"` // 0 = unlimited
-	LastSeenAt        int64             `json:"lastSeenAt,omitempty"`
-	LastExternalIP    string            `json:"lastExternalIp,omitempty"`
-	DeviceModels      map[string]string `json:"deviceModels,omitempty"`
+	LastSeenAt            int64             `json:"lastSeenAt,omitempty"`
+	LastExternalIP        string            `json:"lastExternalIp,omitempty"`
+	DeviceModels          map[string]string `json:"deviceModels,omitempty"`
+	DeviceAppVersions     map[string]string `json:"deviceAppVersions,omitempty"`
+	DeviceAppVersionCodes map[string]int    `json:"deviceAppVersionCodes,omitempty"`
 	CreatedAt         time.Time         `json:"createdAt"`
 	DirectPrivateKey  string            `json:"directPrivateKey,omitempty"`
 	DirectPublicKey   string            `json:"directPublicKey,omitempty"`
@@ -119,8 +121,12 @@ type UserPublic struct {
 	OfflineForSec     int64             `json:"offlineForSec"`
 	DownBytes         int64             `json:"downBytes"`
 	UpBytes           int64             `json:"upBytes"`
-	TrafficLimitBytes int64             `json:"trafficLimitBytes"`
-	DeviceModels      map[string]string `json:"deviceModels,omitempty"`
+	TrafficLimitBytes     int64             `json:"trafficLimitBytes"`
+	DeviceModels          map[string]string `json:"deviceModels,omitempty"`
+	AppVersion            string            `json:"appVersion,omitempty"`
+	AppVersionCode        int               `json:"appVersionCode,omitempty"`
+	DeviceAppVersions     map[string]string `json:"deviceAppVersions,omitempty"`
+	DeviceAppVersionCodes map[string]int    `json:"deviceAppVersionCodes,omitempty"`
 }
 
 func main() {
@@ -286,10 +292,12 @@ func runServer(store *Store, listen string) error {
 			return
 		}
 		var body struct {
-			DeviceID    string `json:"deviceId"`
-			Name        string `json:"name"`
-			ExternalIP  string `json:"externalIp"`
-			DeviceModel string `json:"deviceModel"`
+			DeviceID       string `json:"deviceId"`
+			Name           string `json:"name"`
+			ExternalIP     string `json:"externalIp"`
+			DeviceModel    string `json:"deviceModel"`
+			AppVersion     string `json:"appVersion"`
+			AppVersionCode int    `json:"appVersionCode"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
@@ -303,7 +311,7 @@ func runServer(store *Store, listen string) error {
 		if ext == "" {
 			ext = clientIP(r)
 		}
-		u, err := store.TouchPresence(body.DeviceID, body.Name, ext, body.DeviceModel)
+		u, err := store.TouchPresence(body.DeviceID, body.Name, ext, body.DeviceModel, body.AppVersion, body.AppVersionCode)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
@@ -323,7 +331,7 @@ func runServer(store *Store, listen string) error {
 			return
 		}
 		// Best-effort presence when profile is fetched (connect / import).
-		_, _ = store.TouchPresence(u.DeviceID, u.Name, clientIP(r), "")
+		_, _ = store.TouchPresence(u.DeviceID, u.Name, clientIP(r), "", "", 0)
 		u2, _ := store.FindUser(name)
 		if u2.Name != "" {
 			u = u2
@@ -353,7 +361,7 @@ func runServer(store *Store, listen string) error {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
 		}
-		_, _ = store.TouchPresence(body.DeviceID, body.Name, clientIP(r), "")
+		_, _ = store.TouchPresence(body.DeviceID, body.Name, clientIP(r), "", "", 0)
 		store.mu.Lock()
 		directBase := subnetBase(store.Config.DirectSubnet)
 		bypassBase := subnetBase(store.Config.BypassSubnet)
@@ -659,6 +667,7 @@ func toPublicLocked(u User, now int64) UserPublic {
 		}
 	}
 	ids := append([]string{}, u.DeviceIDs...)
+	appVer, appCode := primaryAppVersion(u)
 	return UserPublic{
 		Name:              u.Name,
 		HostID:            u.HostID,
@@ -673,8 +682,12 @@ func toPublicLocked(u User, now int64) UserPublic {
 		LastExternalIP:    u.LastExternalIP,
 		Online:            online,
 		OfflineForSec:     offlineFor,
-		TrafficLimitBytes: u.TrafficLimitBytes,
-		DeviceModels:      copyDeviceModels(u.DeviceModels),
+		TrafficLimitBytes:     u.TrafficLimitBytes,
+		DeviceModels:          copyDeviceModels(u.DeviceModels),
+		AppVersion:            appVer,
+		AppVersionCode:        appCode,
+		DeviceAppVersions:     copyDeviceModels(u.DeviceAppVersions),
+		DeviceAppVersionCodes: copyDeviceIntMap(u.DeviceAppVersionCodes),
 	}
 }
 
@@ -775,6 +788,8 @@ func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool
 			u.DeviceIDs = nil
 			u.DeviceID = ""
 			u.DeviceModels = nil
+			u.DeviceAppVersions = nil
+			u.DeviceAppVersionCodes = nil
 		}
 		if trafficLimitBytes != nil {
 			if *trafficLimitBytes < 0 {
@@ -834,6 +849,12 @@ func (s *Store) UnbindDevice(name, deviceID string) (User, error) {
 		if u.DeviceModels != nil {
 			delete(u.DeviceModels, deviceID)
 		}
+		if u.DeviceAppVersions != nil {
+			delete(u.DeviceAppVersions, deviceID)
+		}
+		if u.DeviceAppVersionCodes != nil {
+			delete(u.DeviceAppVersionCodes, deviceID)
+		}
 		if u.DeviceID == deviceID {
 			if len(next) > 0 {
 				u.DeviceID = next[0]
@@ -849,7 +870,7 @@ func (s *Store) UnbindDevice(name, deviceID string) (User, error) {
 	return User{}, fmt.Errorf("not found")
 }
 
-func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel string) (User, error) {
+func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel, appVersion string, appVersionCode int) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.Users {
@@ -886,6 +907,18 @@ func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel string) (U
 						u.DeviceModels = map[string]string{}
 					}
 					u.DeviceModels[deviceID] = model
+				}
+				if ver := sanitizeDeviceModel(appVersion); ver != "" {
+					if u.DeviceAppVersions == nil {
+						u.DeviceAppVersions = map[string]string{}
+					}
+					u.DeviceAppVersions[deviceID] = ver
+				}
+				if appVersionCode > 0 {
+					if u.DeviceAppVersionCodes == nil {
+						u.DeviceAppVersionCodes = map[string]int{}
+					}
+					u.DeviceAppVersionCodes[deviceID] = appVersionCode
 				}
 			}
 		}
@@ -1166,6 +1199,12 @@ func normalizeUserDevices(u *User) bool {
 	if pruneDeviceModels(u) {
 		changed = true
 	}
+	if pruneDeviceAppVersions(u) {
+		changed = true
+	}
+	if pruneDeviceAppVersionCodes(u) {
+		changed = true
+	}
 	return changed
 }
 
@@ -1216,6 +1255,114 @@ func copyDeviceModels(in map[string]string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+func copyDeviceIntMap(in map[string]int) map[string]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(in))
+	for k, v := range in {
+		if strings.TrimSpace(k) != "" && v > 0 {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func primaryAppVersion(u User) (string, int) {
+	ids := append([]string{}, u.DeviceIDs...)
+	if u.DeviceID != "" {
+		ids = append([]string{u.DeviceID}, ids...)
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		name := ""
+		if u.DeviceAppVersions != nil {
+			name = strings.TrimSpace(u.DeviceAppVersions[id])
+		}
+		code := 0
+		if u.DeviceAppVersionCodes != nil {
+			code = u.DeviceAppVersionCodes[id]
+		}
+		if name != "" || code > 0 {
+			return name, code
+		}
+	}
+	return "", 0
+}
+
+func pruneDeviceAppVersions(u *User) bool {
+	if len(u.DeviceAppVersions) == 0 {
+		if u.DeviceAppVersions != nil {
+			u.DeviceAppVersions = nil
+			return true
+		}
+		return false
+	}
+	allowed := map[string]bool{}
+	for _, id := range u.DeviceIDs {
+		allowed[id] = true
+	}
+	next := make(map[string]string, len(u.DeviceIDs))
+	changed := false
+	for id, ver := range u.DeviceAppVersions {
+		ver = strings.TrimSpace(ver)
+		if !allowed[id] || ver == "" {
+			changed = true
+			continue
+		}
+		next[id] = ver
+	}
+	if !changed && len(next) == len(u.DeviceAppVersions) {
+		return false
+	}
+	if len(next) == 0 {
+		u.DeviceAppVersions = nil
+	} else {
+		u.DeviceAppVersions = next
+	}
+	return true
+}
+
+func pruneDeviceAppVersionCodes(u *User) bool {
+	if len(u.DeviceAppVersionCodes) == 0 {
+		if u.DeviceAppVersionCodes != nil {
+			u.DeviceAppVersionCodes = nil
+			return true
+		}
+		return false
+	}
+	allowed := map[string]bool{}
+	for _, id := range u.DeviceIDs {
+		allowed[id] = true
+	}
+	next := make(map[string]int, len(u.DeviceIDs))
+	changed := false
+	for id, code := range u.DeviceAppVersionCodes {
+		if !allowed[id] || code <= 0 {
+			changed = true
+			continue
+		}
+		next[id] = code
+	}
+	if !changed && len(next) == len(u.DeviceAppVersionCodes) {
+		return false
+	}
+	if len(next) == 0 {
+		u.DeviceAppVersionCodes = nil
+	} else {
+		u.DeviceAppVersionCodes = next
+	}
+	return true
 }
 
 func sanitizeDeviceModel(raw string) string {

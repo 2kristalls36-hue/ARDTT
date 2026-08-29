@@ -6,8 +6,6 @@ import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Build
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,6 +37,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
@@ -73,7 +72,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -662,25 +660,22 @@ private fun BypassAddButton(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val surfaceAlpha by animateFloatAsState(
-        targetValue = if (keyboardVisible) 1f else 0.88f,
-        label = "bypass_add_alpha",
-    )
-    val elevation by animateDpAsState(
-        targetValue = if (keyboardVisible) 6.dp else 3.dp,
-        label = "bypass_add_elev",
-    )
+    val elevation = NvpnFloatingShell.shadowElevation
+    val fill = if (keyboardVisible) {
+        colors.primary
+    } else {
+        NvpnFloatingShell.tintedShell(colors.primary, mix = 0.62f)
+    }
     Surface(
         onClick = onClick,
         enabled = enabled && !busy,
-        modifier = modifier
-            .height(NvpnBottomChrome.ButtonHeight)
-            .graphicsLayer { alpha = surfaceAlpha },
+        modifier = modifier.height(NvpnBottomChrome.ButtonHeight),
         shape = RoundedCornerShape(20.dp),
-        color = colors.primary,
+        color = fill,
         contentColor = colors.onPrimary,
         shadowElevation = elevation,
         tonalElevation = 0.dp,
+        border = if (keyboardVisible) null else NvpnFloatingShell.shellBorder(),
     ) {
         Box(
             modifier = Modifier.padding(horizontal = 18.dp),
@@ -717,21 +712,19 @@ private fun BypassSearchBar(
     val colors = MaterialTheme.colorScheme
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val surfaceAlpha by animateFloatAsState(
-        targetValue = if (keyboardVisible) 1f else 0.88f,
-        label = "bypass_search_alpha",
-    )
-    val elevation by animateDpAsState(
-        targetValue = if (keyboardVisible) 6.dp else 3.dp,
-        label = "bypass_search_elev",
-    )
+    val elevation = NvpnFloatingShell.shadowElevation
+    val fill = if (keyboardVisible) {
+        colors.surface
+    } else {
+        NvpnFloatingShell.shellColor()
+    }
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(NvpnBottomChrome.ButtonHeight)
-            .graphicsLayer { alpha = surfaceAlpha },
+            .height(NvpnBottomChrome.ButtonHeight),
         shape = RoundedCornerShape(20.dp),
-        color = colors.surface,
+        color = fill,
+        border = NvpnFloatingShell.shellBorder(),
         shadowElevation = elevation,
         tonalElevation = 0.dp,
     ) {
