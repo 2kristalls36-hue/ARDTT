@@ -13,7 +13,7 @@ enum class AppDestination(
     val inBottomNav: Boolean = true,
 ) {
     Tunnel("tunnel", "Туннель", navLabel = "VPN", adminOnly = false),
-    Servers("servers", "Серверы", navLabel = "VPS", adminOnly = true),
+    Servers("servers", "Серверы", navLabel = "Сервера", adminOnly = true),
     Profiles("profiles", "Профили", adminOnly = false),
     Exceptions("exceptions", "Обход", adminOnly = false),
     Logs("logs", "Логи", adminOnly = false),

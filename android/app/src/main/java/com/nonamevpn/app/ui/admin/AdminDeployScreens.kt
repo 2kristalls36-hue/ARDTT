@@ -361,8 +361,7 @@ private fun ServerListScreen(
         ) {
             EdgeFeedTopInset()
             AppTabPageHeader(
-                tabTitle = "Серверы",
-                subtitle = "Управление вашими VPS",
+                title = "Управление серверами",
                 actions = {
                     IconButton(
                         onClick = { probeAll() },
@@ -376,24 +375,6 @@ private fun ServerListScreen(
                     }
                 },
             )
-
-            if (servers.isNotEmpty()) {
-                OutlinedButton(
-                    onClick = { probeAll() },
-                    enabled = !probing,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (probing) "Проверка…" else "Обновить статус всех",
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
 
             if (servers.isEmpty()) {
                 Box(
@@ -416,7 +397,7 @@ private fun ServerListScreen(
                         )
                         Spacer(modifier = Modifier.height(26.dp))
                         Text(
-                            "Добавьте первый VPS, чтобы установить сервер и управлять пользователями",
+                            "Добавьте первый сервер, чтобы установить стек и управлять пользователями",
                             style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
