@@ -248,7 +248,7 @@ class AppSettingsRepository(private val context: Context) {
     }
 
     suspend fun setAdminPin(pin: String) {
-        // No-op: PIN flow removed in favour of long-press unlock.
+        // No-op: PIN flow removed in favour of slider unlock.
         unlockAdmin()
     }
 
