@@ -171,7 +171,12 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                         onDone = {
                             if (!busy && otp.length == AlphaGate.OTP_LEN) {
                                 scope.launch {
-                                    submitUnlock(settings, otp) { busy = it } { error = it }
+                                    submitUnlock(
+                                        settings = settings,
+                                        otp = otp,
+                                        setBusy = { busy = it },
+                                        setError = { error = it },
+                                    )
                                 }
                             }
                         },
@@ -188,7 +193,12 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                 Button(
                     onClick = {
                         scope.launch {
-                            submitUnlock(settings, otp) { busy = it } { error = it }
+                            submitUnlock(
+                                settings = settings,
+                                otp = otp,
+                                setBusy = { busy = it },
+                                setError = { error = it },
+                            )
                         }
                     },
                     enabled = !busy && otp.length == AlphaGate.OTP_LEN,
