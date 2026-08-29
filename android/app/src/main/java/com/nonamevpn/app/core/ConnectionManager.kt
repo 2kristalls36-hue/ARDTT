@@ -100,15 +100,18 @@ class ConnectionManager(
     }
 
     private var hideIpSyncJob: Job? = null
+    private var transportRestartJob: Job? = null
     private var lastHideIpSent: Boolean? = null
 
     /** Hide-IP must reach provision after tunnel is up (Bypass / whitelist underlay). */
     @Volatile private var pendingHideIpSync: Boolean = false
 
-    private fun hideIpViaVpn(): Boolean {
-        val s = _ui.value.state
-        if (shouldProvisionViaVpn()) return true
-        return s == ConnState.Connected || s == ConnState.Connecting
+    private fun hideIpViaVpn(): Boolean =
+        decideHideIpDispatch(_ui.value.state, shouldProvisionViaVpn()) == HideIpDispatch.ViaVpn
+
+    fun bypassWarming(): Boolean {
+        val path = _ui.value.activePath ?: TunnelSessionHolder.config?.path
+        return isBypassWarming(_ui.value.state, path)
     }
 
     /** On whitelist / Bypass path, provision :9100 is only reachable through the tunnel. */
@@ -166,12 +169,13 @@ class ConnectionManager(
                 scheduleEgressIpRefresh("hide-ip-already-synced")
                 return@launch
             }
-            val viaVpn = hideIpViaVpn()
-            if (!viaVpn && enabled && shouldProvisionViaVpn()) {
+            val dispatch = decideHideIpDispatch(_ui.value.state, shouldProvisionViaVpn())
+            if (dispatch == HideIpDispatch.QueueUntilTunnel) {
                 pendingHideIpSync = true
                 AppLog.v(TAG, "Hide-IP queued until tunnel (provision unreachable on underlay)")
                 return@launch
             }
+            val viaVpn = dispatch == HideIpDispatch.ViaVpn
             val r = syncHideIpToProvision(enabled, viaVpn = viaVpn)
             if (r.isSuccess) {
                 lastHideIpSent = enabled
@@ -228,11 +232,23 @@ class ConnectionManager(
         ) {
             return
         }
-        val intent = Intent(appContext, VpnTunnelService::class.java)
-            .setAction(VpnTunnelService.ACTION_RESTART_TRANSPORT)
-            .putExtra(VpnTunnelService.EXTRA_RESTART_REASON, reason)
-        runCatching { appContext.startService(intent) }
-            .onFailure { AppLog.e(TAG, "restart transport failed: ${it.message}") }
+        transportRestartJob?.cancel()
+        transportRestartJob = scope.launch {
+            delay(TRANSPORT_RESTART_DEBOUNCE_MS)
+            val live = _ui.value.state
+            if (
+                live != ConnState.Connected &&
+                live != ConnState.PausedTrustedWifi &&
+                live != ConnState.Connecting
+            ) {
+                return@launch
+            }
+            val intent = Intent(appContext, VpnTunnelService::class.java)
+                .setAction(VpnTunnelService.ACTION_RESTART_TRANSPORT)
+                .putExtra(VpnTunnelService.EXTRA_RESTART_REASON, reason)
+            runCatching { appContext.startService(intent) }
+                .onFailure { AppLog.e(TAG, "restart transport failed: ${it.message}") }
+        }
     }
 
     fun refreshVpnNotification() {
@@ -544,6 +560,8 @@ class ConnectionManager(
         presenceJob = null
         connectJob?.cancel()
         connectJob = null
+        transportRestartJob?.cancel()
+        transportRestartJob = null
         scope.launch {
             _ui.value = _ui.value.copy(
                 state = ConnState.Disconnecting,
@@ -1204,6 +1222,7 @@ class ConnectionManager(
         private const val DEFAULT_WORKERS = 3
         private const val BYPASS_WORKERS_WAIT_MS = 25_000L
         private const val BYPASS_WORKERS_POLL_MS = 250L
+        private const val TRANSPORT_RESTART_DEBOUNCE_MS = 400L
 
         @Volatile
         private var instance: ConnectionManager? = null
