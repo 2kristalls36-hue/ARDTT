@@ -9,6 +9,7 @@ import com.nonamevpn.app.bypass.CallHashStore
 import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.unlock.DeviceUnlockCopy
 import com.nonamevpn.app.tunnel.TunnelSessionConfig
 import com.nonamevpn.app.tunnel.TunnelSessionHolder
 import kotlinx.coroutines.CancellationException
@@ -81,10 +82,10 @@ class ConnectionManager(
     }
 
     private fun rejectLockedConnect() {
-        AppLog.w(TAG, "Connect ignored — alpha lock")
+        AppLog.w(TAG, "Connect ignored — device not confirmed")
         Toast.makeText(
             appContext,
-            "Сначала разблокируйте приложение",
+            DeviceUnlockCopy.CONNECT_BLOCKED,
             Toast.LENGTH_LONG,
         ).show()
     }
