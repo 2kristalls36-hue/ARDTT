@@ -158,6 +158,12 @@ class ConnectionManager(
     )
 
     fun setHideIp(enabled: Boolean) {
+        // TunnelScreen re-enters composition on every tab switch. Do not
+        // invalidate egress IP / notification when nothing changed.
+        if (_ui.value.hideIp == enabled && lastHideIpSent == enabled) {
+            AppLog.v(TAG, "Hide-IP unchanged hideIp=$enabled — skip")
+            return
+        }
         val cur = _ui.value
         val status = if (cur.state == ConnState.Connected) {
             when (cur.activePath) {
@@ -335,7 +341,7 @@ class ConnectionManager(
                 _ui.value.state == ConnState.PausedTrustedWifi ||
                 _ui.value.state == ConnState.Disconnecting
         if (busy) {
-            AppLog.w(TAG, "Probe skipped — tunnel busy (${_ui.value.state})")
+            AppLog.v(TAG, "Probe skipped — tunnel busy (${_ui.value.state})")
             return
         }
         probeJob?.cancel()
