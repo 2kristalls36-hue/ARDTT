@@ -33,7 +33,7 @@ class AppSettingsRepository(private val context: Context) {
     private val trustedWifiEnabled = booleanPreferencesKey("trusted_wifi_enabled")
     private val trustedWifiSsids = stringPreferencesKey("trusted_wifi_ssids")
     private val vpnNotificationVisible = booleanPreferencesKey("vpn_notification_visible")
-    private val qsTileHidden = booleanPreferencesKey("qs_tile_hidden")
+    private val hideTunnelQuickSettings = booleanPreferencesKey("hide_tunnel_quick_settings")
     private val unlockConnControls = booleanPreferencesKey("unlock_conn_controls")
     private val excludedApps = stringPreferencesKey("excluded_apps")
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
@@ -71,9 +71,9 @@ class AppSettingsRepository(private val context: Context) {
     /** Default true — show VPN status in notification shade. */
     val vpnNotificationVisibleFlow: Flow<Boolean> =
         context.dataStore.data.map { it[vpnNotificationVisible] != false }
-    /** Hide the Quick Settings tile by disabling the TileService component. */
-    val qsTileHiddenFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[qsTileHidden] == true }
+    /** Default true — hide «Параметры подключения» on the Tunnel tab. */
+    val hideTunnelQuickSettingsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[hideTunnelQuickSettings] != false }
     /** Allow path / Hide-IP changes while the tunnel is up. */
     val unlockConnControlsFlow: Flow<Boolean> =
         context.dataStore.data.map { it[unlockConnControls] == true }
@@ -157,8 +157,8 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[vpnNotificationVisible] = visible }
     }
 
-    suspend fun setQsTileHidden(hidden: Boolean) {
-        context.dataStore.edit { it[qsTileHidden] = hidden }
+    suspend fun setHideTunnelQuickSettings(hidden: Boolean) {
+        context.dataStore.edit { it[hideTunnelQuickSettings] = hidden }
     }
 
     suspend fun setUnlockConnControls(enabled: Boolean) {
