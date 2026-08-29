@@ -359,7 +359,6 @@ private fun ServerListScreen(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
         ) {
-            EdgeFeedTopInset()
             AppTabPageHeader(
                 title = "Управление серверами",
                 actions = {

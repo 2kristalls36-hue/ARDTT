@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+/** Shared metrics so every bottom-tab title sits on the same Y. */
+private val TabTitleRowHeight = 44.dp
+private val TabHeaderTopAfterStatusBar = 8.dp
+
 /**
  * Shared page chrome for tabs and nested admin screens.
  *
@@ -28,9 +33,8 @@ import androidx.compose.ui.unit.dp
  * Subtitle: bodyMedium onSurfaceVariant.
  * Actions sit on the row below the title so long titles are not clipped.
  *
- * When the parent Column already applies [statusBarsPadding] + horizontal 16.dp
- * (Tunnel / Profiles / …), leave [applyStatusBarsPadding] false.
- * Nested admin screens that own their own top inset should set it true.
+ * Bottom tabs must use [AppTabPageHeader]: it owns the status-bar inset so
+ * titles do not jump when a screen also uses [Arrangement.spacedBy].
  */
 @Composable
 fun AppPageHeader(
@@ -39,6 +43,7 @@ fun AppPageHeader(
     onBack: (() -> Unit)? = null,
     applyStatusBarsPadding: Boolean = false,
     contentHorizontalPadding: Boolean = false,
+    pinBelowStatusBar: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val startPad = when {
@@ -50,15 +55,24 @@ fun AppPageHeader(
         contentHorizontalPadding || onBack != null -> 8.dp
         else -> 0.dp
     }
+    val topPad = if (pinBelowStatusBar) TabHeaderTopAfterStatusBar else 8.dp
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (applyStatusBarsPadding) Modifier.statusBarsPadding() else Modifier)
-            .padding(start = startPad, end = endPad, top = 8.dp, bottom = 12.dp),
+            .then(
+                if (pinBelowStatusBar || applyStatusBarsPadding) {
+                    Modifier.statusBarsPadding()
+                } else {
+                    Modifier
+                },
+            )
+            .padding(start = startPad, end = endPad, top = topPad, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (pinBelowStatusBar) Modifier.height(TabTitleRowHeight) else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
@@ -109,7 +123,7 @@ fun AppPageHeader(
     }
 }
 
-/** Main bottom-tab chrome: the tab’s own title, not the app name. */
+/** Main bottom-tab chrome: status inset + title on a fixed row. */
 @Composable
 fun AppTabPageHeader(
     title: String,
@@ -120,5 +134,6 @@ fun AppTabPageHeader(
         title = title,
         subtitle = subtitle,
         actions = actions,
+        pinBelowStatusBar = true,
     )
 }
