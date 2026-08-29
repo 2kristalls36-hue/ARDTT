@@ -93,7 +93,7 @@ fun SettingsScreen(
         AppLog.i("NotifPrep", "settings POST_NOTIFICATIONS granted=$granted")
         conn.refreshVpnNotification()
         if (!granted) {
-            adminHint = "Без разрешения система не сможет отображать уведомление о состоянии VPN."
+            adminHint = "Без разрешения система не сможет отображать уведомление о состоянии подключения."
         }
     }
 
@@ -200,7 +200,7 @@ fun SettingsScreen(
                 },
             )
             RowSetting(
-                title = "Уведомление VPN",
+                title = "Уведомление",
                 subtitle = if (notifVisible) {
                     "Состояние, скорость и остановка в уведомлениях."
                 } else {
@@ -460,7 +460,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         hint = if (granted) {
             "Фоновый доступ к локации разрешён"
         } else {
-            "Без фоновой локации VPN не увидит SSID в фоне — для добавления в настройках хватает обычной локации"
+            "Без фоновой локации туннель не увидит SSID в фоне — для добавления в настройках хватает обычной локации"
         }
     }
     val fineLauncher = rememberLauncherForActivityResult(
@@ -509,7 +509,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     ) {
         Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            "В этих сетях VPN приостанавливается. При выходе подключение восстанавливается. Добавляется только текущая сеть.",
+            "В этих сетях туннель приостанавливается. При выходе подключение восстанавливается. Добавляется только текущая сеть.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

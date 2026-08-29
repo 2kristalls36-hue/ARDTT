@@ -106,7 +106,7 @@
             </intent-filter>
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="VPN tunnel" />
+                android:value="network tunnel" />
         </service>
     </application>
 </manifest>

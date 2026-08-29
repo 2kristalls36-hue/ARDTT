@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ARDTT</string>
-    <string name="notif_channel_tunnel">Уведомление VPN</string>
-    <string name="notif_channel_tunnel_min">VPN (скрытое)</string>
+    <string name="notif_channel_tunnel">Уведомление</string>
+    <string name="notif_channel_tunnel_min">Служебное (скрытое)</string>
     <string name="notif_direct">ARDTT · прямое</string>
     <string name="notif_bypass">ARDTT · обход</string>
     <string name="notif_running">Подключено</string>

@@ -243,7 +243,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     if (created == null) {
                         AppLog.e(TAG, "TUN establish failed")
                         softRestartInProgress = false
-                        ConnectionManager.getOrNull()?.onTunnelFailed("Не удалось создать TUN (отклонён VPN?)")
+                        ConnectionManager.getOrNull()?.onTunnelFailed("Не удалось создать TUN (отклонено системное разрешение?)")
                         if (!softRestart && !trustedWifiWaiting) stopSelf()
                     } else {
                         AppLog.v(TAG, "TUN ok ip=$address mtu=$mtu soft=$softRestart")
@@ -696,8 +696,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         TransportHealth.noteBackendStopped()
         ConnectionManager.getOrNull()?.onTrustedWifiWaiting(ssid)
         val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
-        updateNotification(path, "VPN выключен в «$ssid» · ожидание выхода")
-        startForegroundNotification(path, "VPN выключен в «$ssid» · ожидание выхода")
+        updateNotification(path, "Туннель выключен в «$ssid» · ожидание выхода")
+        startForegroundNotification(path, "Туннель выключен в «$ssid» · ожидание выхода")
     }
 
     private fun resumeFromTrustedWifi(reason: String) {
@@ -826,7 +826,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     )
                 ) {
                     scheduleUnderlyingNetworkReconnect(
-                        reason = "Android переключает VPN на другую доступную сеть",
+                        reason = "Android переключает туннель на другую доступную сеть",
                         evidenceSinceMs = networkLostAt,
                     )
                 }
@@ -1269,9 +1269,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     enableVibration(false)
                     enableLights(false)
                     description = if (showInShade) {
-                        "Уведомление VPN: состояние соединения и команда остановки"
+                        "Уведомление о состоянии подключения и команда остановки"
                     } else {
-                        "Служебная запись службы VPN. Система не позволяет скрыть её полностью."
+                        "Служебная запись службы подключения. Система не позволяет скрыть её полностью."
                     }
                     lockscreenVisibility = if (showInShade) {
                         Notification.VISIBILITY_PUBLIC
@@ -1293,7 +1293,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         if (!showInShade) {
             val builder = NotificationCompat.Builder(this, channelId)
                 .setContentTitle("ARDTT")
-                .setContentText("VPN")
+                .setContentText("Туннель")
                 .setSmallIcon(R.drawable.ic_stat_connected)
                 .setContentIntent(open)
                 .setOngoing(true)

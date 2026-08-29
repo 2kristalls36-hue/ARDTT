@@ -334,9 +334,9 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 )
                                 Text(
                                     if (isWhitelist) {
-                                        "БС: только выбранные через VPN"
+                                        "БС: только выбранные через туннель"
                                     } else {
-                                        "ЧС: выбранные мимо VPN"
+                                        "ЧС: выбранные мимо туннеля"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = colors.onSurfaceVariant,

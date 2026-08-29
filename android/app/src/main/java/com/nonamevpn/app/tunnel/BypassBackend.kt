@@ -65,7 +65,7 @@ class BypassBackend(
                 ),
                 establishTun = { ip, dnsCsv, mtu ->
                     (service as? TunEstablisher)?.establishTun(ip, dnsCsv, mtu)
-                        ?: error("VpnService не умеет establishTun")
+                        ?: error("Не удалось открыть TUN")
                 },
             ) { phase ->
                 Log.i(TAG, "phase=$phase")
