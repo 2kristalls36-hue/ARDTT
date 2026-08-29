@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.nonamevpn.app.core.HostExclusion
 import com.nonamevpn.app.core.sanitizeTrustedWifiSsid
 import com.nonamevpn.app.unlock.AlphaGate
 import com.nonamevpn.app.unlock.AlphaUnlockResult
@@ -376,12 +377,6 @@ class AppSettingsRepository(private val context: Context) {
                 .filter { it.isNotBlank() }
                 .toSet()
 
-        fun normalizeHost(value: String): String {
-            var h = value.trim().lowercase()
-            if (h.startsWith("http://")) h = h.removePrefix("http://")
-            if (h.startsWith("https://")) h = h.removePrefix("https://")
-            h = h.substringBefore('/').substringBefore(':').trim()
-            return h
-        }
+        fun normalizeHost(value: String): String = HostExclusion.normalize(value)
     }
 }

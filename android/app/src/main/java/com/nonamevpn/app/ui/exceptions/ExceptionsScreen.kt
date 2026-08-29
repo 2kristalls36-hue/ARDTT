@@ -1,7 +1,10 @@
 package com.nonamevpn.app.ui.exceptions
 
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
+import android.net.Uri
 import android.os.Build
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -83,6 +86,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.ExceptionAppVisibility
 import com.nonamevpn.app.core.appIconDecodeSize
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.settings.AppSettingsRepository
@@ -101,11 +105,31 @@ data class ExceptionAppItem(
     val name: String,
     val packageName: String,
     val icon: ImageBitmap?,
-    val isSystem: Boolean,
+    val hideByDefault: Boolean,
 )
 
 object ExceptionAppCache {
     @Volatile var cachedList: List<ExceptionAppItem>? = null
+}
+
+private fun httpsHandlerPackages(pm: PackageManager): Set<String> {
+    val https = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+        .addCategory(Intent.CATEGORY_BROWSABLE)
+    val browser = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER)
+    fun query(intent: Intent): List<ResolveInfo> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.queryIntentActivities(
+                intent,
+                PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong()),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+        }
+    }
+    return (query(https) + query(browser))
+        .mapNotNull { it.activityInfo?.packageName }
+        .toSet()
 }
 
 /**
@@ -195,12 +219,20 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 @Suppress("DEPRECATION")
                 pm.getInstalledApplications(PackageManager.GET_META_DATA)
             }
+            val httpsHandlers = httpsHandlerPackages(pm)
             val list = installed.mapNotNull { app ->
                 if (app.packageName == context.packageName) return@mapNotNull null
                 if (app.packageName.contains("vkontakte") || app.packageName.contains("vk.calls")) {
                     return@mapNotNull null
                 }
-                val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                val systemPkg = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                    (app.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                val hasLauncher = pm.getLaunchIntentForPackage(app.packageName) != null
+                val userFacing = ExceptionAppVisibility.isUserFacing(
+                    packageName = app.packageName,
+                    hasLauncher = hasLauncher,
+                    httpsHandlerPackages = httpsHandlers,
+                )
                 val drawable = app.loadIcon(pm)
                 val iconBitmap = if (drawable != null) {
                     val (w, h) = appIconDecodeSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
@@ -212,7 +244,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     name = app.loadLabel(pm).toString(),
                     packageName = app.packageName,
                     icon = iconBitmap,
-                    isSystem = isSystem,
+                    hideByDefault = ExceptionAppVisibility.hideByDefault(systemPkg, userFacing),
                 )
             }
             list.sortedWith(
@@ -225,7 +257,11 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 
     // Выбранные вверх, внутри групп — алфавит (как qWDTT).
     val filteredApps = remember(appsList, showSystemApps, searchQuery, selectedPackages) {
-        val base = if (showSystemApps) appsList else appsList.filter { !it.isSystem }
+        val base = if (showSystemApps) {
+            appsList
+        } else {
+            appsList.filter { !it.hideByDefault || it.packageName in selectedPackages }
+        }
         val matching = if (searchQuery.isBlank()) {
             base
         } else {
