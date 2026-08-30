@@ -72,4 +72,41 @@ class ConnectPathTest {
             ),
         )
     }
+
+    @Test
+    fun autoCellularPrefersBypassEvenWhenProbeSaysDirect() {
+        assertEquals(
+            VpnPath.Bypass,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Direct,
+                lastGood = directOk,
+                fresh = directOk,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+            ),
+        )
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Direct,
+                lastGood = directOk,
+                fresh = directOk,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = false,
+            ),
+        )
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Direct,
+                lastGood = directOk,
+                fresh = directOk,
+                underlayKind = UnderlayKind.Wifi,
+                bypassAllowed = true,
+            ),
+        )
+    }
 }
