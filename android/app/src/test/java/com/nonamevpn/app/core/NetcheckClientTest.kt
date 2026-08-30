@@ -1,16 +1,24 @@
 package com.nonamevpn.app.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NetcheckClientTest {
     @Test
-    fun pendingRowsWhileReportMissing() {
-        val rows = NetcheckClient.uiRows(null)
-        assertEquals(5, rows.size)
+    fun pendingRowsWhileConnectedAndReportMissing() {
+        val rows = NetcheckClient.uiRows(null, probeActive = true)
+        assertEquals(NetcheckClient.slots.size, rows.size)
         assertTrue(rows.all { it.pending })
         assertEquals("Netflix", rows[1].label)
+        assertEquals("Reddit", rows.last().label)
+    }
+
+    @Test
+    fun dashWithoutSpinnersWhenTunnelOff() {
+        val rows = NetcheckClient.uiRows(null, probeActive = false)
+        assertTrue(rows.all { !it.pending && it.value == "—" })
     }
 
     @Test
@@ -28,14 +36,13 @@ class NetcheckClientTest {
             }
             """.trimIndent(),
         )
-        val rows = NetcheckClient.uiRows(report)
+        val rows = NetcheckClient.uiRows(report, probeActive = true)
         assertEquals(false, rows[0].pending)
         assertEquals("хостинг · Cloudflare", rows[0].value)
         assertEquals(NetcheckTone.Warn, rows[0].tone)
         assertEquals("доступен", rows[1].value)
         assertEquals(NetcheckTone.Ok, rows[1].tone)
         assertTrue(rows[2].pending)
-        assertTrue(rows[3].pending)
-        assertTrue(rows[4].pending)
+        assertFalse(NetcheckClient.uiRows(report, probeActive = false).any { it.pending })
     }
 }

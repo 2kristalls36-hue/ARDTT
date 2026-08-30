@@ -83,3 +83,29 @@ func TestParseCurlOutput(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 }
+
+func TestClassifyGoogle(t *testing.T) {
+	st, _ := classifyGoogle(204, "", "https://www.google.com/generate_204")
+	if st != "ok" {
+		t.Fatalf("ok: %s", st)
+	}
+	st, _ = classifyGoogle(200, "unusual traffic from your computer", "https://www.google.com/sorry/")
+	if st != "restricted" {
+		t.Fatalf("sorry: %s", st)
+	}
+}
+
+func TestClassifyHttpService(t *testing.T) {
+	st, d := classifyHttpService(200, "<html>ok</html>")
+	if st != "ok" || d != "доступен" {
+		t.Fatalf("ok: %s %s", st, d)
+	}
+	st, _ = classifyHttpService(200, "Access Denied by firewall", "access denied")
+	if st != "restricted" {
+		t.Fatalf("hint: %s", st)
+	}
+	st, _ = classifyHttpService(0, "")
+	if st != "error" {
+		t.Fatalf("error: %s", st)
+	}
+}

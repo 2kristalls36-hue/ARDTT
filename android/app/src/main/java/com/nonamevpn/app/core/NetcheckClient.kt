@@ -41,27 +41,44 @@ object NetcheckClient {
         "youtube" to "YouTube",
         "disney" to "Disney+",
         "chatgpt" to "ChatGPT",
+        "google" to "Google",
+        "tiktok" to "TikTok",
+        "instagram" to "Instagram",
+        "reddit" to "Reddit",
     )
 
-    fun uiRows(report: NetcheckReport?): List<NetcheckUiRow> =
+    /**
+     * @param probeActive when false (tunnel off / pause), rows show «—» without spinners.
+     */
+    fun uiRows(report: NetcheckReport?, probeActive: Boolean): List<NetcheckUiRow> =
         slots.map { (id, label) ->
-            val item = report?.items?.firstOrNull { it.id == id }
-            if (item == null) {
-                NetcheckUiRow(
-                    id = id,
-                    label = label,
-                    pending = true,
-                    value = "",
-                    tone = NetcheckTone.Neutral,
-                )
-            } else {
+            if (!probeActive) {
                 NetcheckUiRow(
                     id = id,
                     label = label,
                     pending = false,
-                    value = item.detail.ifBlank { statusFallback(item.status) },
-                    tone = toneOf(item.status),
+                    value = "—",
+                    tone = NetcheckTone.Neutral,
                 )
+            } else {
+                val item = report?.items?.firstOrNull { it.id == id }
+                if (item == null) {
+                    NetcheckUiRow(
+                        id = id,
+                        label = label,
+                        pending = true,
+                        value = "",
+                        tone = NetcheckTone.Neutral,
+                    )
+                } else {
+                    NetcheckUiRow(
+                        id = id,
+                        label = label,
+                        pending = false,
+                        value = item.detail.ifBlank { statusFallback(item.status) },
+                        tone = toneOf(item.status),
+                    )
+                }
             }
         }
 

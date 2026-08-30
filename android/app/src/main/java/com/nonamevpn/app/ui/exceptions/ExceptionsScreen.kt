@@ -288,86 +288,85 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-    ) {
-        AppTabPageHeader(
-            title = "Исключения",
-            subtitle = "Приложения и сайты вне туннеля",
-        )
-
-        if (busy) {
-            androidx.compose.material3.LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 10.dp)
-                    .height(2.dp),
-                color = colors.primary,
-                trackColor = colors.surfaceVariant,
-            )
-        }
-
-        // Приложения слева, сайты справа (в отличие от qWDTT).
-        SingleChoiceSegmentedButtonRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 14.dp),
-        ) {
-            SegmentedButton(
-                selected = pane == ExceptionsPane.Apps,
-                onClick = { pane = ExceptionsPane.Apps },
-                shape = SegmentedButtonDefaults.itemShape(0, 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.secondaryContainer,
-                    activeContentColor = colors.onSecondaryContainer,
-                    inactiveContainerColor = Color.Transparent,
-                    inactiveContentColor = colors.onSurfaceVariant,
-                ),
-                border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
-            ) {
-                Text(
-                    "Приложения ${selectedPackages.size}",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            SegmentedButton(
-                selected = pane == ExceptionsPane.Sites,
-                onClick = { pane = ExceptionsPane.Sites },
-                shape = SegmentedButtonDefaults.itemShape(1, 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.secondaryContainer,
-                    activeContentColor = colors.onSecondaryContainer,
-                    inactiveContainerColor = Color.Transparent,
-                    inactiveContentColor = colors.onSurfaceVariant,
-                ),
-                border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
-            ) {
-                Text(
-                    "Сайты ${orderedSites.size}",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-
         PullRefreshHost(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
         ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            shape = CardShape,
-            color = colors.surfaceVariant.copy(alpha = 0.35f),
-            border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+            ) {
+                AppTabPageHeader(
+                    title = "Исключения",
+                    subtitle = "Приложения и сайты вне туннеля",
+                )
+
+                if (busy) {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
+                            .height(2.dp),
+                        color = colors.primary,
+                        trackColor = colors.surfaceVariant,
+                    )
+                }
+
+                // Приложения слева, сайты справа (в отличие от qWDTT).
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 14.dp),
+                ) {
+                    SegmentedButton(
+                        selected = pane == ExceptionsPane.Apps,
+                        onClick = { pane = ExceptionsPane.Apps },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2),
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = colors.secondaryContainer,
+                            activeContentColor = colors.onSecondaryContainer,
+                            inactiveContainerColor = Color.Transparent,
+                            inactiveContentColor = colors.onSurfaceVariant,
+                        ),
+                        border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
+                    ) {
+                        Text(
+                            "Приложения ${selectedPackages.size}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    SegmentedButton(
+                        selected = pane == ExceptionsPane.Sites,
+                        onClick = { pane = ExceptionsPane.Sites },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2),
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = colors.secondaryContainer,
+                            activeContentColor = colors.onSecondaryContainer,
+                            inactiveContainerColor = Color.Transparent,
+                            inactiveContentColor = colors.onSurfaceVariant,
+                        ),
+                        border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
+                    ) {
+                        Text(
+                            "Сайты ${orderedSites.size}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    shape = CardShape,
+                    color = colors.surfaceVariant.copy(alpha = 0.35f),
+                    border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                ) {
             when (pane) {
                 ExceptionsPane.Apps -> {
                     Column(modifier = Modifier.fillMaxSize()) {
@@ -600,50 +599,50 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         }
                     }
                 }
+                }
+            }
             }
         }
-        }
-    }
 
-    val chromePad = NvpnBottomChrome.stickyBottomPadding()
-    val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
-    val keyboardVisible = imePad > 12.dp
-    val floatingBarModifier = Modifier
-        .align(Alignment.BottomCenter)
-        .fillMaxWidth()
-        .zIndex(2f)
-        .padding(horizontal = 16.dp)
-        .padding(bottom = maxOf(chromePad, imePad + 8.dp))
-    if (pane == ExceptionsPane.Apps) {
-        BypassSearchBar(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            keyboardVisible = keyboardVisible,
-            modifier = floatingBarModifier,
-        )
-    } else {
-        Row(
-            modifier = floatingBarModifier,
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        val chromePad = NvpnBottomChrome.stickyBottomPadding()
+        val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+        val keyboardVisible = imePad > 12.dp
+        val floatingBarModifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .zIndex(2f)
+            .padding(horizontal = 16.dp)
+            .padding(bottom = maxOf(chromePad, imePad + 8.dp))
+        if (pane == ExceptionsPane.Apps) {
             BypassSearchBar(
-                value = newRule,
-                onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
                 keyboardVisible = keyboardVisible,
-                placeholder = "домен или IP",
-                imeAction = ImeAction.Done,
-                onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
-                modifier = Modifier.weight(1f),
+                modifier = floatingBarModifier,
             )
-            BypassAddButton(
-                enabled = !busy && newRule.isNotBlank(),
-                busy = busy,
-                keyboardVisible = keyboardVisible,
-                onClick = { addSite() },
-            )
+        } else {
+            Row(
+                modifier = floatingBarModifier,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BypassSearchBar(
+                    value = newRule,
+                    onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
+                    keyboardVisible = keyboardVisible,
+                    placeholder = "домен или IP",
+                    imeAction = ImeAction.Done,
+                    onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
+                    modifier = Modifier.weight(1f),
+                )
+                BypassAddButton(
+                    enabled = !busy && newRule.isNotBlank(),
+                    busy = busy,
+                    keyboardVisible = keyboardVisible,
+                    onClick = { addSite() },
+                )
+            }
         }
-    }
     }
 
     if (showClearConfirm) {

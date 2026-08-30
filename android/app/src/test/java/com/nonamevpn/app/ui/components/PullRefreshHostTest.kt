@@ -11,4 +11,10 @@ class PullRefreshHostTest {
         assertEquals(0L, pullRefreshHoldMs(450L))
         assertEquals(0L, pullRefreshHoldMs(2_000L))
     }
+
+    @Test
+    fun indicatorAndTravelAreFixedAcrossTabs() {
+        assertEquals(52, PULL_REFRESH_INDICATOR_TOP.value.toInt())
+        assertEquals(80, PULL_REFRESH_FEED_TRAVEL.value.toInt())
+    }
 }

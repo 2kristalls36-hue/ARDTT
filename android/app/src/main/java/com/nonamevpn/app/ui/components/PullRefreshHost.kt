@@ -18,19 +18,32 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 const val PULL_REFRESH_MIN_MS = 450L
 
+/**
+ * Absolute spinner Y under the status bar on every tab
+ * (title row is ~44.dp + 8.dp top pad).
+ */
+val PULL_REFRESH_INDICATOR_TOP: Dp = 52.dp
+
+/** Material pull threshold / feed travel — same on every tab. */
+val PULL_REFRESH_FEED_TRAVEL: Dp = 80.dp
+
 /** Extra hold so the top spinner is visible even when the refresh is instant. */
 fun pullRefreshHoldMs(elapsedMs: Long, minMs: Long = PULL_REFRESH_MIN_MS): Long =
     (minMs - elapsedMs).coerceAtLeast(0L)
 
 /**
- * Pull-down refresh: content slides with the gesture, a small wheel spins at the
- * top, and anything outside this host (sticky CTA, tab bar, search) stays pinned.
+ * Full-screen pull-down refresh.
+ *
+ * Host must wrap the whole tab feed (including [AppTabPageHeader]) so the spinner
+ * sits at [PULL_REFRESH_INDICATOR_TOP] and the feed slides by the same Material
+ * threshold everywhere. Sticky CTA / search / tab bar stay outside.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,7 +51,6 @@ fun PullRefreshHost(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
-    indicatorStatusBarInset: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val state = rememberPullToRefreshState()
@@ -51,8 +63,8 @@ fun PullRefreshHost(
             PullToRefreshDefaults.Indicator(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .then(if (indicatorStatusBarInset) Modifier.statusBarsPadding() else Modifier)
-                    .padding(top = 6.dp),
+                    .statusBarsPadding()
+                    .padding(top = PULL_REFRESH_INDICATOR_TOP),
                 isRefreshing = refreshing,
                 state = state,
                 containerColor = MaterialTheme.colorScheme.surface,
