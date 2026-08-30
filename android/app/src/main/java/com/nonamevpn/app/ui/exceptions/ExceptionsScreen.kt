@@ -87,6 +87,8 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.ExceptionAppVisibility
 import com.nonamevpn.app.core.appIconDecodeSize
 import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.settings.AppSettingsRepository
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -128,6 +130,49 @@ private fun httpsHandlerPackages(pm: PackageManager): Set<String> {
     return (query(https) + query(browser))
         .mapNotNull { it.activityInfo?.packageName }
         .toSet()
+}
+
+private suspend fun loadInstalledExceptionApps(
+    context: android.content.Context,
+): List<ExceptionAppItem> = withContext(Dispatchers.IO) {
+    val pm = context.packageManager
+    val installed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+    } else {
+        @Suppress("DEPRECATION")
+        pm.getInstalledApplications(PackageManager.GET_META_DATA)
+    }
+    val httpsHandlers = httpsHandlerPackages(pm)
+    val list = installed.mapNotNull { app ->
+        if (app.packageName == context.packageName) return@mapNotNull null
+        if (app.packageName.contains("vkontakte") || app.packageName.contains("vk.calls")) {
+            return@mapNotNull null
+        }
+        val systemPkg = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
+            (app.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+        val hasLauncher = pm.getLaunchIntentForPackage(app.packageName) != null
+        val userFacing = ExceptionAppVisibility.isUserFacing(
+            packageName = app.packageName,
+            hasLauncher = hasLauncher,
+            httpsHandlerPackages = httpsHandlers,
+        )
+        val drawable = app.loadIcon(pm)
+        val iconBitmap = if (drawable != null) {
+            val (w, h) = appIconDecodeSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
+            runCatching { drawable.toBitmap(w, h).asImageBitmap() }.getOrNull()
+        } else {
+            null
+        }
+        ExceptionAppItem(
+            name = app.loadLabel(pm).toString(),
+            packageName = app.packageName,
+            icon = iconBitmap,
+            hideByDefault = ExceptionAppVisibility.hideByDefault(systemPkg, userFacing),
+        )
+    }
+    list.sortedWith(
+        compareBy({ it.name.lowercase(Locale.getDefault()) }, { it.packageName }),
+    )
 }
 
 /**
@@ -209,48 +254,15 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             return@LaunchedEffect
         }
         isLoading = true
-        appsList = withContext(Dispatchers.IO) {
-            val pm = context.packageManager
-            val installed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            }
-            val httpsHandlers = httpsHandlerPackages(pm)
-            val list = installed.mapNotNull { app ->
-                if (app.packageName == context.packageName) return@mapNotNull null
-                if (app.packageName.contains("vkontakte") || app.packageName.contains("vk.calls")) {
-                    return@mapNotNull null
-                }
-                val systemPkg = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
-                    (app.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-                val hasLauncher = pm.getLaunchIntentForPackage(app.packageName) != null
-                val userFacing = ExceptionAppVisibility.isUserFacing(
-                    packageName = app.packageName,
-                    hasLauncher = hasLauncher,
-                    httpsHandlerPackages = httpsHandlers,
-                )
-                val drawable = app.loadIcon(pm)
-                val iconBitmap = if (drawable != null) {
-                    val (w, h) = appIconDecodeSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
-                    runCatching { drawable.toBitmap(w, h).asImageBitmap() }.getOrNull()
-                } else {
-                    null
-                }
-                ExceptionAppItem(
-                    name = app.loadLabel(pm).toString(),
-                    packageName = app.packageName,
-                    icon = iconBitmap,
-                    hideByDefault = ExceptionAppVisibility.hideByDefault(systemPkg, userFacing),
-                )
-            }
-            list.sortedWith(
-                compareBy({ it.name.lowercase(Locale.getDefault()) }, { it.packageName }),
-            )
-        }
+        appsList = loadInstalledExceptionApps(context)
         ExceptionAppCache.cachedList = appsList
         isLoading = false
+    }
+
+    val pull = rememberPullRefresh {
+        val list = loadInstalledExceptionApps(context)
+        ExceptionAppCache.cachedList = list
+        appsList = list
     }
 
     // Выбранные вверх, внутри групп — алфавит (как qWDTT).
@@ -341,10 +353,15 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             }
         }
 
-        Surface(
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
+        ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
             shape = CardShape,
             color = colors.surfaceVariant.copy(alpha = 0.35f),
             border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
@@ -584,6 +601,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     }
                 }
             }
+        }
         }
     }
 

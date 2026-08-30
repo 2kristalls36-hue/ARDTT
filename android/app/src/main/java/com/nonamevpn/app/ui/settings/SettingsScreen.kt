@@ -69,6 +69,7 @@ import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.update.AppUpdateInfo
 import com.nonamevpn.app.update.updateCardCopy
@@ -150,7 +151,14 @@ fun SettingsScreen(
         updates.checkInBackground()
     }
 
-    EdgeFeedColumn {
+    val pull = rememberPullRefresh {
+        updates.checkAndWait()
+    }
+
+    EdgeFeedColumn(
+        refreshing = pull.refreshing,
+        onRefresh = pull.onRefresh,
+    ) {
         val modeLabel = if (admin) "администратор" else "пользователь"
         AppTabPageHeader(
             title = "Настройки приложения",

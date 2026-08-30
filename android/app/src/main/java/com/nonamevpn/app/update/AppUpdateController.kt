@@ -65,6 +65,18 @@ class AppUpdateController private constructor(context: Context) {
         }
     }
 
+    /** Wait until an in-flight or newly started catalog check finishes. */
+    suspend fun checkAndWait() {
+        if (downloadJob?.isActive == true) return
+        val running = checkJob
+        if (running?.isActive == true) {
+            running.join()
+            return
+        }
+        checkInBackground()
+        checkJob?.join()
+    }
+
     fun download() {
         val info = _ui.value.available?.takeIf { it.isNewer } ?: return
         if (downloadJob?.isActive == true) return

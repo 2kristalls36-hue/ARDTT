@@ -21,11 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -63,7 +60,9 @@ import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.launch
 
@@ -147,23 +146,31 @@ private fun ClientsScreen(
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     }
 
+    fun applyUsersResult(result: Result<List<ProvisionAdminApi.UserSummary>>) {
+        result.fold(
+            onSuccess = {
+                users = it
+                error = null
+            },
+            onFailure = {
+                users = emptyList()
+                error = it.message ?: "Provision недоступен"
+            },
+        )
+    }
+
     fun refresh() {
         loading = true
         error = null
         scope.launch {
-            val result = ProvisionAdminApi.listUsers(base)
-            result.fold(
-                onSuccess = {
-                    users = it
-                    error = null
-                },
-                onFailure = {
-                    users = emptyList()
-                    error = it.message ?: "Provision недоступен"
-                },
-            )
+            applyUsersResult(ProvisionAdminApi.listUsers(base))
             loading = false
         }
+    }
+
+    val pull = rememberPullRefresh {
+        error = null
+        applyUsersResult(ProvisionAdminApi.listUsers(base))
     }
 
     fun replaceUser(previousName: String, updated: ProvisionAdminApi.UserSummary) {
@@ -214,24 +221,20 @@ private fun ClientsScreen(
                     else -> "${users.size} · ${server.name.ifBlank { server.host }}"
                 },
                 onBack = onBack,
-                actions = {
-                    IconButton(onClick = { refresh() }, enabled = !loading) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = "Обновить",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
             )
 
-            when {
-                loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+            PullRefreshHost(
+                refreshing = pull.refreshing,
+                onRefresh = { if (!loading) pull.onRefresh() },
+                modifier = Modifier.weight(1f),
+            ) {
+                when {
+                    loading -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
                     }
-                }
-                error != null -> {
+                    error != null -> {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -329,6 +332,7 @@ private fun ClientsScreen(
                         }
                     }
                 }
+            }
             }
         }
 

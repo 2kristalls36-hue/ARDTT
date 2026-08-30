@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -92,7 +91,9 @@ import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -292,43 +293,40 @@ private fun ServerListScreen(
     onOpenServer: (String) -> Unit,
     onAddServer: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
     var healthById by remember { mutableStateOf<Map<String, HealthUi>>(emptyMap()) }
-    var probing by remember { mutableStateOf(false) }
 
-    fun probeAll() {
+    suspend fun probeAll() {
         val snapshot = serversRepo.snapshot()
         if (snapshot.isEmpty()) {
             healthById = emptyMap()
-            probing = false
             return
         }
-        probing = true
         healthById = snapshot.associate { it.id to HealthUi.Checking }
-        scope.launch {
-            coroutineScope {
-                snapshot.map { target ->
-                    async {
-                        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
-                            .getOrNull()
-                        val status = if (info?.ok == true) {
-                            HealthUi.Online(info.deployVersion)
-                        } else {
-                            HealthUi.Offline
-                        }
-                        healthById = healthById + (target.id to status)
+        coroutineScope {
+            snapshot.map { target ->
+                async {
+                    val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
+                        .getOrNull()
+                    val status = if (info?.ok == true) {
+                        HealthUi.Online(info.deployVersion)
+                    } else {
+                        HealthUi.Offline
                     }
-                }.awaitAll()
-            }
-            probing = false
+                    healthById = healthById + (target.id to status)
+                }
+            }.awaitAll()
         }
     }
 
     val serverIds = remember(servers) { servers.map { it.id }.joinToString(",") }
     LaunchedEffect(serverIds) {
         probeAll()
+    }
+
+    val pull = rememberPullRefresh {
+        if (servers.isNotEmpty()) probeAll()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -339,63 +337,55 @@ private fun ServerListScreen(
         ) {
             AppTabPageHeader(
                 title = "Управление серверами",
-                actions = {
-                    IconButton(
-                        onClick = { probeAll() },
-                        enabled = !probing && servers.isNotEmpty(),
-                    ) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = "Обновить статус",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
             )
 
-            if (servers.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .widthIn(max = 340.dp)
-                            .fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+            PullRefreshHost(
+                refreshing = pull.refreshing,
+                onRefresh = pull.onRefresh,
+                modifier = Modifier.weight(1f),
+            ) {
+                if (servers.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.Filled.Dns,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(48.dp),
-                        )
-                        Spacer(modifier = Modifier.height(26.dp))
-                        Text(
-                            "Добавьте первый сервер, чтобы установить стек и управлять пользователями",
-                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        Column(
+                            modifier = Modifier
+                                .widthIn(max = 340.dp)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.Filled.Dns,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(48.dp),
+                            )
+                            Spacer(modifier = Modifier.height(26.dp))
+                            Text(
+                                "Добавьте первый сервер, чтобы установить стек и управлять пользователями",
+                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(servers, key = { it.id }) { server ->
-                        ServerCard(
-                            server = server,
-                            health = healthById[server.id],
-                            isActiveDeploy = server.id == activeDeployServerId,
-                            expectedVersion = expectedVersion,
-                            onOpenServer = { onOpenServer(server.id) },
-                        )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(servers, key = { it.id }) { server ->
+                            ServerCard(
+                                server = server,
+                                health = healthById[server.id],
+                                isActiveDeploy = server.id == activeDeployServerId,
+                                expectedVersion = expectedVersion,
+                                onOpenServer = { onOpenServer(server.id) },
+                            )
+                        }
                     }
                 }
             }
@@ -550,14 +540,6 @@ private fun ServerOverviewHost(
         health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
     }
 
-    fun refreshHealth(target: DeployTarget) {
-        scope.launch {
-            health = HealthUi.Checking
-            val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-            health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
-        }
-    }
-
     fun startRedeploy(target: DeployTarget) {
         showRedeployConfirm = false
         showRedeployProgress = true
@@ -569,13 +551,21 @@ private fun ServerOverviewHost(
                     val deployedAt = System.currentTimeMillis()
                     serversRepo.upsert(target.copy(lastDeployedAtMs = deployedAt))
                     redeployStatus = msg
-                    refreshHealth(target)
+                    health = HealthUi.Checking
+                    val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
+                    health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
                 },
                 onFailure = { e ->
                     redeployStatus = "Ошибка: ${e.message}"
                 },
             )
         }
+    }
+
+    val pull = rememberPullRefresh {
+        val target = server ?: return@rememberPullRefresh
+        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
+        health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
     }
 
     if (server == null) {
@@ -596,6 +586,8 @@ private fun ServerOverviewHost(
             onShowActions = { showActions = it },
             onRename = { showRename = true },
             onDelete = { showDeleteConfirm = true },
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
         )
         if (showRename) {
             RenameServerDialog(
@@ -726,6 +718,8 @@ private fun ServerOverviewScreen(
     onShowActions: (Boolean) -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
 ) {
     val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
     val statusColor = when {
@@ -814,8 +808,13 @@ private fun ServerOverviewScreen(
             },
         )
 
-        LazyColumn(
+        PullRefreshHost(
+            refreshing = refreshing,
+            onRefresh = onRefresh,
             modifier = Modifier.weight(1f),
+        ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
@@ -923,6 +922,7 @@ private fun ServerOverviewScreen(
                     onClick = onOpenDeploySettings,
                 )
             }
+        }
         }
     }
 

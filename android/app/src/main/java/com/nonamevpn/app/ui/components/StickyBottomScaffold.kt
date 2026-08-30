@@ -69,18 +69,34 @@ object NvpnBottomChrome {
 fun StickyBottomScaffold(
     stickyContent: @Composable BoxScope.() -> Unit,
     modifier: Modifier = Modifier,
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            content()
+        val feed: @Composable () -> Unit = {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                content()
+            }
+        }
+        if (onRefresh != null) {
+            PullRefreshHost(
+                refreshing = refreshing,
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize(),
+                indicatorStatusBarInset = true,
+            ) {
+                feed()
+            }
+        } else {
+            feed()
         }
         Box(
             modifier = Modifier
@@ -113,17 +129,42 @@ fun EdgeFeedColumn(
     modifier: Modifier = Modifier,
     bottomExtra: Dp = 24.dp,
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
-        verticalArrangement = verticalArrangement,
-    ) {
-        content()
+    val feed: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
+            verticalArrangement = verticalArrangement,
+        ) {
+            content()
+        }
+    }
+    if (onRefresh != null) {
+        PullRefreshHost(
+            refreshing = refreshing,
+            onRefresh = onRefresh,
+            modifier = modifier.fillMaxSize(),
+            indicatorStatusBarInset = true,
+        ) {
+            feed()
+        }
+    } else {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
+            verticalArrangement = verticalArrangement,
+        ) {
+            content()
+        }
     }
 }
 
