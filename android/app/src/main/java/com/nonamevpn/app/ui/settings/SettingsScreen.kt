@@ -50,6 +50,7 @@ import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.hasTrustedWifiBackgroundPermission
 import com.nonamevpn.app.core.hasTrustedWifiLocationPermission
 import com.nonamevpn.app.core.nextTrustedWifiPermissionAsk
@@ -127,7 +128,7 @@ fun SettingsScreen(
 
     LaunchedEffect(silent, dial, pathMode) {
         conn.setSilentRecreate(silent)
-        conn.setWorkers(3)
+        conn.setWorkers(BypassWorkers.DEFAULT)
         conn.setDialPath(
             when (dial) {
                 "vkcalls" -> DialPath.VkCalls
