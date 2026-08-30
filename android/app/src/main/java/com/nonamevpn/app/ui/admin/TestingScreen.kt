@@ -171,6 +171,7 @@ fun TestingScreen(profiles: ProfileRepository) {
             refreshLogs()
             val clientId = TelemetryClientId.getAsync(context)
             val result = uploadClient.upload(
+                context = context,
                 file = entry.file,
                 clientId = clientId,
                 uploadUrl = uploadUrl,
