@@ -262,6 +262,12 @@ else
   echo "NVPN_INFO|compose pull пропущен (мало места)"
 fi
 
+# One service at a time: after each image is tagged, drop BuildKit/Go intermediates
+# so peak disk/RAM stay near a single compile (not 6 stacked caches ~1.7G).
+# Never `docker image prune -af` here: new :latest is not used by a container yet
+# while the old stack is still up, so -af would delete the image we just built.
+export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
+
 BUILD_SERVICES="provision direct bypass dns warp telemetry"
 BUILD_LOG="$(mktemp /tmp/nvpn-compose-build.XXXXXX.log)"
 svc_i=0
@@ -277,6 +283,9 @@ for svc in $BUILD_SERVICES; do
     cleanup_docker_build_junk
     die "Сборка Docker ($svc) не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}'), RAM: $(free -h | awk '/Mem:/{print $7}') avail"
   fi
+  docker builder prune -af >/dev/null 2>&1 || true
+  docker image prune -f >/dev/null 2>&1 || true
+  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/{printf \"%d\", $2/1024}' /proc/meminfo) МБ"
 done
 rm -f "$BUILD_LOG"
 
