@@ -557,9 +557,16 @@ class NetworkRecoveryPolicyTest {
                 path = VpnPath.Bypass,
             ),
         )
-        assertTrue(
+        assertFalse(
             shouldSkipHandoverRestartIfTrafficFresh(
                 bypassTrafficFresh = false,
+                directTrafficFresh = true,
+                path = VpnPath.Direct,
+            ),
+        )
+        assertFalse(
+            shouldSkipHandoverRestartIfTrafficFresh(
+                bypassTrafficFresh = true,
                 directTrafficFresh = true,
                 path = VpnPath.Direct,
             ),

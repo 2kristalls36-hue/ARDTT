@@ -54,7 +54,7 @@ const val DIRECT_NETWORK_SETTLE_MS = 1_200L
 const val DIRECT_RECONNECT_MIN_INTERVAL_MS = 6_000L
 
 /** Give LTE/Wi‑Fi this long to become VALIDATED before probing / joining VK. */
-const val VALIDATED_WAIT_TIMEOUT_MS = 8_000L
+const val VALIDATED_WAIT_TIMEOUT_MS = 12_000L
 
 const val VALIDATED_WAIT_POLL_MS = 300L
 
@@ -141,8 +141,9 @@ fun updatedUnderlyingNetworkEvidenceSince(
 
 /**
  * Plus: skip soft-restart when inbound traffic already flows after the event.
- * Path B uses TURN stats; Path A uses AWG rx growth. Do not treat “process
- * alive” as healthy Direct egress.
+ * That is safe for Path B (TURN to localhost). Path A AWG UDP stays glued to
+ * the old Wi‑Fi: leftover rx_bytes after loss is not proof the new underlay
+ * works, and skipping the rebind leaves Auto stuck on a dead Direct.
  */
 fun shouldSkipHandoverRestartIfTrafficFresh(
     bypassTrafficFresh: Boolean,
@@ -150,7 +151,7 @@ fun shouldSkipHandoverRestartIfTrafficFresh(
     path: VpnPath,
 ): Boolean = when (path) {
     VpnPath.Bypass -> bypassTrafficFresh
-    VpnPath.Direct -> directTrafficFresh
+    VpnPath.Direct -> false
 }
 
 fun shouldAttemptSoftRestartNow(
