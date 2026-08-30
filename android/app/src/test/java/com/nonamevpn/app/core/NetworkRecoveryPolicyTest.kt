@@ -300,30 +300,6 @@ class NetworkRecoveryPolicyTest {
                 sameProbeStreak = 2,
             ),
         )
-        assertEquals(
-            NetworkHandoverDecision.NoAction,
-            decideNetworkHandoverAction(
-                pathMode = ConnPathMode.Auto,
-                currentPath = VpnPath.Bypass,
-                probedPath = VpnPath.Direct,
-                bypassAllowed = true,
-                underlayVpsReachable = true,
-                sameProbeStreak = 2,
-                pinBypassForAppWhitelist = true,
-            ),
-        )
-        assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
-            decideNetworkHandoverAction(
-                pathMode = ConnPathMode.Auto,
-                currentPath = VpnPath.Direct,
-                probedPath = VpnPath.Direct,
-                bypassAllowed = true,
-                underlayVpsReachable = true,
-                sameProbeStreak = 2,
-                pinBypassForAppWhitelist = true,
-            ),
-        )
     }
 
     @Test

@@ -1074,18 +1074,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     override fun establishTun(ip: String, dnsCsv: String, mtu: Int): ParcelFileDescriptor? {
         runCatching { tun?.close() }
         tun = null
+        val path = TunnelSessionHolder.config?.path
+        val bypassTun = path == VpnPath.Bypass
         val builder = Builder()
-            .setSession("ARDTT")
+            .setSession(if (bypassTun) "ARDTT-raw" else "ARDTT")
             .setMtu(mtu.coerceIn(576, 1500))
             .addAddress(ip.substringBefore('/'), 32)
             .addRoute("0.0.0.0", 0)
         dnsCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { d ->
             runCatching { builder.addDnsServer(d) }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            runCatching { builder.allowFamily(android.system.OsConstants.AF_INET) }
-        }
-        // App split-tunnel: ЧС = disallowed, БС = allowed.
+        // qWDTT RawTunVpnService: allowBypass() is never called. On some OEMs it
+        // lets browsers skip the tunnel even with 0.0.0.0/0. allowFamily() is
+        // also omitted — qWDTT leaves the Builder family defaults.
         val excludedApps = runCatching {
             kotlinx.coroutines.runBlocking { settingsRepo.excludedAppsSnapshot() }
         }.getOrDefault(emptySet())
@@ -1098,15 +1099,17 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             selfPackage = packageName,
         )
         if (whitelist && excludedApps.isEmpty()) {
-            AppLog.w(TAG, "empty app whitelist — full tunnel (0.5.83 scheme)")
+            AppLog.w(TAG, "empty app whitelist — full tunnel minus transport (qWDTT fail-open)")
         }
         if (plan.whitelistMode) {
             for (pkg in plan.allowed) {
+                if (!isInstalledPackage(pkg)) continue
                 runCatching { builder.addAllowedApplication(pkg) }
                     .onFailure { Log.w(TAG, "skip allowed app $pkg: ${it.message}") }
             }
         } else {
             for (pkg in plan.disallowed) {
+                if (!isInstalledPackage(pkg)) continue
                 runCatching { builder.addDisallowedApplication(pkg) }
                     .onFailure { Log.w(TAG, "skip disallowed app $pkg: ${it.message}") }
             }
@@ -1116,19 +1119,32 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             kotlinx.coroutines.runBlocking { settingsRepo.excludedHostsSnapshot() }
         }.getOrDefault(emptySet())
         applyExcludedHostRoutes(builder, excludedHosts)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            builder.setMetered(false)
+        // Direct (AWG) keeps the previous blocking/metered flags. Bypass matches
+        // qWDTT: default non-blocking TUN, no setMetered.
+        if (!bypassTun) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                builder.setMetered(false)
+            }
+            builder.setBlocking(true)
         }
-        builder.setBlocking(true)
         val pfd = builder.establish()
         tun = pfd
         AppLog.i(
             TAG,
-            "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd} " +
+            "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd} path=$path " +
                 "apps=${excludedApps.size} whitelist=$whitelist " +
-                "planWhitelist=${plan.whitelistMode} hosts=${excludedHosts.size}",
+                "planWhitelist=${plan.whitelistMode} hosts=${excludedHosts.size} " +
+                "disallowed=${plan.disallowed.size} allowed=${plan.allowed.size} " +
+                SplitTunnel.logSample(excludedApps),
         )
         return pfd
+    }
+
+    private fun isInstalledPackage(pkg: String): Boolean = try {
+        packageManager.getApplicationInfo(pkg, 0)
+        true
+    } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+        false
     }
 
     private fun applyExcludedHostRoutes(builder: Builder, hosts: Set<String>) {

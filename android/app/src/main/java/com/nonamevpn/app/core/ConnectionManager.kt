@@ -343,21 +343,11 @@ class ConnectionManager(
             return
         }
         val hasHash = !callHashOrNull().isNullOrBlank()
-        val forceBypass = runCatching {
-            kotlinx.coroutines.runBlocking {
-                appWhitelistForcesBypass(
-                    whitelistMode = settingsRepo.appsWhitelistModeSnapshot(),
-                    selectedAppCount = settingsRepo.excludedAppsSnapshot().size,
-                    hasCallHash = hasHash,
-                )
-            }
-        }.getOrDefault(false)
         val target = resolveLiveSwitchPath(
             mode = mode,
             currentPath = current,
             probePath = _ui.value.probe?.preselectedPath,
             hasCallHash = hasHash,
-            forceBypass = forceBypass,
         )
         if (target == null) {
             AppLog.w(TAG, "Live path switch skipped — Bypass needs call hash")
@@ -544,23 +534,18 @@ class ConnectionManager(
                     .getOrDefault(emptySet())
                 val whitelistOn = runCatching { settingsRepo.appsWhitelistModeSnapshot() }
                     .getOrDefault(false)
-                val forceBypass = appWhitelistForcesBypass(
-                    whitelistMode = whitelistOn,
-                    selectedAppCount = selectedApps.size,
-                    hasCallHash = !callHashOrNull().isNullOrBlank(),
-                )
                 val usePath = resolveConnectPath(
                     pathMode,
                     probePreferred,
                     lastGood,
                     fresh,
-                    forceBypass = forceBypass,
                 )
                 AppLog.v(
                     TAG,
                     "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
                         "mode=$pathMode yandex=${fresh.yandexOk} vps=${fresh.provisionOk} " +
-                        "whitelist=$whitelistOn apps=${selectedApps.size} forceBypass=$forceBypass",
+                        "whitelist=$whitelistOn apps=${selectedApps.size} " +
+                        SplitTunnel.logSample(selectedApps),
                 )
                 if (usePath == null) {
                     applyProbe(fresh)
@@ -774,13 +759,6 @@ class ConnectionManager(
         )
 
         val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
-        val pinBypass = runCatching {
-            appWhitelistForcesBypass(
-                whitelistMode = settingsRepo.appsWhitelistModeSnapshot(),
-                selectedAppCount = settingsRepo.excludedAppsSnapshot().size,
-                hasCallHash = bypassAllowed,
-            )
-        }.getOrDefault(false)
         val vpsReachable = fresh.provisionOk
         if (underlayChanged) {
             handoverProbeStreak = ProbeStreak()
@@ -797,7 +775,6 @@ class ConnectionManager(
             underlayVpsReachable = vpsReachable,
             sameProbeStreak = handoverProbeStreak.count,
             underlayChanged = underlayChanged,
-            pinBypassForAppWhitelist = pinBypass,
         )
         when (decision) {
             NetworkHandoverDecision.NoAction -> {
