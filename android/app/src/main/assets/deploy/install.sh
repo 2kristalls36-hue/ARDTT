@@ -83,17 +83,18 @@ ensure_swap() {
   local need_mb="$1"
   local have_mb
   have_mb="$(swap_total_mb)"
-  if [ "${have_mb:-0}" -ge "$need_mb" ] 2>/dev/null; then
-    echo "NVPN_INFO|swap уже ${have_mb} МБ (≥${need_mb})"
+  # /proc reports ~2047 for a 2G file — allow a small slack so we don't recreate.
+  local min_ok=$((need_mb - 64))
+  if [ "$min_ok" -lt 1024 ]; then min_ok=1024; fi
+  if [ "${have_mb:-0}" -ge "$min_ok" ] 2>/dev/null; then
+    echo "NVPN_INFO|swap уже ${have_mb} МБ (цель ≥${need_mb})"
     return 0
   fi
   prog 0.28 "Увеличение swap до ${need_mb} МБ (сейчас ${have_mb:-0})"
   local swapfile="/swapfile"
-  # Prefer dedicated file; fall back to /opt if root is tight but usually same FS.
   if [ -f "$swapfile" ]; then
     swapoff "$swapfile" 2>/dev/null || true
   fi
-  # Allocate sparsely then fallocate; dd fallback for older hosts.
   rm -f "$swapfile"
   if ! fallocate -l "${need_mb}M" "$swapfile" 2>/dev/null; then
     dd if=/dev/zero of="$swapfile" bs=1M count="$need_mb" status=none
