@@ -1,8 +1,6 @@
 package com.nonamevpn.app.core
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConnectPathTest {
@@ -32,7 +30,7 @@ class ConnectPathTest {
     )
 
     @Test
-    fun autoFollowsProbeWhenWhitelistOff() {
+    fun autoFollowsProbe() {
         assertEquals(
             VpnPath.Direct,
             resolveConnectPath(
@@ -40,7 +38,6 @@ class ConnectPathTest {
                 probePreferred = VpnPath.Direct,
                 lastGood = directOk,
                 fresh = directOk,
-                forceBypass = false,
             ),
         )
         assertEquals(
@@ -50,27 +47,12 @@ class ConnectPathTest {
                 probePreferred = VpnPath.Bypass,
                 lastGood = needBypass,
                 fresh = needBypass,
-                forceBypass = false,
             ),
         )
     }
 
     @Test
-    fun autoUsesBypassWhenAppWhitelistPinsRaw() {
-        assertEquals(
-            VpnPath.Bypass,
-            resolveConnectPath(
-                mode = ConnPathMode.Auto,
-                probePreferred = VpnPath.Direct,
-                lastGood = directOk,
-                fresh = directOk,
-                forceBypass = true,
-            ),
-        )
-    }
-
-    @Test
-    fun forcedModesIgnoreWhitelistPin() {
+    fun forcedModesIgnoreProbe() {
         assertEquals(
             VpnPath.Direct,
             resolveConnectPath(
@@ -78,7 +60,6 @@ class ConnectPathTest {
                 probePreferred = VpnPath.Bypass,
                 lastGood = needBypass,
                 fresh = needBypass,
-                forceBypass = true,
             ),
         )
         assertEquals(
@@ -88,16 +69,7 @@ class ConnectPathTest {
                 probePreferred = VpnPath.Direct,
                 lastGood = directOk,
                 fresh = directOk,
-                forceBypass = false,
             ),
         )
-    }
-
-    @Test
-    fun appWhitelistForcesBypassRequiresAppsAndHash() {
-        assertTrue(appWhitelistForcesBypass(true, 1, true))
-        assertFalse(appWhitelistForcesBypass(true, 0, true))
-        assertFalse(appWhitelistForcesBypass(false, 3, true))
-        assertFalse(appWhitelistForcesBypass(true, 2, false))
     }
 }

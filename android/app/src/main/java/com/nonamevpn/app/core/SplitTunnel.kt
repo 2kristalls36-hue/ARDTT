@@ -1,15 +1,15 @@
 package com.nonamevpn.app.core
 
 /**
- * Resolves Android VpnService split-tunnel lists.
+ * Resolves Android VpnService split-tunnel lists the way qWDTT
+ * [RawTunVpnService.applyAppFilters] does.
  *
  * VpnService cannot mix [android.net.VpnService.Builder.addAllowedApplication]
- * and [android.net.VpnService.Builder.addDisallowedApplication]:
+ * and [android.net.VpnService.Builder.addDisallowedApplication].
  *
- * - ЧС (blacklist): disallowed = selected ∪ self
- * - БС (whitelist) with apps: allowed = selected ∪ self
- * - Empty БС: full tunnel (same as empty ЧС) — otherwise only this app
- *   would enter the TUN and the session looks connected with no internet.
+ * Transport packages (this app, VK, VK Calls) always stay on the underlay so
+ * TURN can dial. Empty БС is fail-open: only transport is excluded, same as
+ * empty ЧС. БС with apps allows those packages only — it does not add self.
  */
 data class SplitTunnelPlan(
     val whitelistMode: Boolean,
@@ -18,33 +18,74 @@ data class SplitTunnelPlan(
 )
 
 object SplitTunnel {
+    val VK_TRANSPORT_PACKAGES: Set<String> = setOf(
+        "com.vkontakte.android",
+        "com.vk.calls",
+    )
+
+    fun transportPackages(selfPackage: String): Set<String> {
+        val self = selfPackage.trim()
+        return if (self.isBlank()) VK_TRANSPORT_PACKAGES else setOf(self) + VK_TRANSPORT_PACKAGES
+    }
+
     fun resolve(
         whitelistMode: Boolean,
         selectedApps: Set<String>,
         selfPackage: String,
     ): SplitTunnelPlan {
         val self = selfPackage.trim()
-        val selected = sanitizePackages(selectedApps, self)
-        // Empty БС would only include this app → “connected” with no user traffic
-        // (0.09 MB keepalives). Fall back to full tunnel like empty ЧС / 0.5.83.
+        val transport = transportPackages(self)
+        val selected = sanitizePackages(selectedApps, transport)
         return if (whitelistMode && selected.isNotEmpty()) {
             SplitTunnelPlan(
                 whitelistMode = true,
-                allowed = selected + self,
+                allowed = selected,
                 disallowed = emptySet(),
             )
         } else {
             SplitTunnelPlan(
                 whitelistMode = false,
                 allowed = emptySet(),
-                disallowed = selected + self,
+                disallowed = transport + selected,
             )
         }
     }
 
-    private fun sanitizePackages(packages: Set<String>, selfPackage: String): Set<String> =
+    fun browserPackages(selected: Set<String>): List<String> =
+        selected.map { it.trim() }.filter { it.isNotBlank() && isLikelyBrowser(it) }.sorted()
+
+    fun logSample(selected: Set<String>, limit: Int = 8): String {
+        val sorted = selected.map { it.trim() }.filter { it.isNotBlank() }.sorted()
+        val sample = sorted.take(limit).joinToString(",")
+        val extra = (sorted.size - limit).coerceAtLeast(0)
+        val browsers = browserPackages(selected.toSet())
+        val browserPart = if (browsers.isEmpty()) {
+            "browsers=0"
+        } else {
+            "browsers=${browsers.joinToString(",")}"
+        }
+        val samplePart = if (extra > 0) "sample=$sample +$extra" else "sample=$sample"
+        return "$samplePart $browserPart"
+    }
+
+    internal fun isLikelyBrowser(pkg: String): Boolean {
+        val p = pkg.lowercase()
+        return p.contains("chrome") ||
+            p.contains("browser") ||
+            p.contains("firefox") ||
+            p.contains("opera") ||
+            p.contains("brave") ||
+            p.contains("edge") ||
+            p.contains("duckduckgo") ||
+            p.contains("samsung.android.sbrowser") ||
+            p.contains("yandex.search") ||
+            p.contains("ucmobile") ||
+            p.contains("vivaldi")
+    }
+
+    private fun sanitizePackages(packages: Set<String>, transport: Set<String>): Set<String> =
         packages
             .map { it.trim() }
-            .filter { it.isNotBlank() && it != selfPackage }
+            .filter { it.isNotBlank() && it !in transport }
             .toSet()
 }
