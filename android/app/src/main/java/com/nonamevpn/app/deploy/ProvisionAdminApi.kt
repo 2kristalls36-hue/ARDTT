@@ -13,6 +13,8 @@ object ProvisionAdminApi {
     data class HealthInfo(
         val ok: Boolean,
         val deployVersion: String = "",
+        /** HTTP RTT of GET /health, milliseconds. */
+        val pingMs: Long = -1L,
     )
 
     data class UserSummary(
@@ -48,6 +50,7 @@ object ProvisionAdminApi {
 
     suspend fun health(baseUrl: String): Result<HealthInfo> = withContext(Dispatchers.IO) {
         runCatching {
+            val started = System.nanoTime()
             val url = URL("${baseUrl.trimEnd('/')}/health")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -60,6 +63,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
+            val pingMs = ((System.nanoTime() - started) / 1_000_000L).coerceAtLeast(1L)
             if (code !in 200..299) error("HTTP $code")
             val o = runCatching { JSONObject(body) }.getOrNull()
             val ok = o?.optBoolean("ok", false)
@@ -68,6 +72,7 @@ object ProvisionAdminApi {
             HealthInfo(
                 ok = ok,
                 deployVersion = o?.optString("deployVersion").orEmpty().trim(),
+                pingMs = pingMs,
             )
         }
     }

@@ -1,5 +1,6 @@
 package com.nonamevpn.app.ui.admin
 
+import com.nonamevpn.app.deploy.ProvisionAdminApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -68,5 +69,36 @@ class ServerDeployCardLogicTest {
         assertEquals("● Онлайн · деплой 1.0.5", outdated)
         assertFalse(outdated.contains("актуален"))
         assertFalse(outdated.contains("нужно обновить"))
+    }
+
+    @Test
+    fun statusLineShowsPingInsteadOfDeployAge() {
+        val withPing = healthStatusLabel(
+            HealthUi.Online("1.0.12", pingMs = 42L),
+            lastDeployedAtMs = 1_700_000_000_000L,
+        )
+        assertEquals("● Онлайн · деплой 1.0.12 · 42 мс", withPing)
+        assertFalse(withPing.contains("назад"))
+        assertFalse(withPing.contains("мин"))
+    }
+
+    @Test
+    fun pingFormatterOmitsNonPositive() {
+        assertEquals("", formatHealthPingMs(-1L))
+        assertEquals("", formatHealthPingMs(0L))
+        assertEquals("1 мс", formatHealthPingMs(1L))
+    }
+
+    @Test
+    fun healthUiKeepsPingFromProbe() {
+        val online = healthUiOf(
+            ProvisionAdminApi.HealthInfo(ok = true, deployVersion = "1.0.12", pingMs = 18L),
+        )
+        assertEquals(HealthUi.Online("1.0.12", 18L), online)
+        assertEquals(HealthUi.Offline, healthUiOf(null))
+        assertEquals(
+            HealthUi.Offline,
+            healthUiOf(ProvisionAdminApi.HealthInfo(ok = false, pingMs = 9L)),
+        )
     }
 }

@@ -7,7 +7,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -100,9 +99,6 @@ import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -193,28 +189,12 @@ private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
     },
 )
 
-private fun formatDeployRelative(ms: Long): String {
-    if (ms <= 0L) return ""
-    val diff = (System.currentTimeMillis() - ms).coerceAtLeast(0L)
-    val minutes = diff / 60_000L
-    val hours = diff / 3_600_000L
-    val days = diff / 86_400_000L
-    return when {
-        minutes < 1L -> "только что"
-        minutes < 60L -> "$minutes мин назад"
-        hours < 24L -> "$hours ч назад"
-        days < 30L -> "$days дн назад"
-        else -> SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(ms))
-    }
-}
-
 private fun healthStatusLine(
     health: HealthUi?,
     lastDeployedAtMs: Long,
     expectedVersion: String,
 ): Pair<String, Color?> {
-    val relative = if (lastDeployedAtMs > 0L) formatDeployRelative(lastDeployedAtMs) else ""
-    val text = healthStatusLabel(health, lastDeployedAtMs, relative)
+    val text = healthStatusLabel(health, lastDeployedAtMs)
     val hint = when (health) {
         is HealthUi.Online ->
             if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
@@ -227,21 +207,6 @@ private fun healthStatusLine(
     return text to hint
 }
 
-/** Green = current stack; orange = online but outdated; null = no special border. */
-private fun deployFreshnessBorder(
-    health: HealthUi?,
-    isActiveDeploy: Boolean,
-    expectedVersion: String,
-): BorderStroke? {
-    if (!isActiveDeploy) return null
-    val online = health as? HealthUi.Online ?: return BorderStroke(2.dp, NvpnColors.warning)
-    return if (DeployBundle.isCurrent(online.deployVersion, expectedVersion)) {
-        BorderStroke(2.dp, NvpnColors.connected)
-    } else {
-        BorderStroke(2.dp, NvpnColors.warning)
-    }
-}
-
 @Composable
 fun ServersScreen(
     serversRepo: ServersRepository,
@@ -249,10 +214,6 @@ fun ServersScreen(
     profiles: ProfileRepository,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
-    val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
-    val activeDeployServerId = remember(servers, profile) {
-        findActiveDeployServerId(servers, activeProfileHost(profile))
-    }
     var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
         mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
     }
@@ -279,7 +240,6 @@ fun ServersScreen(
             is ServersNavScreen.List -> ServerListScreen(
                 servers = servers,
                 serversRepo = serversRepo,
-                activeDeployServerId = activeDeployServerId,
                 onOpenServer = { id -> screen = ServersNavScreen.Overview(id) },
                 onAddServer = { screen = ServersNavScreen.Deploy(null) },
             )
@@ -288,7 +248,6 @@ fun ServersScreen(
                 serversRepo = serversRepo,
                 engine = engine,
                 serverId = s.serverId,
-                isActiveDeploy = s.serverId == activeDeployServerId,
                 onOpenClients = { screen = ServersNavScreen.Clients(s.serverId) },
                 onOpenDeploySettings = { screen = ServersNavScreen.Deploy(s.serverId) },
                 onBack = { screen = ServersNavScreen.List },
@@ -323,7 +282,6 @@ fun ServersScreen(
 private fun ServerListScreen(
     servers: List<DeployTarget>,
     serversRepo: ServersRepository,
-    activeDeployServerId: String?,
     onOpenServer: (String) -> Unit,
     onAddServer: () -> Unit,
 ) {
@@ -343,11 +301,7 @@ private fun ServerListScreen(
                 async {
                     val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
                         .getOrNull()
-                    val status = if (info?.ok == true) {
-                        HealthUi.Online(info.deployVersion)
-                    } else {
-                        HealthUi.Offline
-                    }
+                    val status = healthUiOf(info)
                     healthById = healthById + (target.id to status)
                 }
             }.awaitAll()
@@ -414,7 +368,6 @@ private fun ServerListScreen(
                             ServerCard(
                                 server = server,
                                 health = healthById[server.id],
-                                isActiveDeploy = server.id == activeDeployServerId,
                                 expectedVersion = expectedVersion,
                                 onOpenServer = { onOpenServer(server.id) },
                             )
@@ -440,7 +393,6 @@ private fun ServerListScreen(
 private fun ServerCard(
     server: DeployTarget,
     health: HealthUi?,
-    isActiveDeploy: Boolean,
     expectedVersion: String,
     onOpenServer: () -> Unit,
 ) {
@@ -450,13 +402,11 @@ private fun ServerCard(
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
-    val activeBorder = deployFreshnessBorder(health, isActiveDeploy, expectedVersion)
 
     AppSectionCard(
         modifier = Modifier.clickable(onClick = onOpenServer),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
-        border = activeBorder,
         shadowElevation = 0.dp,
         shape = RoundedCornerShape(24.dp),
     ) {
@@ -540,7 +490,6 @@ private fun ServerOverviewHost(
     serversRepo: ServersRepository,
     engine: DeployEngine,
     serverId: String,
-    isActiveDeploy: Boolean,
     onOpenClients: () -> Unit,
     onOpenDeploySettings: () -> Unit,
     onBack: () -> Unit,
@@ -571,7 +520,7 @@ private fun ServerOverviewHost(
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
+        health = healthUiOf(info)
     }
 
     LaunchedEffect(busy, activeTargetId, serverId) {
@@ -589,7 +538,7 @@ private fun ServerOverviewHost(
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
+        health = healthUiOf(info)
     }
 
     fun startRedeploy(target: DeployTarget) {
@@ -604,7 +553,7 @@ private fun ServerOverviewHost(
     val pull = rememberPullRefresh {
         val target = server ?: return@rememberPullRefresh
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
+        health = healthUiOf(info)
     }
 
     if (server == null) {
@@ -615,7 +564,6 @@ private fun ServerOverviewHost(
         ServerOverviewScreen(
             server = server,
             health = health,
-            isActiveDeploy = isActiveDeploy,
             expectedVersion = expectedVersion,
             onOpenClients = onOpenClients,
             onUpdateDeploy = { showRedeployConfirm = true },
@@ -747,7 +695,6 @@ private fun ServerOverviewHost(
 private fun ServerOverviewScreen(
     server: DeployTarget,
     health: HealthUi?,
-    isActiveDeploy: Boolean,
     expectedVersion: String,
     onOpenClients: () -> Unit,
     onUpdateDeploy: () -> Unit,
@@ -766,7 +713,6 @@ private fun ServerOverviewScreen(
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
-    val activeBorder = deployFreshnessBorder(health, isActiveDeploy, expectedVersion)
     val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
     val publicHostLine = distinctPublicHost(server.host, server.publicHost)
     val freshnessChip = deployFreshnessChipText(health, expectedVersion)
@@ -869,7 +815,6 @@ private fun ServerOverviewScreen(
                 AppSectionCard(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    border = activeBorder,
                     shape = RoundedCornerShape(24.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
