@@ -16,6 +16,7 @@ KEEP_INSTALL_LOG="${NVPN_KEEP_INSTALL_LOG:-0}"
 COMPOSE_PROJECT="${NVPN_COMPOSE_PROJECT:-stack}"
 MIN_SWAP_MB="${NVPN_MIN_SWAP_MB:-2048}"
 MIN_DISK_MB="${NVPN_MIN_DISK_MB:-1800}"
+MIN_DISK_UPDATE_MB="${NVPN_MIN_DISK_UPDATE_MB:-900}"
 
 LOG_FILE="$(mktemp /tmp/nvpn-install.XXXXXX.log)"
 STAGING=""
@@ -34,6 +35,29 @@ cleanup_docker_build_junk() {
   docker builder prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
   # Never prune volumes: bypass-config and other named volumes must survive redeploy.
+}
+
+reclaim_disk() {
+  cleanup_docker_build_junk
+  cleanup_host_packages
+  docker image prune -af >/dev/null 2>&1 || true
+  docker container prune -f >/dev/null 2>&1 || true
+  rm -rf /tmp/nvpn-data-bak "$INSTALL_DIR/stack.old" /var/tmp/nvpn-* 2>/dev/null || true
+  rm -f /var/log/nvpn-build*.log /var/log/*.gz /var/log/*.1 2>/dev/null || true
+  if command -v journalctl >/dev/null 2>&1; then
+    journalctl --vacuum-size=32M >/dev/null 2>&1 || true
+  fi
+}
+
+stack_images_ready() {
+  local missing=0
+  local img
+  for img in stack-provision stack-direct stack-bypass stack-dns stack-warp stack-telemetry; do
+    if ! docker image inspect "${img}:latest" >/dev/null 2>&1; then
+      missing=$((missing + 1))
+    fi
+  done
+  [ "$missing" -eq 0 ]
 }
 
 cleanup_install_artifacts() {
@@ -208,14 +232,19 @@ mkdir -p "$STAGING/data"
 chmod 700 "$STAGING/data"
 
 prog 0.45 "Очистка места перед сборкой"
-cleanup_docker_build_junk
-cleanup_host_packages
-# Drop unused images from previous deploys (keep running containers).
-docker image prune -af >/dev/null 2>&1 || true
+reclaim_disk
 
 avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
+need_mb="$MIN_DISK_MB"
+if stack_images_ready; then
+  need_mb="$MIN_DISK_UPDATE_MB"
+  echo "NVPN_INFO|образы стека уже есть — порог диска ${need_mb} МБ"
+fi
+if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt "$need_mb" ] 2>/dev/null; then
+  die "Мало места на диске VPS: свободно ${avail_mb} МБ (нужно ≥${need_mb} МБ). Увеличьте диск или очистите: docker builder prune -af && apt-get clean"
+fi
 if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt "$MIN_DISK_MB" ] 2>/dev/null; then
-  die "Мало места на диске VPS: свободно ${avail_mb} МБ (нужно ≥${MIN_DISK_MB} МБ). Увеличьте диск или очистите: docker system prune -af && apt-get clean"
+  echo "NVPN_WARN|на диске ${avail_mb} МБ — пропускаем compose pull, собираем поверх существующих образов"
 fi
 
 prog 0.50 "Сборка образов (старый стек ещё работает)"
@@ -227,7 +256,11 @@ export COMPOSE_ANSI=never
 export GOMAXPROCS="${GOMAXPROCS:-1}"
 export DOCKER_BUILDKIT=1
 
-compose pull 2>/dev/null || true
+if [ -z "${avail_mb:-}" ] || [ "$avail_mb" -ge "$MIN_DISK_MB" ] 2>/dev/null; then
+  compose pull 2>/dev/null || true
+else
+  echo "NVPN_INFO|compose pull пропущен (мало места)"
+fi
 
 BUILD_SERVICES="provision direct bypass dns warp telemetry"
 BUILD_LOG="$(mktemp /tmp/nvpn-compose-build.XXXXXX.log)"
