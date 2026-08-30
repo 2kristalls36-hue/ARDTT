@@ -356,6 +356,7 @@ class NetworkRecoveryPolicyTest {
                 underlayVpsReachable = true,
                 sameProbeStreak = 1,
                 underlayChanged = true,
+                underlayKind = UnderlayKind.Wifi,
             ),
         )
     }
@@ -418,7 +419,21 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
-    fun handoverDirectToBypassNeedsTwoHits() {
+    fun handoverDirectToBypassOnUnderlayChangeFirstNeedBypass() {
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                currentPathHealthy = true,
+                underlayVpsReachable = false,
+                sameProbeStreak = 1,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
         assertEquals(
             NetworkHandoverDecision.SoftRestartSamePath,
             decideNetworkHandoverAction(
@@ -429,7 +444,7 @@ class NetworkRecoveryPolicyTest {
                 currentPathHealthy = true,
                 underlayVpsReachable = false,
                 sameProbeStreak = 1,
-                underlayChanged = true,
+                underlayChanged = false,
             ),
         )
         assertEquals(
@@ -442,7 +457,7 @@ class NetworkRecoveryPolicyTest {
                 currentPathHealthy = true,
                 underlayVpsReachable = false,
                 sameProbeStreak = 2,
-                underlayChanged = true,
+                underlayChanged = false,
             ),
         )
     }
@@ -471,6 +486,7 @@ class NetworkRecoveryPolicyTest {
                 underlayVpsReachable = true,
                 sameProbeStreak = 1,
                 underlayChanged = true,
+                underlayKind = UnderlayKind.Wifi,
             ),
         )
         assertEquals(
@@ -483,6 +499,7 @@ class NetworkRecoveryPolicyTest {
                 underlayVpsReachable = false,
                 sameProbeStreak = 1,
                 underlayChanged = true,
+                underlayKind = UnderlayKind.Wifi,
             ),
         )
     }
@@ -729,6 +746,40 @@ class NetworkRecoveryPolicyTest {
                 sameProbeStreak = 1,
                 underlayChanged = true,
                 directFailedOnCurrentUnderlay = true,
+            ),
+        )
+    }
+
+    @Test
+    fun cellularAutoGoesBypassEvenIfVpsTcpIsUp() {
+        assertTrue(shouldAutoUseBypassOnCellular(true, UnderlayKind.Cellular))
+        assertFalse(shouldAutoUseBypassOnCellular(false, UnderlayKind.Cellular))
+        assertFalse(shouldAutoUseBypassOnCellular(true, UnderlayKind.Wifi))
+        assertEquals(UnderlayKind.Wifi, classifyUnderlayKind(wifi = true, cellular = true))
+        assertEquals(UnderlayKind.Cellular, classifyUnderlayKind(wifi = false, cellular = true))
+
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
             ),
         )
     }

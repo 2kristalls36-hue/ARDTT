@@ -375,7 +375,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
         softRestartInProgress = true
         try {
-            val underlay = pickBestUnderlyingNetwork()
+            val underlay = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
             val decision = ConnectionManager.getOrNull()
                 ?.decideNetworkHandover(underlay, underlayChanged)
                 ?: NetworkHandoverDecision.SoftRestartSamePath

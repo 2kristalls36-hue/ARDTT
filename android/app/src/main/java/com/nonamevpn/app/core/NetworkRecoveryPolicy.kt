@@ -256,6 +256,24 @@ data class ProbeStreak(
     val count: Int = 0,
 )
 
+/** Real underlay transport. Direct UDP works on home Wi‑Fi; both SIMs need Bypass. */
+enum class UnderlayKind {
+    Wifi,
+    Cellular,
+    Other,
+}
+
+fun classifyUnderlayKind(wifi: Boolean, cellular: Boolean): UnderlayKind = when {
+    wifi -> UnderlayKind.Wifi
+    cellular -> UnderlayKind.Cellular
+    else -> UnderlayKind.Other
+}
+
+fun shouldAutoUseBypassOnCellular(
+    bypassAllowed: Boolean,
+    underlayKind: UnderlayKind,
+): Boolean = bypassAllowed && underlayKind == UnderlayKind.Cellular
+
 fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak {
     if (probedPath == null) return ProbeStreak()
     if (probedPath == previous.path) return ProbeStreak(probedPath, previous.count + 1)
@@ -263,20 +281,14 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
 }
 
 /**
- * Auto handover from 77.88.8.8 + VPS IP:
- * - Direct → Bypass when Yandex DNS is up and the VPS IP is not (whitelist),
- *   only after [HANDOVER_DIRECT_TO_BYPASS_STREAK] consecutive hits. The first
- *   miss rebinds Direct instead of switching.
- * - Bypass → Direct only when the underlay actually changed and VPS IP is
- *   reachable (open Wi‑Fi). Consecutive TCP hits without a new network are
- *   not enough: LTE can reach provision :9100 while AWG UDP is dead.
+ * Auto handover:
+ * - Cellular + call hash → Bypass immediately. TCP :9100 on LTE is not AWG UDP;
+ *   waiting for dead-Direct after Wi‑Fi→LTE / Connect on SIM costs ~10–20 s.
+ * - Direct → Bypass on NeedBypass when the underlay changed (first hit), or
+ *   after [HANDOVER_DIRECT_TO_BYPASS_STREAK] hits without a new network.
+ * - Bypass → Direct only on Wi‑Fi + VPS IP + underlay change. SIM swap to a
+ *   cell that can TCP :9100 must not yank Bypass.
  * - Forced Direct/Bypass only rebind when the underlay actually changed.
- * - Stable whitelist Bypass (VPS down, no underlay change) is [NoAction].
- * - A confirmed underlay change (lost network / new id) always rebinds the
- *   current path when we are not switching — sockets stay glued to the old
- *   Wi‑Fi otherwise.
- * - VPN-bind ghosts during [HANDOVER_IGNORE_GRACE_MS] stay [NoAction] unless
- *   [underlayChanged] is true.
  */
 fun decideNetworkHandoverAction(
     pathMode: ConnPathMode,
@@ -290,6 +302,7 @@ fun decideNetworkHandoverAction(
     underlayChanged: Boolean = false,
     allowBypassToDirect: Boolean = true,
     directFailedOnCurrentUnderlay: Boolean = false,
+    underlayKind: UnderlayKind = UnderlayKind.Other,
 ): NetworkHandoverDecision {
     val inGrace = sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS
     if (inGrace && !underlayChanged) {
@@ -303,10 +316,13 @@ fun decideNetworkHandoverAction(
         }
     }
     val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
+    val cellBypass = shouldAutoUseBypassOnCellular(bypassAllowed, underlayKind)
     if (currentPath == VpnPath.Direct) {
-        if (probedPath == VpnPath.Bypass && bypassAllowed && !vpsUp &&
-            sameProbeStreak >= HANDOVER_DIRECT_TO_BYPASS_STREAK
-        ) {
+        if (cellBypass && underlayChanged) {
+            return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
+        }
+        val needBypass = probedPath == VpnPath.Bypass && bypassAllowed && !vpsUp
+        if (needBypass && (underlayChanged || sameProbeStreak >= HANDOVER_DIRECT_TO_BYPASS_STREAK)) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
         }
         if (vpsUp) {
@@ -321,15 +337,15 @@ fun decideNetworkHandoverAction(
             NetworkHandoverDecision.NoAction
         }
     }
-    val canUpgradeToDirect = allowBypassToDirect && !directFailedOnCurrentUnderlay
+    val canUpgradeToDirect = allowBypassToDirect &&
+        !directFailedOnCurrentUnderlay &&
+        underlayKind == UnderlayKind.Wifi
     if (vpsUp && canUpgradeToDirect && underlayChanged) {
         return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
     }
     if (underlayChanged) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
-    // Whitelist Bypass / stall probe: VPS IP may be up over TCP while AWG UDP
-    // is dead. Do not yank a working Bypass without a new underlay.
     return NetworkHandoverDecision.NoAction
 }
 

@@ -2,6 +2,9 @@ package com.nonamevpn.app.core
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
@@ -550,11 +553,14 @@ class ConnectionManager(
                     probePreferred,
                     lastGood,
                     fresh,
+                    underlayKind = underlayKindOf(pickBestUnderlayNetwork(appContext)),
+                    bypassAllowed = callHashOrNull() != null,
                 )
                 AppLog.v(
                     TAG,
                     "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
                         "mode=$pathMode yandex=${fresh.yandexOk} vps=${fresh.provisionOk} " +
+                        "kind=${underlayKindOf(pickBestUnderlayNetwork(appContext))} " +
                         "whitelist=$whitelistOn apps=${selectedApps.size} " +
                         SplitTunnel.logSample(selectedApps),
                 )
@@ -753,6 +759,7 @@ class ConnectionManager(
         }
         val directFailedOnCurrentUnderlay = blockBypassToDirectUntilUnderlayChange &&
             (sameDeadUnderlay || deadDirectBindHandle == null || bindNetwork == null)
+        val kind = underlayKindOf(bindNetwork)
         if (mode != ConnPathMode.Auto) {
             val decision = decideNetworkHandoverAction(
                 pathMode = mode,
@@ -764,12 +771,58 @@ class ConnectionManager(
                 underlayChanged = underlayChanged,
                 allowBypassToDirect = allowBypassToDirect,
                 directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
+                underlayKind = kind,
             )
             AppLog.v(
                 TAG,
                 "Handover: mode=$mode path=$currentPath decision=$decision " +
                     "underlayChanged=$underlayChanged healthy=$pathHealthy (no re-probe)",
             )
+            return decision
+        }
+
+        if (
+            underlayChanged &&
+            shouldAutoUseBypassOnCellular(bypassAllowed, kind)
+        ) {
+            AppLog.v(
+                TAG,
+                "Handover: skip VPS probe — cellular Auto uses Bypass path=$currentPath kind=$kind",
+            )
+            val decision = decideNetworkHandoverAction(
+                pathMode = mode,
+                currentPath = currentPath,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = bypassAllowed,
+                sessionAgeMs = handoverSessionAgeMs(),
+                currentPathHealthy = pathHealthy,
+                underlayVpsReachable = false,
+                sameProbeStreak = 1,
+                underlayChanged = true,
+                allowBypassToDirect = allowBypassToDirect,
+                directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
+                underlayKind = kind,
+            )
+            when (decision) {
+                NetworkHandoverDecision.NoAction -> {
+                    AppLog.v(TAG, "Handover: no action (cellular skip-probe) path=$currentPath")
+                }
+                is NetworkHandoverDecision.SwitchPath -> {
+                    AppLog.v(TAG, "Handover: switch $currentPath → ${decision.path} (cellular)")
+                    applySessionPath(decision.path)
+                    softRestartInProgress = true
+                    _ui.value = _ui.value.copy(
+                        state = ConnState.Connecting,
+                        activePath = decision.path,
+                        statusText = "Сеть изменилась. Выполняется переход на путь ${pathLabel(decision.path)}…",
+                        lastError = null,
+                        connectEnabled = true,
+                    )
+                }
+                NetworkHandoverDecision.SoftRestartSamePath -> {
+                    AppLog.v(TAG, "Handover: keep $currentPath (cellular skip-probe)")
+                }
+            }
             return decision
         }
 
@@ -817,6 +870,7 @@ class ConnectionManager(
             underlayChanged = underlayChanged,
             allowBypassToDirect = allowBypassToDirect,
             directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
+            underlayKind = kind,
         )
         when (decision) {
             NetworkHandoverDecision.NoAction -> {
@@ -854,6 +908,16 @@ class ConnectionManager(
             }
         }
         return decision
+    }
+
+    private fun underlayKindOf(network: Network?): UnderlayKind {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+            ?: return UnderlayKind.Other
+        val caps = network?.let { cm.getNetworkCapabilities(it) } ?: return UnderlayKind.Other
+        return classifyUnderlayKind(
+            wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+            cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+        )
     }
 
     /** Rewrite [TunnelSessionHolder] for a path switch mid-session (Auto handover). */
