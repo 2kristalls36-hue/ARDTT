@@ -110,4 +110,15 @@ class VpnLiveStatsTest {
         val totals = VpnLiveStats.formatBytesLine(100, 999)
         assertTrue(totals.contains("КБ") || totals.contains("Б"))
     }
+
+    @Test
+    fun freshRxTracksGrowthAfterNetworkEvent() {
+        VpnLiveStats.reset()
+        assertFalse(VpnLiveStats.hasFreshRxSince(0L))
+        VpnLiveStats.recordRxGrowthForTest(1000L, nowMs = 50_000L)
+        assertTrue(VpnLiveStats.hasFreshRxSince(40_000L, nowMs = 51_000L))
+        assertFalse(VpnLiveStats.hasFreshRxSince(60_000L, nowMs = 61_000L))
+        VpnLiveStats.reset()
+        assertFalse(VpnLiveStats.hasFreshRxSince(0L))
+    }
 }
