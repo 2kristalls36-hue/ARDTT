@@ -322,7 +322,7 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
-    fun handoverBypassToDirectNeedsTwoVpsHits() {
+    fun handoverBypassToDirectNeedsUnderlayChangeNotStreak() {
         assertEquals(
             NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
@@ -334,6 +334,18 @@ class NetworkRecoveryPolicyTest {
                 sameProbeStreak = 1,
             ),
         )
+        // Stall / ghost TCP :9100 — two DirectOk hits must not yank Bypass.
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                sameProbeStreak = 2,
+            ),
+        )
         assertEquals(
             NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
             decideNetworkHandoverAction(
@@ -342,7 +354,8 @@ class NetworkRecoveryPolicyTest {
                 probedPath = VpnPath.Direct,
                 bypassAllowed = true,
                 underlayVpsReachable = true,
-                sameProbeStreak = 2,
+                sameProbeStreak = 1,
+                underlayChanged = true,
             ),
         )
     }
@@ -449,13 +462,25 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            NetworkHandoverDecision.SoftRestartSamePath,
+            NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Bypass,
                 probedPath = VpnPath.Direct,
                 bypassAllowed = true,
                 underlayVpsReachable = true,
+                sameProbeStreak = 1,
+                underlayChanged = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayVpsReachable = false,
                 sameProbeStreak = 1,
                 underlayChanged = true,
             ),
@@ -584,6 +609,14 @@ class NetworkRecoveryPolicyTest {
         )
         assertFalse(
             shouldSkipHandoverRestartIfTrafficFresh(
+                bypassTrafficFresh = true,
+                directTrafficFresh = true,
+                path = VpnPath.Bypass,
+                validatedPresent = false,
+            ),
+        )
+        assertFalse(
+            shouldSkipHandoverRestartIfTrafficFresh(
                 bypassTrafficFresh = false,
                 directTrafficFresh = true,
                 path = VpnPath.Direct,
@@ -594,6 +627,21 @@ class NetworkRecoveryPolicyTest {
                 bypassTrafficFresh = true,
                 directTrafficFresh = true,
                 path = VpnPath.Direct,
+            ),
+        )
+        assertEquals(
+            VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS,
+            validatedWaitTimeoutMs(replacementUnderlayPresent = true),
+        )
+        assertEquals(
+            VALIDATED_WAIT_TIMEOUT_MS,
+            validatedWaitTimeoutMs(replacementUnderlayPresent = false),
+        )
+        assertFalse(
+            shouldKeepWaitingForValidated(
+                validatedPresent = false,
+                waitedMs = VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS,
+                timeoutMs = VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS,
             ),
         )
     }
@@ -624,6 +672,23 @@ class NetworkRecoveryPolicyTest {
                 hasFreshRxSinceAnchor = false,
             ),
         )
+        // After a handoff, 10s no-rx is enough (skip the 15s cold-start grace).
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 20_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 12_000L,
+                hasFreshRxSinceAnchor = false,
+            ),
+        )
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 23_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 12_000L,
+                hasFreshRxSinceAnchor = false,
+            ),
+        )
         assertEquals(
             DeadDirectDecision.SwitchToBypass,
             decideDeadDirectAction(ConnPathMode.Auto, bypassAllowed = true),
@@ -635,6 +700,36 @@ class NetworkRecoveryPolicyTest {
         assertEquals(
             DeadDirectDecision.FailSession,
             decideDeadDirectAction(ConnPathMode.Direct, bypassAllowed = true),
+        )
+    }
+
+    @Test
+    fun stallProbeMustNotUpgradeBypassAfterDeadDirect() {
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                sameProbeStreak = 2,
+                underlayChanged = false,
+                allowBypassToDirect = false,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                sameProbeStreak = 1,
+                underlayChanged = true,
+                directFailedOnCurrentUnderlay = true,
+            ),
         )
     }
 }
