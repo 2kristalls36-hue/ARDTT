@@ -1,6 +1,12 @@
 package com.nonamevpn.app.telemetry
 
+import android.content.Context
+import com.nonamevpn.app.core.pickBestUnderlayNetwork
 import java.io.File
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -16,6 +22,7 @@ import okio.source
 
 class TelemetryUploadClient {
     suspend fun upload(
+        context: Context,
         file: File,
         clientId: String,
         uploadUrl: String,
@@ -29,16 +36,22 @@ class TelemetryUploadClient {
         while (attempt < MAX_RETRIES) {
             attempt++
             val result = runCatching {
-                uploadOnce(file, clientId, uploadUrl, onProgress)
+                uploadOnce(context, file, clientId, uploadUrl, onProgress)
             }
             if (result.isSuccess) return@withContext result
             lastError = result.exceptionOrNull()
             if (attempt < MAX_RETRIES) delay(RETRY_DELAY_MS * attempt)
         }
-        Result.failure(lastError ?: IllegalStateException("Не удалось отправить лог"))
+        Result.failure(
+            IllegalStateException(
+                friendlyError(lastError),
+                lastError,
+            ),
+        )
     }
 
     private fun uploadOnce(
+        context: Context,
         file: File,
         clientId: String,
         uploadUrl: String,
@@ -58,19 +71,78 @@ class TelemetryUploadClient {
             .build()
 
         onProgress(0.05f)
-        // Do not feed a telemetry log upload back into the telemetry interceptor:
-        // buffering a multipart body can duplicate the whole (up to 100 MB) file in RAM.
-        val client = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .build()
+        // Prefer underlay so upload works while the tunnel is up / broken.
+        val underlay = pickBestUnderlayNetwork(context)
+        val clientBuilder = OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+        if (underlay != null) {
+            clientBuilder.socketFactory(underlay.socketFactory)
+        }
+        val client = clientBuilder.build()
 
-        client.newCall(request).execute().use { response ->
-            onProgress(1f)
-            if (!response.isSuccessful) {
-                throw IllegalStateException("Сервер вернул ${response.code}: ${response.body?.string()}")
+        try {
+            client.newCall(request).execute().use { response ->
+                onProgress(1f)
+                if (!response.isSuccessful) {
+                    val body = response.body?.string().orEmpty().take(200)
+                    throw IllegalStateException(
+                        "Сервер логов вернул ${response.code}" +
+                            if (body.isNotBlank()) ": $body" else "",
+                    )
+                }
             }
+        } catch (t: Throwable) {
+            // Retry once on default route if underlay bind failed.
+            if (underlay != null && isNetworkFailure(t)) {
+                OkHttpClient.Builder()
+                    .connectTimeout(20, TimeUnit.SECONDS)
+                    .readTimeout(120, TimeUnit.SECONDS)
+                    .writeTimeout(120, TimeUnit.SECONDS)
+                    .build()
+                    .newCall(request)
+                    .execute()
+                    .use { response ->
+                        onProgress(1f)
+                        if (!response.isSuccessful) {
+                            val body = response.body?.string().orEmpty().take(200)
+                            throw IllegalStateException(
+                                "Сервер логов вернул ${response.code}" +
+                                    if (body.isNotBlank()) ": $body" else "",
+                            )
+                        }
+                    }
+            } else {
+                throw t
+            }
+        }
+    }
+
+    private fun isNetworkFailure(t: Throwable): Boolean {
+        var cur: Throwable? = t
+        while (cur != null) {
+            when (cur) {
+                is ConnectException, is SocketTimeoutException, is UnknownHostException, is IOException ->
+                    return true
+            }
+            cur = cur.cause
+        }
+        return false
+    }
+
+    private fun friendlyError(t: Throwable?): String {
+        val msg = t?.message.orEmpty()
+        return when {
+            t is ConnectException || msg.contains("Failed to connect", ignoreCase = true) ||
+                msg.contains("ECONNREFUSED", ignoreCase = true) ->
+                "Сервер логов недоступен (:9200). Проверьте, что на VPS запущен nvpn-telemetry."
+            t is SocketTimeoutException || msg.contains("timeout", ignoreCase = true) ->
+                "Таймаут отправки лога. Повторите при стабильной сети."
+            t is UnknownHostException ->
+                "Не удалось разрешить адрес сервера логов."
+            msg.isNotBlank() -> msg
+            else -> "Не удалось отправить лог"
         }
     }
 

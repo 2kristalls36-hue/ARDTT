@@ -227,8 +227,13 @@ if curl -fsS "http://127.0.0.1:9100/health" >/dev/null 2>&1; then
 else
   echo "NVPN_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml logs"
 fi
+if curl -fsS "http://127.0.0.1:9200/health" >/dev/null 2>&1; then
+  prog 0.93 "telemetry /health OK"
+else
+  echo "NVPN_WARN|telemetry :9200 не отвечает — логи тестирования не примут. docker compose -f $STACK/docker-compose.yml up -d --no-deps telemetry"
+fi
 if docker exec nvpn-provision test -s /data/users.json 2>/dev/null; then
-  prog 0.93 "provision видит /data/users.json"
+  prog 0.94 "provision видит /data/users.json"
 else
   echo "NVPN_WARN|provision не видит /data/users.json — контейнер, скорее всего, на старом inode. Выполните: cd $STACK && docker compose up -d --force-recreate"
 fi
@@ -238,11 +243,13 @@ if command -v ufw >/dev/null 2>&1; then
   ufw allow "${DIRECT_PORT}/udp" || true
   ufw allow "${BYPASS_PORT}/udp" || true
   ufw allow 9100/tcp || true
+  ufw allow 9200/tcp || true
 fi
 if command -v firewall-cmd >/dev/null 2>&1; then
   firewall-cmd --add-port="${DIRECT_PORT}/udp" --permanent || true
   firewall-cmd --add-port="${BYPASS_PORT}/udp" --permanent || true
   firewall-cmd --add-port=9100/tcp --permanent || true
+  firewall-cmd --add-port=9200/tcp --permanent || true
   firewall-cmd --reload || true
 fi
 
