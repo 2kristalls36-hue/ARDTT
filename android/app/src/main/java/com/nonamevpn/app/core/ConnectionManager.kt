@@ -65,7 +65,7 @@ class ConnectionManager(
     private var directEndpoint: String? = null
     private var provisionUrl: String? = null
     private var tunAddress: String? = null
-    private var workers: Int = 3
+    private var workers: Int = BypassWorkers.DEFAULT
     private var silentRecreate: Boolean = false
     private var dialPath: DialPath = DialPath.Auto
     private var pathMode: ConnPathMode = ConnPathMode.Auto
@@ -1323,10 +1323,10 @@ class ConnectionManager(
 
     companion object {
         private const val TAG = "ConnMgr"
-        private const val DEFAULT_WORKERS = 3
+        private const val DEFAULT_WORKERS = BypassWorkers.DEFAULT
         private const val BYPASS_WORKERS_WAIT_MS = 25_000L
         private const val BYPASS_WORKERS_POLL_MS = 250L
-        private const val TRANSPORT_RESTART_DEBOUNCE_MS = 400L
+        private const val TRANSPORT_RESTART_DEBOUNCE_MS = 150L
 
         @Volatile
         private var instance: ConnectionManager? = null

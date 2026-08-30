@@ -4,6 +4,7 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.nonamevpn.app.core.AppLog
+import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.TransportHealth
 import com.nonamevpn.app.profile.VpnProfile
 import java.util.concurrent.atomic.AtomicBoolean
@@ -18,7 +19,7 @@ import kotlinx.coroutines.selects.select
 data class BypassConfig(
     val profile: VpnProfile,
     val callHash: String,
-    val workers: Int = 3,
+    val workers: Int = BypassWorkers.DEFAULT,
     val dialPath: DialPath = DialPath.Auto,
     val silentRecreate: Boolean = false,
     val hideIp: Boolean = false,
@@ -43,6 +44,7 @@ class BypassSession {
     private var job: Job? = null
     private var go: BypassGoProcess? = null
     private var tun: ParcelFileDescriptor? = null
+    @Volatile private var keepTunOnStop = false
     @Volatile var phase: BypassPhase = BypassPhase.Idle
         private set
 
@@ -53,6 +55,7 @@ class BypassSession {
         establishTun: (ip: String, dnsCsv: String, mtu: Int) -> ParcelFileDescriptor?,
         onPhase: (BypassPhase) -> Unit,
     ) {
+        keepTunOnStop = false
         stop()
         running.set(true)
         TransportHealth.noteBackendStarted()
@@ -134,7 +137,7 @@ class BypassSession {
                 Log.e(TAG, "bypass session error", t)
                 setPhase(BypassPhase.Failed(t.message ?: "bypass error"), onPhase)
             } finally {
-                cleanup()
+                cleanup(keepTunOnStop)
                 if (phase !is BypassPhase.Failed) {
                     setPhase(BypassPhase.Stopped, onPhase)
                 }
@@ -143,18 +146,22 @@ class BypassSession {
         }
     }
 
-    fun stop() {
+    fun stop(keepTun: Boolean = false) {
+        // Set the flag before cancel so the coroutine finally does not close TUN.
+        keepTunOnStop = keepTun
         running.set(false)
         job?.cancel()
         job = null
-        cleanup()
+        cleanup(keepTun)
         phase = BypassPhase.Stopped
     }
 
-    private fun cleanup() {
+    private fun cleanup(keepTun: Boolean = false) {
         go?.stop()
         go = null
-        runCatching { tun?.close() }
+        if (!keepTun) {
+            runCatching { tun?.close() }
+        }
         tun = null
         TransportHealth.noteBackendStopped()
     }

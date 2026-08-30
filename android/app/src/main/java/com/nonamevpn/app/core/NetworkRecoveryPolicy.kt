@@ -25,10 +25,10 @@ data class TransportRecoveryPolicy(
 
 fun transportRecoveryPolicy(): TransportRecoveryPolicy =
     TransportRecoveryPolicy(
-        // Fast enough for Wi‑Fi↔LTE; still lets DHCP/VALIDATED settle.
-        networkSettleDelayMs = 1_000L,
-        reconnectMinIntervalMs = 12_000L,
-        processRestartDelayMs = 400L,
+        // Wi‑Fi↔LTE: wait just long enough for VALIDATED, then rebind TURN.
+        networkSettleDelayMs = 400L,
+        reconnectMinIntervalMs = 4_000L,
+        processRestartDelayMs = 150L,
     )
 
 fun classifyValidatedNetworkTransition(
@@ -90,7 +90,7 @@ fun softRestartCooldownMs(
     minIntervalMs: Long,
     softRestartCount: Int,
 ): Long =
-    (minIntervalMs + softRestartCount.coerceAtMost(4) * 8_000L).coerceAtMost(90_000L)
+    (minIntervalMs + softRestartCount.coerceAtMost(3) * 2_000L).coerceAtMost(15_000L)
 
 fun shouldAttemptSoftRestartNow(
     nowMs: Long,
@@ -111,7 +111,7 @@ const val WAKE_RESCUE_GRACE_MS = 25_000L
 const val WAKE_RECOVERY_GRACE_MS = 35_000L
 
 /** Path B: soft-restart if Активных stays 0 this long while screen is on. */
-const val ZERO_WORKERS_GRACE_MS = 20_000L
+const val ZERO_WORKERS_GRACE_MS = 8_000L
 
 /** Soft-restart if backend process/job is dead this long. */
 const val PROCESS_DEAD_GRACE_MS = 20_000L
@@ -120,7 +120,7 @@ const val PROCESS_DEAD_GRACE_MS = 20_000L
  * Path B: workers > 0 but traffic counter flat this long after a handoff
  * (zombie TCP sockets until broken-pipe).
  */
-const val TRAFFIC_STALL_AFTER_HANDOFF_MS = 18_000L
+const val TRAFFIC_STALL_AFTER_HANDOFF_MS = 8_000L
 
 /** Same stall detection without a recent handoff (slower threshold). */
 const val TRAFFIC_STALL_IDLE_MS = 45_000L

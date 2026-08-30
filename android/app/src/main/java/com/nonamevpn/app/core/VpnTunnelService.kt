@@ -74,6 +74,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var tunnelSessionActive = false
     @Volatile private var lastSoftRestartAtMs = 0L
     @Volatile private var softRestartCount = 0
+    @Volatile private var lastTunIp: String? = null
+    @Volatile private var lastTunDns: String? = null
+    @Volatile private var lastTunMtu: Int = 0
     private val recoveryPolicy = transportRecoveryPolicy()
 
     private var screenReceiver: BroadcastReceiver? = null
@@ -227,11 +230,26 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
 
         val epoch = ++backendEpoch
+        val reuseBypassTun = shouldReuseBypassTunOnSoftRestart(
+            softRestart = softRestart,
+            pathIsBypass = path == VpnPath.Bypass,
+            currentBackendIsBypass = backend is BypassBackend,
+            tunValid = tunStillValid(),
+        )
+        val currentBackend = backend
+        if (reuseBypassTun && currentBackend is BypassBackend) {
+            currentBackend.stopKeepingTun()
+        } else {
+            currentBackend?.stop()
+        }
         sessionJob?.cancel()
-        backend?.stop()
+        sessionJob = null
         backend = null
-        runCatching { tun?.close() }
-        tun = null
+        if (!reuseBypassTun) {
+            forgetTun()
+        } else {
+            AppLog.i(TAG, "keeping Bypass TUN for transport restart fd=${tun?.fd}")
+        }
         TransportHealth.noteBackendStarted()
 
         val chosen: TunnelBackend = when (path) {
@@ -702,8 +720,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         sessionJob = null
         backend?.stop()
         backend = null
-        runCatching { tun?.close() }
-        tun = null
+        forgetTun()
         TransportHealth.noteBackendStopped()
         ConnectionManager.getOrNull()?.onTrustedWifiWaiting(ssid)
         val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
@@ -1072,14 +1089,30 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     }
 
     override fun establishTun(ip: String, dnsCsv: String, mtu: Int): ParcelFileDescriptor? {
+        val ipAddr = ip.substringBefore('/')
+        val wantMtu = mtu.coerceIn(576, 1500)
+        if (
+            canReuseBypassTun(
+                existingValid = tunStillValid(),
+                lastIp = lastTunIp,
+                lastDns = lastTunDns,
+                lastMtu = lastTunMtu,
+                ip = ip,
+                dns = dnsCsv,
+                mtu = mtu,
+            )
+        ) {
+            AppLog.i(TAG, "TUN reused fd=${tun?.fd} ip=$ip mtu=$wantMtu")
+            return tun
+        }
         runCatching { tun?.close() }
         tun = null
         val path = TunnelSessionHolder.config?.path
         val bypassTun = path == VpnPath.Bypass
         val builder = Builder()
             .setSession(if (bypassTun) "ARDTT-raw" else "ARDTT")
-            .setMtu(mtu.coerceIn(576, 1500))
-            .addAddress(ip.substringBefore('/'), 32)
+            .setMtu(wantMtu)
+            .addAddress(ipAddr, 32)
             .addRoute("0.0.0.0", 0)
         dnsCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { d ->
             runCatching { builder.addDnsServer(d) }
@@ -1129,9 +1162,18 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
         val pfd = builder.establish()
         tun = pfd
+        if (pfd != null) {
+            lastTunIp = ipAddr
+            lastTunDns = dnsCsv
+            lastTunMtu = wantMtu
+        } else {
+            lastTunIp = null
+            lastTunDns = null
+            lastTunMtu = 0
+        }
         AppLog.i(
             TAG,
-            "TUN established ip=$ip mtu=$mtu fd=${pfd?.fd} path=$path " +
+            "TUN established ip=$ip mtu=$wantMtu fd=${pfd?.fd} path=$path " +
                 "apps=${excludedApps.size} whitelist=$whitelist " +
                 "planWhitelist=${plan.whitelistMode} hosts=${excludedHosts.size} " +
                 "disallowed=${plan.disallowed.size} allowed=${plan.allowed.size} " +
@@ -1145,6 +1187,17 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         true
     } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
         false
+    }
+
+    private fun tunStillValid(): Boolean =
+        runCatching { tun?.fileDescriptor?.valid() == true }.getOrDefault(false)
+
+    private fun forgetTun() {
+        runCatching { tun?.close() }
+        tun = null
+        lastTunIp = null
+        lastTunDns = null
+        lastTunMtu = 0
     }
 
     private fun applyExcludedHostRoutes(builder: Builder, hosts: Set<String>) {
@@ -1186,8 +1239,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         sessionJob = null
         backend?.stop()
         backend = null
-        runCatching { tun?.close() }
-        tun = null
+        forgetTun()
         TransportHealth.noteBackendStopped()
         if (!keepService) {
             stopForeground(STOP_FOREGROUND_REMOVE)

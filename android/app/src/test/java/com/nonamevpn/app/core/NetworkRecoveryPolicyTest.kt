@@ -88,13 +88,14 @@ class NetworkRecoveryPolicyTest {
 
     @Test
     fun softRestartCooldownBacksOff() {
-        assertEquals(12_000L, softRestartCooldownMs(12_000L, 0))
-        assertEquals(20_000L, softRestartCooldownMs(12_000L, 1))
-        assertEquals(44_000L, softRestartCooldownMs(12_000L, 4))
-        assertEquals(44_000L, softRestartCooldownMs(12_000L, 20)) // count capped at 4
-        assertTrue(shouldAttemptSoftRestartNow(100_000L, 0L, 12_000L, 0, force = false))
-        assertFalse(shouldAttemptSoftRestartNow(20_000L, 15_000L, 12_000L, 0, force = false))
-        assertTrue(shouldAttemptSoftRestartNow(20_000L, 15_000L, 12_000L, 0, force = true))
+        assertEquals(4_000L, softRestartCooldownMs(4_000L, 0))
+        assertEquals(6_000L, softRestartCooldownMs(4_000L, 1))
+        assertEquals(10_000L, softRestartCooldownMs(4_000L, 3))
+        assertEquals(10_000L, softRestartCooldownMs(4_000L, 20))
+        assertEquals(15_000L, softRestartCooldownMs(12_000L, 4))
+        assertTrue(shouldAttemptSoftRestartNow(100_000L, 0L, 4_000L, 0, force = false))
+        assertFalse(shouldAttemptSoftRestartNow(20_000L, 17_000L, 4_000L, 0, force = false))
+        assertTrue(shouldAttemptSoftRestartNow(20_000L, 17_000L, 4_000L, 0, force = true))
     }
 
     @Test

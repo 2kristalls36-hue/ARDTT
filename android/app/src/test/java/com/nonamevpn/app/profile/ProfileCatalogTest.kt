@@ -1,5 +1,6 @@
 package com.nonamevpn.app.profile
 
+import com.nonamevpn.app.core.BypassWorkers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -17,10 +18,13 @@ class ProfileCatalogTest {
     }
 
     @Test
-    fun parseAlwaysUsesThreeWorkers() {
-        val raw = VpnProfileJson.encode(sample("alice", "dev-a")).replace("\"workers\":3", "\"workers\":9")
-        assertEquals(3, VpnProfileJson.parse(raw).bypass.workers)
-        assertTrue(VpnProfileJson.encode(sample("alice", "dev-a")).contains("\"workers\":3"))
+    fun parseAlwaysUsesDefaultWorkers() {
+        val raw = VpnProfileJson.encode(sample("alice", "dev-a")).replace(
+            "\"workers\":${BypassWorkers.DEFAULT}",
+            "\"workers\":3",
+        )
+        assertEquals(BypassWorkers.DEFAULT, VpnProfileJson.parse(raw).bypass.workers)
+        assertTrue(VpnProfileJson.encode(sample("alice", "dev-a")).contains("\"workers\":${BypassWorkers.DEFAULT}"))
         assertFalse(VpnProfileJson.encode(sample("alice", "dev-a")).contains("\n"))
     }
 
