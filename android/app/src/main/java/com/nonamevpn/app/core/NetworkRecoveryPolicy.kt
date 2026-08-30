@@ -381,6 +381,13 @@ fun shouldObserveTunnelHealth(
         !trustedWifiWaiting &&
         !softRestartInProgress
 
+/** Direct blackhole after Wi‑Fi→LTE must be visible even during wake grace. */
+fun shouldObserveDirectEgress(
+    tunnelRunning: Boolean,
+    userStopRequested: Boolean,
+    softRestartInProgress: Boolean,
+): Boolean = tunnelRunning && !userStopRequested && !softRestartInProgress
+
 fun shouldSoftRestartForZeroWorkers(
     activeWorkers: Int,
     zeroSinceMs: Long,

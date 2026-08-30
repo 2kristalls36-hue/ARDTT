@@ -240,6 +240,31 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun directEgressWatchdogIgnoresWakeGrace() {
+        assertTrue(
+            shouldObserveDirectEgress(
+                tunnelRunning = true,
+                userStopRequested = false,
+                softRestartInProgress = false,
+            ),
+        )
+        assertFalse(
+            shouldObserveDirectEgress(
+                tunnelRunning = true,
+                userStopRequested = false,
+                softRestartInProgress = true,
+            ),
+        )
+        assertFalse(
+            shouldObserveDirectEgress(
+                tunnelRunning = false,
+                userStopRequested = false,
+                softRestartInProgress = false,
+            ),
+        )
+    }
+
+    @Test
     fun parseTrafficFromStatsLine() {
         val line =
             "[СТАТИСТИКА] Активных: 3 | Трафик: 29.30 МБ | ↓24.89 МБ / ↑4.41 МБ"

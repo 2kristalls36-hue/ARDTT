@@ -429,7 +429,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         lastSoftRestartAtMs = now
         softRestartCount++
         softRestartInProgress = true
-        wakeRecoveryGraceUntilMs = now + WAKE_RECOVERY_GRACE_MS
+        // Handover rebind must still detect dead Direct. Wake grace is for
+        // SCREEN_ON / process flaps, not for Wi‑Fi→LTE.
+        if (!reason.startsWith("[СЕТЬ]")) {
+            wakeRecoveryGraceUntilMs = now + WAKE_RECOVERY_GRACE_MS
+        }
+        lastHandoffAtMs = now
         zeroWorkersSinceMs = 0L
         processDeadSinceMs = 0L
         val path = pathOverride ?: TunnelSessionHolder.config?.path
@@ -573,32 +578,28 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             while (true) {
                 delay(WATCHDOG_POLL_MS)
                 if (userStopRequested || trustedWifiWaiting) continue
-                if (
-                    !shouldObserveTunnelHealth(
-                        deviceInteractive = isDeviceInteractive(),
-                        wakeRecoveryGraceActive = System.currentTimeMillis() < wakeRecoveryGraceUntilMs,
-                        trustedWifiWaiting = trustedWifiWaiting,
-                        softRestartInProgress = softRestartInProgress,
-                    )
-                ) {
-                    continue
-                }
                 if (!tunnelSessionActive) continue
                 val path = TunnelSessionHolder.config?.path ?: continue
                 val now = System.currentTimeMillis()
                 val jobAlive = sessionJob?.isActive == true
-                if (!jobAlive) {
-                    if (processDeadSinceMs == 0L) processDeadSinceMs = now
-                    if (now - processDeadSinceMs >= PROCESS_DEAD_GRACE_MS) {
-                        AppLog.w(TAG, "watchdog: backend job dead → soft restart")
-                        requestSoftRestart(reason = "[ЗДОРОВЬЕ] Процесс туннеля не отвечает", force = false)
-                        processDeadSinceMs = 0L
+                if (
+                    path == VpnPath.Direct &&
+                    shouldObserveDirectEgress(
+                        tunnelRunning = tunnelSessionActive,
+                        userStopRequested = userStopRequested,
+                        softRestartInProgress = softRestartInProgress,
+                    )
+                ) {
+                    if (!jobAlive) {
+                        if (processDeadSinceMs == 0L) processDeadSinceMs = now
+                        if (now - processDeadSinceMs >= PROCESS_DEAD_GRACE_MS) {
+                            AppLog.w(TAG, "watchdog: backend job dead → soft restart")
+                            requestSoftRestart(reason = "[ЗДОРОВЬЕ] Процесс туннеля не отвечает", force = false)
+                            processDeadSinceMs = 0L
+                        }
+                        continue
                     }
-                    continue
-                } else {
                     processDeadSinceMs = 0L
-                }
-                if (path == VpnPath.Direct) {
                     VpnLiveStats.sample()
                     val nowDirect = System.currentTimeMillis()
                     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
@@ -619,6 +620,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         )
                         ConnectionManager.getOrNull()?.onDeadDirectNoRx()
                     }
+                    continue
+                }
+                if (
+                    !shouldObserveTunnelHealth(
+                        deviceInteractive = isDeviceInteractive(),
+                        wakeRecoveryGraceActive = System.currentTimeMillis() < wakeRecoveryGraceUntilMs,
+                        trustedWifiWaiting = trustedWifiWaiting,
+                        softRestartInProgress = softRestartInProgress,
+                    )
+                ) {
                     continue
                 }
                 val workers = TransportHealth.activeWorkers
