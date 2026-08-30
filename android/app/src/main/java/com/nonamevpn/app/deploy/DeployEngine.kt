@@ -130,7 +130,10 @@ class DeployEngine(private val appContext: Context) {
             }
             if (code != 0) {
                 val hint = _log.value.takeLast(8).joinToString(" ")
-                val diskHint = when {
+                val detail = when {
+                    code == -1 ->
+                        " — SSH-сессия оборвалась во время установки (Wi‑Fi/фон). " +
+                            "Повторите деплой: образы собираются до остановки старого стека"
                     hint.contains("no space", ignoreCase = true) ||
                         hint.contains("write /") ||
                         hint.contains("Мало места") ->
@@ -144,7 +147,7 @@ class DeployEngine(private val appContext: Context) {
                         .put("exit_code", code)
                         .put("log_tail", hint),
                 )
-                error("install.sh exit=$code$diskHint")
+                error("install.sh exit=$code$detail")
             }
             // Belt-and-suspenders: ensure archive/logs from older installs are gone
             runCatching {
