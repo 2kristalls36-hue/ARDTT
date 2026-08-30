@@ -65,6 +65,7 @@ import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyBottomScaffold
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -178,6 +179,10 @@ fun ProfilesScreen(
         }
     }
 
+    val pull = rememberPullRefresh {
+        profiles.snapshot()
+    }
+
     StickyBottomScaffold(
         stickyContent = {
             StickyPrimaryButton(
@@ -187,6 +192,8 @@ fun ProfilesScreen(
                 icon = Icons.Default.Add,
             )
         },
+        refreshing = pull.refreshing,
+        onRefresh = pull.onRefresh,
     ) {
         AppTabPageHeader(
             title = "Профили подключения",

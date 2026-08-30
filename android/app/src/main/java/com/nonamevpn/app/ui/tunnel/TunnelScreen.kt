@@ -73,10 +73,14 @@ import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun TunnelScreen(
@@ -205,7 +209,33 @@ fun TunnelScreen(
         label = "btn_color",
     )
 
+    val pull = rememberPullRefresh {
+        refreshUnderlayStats(forceProviderIp = true)
+        val ip = runCatching {
+            EgressIpProbe.refresh(
+                hideIp = hideIp,
+                provisionBaseUrl = profile?.provisionBaseUrl,
+                deviceId = profile?.deviceId,
+                context = context,
+                viaVpn = sessionUp,
+            )
+        }.getOrNull()
+        publicIp = ip ?: EgressIpProbe.current()
+        val skipProbe = connecting || connected || pausedTrusted || disconnecting
+        if (!skipProbe) {
+            conn.startInitialProbe()
+            withTimeoutOrNull(12_000) {
+                conn.ui.first { it.state != ConnState.Probing }
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
+            indicatorStatusBarInset = true,
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -475,6 +505,7 @@ fun TunnelScreen(
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
+        }
         }
 
         // Sticky «Подключить» / «Отменить» (same button) above tab bar

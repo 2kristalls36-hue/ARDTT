@@ -64,7 +64,9 @@ import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -190,7 +192,14 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
     }
 
+    val pull = rememberPullRefresh { refreshLogs() }
+
     Box(modifier = Modifier.fillMaxSize()) {
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
+            indicatorStatusBarInset = true,
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -290,6 +299,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     }
                 }
             }
+        }
         }
 
         Box(
