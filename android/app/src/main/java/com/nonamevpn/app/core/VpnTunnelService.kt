@@ -666,12 +666,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 "stalled=${now - TransportHealth.lastTrafficGrowthAtMs}ms " +
                                 "sinceHandoff=${if (lastHandoffAtMs > 0) now - lastHandoffAtMs else -1}",
                         )
-                        // Re-probe: e.g. Wi‑Fi returned while stuck on Bypass zombies.
-                        scope.launch {
-                            runHandoverProbeAndRestart(
-                                "Трафик встал после смены сети — проверка пути",
-                            )
-                        }
+                        // Same path only. Re-probing Bypass as DirectOk (TCP :9100)
+                        // after a dead-Direct fallback yanked a working Bypass.
+                        requestSoftRestart(
+                            reason = "[ЗДОРОВЬЕ] Трафик встал — переподключаем тот же путь",
+                            force = true,
+                        )
                     }
                 }
             }
@@ -1037,10 +1037,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeJob = scope.launch {
             try {
                 val validatedWaitStart = System.currentTimeMillis()
+                val validatedTimeoutMs = validatedWaitTimeoutMs(activeNetworks.isNotEmpty())
                 while (
                     shouldKeepWaitingForValidated(
                         validatedPresent = hasValidatedRealNetwork(),
                         waitedMs = System.currentTimeMillis() - validatedWaitStart,
+                        timeoutMs = validatedTimeoutMs,
                     )
                 ) {
                     delay(VALIDATED_WAIT_POLL_MS)
@@ -1135,10 +1137,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 VpnLiveStats.sample()
                 val livePath = TunnelSessionHolder.config?.path ?: path
                 val evidence = stableNetworkEvidenceSinceMs
+                val validatedNow = hasValidatedRealNetwork()
                 val skipRestart = shouldSkipHandoverRestartIfTrafficFresh(
                     bypassTrafficFresh = TransportHealth.hasFreshInboundSince(evidence),
                     directTrafficFresh = VpnLiveStats.hasFreshRxSince(evidence),
                     path = livePath,
+                    validatedPresent = validatedNow,
                 )
                 if (skipRestart) {
                     AppLog.v(
@@ -1147,6 +1151,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             "since $evidence ($reason)",
                     )
                     return@launch
+                }
+                if (!validatedNow && livePath == VpnPath.Bypass) {
+                    AppLog.v(
+                        TAG,
+                        "handover: not skipping Bypass — underlay not VALIDATED ($reason)",
+                    )
                 }
                 runHandoverProbeAndRestart(
                     reason,

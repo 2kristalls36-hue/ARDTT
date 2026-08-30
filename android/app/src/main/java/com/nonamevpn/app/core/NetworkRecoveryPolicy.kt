@@ -56,7 +56,18 @@ const val DIRECT_RECONNECT_MIN_INTERVAL_MS = 6_000L
 /** Give LTE/Wi‑Fi this long to become VALIDATED before probing / joining VK. */
 const val VALIDATED_WAIT_TIMEOUT_MS = 12_000L
 
+/**
+ * When the replacement underlay is already tracked (Wi‑Fi→LTE, SIM swap)
+ * do not sit the full [VALIDATED_WAIT_TIMEOUT_MS] — Android often never
+ * marks LTE VALIDATED while the VPN is up.
+ */
+const val VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS = 2_500L
+
 const val VALIDATED_WAIT_POLL_MS = 300L
+
+fun validatedWaitTimeoutMs(replacementUnderlayPresent: Boolean): Long =
+    if (replacementUnderlayPresent) VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS
+    else VALIDATED_WAIT_TIMEOUT_MS
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,
@@ -141,16 +152,18 @@ fun updatedUnderlyingNetworkEvidenceSince(
 
 /**
  * Plus: skip soft-restart when inbound traffic already flows after the event.
- * That is safe for Path B (TURN to localhost). Path A AWG UDP stays glued to
- * the old Wi‑Fi: leftover rx_bytes after loss is not proof the new underlay
- * works, and skipping the rebind leaves Auto stuck on a dead Direct.
+ * That is safe for Path B only after Android VALIDATED the **new** underlay.
+ * Leftover TURN counters after Wi‑Fi→LTE / SIM swap are not proof the sockets
+ * rebound — they stay glued to the old cell IP until we restart.
+ * Path A AWG UDP: never skip.
  */
 fun shouldSkipHandoverRestartIfTrafficFresh(
     bypassTrafficFresh: Boolean,
     directTrafficFresh: Boolean,
     path: VpnPath,
+    validatedPresent: Boolean = true,
 ): Boolean = when (path) {
-    VpnPath.Bypass -> bypassTrafficFresh
+    VpnPath.Bypass -> validatedPresent && bypassTrafficFresh
     VpnPath.Direct -> false
 }
 
@@ -179,10 +192,11 @@ const val ZERO_WORKERS_GRACE_MS = 8_000L
 const val PROCESS_DEAD_GRACE_MS = 20_000L
 
 /**
- * Path B: workers > 0 but traffic counter flat this long after a handoff
- * (zombie TCP sockets until broken-pipe).
+ * Path B: workers > 0 but traffic counter flat this long after a handoff.
+ * Must be well above go_client МБ tick idle (user not browsing) or a live
+ * Bypass is torn down and re-probed as Direct.
  */
-const val TRAFFIC_STALL_AFTER_HANDOFF_MS = 8_000L
+const val TRAFFIC_STALL_AFTER_HANDOFF_MS = 30_000L
 
 /** Same stall detection without a recent handoff (slower threshold). */
 const val TRAFFIC_STALL_IDLE_MS = 45_000L
@@ -224,8 +238,10 @@ const val HANDOVER_IGNORE_GRACE_MS = 12_000L
 const val HANDOVER_DIRECT_TO_BYPASS_STREAK = 2
 
 /**
- * Bypass → Direct only after this many consecutive “VPS IP up” probes.
- * One 163 ms `/health` blip must not yank a working Bypass.
+ * Bypass → Direct used to require this many consecutive “VPS IP up” probes.
+ * Stall recovery on a whitelist LTE (TCP :9100 up, AWG UDP dead) hit this
+ * without an underlay change and yanked a working Bypass. Upgrade now only
+ * on a confirmed underlay change — the constant remains for tests / docs.
  */
 const val HANDOVER_BYPASS_TO_DIRECT_STREAK = 2
 
@@ -251,8 +267,9 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
  * - Direct → Bypass when Yandex DNS is up and the VPS IP is not (whitelist),
  *   only after [HANDOVER_DIRECT_TO_BYPASS_STREAK] consecutive hits. The first
  *   miss rebinds Direct instead of switching.
- * - Bypass → Direct only after [HANDOVER_BYPASS_TO_DIRECT_STREAK] consecutive
- *   VPS-IP successes (open Wi‑Fi), not a single flaky TCP.
+ * - Bypass → Direct only when the underlay actually changed and VPS IP is
+ *   reachable (open Wi‑Fi). Consecutive TCP hits without a new network are
+ *   not enough: LTE can reach provision :9100 while AWG UDP is dead.
  * - Forced Direct/Bypass only rebind when the underlay actually changed.
  * - Stable whitelist Bypass (VPS down, no underlay change) is [NoAction].
  * - A confirmed underlay change (lost network / new id) always rebinds the
@@ -271,6 +288,8 @@ fun decideNetworkHandoverAction(
     underlayVpsReachable: Boolean = probedPath == VpnPath.Direct,
     sameProbeStreak: Int = 1,
     underlayChanged: Boolean = false,
+    allowBypassToDirect: Boolean = true,
+    directFailedOnCurrentUnderlay: Boolean = false,
 ): NetworkHandoverDecision {
     val inGrace = sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS
     if (inGrace && !underlayChanged) {
@@ -302,17 +321,15 @@ fun decideNetworkHandoverAction(
             NetworkHandoverDecision.NoAction
         }
     }
-    if (vpsUp && sameProbeStreak >= HANDOVER_BYPASS_TO_DIRECT_STREAK) {
+    val canUpgradeToDirect = allowBypassToDirect && !directFailedOnCurrentUnderlay
+    if (vpsUp && canUpgradeToDirect && underlayChanged) {
         return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
     }
     if (underlayChanged) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
-    if (vpsUp) {
-        return NetworkHandoverDecision.NoAction
-    }
-    // Whitelist Bypass: VPS IP is down by design. Do not soft-restart on
-    // every probe / VPN-bind ghost — that kills TURN workers during warmup.
+    // Whitelist Bypass / stall probe: VPS IP may be up over TCP while AWG UDP
+    // is dead. Do not yank a working Bypass without a new underlay.
     return NetworkHandoverDecision.NoAction
 }
 
@@ -341,11 +358,14 @@ sealed class DeadDirectDecision {
     data object FailSession : DeadDirectDecision()
 }
 
-/** Ignore Direct “no rx” during AWG handshake after start / handoff. */
+/** Ignore Direct “no rx” during AWG handshake after a cold start. */
 const val DEAD_DIRECT_START_GRACE_MS = 15_000L
 
-/** Direct has been up this long since start/handoff with no inbound bytes. */
+/** Direct has been up this long since a cold start with no inbound bytes. */
 const val DEAD_DIRECT_NO_RX_MS = 20_000L
+
+/** After Wi‑Fi→LTE rebind, fail Direct faster — handshake already had a chance. */
+const val DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS = 10_000L
 
 fun shouldTreatDirectAsDeadNoRx(
     nowMs: Long,
@@ -354,11 +374,14 @@ fun shouldTreatDirectAsDeadNoRx(
     hasFreshRxSinceAnchor: Boolean,
     startGraceMs: Long = DEAD_DIRECT_START_GRACE_MS,
     noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
+    noRxAfterHandoffMs: Long = DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS,
 ): Boolean {
     if (sessionStartedAtMs <= 0L) return false
-    if (nowMs - sessionStartedAtMs < startGraceMs) return false
+    val afterHandoff = lastHandoffAtMs > sessionStartedAtMs
+    if (!afterHandoff && nowMs - sessionStartedAtMs < startGraceMs) return false
     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
-    if (nowMs - anchor < noRxMs) return false
+    val requiredNoRx = if (afterHandoff) noRxAfterHandoffMs else noRxMs
+    if (nowMs - anchor < requiredNoRx) return false
     return !hasFreshRxSinceAnchor
 }
 

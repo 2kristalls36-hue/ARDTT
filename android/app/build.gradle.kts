@@ -12,8 +12,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 152
-        versionName = "0.5.134-dead-direct"
+        versionCode = 153
+        versionName = "0.5.135-stall-hold"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",

@@ -72,8 +72,16 @@ class ConnectionManager(
     /** Soft transport restart in progress (Wi‑Fi↔LTE); do not treat as user disconnect. */
     @Volatile private var softRestartInProgress: Boolean = false
     @Volatile private var tunnelStartedAtMs: Long = 0L
-    /** Consecutive identical Auto probe paths — Bypass→Direct needs two VPS-IP hits. */
+    /** Consecutive identical Auto probe paths (Direct→Bypass still uses two hits). */
     private var handoverProbeStreak = ProbeStreak()
+    /** Last underlay handle we probed / bound for handover. */
+    private var lastHandoverBindHandle: Long? = null
+    /**
+     * Direct died (no TUN rx) on this underlay handle. Do not Auto-upgrade
+     * Bypass→Direct on the same network: TCP :9100 can still look DirectOk.
+     */
+    private var deadDirectBindHandle: Long? = null
+    private var blockBypassToDirectUntilUnderlayChange: Boolean = false
 
     init {
         scope.launch {
@@ -471,6 +479,9 @@ class ConnectionManager(
             return
         }
         handoverProbeStreak = ProbeStreak()
+        lastHandoverBindHandle = null
+        deadDirectBindHandle = null
+        blockBypassToDirectUntilUnderlayChange = false
 
         // Sync Hide-IP preference to VPS (policy route via warp0). WARP must be up.
         if (current.hideIp) {
@@ -654,6 +665,9 @@ class ConnectionManager(
         }
         softRestartInProgress = false
         handoverProbeStreak = ProbeStreak()
+        lastHandoverBindHandle = null
+        deadDirectBindHandle = null
+        blockBypassToDirectUntilUnderlayChange = false
         presenceJob?.cancel()
         presenceJob = null
         connectJob?.cancel()
@@ -722,6 +736,7 @@ class ConnectionManager(
     suspend fun decideNetworkHandover(
         bindNetwork: android.net.Network?,
         underlayChanged: Boolean = false,
+        allowBypassToDirect: Boolean = true,
     ): NetworkHandoverDecision {
         val currentPath = TunnelSessionHolder.config?.path
             ?: _ui.value.activePath
@@ -729,6 +744,15 @@ class ConnectionManager(
         val mode = pathMode
         val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
         val pathHealthy = currentPathLooksHealthy(currentPath)
+        bindNetwork?.networkHandle?.let { lastHandoverBindHandle = it }
+        val sameDeadUnderlay = deadDirectBindHandle != null &&
+            bindNetwork?.networkHandle == deadDirectBindHandle
+        if (underlayChanged && !sameDeadUnderlay) {
+            deadDirectBindHandle = null
+            blockBypassToDirectUntilUnderlayChange = false
+        }
+        val directFailedOnCurrentUnderlay = blockBypassToDirectUntilUnderlayChange &&
+            (sameDeadUnderlay || deadDirectBindHandle == null || bindNetwork == null)
         if (mode != ConnPathMode.Auto) {
             val decision = decideNetworkHandoverAction(
                 pathMode = mode,
@@ -738,6 +762,8 @@ class ConnectionManager(
                 sessionAgeMs = handoverSessionAgeMs(),
                 currentPathHealthy = pathHealthy,
                 underlayChanged = underlayChanged,
+                allowBypassToDirect = allowBypassToDirect,
+                directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
             )
             AppLog.v(
                 TAG,
@@ -789,6 +815,8 @@ class ConnectionManager(
             underlayVpsReachable = vpsReachable,
             sameProbeStreak = handoverProbeStreak.count,
             underlayChanged = underlayChanged,
+            allowBypassToDirect = allowBypassToDirect,
+            directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
         )
         when (decision) {
             NetworkHandoverDecision.NoAction -> {
@@ -867,6 +895,9 @@ class ConnectionManager(
             DeadDirectDecision.KeepWatching -> Unit
             DeadDirectDecision.SwitchToBypass -> {
                 AppLog.w(TAG, "Dead Direct (no TUN rx) — Auto → Bypass")
+                handoverProbeStreak = ProbeStreak(VpnPath.Bypass, 1)
+                deadDirectBindHandle = lastHandoverBindHandle
+                blockBypassToDirectUntilUnderlayChange = true
                 applySessionPath(VpnPath.Bypass)
                 _ui.value = _ui.value.copy(
                     state = ConnState.Connecting,
