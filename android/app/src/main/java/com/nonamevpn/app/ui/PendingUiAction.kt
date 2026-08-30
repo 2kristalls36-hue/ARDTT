@@ -12,6 +12,9 @@ object PendingUiAction {
     private val _openCallHashSettings = MutableStateFlow(false)
     val openCallHashSettings: StateFlow<Boolean> = _openCallHashSettings.asStateFlow()
 
+    private val _openDeployServerId = MutableStateFlow<String?>(null)
+    val openDeployServerId: StateFlow<String?> = _openDeployServerId.asStateFlow()
+
     fun requestCallHashSettings() {
         _openCallHashSettings.value = true
     }
@@ -20,6 +23,18 @@ object PendingUiAction {
         if (!_openCallHashSettings.value) return false
         _openCallHashSettings.value = false
         return true
+    }
+
+    fun requestOpenDeploy(serverId: String) {
+        val id = serverId.trim()
+        if (id.isEmpty()) return
+        _openDeployServerId.value = id
+    }
+
+    fun consumeOpenDeploy(): String? {
+        val id = _openDeployServerId.value ?: return null
+        _openDeployServerId.value = null
+        return id
     }
 }
 

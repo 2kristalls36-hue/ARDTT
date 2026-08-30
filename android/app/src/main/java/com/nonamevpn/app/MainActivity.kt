@@ -36,8 +36,8 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
         val settings = AppSettingsRepository(applicationContext)
         val profiles = ProfileRepository(applicationContext)
-        val servers = ServersRepository(applicationContext)
-        val deploy = DeployEngine(applicationContext)
+        val servers = ServersRepository.get(applicationContext)
+        val deploy = DeployEngine.get(applicationContext)
         setContent {
             val recorder = androidx.compose.runtime.remember { TelemetryRecorder.get(applicationContext) }
             val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
@@ -70,6 +70,10 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         when (intent?.action) {
             ACTION_OPEN_CALL_HASH -> PendingUiAction.requestCallHashSettings()
+            com.nonamevpn.app.deploy.DeployService.ACTION_OPEN -> {
+                val id = intent.getStringExtra(com.nonamevpn.app.deploy.DeployService.EXTRA_SERVER_ID)
+                if (!id.isNullOrBlank()) PendingUiAction.requestOpenDeploy(id)
+            }
             AppShortcuts.ACTION_START_TUNNEL -> startTunnelFromShortcut()
             AppShortcuts.ACTION_STOP_TUNNEL -> {
                 ConnectionManager.get(applicationContext).disconnect()

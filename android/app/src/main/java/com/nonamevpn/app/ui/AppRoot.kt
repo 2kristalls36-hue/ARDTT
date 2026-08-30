@@ -187,6 +187,13 @@ fun AppRoot(
         }
     }
 
+    val openDeploy by PendingUiAction.openDeployServerId.collectAsStateWithLifecycle()
+    LaunchedEffect(openDeploy) {
+        if (openDeploy != null && currentRoute != AppDestination.Servers.route) {
+            navigateTab(AppDestination.Servers.route)
+        }
+    }
+
     LaunchedEffect(Unit) {
         AppLog.i("App", "UI ready")
     }
