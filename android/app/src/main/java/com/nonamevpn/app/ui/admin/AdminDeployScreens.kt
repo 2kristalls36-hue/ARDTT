@@ -1,7 +1,11 @@
 package com.nonamevpn.app.ui.admin
 
+import android.Manifest
 import android.content.Context
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -58,7 +62,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -76,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.deploy.DeployBundle
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
@@ -84,6 +88,7 @@ import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
+import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -101,7 +106,30 @@ import java.util.Locale
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+
+@Composable
+private fun rememberStartDeploy(engine: DeployEngine): (DeployTarget, Boolean) -> Boolean {
+    val context = LocalContext.current
+    val pending = remember { mutableStateOf<Pair<DeployTarget, Boolean>?>(null) }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        val job = pending.value ?: return@rememberLauncherForActivityResult
+        pending.value = null
+        engine.enqueue(job.first, job.second)
+    }
+    return { target, isUpdate ->
+        if (needsNotificationPermission(context) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        ) {
+            pending.value = target to isUpdate
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            true
+        } else {
+            engine.enqueue(target, isUpdate)
+        }
+    }
+}
 
 private sealed class ServersNavScreen {
     data object List : ServersNavScreen()
@@ -238,6 +266,12 @@ fun ServersScreen(
             is ServersNavScreen.Overview -> ServersNavScreen.List
             is ServersNavScreen.List -> ServersNavScreen.List
         }
+    }
+
+    val openDeployId by PendingUiAction.openDeployServerId.collectAsStateWithLifecycle()
+    LaunchedEffect(openDeployId) {
+        val id = PendingUiAction.consumeOpenDeploy() ?: return@LaunchedEffect
+        screen = ServersNavScreen.Overview(id)
     }
 
     Crossfade(targetState = screen, label = "servers_nav") { current ->
@@ -521,11 +555,13 @@ private fun ServerOverviewHost(
     var health by remember { mutableStateOf<HealthUi?>(HealthUi.Checking) }
     val context = LocalContext.current
     val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
-    val scope = rememberCoroutineScope()
+    val startDeploy = rememberStartDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
     val progress by engine.progress.collectAsStateWithLifecycle()
     val step by engine.step.collectAsStateWithLifecycle()
     val deployLog by engine.log.collectAsStateWithLifecycle()
+    val outcome by engine.outcome.collectAsStateWithLifecycle()
+    val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
 
     LaunchedEffect(servers, serverId) {
         if (servers.isNotEmpty() && server == null) onBack()
@@ -538,25 +574,30 @@ private fun ServerOverviewHost(
         health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
     }
 
+    LaunchedEffect(busy, activeTargetId, serverId) {
+        if (busy && activeTargetId == serverId) {
+            showRedeployProgress = true
+            redeployStatus = null
+        }
+    }
+
+    LaunchedEffect(busy, outcome, serverId, activeTargetId) {
+        if (busy || outcome == null) return@LaunchedEffect
+        if (activeTargetId != null && activeTargetId != serverId) return@LaunchedEffect
+        if (!showRedeployProgress) return@LaunchedEffect
+        redeployStatus = outcome
+        val target = server ?: return@LaunchedEffect
+        health = HealthUi.Checking
+        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
+        health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
+    }
+
     fun startRedeploy(target: DeployTarget) {
         showRedeployConfirm = false
         showRedeployProgress = true
         redeployStatus = null
-        scope.launch {
-            val result = engine.deploy(target)
-            result.fold(
-                onSuccess = { msg ->
-                    val deployedAt = System.currentTimeMillis()
-                    serversRepo.upsert(target.copy(lastDeployedAtMs = deployedAt))
-                    redeployStatus = msg
-                    health = HealthUi.Checking
-                    val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-                    health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
-                },
-                onFailure = { e ->
-                    redeployStatus = "Ошибка: ${e.message}"
-                },
-            )
+        if (!startDeploy(target, true)) {
+            redeployStatus = "Ошибка: деплой уже идёт"
         }
     }
 
@@ -1023,11 +1064,12 @@ fun DeployScreen(
     onSaved: (serverId: String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
+    val startDeploy = rememberStartDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
     val progress by engine.progress.collectAsStateWithLifecycle()
     val step by engine.step.collectAsStateWithLifecycle()
     val log by engine.log.collectAsStateWithLifecycle()
+    val outcome by engine.outcome.collectAsStateWithLifecycle()
 
     var id by remember { mutableStateOf(initial?.id ?: serversRepo.newId()) }
     var name by remember { mutableStateOf(initial?.name ?: "") }
@@ -1057,6 +1099,14 @@ fun DeployScreen(
         directPort = t.directPort.toString()
         bypassPort = t.bypassPort.toString()
         lastDeployedAtMs = t.lastDeployedAtMs
+    }
+
+    LaunchedEffect(busy, outcome) {
+        if (!busy && outcome != null) {
+            status = outcome
+            val deployedAt = serversRepo.snapshot().find { it.id == id }?.lastDeployedAtMs
+            if (deployedAt != null && deployedAt > 0L) lastDeployedAtMs = deployedAt
+        }
     }
 
     fun buildTarget(deployedAt: Long = lastDeployedAtMs): DeployTarget = DeployTarget(
@@ -1242,18 +1292,9 @@ fun DeployScreen(
                 }
                 val target = buildTarget()
                 serversRepo.upsert(target)
-                scope.launch {
-                    status = null
-                    val result = engine.deploy(target)
-                    status = result.fold(
-                        onSuccess = { msg ->
-                            val deployedAt = System.currentTimeMillis()
-                            lastDeployedAtMs = deployedAt
-                            serversRepo.upsert(target.copy(lastDeployedAtMs = deployedAt))
-                            msg
-                        },
-                        onFailure = { "Ошибка: ${it.message}" },
-                    )
+                status = null
+                if (!startDeploy(target, isUpdate)) {
+                    status = "Ошибка: деплой уже идёт"
                 }
             },
             enabled = !busy,
@@ -1281,10 +1322,9 @@ fun DeployScreen(
 
         OutlinedButton(
             onClick = onBack,
-            enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Назад")
+            Text(if (busy) "Свернуть (деплой в фоне)" else "Назад")
         }
 
         if (busy) {

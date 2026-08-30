@@ -94,5 +94,14 @@ class ServersRepository(context: Context) {
 
     companion object {
         private const val KEY = "servers_json"
+
+        @Volatile
+        private var instance: ServersRepository? = null
+
+        fun get(context: Context): ServersRepository {
+            return instance ?: synchronized(this) {
+                instance ?: ServersRepository(context.applicationContext).also { instance = it }
+            }
+        }
     }
 }

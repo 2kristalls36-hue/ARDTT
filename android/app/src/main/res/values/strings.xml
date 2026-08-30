@@ -3,6 +3,8 @@
     <string name="app_name">ARDTT</string>
     <string name="notif_channel_tunnel">Уведомление</string>
     <string name="notif_channel_tunnel_min">Служебное (скрытое)</string>
+    <string name="notif_channel_deploy">Деплой</string>
+    <string name="notif_deploy_cancel">Отменить</string>
     <string name="notif_direct">ARDTT · прямое</string>
     <string name="notif_bypass">ARDTT · обход</string>
     <string name="notif_running">Подключено</string>
