@@ -103,6 +103,22 @@ func runNetcheck(viaWarp bool) netcheckReport {
 			r := netcheckFetch("https://chat.openai.com/cdn-cgi/trace", viaWarp)
 			return classifyChatGPT(r.Status, r.Body)
 		}},
+		{"google", "Google", func() (string, string) {
+			r := netcheckFetch("https://www.google.com/generate_204", viaWarp)
+			return classifyGoogle(r.Status, r.Body, r.FinalURL)
+		}},
+		{"tiktok", "TikTok", func() (string, string) {
+			r := netcheckFetch("https://www.tiktok.com", viaWarp)
+			return classifyHttpService(r.Status, r.Body, "access denied", "not available in your region")
+		}},
+		{"instagram", "Instagram", func() (string, string) {
+			r := netcheckFetch("https://www.instagram.com", viaWarp)
+			return classifyHttpService(r.Status, r.Body, "not available in your country")
+		}},
+		{"reddit", "Reddit", func() (string, string) {
+			r := netcheckFetch("https://www.reddit.com", viaWarp)
+			return classifyHttpService(r.Status, r.Body, "blocked", "not available")
+		}},
 	}
 
 	items := make([]netcheckItem, len(slots))
@@ -209,6 +225,37 @@ func classifyDisney(code int, finalURL, body string) (string, string) {
 		strings.Contains(b, "not available in your region") ||
 		strings.Contains(b, "disney+ is not available") {
 		return "restricted", "ограничен"
+	}
+	if code >= 200 && code < 400 {
+		return "ok", "доступен"
+	}
+	if code == 0 {
+		return "error", "не удалось проверить"
+	}
+	return "blocked", "недоступен"
+}
+
+func classifyGoogle(code int, body, finalURL string) (string, string) {
+	lower := strings.ToLower(body + " " + finalURL)
+	if strings.Contains(lower, "www.google.com/sorry") ||
+		strings.Contains(lower, "unusual traffic") {
+		return "restricted", "ограничен"
+	}
+	if code == 204 || (code >= 200 && code < 400) {
+		return "ok", "доступен"
+	}
+	if code == 0 {
+		return "error", "не удалось проверить"
+	}
+	return "blocked", "недоступен"
+}
+
+func classifyHttpService(code int, body string, restrictedHints ...string) (string, string) {
+	lower := strings.ToLower(body)
+	for _, hint := range restrictedHints {
+		if hint != "" && strings.Contains(lower, strings.ToLower(hint)) {
+			return "restricted", "ограничен"
+		}
 	}
 	if code >= 200 && code < 400 {
 		return "ok", "доступен"

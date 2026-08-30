@@ -330,20 +330,19 @@ private fun ServerListScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
         ) {
-            AppTabPageHeader(
-                title = "Управление серверами",
-            )
-
-            PullRefreshHost(
-                refreshing = pull.refreshing,
-                onRefresh = pull.onRefresh,
-                modifier = Modifier.weight(1f),
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
             ) {
+                AppTabPageHeader(
+                    title = "Управление серверами",
+                )
+
                 if (servers.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -400,7 +399,6 @@ private fun ServerListScreen(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
-
     }
 }
 
@@ -733,100 +731,99 @@ private fun ServerOverviewScreen(
     val freshnessChip = deployFreshnessChipText(health, expectedVersion)
 
     Box(modifier = Modifier.fillMaxSize()) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        EdgeFeedTopInset()
-        AppPageHeader(
-            applyStatusBarsPadding = false,
-            contentHorizontalPadding = true,
-            title = server.name.ifBlank { server.host },
-            subtitle = "Управление сервером",
-            onBack = onBack,
-            actions = {
-                Box {
-                    IconButton(onClick = { onShowActions(true) }) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "Действия с сервером",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showActions,
-                        onDismissRequest = { onShowActions(false) },
-                        modifier = Modifier
-                            .width(216.dp)
-                            .padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(22.dp),
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        tonalElevation = 2.dp,
-                        shadowElevation = 6.dp,
-                    ) {
-                        DropdownMenuItem(
-                            modifier = Modifier.heightIn(min = 54.dp),
-                            contentPadding = PaddingValues(horizontal = 18.dp),
-                            text = { Text("Обновить деплой", fontWeight = FontWeight.Medium) },
-                            leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
-                            onClick = {
-                                onShowActions(false)
-                                onUpdateDeploy()
-                            },
-                        )
-                        DropdownMenuItem(
-                            modifier = Modifier.heightIn(min = 54.dp),
-                            contentPadding = PaddingValues(horizontal = 18.dp),
-                            text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
-                            leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                            onClick = {
-                                onShowActions(false)
-                                onRename()
-                            },
-                        )
-                        DropdownMenuItem(
-                            modifier = Modifier.heightIn(min = 54.dp),
-                            contentPadding = PaddingValues(horizontal = 18.dp),
-                            text = {
-                                Text(
-                                    "Удалить",
-                                    color = MaterialTheme.colorScheme.error,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Filled.Delete,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                            },
-                            onClick = {
-                                onShowActions(false)
-                                onDelete()
-                            },
-                        )
-                    }
-                }
-            },
-        )
-
         PullRefreshHost(
             refreshing = refreshing,
             onRefresh = onRefresh,
-            modifier = Modifier.weight(1f),
         ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 8.dp,
-                bottom = if (showUpdateButton) {
-                    NvpnBottomChrome.scrollContentPadding()
-                } else {
-                    NvpnBottomChrome.navigationReserve() + 16.dp
-                },
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                EdgeFeedTopInset()
+                AppPageHeader(
+                    applyStatusBarsPadding = false,
+                    contentHorizontalPadding = true,
+                    title = server.name.ifBlank { server.host },
+                    subtitle = "Управление сервером",
+                    onBack = onBack,
+                    actions = {
+                        Box {
+                            IconButton(onClick = { onShowActions(true) }) {
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = "Действия с сервером",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showActions,
+                                onDismissRequest = { onShowActions(false) },
+                                modifier = Modifier
+                                    .width(216.dp)
+                                    .padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(22.dp),
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                tonalElevation = 2.dp,
+                                shadowElevation = 6.dp,
+                            ) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.heightIn(min = 54.dp),
+                                    contentPadding = PaddingValues(horizontal = 18.dp),
+                                    text = { Text("Обновить деплой", fontWeight = FontWeight.Medium) },
+                                    leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
+                                    onClick = {
+                                        onShowActions(false)
+                                        onUpdateDeploy()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.heightIn(min = 54.dp),
+                                    contentPadding = PaddingValues(horizontal = 18.dp),
+                                    text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                    onClick = {
+                                        onShowActions(false)
+                                        onRename()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.heightIn(min = 54.dp),
+                                    contentPadding = PaddingValues(horizontal = 18.dp),
+                                    text = {
+                                        Text(
+                                            "Удалить",
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        onShowActions(false)
+                                        onDelete()
+                                    },
+                                )
+                            }
+                        }
+                    },
+                )
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 8.dp,
+                        bottom = if (showUpdateButton) {
+                            NvpnBottomChrome.scrollContentPadding()
+                        } else {
+                            NvpnBottomChrome.navigationReserve() + 16.dp
+                        },
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
             item {
                 AppSectionCard(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
@@ -922,9 +919,9 @@ private fun ServerOverviewScreen(
                     onClick = onOpenDeploySettings,
                 )
             }
+                }
+            }
         }
-        }
-    }
 
         if (showUpdateButton) {
             StickyPrimaryButton(

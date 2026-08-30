@@ -198,7 +198,6 @@ fun TestingScreen(profiles: ProfileRepository) {
         PullRefreshHost(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
-            indicatorStatusBarInset = true,
         ) {
         Column(
             modifier = Modifier

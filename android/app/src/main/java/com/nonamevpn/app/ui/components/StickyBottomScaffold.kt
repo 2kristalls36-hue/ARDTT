@@ -91,7 +91,6 @@ fun StickyBottomScaffold(
                 refreshing = refreshing,
                 onRefresh = onRefresh,
                 modifier = Modifier.fillMaxSize(),
-                indicatorStatusBarInset = true,
             ) {
                 feed()
             }
@@ -150,7 +149,6 @@ fun EdgeFeedColumn(
             refreshing = refreshing,
             onRefresh = onRefresh,
             modifier = modifier.fillMaxSize(),
-            indicatorStatusBarInset = true,
         ) {
             feed()
         }

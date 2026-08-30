@@ -68,7 +68,6 @@ import com.nonamevpn.app.core.NetcheckUiRow
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
-import com.nonamevpn.app.core.vpnEgressIpLabel
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
@@ -158,9 +157,11 @@ fun TunnelScreen(
         unlockWhileConnected = unlockConnControls,
     )
     var netcheck by remember { mutableStateOf<NetcheckReport?>(null) }
+    /** Service probes only while the tunnel is up — not on pause / idle. */
+    val netcheckActive = connected
 
     suspend fun refreshNetcheck(force: Boolean) {
-        if (!sessionUp) {
+        if (!netcheckActive) {
             netcheck = null
             return
         }
@@ -227,7 +228,7 @@ fun TunnelScreen(
         refreshUnderlayStats(forceProviderIp = true)
     }
 
-    LaunchedEffect(sessionUp, hideIp, profile?.provisionBaseUrl, profile?.deviceId) {
+    LaunchedEffect(netcheckActive, hideIp, profile?.provisionBaseUrl, profile?.deviceId) {
         refreshNetcheck(force = false)
     }
 
@@ -266,7 +267,6 @@ fun TunnelScreen(
         PullRefreshHost(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
-            indicatorStatusBarInset = true,
         ) {
         Column(
             modifier = Modifier
@@ -490,11 +490,13 @@ fun TunnelScreen(
                     VpnPath.Bypass -> NvpnColors.pathBypass
                     null -> null
                 },
-                publicIp = vpnEgressIpLabel(
-                    publicIp = publicIp,
-                    vpnSessionActive = connecting || connected,
-                    pausedOnTrustedWifi = pausedTrusted,
-                ),
+                publicIp = when {
+                    pausedTrusted -> "—"
+                    !publicIp.isNullOrBlank() -> publicIp!!
+                    connecting || connected -> ""
+                    else -> "—"
+                },
+                ipPending = (connecting || connected) && publicIp.isNullOrBlank(),
                 ipFailed = false,
                 onIpClick = if (connecting || connected) {
                     { conn.requestEgressIpRefresh() }
@@ -505,8 +507,9 @@ fun TunnelScreen(
                 providerIp = when {
                     !providerIp.isNullOrBlank() -> providerIp!!
                     !providerIpError.isNullOrBlank() -> "не удалось определить"
-                    else -> "…"
+                    else -> ""
                 },
+                providerIpPending = providerIp.isNullOrBlank() && providerIpError.isNullOrBlank(),
                 providerIpFailed = providerIp.isNullOrBlank() && !providerIpError.isNullOrBlank(),
                 onProviderIpClick = {
                     scope.launch {
@@ -530,7 +533,7 @@ fun TunnelScreen(
                 provisionLine = profile?.let { p ->
                     p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
                 },
-                netcheckRows = NetcheckClient.uiRows(netcheck),
+                netcheckRows = NetcheckClient.uiRows(netcheck, probeActive = netcheckActive),
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
@@ -668,10 +671,12 @@ private fun TunnelStatusPanel(
     currentModeLabel: String,
     currentModeColor: Color?,
     publicIp: String,
+    ipPending: Boolean = false,
     ipFailed: Boolean = false,
     onIpClick: (() -> Unit)? = null,
     accessLabel: String,
     providerIp: String,
+    providerIpPending: Boolean = false,
     providerIpFailed: Boolean = false,
     onProviderIpClick: (() -> Unit)? = null,
     showWarpIcon: Boolean = false,
@@ -713,12 +718,14 @@ private fun TunnelStatusPanel(
             StatusFactRow(
                 label = "IP провайдера",
                 value = providerIp,
+                pending = providerIpPending,
                 valueColor = if (providerIpFailed) MaterialTheme.colorScheme.error else null,
                 onClick = onProviderIpClick,
             )
             StatusFactRow(
                 label = "IP туннеля",
                 value = publicIp,
+                pending = ipPending,
                 valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
                 onClick = onIpClick,
                 valueLeadingIcon = if (showWarpIcon) R.drawable.ic_cloudflare else null,

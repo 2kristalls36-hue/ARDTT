@@ -209,25 +209,24 @@ private fun ClientsScreen(
     LaunchedEffect(base) { refresh() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            EdgeFeedTopInset()
-            AppPageHeader(
-                applyStatusBarsPadding = false,
-                contentHorizontalPadding = true,
-                title = "Клиенты",
-                subtitle = when {
-                    loading -> "Загрузка…"
-                    error != null -> server.host
-                    else -> "${users.size} · ${server.name.ifBlank { server.host }}"
-                },
-                onBack = onBack,
-            )
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = { if (!loading) pull.onRefresh() },
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                EdgeFeedTopInset()
+                AppPageHeader(
+                    applyStatusBarsPadding = false,
+                    contentHorizontalPadding = true,
+                    title = "Клиенты",
+                    subtitle = when {
+                        loading -> "Загрузка…"
+                        error != null -> server.host
+                        else -> "${users.size} · ${server.name.ifBlank { server.host }}"
+                    },
+                    onBack = onBack,
+                )
 
-            PullRefreshHost(
-                refreshing = pull.refreshing,
-                onRefresh = { if (!loading) pull.onRefresh() },
-                modifier = Modifier.weight(1f),
-            ) {
                 when {
                     loading -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
