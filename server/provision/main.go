@@ -424,6 +424,31 @@ func runServer(store *Store, listen string) error {
 			"viaWarp": viaWarp,
 		})
 	})
+	// Service unlock / IP-type check from the VPS WAN (or warp0). Same idea as
+	// xykt/IPQuality and lmc999/RegionRestrictionCheck, without running those scripts.
+	mux.HandleFunc("/v1/netcheck", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		deviceID := r.URL.Query().Get("deviceId")
+		name := r.URL.Query().Get("name")
+		viaWarp := false
+		if deviceID != "" || name != "" {
+			if u, err := store.FindUserByDeviceOrName(deviceID, name); err == nil {
+				viaWarp = u.HideIP
+			}
+		}
+		switch strings.ToLower(r.URL.Query().Get("viaWarp")) {
+		case "1", "true", "yes":
+			viaWarp = true
+		case "0", "false", "no":
+			viaWarp = false
+		}
+		refresh := strings.EqualFold(r.URL.Query().Get("refresh"), "1") ||
+			strings.EqualFold(r.URL.Query().Get("refresh"), "true")
+		writeJSON(w, getNetcheck(viaWarp, refresh))
+	})
 
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {

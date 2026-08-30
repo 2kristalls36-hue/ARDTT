@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -59,12 +60,15 @@ import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
-import com.nonamevpn.app.core.ProbeResult
+import com.nonamevpn.app.core.NetcheckClient
+import com.nonamevpn.app.core.NetcheckItem
+import com.nonamevpn.app.core.NetcheckReport
+import com.nonamevpn.app.core.NetcheckTone
+import com.nonamevpn.app.core.NetcheckUiRow
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
 import com.nonamevpn.app.core.vpnEgressIpLabel
-import com.nonamevpn.app.core.vpnSessionStatusText
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
@@ -153,6 +157,29 @@ fun TunnelScreen(
         sessionActive = connecting || connected || pausedTrusted || disconnecting,
         unlockWhileConnected = unlockConnControls,
     )
+    var netcheck by remember { mutableStateOf<NetcheckReport?>(null) }
+
+    suspend fun refreshNetcheck(force: Boolean) {
+        if (!sessionUp) {
+            netcheck = null
+            return
+        }
+        val report = NetcheckClient.fetch(
+            context = context,
+            provisionBaseUrl = profile?.provisionBaseUrl,
+            deviceId = profile?.deviceId,
+            hideIp = hideIp,
+            refresh = force,
+        )
+        netcheck = report ?: NetcheckReport(
+            ok = false,
+            viaWarp = hideIp,
+            cached = false,
+            items = NetcheckClient.slots.map { (id, label) ->
+                NetcheckItem(id, label, "error", "не удалось проверить")
+            },
+        )
+    }
 
     LaunchedEffect(ui.state, hideIp) {
         val watchEgress =
@@ -200,6 +227,10 @@ fun TunnelScreen(
         refreshUnderlayStats(forceProviderIp = true)
     }
 
+    LaunchedEffect(sessionUp, hideIp, profile?.provisionBaseUrl, profile?.deviceId) {
+        refreshNetcheck(force = false)
+    }
+
     val buttonColor by animateColorAsState(
         targetValue = when {
             sessionUp -> MaterialTheme.colorScheme.error
@@ -228,6 +259,7 @@ fun TunnelScreen(
                 conn.ui.first { it.state != ConnState.Probing }
             }
         }
+        refreshNetcheck(force = true)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -444,21 +476,18 @@ fun TunnelScreen(
 
             // ═══ Статус сессии — структурированная панель ═══
             TunnelStatusPanel(
-                statusText = vpnSessionStatusText(ui.state, ui.statusText, publicIp),
+                statusText = sessionCardStatusText(ui.state, publicIp, ui.lastError),
                 statusColor = when {
-                    pausedTrusted -> NvpnColors.connected
+                    pausedTrusted -> NvpnColors.warning
                     connected && !publicIp.isNullOrBlank() -> NvpnColors.connected
                     ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurface
                 },
-                pathModeLabel = when (pathMode) {
-                    "direct" -> "Прямое"
-                    "bypass" -> "Обход"
-                    else -> "Авто"
-                },
-                activePathLabel = when (ui.activePath) {
-                    VpnPath.Direct -> "Прямое"
-                    VpnPath.Bypass -> "Обход"
+                selectedModeLabel = selectedModeLabel(pathMode),
+                currentModeLabel = currentModeLabel(ui.state, ui.activePath),
+                currentModeColor = when (ui.activePath) {
+                    VpnPath.Direct -> NvpnColors.pathDirect
+                    VpnPath.Bypass -> NvpnColors.pathBypass
                     null -> null
                 },
                 publicIp = vpnEgressIpLabel(
@@ -501,7 +530,7 @@ fun TunnelScreen(
                 provisionLine = profile?.let { p ->
                     p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
                 },
-                probe = ui.probe,
+                netcheckRows = NetcheckClient.uiRows(netcheck),
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
@@ -635,8 +664,9 @@ private fun ChoiceChipButton(
 private fun TunnelStatusPanel(
     statusText: String,
     statusColor: Color,
-    pathModeLabel: String,
-    activePathLabel: String?,
+    selectedModeLabel: String,
+    currentModeLabel: String,
+    currentModeColor: Color?,
     publicIp: String,
     ipFailed: Boolean = false,
     onIpClick: (() -> Unit)? = null,
@@ -650,7 +680,7 @@ private fun TunnelStatusPanel(
     directEndpoint: String?,
     bypassPeer: String?,
     provisionLine: String?,
-    probe: ProbeResult?,
+    netcheckRows: List<NetcheckUiRow>,
     softInfo: String?,
     errorText: String?,
 ) {
@@ -662,33 +692,23 @@ private fun TunnelStatusPanel(
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 0.dp,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                "Статус",
-                style = MaterialTheme.typography.labelLarge,
-                color = muted,
-                fontWeight = FontWeight.Medium,
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatusFactRow(
+                label = "Статус",
+                value = statusText,
+                valueColor = statusColor,
             )
-            Text(
-                statusText,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = statusColor,
-            )
+            StatusFactRow(label = "Выбран режим", value = selectedModeLabel)
         }
 
         HorizontalDivider(color = dividerColor)
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatusFactRow(label = "Режим", value = pathModeLabel)
-            activePathLabel?.let {
-                val pathColor = when (it) {
-                    "Прямое" -> NvpnColors.pathDirect
-                    "Обход" -> NvpnColors.pathBypass
-                    else -> null
-                }
-                StatusFactRow(label = "Активный путь", value = it, valueColor = pathColor)
-            }
+            StatusFactRow(
+                label = "Текущий режим",
+                value = currentModeLabel,
+                valueColor = if (currentModeLabel == "—") muted else currentModeColor,
+            )
             StatusFactRow(label = "Оператор", value = accessLabel)
             StatusFactRow(
                 label = "IP провайдера",
@@ -732,21 +752,26 @@ private fun TunnelStatusPanel(
             }
         }
 
-        probe?.let { p ->
-            HorizontalDivider(color = dividerColor)
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "Проверка сети",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = muted,
-                    fontWeight = FontWeight.Medium,
+        HorizontalDivider(color = dividerColor)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "Проверка сети",
+                style = MaterialTheme.typography.labelLarge,
+                color = muted,
+                fontWeight = FontWeight.Medium,
+            )
+            netcheckRows.forEach { row ->
+                StatusFactRow(
+                    label = row.label,
+                    value = row.value,
+                    pending = row.pending,
+                    valueColor = when (row.tone) {
+                        NetcheckTone.Ok -> NvpnColors.connected
+                        NetcheckTone.Warn -> NvpnColors.warning
+                        NetcheckTone.Error -> MaterialTheme.colorScheme.error
+                        NetcheckTone.Neutral -> null
+                    },
                 )
-                StatusFactRow(label = "Сеть", value = p.networkClass.name)
-                StatusFactRow(label = "77.88.8.8", value = if (p.yandexOk) "доступен" else "—")
-                StatusFactRow(label = "Узел управления", value = if (p.provisionOk) "доступен" else "—")
-                if (p.elapsedMs > 0) {
-                    StatusFactRow(label = "Время", value = "${p.elapsedMs} мс")
-                }
             }
         }
 
@@ -775,6 +800,7 @@ private fun StatusFactRow(
     onClick: (() -> Unit)? = null,
     valueLeadingIcon: Int? = null,
     valueLeadingContentDescription: String? = null,
+    pending: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -787,31 +813,39 @@ private fun StatusFactRow(
             label,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(128.dp),
+            modifier = Modifier.width(148.dp),
         )
         Row(
             modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (valueLeadingIcon != null) {
-                Image(
-                    painter = painterResource(valueLeadingIcon),
-                    contentDescription = valueLeadingContentDescription,
-                    modifier = Modifier
-                        .padding(end = 6.dp)
-                        .size(16.dp),
+            if (pending) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            } else {
+                if (valueLeadingIcon != null) {
+                    Image(
+                        painter = painterResource(valueLeadingIcon),
+                        contentDescription = valueLeadingContentDescription,
+                        modifier = Modifier
+                            .padding(end = 6.dp)
+                            .size(16.dp),
+                    )
+                }
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.End,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                value,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = valueColor ?: MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.End,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
