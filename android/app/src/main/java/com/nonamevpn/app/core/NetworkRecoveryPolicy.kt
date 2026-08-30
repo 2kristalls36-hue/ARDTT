@@ -15,21 +15,48 @@ enum class ValidatedNetworkTransition {
 }
 
 data class TransportRecoveryPolicy(
-    /** Wait after a network event before attempting soft reconnect. */
+    /** Extra wait after VALIDATED before attempting soft reconnect. */
     val networkSettleDelayMs: Long,
-    /** Minimum spacing between soft reconnects. */
+    /** Minimum spacing between soft reconnects (Path B: do not spam VK). */
     val reconnectMinIntervalMs: Long,
     /** Delay between killProcess and start during soft restart. */
     val processRestartDelayMs: Long,
 )
 
-fun transportRecoveryPolicy(): TransportRecoveryPolicy =
-    TransportRecoveryPolicy(
-        // Wi‑Fi↔LTE: wait just long enough for VALIDATED, then rebind TURN.
-        networkSettleDelayMs = 400L,
-        reconnectMinIntervalMs = 4_000L,
-        processRestartDelayMs = 150L,
-    )
+/**
+ * WDTT-Plus waits ~15s / 2min because it has one VK TURN path.
+ * We keep RAW + Amnezia Direct: Bypass still must not join VK on a half-up
+ * underlay, Direct must rebind AWG sooner than that.
+ */
+fun transportRecoveryPolicy(path: VpnPath = VpnPath.Bypass): TransportRecoveryPolicy =
+    when (path) {
+        VpnPath.Bypass -> TransportRecoveryPolicy(
+            networkSettleDelayMs = BYPASS_NETWORK_SETTLE_MS,
+            reconnectMinIntervalMs = BYPASS_RECONNECT_MIN_INTERVAL_MS,
+            processRestartDelayMs = 150L,
+        )
+        VpnPath.Direct -> TransportRecoveryPolicy(
+            networkSettleDelayMs = DIRECT_NETWORK_SETTLE_MS,
+            reconnectMinIntervalMs = DIRECT_RECONNECT_MIN_INTERVAL_MS,
+            processRestartDelayMs = 150L,
+        )
+    }
+
+/** Bypass: settle after Android marks the new underlay VALIDATED. */
+const val BYPASS_NETWORK_SETTLE_MS = 3_000L
+
+/** Bypass: VK join cooldown — Wi‑Fi↔LTE must not enqueue a second anonym chain. */
+const val BYPASS_RECONNECT_MIN_INTERVAL_MS = 20_000L
+
+/** Direct: AWG UDP sockets need a quicker rebind than Path B. */
+const val DIRECT_NETWORK_SETTLE_MS = 1_200L
+
+const val DIRECT_RECONNECT_MIN_INTERVAL_MS = 6_000L
+
+/** Give LTE/Wi‑Fi this long to become VALIDATED before probing / joining VK. */
+const val VALIDATED_WAIT_TIMEOUT_MS = 8_000L
+
+const val VALIDATED_WAIT_POLL_MS = 300L
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,
@@ -89,8 +116,42 @@ fun shouldRunUnderlyingNetworkReconnect(
 fun softRestartCooldownMs(
     minIntervalMs: Long,
     softRestartCount: Int,
+    maxMs: Long = SOFT_RESTART_COOLDOWN_MAX_MS,
 ): Long =
-    (minIntervalMs + softRestartCount.coerceAtMost(3) * 2_000L).coerceAtMost(15_000L)
+    (minIntervalMs + softRestartCount.coerceAtMost(3) * 2_000L).coerceAtMost(maxMs)
+
+const val SOFT_RESTART_COOLDOWN_MAX_MS = 45_000L
+
+/**
+ * Keep waiting until Android validates the underlay, or [timeoutMs] elapses.
+ * Joining VK / rebinding AWG on a not-yet-VALIDATED LTE is what produced
+ * stale anonym tokens and blackholed Direct.
+ */
+fun shouldKeepWaitingForValidated(
+    validatedPresent: Boolean,
+    waitedMs: Long,
+    timeoutMs: Long = VALIDATED_WAIT_TIMEOUT_MS,
+): Boolean = !validatedPresent && waitedMs < timeoutMs
+
+/** Latest network-event timestamp wins (traffic must be on the new underlay). */
+fun updatedUnderlyingNetworkEvidenceSince(
+    currentEvidenceSinceMs: Long,
+    networkEventAtMs: Long,
+): Long = maxOf(currentEvidenceSinceMs, networkEventAtMs)
+
+/**
+ * Plus: skip soft-restart when inbound traffic already flows after the event.
+ * Path B uses TURN stats; Path A uses AWG rx growth. Do not treat “process
+ * alive” as healthy Direct egress.
+ */
+fun shouldSkipHandoverRestartIfTrafficFresh(
+    bypassTrafficFresh: Boolean,
+    directTrafficFresh: Boolean,
+    path: VpnPath,
+): Boolean = when (path) {
+    VpnPath.Bypass -> bypassTrafficFresh
+    VpnPath.Direct -> directTrafficFresh
+}
 
 fun shouldAttemptSoftRestartNow(
     nowMs: Long,
@@ -259,10 +320,53 @@ fun shouldReconnectTunnelAfterWake(
     hasFreshStatsSinceWake: Boolean,
     bypassPath: Boolean,
     backendAlive: Boolean,
+    directEgressOk: Boolean = true,
 ): Boolean {
-    if (!bypassPath) return !backendAlive
+    if (!bypassPath) {
+        // Direct: AWG process up is not egress. Need rx/handshake after wake.
+        return !backendAlive || !directEgressOk
+    }
     if (hasFreshStatsSinceWake) return false
     return activeWorkers <= 0 || !backendAlive
+}
+
+/**
+ * Direct Connected with no TUN rx after grace: Auto+hash → Bypass, otherwise
+ * stop the VPN so the phone is not a blackhole.
+ */
+sealed class DeadDirectDecision {
+    data object KeepWatching : DeadDirectDecision()
+    data object SwitchToBypass : DeadDirectDecision()
+    data object FailSession : DeadDirectDecision()
+}
+
+/** Ignore Direct “no rx” during AWG handshake after start / handoff. */
+const val DEAD_DIRECT_START_GRACE_MS = 15_000L
+
+/** Direct has been up this long since start/handoff with no inbound bytes. */
+const val DEAD_DIRECT_NO_RX_MS = 20_000L
+
+fun shouldTreatDirectAsDeadNoRx(
+    nowMs: Long,
+    sessionStartedAtMs: Long,
+    lastHandoffAtMs: Long,
+    hasFreshRxSinceAnchor: Boolean,
+    startGraceMs: Long = DEAD_DIRECT_START_GRACE_MS,
+    noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
+): Boolean {
+    if (sessionStartedAtMs <= 0L) return false
+    if (nowMs - sessionStartedAtMs < startGraceMs) return false
+    val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
+    if (nowMs - anchor < noRxMs) return false
+    return !hasFreshRxSinceAnchor
+}
+
+fun decideDeadDirectAction(
+    pathMode: ConnPathMode,
+    bypassAllowed: Boolean,
+): DeadDirectDecision = when {
+    pathMode == ConnPathMode.Auto && bypassAllowed -> DeadDirectDecision.SwitchToBypass
+    else -> DeadDirectDecision.FailSession
 }
 
 fun shouldObserveTunnelHealth(

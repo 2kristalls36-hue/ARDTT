@@ -727,9 +727,24 @@ class ConnectionManager(
             ?: _ui.value.activePath
             ?: return NetworkHandoverDecision.SoftRestartSamePath
         val mode = pathMode
+        val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
+        val pathHealthy = currentPathLooksHealthy(currentPath)
         if (mode != ConnPathMode.Auto) {
-            AppLog.v(TAG, "Handover: mode=$mode — soft-restart $currentPath (no re-probe)")
-            return NetworkHandoverDecision.SoftRestartSamePath
+            val decision = decideNetworkHandoverAction(
+                pathMode = mode,
+                currentPath = currentPath,
+                probedPath = currentPath,
+                bypassAllowed = bypassAllowed,
+                sessionAgeMs = handoverSessionAgeMs(),
+                currentPathHealthy = pathHealthy,
+                underlayChanged = underlayChanged,
+            )
+            AppLog.v(
+                TAG,
+                "Handover: mode=$mode path=$currentPath decision=$decision " +
+                    "underlayChanged=$underlayChanged healthy=$pathHealthy (no re-probe)",
+            )
+            return decision
         }
 
         val base = resolveProvisionUrl()
@@ -758,7 +773,6 @@ class ConnectionManager(
             hasCallHash = profile?.name?.let { hashStore.hasHash(it) } == true,
         )
 
-        val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
         val vpsReachable = fresh.provisionOk
         if (underlayChanged) {
             handoverProbeStreak = ProbeStreak()
@@ -771,7 +785,7 @@ class ConnectionManager(
             probedPath = fresh.preselectedPath,
             bypassAllowed = bypassAllowed,
             sessionAgeMs = handoverSessionAgeMs(),
-            currentPathHealthy = _ui.value.state == ConnState.Connected,
+            currentPathHealthy = pathHealthy,
             underlayVpsReachable = vpsReachable,
             sameProbeStreak = handoverProbeStreak.count,
             underlayChanged = underlayChanged,
@@ -830,6 +844,49 @@ class ConnectionManager(
             silentRecreate = silentRecreate,
             dialPathName = dialPath.name,
         )
+    }
+
+    private fun currentPathLooksHealthy(path: VpnPath): Boolean = when (path) {
+        VpnPath.Bypass -> TransportHealth.activeWorkers > 0
+        VpnPath.Direct -> VpnLiveStats.totalRx > 0L || VpnLiveStats.downBps > 0L
+    }
+
+    /**
+     * Direct is Connected but TUN has no inbound bytes. Auto+hash switches to
+     * Bypass; forced Direct stops so the phone is not a blackhole.
+     */
+    fun onDeadDirectNoRx() {
+        val current = TunnelSessionHolder.config?.path ?: _ui.value.activePath
+        if (current != VpnPath.Direct) return
+        when (
+            decideDeadDirectAction(
+                pathMode = pathMode,
+                bypassAllowed = callHashOrNull() != null,
+            )
+        ) {
+            DeadDirectDecision.KeepWatching -> Unit
+            DeadDirectDecision.SwitchToBypass -> {
+                AppLog.w(TAG, "Dead Direct (no TUN rx) — Auto → Bypass")
+                applySessionPath(VpnPath.Bypass)
+                _ui.value = _ui.value.copy(
+                    state = ConnState.Connecting,
+                    activePath = VpnPath.Bypass,
+                    statusText = "Прямое без выхода в сеть. Выполняется переход на обход…",
+                    lastError = null,
+                    connectEnabled = true,
+                )
+                requestTransportRestart(
+                    reason = "Прямое без выхода в сеть — переход на обход",
+                    pathOverride = VpnPath.Bypass,
+                )
+            }
+            DeadDirectDecision.FailSession -> {
+                AppLog.w(TAG, "Dead Direct (no TUN rx) — stop VPN to avoid blackhole")
+                onTunnelFailed(
+                    "Прямое подключение без выхода в сеть. Туннель остановлен, чтобы телефон не остался без интернета.",
+                )
+            }
+        }
     }
 
     fun onUnderlyingNetworkLost() {

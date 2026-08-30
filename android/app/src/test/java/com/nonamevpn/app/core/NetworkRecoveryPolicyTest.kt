@@ -92,7 +92,8 @@ class NetworkRecoveryPolicyTest {
         assertEquals(6_000L, softRestartCooldownMs(4_000L, 1))
         assertEquals(10_000L, softRestartCooldownMs(4_000L, 3))
         assertEquals(10_000L, softRestartCooldownMs(4_000L, 20))
-        assertEquals(15_000L, softRestartCooldownMs(12_000L, 4))
+        assertEquals(18_000L, softRestartCooldownMs(12_000L, 4))
+        assertEquals(15_000L, softRestartCooldownMs(12_000L, 4, maxMs = 15_000L))
         assertTrue(shouldAttemptSoftRestartNow(100_000L, 0L, 4_000L, 0, force = false))
         assertFalse(shouldAttemptSoftRestartNow(20_000L, 17_000L, 4_000L, 0, force = false))
         assertTrue(shouldAttemptSoftRestartNow(20_000L, 17_000L, 4_000L, 0, force = true))
@@ -122,6 +123,24 @@ class NetworkRecoveryPolicyTest {
                 hasFreshStatsSinceWake = false,
                 bypassPath = false,
                 backendAlive = false,
+            ),
+        )
+        assertTrue(
+            shouldReconnectTunnelAfterWake(
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+                bypassPath = false,
+                backendAlive = true,
+                directEgressOk = false,
+            ),
+        )
+        assertFalse(
+            shouldReconnectTunnelAfterWake(
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+                bypassPath = false,
+                backendAlive = true,
+                directEgressOk = true,
             ),
         )
     }
@@ -499,6 +518,91 @@ class NetworkRecoveryPolicyTest {
                 underlayVpsReachable = false,
                 underlayChanged = true,
             ),
+        )
+    }
+
+    @Test
+    fun plusStyleTimingsWaitForValidatedAndSkipFreshTraffic() {
+        val bypass = transportRecoveryPolicy(VpnPath.Bypass)
+        val direct = transportRecoveryPolicy(VpnPath.Direct)
+        assertEquals(BYPASS_NETWORK_SETTLE_MS, bypass.networkSettleDelayMs)
+        assertEquals(BYPASS_RECONNECT_MIN_INTERVAL_MS, bypass.reconnectMinIntervalMs)
+        assertEquals(DIRECT_NETWORK_SETTLE_MS, direct.networkSettleDelayMs)
+        assertTrue(bypass.networkSettleDelayMs > 400L)
+        assertTrue(bypass.reconnectMinIntervalMs > 4_000L)
+        assertTrue(direct.networkSettleDelayMs < bypass.networkSettleDelayMs)
+
+        assertTrue(shouldKeepWaitingForValidated(validatedPresent = false, waitedMs = 1_000L))
+        assertFalse(shouldKeepWaitingForValidated(validatedPresent = true, waitedMs = 100L))
+        assertFalse(
+            shouldKeepWaitingForValidated(
+                validatedPresent = false,
+                waitedMs = VALIDATED_WAIT_TIMEOUT_MS,
+            ),
+        )
+        assertEquals(80L, updatedUnderlyingNetworkEvidenceSince(50L, 80L))
+        assertEquals(90L, updatedUnderlyingNetworkEvidenceSince(90L, 20L))
+
+        assertTrue(
+            shouldSkipHandoverRestartIfTrafficFresh(
+                bypassTrafficFresh = true,
+                directTrafficFresh = false,
+                path = VpnPath.Bypass,
+            ),
+        )
+        assertFalse(
+            shouldSkipHandoverRestartIfTrafficFresh(
+                bypassTrafficFresh = false,
+                directTrafficFresh = true,
+                path = VpnPath.Bypass,
+            ),
+        )
+        assertTrue(
+            shouldSkipHandoverRestartIfTrafficFresh(
+                bypassTrafficFresh = false,
+                directTrafficFresh = true,
+                path = VpnPath.Direct,
+            ),
+        )
+    }
+
+    @Test
+    fun deadDirectSwitchesAutoToBypassOtherwiseStops() {
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 10_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 0L,
+                hasFreshRxSinceAnchor = false,
+            ),
+        )
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 50_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 0L,
+                hasFreshRxSinceAnchor = true,
+            ),
+        )
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 50_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 0L,
+                hasFreshRxSinceAnchor = false,
+            ),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAction(ConnPathMode.Auto, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAction(ConnPathMode.Auto, bypassAllowed = false),
+        )
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAction(ConnPathMode.Direct, bypassAllowed = true),
         )
     }
 }
