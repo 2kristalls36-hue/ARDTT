@@ -1,11 +1,25 @@
 package com.nonamevpn.app.ui.admin
 
 import com.nonamevpn.app.deploy.DeployBundle
+import com.nonamevpn.app.deploy.ProvisionAdminApi
 
 internal sealed class HealthUi {
     data object Checking : HealthUi()
-    data class Online(val deployVersion: String = "") : HealthUi()
+    data class Online(
+        val deployVersion: String = "",
+        val pingMs: Long = -1L,
+    ) : HealthUi()
     data object Offline : HealthUi()
+}
+
+internal fun healthUiOf(info: ProvisionAdminApi.HealthInfo?): HealthUi {
+    if (info == null || !info.ok) return HealthUi.Offline
+    return HealthUi.Online(info.deployVersion, info.pingMs)
+}
+
+internal fun formatHealthPingMs(pingMs: Long): String {
+    if (pingMs <= 0L) return ""
+    return "$pingMs мс"
 }
 
 /**
@@ -33,7 +47,7 @@ internal fun shouldShowUpdateDeployButton(health: HealthUi?, expectedVersion: St
 
 /**
  * Orange freshness bar: only when online but not current.
- * Current deploys use the status line + border; no second “актуален” chip.
+ * Current deploys use the status line; no second “актуален” chip.
  */
 internal fun deployFreshnessChipText(health: HealthUi?, expectedVersion: String): String? {
     val online = health as? HealthUi.Online ?: return null
@@ -47,18 +61,14 @@ internal fun deployFreshnessChipText(health: HealthUi?, expectedVersion: String)
 internal fun healthStatusLabel(
     health: HealthUi?,
     lastDeployedAtMs: Long,
-    relativeTime: String = "",
 ): String {
     return when (health) {
         null, HealthUi.Checking -> "● Проверка…"
         is HealthUi.Online -> {
             val ver = health.deployVersion.ifBlank { "—" }
             val base = "● Онлайн · деплой $ver"
-            if (lastDeployedAtMs > 0L && relativeTime.isNotBlank()) {
-                "$base · $relativeTime"
-            } else {
-                base
-            }
+            val ping = formatHealthPingMs(health.pingMs)
+            if (ping.isNotEmpty()) "$base · $ping" else base
         }
         HealthUi.Offline -> {
             if (lastDeployedAtMs == 0L) {
