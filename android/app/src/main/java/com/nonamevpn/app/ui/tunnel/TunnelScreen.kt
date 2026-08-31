@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -71,6 +72,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -838,12 +840,24 @@ private fun TunnelPowerToggle(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var dragging by remember { mutableStateOf(false) }
+    var dragProgress by remember { mutableStateOf(0f) }
+    var pendingSnapTarget by remember { mutableStateOf<Float?>(null) }
     val checked = connected
+    val externalTarget = if (checked) 1f else 0f
+    val visualTarget = when {
+        dragging -> dragProgress
+        pendingSnapTarget != null -> pendingSnapTarget!!
+        else -> externalTarget
+    }
     val knobProgress by animateFloatAsState(
-        targetValue = if (checked) 1f else 0f,
+        targetValue = visualTarget,
         animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         label = "tunnel_toggle_knob",
     )
+    LaunchedEffect(externalTarget) {
+        if (!dragging) pendingSnapTarget = null
+    }
     val shellColor = NvpnFloatingShell.shellColor()
     val knobColor = when {
         checked -> Color(0xFF35C759)
@@ -852,6 +866,7 @@ private fun TunnelPowerToggle(
     Surface(
         modifier = modifier
             .clickable(enabled = !busy) {
+                pendingSnapTarget = null
                 runCatching { onClick() }
                     .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
             },
@@ -860,6 +875,7 @@ private fun TunnelPowerToggle(
         shape = RoundedCornerShape(56.dp),
         shadowElevation = NvpnFloatingShell.shadowElevation,
     ) {
+        val density = LocalDensity.current
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
@@ -868,6 +884,7 @@ private fun TunnelPowerToggle(
             val knobSize = (maxHeight - 8.dp).coerceAtLeast(48.dp)
             val travel = (maxWidth - knobSize).coerceAtLeast(0.dp)
             val knobOffset = travel * knobProgress
+            val travelPx = with(density) { travel.toPx().coerceAtLeast(1f) }
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -905,6 +922,37 @@ private fun TunnelPowerToggle(
                     )
                 }
             }
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .pointerInput(busy, travelPx, externalTarget) {
+                        if (busy) return@pointerInput
+                        detectDragGestures(
+                            onDragStart = {
+                                dragging = true
+                                pendingSnapTarget = null
+                                dragProgress = knobProgress
+                            },
+                            onDragEnd = {
+                                dragging = false
+                                val snap = if (dragProgress >= 0.5f) 1f else 0f
+                                pendingSnapTarget = snap
+                                val needToggle = (snap == 1f) != connected
+                                if (needToggle) {
+                                    runCatching { onClick() }
+                                        .onFailure { t -> AppLog.e("TunnelToggle", "swipe toggle failed: ${t.message}") }
+                                }
+                            },
+                            onDragCancel = {
+                                dragging = false
+                                pendingSnapTarget = externalTarget
+                            },
+                        ) { change, dragAmount ->
+                            change.consume()
+                            dragProgress = (dragProgress + dragAmount.x / travelPx).coerceIn(0f, 1f)
+                        }
+                    },
+            )
         }
     }
 }
