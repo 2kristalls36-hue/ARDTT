@@ -1,5 +1,7 @@
 package com.nonamevpn.app.ui.components
 
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -14,13 +16,39 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.nonamevpn.app.R
 
-/** Soft gradient + glow orbs behind screens (qWDTT AppBackdrop). */
+enum class AppWallpaper(
+    val id: String,
+    val title: String,
+    @DrawableRes val drawableRes: Int?,
+) {
+    None("none", "Градиент", null),
+    Morning("morning", "Утро", R.drawable.bg_refinery_morning),
+    Day("day", "День", R.drawable.bg_refinery_day),
+    Sunset("sunset", "Закат", R.drawable.bg_refinery_sunset),
+    Night("night", "Ночь", R.drawable.bg_refinery_night),
+    Fog("fog", "Туман", R.drawable.bg_refinery_fog),
+    Storm("storm", "Гроза", R.drawable.bg_refinery_storm);
+
+    companion object {
+        fun fromId(id: String?): AppWallpaper = entries.find { it.id.equals(id, ignoreCase = true) } ?: None
+    }
+}
+
+/** Soft gradient + glow orbs or custom illustrated wallpaper behind screens. */
 @Composable
-fun AppBackdrop(modifier: Modifier = Modifier) {
+fun AppBackdrop(
+    wallpaperId: String = "none",
+    modifier: Modifier = Modifier,
+) {
+    val wallpaper = remember(wallpaperId) { AppWallpaper.fromId(wallpaperId) }
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
     val baseBrush = remember(colors.background, colors.surface, colors.surfaceVariant) {
@@ -40,6 +68,33 @@ fun AppBackdrop(modifier: Modifier = Modifier) {
             },
         )
     }
+
+    if (wallpaper.drawableRes != null) {
+        val overlayColor = if (isDark) {
+            Color(0xFF0F0E13).copy(alpha = 0.82f)
+        } else {
+            Color(0xFFF7F5F0).copy(alpha = 0.84f)
+        }
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(colors.background),
+        ) {
+            Image(
+                painter = painterResource(id = wallpaper.drawableRes),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(overlayColor),
+            )
+        }
+        return
+    }
+
     val topGlow = if (isDark) {
         colors.primary.copy(alpha = 0.04f)
     } else {
