@@ -30,7 +30,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -167,7 +166,7 @@ fun EdgeFeedColumn(
     }
 }
 
-/** Primary full-width sticky action — matches floating tab-bar transparency. */
+/** Primary full-width sticky action. */
 @Composable
 fun StickyPrimaryButton(
     text: String,
@@ -179,18 +178,6 @@ fun StickyPrimaryButton(
     contentColor: Color = MaterialTheme.colorScheme.onPrimary,
     icon: ImageVector? = null,
 ) {
-    val shellColor = NvpnFloatingShell.shellColor()
-    val floatingContainer = lerp(
-        start = shellColor.copy(alpha = 1f),
-        stop = containerColor.copy(alpha = 1f),
-        fraction = 0.4f,
-    ).copy(alpha = shellColor.alpha)
-    val disabledContainer = lerp(
-        start = shellColor.copy(alpha = 1f),
-        stop = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 1f),
-        fraction = 0.25f,
-    ).copy(alpha = shellColor.alpha)
-
     Button(
         onClick = onClick,
         enabled = enabled && !busy,
@@ -199,9 +186,9 @@ fun StickyPrimaryButton(
             .height(NvpnBottomChrome.ButtonHeight),
         shape = RoundedCornerShape(20.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = floatingContainer,
+            containerColor = containerColor,
             contentColor = contentColor,
-            disabledContainerColor = disabledContainer,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
             disabledContentColor = contentColor.copy(alpha = 0.55f),
         ),
         elevation = ButtonDefaults.buttonElevation(
