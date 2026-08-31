@@ -9,6 +9,8 @@
 .idea/
 *.keystore
 *.jks
+android/keystore.properties
+android/keystore/
 
 # Go / native
 **/vendor/

@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -12,8 +21,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 160
-        versionName = "0.5.142-auto-path"
+        versionCode = 161
+        versionName = "0.5.143-release"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -28,9 +37,31 @@ android {
 
     ndkVersion = "27.0.12077973"
 
+    signingConfigs {
+        create("release") {
+            val storeFileProp = keystoreProperties.getProperty("storeFile")
+            val storePasswordProp = keystoreProperties.getProperty("storePassword")
+            val keyAliasProp = keystoreProperties.getProperty("keyAlias")
+            val keyPasswordProp = keystoreProperties.getProperty("keyPassword")
+            check(
+                !storeFileProp.isNullOrBlank() &&
+                    !storePasswordProp.isNullOrBlank() &&
+                    !keyAliasProp.isNullOrBlank() &&
+                    !keyPasswordProp.isNullOrBlank(),
+            ) {
+                "Missing android/keystore.properties (fetch from VPS secrets or run scripts/fetch-release-keystore.sh)"
+            }
+            storeFile = rootProject.file(storeFileProp)
+            storePassword = storePasswordProp
+            keyAlias = keyAliasProp
+            keyPassword = keyPasswordProp
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
