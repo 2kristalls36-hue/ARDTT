@@ -2,8 +2,10 @@ package com.nonamevpn.app.ui.tunnel
 
 import android.os.Build
 import android.telephony.SubscriptionManager
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateFloatAsState
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -668,8 +670,11 @@ private fun UserTunnelSimpleScreen(
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
 ) {
+    val droneExitDurationMs = 980L
     val lifecycleOwner = LocalLifecycleOwner.current
     var animationRestartToken by remember { mutableStateOf(0) }
+    var showingWhitelistScene by remember { mutableStateOf(whitelistDetected) }
+    var dronesBlowAway by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -681,10 +686,24 @@ private fun UserTunnelSimpleScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+    LaunchedEffect(whitelistDetected) {
+        if (whitelistDetected) {
+            dronesBlowAway = false
+            showingWhitelistScene = true
+            return@LaunchedEffect
+        }
+        if (showingWhitelistScene) {
+            dronesBlowAway = true
+            delay(droneExitDurationMs)
+            dronesBlowAway = false
+            showingWhitelistScene = false
+        }
+    }
+
     val bgRes = resolveUserTunnelWallpaper(
         variant = wallpaperVariant,
         isDark = isDarkTheme,
-        whitelistDetected = whitelistDetected,
+        whitelistDetected = showingWhitelistScene,
     )
     val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
     val connected = ui.state == ConnState.Connected
@@ -692,15 +711,22 @@ private fun UserTunnelSimpleScreen(
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(bgRes),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-        )
-        if (whitelistDetected) {
+        Crossfade(
+            targetState = bgRes,
+            animationSpec = tween(durationMillis = 760, easing = FastOutSlowInEasing),
+            label = "tunnel_wallpaper_crossfade",
+        ) { resId ->
+            Image(
+                painter = painterResource(resId),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        if (showingWhitelistScene) {
             WhitelistDroneSkyAnimation(
                 restartToken = animationRestartToken,
+                blowAway = dronesBlowAway,
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(0.333f)
@@ -834,6 +860,7 @@ private data class DroneFlightSpec(
 @Composable
 private fun WhitelistDroneSkyAnimation(
     restartToken: Int,
+    blowAway: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val drones = remember {
@@ -899,6 +926,7 @@ private fun WhitelistDroneSkyAnimation(
                 spec = spec,
                 index = index,
                 restartToken = restartToken,
+                blowAway = blowAway,
                 sceneWidthPx = sceneWidthPx,
                 sceneHeightPx = sceneHeightPx,
             )
@@ -911,6 +939,7 @@ private fun AnimatedDrone(
     spec: DroneFlightSpec,
     index: Int,
     restartToken: Int,
+    blowAway: Boolean,
     sceneWidthPx: Float,
     sceneHeightPx: Float,
 ) {
@@ -928,6 +957,11 @@ private fun AnimatedDrone(
         targetValue = if (arrivalProgress > 0.985f) 1f else 0f,
         animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
         label = "drone_orbit_blend_$index",
+    )
+    val blowAwayProgress by animateFloatAsState(
+        targetValue = if (blowAway) 1f else 0f,
+        animationSpec = tween(durationMillis = 980, easing = FastOutLinearInEasing),
+        label = "drone_blow_away_$index",
     )
     val orbit by produceState(
         initialValue = 0f,
@@ -972,7 +1006,10 @@ private fun AnimatedDrone(
         sin((base + 0.2f).toDouble()).toFloat() * 0.9f +
             sin((base * 2f + 1.4f).toDouble()).toFloat() * 0.35f
         ) * orbitBlend
-    val alpha = (0.22f + 0.78f * arrivalProgress).coerceIn(0f, 1f)
+    val windKickX = -sceneWidthPx * (0.36f + 0.12f * spec.windStrength) * blowAwayProgress
+    val windKickY = -sceneHeightPx * 0.10f * blowAwayProgress
+    val alpha = ((0.22f + 0.78f * arrivalProgress) * (1f - blowAwayProgress * 0.98f)).coerceIn(0f, 1f)
+    val blowRotation = -18f * blowAwayProgress
 
     Image(
         painter = painterResource(spec.resId),
@@ -981,14 +1018,14 @@ private fun AnimatedDrone(
         modifier = Modifier
             .offset {
                 IntOffset(
-                    x = (xFrac * sceneWidthPx + orbitX).roundToInt(),
-                    y = (yFrac * sceneHeightPx + orbitY).roundToInt(),
+                    x = (xFrac * sceneWidthPx + orbitX + windKickX).roundToInt(),
+                    y = (yFrac * sceneHeightPx + orbitY + windKickY).roundToInt(),
                 )
             }
             .size(spec.sizeDp.dp)
             .graphicsLayer {
                 this.alpha = alpha
-                rotationZ = wobbleRotation
+                rotationZ = wobbleRotation + blowRotation
             },
     )
 }
