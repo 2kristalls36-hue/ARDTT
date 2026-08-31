@@ -879,11 +879,21 @@ private fun AnimatedDrone(
 
     val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
     val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
-    val orbitX = cos((orbit + spec.phaseRad).toDouble()).toFloat() *
-        (sceneWidthPx * spec.orbitRadiusXFrac) * orbitBlend
-    val orbitY = sin((orbit * 1.12f + spec.phaseRad).toDouble()).toFloat() *
-        (sceneHeightPx * spec.orbitRadiusYFrac) * orbitBlend
-    val wobbleRotation = sin((orbit * 0.65f + spec.phaseRad).toDouble()).toFloat() * 1.8f * orbitBlend
+    // Wind-like hover: small wave drift around fixed anchor + stabilization compensation.
+    val windCarrier = sin((orbit * 0.24f + spec.phaseRad).toDouble()).toFloat()
+    val waveX = sin((orbit * 0.95f + spec.phaseRad).toDouble()).toFloat()
+    val waveY = sin((orbit * 1.35f + spec.phaseRad * 1.6f).toDouble()).toFloat()
+    val compensationX = sin((orbit * 2.2f + spec.phaseRad * 0.75f).toDouble()).toFloat()
+    val compensationY = sin((orbit * 2.6f + spec.phaseRad * 0.55f).toDouble()).toFloat()
+    val windAmp = (0.65f + 0.35f * windCarrier) * orbitBlend
+    val orbitX = (waveX * 0.78f + compensationX * 0.22f) *
+        (sceneWidthPx * spec.orbitRadiusXFrac) * windAmp
+    val orbitY = (waveY * 0.72f + compensationY * 0.28f) *
+        (sceneHeightPx * spec.orbitRadiusYFrac) * windAmp
+    val wobbleRotation = (
+        sin((orbit * 0.62f + spec.phaseRad).toDouble()).toFloat() * 1.1f +
+            sin((orbit * 1.85f + spec.phaseRad * 0.9f).toDouble()).toFloat() * 0.55f
+        ) * orbitBlend
     val alpha = (0.22f + 0.78f * arrivalProgress).coerceIn(0f, 1f)
 
     Image(
