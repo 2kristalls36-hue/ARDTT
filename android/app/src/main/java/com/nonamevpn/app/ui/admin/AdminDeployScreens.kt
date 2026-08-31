@@ -212,10 +212,16 @@ fun ServersScreen(
     serversRepo: ServersRepository,
     engine: DeployEngine,
     profiles: ProfileRepository,
+    reselectSignal: Int = 0,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
     var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
         mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
+    }
+    LaunchedEffect(reselectSignal) {
+        if (reselectSignal > 0) {
+            screen = ServersNavScreen.List
+        }
     }
 
     BackHandler(enabled = screen !is ServersNavScreen.List) {
