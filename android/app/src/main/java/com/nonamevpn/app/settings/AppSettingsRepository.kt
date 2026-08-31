@@ -32,6 +32,7 @@ class AppSettingsRepository(private val context: Context) {
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
     private val themePalette = stringPreferencesKey("theme_palette")
+    private val legacyWallpaper = stringPreferencesKey("app_wallpaper")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
@@ -250,6 +251,11 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setThemePalette(palette: String) {
         context.dataStore.edit { it[themePalette] = normalizeThemePalette(palette) }
+    }
+
+    /** Removes obsolete wallpaper preference from older builds. */
+    suspend fun clearLegacyWallpaperPreference() {
+        context.dataStore.edit { it.remove(legacyWallpaper) }
     }
 
     private fun sha256(value: String): String {
