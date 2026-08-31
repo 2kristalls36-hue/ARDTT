@@ -183,7 +183,7 @@ fun CallHashSettingsContent(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                Text("Новый код")
+                Text("Создать код")
             }
             OutlinedButton(
                 onClick = { showManual = true },
