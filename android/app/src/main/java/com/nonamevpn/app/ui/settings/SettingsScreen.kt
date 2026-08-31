@@ -24,12 +24,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import com.nonamevpn.app.ui.components.AppWallpaper
+import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -215,9 +218,27 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                DialChip("Сист.", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
-                DialChip("Свет.", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
-                DialChip("Темн.", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
+                ChoiceChipButton(
+                    label = "Сист.",
+                    selected = themeMode == "system",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setThemeMode("system") } },
+                    modifier = Modifier.weight(1f),
+                )
+                ChoiceChipButton(
+                    label = "Свет.",
+                    selected = themeMode == "light",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setThemeMode("light") } },
+                    modifier = Modifier.weight(1f),
+                )
+                ChoiceChipButton(
+                    label = "Темн.",
+                    selected = themeMode == "dark",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setThemeMode("dark") } },
+                    modifier = Modifier.weight(1f),
+                )
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 Row(
@@ -300,23 +321,26 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                DialChip(
-                    "Авто",
-                    pathMode == "auto",
-                    { scope.launch { settings.setPathMode("auto") } },
-                    Modifier.weight(1f),
+                ChoiceChipButton(
+                    label = "Авто",
+                    selected = pathMode == "auto",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setPathMode("auto") } },
+                    modifier = Modifier.weight(1f),
                 )
-                DialChip(
-                    "Прямое",
-                    pathMode == "direct",
-                    { scope.launch { settings.setPathMode("direct") } },
-                    Modifier.weight(1f),
+                ChoiceChipButton(
+                    label = "Прямое",
+                    selected = pathMode == "direct",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setPathMode("direct") } },
+                    modifier = Modifier.weight(1f),
                 )
-                DialChip(
-                    "Обход",
-                    pathMode == "bypass",
-                    { scope.launch { settings.setPathMode("bypass") } },
-                    Modifier.weight(1f),
+                ChoiceChipButton(
+                    label = "Обход",
+                    selected = pathMode == "bypass",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setPathMode("bypass") } },
+                    modifier = Modifier.weight(1f),
                 )
             }
             Text(
@@ -382,9 +406,27 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                DialChip("Авто", dial == "auto", { scope.launch { settings.setDialPath("auto") } }, Modifier.weight(1f))
-                DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
-                DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
+                ChoiceChipButton(
+                    label = "Авто",
+                    selected = dial == "auto",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setDialPath("auto") } },
+                    modifier = Modifier.weight(1f),
+                )
+                ChoiceChipButton(
+                    label = "vkcalls",
+                    selected = dial == "vkcalls",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setDialPath("vkcalls") } },
+                    modifier = Modifier.weight(1f),
+                )
+                ChoiceChipButton(
+                    label = "Капча",
+                    selected = dial == "legacy",
+                    enabled = true,
+                    onClick = { scope.launch { settings.setDialPath("legacy") } },
+                    modifier = Modifier.weight(1f),
+                )
             }
             RowSetting(
                 title = "Тихий recreate звонка",
@@ -857,19 +899,60 @@ private fun WallpaperCard(
 }
 
 @Composable
-private fun DialChip(
+private fun ChoiceChipButton(
     label: String,
     selected: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label) },
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-    )
+    val colors = MaterialTheme.colorScheme
+    val isDark = NvpnFloatingShell.isDarkTheme()
+    val defaultSelectedBg = if (isDark) {
+        colors.primary.copy(alpha = 0.22f)
+    } else {
+        lerp(colors.primaryContainer, colors.surface, 0.18f).copy(alpha = 0.94f)
+    }
+    val defaultSelectedContent = colors.primary
+
+    if (selected) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier.height(44.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = defaultSelectedBg,
+                contentColor = defaultSelectedContent,
+            ),
+            border = BorderStroke(
+                1.dp,
+                if (isDark) colors.primary.copy(alpha = 0.35f) else colors.primary.copy(alpha = 0.25f),
+            ),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+        ) {
+            Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier.height(44.dp),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(
+                1.dp,
+                colors.outline.copy(alpha = 0.45f),
+            ),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+        ) {
+            Text(
+                label,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                color = colors.onSurface,
+            )
+        }
+    }
 }
 
 @Composable

@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -81,6 +81,7 @@ import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
@@ -334,10 +335,11 @@ fun TunnelScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         pickerFolders.forEach { folder ->
-                            FilterChip(
+                            ChoiceChipButton(
+                                label = folder,
                                 selected = pickerFolder == folder,
+                                enabled = true,
                                 onClick = { pickerFolder = folder },
-                                label = { Text(folder) },
                             )
                         }
                     }
@@ -673,6 +675,14 @@ private fun ChoiceChipButton(
     selectedContainer: Color? = null,
 ) {
     val colors = MaterialTheme.colorScheme
+    val isDark = NvpnFloatingShell.isDarkTheme()
+    val defaultSelectedBg = if (isDark) {
+        colors.primary.copy(alpha = 0.22f)
+    } else {
+        lerp(colors.primaryContainer, colors.surface, 0.18f).copy(alpha = 0.94f)
+    }
+    val defaultSelectedContent = colors.primary
+
     if (selected) {
         Button(
             onClick = onClick,
@@ -685,7 +695,18 @@ private fun ChoiceChipButton(
                     contentColor = Color.White,
                 )
             } else {
-                ButtonDefaults.buttonColors()
+                ButtonDefaults.buttonColors(
+                    containerColor = defaultSelectedBg,
+                    contentColor = defaultSelectedContent,
+                )
+            },
+            border = if (selectedContainer == null) {
+                BorderStroke(
+                    1.dp,
+                    if (isDark) colors.primary.copy(alpha = 0.35f) else colors.primary.copy(alpha = 0.25f),
+                )
+            } else {
+                null
             },
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
