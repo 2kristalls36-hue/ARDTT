@@ -22,10 +22,32 @@ fun canReuseBypassTun(
     return lastIp == wantIp && lastDns == dns && lastMtu == wantMtu
 }
 
-/** Keep the Bypass TUN only when already on Path B. Direct→Bypass must drop TUN so libclient can dial. */
+/**
+ * Keep the Bypass TUN only when already on Path B **and** the underlay did not
+ * move. Direct→Bypass must drop TUN so libclient can dial. SIM swap / Wi‑Fi↔LTE
+ * must drop TUN too: Android binds VpnService to the network that [establish]
+ * saw. Reusing fd=215 after MTS→T-Mobile left apps on a dead underlay while
+ * TURN workers rebound on the new SIM.
+ */
 fun shouldReuseBypassTunOnSoftRestart(
     softRestart: Boolean,
     pathIsBypass: Boolean,
     currentBackendIsBypass: Boolean,
     tunValid: Boolean,
-): Boolean = softRestart && pathIsBypass && currentBackendIsBypass && tunValid
+    underlayChanged: Boolean = false,
+): Boolean =
+    softRestart &&
+        pathIsBypass &&
+        currentBackendIsBypass &&
+        tunValid &&
+        !underlayChanged
+
+/** True when the TUN was built on a different Wi‑Fi/SIM than the one now up. */
+fun tunUnderlayChanged(
+    lastIdentity: String?,
+    currentIdentity: String,
+): Boolean {
+    val last = lastIdentity?.takeIf { it.isNotBlank() && it != "none" } ?: return false
+    val current = currentIdentity.takeIf { it.isNotBlank() && it != "none" } ?: return false
+    return last != current
+}

@@ -45,6 +45,22 @@ fun transportRecoveryPolicy(path: VpnPath = VpnPath.Bypass): TransportRecoveryPo
 /** Bypass: settle after Android marks the new underlay VALIDATED. */
 const val BYPASS_NETWORK_SETTLE_MS = 3_000L
 
+/**
+ * After VALIDATED wait timed out, sockets are already broken-pipe (SIM swap).
+ * Do not add another 3s — join VK on the replacement underlay immediately.
+ */
+const val BYPASS_UNVALIDATED_SETTLE_MS = 400L
+
+fun extraNetworkSettleDelayMs(
+    path: VpnPath,
+    validatedPresent: Boolean,
+): Long {
+    if (path == VpnPath.Bypass && !validatedPresent) {
+        return BYPASS_UNVALIDATED_SETTLE_MS
+    }
+    return transportRecoveryPolicy(path).networkSettleDelayMs
+}
+
 /** Bypass: VK join cooldown — Wi‑Fi↔LTE must not enqueue a second anonym chain. */
 const val BYPASS_RECONNECT_MIN_INTERVAL_MS = 20_000L
 

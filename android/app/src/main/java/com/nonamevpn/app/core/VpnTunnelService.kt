@@ -77,6 +77,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var lastTunIp: String? = null
     @Volatile private var lastTunDns: String? = null
     @Volatile private var lastTunMtu: Int = 0
+    @Volatile private var lastTunUnderlayIdentity: String? = null
+    /** Handover with a new Wi‑Fi/SIM: next Bypass launch must [establish] a fresh TUN. */
+    @Volatile private var rebuildTunOnNextLaunch = false
     private fun recoveryPolicy(): TransportRecoveryPolicy =
         transportRecoveryPolicy(TunnelSessionHolder.config?.path ?: VpnPath.Direct)
 
@@ -235,12 +238,20 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
 
         val epoch = ++backendEpoch
+        val currentUnderlayId = underlayIdentity(this)
+        val underlayMoved = rebuildTunOnNextLaunch ||
+            tunUnderlayChanged(lastTunUnderlayIdentity, currentUnderlayId)
+        rebuildTunOnNextLaunch = false
         val reuseBypassTun = shouldReuseBypassTunOnSoftRestart(
             softRestart = softRestart,
             pathIsBypass = path == VpnPath.Bypass,
             currentBackendIsBypass = backend is BypassBackend,
             tunValid = tunStillValid(),
+            underlayChanged = underlayMoved,
         )
+        if (underlayMoved && path == VpnPath.Bypass) {
+            AppLog.i(TAG, "rebuild Bypass TUN — underlay changed (SIM/Wi‑Fi)")
+        }
         val currentBackend = backend
         if (reuseBypassTun && currentBackend is BypassBackend) {
             currentBackend.stopKeepingTun()
@@ -254,6 +265,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             forgetTun()
         } else {
             AppLog.i(TAG, "keeping Bypass TUN for transport restart fd=${tun?.fd}")
+            bindTunToUnderlay()
         }
         TransportHealth.noteBackendStarted()
 
@@ -395,10 +407,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         reason = "[СЕТЬ] $reason → ${decision.path}",
                         force = true,
                         pathOverride = decision.path,
+                        rebuildTun = underlayChanged,
                     )
                 }
                 NetworkHandoverDecision.SoftRestartSamePath -> {
-                    requestSoftRestart(reason = "[СЕТЬ] $reason", force = true)
+                    requestSoftRestart(
+                        reason = "[СЕТЬ] $reason",
+                        force = true,
+                        rebuildTun = underlayChanged,
+                    )
                 }
             }
         } catch (t: Throwable) {
@@ -411,6 +428,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         reason: String,
         force: Boolean = false,
         pathOverride: VpnPath? = null,
+        rebuildTun: Boolean = false,
     ) {
         if ((!tunnelSessionActive && !trustedWifiWaiting) || userStopRequested || trustedWifiWaiting) {
             return
@@ -439,6 +457,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         lastHandoffAtMs = now
         zeroWorkersSinceMs = 0L
         processDeadSinceMs = 0L
+        if (rebuildTun) rebuildTunOnNextLaunch = true
         val path = pathOverride ?: TunnelSessionHolder.config?.path
         if (path == null) {
             softRestartInProgress = false
@@ -886,6 +905,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         availableRealNetworkCount = activeNetworks.size,
                     )
                 ) {
+                    bindTunToUnderlay()
                     scheduleUnderlyingNetworkReconnect(
                         "Android обнаружил доступную сеть после потери прежней",
                     )
@@ -1095,7 +1115,17 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
                 val (trustedOn, trustedSsids) = runCatching { settingsRepo.trustedWifiSnapshot() }
                     .getOrDefault(false to emptySet())
-                delay(policy.networkSettleDelayMs)
+                val settlePath = TunnelSessionHolder.config?.path ?: path
+                val settleMs = extraNetworkSettleDelayMs(
+                    path = settlePath,
+                    validatedPresent = hasValidatedRealNetwork(),
+                )
+                AppLog.v(
+                    TAG,
+                    "handover settle ${settleMs}ms validated=${hasValidatedRealNetwork()} " +
+                        "path=$settlePath ($reason)",
+                )
+                delay(settleMs)
                 if (trustedOn && trustedSsids.isNotEmpty()) {
                     val waitStarted = System.currentTimeMillis()
                     while (!userStopRequested) {
@@ -1218,6 +1248,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         pendingHandoverUnderlayChanged = false
         stableNetworkEvidenceSinceMs = 0L
         rebindBypassWhenValidated = false
+        rebuildTunOnNextLaunch = false
         softRestartInProgress = false
         trustedWifiEvalJob?.cancel()
         watchdogJob?.cancel()
@@ -1255,6 +1286,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             )
         ) {
             AppLog.i(TAG, "TUN reused fd=${tun?.fd} ip=$ip mtu=$wantMtu")
+            lastTunUnderlayIdentity = underlayIdentity(this)
+            bindTunToUnderlay()
             return tun
         }
         runCatching { tun?.close() }
@@ -1318,10 +1351,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             lastTunIp = ipAddr
             lastTunDns = dnsCsv
             lastTunMtu = wantMtu
+            lastTunUnderlayIdentity = underlayIdentity(this)
+            bindTunToUnderlay()
         } else {
             lastTunIp = null
             lastTunDns = null
             lastTunMtu = 0
+            lastTunUnderlayIdentity = null
         }
         AppLog.i(
             TAG,
@@ -1350,6 +1386,23 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         lastTunIp = null
         lastTunDns = null
         lastTunMtu = 0
+        lastTunUnderlayIdentity = null
+    }
+
+    /**
+     * Tell Android which real network this VpnService sits on. After a SIM
+     * swap the default underlay moved; leaving the previous binding makes
+     * apps look offline even when TURN workers already rebound.
+     */
+    private fun bindTunToUnderlay() {
+        if (!tunnelSessionActive && tun == null) return
+        val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
+        runCatching {
+            setUnderlyingNetworks(n?.let { arrayOf(it) })
+            AppLog.i(TAG, "VPN underlying=${n?.networkHandle ?: "default"}")
+        }.onFailure {
+            AppLog.w(TAG, "setUnderlyingNetworks: ${it.message}")
+        }
     }
 
     private fun applyExcludedHostRoutes(builder: Builder, hosts: Set<String>) {
