@@ -792,21 +792,30 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
-    fun cellularAutoGoesBypassEvenIfVpsTcpIsUp() {
-        assertTrue(shouldAutoUseBypassOnCellular(true, UnderlayKind.Cellular))
-        assertFalse(shouldAutoUseBypassOnCellular(false, UnderlayKind.Cellular))
-        assertFalse(shouldAutoUseBypassOnCellular(true, UnderlayKind.Wifi))
+    fun cellularAutoKeepsDirectWhenVpsIsReachable() {
         assertEquals(UnderlayKind.Wifi, classifyUnderlayKind(wifi = true, cellular = true))
         assertEquals(UnderlayKind.Cellular, classifyUnderlayKind(wifi = false, cellular = true))
 
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            NetworkHandoverDecision.SoftRestartSamePath,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
                 probedPath = VpnPath.Direct,
                 bypassAllowed = true,
                 underlayVpsReachable = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayVpsReachable = false,
                 underlayChanged = true,
                 underlayKind = UnderlayKind.Cellular,
             ),
