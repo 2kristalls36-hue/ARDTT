@@ -23,9 +23,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,7 +50,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnectionManager
-import com.nonamevpn.app.profile.DEFAULT_PROFILE_FOLDER
 import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.StoredProfile
@@ -63,12 +64,11 @@ import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import com.nonamevpn.app.ui.components.StickyBottomScaffold
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 
 @Composable
 fun ProfilesScreen(
@@ -80,27 +80,18 @@ fun ProfilesScreen(
     val conn = remember { ConnectionManager.get(context) }
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
-    var selectedFolder by remember { mutableStateOf(DEFAULT_PROFILE_FOLDER) }
     var showAddSheet by remember { mutableStateOf(false) }
     var showSubscription by remember { mutableStateOf(false) }
     var subscriptionUrl by remember { mutableStateOf("") }
     var shareProfile by remember { mutableStateOf<VpnProfile?>(null) }
     var showPaste by remember { mutableStateOf(false) }
     var pasteText by remember { mutableStateOf("") }
-    var showFolder by remember { mutableStateOf(false) }
-    var folderName by remember { mutableStateOf("") }
-    var showFolderManage by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<StoredProfile?>(null) }
     var renameText by remember { mutableStateOf("") }
-    var moveTarget by remember { mutableStateOf<StoredProfile?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    val folders = catalog.folders.ifEmpty { listOf(DEFAULT_PROFILE_FOLDER) }
-    LaunchedEffect(folders) {
-        if (selectedFolder !in folders) selectedFolder = folders.first()
-    }
-    val visible = catalog.inFolder(selectedFolder)
+    val visible = catalog.items
 
     fun afterChange(message: String? = null) {
         busy = false
@@ -128,7 +119,7 @@ fun ProfilesScreen(
             runCatching {
                 val imported = ProfileImportResolver.resolve(raw)
                 imported.forEachIndexed { index, profile ->
-                    profiles.upsert(profile, selectedFolder, activate = index == imported.lastIndex)
+                    profiles.upsert(profile, activate = index == imported.lastIndex)
                 }
                 val last = imported.last()
                 settings.setProfileName(last.name)
@@ -165,7 +156,7 @@ fun ProfilesScreen(
                         android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     )
                 }
-                val imported = profiles.importUri(uri, selectedFolder)
+                val imported = profiles.importUri(uri)
                 settings.setProfileName(imported.name)
                 conn.updateProfile(imported)
                 AppLog.i("Profiles", "imported ${imported.name}")
@@ -191,33 +182,11 @@ fun ProfilesScreen(
         AppTabPageHeader(
             tabTitle = "Профили",
             subtitle = if (catalog.items.isEmpty()) {
-                "Импортируйте JSON с сервера. Можно несколько профилей и папки."
+                "Импортируйте JSON с сервера"
             } else {
                 "${catalog.items.size} профилей · активен: ${catalog.active?.name ?: "—"}"
             },
         )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            folders.forEach { folder ->
-                FilterChip(
-                    selected = selectedFolder == folder,
-                    onClick = { selectedFolder = folder },
-                    label = { Text(folder) },
-                )
-            }
-            IconButton(onClick = { folderName = ""; showFolder = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Новая папка")
-            }
-            IconButton(onClick = { showFolderManage = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Папки")
-            }
-        }
 
         error?.let {
             AppSectionCard(contentPadding = PaddingValues(16.dp)) {
@@ -228,7 +197,7 @@ fun ProfilesScreen(
         if (visible.isEmpty()) {
             AppSectionCard(contentPadding = PaddingValues(16.dp)) {
                 Text(
-                    if (catalog.items.isEmpty()) "Профили не загружены" else "В этой папке пока пусто",
+                    "Профили не загружены",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -243,7 +212,6 @@ fun ProfilesScreen(
                 ProfileCard(
                     item = item,
                     active = item.id == catalog.activeId,
-                    folders = folders,
                     onSelect = { applyProfile(item) },
                     onOpen = { applyProfile(item, openTunnel = true) },
                     onCopy = {
@@ -257,7 +225,6 @@ fun ProfilesScreen(
                         renameTarget = item
                         renameText = item.profile.name
                     },
-                    onMove = { moveTarget = item },
                     onDelete = {
                         scope.launch {
                             val wasActive = item.id == catalog.activeId
@@ -359,7 +326,7 @@ fun ProfilesScreen(
             dismissOnClickOutside = !busy,
         ) {
             Text(
-                "JSON, ссылка ardtt:// или URL подписки. Импорт в папку «$selectedFolder».",
+                "JSON, ссылка ardtt:// или URL подписки.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -371,34 +338,6 @@ fun ProfilesScreen(
                     .height(180.dp),
                 shape = RoundedCornerShape(16.dp),
                 placeholder = { Text("ardtt://config?… или { \"name\": … }") },
-            )
-        }
-    }
-
-    if (showFolder) {
-        NvpnDialog(
-            title = "Новая папка",
-            onDismissRequest = { showFolder = false },
-            confirmAction = NvpnDialogAction(
-                "Создать",
-                {
-                    scope.launch {
-                        profiles.addFolder(folderName)
-                        selectedFolder = folderName.trim().ifBlank { selectedFolder }
-                        showFolder = false
-                    }
-                },
-                enabled = folderName.isNotBlank(),
-            ),
-            dismissAction = NvpnDialogAction("Отмена", { showFolder = false }),
-        ) {
-            OutlinedTextField(
-                value = folderName,
-                onValueChange = { folderName = it },
-                label = { Text("Имя папки") },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -430,95 +369,17 @@ fun ProfilesScreen(
             )
         }
     }
-
-    moveTarget?.let { target ->
-        NvpnDialog(
-            title = "Переместить",
-            onDismissRequest = { moveTarget = null },
-            dismissAction = NvpnDialogAction("Закрыть", { moveTarget = null }),
-        ) {
-            folders.forEach { folder ->
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            profiles.moveToFolder(target.id, folder)
-                            selectedFolder = folder
-                            moveTarget = null
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                ) { Text(folder) }
-            }
-        }
-    }
-
-    if (showFolderManage) {
-        NvpnDialog(
-            title = "Папки",
-            onDismissRequest = { showFolderManage = false },
-            dismissAction = NvpnDialogAction("Закрыть", { showFolderManage = false }),
-        ) {
-            folders.forEach { folder ->
-                val count = catalog.inFolder(folder).size
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "$folder · $count",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                val arr = JSONArray()
-                                catalog.inFolder(folder).forEach { item ->
-                                    arr.put(JSONObject(VpnProfileJson.encode(item.profile)))
-                                }
-                                val payload = JSONObject()
-                                    .put("profiles", arr)
-                                    .toString(2)
-                                val send = Intent(Intent.ACTION_SEND).apply {
-                                    type = "application/json"
-                                    putExtra(Intent.EXTRA_TEXT, payload)
-                                    putExtra(Intent.EXTRA_SUBJECT, folder)
-                                }
-                                context.startActivity(Intent.createChooser(send, "Экспорт папки"))
-                            },
-                            enabled = count > 0,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Экспорт") }
-                        if (folder != DEFAULT_PROFILE_FOLDER) {
-                            OutlinedButton(
-                                onClick = {
-                                    scope.launch {
-                                        profiles.deleteFolder(folder)
-                                        selectedFolder = DEFAULT_PROFILE_FOLDER
-                                        showFolderManage = false
-                                    }
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.weight(1f),
-                            ) { Text("Удалить") }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
 private fun ProfileCard(
     item: StoredProfile,
     active: Boolean,
-    folders: List<String>,
     onSelect: () -> Unit,
     onOpen: () -> Unit,
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onRename: () -> Unit,
-    onMove: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -557,9 +418,6 @@ private fun ProfileCard(
                 DropdownMenuItem(text = { Text("Копировать JSON") }, onClick = { menu = false; onCopy() })
                 DropdownMenuItem(text = { Text("Ссылка / QR") }, onClick = { menu = false; onShare() })
                 DropdownMenuItem(text = { Text("Переименовать") }, onClick = { menu = false; onRename() })
-                if (folders.size > 1) {
-                    DropdownMenuItem(text = { Text("В папку…") }, onClick = { menu = false; onMove() })
-                }
                 DropdownMenuItem(text = { Text("Удалить") }, onClick = { menu = false; onDelete() })
             }
         }
@@ -570,14 +428,18 @@ private fun ProfileCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            buildString {
-                append(item.folder)
-                if (item.profile.hostId > 0) append(" · host ${item.profile.hostId}")
-                if (active) append(" · выбран")
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (item.profile.hostId > 0 || active) {
+            Text(
+                buildString {
+                    if (item.profile.hostId > 0) append("host ${item.profile.hostId}")
+                    if (active) {
+                        if (item.profile.hostId > 0) append(" · ")
+                        append("выбран")
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
