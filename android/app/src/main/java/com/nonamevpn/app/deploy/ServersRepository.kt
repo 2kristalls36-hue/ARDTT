@@ -56,6 +56,8 @@ class ServersRepository(context: Context) {
                     .put("publicHost", t.publicHost.ifBlank { t.host })
                     .put("directPort", t.directPort)
                     .put("bypassPort", t.bypassPort)
+                    .put("osId", t.osId)
+                    .put("osVersion", t.osVersion)
                     .put("lastDeployedAtMs", t.lastDeployedAtMs),
             )
         }
@@ -84,6 +86,8 @@ class ServersRepository(context: Context) {
                             publicHost = o.optString("publicHost", ""),
                             directPort = o.optInt("directPort", 51820),
                             bypassPort = o.optInt("bypassPort", 56003),
+                            osId = o.optString("osId", ""),
+                            osVersion = o.optString("osVersion", ""),
                             lastDeployedAtMs = o.optLong("lastDeployedAtMs", 0L),
                         ),
                     )
