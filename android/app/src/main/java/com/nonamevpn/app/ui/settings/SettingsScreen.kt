@@ -17,6 +17,7 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -69,6 +70,8 @@ import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.update.AppUpdateInfo
@@ -110,6 +113,8 @@ fun SettingsScreen(
     val updateUi by updates.ui.collectAsStateWithLifecycle()
     var adminHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
+    var showBypassMethodDialog by remember { mutableStateOf(false) }
+    var highlightBypassDialog by remember { mutableStateOf(false) }
     val refuseLeaveTestingSession: () -> Unit = {
         adminHint = TestingSessionGuard.STOP_RECORDING_FIRST
         Toast.makeText(
@@ -144,9 +149,14 @@ fun SettingsScreen(
 
     LaunchedEffect(openCallHash) {
         if (!openCallHash) return@LaunchedEffect
-        kotlinx.coroutines.delay(120)
-        runCatching { callHashBringIntoView.bringIntoView() }
+        showBypassMethodDialog = true
         PendingUiAction.consumeCallHashSettings()
+    }
+    LaunchedEffect(showBypassMethodDialog) {
+        if (!showBypassMethodDialog) return@LaunchedEffect
+        highlightBypassDialog = true
+        kotlinx.coroutines.delay(500)
+        highlightBypassDialog = false
     }
     LaunchedEffect(openUpdateDownload, updateUi.visible, updateUi.downloading, updateUi.downloadedFile) {
         if (!openUpdateDownload) return@LaunchedEffect
@@ -456,6 +466,42 @@ fun SettingsScreen(
             },
             onDismiss = { showTestingAgreement = false },
         )
+    }
+
+    if (showBypassMethodDialog) {
+        val highlightAlpha by animateFloatAsState(
+            targetValue = if (highlightBypassDialog) 1f else 0f,
+            animationSpec = androidx.compose.animation.core.tween(durationMillis = 500),
+            label = "bypass_dialog_highlight",
+        )
+        NvpnDialog(
+            title = "Метод обхода",
+            onDismissRequest = { showBypassMethodDialog = false },
+            dismissAction = NvpnDialogAction(
+                text = "Закрыть",
+                onClick = { showBypassMethodDialog = false },
+            ),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = 2.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f + 0.52f * highlightAlpha),
+                ),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Box(modifier = Modifier.padding(12.dp)) {
+                    CallHashSettingsContent(showHeader = false)
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            Text(
+                "В этом окне можно авторизоваться, создать код звонка через ВК или ввести его вручную.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
