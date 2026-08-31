@@ -79,6 +79,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -122,6 +123,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Job
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 @Composable
@@ -999,9 +1001,9 @@ private fun WhitelistDroneSkyAnimation(
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_near,
                 sizeDp = 228,
-                startXFrac = 0.44f,
+                startXFrac = 0.40f,
                 startYFrac = -0.74f,
-                anchorXFrac = 0.43f,
+                anchorXFrac = 0.37f,
                 anchorYFrac = 0.18f,
                 orbitRadiusXFrac = 0.027f,
                 orbitRadiusYFrac = 0.021f,
@@ -1150,11 +1152,18 @@ private fun AnimatedDrone(
     val blowRotation = -18f * blowAwayProgress
     val dragLimitX = sceneWidthPx * spec.dragLimitXFrac
     val dragLimitY = sceneHeightPx * spec.dragLimitYFrac
+    val baseX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
+    val baseY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
+    val layoutX = baseX.roundToInt()
+    val layoutY = baseY.roundToInt()
+    val drawOffsetX = baseX - layoutX
+    val drawOffsetY = baseY - layoutY
 
     val touchSizeDp = (spec.sizeDp * 1.35f).dp
     Box(
         modifier = Modifier
             .size(touchSizeDp)
+            .offset { IntOffset(layoutX, layoutY) }
             .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
                 detectDragGestures(
                     onDragStart = {
@@ -1207,8 +1216,8 @@ private fun AnimatedDrone(
                 }
             }
             .graphicsLayer {
-                translationX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
-                translationY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
+                translationX = drawOffsetX
+                translationY = drawOffsetY
                 this.alpha = alpha
                 rotationZ = wobbleRotation + blowRotation
             },
