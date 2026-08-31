@@ -100,7 +100,7 @@ class BypassGoProcess(
         val rawBox = StringBuilder()
         var rawDelivered = false
 
-        logJob = scope.launch(Dispatchers.IO) {
+        logJob = CoroutineScope(Dispatchers.IO).launch {
             BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
                 while (isActive) {
                     val line = reader.readLine() ?: break

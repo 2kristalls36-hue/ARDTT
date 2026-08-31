@@ -204,6 +204,31 @@ class UnderlayAccessTest {
     }
 
     @Test
+    fun validatedWifiWithoutSsidStillBeatsCellular() {
+        val wifi = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = true,
+            cellularTransport = false,
+            wifiActuallyConnected = false,
+            networkSubId = -1,
+            activeDataSubId = 2,
+        )
+        val cell = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = false,
+            networkSubId = 2,
+            activeDataSubId = 2,
+        )
+        assertTrue(wifi > cell)
+    }
+
+    @Test
     fun subscriptionIdFromSpecifierUsesReflection() {
         class FakeSpec {
             fun getSubscriptionId(): Int = 42

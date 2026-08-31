@@ -32,7 +32,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
-| Переподключение | Мягкий restart при смене Wi‑Fi/LTE: settle ~1 с, затем **re-probe underlay** (Auto) и при необходимости смена Direct↔Bypass; иначе тот же path. VpnService живёт, backend/`libclient` перезапускается |
+| Переподключение | Wi‑Fi в Auto → сразу Direct; LTE → Bypass. `libclient`/звонок держится ~5 мин после ухода на Direct, чтобы возврат на LTE не требовал нового VK-звонка. Settle ~1 с, VpnService живёт |
 | Wake rescue | После `SCREEN_ON` через ~60 с: если Path B без активных воркеров — soft restart |
 | Watchdog | Path B: 0 воркеров ≥5 мин (экран вкл.) или мёртвый backend ≥60 с → soft restart |
 | Trusted Wi‑Fi | Список SSID: на сети VPN пауза; при выходе — авто-подъём (нужна локация для SSID) |

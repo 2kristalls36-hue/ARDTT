@@ -8,6 +8,7 @@ import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.TransportHealth
 import com.nonamevpn.app.profile.VpnProfile
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -45,6 +46,8 @@ class BypassSession {
     private var go: BypassGoProcess? = null
     private var tun: ParcelFileDescriptor? = null
     @Volatile private var keepTunOnStop = false
+    /** Keep libclient after TUN close so the VK call stays allocated. */
+    @Volatile private var keepProcessOnCleanup = false
     @Volatile var phase: BypassPhase = BypassPhase.Idle
         private set
 
@@ -56,6 +59,7 @@ class BypassSession {
         onPhase: (BypassPhase) -> Unit,
     ) {
         keepTunOnStop = false
+        keepProcessOnCleanup = false
         stop()
         running.set(true)
         TransportHealth.noteBackendStarted()
@@ -134,6 +138,7 @@ class BypassSession {
                     return@launch
                 }
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 Log.e(TAG, "bypass session error", t)
                 setPhase(BypassPhase.Failed(t.message ?: "bypass error"), onPhase)
             } finally {
@@ -148,6 +153,7 @@ class BypassSession {
 
     fun stop(keepTun: Boolean = false) {
         // Set the flag before cancel so the coroutine finally does not close TUN.
+        keepProcessOnCleanup = false
         keepTunOnStop = keepTun
         running.set(false)
         job?.cancel()
@@ -156,14 +162,36 @@ class BypassSession {
         phase = BypassPhase.Stopped
     }
 
+    /**
+     * Close the VPN TUN but leave [libclient.so] in the VK call / TURN.
+     * Direct can own the VpnService; LTE return redials the same hash
+     * while the call is still live.
+     */
+    fun parkCall() {
+        keepProcessOnCleanup = true
+        keepTunOnStop = false
+        running.set(false)
+        TransportHealth.noteBackendStopped()
+        runCatching { tun?.close() }
+        tun = null
+        job?.cancel()
+        job = null
+        phase = BypassPhase.Stopped
+    }
+
+    val isCallParked: Boolean
+        get() = keepProcessOnCleanup && go?.isAlive == true
+
     private fun cleanup(keepTun: Boolean = false) {
-        go?.stop()
-        go = null
+        if (!keepProcessOnCleanup) {
+            go?.stop()
+            go = null
+            TransportHealth.noteBackendStopped()
+        }
         if (!keepTun) {
             runCatching { tun?.close() }
         }
         tun = null
-        TransportHealth.noteBackendStopped()
     }
 
     private fun setPhase(p: BypassPhase, onPhase: (BypassPhase) -> Unit) {
