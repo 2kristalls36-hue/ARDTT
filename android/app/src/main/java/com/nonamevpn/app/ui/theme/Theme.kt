@@ -11,6 +11,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
@@ -225,12 +226,14 @@ fun ArdttTheme(
         "light" -> false
         else -> isSystemInDarkTheme()
     }
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    val context = LocalContext.current
+    val colorScheme = remember(darkTheme, dynamicColor, palette, context.theme) {
+        when {
+            dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            }
+            else -> schemeFor(palette, darkTheme)
         }
-        else -> schemeFor(palette, darkTheme)
     }
 
     val view = LocalView.current
@@ -242,6 +245,9 @@ fun ArdttTheme(
             } else {
                 lerp(colorScheme.background, colorScheme.surface, 0.55f)
             }
+            window.setBackgroundDrawable(
+                android.graphics.drawable.ColorDrawable(colorScheme.background.toArgb()),
+            )
             window.statusBarColor = Color.Transparent.toArgb()
             window.navigationBarColor = navigationBarColor.toArgb()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
