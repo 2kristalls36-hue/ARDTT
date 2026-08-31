@@ -72,7 +72,6 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.ProbeResult
 import com.nonamevpn.app.core.VpnPath
-import com.nonamevpn.app.profile.DEFAULT_PROFILE_FOLDER
 import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.StoredProfile
@@ -110,7 +109,6 @@ fun TunnelScreen(
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
-    var pickerFolder by remember { mutableStateOf(DEFAULT_PROFILE_FOLDER) }
     var showImport by remember { mutableStateOf(false) }
     var showHash by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
@@ -196,12 +194,6 @@ fun TunnelScreen(
     val disconnecting = ui.state == ConnState.Disconnecting
     val busy = probing || connecting || disconnecting
     val pathBusy = connecting || disconnecting
-
-    val pickerFolders = catalog.folders.ifEmpty { listOf(DEFAULT_PROFILE_FOLDER) }
-    LaunchedEffect(pickerFolders) {
-        if (pickerFolder !in pickerFolders) pickerFolder = pickerFolders.first()
-    }
-    val pickerItems = catalog.inFolder(pickerFolder)
 
     fun activateStored(item: StoredProfile) {
         if (item.id == catalog.activeId) return
@@ -329,23 +321,6 @@ fun TunnelScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                if (pickerFolders.size > 1) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        pickerFolders.forEach { folder ->
-                            ChoiceChipButton(
-                                label = folder,
-                                selected = pickerFolder == folder,
-                                enabled = true,
-                                onClick = { pickerFolder = folder },
-                            )
-                        }
-                    }
-                }
                 if (catalog.items.isEmpty()) {
                     Text(
                         "Импортируйте JSON с сервера или создайте клиента на вкладке VPS.",
@@ -359,7 +334,7 @@ fun TunnelScreen(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        pickerItems.forEach { item ->
+                        catalog.items.forEach { item ->
                             ChoiceChipButton(
                                 label = item.profile.name.ifBlank { item.id },
                                 selected = item.id == catalog.activeId,
@@ -368,13 +343,6 @@ fun TunnelScreen(
                                 onClick = { activateStored(item) },
                             )
                         }
-                    }
-                    if (pickerItems.isEmpty()) {
-                        Text(
-                            "В этой папке пока пусто",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 }
                 OutlinedButton(
