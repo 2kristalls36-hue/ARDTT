@@ -94,12 +94,13 @@ fun validatedWaitTimeoutMs(
 /**
  * qWDTT reconnects RAW without a VPS probe. On this phone LTE often never
  * becomes VALIDATED while the VPN is up — waiting 2.5s+ only extends the
- * blackhole. Skip that wait when already on Bypass or moving to cellular.
+ * blackhole. Skip that wait on cellular. Do **not** skip on Wi‑Fi: Bypass
+ * still has traffic on LTE while home Wi‑Fi validates, and we need Direct.
  */
 fun shouldSkipValidatedWait(
     path: VpnPath,
     underlayKind: UnderlayKind,
-): Boolean = path == VpnPath.Bypass || underlayKind == UnderlayKind.Cellular
+): Boolean = underlayKind == UnderlayKind.Cellular
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,
@@ -194,8 +195,11 @@ fun shouldSkipHandoverRestartIfTrafficFresh(
     directTrafficFresh: Boolean,
     path: VpnPath,
     validatedPresent: Boolean = true,
+    underlayKind: UnderlayKind = UnderlayKind.Other,
 ): Boolean = when (path) {
-    VpnPath.Bypass -> validatedPresent && bypassTrafficFresh
+    // Leftover TURN on LTE is not a reason to stay on Bypass after Wi‑Fi is up.
+    VpnPath.Bypass ->
+        validatedPresent && bypassTrafficFresh && underlayKind != UnderlayKind.Wifi
     VpnPath.Direct -> false
 }
 
@@ -327,8 +331,8 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
  *   waiting for dead-Direct after Wi‑Fi→LTE / Connect on SIM costs ~10–20 s.
  * - Direct → Bypass on NeedBypass when the underlay changed (first hit), or
  *   after [HANDOVER_DIRECT_TO_BYPASS_STREAK] hits without a new network.
- * - Bypass → Direct only on Wi‑Fi + VPS IP + underlay change. SIM swap to a
- *   cell that can TCP :9100 must not yank Bypass.
+ * - Bypass → Direct immediately on Wi‑Fi + underlay change (no VPS probe).
+ *   SIM swap to a cell that can TCP :9100 must not yank Bypass.
  * - Forced Direct/Bypass only rebind when the underlay actually changed.
  */
 fun decideNetworkHandoverAction(
@@ -381,7 +385,9 @@ fun decideNetworkHandoverAction(
     val canUpgradeToDirect = allowBypassToDirect &&
         !directFailedOnCurrentUnderlay &&
         underlayKind == UnderlayKind.Wifi
-    if (vpsUp && canUpgradeToDirect && underlayChanged) {
+    // Home Wi‑Fi: switch now. Do not wait for :9100 — leftover LTE Bypass
+    // still has TURN traffic and would otherwise keep Path B.
+    if (canUpgradeToDirect && underlayChanged) {
         return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
     }
     if (underlayChanged) {
@@ -389,6 +395,18 @@ fun decideNetworkHandoverAction(
     }
     return NetworkHandoverDecision.NoAction
 }
+
+/** Keep libclient/TURN (the VK call) after Bypass→Direct so LTE return can redial the same hash. */
+const val WARM_CALL_HOLD_MS = 5 * 60 * 1000L
+
+fun shouldParkBypassCall(from: VpnPath, to: VpnPath): Boolean =
+    from == VpnPath.Bypass && to == VpnPath.Direct
+
+/** VALIDATED Wi‑Fi wins over LTE even if SSID APIs are blank. */
+fun preferWifiUnderlayKind(
+    hasValidatedWifi: Boolean,
+    pickBestKind: UnderlayKind,
+): UnderlayKind = if (hasValidatedWifi) UnderlayKind.Wifi else pickBestKind
 
 fun shouldReconnectTunnelAfterWake(
     activeWorkers: Int,

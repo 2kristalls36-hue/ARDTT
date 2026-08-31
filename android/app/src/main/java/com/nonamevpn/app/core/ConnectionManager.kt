@@ -838,6 +838,48 @@ class ConnectionManager(
             return decision
         }
 
+        if (underlayChanged && kind == UnderlayKind.Wifi) {
+            AppLog.v(
+                TAG,
+                "Handover: skip VPS probe — Wi‑Fi Auto uses Direct path=$currentPath",
+            )
+            val decision = decideNetworkHandoverAction(
+                pathMode = mode,
+                currentPath = currentPath,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = bypassAllowed,
+                sessionAgeMs = handoverSessionAgeMs(),
+                currentPathHealthy = pathHealthy,
+                underlayVpsReachable = true,
+                sameProbeStreak = 1,
+                underlayChanged = true,
+                allowBypassToDirect = allowBypassToDirect,
+                directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
+                underlayKind = UnderlayKind.Wifi,
+            )
+            when (decision) {
+                NetworkHandoverDecision.NoAction -> {
+                    AppLog.v(TAG, "Handover: no action (Wi‑Fi skip-probe) path=$currentPath")
+                }
+                is NetworkHandoverDecision.SwitchPath -> {
+                    AppLog.v(TAG, "Handover: switch $currentPath → ${decision.path} (Wi‑Fi)")
+                    applySessionPath(decision.path)
+                    softRestartInProgress = true
+                    _ui.value = _ui.value.copy(
+                        state = ConnState.Connecting,
+                        activePath = decision.path,
+                        statusText = "Сеть изменилась. Выполняется переход на путь ${pathLabel(decision.path)}…",
+                        lastError = null,
+                        connectEnabled = true,
+                    )
+                }
+                NetworkHandoverDecision.SoftRestartSamePath -> {
+                    AppLog.v(TAG, "Handover: keep $currentPath (Wi‑Fi skip-probe)")
+                }
+            }
+            return decision
+        }
+
         if (
             underlayChanged &&
             shouldAutoUseBypassOnCellular(bypassAllowed, kind)

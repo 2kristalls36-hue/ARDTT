@@ -80,6 +80,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var lastTunUnderlayIdentity: String? = null
     /** Handover with a new Wi‑Fi/SIM: next Bypass launch must [establish] a fresh TUN. */
     @Volatile private var rebuildTunOnNextLaunch = false
+    /** libclient kept in the VK call after Auto Bypass→Direct on Wi‑Fi. */
+    private var parkedBypass: BypassBackend? = null
+    private var parkedCallExpireJob: Job? = null
     private fun recoveryPolicy(): TransportRecoveryPolicy =
         transportRecoveryPolicy(TunnelSessionHolder.config?.path ?: VpnPath.Direct)
 
@@ -254,10 +257,22 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             AppLog.i(TAG, "rebuild Bypass TUN — underlay changed (SIM/Wi‑Fi)")
         }
         val currentBackend = backend
-        if (reuseBypassTun && currentBackend is BypassBackend) {
-            currentBackend.stopKeepingTun()
+        val parkCall = currentBackend is BypassBackend &&
+            path == VpnPath.Direct &&
+            shouldParkBypassCall(VpnPath.Bypass, VpnPath.Direct)
+        if (parkCall && currentBackend is BypassBackend) {
+            AppLog.i(TAG, "Parking VK call while switching to Direct")
+            parkBypassCall(currentBackend)
         } else {
-            currentBackend?.stop()
+            val keepParkedUntilBypassUp = path == VpnPath.Bypass && parkedBypass != null
+            if (!keepParkedUntilBypassUp) {
+                discardParkedCall("launch ${path.name}")
+            }
+            if (reuseBypassTun && currentBackend is BypassBackend) {
+                currentBackend.stopKeepingTun()
+            } else {
+                currentBackend?.stop()
+            }
         }
         sessionJob?.cancel()
         sessionJob = null
@@ -312,6 +327,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             softRestartInProgress = false
                             tunnelSessionActive = true
                             TransportHealth.backendAlive = true
+                            if (path == VpnPath.Bypass) {
+                                discardParkedCall("Bypass running")
+                            }
                             // Keep underlay id in sync after soft restart so the next
                             // Wi‑Fi/LTE change is HANDOVER, not a silent INITIAL.
                             pickBestUnderlyingNetwork()?.let {
@@ -814,6 +832,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         ++backendEpoch
         sessionJob?.cancel()
         sessionJob = null
+        discardParkedCall("trusted wifi pause")
         backend?.stop()
         backend = null
         forgetTun()
@@ -1230,6 +1249,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     directTrafficFresh = VpnLiveStats.hasFreshRxSince(evidence),
                     path = livePath,
                     validatedPresent = validatedNow,
+                    underlayKind = currentUnderlayKind(),
                 )
                 if (skipRestart) {
                     AppLog.v(
@@ -1274,6 +1294,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         trustedWifiEvalJob?.cancel()
         watchdogJob?.cancel()
         watchdogJob = null
+        discardParkedCall("recovery cancelled")
         unregisterScreenReceiver()
         teardownNetworkCallback()
     }
@@ -1436,13 +1457,55 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     }
 
     private fun currentUnderlayKind(): UnderlayKind {
-        val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
-            ?: return UnderlayKind.Other
-        val caps = connectivityManager?.getNetworkCapabilities(n) ?: return UnderlayKind.Other
-        return classifyUnderlayKind(
-            wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
-            cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
-        )
+        val pick = run {
+            val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
+                ?: return@run UnderlayKind.Other
+            val caps = connectivityManager?.getNetworkCapabilities(n) ?: return@run UnderlayKind.Other
+            classifyUnderlayKind(
+                wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+            )
+        }
+        return preferWifiUnderlayKind(hasValidatedWifi = hasValidatedWifi(), pickBestKind = pick)
+    }
+
+    private fun hasValidatedWifi(): Boolean {
+        val cm = connectivityManager ?: return false
+        return activeNetworks.any { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@any false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+    }
+
+    private fun parkBypassCall(backend: BypassBackend) {
+        parkedCallExpireJob?.cancel()
+        if (parkedBypass !== backend) {
+            parkedBypass?.stop()
+        }
+        backend.parkCall()
+        parkedBypass = backend
+        parkedCallExpireJob = scope.launch {
+            delay(WARM_CALL_HOLD_MS)
+            if (parkedBypass === backend) {
+                AppLog.i(TAG, "Warm VK call released after ${WARM_CALL_HOLD_MS}ms")
+                backend.stop()
+                parkedBypass = null
+            }
+        }
+    }
+
+    private fun discardParkedCall(reason: String) {
+        parkedCallExpireJob?.cancel()
+        parkedCallExpireJob = null
+        val parked = parkedBypass
+        parkedBypass = null
+        if (parked != null) {
+            AppLog.i(TAG, "Stopping parked VK call ($reason)")
+            parked.stop()
+        }
     }
 
     private fun applyExcludedHostRoutes(builder: Builder, hosts: Set<String>) {
@@ -1482,6 +1545,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
         sessionJob?.cancel()
         sessionJob = null
+        discardParkedCall("session stop")
         backend?.stop()
         backend = null
         forgetTun()
