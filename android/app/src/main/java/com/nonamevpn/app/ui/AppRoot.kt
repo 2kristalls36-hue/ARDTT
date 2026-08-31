@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -268,6 +269,13 @@ fun AppRoot(
         }
         previousRoute = currentRoute
     }
+    val softenBackdropForUserMode = !admin && currentRoute != AppDestination.Tunnel.route
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.22f
+    val wallpaperFadeColor = if (darkTheme) {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
+    } else {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+    }
 
     TelemetryRecordingOverlay(
         isRecording = isRecording,
@@ -275,6 +283,12 @@ fun AppRoot(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AppBackdrop(modifier = Modifier.fillMaxSize())
+            if (softenBackdropForUserMode) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = wallpaperFadeColor,
+                ) {}
+            }
 
             NavHost(
                 navController = navController,
