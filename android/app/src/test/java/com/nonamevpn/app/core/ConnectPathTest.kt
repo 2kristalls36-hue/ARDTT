@@ -1,6 +1,8 @@
 package com.nonamevpn.app.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConnectPathTest {
@@ -106,6 +108,45 @@ class ConnectPathTest {
                 fresh = directOk,
                 underlayKind = UnderlayKind.Wifi,
                 bypassAllowed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun skipConnectProbeOnCellularAutoAndForcedBypass() {
+        assertTrue(
+            shouldSkipConnectProbe(
+                pathMode = ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertFalse(
+            shouldSkipConnectProbe(
+                pathMode = ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+        assertTrue(
+            shouldSkipConnectProbe(
+                pathMode = ConnPathMode.Bypass,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+        assertFalse(
+            shouldSkipConnectProbe(
+                pathMode = ConnPathMode.Direct,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertFalse(
+            shouldSkipConnectProbe(
+                pathMode = ConnPathMode.Auto,
+                bypassAllowed = false,
+                underlayKind = UnderlayKind.Cellular,
             ),
         )
     }

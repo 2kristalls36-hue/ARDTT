@@ -474,8 +474,12 @@ class ConnectionManager(
             return
         }
         if (mode == ConnPathMode.Auto && probePreferred == null) {
-            AppLog.w(TAG, "Connect ignored (auto, no probe path)")
-            return
+            val kind = underlayKindOf(pickBestUnderlayNetwork(appContext))
+            val bypassAllowed = callHashOrNull() != null
+            if (!shouldSkipConnectProbe(mode, bypassAllowed, kind)) {
+                AppLog.w(TAG, "Connect ignored (auto, no probe path)")
+                return
+            }
         }
         if (profile == null) {
             AppLog.w(TAG, "Connect ignored — no profile")
@@ -501,10 +505,13 @@ class ConnectionManager(
                 val snap = _ui.value
                 val lastGood = snap.probe
                 val liveMode = pathMode
-                val labelPreferred = when (liveMode) {
-                    ConnPathMode.Direct -> VpnPath.Direct
-                    ConnPathMode.Bypass -> VpnPath.Bypass
-                    ConnPathMode.Auto -> probePreferred ?: VpnPath.Direct
+                val kind = underlayKindOf(pickBestUnderlayNetwork(appContext))
+                val bypassAllowed = callHashOrNull() != null
+                val skipProbe = shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
+                val labelPreferred = when {
+                    liveMode == ConnPathMode.Direct -> VpnPath.Direct
+                    liveMode == ConnPathMode.Bypass || skipProbe -> VpnPath.Bypass
+                    else -> probePreferred ?: VpnPath.Direct
                 }
                 AppLog.v(TAG, "Connect requested mode=$liveMode preferred=$labelPreferred hideIp=${snap.hideIp}")
                 EgressIpProbe.invalidate()
@@ -517,8 +524,14 @@ class ConnectionManager(
 
                 val deferHideIp =
                     snap.hideIp &&
-                        shouldProvisionViaVpn(snap.probe) &&
-                        (labelPreferred == VpnPath.Bypass || snap.probe?.preselectedPath == VpnPath.Bypass)
+                        (
+                            skipProbe ||
+                                (
+                                    shouldProvisionViaVpn(snap.probe) &&
+                                        (labelPreferred == VpnPath.Bypass ||
+                                            snap.probe?.preselectedPath == VpnPath.Bypass)
+                                    )
+                            )
                 if (snap.hideIp && !deferHideIp) {
                     val r = syncHideIpToProvision(true, viaVpn = false)
                     if (r.isFailure) {
@@ -534,36 +547,61 @@ class ConnectionManager(
                 } else if (deferHideIp) {
                     pendingHideIpSync = true
                     AppLog.v(TAG, "Hide-IP deferred until Bypass tunnel (underlay cannot reach provision)")
-                } else {
+                } else if (lastHideIpSent) {
                     runCatching { syncHideIpToProvision(false, viaVpn = false) }
                         .onSuccess { lastHideIpSent = false }
                 }
-                val fresh = NetworkProbe.probe(
-                    appContext,
-                    provisionUrl,
-                    directEndpoint = directEndpoint,
-                    quick = true,
-                )
                 val selectedApps = runCatching { settingsRepo.excludedAppsSnapshot() }
                     .getOrDefault(emptySet())
                 val whitelistOn = runCatching { settingsRepo.appsWhitelistModeSnapshot() }
                     .getOrDefault(false)
-                val usePath = resolveConnectPath(
-                    pathMode,
-                    probePreferred,
-                    lastGood,
-                    fresh,
-                    underlayKind = underlayKindOf(pickBestUnderlayNetwork(appContext)),
-                    bypassAllowed = callHashOrNull() != null,
-                )
-                AppLog.v(
-                    TAG,
-                    "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
-                        "mode=$pathMode yandex=${fresh.yandexOk} vps=${fresh.provisionOk} " +
-                        "kind=${underlayKindOf(pickBestUnderlayNetwork(appContext))} " +
-                        "whitelist=$whitelistOn apps=${selectedApps.size} " +
-                        SplitTunnel.logSample(selectedApps),
-                )
+                val fresh: ProbeResult
+                val usePath: VpnPath?
+                if (skipProbe) {
+                    AppLog.v(TAG, "Connect: skip VPS probe — Bypass immediately kind=$kind")
+                    fresh = lastGood ?: ProbeResult(
+                        networkClass = NetworkClass.NeedBypass,
+                        preselectedPath = VpnPath.Bypass,
+                        systemOnline = true,
+                        yandexOk = true,
+                        bigtechOk = false,
+                        captive = false,
+                        awgUdpOk = false,
+                        provisionOk = false,
+                        message = "Обход без зонда :9100",
+                        elapsedMs = 0,
+                    )
+                    usePath = VpnPath.Bypass
+                    AppLog.v(
+                        TAG,
+                        "Connect skip-probe use=Bypass mode=$pathMode kind=$kind " +
+                            "whitelist=$whitelistOn apps=${selectedApps.size} " +
+                            SplitTunnel.logSample(selectedApps),
+                    )
+                } else {
+                    fresh = NetworkProbe.probe(
+                        appContext,
+                        provisionUrl,
+                        directEndpoint = directEndpoint,
+                        quick = true,
+                    )
+                    usePath = resolveConnectPath(
+                        pathMode,
+                        probePreferred,
+                        lastGood,
+                        fresh,
+                        underlayKind = kind,
+                        bypassAllowed = bypassAllowed,
+                    )
+                    AppLog.v(
+                        TAG,
+                        "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
+                            "mode=$pathMode yandex=${fresh.yandexOk} vps=${fresh.provisionOk} " +
+                            "kind=$kind " +
+                            "whitelist=$whitelistOn apps=${selectedApps.size} " +
+                            SplitTunnel.logSample(selectedApps),
+                    )
+                }
                 if (usePath == null) {
                     applyProbe(fresh)
                     _ui.value = _ui.value.copy(

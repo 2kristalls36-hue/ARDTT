@@ -54,8 +54,9 @@ const val BYPASS_UNVALIDATED_SETTLE_MS = 400L
 fun extraNetworkSettleDelayMs(
     path: VpnPath,
     validatedPresent: Boolean,
+    skipValidatedWait: Boolean = false,
 ): Long {
-    if (path == VpnPath.Bypass && !validatedPresent) {
+    if (skipValidatedWait || (path == VpnPath.Bypass && !validatedPresent)) {
         return BYPASS_UNVALIDATED_SETTLE_MS
     }
     return transportRecoveryPolicy(path).networkSettleDelayMs
@@ -81,9 +82,24 @@ const val VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS = 2_500L
 
 const val VALIDATED_WAIT_POLL_MS = 300L
 
-fun validatedWaitTimeoutMs(replacementUnderlayPresent: Boolean): Long =
-    if (replacementUnderlayPresent) VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS
-    else VALIDATED_WAIT_TIMEOUT_MS
+fun validatedWaitTimeoutMs(
+    replacementUnderlayPresent: Boolean,
+    skipWait: Boolean = false,
+): Long = when {
+    skipWait -> 0L
+    replacementUnderlayPresent -> VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS
+    else -> VALIDATED_WAIT_TIMEOUT_MS
+}
+
+/**
+ * qWDTT reconnects RAW without a VPS probe. On this phone LTE often never
+ * becomes VALIDATED while the VPN is up — waiting 2.5s+ only extends the
+ * blackhole. Skip that wait when already on Bypass or moving to cellular.
+ */
+fun shouldSkipValidatedWait(
+    path: VpnPath,
+    underlayKind: UnderlayKind,
+): Boolean = path == VpnPath.Bypass || underlayKind == UnderlayKind.Cellular
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,
