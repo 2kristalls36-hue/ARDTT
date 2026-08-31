@@ -824,20 +824,13 @@ private fun ClientCard(
             }
 
             val externalIp = user.lastExternalIp.trim()
-            if (externalIp.isNotBlank()) {
+            val detail = listOfNotNull(
+                externalIp.takeIf { it.isNotBlank() },
+                deviceLine.takeIf { it.isNotBlank() },
+            ).joinToString(" ")
+            if (detail.isNotBlank()) {
                 Text(
-                    externalIp,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Start,
-                )
-            }
-            if (deviceLine.isNotBlank()) {
-                Text(
-                    deviceLine,
+                    detail,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth(),
