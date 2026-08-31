@@ -32,7 +32,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
-| Переподключение | Мягкий restart при смене Wi‑Fi/LTE: settle ~1 с, затем **re-probe underlay** (Auto) и при необходимости смена Direct↔Bypass; иначе тот же path. VpnService живёт, backend/`libclient` перезапускается |
+| Переподключение | Мягкий restart при смене Wi‑Fi/LTE/SIM: settle ~400 мс, быстрый IP-probe (1.1.1.1 / 77.88.8.8 / VPS TCP); Auto — Direct↔Bypass; дыра без сети — hold + очередь, не рестарт в пустоту. Dual-SIM: `default data` / active data sub |
 | Wake rescue | После `SCREEN_ON` через ~60 с: если Path B без активных воркеров — soft restart |
 | Watchdog | Path B: 0 воркеров ≥5 мин (экран вкл.) или мёртвый backend ≥60 с → soft restart |
 | Trusted Wi‑Fi | Список SSID: на сети VPN пауза; при выходе — авто-подъём (нужна локация для SSID) |
@@ -144,33 +144,33 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 
 ### Что делаем при старте / смене сети (параллельно, ~1–2 с)
 
-Те же проверки. На **смене сети при активном туннеле** сокеты биндятся к underlay (`NOT_VPN`), чтобы не классифицировать мир через уже поднятый Direct/Bypass. В режиме Auto при смене класса сети — переключение пути; иначе soft-restart того же path.
+Те же проверки. На **смене сети при активном туннеле** сокеты биндятся к underlay (`NOT_VPN`), чтобы не классифицировать мир через уже поднятый Direct/Bypass. В режиме Auto при смене класса сети — переключение пути; иначе soft-restart того же path. **Нет сети** (дыра WIFI↔LTE↔LTE / смена SIM) — hold, без рестарта в пустоту; следующий validated underlay / смена data SIM ставит probe в очередь, если предыдущий ещё идёт.
 
-Таймауты (полный / handover `quick`): TCP 2 с / 1.5 с, captive 1.5 / 1 с, UDP 1 с, `/health` 2 / 1.5 с. Bigtech — 4 хоста параллельно. Если `/health` ok — UDP не ждём. Settle после смены сети ~1 с. Connect re-probe использует `quick`.
+Таймауты handover/`quick`: TCP **450 мс**, captive **400 мс**, VPS TCP **600 мс**. Старт приложения: 700 / 600 / 900 мс. Пробы **по IP, без DNS**: `77.88.8.8` и `1.1.1.1` (порт 443 и 53 гонка). VPS — TCP на host:port provision (не HTTP GET). Если VPS открылся — **сразу Direct**, не ждём таймаут 1.1.1.1. Captive (`generate_204`) только когда оба IP мертвы — иначе Google на БС даёт ложный captive. Settle после смены сети **~400 мс**. Connect re-probe использует `quick`.
 
 | Probe | Как | Зачем |
 |-------|-----|--------|
 | **System** | `ConnectivityManager` / validated network | Быстрый offline |
-| **Yandex :443** | TCP | «Есть хоть какой-то интернет» на типичных БС |
-| **Bigtech :443** | google/amazon/apple/microsoft параллельно | Открытая сеть vs ограничения (лейбл, не блокер) |
-| **Captive** | `connectivitycheck.gstatic.com` / `generate_204` или аналог | Captive portal |
-| **VPS UDP-lite** | Один UDP init-пакет на `direct.endpoint` (handshake initiation / CPS), ждать ответ ≤2 с **без** поднятия VpnService | Реальный LOS до AWG |
+| **77.88.8.8** | TCP :443 \|\| :53 | «Есть интернет» на типичных БС (Yandex DNS) |
+| **1.1.1.1** | TCP :443 \|\| :53 | Открытая сеть vs БС (Cloudflare режется на белом списке) |
+| **Captive** | `generate_204`, только если оба IP мертвы | Captive portal |
+| **VPS TCP** | Connect на provision host:port | Direct, **в том числе при БС**, если свой сервер доступен |
 
-Опционально позже: крошечный **TCP health** на VPS от `provision` (`:9100/health`) — честный «хост жив», отдельно от UDP AWG.
+Опционально позже: UDP-lite на `direct.endpoint` (handshake AWG) — отдельно от TCP provision.
 
 ### При нажатии Connect
 
-Короткий **re-probe** (1–2 с): свежий VPS UDP-lite + yandex. Итог важнее устаревшего preselect со старта.
+Короткий **re-probe** (`quick`, доли секунды): VPS TCP + 77.88.8.8 / 1.1.1.1. Итог важнее устаревшего preselect со старта.
 
 ### Классификация (не блокирует легитимный обход)
 
 | Класс | Условие | Preselect | UI |
 |-------|---------|-----------|-----|
-| **NoNetwork** | нет validated net и (!yandex && !bigtech) | — | Connect disabled |
-| **Captive** | captive detected | — | «Войдите в сеть» |
-| **DirectOk** | VPS UDP-lite ok | Path A | «Прямое» |
-| **NeedBypass** | VPS UDP-lite fail, но yandex‖bigtech | Path B | «Обход» |
-| **OpenNeedBypass** | NeedBypass и bigtech ok | Path B | Мягкий info, **не** blocking dialog |
+| **NoNetwork** | нет VPS и (!77.88.8.8 && !1.1.1.1) | — | Connect disabled; handover — hold |
+| **Captive** | оба IP мертвы и generate_204 ≠ 204 | — | «Войдите в сеть» |
+| **DirectOk** | VPS TCP ok | Path A | «Прямое» (даже на БС) |
+| **NeedBypass** | VPS fail, 77.88.8.8 ok, 1.1.1.1 fail | Path B | «Обход» (белый список) |
+| **OpenNeedBypass** | VPS fail, 1.1.1.1 ok | Path B | Мягкий info, **не** blocking dialog |
 
 **Убрали** hard-block «не используйте без БС». На открытой сети при недоступном VPS обход как раз нужен. Info-текст можно показать, Connect не запрещаем.
 
@@ -364,7 +364,7 @@ Call hash — **локально на устройстве**, не обязан 
 | WRAP без DTLS | Пароль как секрет; сильный Path A |
 | GPL | GPL-3 на APK + NOTICE |
 | warp RAM | GOMEMLIMIT, без restart контейнера |
-| Ложный VPS probe | Только UDP-lite / отдельный health TCP |
+| Ложный VPS probe | Только TCP provision host:port; 1.1.1.1 не блокер Direct |
 | Скорость RAW | workers default 3, не 1 |
 
 ---

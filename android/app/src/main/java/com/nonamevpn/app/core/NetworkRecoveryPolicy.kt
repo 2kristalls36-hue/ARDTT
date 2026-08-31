@@ -25,22 +25,31 @@ data class TransportRecoveryPolicy(
 
 fun transportRecoveryPolicy(): TransportRecoveryPolicy =
     TransportRecoveryPolicy(
-        // Fast enough for Wi‑Fi↔LTE; still lets DHCP/VALIDATED settle.
-        networkSettleDelayMs = 1_000L,
+        // Underlay is already VALIDATED; keep this short for WIFI↔LTE↔LTE.
+        networkSettleDelayMs = 400L,
         reconnectMinIntervalMs = 12_000L,
-        processRestartDelayMs = 400L,
+        processRestartDelayMs = 250L,
     )
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,
     currentNetworkId: Long,
     previousNetworkWasLost: Boolean,
+    /** Dual-SIM: default data subscription changed (even if Network handle looks the same). */
+    dataSubscriptionChanged: Boolean = false,
 ): ValidatedNetworkTransition = when {
+    dataSubscriptionChanged -> ValidatedNetworkTransition.HANDOVER
     previousNetworkWasLost -> ValidatedNetworkTransition.HANDOVER
     previousNetworkId == null -> ValidatedNetworkTransition.INITIAL
     previousNetworkId == currentNetworkId -> ValidatedNetworkTransition.UNCHANGED
     else -> ValidatedNetworkTransition.HANDOVER
 }
+
+/** WIFI→LTE→LTE: a second switch while probe/restart is busy must be queued, not dropped. */
+fun shouldDeferHandoverProbe(
+    handoverProbeInProgress: Boolean,
+    softRestartInProgress: Boolean,
+): Boolean = handoverProbeInProgress || softRestartInProgress
 
 /**
  * After Wi‑Fi→LTE the validated id is often cleared and the new underlay never
@@ -136,9 +145,11 @@ const val TRUSTED_WIFI_EXIT_DELAY_MS = 5_000L
 /**
  * After Wi‑Fi↔LTE settle, Auto mode may switch Direct↔Bypass when underlay
  * probe disagrees with the current path. Forced Direct/Bypass only soft-restarts.
+ * NoNetwork/Captive → hold: do not restart into a dead SIM gap.
  */
 sealed class NetworkHandoverDecision {
     data object SoftRestartSamePath : NetworkHandoverDecision()
+    data object HoldWaitForNetwork : NetworkHandoverDecision()
     data class SwitchPath(val path: VpnPath) : NetworkHandoverDecision()
 }
 
@@ -148,17 +159,19 @@ fun decideNetworkHandoverAction(
     probedPath: VpnPath?,
     bypassAllowed: Boolean,
 ): NetworkHandoverDecision {
+    if (probedPath == null) {
+        return NetworkHandoverDecision.HoldWaitForNetwork
+    }
     if (pathMode != ConnPathMode.Auto) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
-    val desired = probedPath ?: return NetworkHandoverDecision.SoftRestartSamePath
-    if (desired == currentPath) {
+    if (probedPath == currentPath) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
-    if (desired == VpnPath.Bypass && !bypassAllowed) {
+    if (probedPath == VpnPath.Bypass && !bypassAllowed) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
-    return NetworkHandoverDecision.SwitchPath(desired)
+    return NetworkHandoverDecision.SwitchPath(probedPath)
 }
 
 fun shouldReconnectTunnelAfterWake(

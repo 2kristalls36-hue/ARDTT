@@ -11,28 +11,28 @@ import java.net.URL
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Parallel lightweight probes at app start / before Connect / on network handover.
  * Does NOT bring up VpnService.
  *
- * Direct reachability is judged by provision `/health` on the VPS host (TCP),
- * not by junk UDP to the AmneziaWG port (AWG silently drops invalid packets).
+ * Classification (fail-fast, no DNS on the internet/БС checks):
+ * - **77.88.8.8** (Yandex DNS) — reaches even on operator whitelist (БС).
+ * - **1.1.1.1** (Cloudflare) — reaches on open internet, typically blocked on БС.
+ * - **VPS provision TCP** — if the user's server is reachable, Auto picks Direct
+ *   even on БС (no RAW/call bypass needed).
  *
- * When [bindNetwork] is set (Wi‑Fi/LTE under the VPN), sockets are bound to that
- * network so classification reflects the real underlay — not tunnel egress.
+ * Path is decided as soon as the VPS result is known; 1.1.1.1 is only a БС label
+ * and never blocks Direct.
  */
 object NetworkProbe {
 
-    private val bigtechHosts = listOf(
-        "google.com",
-        "amazon.com",
-        "apple.com",
-        "microsoft.com",
-    )
+    const val YANDEX_DNS_IP = "77.88.8.8"
+    const val CLOUDFLARE_IP = "1.1.1.1"
 
     suspend fun probe(
         context: Context,
@@ -41,44 +41,104 @@ object NetworkProbe {
         /** Shorter timeouts (handover / Connect re-probe). */
         quick: Boolean = false,
     ): ProbeResult = withContext(Dispatchers.IO) {
-        val tcpMs = if (quick) 1_500 else 2_000
-        val captiveMs = if (quick) 1_000 else 1_500
-        val healthMs = if (quick) 1_500 else 2_000
+        val tcpMs = if (quick) 450 else 700
+        val captiveMs = if (quick) 400 else 600
+        val healthMs = if (quick) 600 else 900
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
                 val systemOnline = isSystemOnline(context, bindNetwork)
+                val yandexDef = async { ipReachable(YANDEX_DNS_IP, tcpMs, bindNetwork) }
+                val cloudflareDef = async { ipReachable(CLOUDFLARE_IP, tcpMs, bindNetwork) }
+                val provisionDef = async { provisionReachable(provisionBaseUrl, healthMs, bindNetwork) }
 
-                val yandexDef = async { tcpReachable("yandex.ru", 443, tcpMs, bindNetwork) }
-                val bigtechDef = async { anyBigtechReachable(tcpMs, bindNetwork) }
-                val captiveDef = async { detectCaptive(bindNetwork, captiveMs) }
-                val provisionDef = async { provisionHealth(provisionBaseUrl, healthMs, bindNetwork) }
+                var yandexOk: Boolean? = null
+                var cloudflareOk: Boolean? = null
+                var provisionOk: Boolean? = null
+                var captiveChecked = false
+                var captive = false
 
-                val provisionOk = provisionDef.await()
-                val yandexOk = yandexDef.await()
-                val bigtechOk = bigtechDef.await()
-                val captive = captiveDef.await()
-
-                classify(
+                fun snapshot(): ProbeResult = NetworkProbePolicy.classify(
                     systemOnline = systemOnline,
-                    yandexOk = yandexOk,
-                    bigtechOk = bigtechOk,
+                    yandexOk = yandexOk == true,
+                    bigtechOk = cloudflareOk == true,
                     captive = captive,
-                    provisionOk = provisionOk,
+                    provisionOk = provisionOk == true,
                 )
+
+                while (true) {
+                    val hint = NetworkProbePolicy.decideProbePath(
+                        provisionOk = provisionOk,
+                        yandexOk = yandexOk,
+                        cloudflareOk = cloudflareOk,
+                        captive = if (captiveChecked) captive else null,
+                    )
+                    when (hint) {
+                        ProbePathHint.Wait -> Unit
+                        ProbePathHint.NoNetwork -> {
+                            if (!captiveChecked && systemOnline) {
+                                captive = detectCaptive(bindNetwork, captiveMs)
+                                captiveChecked = true
+                                continue
+                            }
+                            yandexDef.cancel()
+                            cloudflareDef.cancel()
+                            provisionDef.cancel()
+                            return@coroutineScope snapshot()
+                        }
+                        ProbePathHint.Captive,
+                        ProbePathHint.Direct,
+                        ProbePathHint.Bypass,
+                        -> {
+                            // Tiny drain so UI can show 1.1.1.1 / 77.88.8.8 without
+                            // waiting for a black-holed Cloudflare on БС.
+                            withTimeoutOrNull(80) {
+                                if (yandexOk == null) yandexOk = yandexDef.await()
+                                if (cloudflareOk == null) cloudflareOk = cloudflareDef.await()
+                            }
+                            yandexDef.cancel()
+                            cloudflareDef.cancel()
+                            provisionDef.cancel()
+                            if (hint == ProbePathHint.Captive) captive = true
+                            return@coroutineScope snapshot()
+                        }
+                    }
+
+                    val waitingProvision = provisionOk == null
+                    val waitingYandex = yandexOk == null
+                    val waitingCf = cloudflareOk == null
+                    if (!waitingProvision && !waitingYandex && !waitingCf) {
+                        return@coroutineScope snapshot()
+                    }
+                    select {
+                        if (waitingProvision) {
+                            provisionDef.onAwait { provisionOk = it }
+                        }
+                        if (waitingYandex) {
+                            yandexDef.onAwait { yandexOk = it }
+                        }
+                        if (waitingCf) {
+                            cloudflareDef.onAwait { cloudflareOk = it }
+                        }
+                    }
+                }
+                error("probe loop exited")
             }
         }
         result.copy(elapsedMs = elapsed)
     }
 
-    /** Bigtech hosts in parallel — wall time ≈ one TCP timeout, not 4×. */
-    private suspend fun anyBigtechReachable(timeoutMs: Int, bindNetwork: Network?): Boolean =
-        coroutineScope {
-            bigtechHosts
-                .map { host -> async { tcpReachable(host, 443, timeoutMs, bindNetwork) } }
-                .awaitAll()
-                .any { it }
-        }
+    internal fun decideProbePath(
+        provisionOk: Boolean?,
+        yandexOk: Boolean?,
+        cloudflareOk: Boolean?,
+        captive: Boolean?,
+    ): ProbePathHint = NetworkProbePolicy.decideProbePath(
+        provisionOk = provisionOk,
+        yandexOk = yandexOk,
+        cloudflareOk = cloudflareOk,
+        captive = captive,
+    )
 
     internal fun classify(
         systemOnline: Boolean,
@@ -86,82 +146,38 @@ object NetworkProbe {
         bigtechOk: Boolean,
         captive: Boolean,
         provisionOk: Boolean,
-    ): ProbeResult {
-        if (captive) {
-            return ProbeResult(
-                networkClass = NetworkClass.Captive,
-                preselectedPath = null,
-                systemOnline = systemOnline,
-                yandexOk = yandexOk,
-                bigtechOk = bigtechOk,
-                captive = true,
-                provisionOk = provisionOk,
-                message = "Войдите в сеть (captive portal)",
-                elapsedMs = 0,
-            )
-        }
-        if (!systemOnline && !yandexOk && !bigtechOk) {
-            return ProbeResult(
-                networkClass = NetworkClass.NoNetwork,
-                preselectedPath = null,
-                systemOnline = false,
-                yandexOk = false,
-                bigtechOk = false,
-                captive = false,
-                provisionOk = provisionOk,
-                message = "Нет сети",
-                elapsedMs = 0,
-            )
-        }
-        if (provisionOk) {
-            return ProbeResult(
-                networkClass = NetworkClass.DirectOk,
-                preselectedPath = VpnPath.Direct,
-                systemOnline = systemOnline,
-                yandexOk = yandexOk,
-                bigtechOk = bigtechOk,
-                captive = false,
-                provisionOk = true,
-                message = "Готово: прямое",
-                elapsedMs = 0,
-            )
-        }
-        if (yandexOk || bigtechOk) {
-            val open = bigtechOk
-            return ProbeResult(
-                networkClass = if (open) NetworkClass.OpenNeedBypass else NetworkClass.NeedBypass,
-                preselectedPath = VpnPath.Bypass,
-                systemOnline = systemOnline,
-                yandexOk = yandexOk,
-                bigtechOk = bigtechOk,
-                captive = false,
-                provisionOk = false,
-                message = if (open) {
-                    "Готово: обход (VPS health недоступен — Direct не подтверждён)"
-                } else {
-                    "Готово: обход"
-                },
-                elapsedMs = 0,
-            )
-        }
-        return ProbeResult(
-            networkClass = NetworkClass.NoNetwork,
-            preselectedPath = null,
-            systemOnline = systemOnline,
-            yandexOk = yandexOk,
-            bigtechOk = bigtechOk,
-            captive = false,
-            provisionOk = provisionOk,
-            message = "Нет сети",
-            elapsedMs = 0,
-        )
-    }
+    ): ProbeResult = NetworkProbePolicy.classify(
+        systemOnline = systemOnline,
+        yandexOk = yandexOk,
+        bigtechOk = bigtechOk,
+        captive = captive,
+        provisionOk = provisionOk,
+    )
 
     private fun isSystemOnline(context: Context, bindNetwork: Network?): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = bindNetwork ?: cm.activeNetwork ?: return false
         val caps = cm.getNetworkCapabilities(network) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    /** TCP 443 and 53 in parallel — first success wins. Literal IPs, no DNS. */
+    internal suspend fun ipReachable(
+        ip: String,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean = coroutineScope {
+        val https = async { tcpReachable(ip, 443, timeoutMs, bindNetwork) }
+        val dns = async { tcpReachable(ip, 53, timeoutMs, bindNetwork) }
+        try {
+            select {
+                https.onAwait { ok -> if (ok) true else dns.await() }
+                dns.onAwait { ok -> if (ok) true else https.await() }
+            }
+        } finally {
+            https.cancel()
+            dns.cancel()
+        }
     }
 
     private fun tcpReachable(
@@ -172,6 +188,7 @@ object NetworkProbe {
     ): Boolean {
         return try {
             Socket().use { socket ->
+                socket.tcpNoDelay = true
                 bindNetwork?.bindSocket(socket)
                 socket.connect(InetSocketAddress(host, port), timeoutMs)
                 true
@@ -199,26 +216,18 @@ object NetworkProbe {
         }
     }
 
-    private fun provisionHealth(
+    /** TCP to provision host:port — faster than HTTP GET, enough to know the VPS IP is reachable. */
+    internal fun provisionReachable(
         baseUrl: String?,
         timeoutMs: Int,
         bindNetwork: Network?,
     ): Boolean {
-        if (baseUrl.isNullOrBlank()) return false
-        return try {
-            val url = URL(baseUrl.trimEnd('/') + "/health")
-            val conn = openHttp(url, bindNetwork).apply {
-                connectTimeout = timeoutMs
-                readTimeout = timeoutMs
-                requestMethod = "GET"
-            }
-            val ok = conn.responseCode in 200..299
-            conn.disconnect()
-            ok
-        } catch (_: Exception) {
-            false
-        }
+        val endpoint = parseProvisionEndpoint(baseUrl) ?: return false
+        return tcpReachable(endpoint.first, endpoint.second, timeoutMs, bindNetwork)
     }
+
+    internal fun parseProvisionEndpoint(baseUrl: String?): Pair<String, Int>? =
+        NetworkProbePolicy.parseProvisionEndpoint(baseUrl)
 
     private fun openHttp(url: URL, bindNetwork: Network?): HttpURLConnection {
         val raw = if (bindNetwork != null) {
@@ -239,3 +248,6 @@ object NetworkProbe {
 
     fun hostFromEndpoint(endpoint: String?): String? = parseEndpoint(endpoint)?.first
 }
+
+
+
