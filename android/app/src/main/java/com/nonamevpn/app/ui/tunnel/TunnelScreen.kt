@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -913,6 +914,9 @@ private data class DroneFlightSpec(
     val compensationStrength: Float,
     val dragLimitXFrac: Float,
     val dragLimitYFrac: Float,
+    /** Sprite alpha-center offset from geometric center in normalized square size units. */
+    val centerBiasX: Float = 0f,
+    val centerBiasY: Float = 0f,
 )
 
 @Composable
@@ -941,6 +945,8 @@ private fun WhitelistDroneSkyAnimation(
                 compensationStrength = 0.18f,
                 dragLimitXFrac = 0.09f,
                 dragLimitYFrac = 0.06f,
+                centerBiasX = 0.009f,
+                centerBiasY = 0.028f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_mid,
@@ -960,6 +966,8 @@ private fun WhitelistDroneSkyAnimation(
                 compensationStrength = 0.26f,
                 dragLimitXFrac = 0.08f,
                 dragLimitYFrac = 0.055f,
+                centerBiasX = 0.023f,
+                centerBiasY = -0.033f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_far,
@@ -979,6 +987,8 @@ private fun WhitelistDroneSkyAnimation(
                 compensationStrength = 0.34f,
                 dragLimitXFrac = 0.065f,
                 dragLimitYFrac = 0.05f,
+                centerBiasX = 0.000f,
+                centerBiasY = -0.008f,
             ),
         )
     }
@@ -1007,6 +1017,7 @@ private fun AnimatedDrone(
     sceneWidthPx: Float,
     sceneHeightPx: Float,
 ) {
+    val density = LocalDensity.current
     val dragScope = rememberCoroutineScope()
     var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
     var dragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
@@ -1085,6 +1096,9 @@ private fun AnimatedDrone(
     val drawOffsetY = baseY - layoutY
 
     val touchSizeDp = (spec.sizeDp * 1.35f).dp
+    val imageSizePx = with(density) { spec.sizeDp.dp.toPx() }
+    val spriteFixX = -spec.centerBiasX * imageSizePx
+    val spriteFixY = -spec.centerBiasY * imageSizePx
     Box(
         modifier = Modifier
             .size(touchSizeDp)
@@ -1151,6 +1165,10 @@ private fun AnimatedDrone(
         Box(
             modifier = Modifier
                 .matchParentSize()
+                .graphicsLayer {
+                    translationX = spriteFixX
+                    translationY = spriteFixY
+                }
                 .drawBehind {
                     val glowColor = Color(0xFF66D8FF).copy(alpha = 0.10f + 0.08f * orbitBlend)
                     drawCircle(
