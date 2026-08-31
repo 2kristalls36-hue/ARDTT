@@ -35,9 +35,9 @@ fun AppSectionCard(
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
     val cardColor = color ?: if (isDark) {
-        lerp(colors.surface, colors.surfaceVariant, 0.10f)
+        lerp(colors.surface, colors.surfaceVariant, 0.10f).copy(alpha = 0.82f)
     } else {
-        lerp(colors.surface, colors.surfaceVariant, 0.28f)
+        lerp(colors.surface, colors.surfaceVariant, 0.28f).copy(alpha = 0.85f)
     }
     val borderColor = if (isDark) {
         colors.outlineVariant.copy(alpha = 0.26f)

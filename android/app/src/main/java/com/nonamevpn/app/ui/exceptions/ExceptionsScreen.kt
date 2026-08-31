@@ -301,7 +301,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 .fillMaxSize()
                 .padding(bottom = 4.dp),
             shape = CardShape,
-            color = colors.surfaceVariant.copy(alpha = 0.35f),
+            color = colors.surfaceVariant.copy(alpha = if (colors.background.luminance() < 0.22f) 0.35f else 0.45f),
             border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,

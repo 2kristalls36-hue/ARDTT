@@ -3,7 +3,6 @@ package com.nonamevpn.app.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,9 +28,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import com.nonamevpn.app.ui.components.AppWallpaper
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -96,7 +92,6 @@ fun SettingsScreen(
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
     val dynamicColor by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
-    val currentWallpaper by settings.wallpaperFlow.collectAsStateWithLifecycle(initialValue = "none")
     val scope = rememberCoroutineScope()
     val updateManager = remember { AppUpdateManager(context) }
     var adminHint by remember { mutableStateOf<String?>(null) }
@@ -279,29 +274,6 @@ fun SettingsScreen(
                     PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
                         scope.launch { settings.setThemePalette(it) }
                     }
-                }
-            }
-
-            Text(
-                "Фоновые обои",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppWallpaper.entries.forEach { wp ->
-                    WallpaperCard(
-                        wallpaper = wp,
-                        selected = wp.id == currentWallpaper,
-                        onClick = {
-                            scope.launch { settings.setWallpaper(wp.id) }
-                        },
-                    )
                 }
             }
         }
@@ -836,64 +808,6 @@ private suspend fun AwaitPointerEventScope.waitForPointerUpIgnoringBounds() {
         }
         if (event.changes.none { it.pressed }) {
             return
-        }
-    }
-}
-
-@Composable
-private fun WallpaperCard(
-    wallpaper: AppWallpaper,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val borderStroke = if (selected) {
-        BorderStroke(2.5.dp, colors.primary)
-    } else {
-        BorderStroke(1.dp, colors.outline.copy(alpha = 0.35f))
-    }
-
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        border = borderStroke,
-        modifier = Modifier
-            .width(76.dp)
-            .height(118.dp),
-        color = colors.surfaceVariant,
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (wallpaper.drawableRes != null) {
-                Image(
-                    painter = painterResource(id = wallpaper.drawableRes),
-                    contentDescription = wallpaper.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(colors.surface),
-                )
-            }
-
-            Surface(
-                color = Color.Black.copy(alpha = 0.65f),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
-            ) {
-                Text(
-                    text = wallpaper.title,
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    maxLines = 1,
-                )
-            }
         }
     }
 }

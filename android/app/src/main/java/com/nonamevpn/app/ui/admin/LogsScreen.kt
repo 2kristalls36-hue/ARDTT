@@ -171,7 +171,7 @@ fun LogsScreen() {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(0.dp),
             shape = RoundedCornerShape(24.dp),
-            color = terminalBg,
+            color = terminalBg.copy(alpha = if (isDark) 0.90f else 0.93f),
             shadowElevation = 4.dp,
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -231,7 +231,6 @@ fun LogsScreen() {
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(terminalBg)
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
