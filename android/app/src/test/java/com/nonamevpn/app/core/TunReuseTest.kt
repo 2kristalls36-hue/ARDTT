@@ -95,4 +95,36 @@ class TunReuseTest {
             ),
         )
     }
+
+    @Test
+    fun softRestartRebuildsTunWhenUnderlayChanges() {
+        assertFalse(
+            shouldReuseBypassTunOnSoftRestart(
+                softRestart = true,
+                pathIsBypass = true,
+                currentBackendIsBypass = true,
+                tunValid = true,
+                underlayChanged = true,
+            ),
+        )
+        assertTrue(
+            shouldReuseBypassTunOnSoftRestart(
+                softRestart = true,
+                pathIsBypass = true,
+                currentBackendIsBypass = true,
+                tunValid = true,
+                underlayChanged = false,
+            ),
+        )
+    }
+
+    @Test
+    fun tunUnderlayChangeIgnoresTransientNone() {
+        assertFalse(tunUnderlayChanged(null, "cell:2:T-Mobile:1"))
+        assertFalse(tunUnderlayChanged("cell:3:MTS:1", "none"))
+        assertFalse(tunUnderlayChanged("cell:3:MTS:1", ""))
+        assertFalse(tunUnderlayChanged("cell:3:MTS:1", "cell:3:MTS:1"))
+        assertTrue(tunUnderlayChanged("cell:3:MTS:1", "cell:2:T-Mobile:2"))
+        assertTrue(tunUnderlayChanged("wifi:home:1", "cell:3:MTS:2"))
+    }
 }
