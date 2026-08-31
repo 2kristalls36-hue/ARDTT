@@ -46,9 +46,8 @@ fun resolveTunnelWallpaper(
     time = resolveTunnelWallpaperTime(whitelistMode, darkTheme),
 )
 
-/** Wallpaper only on the Tunnel tab in user mode. Admin keeps the gradient backdrop. */
-fun tunnelWallpaperVisible(admin: Boolean, onTunnelTab: Boolean): Boolean =
-    !admin && onTunnelTab
+/** Wallpaper on every tab in user mode. Admin keeps the gradient backdrop. */
+fun tunnelWallpaperVisible(admin: Boolean): Boolean = !admin
 
 /**
  * Walk through Field, City, and Refinery before repeating.

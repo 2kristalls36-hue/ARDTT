@@ -123,10 +123,7 @@ fun AppRoot(
         whitelistMode = appsWhitelistMode,
         darkTheme = darkTheme,
     )
-    val showTunnelWallpaper = tunnelWallpaperVisible(
-        admin = admin,
-        onTunnelTab = currentRoute == AppDestination.Tunnel.route,
-    )
+    val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
 
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
@@ -270,17 +267,16 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Keep the cached scene under an opaque AppBackdrop on other tabs.
-            // Disposing the Image used to re-decode and flash Field (ordinal 0).
-            if (!admin) {
+            // Same cached scene on every user-mode tab. Admin keeps the gradient.
+            // Keep the Image composed so tab switches do not flash Field.
+            if (showUserWallpaper) {
                 key(tunnelWallpaper.scene) {
                     TunnelWallpaperBackdrop(
                         wallpaper = tunnelWallpaper,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-            }
-            if (!showTunnelWallpaper) {
+            } else {
                 AppBackdrop(modifier = Modifier.fillMaxSize())
             }
 
