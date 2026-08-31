@@ -5,11 +5,14 @@ import android.telephony.SubscriptionManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+<<<<<<< HEAD
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+=======
+>>>>>>> origin/cursor/tab-reselect-root-5e36
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -56,10 +59,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -720,7 +725,7 @@ private fun UserTunnelSimpleScreen(
     )
     val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
     val connected = ui.state == ConnState.Connected
-    val toggleColor = if (connected) Color(0xFF35C759) else Color(0xFF9AA0A8)
+    val disconnecting = ui.state == ConnState.Disconnecting
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -749,8 +754,7 @@ private fun UserTunnelSimpleScreen(
 
             TunnelPowerToggle(
                 connected = connected,
-                busy = connectingLike || ui.state == ConnState.Disconnecting,
-                color = toggleColor,
+                busy = connectingLike || disconnecting,
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -774,49 +778,74 @@ private fun UserTunnelSimpleScreen(
 private fun TunnelPowerToggle(
     connected: Boolean,
     busy: Boolean,
-    color: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val title = when {
-        busy && connected -> "ОТКЛЮЧЕНИЕ…"
-        busy -> "ПОДКЛЮЧЕНИЕ…"
-        connected -> "ВКЛ"
-        else -> "ВЫКЛ"
-    }
-    val subtitle = when {
-        busy && connected -> "Завершаем сеанс"
-        busy -> "Устанавливаем соединение"
-        connected -> "Туннель активен"
-        else -> "Туннель отключён"
+    val checked = connected
+    val knobProgress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "tunnel_toggle_knob",
+    )
+    val trackColor = when {
+        checked -> Color(0xFF35C759)
+        else -> Color(0xFF8E949B)
     }
     Surface(
         modifier = modifier
-            .clickable(enabled = !busy, onClick = onClick),
-        color = color,
-        shape = RoundedCornerShape(36.dp),
+            .clickable(enabled = !busy) {
+                runCatching { onClick() }
+                    .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
+            },
+        color = trackColor,
+        shape = RoundedCornerShape(56.dp),
         shadowElevation = 8.dp,
     ) {
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
+            val knobSize = (maxHeight - 8.dp).coerceAtLeast(48.dp)
+            val travel = (maxWidth - knobSize).coerceAtLeast(0.dp)
+            val knobOffset = travel * knobProgress
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 26.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    "OFF",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White.copy(alpha = if (checked) 0.55f else 0.96f),
+                )
+                Text(
+                    "ON",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White.copy(alpha = if (checked) 0.96f else 0.55f),
+                )
+            }
+            Surface(
+                modifier = Modifier
+                    .size(knobSize)
+                    .offset(x = knobOffset),
                 color = Color.White,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White.copy(alpha = 0.92f),
-                textAlign = TextAlign.Center,
-            )
+                shape = RoundedCornerShape(48.dp),
+                shadowElevation = 4.dp,
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (busy) "…" else if (checked) "ON" else "OFF",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = trackColor,
+                    )
+                }
+            }
         }
     }
 }
@@ -833,6 +862,10 @@ private data class DroneFlightSpec(
     val orbitDurationMs: Int,
     val delayMs: Long,
     val phaseRad: Float,
+    val windStrength: Float,
+    val gustFreqMul: Float,
+    val gustPhase: Float,
+    val compensationStrength: Float,
 )
 
 @Composable
@@ -845,41 +878,53 @@ private fun WhitelistDroneSkyAnimation(
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_near,
                 sizeDp = 228,
-                startXFrac = -0.36f,
-                startYFrac = -0.62f,
-                anchorXFrac = -0.02f,
-                anchorYFrac = 0.07f,
-                orbitRadiusXFrac = 0.014f,
-                orbitRadiusYFrac = 0.010f,
+                startXFrac = 0.44f,
+                startYFrac = -0.74f,
+                anchorXFrac = 0.43f,
+                anchorYFrac = 0.06f,
+                orbitRadiusXFrac = 0.012f,
+                orbitRadiusYFrac = 0.009f,
                 orbitDurationMs = 9_200,
-                delayMs = 0L,
+                delayMs = 80L,
                 phaseRad = 0.4f,
+                windStrength = 1.12f,
+                gustFreqMul = 0.92f,
+                gustPhase = 0.25f,
+                compensationStrength = 0.18f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_mid,
-                sizeDp = 146,
-                startXFrac = 0.48f,
-                startYFrac = -0.46f,
-                anchorXFrac = 0.42f,
-                anchorYFrac = 0.03f,
-                orbitRadiusXFrac = 0.012f,
-                orbitRadiusYFrac = 0.009f,
+                sizeDp = 114,
+                startXFrac = -0.42f,
+                startYFrac = 0.14f,
+                anchorXFrac = 0.13f,
+                anchorYFrac = 0.12f,
+                orbitRadiusXFrac = 0.010f,
+                orbitRadiusYFrac = 0.007f,
                 orbitDurationMs = 10_100,
-                delayMs = 260L,
+                delayMs = 0L,
                 phaseRad = 1.3f,
+                windStrength = 0.84f,
+                gustFreqMul = 1.18f,
+                gustPhase = 1.1f,
+                compensationStrength = 0.26f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_far,
-                sizeDp = 82,
-                startXFrac = 1.18f,
-                startYFrac = -0.58f,
-                anchorXFrac = 0.86f,
-                anchorYFrac = 0.10f,
-                orbitRadiusXFrac = 0.010f,
-                orbitRadiusYFrac = 0.007f,
+                sizeDp = 74,
+                startXFrac = 1.26f,
+                startYFrac = 0.18f,
+                anchorXFrac = 0.84f,
+                anchorYFrac = 0.14f,
+                orbitRadiusXFrac = 0.008f,
+                orbitRadiusYFrac = 0.006f,
                 orbitDurationMs = 11_200,
-                delayMs = 520L,
+                delayMs = 140L,
                 phaseRad = 2.2f,
+                windStrength = 0.62f,
+                gustFreqMul = 1.43f,
+                gustPhase = 2.05f,
+                compensationStrength = 0.34f,
             ),
         )
     }
@@ -921,33 +966,44 @@ private fun AnimatedDrone(
         animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
         label = "drone_orbit_blend_$index",
     )
-    val orbit by rememberInfiniteTransition(label = "drone_orbit_$index").animateFloat(
+    val orbit by produceState(
         initialValue = 0f,
-        targetValue = (Math.PI * 2.0).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = spec.orbitDurationMs,
-                easing = LinearEasing,
-            ),
-        ),
-        label = "drone_orbit_angle_$index",
-    )
+        key1 = spec.orbitDurationMs,
+        key2 = restartToken,
+    ) {
+        val frameNs = 16_666_667L // fixed 60 FPS sampling
+        val periodNs = spec.orbitDurationMs.toLong() * 1_000_000L
+        val startNs = withFrameNanos { it }
+        while (true) {
+            val nowNs = withFrameNanos { it }
+            val elapsedNs = (nowNs - startNs).coerceAtLeast(0L)
+            val frameIndex = elapsedNs / frameNs
+            val snappedNs = frameIndex * frameNs
+            val phase = if (periodNs <= 0L) 0f else {
+                ((snappedNs % periodNs).toDouble() / periodNs.toDouble()).toFloat()
+            }
+            value = ((Math.PI * 2.0) * phase).toFloat()
+        }
+    }
 
     val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
     val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
     // Smooth hover under wind: periodic waves with integer harmonics avoid restart jumps.
     val base = orbit + spec.phaseRad
-    val windCarrier = sin(base.toDouble()).toFloat()
+    val windCarrier = sin((base * spec.gustFreqMul + spec.gustPhase).toDouble()).toFloat()
     val xPrimary = sin(base.toDouble()).toFloat()
     val xCompensation = sin((base * 2f + 0.9f).toDouble()).toFloat()
     val xMicro = sin((base * 3f + 1.6f).toDouble()).toFloat()
     val yPrimary = sin((base + 1.2f).toDouble()).toFloat()
     val yCompensation = sin((base * 2f + 0.35f).toDouble()).toFloat()
     val yMicro = sin((base * 3f + 2.1f).toDouble()).toFloat()
-    val windAmp = (0.78f + 0.22f * windCarrier) * orbitBlend
-    val orbitX = (xPrimary * 0.72f + xCompensation * 0.20f + xMicro * 0.08f) *
+    val windAmp = ((0.78f + 0.22f * windCarrier) * spec.windStrength).coerceAtLeast(0.05f) * orbitBlend
+    val comp = spec.compensationStrength.coerceIn(0.05f, 0.45f)
+    val micro = (0.10f + comp * 0.35f).coerceAtMost(0.22f)
+    val primary = (1f - comp - micro).coerceAtLeast(0.45f)
+    val orbitX = (xPrimary * primary + xCompensation * comp + xMicro * micro) *
         (sceneWidthPx * spec.orbitRadiusXFrac) * windAmp
-    val orbitY = (yPrimary * 0.66f + yCompensation * 0.24f + yMicro * 0.10f) *
+    val orbitY = (yPrimary * (primary - 0.06f).coerceAtLeast(0.38f) + yCompensation * (comp + 0.04f) + yMicro * micro) *
         (sceneHeightPx * spec.orbitRadiusYFrac) * windAmp
     val wobbleRotation = (
         sin((base + 0.2f).toDouble()).toFloat() * 0.9f +
