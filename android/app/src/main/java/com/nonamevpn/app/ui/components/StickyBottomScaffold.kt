@@ -68,19 +68,26 @@ object NvpnBottomChrome {
 fun StickyBottomScaffold(
     stickyContent: @Composable BoxScope.() -> Unit,
     modifier: Modifier = Modifier,
+    header: @Composable ColumnScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 16.dp),
         ) {
             EdgeFeedTopInset()
-            content()
+            header()
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                content()
+            }
         }
         Box(
             modifier = Modifier

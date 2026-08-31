@@ -70,9 +70,10 @@ import com.nonamevpn.app.core.readConnectedWifiState
 import com.nonamevpn.app.core.trustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiAccessProblem
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.ui.components.EdgeFeedTopInset
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.update.AppUpdateInfo
 import com.nonamevpn.app.update.AppUpdateManager
 import java.io.File
@@ -157,13 +158,25 @@ fun SettingsScreen(
         }
     }
 
-    EdgeFeedColumn(scrollState = scrollState) {
-        val modeLabel = if (admin) "администратор" else "пользователь"
-        AppTabPageHeader(
-            tabTitle = "Настройки",
-            subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
-        )
+    val modeLabel = if (admin) "администратор" else "пользователь"
 
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = NvpnBottomChrome.navigationReserve() + 24.dp),
+    ) {
+        EdgeFeedTopInset()
+        AppPageHeader(
+            title = "ARDTT",
+            subtitle = "Настройки — режим $modeLabel · ${BuildConfig.VERSION_NAME}",
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
         UpdateSettingsCard(
             info = updateInfo,
             checking = updateChecking,
