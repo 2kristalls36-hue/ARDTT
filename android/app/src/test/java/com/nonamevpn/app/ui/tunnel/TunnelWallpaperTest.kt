@@ -70,11 +70,38 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun tabReentryKeepsTheSameScene() {
-        TunnelWallpaperSession.resetForTests()
-        val scene = TunnelWallpaperSession.currentOrPick()
-        repeat(12) {
-            assertEquals(scene, TunnelWallpaperSession.currentOrPick())
+    fun thirdLaunchAfterFieldAndCityIsRefinery() {
+        val (scene, seen) = nextTunnelWallpaperScene(
+            previousName = "City",
+            seenNames = setOf("Field", "City"),
+            randomInt = { 0 },
+        )
+        assertEquals(TunnelWallpaperScene.Refinery, scene)
+        assertEquals(setOf("Field", "City", "Refinery"), seen)
+    }
+
+    @Test
+    fun afterAllThreeSeenNextCycleDoesNotRepeatImmediately() {
+        val (scene, seen) = nextTunnelWallpaperScene(
+            previousName = "Refinery",
+            seenNames = setOf("Field", "City", "Refinery"),
+            randomInt = { 0 },
+        )
+        assertTrue(scene != TunnelWallpaperScene.Refinery)
+        assertEquals(setOf(scene.name), seen)
+    }
+
+    @Test
+    fun threeSequentialPicksCoverEveryScene() {
+        var previous: String? = null
+        var seen = emptySet<String>()
+        val picked = mutableSetOf<TunnelWallpaperScene>()
+        repeat(3) {
+            val (scene, nextSeen) = nextTunnelWallpaperScene(previous, seen)
+            picked.add(scene)
+            previous = scene.name
+            seen = nextSeen
         }
+        assertEquals(TunnelWallpaperScene.all.toSet(), picked)
     }
 }

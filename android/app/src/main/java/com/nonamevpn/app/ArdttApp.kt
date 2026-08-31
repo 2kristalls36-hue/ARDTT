@@ -6,14 +6,16 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.telemetry.TelemetryBootstrap
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperCache
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
+import com.nonamevpn.app.ui.tunnel.loadNextTunnelWallpaperScene
 import com.nonamevpn.app.update.AppUpdateController
 
 class ArdttApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        TunnelWallpaperSession.initForProcess()
-        TunnelWallpaperCache.preload(this, TunnelWallpaperSession.scene)
-        AppLog.i("TunnelWallpaper", "scene=${TunnelWallpaperSession.scene}")
+        val scene = loadNextTunnelWallpaperScene(this)
+        TunnelWallpaperSession.initForProcess(scene)
+        TunnelWallpaperCache.preload(this, scene)
+        AppLog.i("TunnelWallpaper", "scene=$scene")
         TelemetryBootstrap.install(this)
         ConnectionManager.get(this)
         AppUpdateController.get(this).checkInBackground()
