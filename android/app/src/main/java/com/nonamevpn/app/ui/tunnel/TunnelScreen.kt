@@ -137,7 +137,7 @@ fun TunnelScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
-    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     LaunchedEffect(profile?.deviceId, hideIp) {

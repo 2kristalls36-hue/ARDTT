@@ -92,7 +92,7 @@ fun SettingsScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
-    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val connUi by conn.ui.collectAsStateWithLifecycle()
