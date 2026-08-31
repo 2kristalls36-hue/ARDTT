@@ -73,6 +73,7 @@ import com.nonamevpn.app.core.NetcheckItem
 import com.nonamevpn.app.core.NetcheckReport
 import com.nonamevpn.app.core.NetcheckTone
 import com.nonamevpn.app.core.NetcheckUiRow
+import com.nonamevpn.app.core.NetworkClass
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
@@ -148,9 +149,6 @@ fun TunnelScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val wallpaperVariant by settings.tunnelWallpaperVariantFlow.collectAsStateWithLifecycle(initialValue = 0)
-    val isWhitelist by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
-    val whitelistApps by settings.excludedAppsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
-    val whitelistHosts by settings.excludedHostsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -279,7 +277,11 @@ fun TunnelScreen(
         refreshNetcheck(force = true)
     }
 
-    val whitelistDetected = isWhitelist && (whitelistApps.isNotEmpty() || whitelistHosts.isNotEmpty())
+    val autoBypassDetected = pathMode == "auto" && (
+        ui.probe?.networkClass == NetworkClass.NeedBypass ||
+            ui.probe?.networkClass == NetworkClass.OpenNeedBypass
+        )
+    val whitelistDetected = autoBypassDetected || pathMode == "bypass"
     if (!admin) {
         UserTunnelSimpleScreen(
             ui = ui,
