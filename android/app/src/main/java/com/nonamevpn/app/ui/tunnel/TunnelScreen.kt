@@ -819,14 +819,15 @@ private fun UserTunnelSimpleScreen(
 
             TunnelPowerToggle(
                 connected = connected,
+                paused = ui.state == ConnState.PausedTrustedWifi,
                 busy = connectingLike || disconnecting,
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .size(132.dp),
+                    .size(198.dp),
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(26.dp))
 
             ProfileSwitcherBar(
                 activeItem = activeItem,
@@ -842,17 +843,14 @@ private fun UserTunnelSimpleScreen(
 @Composable
 private fun TunnelPowerToggle(
     connected: Boolean,
+    paused: Boolean,
     busy: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val activeGlow = connected || busy
+    val activeGlow = connected || paused || busy
     val shellColor = NvpnFloatingShell.shellColor()
-    val accentColor = when {
-        connected -> Color(0xFF35C759)
-        busy -> Color(0xFF6FCF97)
-        else -> Color.White.copy(alpha = 0.75f)
-    }
+    val accentColor = if (connected || paused || busy) Color(0xFF35C759) else Color.White.copy(alpha = 0.75f)
     val pulseScale by animateFloatAsState(
         targetValue = if (activeGlow) 1.08f else 1f,
         animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
@@ -866,7 +864,7 @@ private fun TunnelPowerToggle(
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
-                .size(132.dp * pulseScale)
+                .size(198.dp * pulseScale)
                 .background(
                     color = accentColor.copy(alpha = pulseAlpha),
                     shape = CircleShape,
@@ -874,7 +872,7 @@ private fun TunnelPowerToggle(
         )
         Surface(
             modifier = Modifier
-                .size(120.dp)
+                .size(180.dp)
                 .clickable(enabled = !busy) {
                     runCatching { onClick() }
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
@@ -885,12 +883,29 @@ private fun TunnelPowerToggle(
             shadowElevation = NvpnFloatingShell.shadowElevation,
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.PowerSettingsNew,
-                    contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
-                    tint = accentColor,
-                    modifier = Modifier.size(54.dp),
-                )
+                if (paused) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .width(16.dp)
+                                .height(62.dp)
+                                .background(accentColor, shape = RoundedCornerShape(10.dp)),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(16.dp)
+                                .height(62.dp)
+                                .background(accentColor, shape = RoundedCornerShape(10.dp)),
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.PowerSettingsNew,
+                        contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
+                        tint = accentColor,
+                        modifier = Modifier.size(72.dp),
+                    )
+                }
             }
         }
     }
@@ -927,6 +942,27 @@ private fun WhitelistDroneSkyAnimation(
 ) {
     val drones = remember {
         listOf(
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_far,
+                sizeDp = 74,
+                startXFrac = 1.26f,
+                startYFrac = 0.18f,
+                anchorXFrac = 0.72f,
+                anchorYFrac = 0.14f,
+                orbitRadiusXFrac = 0.018f,
+                orbitRadiusYFrac = 0.014f,
+                orbitDurationMs = 11_200,
+                delayMs = 140L,
+                phaseRad = 2.2f,
+                windStrength = 0.86f,
+                gustFreqMul = 1.43f,
+                gustPhase = 2.05f,
+                compensationStrength = 0.34f,
+                dragLimitXFrac = 0.065f,
+                dragLimitYFrac = 0.05f,
+                centerBiasX = 0.000f,
+                centerBiasY = -0.008f,
+            ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_near,
                 sizeDp = 228,
@@ -968,27 +1004,6 @@ private fun WhitelistDroneSkyAnimation(
                 dragLimitYFrac = 0.055f,
                 centerBiasX = 0.023f,
                 centerBiasY = -0.033f,
-            ),
-            DroneFlightSpec(
-                resId = R.drawable.tunnel_drone_far,
-                sizeDp = 74,
-                startXFrac = 1.26f,
-                startYFrac = 0.18f,
-                anchorXFrac = 0.72f,
-                anchorYFrac = 0.14f,
-                orbitRadiusXFrac = 0.018f,
-                orbitRadiusYFrac = 0.014f,
-                orbitDurationMs = 11_200,
-                delayMs = 140L,
-                phaseRad = 2.2f,
-                windStrength = 0.86f,
-                gustFreqMul = 1.43f,
-                gustPhase = 2.05f,
-                compensationStrength = 0.34f,
-                dragLimitXFrac = 0.065f,
-                dragLimitYFrac = 0.05f,
-                centerBiasX = 0.000f,
-                centerBiasY = -0.008f,
             ),
         )
     }
