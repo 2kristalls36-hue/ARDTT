@@ -22,6 +22,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
@@ -51,12 +53,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
 import com.nonamevpn.app.core.AppLog
@@ -73,6 +77,8 @@ import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
 import com.nonamevpn.app.profile.ProfileRepository
+import com.nonamevpn.app.profile.ProfileCatalog
+import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.connectionControlsLocked
@@ -100,6 +106,7 @@ fun TunnelScreen(
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
+    val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
     var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
@@ -140,6 +147,9 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val isWhitelist by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
+    val whitelistApps by settings.excludedAppsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+    val whitelistHosts by settings.excludedHostsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -266,6 +276,49 @@ fun TunnelScreen(
             }
         }
         refreshNetcheck(force = true)
+    }
+
+    val whitelistDetected = isWhitelist && (whitelistApps.isNotEmpty() || whitelistHosts.isNotEmpty())
+    if (!admin) {
+        UserTunnelSimpleScreen(
+            ui = ui,
+            catalogItems = catalog.items,
+            activeProfileId = catalog.activeId,
+            whitelistDetected = whitelistDetected,
+            onToggleTunnel = {
+                when (ui.state) {
+                    ConnState.Connected,
+                    ConnState.Connecting,
+                    ConnState.Probing,
+                    ConnState.Disconnecting,
+                    ConnState.PausedTrustedWifi -> conn.disconnect()
+                    else -> onRequestConnect()
+                }
+            },
+            onSelectPreviousProfile = {
+                val items = catalog.items
+                if (items.size <= 1) return@UserTunnelSimpleScreen
+                val currentIndex = items.indexOfFirst { it.id == catalog.activeId }.let { if (it < 0) 0 else it }
+                val target = items[(currentIndex - 1 + items.size) % items.size]
+                scope.launch {
+                    profiles.setActive(target.id)
+                    settings.setProfileName(target.profile.name)
+                    conn.updateProfile(target.profile)
+                }
+            },
+            onSelectNextProfile = {
+                val items = catalog.items
+                if (items.size <= 1) return@UserTunnelSimpleScreen
+                val currentIndex = items.indexOfFirst { it.id == catalog.activeId }.let { if (it < 0) 0 else it }
+                val target = items[(currentIndex + 1) % items.size]
+                scope.launch {
+                    profiles.setActive(target.id)
+                    settings.setProfileName(target.profile.name)
+                    conn.updateProfile(target.profile)
+                }
+            },
+        )
+        return
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -572,6 +625,152 @@ fun TunnelScreen(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
+    }
+}
+
+@Composable
+private fun UserTunnelSimpleScreen(
+    ui: com.nonamevpn.app.core.ConnUiState,
+    catalogItems: List<StoredProfile>,
+    activeProfileId: String?,
+    whitelistDetected: Boolean,
+    onToggleTunnel: () -> Unit,
+    onSelectPreviousProfile: () -> Unit,
+    onSelectNextProfile: () -> Unit,
+) {
+    val isDark = isSystemInDarkTheme()
+    val bgRes = when {
+        whitelistDetected -> R.drawable.tunnel_user_whitelist
+        isDark -> R.drawable.tunnel_user_night
+        else -> R.drawable.tunnel_user_day
+    }
+    val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
+    val connected = ui.state == ConnState.Connected
+    val trackColor = if (connected) Color(0xFF35C759) else Color(0xFF9AA0A8)
+    val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(bgRes),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AppTabPageHeader(
+                title = "Подключение",
+                subtitle = when {
+                    whitelistDetected -> "Белые списки обнаружены"
+                    activeItem == null -> "Профиль не выбран"
+                    else -> activeItem.profile.name
+                },
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                Switch(
+                    checked = connected,
+                    onCheckedChange = { onToggleTunnel() },
+                    enabled = ui.state != ConnState.Disconnecting,
+                    thumbContent = {
+                        Text(
+                            if (connected) "ON" else "OFF",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedTrackColor = trackColor,
+                        uncheckedTrackColor = trackColor,
+                        checkedThumbColor = Color.White,
+                        uncheckedThumbColor = Color.White,
+                        checkedBorderColor = Color.Transparent,
+                        uncheckedBorderColor = Color.Transparent,
+                        disabledUncheckedTrackColor = Color(0xFF9AA0A8),
+                        disabledCheckedTrackColor = Color(0xFF9AA0A8),
+                    ),
+                    modifier = Modifier
+                        .padding(top = 56.dp)
+                        .height(46.dp)
+                        .width(112.dp),
+                )
+            }
+
+            ProfileSwitcherBar(
+                activeItem = activeItem,
+                canSwitch = catalogItems.size > 1,
+                onPrev = onSelectPreviousProfile,
+                onNext = onSelectNextProfile,
+                busy = connectingLike,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileSwitcherBar(
+    activeItem: StoredProfile?,
+    canSwitch: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    busy: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = NvpnBottomChrome.navigationReserve() + 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OutlinedButton(
+            onClick = onPrev,
+            enabled = canSwitch && !busy,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .height(NvpnBottomChrome.ButtonHeight)
+                .width(62.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий профиль")
+        }
+        Button(
+            onClick = { if (canSwitch) onNext() },
+            enabled = activeItem != null && !busy,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .weight(1f)
+                .height(NvpnBottomChrome.ButtonHeight),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+                disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+            ),
+        ) {
+            Text(
+                activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль",
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        OutlinedButton(
+            onClick = onNext,
+            enabled = canSwitch && !busy,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .height(NvpnBottomChrome.ButtonHeight)
+                .width(62.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий профиль")
+        }
     }
 }
 
