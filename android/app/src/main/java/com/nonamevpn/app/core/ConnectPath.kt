@@ -25,3 +25,17 @@ fun resolveConnectPath(
         lastGood?.networkClass == NetworkClass.DirectOk || lastGood?.preselectedPath != null
     }
 }
+
+/**
+ * qWDTT starts RAW immediately. Auto on cellular and forced Bypass must not
+ * wait on TCP :9100 — some SIMs cannot reach the hub at all.
+ */
+fun shouldSkipConnectProbe(
+    pathMode: ConnPathMode,
+    bypassAllowed: Boolean,
+    underlayKind: UnderlayKind,
+): Boolean = when (pathMode) {
+    ConnPathMode.Direct -> false
+    ConnPathMode.Bypass -> bypassAllowed
+    ConnPathMode.Auto -> shouldAutoUseBypassOnCellular(bypassAllowed, underlayKind)
+}

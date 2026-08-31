@@ -176,6 +176,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         tunnelSessionActive = true
         softRestartInProgress = false
         sessionStartedAtMs = System.currentTimeMillis()
+        lastHandoffAtMs = sessionStartedAtMs
         TransportHealth.reset()
         VpnLiveStats.reset()
         setupNetworkCallback()
@@ -1090,8 +1091,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeJob?.cancel()
         networkChangeJob = scope.launch {
             try {
+                val skipValidated = shouldSkipValidatedWait(
+                    path = path,
+                    underlayKind = currentUnderlayKind(),
+                )
                 val validatedWaitStart = System.currentTimeMillis()
-                val validatedTimeoutMs = validatedWaitTimeoutMs(activeNetworks.isNotEmpty())
+                val validatedTimeoutMs = validatedWaitTimeoutMs(
+                    replacementUnderlayPresent = activeNetworks.isNotEmpty(),
+                    skipWait = skipValidated,
+                )
                 while (
                     shouldKeepWaitingForValidated(
                         validatedPresent = hasValidatedRealNetwork(),
@@ -1104,10 +1112,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val validatedWaited = System.currentTimeMillis() - validatedWaitStart
                 if (!hasValidatedRealNetwork()) {
                     rebindBypassWhenValidated = true
-                    AppLog.w(
-                        TAG,
-                        "handover: underlay not VALIDATED after ${validatedWaited}ms — continue anyway ($reason)",
-                    )
+                    if (!skipValidated || validatedWaited >= 200L) {
+                        AppLog.w(
+                            TAG,
+                            "handover: underlay not VALIDATED after ${validatedWaited}ms — continue anyway ($reason)",
+                        )
+                    }
                 } else {
                     rebindBypassWhenValidated = false
                     AppLog.v(TAG, "handover: underlay VALIDATED in ${validatedWaited}ms ($reason)")
@@ -1116,9 +1126,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val (trustedOn, trustedSsids) = runCatching { settingsRepo.trustedWifiSnapshot() }
                     .getOrDefault(false to emptySet())
                 val settlePath = TunnelSessionHolder.config?.path ?: path
+                val skipValidatedSettle = shouldSkipValidatedWait(
+                    path = settlePath,
+                    underlayKind = currentUnderlayKind(),
+                )
                 val settleMs = extraNetworkSettleDelayMs(
                     path = settlePath,
                     validatedPresent = hasValidatedRealNetwork(),
+                    skipValidatedWait = skipValidatedSettle,
                 )
                 AppLog.v(
                     TAG,
@@ -1397,12 +1412,31 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private fun bindTunToUnderlay() {
         if (!tunnelSessionActive && tun == null) return
         val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
+        val caps = n?.let { connectivityManager?.getNetworkCapabilities(it) }
+        val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        // Pin only a VALIDATED underlay. Binding to a half-up LTE (common while
+        // the VPN is the default network) blackholes apps; qWDTT never pins.
+        val bind = n.takeIf { validated }
         runCatching {
-            setUnderlyingNetworks(n?.let { arrayOf(it) })
-            AppLog.i(TAG, "VPN underlying=${n?.networkHandle ?: "default"}")
+            setUnderlyingNetworks(bind?.let { arrayOf(it) })
+            AppLog.i(
+                TAG,
+                "VPN underlying=${bind?.networkHandle ?: "default"}" +
+                    if (n != null && !validated) " (not VALIDATED — not pinned)" else "",
+            )
         }.onFailure {
             AppLog.w(TAG, "setUnderlyingNetworks: ${it.message}")
         }
+    }
+
+    private fun currentUnderlayKind(): UnderlayKind {
+        val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
+            ?: return UnderlayKind.Other
+        val caps = connectivityManager?.getNetworkCapabilities(n) ?: return UnderlayKind.Other
+        return classifyUnderlayKind(
+            wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+            cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+        )
     }
 
     private fun applyExcludedHostRoutes(builder: Builder, hosts: Set<String>) {

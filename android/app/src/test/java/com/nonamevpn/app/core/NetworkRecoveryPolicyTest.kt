@@ -655,6 +655,24 @@ class NetworkRecoveryPolicyTest {
             validatedWaitTimeoutMs(replacementUnderlayPresent = false),
         )
         assertEquals(
+            0L,
+            validatedWaitTimeoutMs(
+                replacementUnderlayPresent = true,
+                skipWait = true,
+            ),
+        )
+        assertTrue(shouldSkipValidatedWait(VpnPath.Bypass, UnderlayKind.Wifi))
+        assertTrue(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Cellular))
+        assertFalse(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Wifi))
+        assertEquals(
+            BYPASS_UNVALIDATED_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                VpnPath.Direct,
+                validatedPresent = false,
+                skipValidatedWait = true,
+            ),
+        )
+        assertEquals(
             BYPASS_UNVALIDATED_SETTLE_MS,
             extraNetworkSettleDelayMs(VpnPath.Bypass, validatedPresent = false),
         )
