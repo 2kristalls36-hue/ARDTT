@@ -295,7 +295,9 @@ private fun ClientsScreen(
                                     },
                                     onShareProfile = {
                                         loadProfile(user.name) { json ->
-                                            profileShare = VpnProfileJson.parse(json)
+                                            runCatching { VpnProfileJson.parse(json) }
+                                                .onSuccess { profileShare = it }
+                                                .onFailure { toast(it.message ?: "Не удалось разобрать профиль") }
                                         }
                                     },
                                     onUnbindAll = {
@@ -407,7 +409,9 @@ private fun ClientsScreen(
                         result.fold(
                             onSuccess = { body ->
                                 showCreate = false
-                                profileShare = VpnProfileJson.parse(body)
+                                runCatching { VpnProfileJson.parse(body) }
+                                    .onSuccess { profileShare = it }
+                                    .onFailure { toast(it.message ?: "Не удалось разобрать профиль") }
                                 refresh()
                             },
                             onFailure = { toast(it.message ?: "Ошибка создания") },
