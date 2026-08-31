@@ -680,7 +680,7 @@ private fun UserTunnelSimpleScreen(
             WhitelistDroneSkyAnimation(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.38f)
+                    .fillMaxHeight(0.34f)
                     .align(Alignment.TopCenter),
             )
         }
@@ -765,41 +765,41 @@ private fun WhitelistDroneSkyAnimation(
         listOf(
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_near,
-                sizeDp = 178,
-                startXFrac = -0.24f,
-                startYFrac = -0.50f,
-                anchorXFrac = 0.07f,
-                anchorYFrac = 0.03f,
-                orbitRadiusXFrac = 0.020f,
-                orbitRadiusYFrac = 0.016f,
-                orbitDurationMs = 6200,
+                sizeDp = 186,
+                startXFrac = -0.30f,
+                startYFrac = -0.56f,
+                anchorXFrac = 0.10f,
+                anchorYFrac = 0.05f,
+                orbitRadiusXFrac = 0.017f,
+                orbitRadiusYFrac = 0.013f,
+                orbitDurationMs = 6000,
                 delayMs = 0L,
                 phaseRad = 0.4f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_mid,
-                sizeDp = 136,
-                startXFrac = 0.96f,
-                startYFrac = -0.42f,
-                anchorXFrac = 0.58f,
-                anchorYFrac = 0.06f,
-                orbitRadiusXFrac = 0.017f,
-                orbitRadiusYFrac = 0.013f,
-                orbitDurationMs = 6800,
-                delayMs = 120L,
+                sizeDp = 132,
+                startXFrac = 1.06f,
+                startYFrac = -0.46f,
+                anchorXFrac = 0.62f,
+                anchorYFrac = 0.08f,
+                orbitRadiusXFrac = 0.015f,
+                orbitRadiusYFrac = 0.011f,
+                orbitDurationMs = 6700,
+                delayMs = 110L,
                 phaseRad = 1.3f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_far,
-                sizeDp = 102,
-                startXFrac = 0.38f,
-                startYFrac = -0.48f,
-                anchorXFrac = 0.34f,
-                anchorYFrac = 0.11f,
-                orbitRadiusXFrac = 0.015f,
-                orbitRadiusYFrac = 0.010f,
-                orbitDurationMs = 7400,
-                delayMs = 240L,
+                sizeDp = 96,
+                startXFrac = 0.44f,
+                startYFrac = -0.52f,
+                anchorXFrac = 0.37f,
+                anchorYFrac = 0.13f,
+                orbitRadiusXFrac = 0.012f,
+                orbitRadiusYFrac = 0.009f,
+                orbitDurationMs = 7600,
+                delayMs = 220L,
                 phaseRad = 2.2f,
             ),
         )
@@ -833,16 +833,16 @@ private fun AnimatedDrone(
     val arrivalProgress by animateFloatAsState(
         targetValue = if (launchStarted) 1f else 0f,
         animationSpec = keyframes {
-            durationMillis = 1_200
+            durationMillis = 1_050
             0f at 0
-            0.74f at 420 with LinearEasing
-            1f at 1_200 with FastOutSlowInEasing
+            0.80f at 280 with LinearEasing
+            1f at 1_050 with FastOutSlowInEasing
         },
         label = "drone_arrival_$index",
     )
     val orbitBlend by animateFloatAsState(
         targetValue = if (arrivalProgress > 0.985f) 1f else 0f,
-        animationSpec = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
         label = "drone_orbit_blend_$index",
     )
     val orbit by rememberInfiniteTransition(label = "drone_orbit_$index").animateFloat(
@@ -863,7 +863,7 @@ private fun AnimatedDrone(
         (sceneWidthPx * spec.orbitRadiusXFrac) * orbitBlend
     val orbitY = sin((orbit * 1.12f + spec.phaseRad).toDouble()).toFloat() *
         (sceneHeightPx * spec.orbitRadiusYFrac) * orbitBlend
-    val wobbleRotation = sin((orbit * 0.65f + spec.phaseRad).toDouble()).toFloat() * 2.4f * orbitBlend
+    val wobbleRotation = sin((orbit * 0.65f + spec.phaseRad).toDouble()).toFloat() * 1.8f * orbitBlend
     val alpha = (0.22f + 0.78f * arrivalProgress).coerceIn(0f, 1f)
 
     Image(
