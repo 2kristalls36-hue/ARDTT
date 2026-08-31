@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,12 +77,16 @@ fun CallHashSettingsContent(
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
+    var vkDisplayName by remember { mutableStateOf<String?>(null) }
 
     val vpnActive = ui.state == ConnState.Connecting ||
         ui.state == ConnState.Connected ||
         ui.state == ConnState.PausedTrustedWifi ||
         ui.state == ConnState.Disconnecting
     val canEdit = profile != null && !vpnActive && !busy
+    LaunchedEffect(vkLoggedIn) {
+        vkDisplayName = if (vkLoggedIn) VkSession.resolveDisplayName() else null
+    }
 
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -98,6 +103,13 @@ fun CallHashSettingsContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (vkLoggedIn) {
+            Text(
+                "Выполнен вход под: ${vkDisplayName?.takeIf { it.isNotBlank() } ?: "аккаунт ВКонтакте"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -131,6 +143,7 @@ fun CallHashSettingsContent(
                 onClick = {
                     VkSession.clear()
                     vkLoggedIn = false
+                    vkDisplayName = null
                     message = "Сессия ВКонтакте завершена."
                 },
                 enabled = !vpnActive && !busy && vkLoggedIn,

@@ -1,9 +1,16 @@
 package com.nonamevpn.app.bypass
 
+import android.os.Build
+import android.text.Html
 import android.webkit.CookieManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Cookie helpers for VK login WebView → calls.start. */
 object VkSession {
+    @Volatile
+    private var cachedDisplayName: String? = null
+
     fun hasSessionCookie(): Boolean = remixSid().length >= 8
 
     fun remixSid(): String {
@@ -46,6 +53,7 @@ object VkSession {
         val cm = CookieManager.getInstance()
         cm.removeAllCookies(null)
         cm.flush()
+        cachedDisplayName = null
     }
 
     fun loginStartUrl(attempt: Int): String = when (attempt) {
@@ -63,5 +71,77 @@ object VkSession {
             u.contains("act=auth") ||
             u.contains("act=login") ||
             u.contains("authorize")
+    }
+
+    suspend fun resolveDisplayName(): String? = withContext(Dispatchers.IO) {
+        cachedDisplayName?.takeIf { it.isNotBlank() }?.let { return@withContext it }
+        if (!hasSessionCookie()) return@withContext null
+        val cookie = cookieHeader().takeIf { it.isNotBlank() } ?: return@withContext null
+        val urls = listOf("https://m.vk.com/feed", "https://vk.com/feed")
+        for (url in urls) {
+            val html = runCatching {
+                val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 3_000
+                    readTimeout = 3_000
+                    setRequestProperty("Cookie", cookie)
+                    setRequestProperty(
+                        "User-Agent",
+                        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
+                            "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                    )
+                }
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    conn.disconnect()
+                    error("HTTP $code")
+                }
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                body
+            }.getOrNull() ?: continue
+
+            parseDisplayNameFromHtml(html)?.let { name ->
+                cachedDisplayName = name
+                return@withContext name
+            }
+        }
+        null
+    }
+
+    private fun parseDisplayNameFromHtml(html: String): String? {
+        val fromProfile = Regex("top_profile_name\"\\s*:\\s*\"([^\"]+)\"")
+            .find(html)
+            ?.groupValues
+            ?.getOrNull(1)
+        val fromOg = Regex("<meta\\s+property=\"og:title\"\\s+content=\"([^\"]+)\"")
+            .find(html)
+            ?.groupValues
+            ?.getOrNull(1)
+        val fromTitle = Regex("<title>([^<]+)</title>", RegexOption.IGNORE_CASE)
+            .find(html)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.removeSuffix(" | ВКонтакте")
+            ?.removeSuffix(" | VK")
+        return sequenceOf(fromProfile, fromOg, fromTitle)
+            .mapNotNull { decodeHtml(it) }
+            .map { it.trim() }
+            .firstOrNull { candidate ->
+                candidate.isNotBlank() &&
+                    !candidate.contains("vk", ignoreCase = true) &&
+                    !candidate.contains("вход", ignoreCase = true) &&
+                    !candidate.contains("login", ignoreCase = true)
+            }
+    }
+
+    private fun decodeHtml(value: String?): String? {
+        val raw = value?.takeIf { it.isNotBlank() } ?: return null
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Html.fromHtml(raw, Html.FROM_HTML_MODE_LEGACY).toString()
+        } else {
+            @Suppress("DEPRECATION")
+            Html.fromHtml(raw).toString()
+        }
     }
 }
