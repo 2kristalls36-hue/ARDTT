@@ -290,12 +290,6 @@ fun AppRoot(
         }
         previousRoute = currentRoute
     }
-    val softenBackdropForUserMode = !admin && currentRoute != AppDestination.Tunnel.route
-    val wallpaperFadeColor = if (darkTheme) {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
-    } else {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
-    }
     val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
 
     TelemetryRecordingOverlay(
@@ -314,12 +308,6 @@ fun AppRoot(
                 }
             } else {
                 AppBackdrop(modifier = Modifier.fillMaxSize())
-            }
-            if (softenBackdropForUserMode) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = wallpaperFadeColor,
-                ) {}
             }
 
             NavHost(
