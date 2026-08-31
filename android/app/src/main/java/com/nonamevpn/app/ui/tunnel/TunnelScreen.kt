@@ -127,7 +127,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -1033,11 +1032,10 @@ private fun AnimatedDrone(
     sceneHeightPx: Float,
 ) {
     val density = LocalDensity.current
-    val dragScope = rememberCoroutineScope()
     var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
-    var dragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
-    var dragDy by remember(spec.resId, restartToken) { mutableStateOf(0f) }
-    var dragReturnJob by remember(spec.resId, restartToken) { mutableStateOf<Job?>(null) }
+    var dragging by remember(spec.resId, restartToken) { mutableStateOf(false) }
+    var rawDragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
+    var rawDragDy by remember(spec.resId, restartToken) { mutableStateOf(0f) }
     LaunchedEffect(spec.resId, restartToken) {
         delay(spec.delayMs)
         launchStarted = true
@@ -1056,6 +1054,24 @@ private fun AnimatedDrone(
         targetValue = if (blowAway) 1f else 0f,
         animationSpec = tween(durationMillis = 980, easing = FastOutLinearInEasing),
         label = "drone_blow_away_$index",
+    )
+    val dragDx by animateFloatAsState(
+        targetValue = if (dragging) rawDragDx else 0f,
+        animationSpec = if (dragging) {
+            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
+        } else {
+            tween(durationMillis = 420, easing = FastOutSlowInEasing)
+        },
+        label = "drone_drag_dx_$index",
+    )
+    val dragDy by animateFloatAsState(
+        targetValue = if (dragging) rawDragDy else 0f,
+        animationSpec = if (dragging) {
+            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
+        } else {
+            tween(durationMillis = 420, easing = FastOutSlowInEasing)
+        },
+        label = "drone_drag_dy_$index",
     )
     val orbit by produceState(
         initialValue = 0f,
@@ -1121,52 +1137,23 @@ private fun AnimatedDrone(
             .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
                 detectDragGestures(
                     onDragStart = {
-                        dragReturnJob?.cancel()
-                        dragReturnJob = null
+                        dragging = true
                     },
                     onDragEnd = {
-                        dragReturnJob?.cancel()
-                        dragReturnJob = dragScope.launch {
-                            val startX = dragDx
-                            val startY = dragDy
-                            val t0 = withFrameNanos { it }
-                            val durationNs = 420_000_000L
-                            while (true) {
-                                val now = withFrameNanos { it }
-                                val p = ((now - t0).toFloat() / durationNs).coerceIn(0f, 1f)
-                                val eased = 1f - (1f - p) * (1f - p)
-                                dragDx = startX * (1f - eased)
-                                dragDy = startY * (1f - eased)
-                                if (p >= 1f) break
-                            }
-                            dragDx = 0f
-                            dragDy = 0f
-                        }
+                        dragging = false
+                        rawDragDx = 0f
+                        rawDragDy = 0f
                     },
                     onDragCancel = {
-                        dragReturnJob?.cancel()
-                        dragReturnJob = dragScope.launch {
-                            val startX = dragDx
-                            val startY = dragDy
-                            val t0 = withFrameNanos { it }
-                            val durationNs = 420_000_000L
-                            while (true) {
-                                val now = withFrameNanos { it }
-                                val p = ((now - t0).toFloat() / durationNs).coerceIn(0f, 1f)
-                                val eased = 1f - (1f - p) * (1f - p)
-                                dragDx = startX * (1f - eased)
-                                dragDy = startY * (1f - eased)
-                                if (p >= 1f) break
-                            }
-                            dragDx = 0f
-                            dragDy = 0f
-                        }
+                        dragging = false
+                        rawDragDx = 0f
+                        rawDragDy = 0f
                     },
                 ) { change, dragAmount ->
                     if (blowAway) return@detectDragGestures
                     change.consume()
-                    dragDx = (dragDx + dragAmount.x).coerceIn(-dragLimitX, dragLimitX)
-                    dragDy = (dragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
+                    rawDragDx = (rawDragDx + dragAmount.x).coerceIn(-dragLimitX, dragLimitX)
+                    rawDragDy = (rawDragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
                 }
             }
             .graphicsLayer {
