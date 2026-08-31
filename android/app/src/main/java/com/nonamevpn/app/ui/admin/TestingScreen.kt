@@ -141,7 +141,7 @@ fun TestingScreen(profiles: ProfileRepository) {
         if (BuildConfig.TELEMETRY_UPLOAD_URL.isNotBlank()) {
             BuildConfig.TELEMETRY_UPLOAD_URL
         } else if (serverIp != "unknown") {
-            "http://$serverIp:9200/api/upload-log"
+            "https://$serverIp/api/upload-log"
         } else {
             ""
         }
