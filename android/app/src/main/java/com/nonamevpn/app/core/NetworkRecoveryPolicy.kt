@@ -198,6 +198,15 @@ const val PROCESS_DEAD_GRACE_MS = 20_000L
  */
 const val TRAFFIC_STALL_AFTER_HANDOFF_MS = 30_000L
 
+/**
+ * Bypass started on a half-up LTE often has 9 TURN workers and only handshake
+ * bytes (~0.1 МБ). Rebind sooner than [TRAFFIC_STALL_AFTER_HANDOFF_MS].
+ */
+const val BYPASS_HANDSHAKE_STALL_MS = 18_000L
+
+/** Stay in handshake-stall mode while total traffic is at most this (KB). */
+const val BYPASS_HANDSHAKE_ONLY_MAX_KB = 200L
+
 /** Same stall detection without a recent handoff (slower threshold). */
 const val TRAFFIC_STALL_IDLE_MS = 45_000L
 
@@ -450,4 +459,23 @@ fun shouldSoftRestartForTrafficStall(
     val inHandoffWindow = handoffAtMs > 0L && nowMs - handoffAtMs <= handoffWindowMs
     val grace = if (inHandoffWindow) afterHandoffGraceMs else idleGraceMs
     return stalledFor >= grace
+}
+
+/** Bypass up, but only TURN handshake — sockets glued to a not-yet-ready LTE. */
+fun shouldSoftRestartForHandshakeStall(
+    bypassPath: Boolean,
+    activeWorkers: Int,
+    trafficKb: Long,
+    nowMs: Long,
+    handoffAtMs: Long,
+    graceMs: Long = BYPASS_HANDSHAKE_STALL_MS,
+    maxHandshakeKb: Long = BYPASS_HANDSHAKE_ONLY_MAX_KB,
+    handoffWindowMs: Long = HANDOFF_STALL_WINDOW_MS,
+): Boolean {
+    if (!bypassPath) return false
+    if (activeWorkers <= 0) return false
+    if (handoffAtMs <= 0L) return false
+    val sinceHandoff = nowMs - handoffAtMs
+    if (sinceHandoff < graceMs || sinceHandoff > handoffWindowMs) return false
+    return trafficKb <= maxHandshakeKb
 }

@@ -308,8 +308,8 @@ fun vpnSessionStatusText(
     statusText: String,
     publicIp: String?,
 ): String {
-    if (state == ConnState.Connected && publicIp.isNullOrBlank()) {
-        return VPN_EGRESS_CONNECTING_LABEL
+    if (state == ConnState.Connecting || state == ConnState.Probing) {
+        return statusText.ifBlank { VPN_EGRESS_CONNECTING_LABEL }
     }
     return statusText.ifBlank { "—" }
 }

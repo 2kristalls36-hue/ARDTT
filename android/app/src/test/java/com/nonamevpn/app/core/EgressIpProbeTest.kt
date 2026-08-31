@@ -45,9 +45,9 @@ class EgressIpProbeTest {
     }
 
     @Test
-    fun connectedWithoutIpIsStillConnecting() {
+    fun connectedWithoutPublicIpIsStillConnected() {
         assertEquals(
-            VPN_EGRESS_CONNECTING_LABEL,
+            "Подключено: прямое",
             vpnSessionStatusText(ConnState.Connected, "Подключено: прямое", publicIp = null),
         )
         assertEquals(

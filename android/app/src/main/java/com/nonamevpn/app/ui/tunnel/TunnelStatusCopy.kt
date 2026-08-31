@@ -8,9 +8,10 @@ fun sessionCardStatusText(
     publicIp: String?,
     lastError: String? = null,
 ): String {
-    val ipMissing = publicIp.isNullOrBlank()
     return when (state) {
-        ConnState.Connected -> if (ipMissing) "Подключение…" else "Подключено"
+        // Tunnel is up. Public IP may never arrive on operator whitelist
+        // (provision/ipify over underlay time out) — do not look stuck.
+        ConnState.Connected -> "Подключено"
         ConnState.Connecting, ConnState.Probing -> "Подключение…"
         ConnState.Disconnecting -> "Отключение…"
         ConnState.PausedTrustedWifi -> "Пауза"

@@ -479,7 +479,7 @@ fun TunnelScreen(
                 statusText = sessionCardStatusText(ui.state, publicIp, ui.lastError),
                 statusColor = when {
                     pausedTrusted -> NvpnColors.warning
-                    connected && !publicIp.isNullOrBlank() -> NvpnColors.connected
+                    connected -> NvpnColors.connected
                     ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurface
                 },
