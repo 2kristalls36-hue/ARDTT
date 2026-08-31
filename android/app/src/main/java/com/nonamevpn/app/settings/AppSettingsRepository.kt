@@ -108,7 +108,7 @@ class AppSettingsRepository(private val context: Context) {
             val raw = prefs[tunnelWallpaperVariant] ?: 0
             raw.coerceAtLeast(0)
         }
-    /** `none` | `morning` | `day` | `sunset` | `night` | `fog` | `storm` */
+    /** `none` | `day` | `sunset` | `night` | `fog` | `collage` */
     val wallpaperFlow: Flow<String> = context.dataStore.data.map {
         normalizeWallpaper(it[wallpaper])
     }
@@ -419,13 +419,12 @@ class AppSettingsRepository(private val context: Context) {
         }
 
         fun normalizeWallpaper(raw: String?): String = when (raw?.lowercase()?.trim()) {
-            "morning", "sunrise", "утро" -> "morning"
             "day", "день" -> "day"
             "sunset", "закат" -> "sunset"
             "night", "ночь" -> "night"
             "fog", "туман" -> "fog"
-            "storm", "гроза" -> "storm"
-            else -> "none"
+            "collage", "коллаж" -> "collage"
+            else -> "collage"
         }
 
         fun parseSsidSet(raw: String?): Set<String> =

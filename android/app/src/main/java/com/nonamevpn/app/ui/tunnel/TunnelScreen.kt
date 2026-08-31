@@ -137,8 +137,7 @@ fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     onRequestConnect: () -> Unit,
-    onOpenWallpaperSettings: () -> Unit = {},
-    onOpenCallHashSettings: () -> Unit = {},
+    onNavigateToDialSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -344,7 +343,6 @@ fun TunnelScreen(
                     settings.setThemeMode(nextThemeMode)
                 }
             },
-            onOpenWallpaperSettings = onOpenWallpaperSettings,
             onToggleTunnel = {
                 when (ui.state) {
                     ConnState.Connected,
@@ -507,7 +505,7 @@ fun TunnelScreen(
                         selectedContainer = NvpnColors.pathBypass,
                         onClick = {
                             if (!ui.hasCallHash) {
-                                onOpenCallHashSettings()
+                                onNavigateToDialSettings()
                                 return@ChoiceChipButton
                             }
                             scope.launch {
@@ -699,7 +697,6 @@ private fun UserTunnelSimpleScreen(
     wallpaperVariant: Int,
     themeMode: String,
     onSwitchThemeMode: () -> Unit,
-    onOpenWallpaperSettings: () -> Unit,
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
@@ -780,7 +777,6 @@ private fun UserTunnelSimpleScreen(
                 .size(38.dp)
                 .combinedClickable(
                     onClick = onSwitchThemeMode,
-                    onLongClick = onOpenWallpaperSettings,
                 ),
             shape = RoundedCornerShape(19.dp),
             color = NvpnFloatingShell.shellColor(),

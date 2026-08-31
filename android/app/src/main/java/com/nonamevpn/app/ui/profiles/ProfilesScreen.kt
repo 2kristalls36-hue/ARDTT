@@ -60,6 +60,7 @@ import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyBottomScaffold
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -212,7 +213,12 @@ fun ProfilesScreen(
                         cm.setPrimaryClip(ClipData.newPlainText("ARDTT profile", json))
                         Toast.makeText(context, "JSON скопирован", Toast.LENGTH_SHORT).show()
                     },
-                    onShare = { shareProfile = item.profile },
+                    onShare = {
+                        scope.launch {
+                            delay(64)
+                            shareProfile = item.profile
+                        }
+                    },
                     onRename = {
                         renameTarget = item
                         renameText = item.profile.name
