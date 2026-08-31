@@ -15,6 +15,7 @@ import java.util.zip.GZIPOutputStream
 
 /**
  * Admin deploy: SSH → upload stack.tar.gz + install.sh → run Compose on VPS.
+ * Protocol and VPS layout: docs/DEPLOY.md. Canonical installer: server/install.sh.
  */
 class DeployEngine(private val appContext: Context) {
     private val _busy = MutableStateFlow(false)

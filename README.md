@@ -63,7 +63,10 @@
 
 ## Сервер (VPS)
 
-Пять сервисов в Docker Compose:
+Механика установки и работы стека: [docs/DEPLOY.md](docs/DEPLOY.md)  
+(из приложения по SSH или `docker compose` в `server/`).
+
+Шесть сервисов в Docker Compose:
 
 | Сервис | Назначение |
 |--------|------------|
@@ -72,6 +75,7 @@
 | `dns` | dnsmasq на шлюзах туннелей |
 | `warp` | WARP egress при «Скрыть IP» |
 | `provision` | пользователи, ключи, профиль |
+| `telemetry` | приём debug-логов с Android |
 
 У клиента один `host_id` → `10.8.0.{id}` (прямое) и `10.9.0.{id}` (обход).  
 WARP — не третий способ дозвона, а **выход** с сервера.
@@ -102,6 +106,7 @@ ARDTT/
 ├── docs/
 │   ├── LEGEND.md           ← легенда имени ARDTT
 │   ├── ARCHITECTURE.md
+│   ├── DEPLOY.md           ← механика серверного деплоя
 │   └── assets/ardtt-icon.png
 ├── android/                ← клиент
 └── server/                 ← Compose-стек
@@ -121,5 +126,6 @@ ARDTT/
 
 - [Легенда ARDTT](docs/LEGEND.md)
 - [Архитектура](docs/ARCHITECTURE.md)
+- [Деплой сервера](docs/DEPLOY.md)
 - [NOTICE](NOTICE)
 - [LICENSE](LICENSE)

@@ -1,6 +1,6 @@
 # Сервер ARDTT
 
-Compose-стек из пяти сервисов (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
+Compose-стек из шести сервисов (см. [архитектуру](../docs/ARCHITECTURE.md), [легенду](../docs/LEGEND.md) и [деплой](../docs/DEPLOY.md)):
 
 | Сервис | Статус сейчас | Назначение |
 |--------|---------------|------------|
@@ -43,6 +43,11 @@ curl -s http://127.0.0.1:9100/health
 
 `direct` слушает UDP `NVPN_DIRECT_PORT` (default 51820).  
 `bypass` слушает UDP `NVPN_BYPASS_PORT` (default 56003) в режиме RAW/WRAP без DTLS для клиентов Path B.
+
+Полная механика (деплой из приложения, `install.sh`, версии, порты, обновление):  
+[docs/DEPLOY.md](../docs/DEPLOY.md).
+
+Канонический установщик VPS: [`install.sh`](install.sh) (в APK попадает копией через `scripts/pack-deploy-assets.sh`).
 
 ## Данные
 

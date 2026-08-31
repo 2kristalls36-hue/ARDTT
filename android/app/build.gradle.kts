@@ -59,15 +59,26 @@ android {
     }
 }
 
+val repoRoot = rootProject.projectDir.parentFile
 val bypassClientLib = file("src/main/jniLibs/arm64-v8a/libclient.so")
 val buildBypassClient = tasks.register<Exec>("buildBypassClient") {
     onlyIf { !bypassClientLib.exists() }
-    workingDir = rootProject.projectDir.parentFile
+    workingDir = repoRoot
     commandLine("bash", "scripts/build-bypass-client.sh")
 }
 
+val packDeployAssets = tasks.register<Exec>("packDeployAssets") {
+    workingDir = repoRoot
+    commandLine("bash", "scripts/pack-deploy-assets.sh")
+    inputs.dir(repoRoot.resolve("server"))
+    inputs.file(repoRoot.resolve("scripts/pack-deploy-assets.sh"))
+    outputs.file(file("src/main/assets/deploy/stack.tar.gz.bin"))
+    outputs.file(file("src/main/assets/deploy/install.sh"))
+    outputs.file(file("src/main/assets/deploy/DEPLOY_VERSION"))
+}
+
 tasks.named("preBuild") {
-    dependsOn(buildBypassClient)
+    dependsOn(buildBypassClient, packDeployAssets)
 }
 
 dependencies {
