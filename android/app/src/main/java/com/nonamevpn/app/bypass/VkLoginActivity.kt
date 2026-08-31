@@ -120,11 +120,13 @@ class VkLoginActivity : ComponentActivity() {
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                         loading = true
+                                        maybeCaptureDisplayName(view)
                                         maybeComplete(url.orEmpty())
                                     }
 
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         loading = false
+                                        maybeCaptureDisplayName(view)
                                         maybeComplete(url.orEmpty())
                                         injectLoginErrorWatcher(view)
                                         // Login flow fallbacks if stuck on broken VK ID page
@@ -144,6 +146,7 @@ class VkLoginActivity : ComponentActivity() {
                                         request: WebResourceRequest?,
                                     ): Boolean {
                                         val u = request?.url?.toString().orEmpty()
+                                        maybeCaptureDisplayName(view)
                                         maybeComplete(u)
                                         return false
                                     }
@@ -219,6 +222,27 @@ class VkLoginActivity : ComponentActivity() {
         }
     }
 
+    private fun maybeCaptureDisplayName(view: WebView?) {
+        if (mode != Mode.LOGIN || !VkSession.hasSessionCookie()) return
+        view ?: return
+        view.evaluateJavascript(CAPTURE_PROFILE_NAME_JS) { raw ->
+            val normalized = raw
+                ?.removePrefix("\"")
+                ?.removeSuffix("\"")
+                ?.replace("\\n", " ")
+                ?.replace("\\t", " ")
+                ?.replace("\\\"", "\"")
+                ?.replace("\\u003C", "<")
+                ?.replace("\\u003E", ">")
+                ?.replace("\\\\", "\\")
+                ?.trim()
+                .orEmpty()
+            if (normalized.isNotBlank()) {
+                VkSession.rememberDisplayName(normalized)
+            }
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun applySettings(webView: WebView, attempt: Int) {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -266,6 +290,29 @@ class VkLoginActivity : ComponentActivity() {
                 }
                 setInterval(check, 1200);
                 check();
+            })();
+        """
+
+        private const val CAPTURE_PROFILE_NAME_JS = """
+            (function() {
+                function text(v){ return (v || '').replace(/\s+/g, ' ').trim(); }
+                var candidates = [
+                    document.querySelector('[data-testid="top_profile_name"]'),
+                    document.querySelector('.top_profile_name'),
+                    document.querySelector('.TopNavBtn__profileName'),
+                    document.querySelector('.owner_name'),
+                    document.querySelector('.ProfileHeader__name'),
+                    document.querySelector('meta[property="og:title"]')
+                ];
+                for (var i = 0; i < candidates.length; i++) {
+                    var el = candidates[i];
+                    if (!el) continue;
+                    var val = el.content ? text(el.content) : text(el.textContent);
+                    if (val && val.toLowerCase() !== 'вконтакте' && val.toLowerCase() !== 'vk') return val;
+                }
+                var title = text(document.title || '');
+                title = title.replace(/\s+\|\s+(ВКонтакте|VK)$/i, '').trim();
+                return title;
             })();
         """
 

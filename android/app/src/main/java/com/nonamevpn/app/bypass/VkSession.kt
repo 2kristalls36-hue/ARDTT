@@ -109,6 +109,13 @@ object VkSession {
         null
     }
 
+    fun rememberDisplayName(name: String?) {
+        val normalized = normalizeCandidateName(name)
+        if (normalized != null) {
+            cachedDisplayName = normalized
+        }
+    }
+
     private fun parseDisplayNameFromHtml(html: String): String? {
         val fromProfile = Regex("top_profile_name\"\\s*:\\s*\"([^\"]+)\"")
             .find(html)
@@ -126,13 +133,8 @@ object VkSession {
             ?.removeSuffix(" | VK")
         return sequenceOf(fromProfile, fromOg, fromTitle)
             .mapNotNull { decodeHtml(it) }
-            .map { it.trim() }
-            .firstOrNull { candidate ->
-                candidate.isNotBlank() &&
-                    !candidate.contains("vk", ignoreCase = true) &&
-                    !candidate.contains("вход", ignoreCase = true) &&
-                    !candidate.contains("login", ignoreCase = true)
-            }
+            .mapNotNull { normalizeCandidateName(it) }
+            .firstOrNull()
     }
 
     private fun decodeHtml(value: String?): String? {
@@ -143,5 +145,14 @@ object VkSession {
             @Suppress("DEPRECATION")
             Html.fromHtml(raw).toString()
         }
+    }
+
+    private fun normalizeCandidateName(raw: String?): String? {
+        val candidate = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (candidate.contains("vk", ignoreCase = true)) return null
+        if (candidate.contains("вход", ignoreCase = true)) return null
+        if (candidate.contains("login", ignoreCase = true)) return null
+        if (candidate.equals("ВКонтакте", ignoreCase = true)) return null
+        return candidate
     }
 }
