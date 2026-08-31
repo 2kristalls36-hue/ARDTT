@@ -68,7 +68,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -118,7 +117,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.cos
-import kotlin.math.roundToInt
 import kotlin.math.sin
 
 @Composable
@@ -812,8 +810,9 @@ private fun UserTunnelSimpleScreen(
                 busy = connectingLike || disconnecting,
                 onClick = onToggleTunnel,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(112.dp),
+                    .align(Alignment.CenterHorizontally)
+                    .fillMaxWidth(0.67f)
+                    .height(75.dp),
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -842,7 +841,8 @@ private fun TunnelPowerToggle(
         animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         label = "tunnel_toggle_knob",
     )
-    val trackColor = when {
+    val shellColor = NvpnFloatingShell.shellColor()
+    val knobColor = when {
         checked -> Color(0xFF35C759)
         else -> Color(0xFF8E949B)
     }
@@ -852,9 +852,10 @@ private fun TunnelPowerToggle(
                 runCatching { onClick() }
                     .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
             },
-        color = trackColor,
+        color = shellColor,
+        border = NvpnFloatingShell.shellBorder(),
         shape = RoundedCornerShape(56.dp),
-        shadowElevation = 8.dp,
+        shadowElevation = NvpnFloatingShell.shadowElevation,
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -875,20 +876,20 @@ private fun TunnelPowerToggle(
                     "OFF",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color.White.copy(alpha = if (checked) 0.55f else 0.96f),
+                        color = Color.White.copy(alpha = if (checked) 0.56f else 0.98f),
                 )
                 Text(
                     "ON",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color.White.copy(alpha = if (checked) 0.96f else 0.55f),
+                    color = Color.White.copy(alpha = if (checked) 0.98f else 0.56f),
                 )
             }
             Surface(
                 modifier = Modifier
                     .size(knobSize)
                     .offset(x = knobOffset),
-                color = Color.White,
+                color = knobColor,
                 shape = RoundedCornerShape(48.dp),
                 shadowElevation = 4.dp,
             ) {
@@ -897,7 +898,7 @@ private fun TunnelPowerToggle(
                         if (busy) "…" else if (checked) "ON" else "OFF",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
-                        color = trackColor,
+                        color = Color.White,
                     )
                 }
             }
@@ -1034,16 +1035,13 @@ private fun AnimatedDrone(
         key1 = spec.orbitDurationMs,
         key2 = restartToken,
     ) {
-        val frameNs = 16_666_667L // fixed 60 FPS sampling
         val periodNs = spec.orbitDurationMs.toLong() * 1_000_000L
         val startNs = withFrameNanos { it }
         while (true) {
             val nowNs = withFrameNanos { it }
             val elapsedNs = (nowNs - startNs).coerceAtLeast(0L)
-            val frameIndex = elapsedNs / frameNs
-            val snappedNs = frameIndex * frameNs
             val phase = if (periodNs <= 0L) 0f else {
-                ((snappedNs % periodNs).toDouble() / periodNs.toDouble()).toFloat()
+                ((elapsedNs % periodNs).toDouble() / periodNs.toDouble()).toFloat()
             }
             value = ((Math.PI * 2.0) * phase).toFloat()
         }
@@ -1082,14 +1080,10 @@ private fun AnimatedDrone(
         contentDescription = null,
         contentScale = ContentScale.Fit,
         modifier = Modifier
-            .offset {
-                IntOffset(
-                    x = (xFrac * sceneWidthPx + orbitX + windKickX).roundToInt(),
-                    y = (yFrac * sceneHeightPx + orbitY + windKickY).roundToInt(),
-                )
-            }
             .size(spec.sizeDp.dp)
             .graphicsLayer {
+                translationX = xFrac * sceneWidthPx + orbitX + windKickX
+                translationY = yFrac * sceneHeightPx + orbitY + windKickY
                 this.alpha = alpha
                 rotationZ = wobbleRotation + blowRotation
             },
