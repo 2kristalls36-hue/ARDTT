@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -75,7 +77,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -821,8 +822,7 @@ private fun UserTunnelSimpleScreen(
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .fillMaxWidth(0.67f)
-                    .height(75.dp),
+                    .size(132.dp),
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -845,130 +845,52 @@ private fun TunnelPowerToggle(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var dragging by remember { mutableStateOf(false) }
-    var dragMoved by remember { mutableStateOf(false) }
-    var suppressNextTap by remember { mutableStateOf(false) }
-    var dragProgress by remember { mutableStateOf(0f) }
-    var pendingSnapTarget by remember { mutableStateOf<Float?>(null) }
-    val checked = connected
-    val externalTarget = if (checked) 1f else 0f
-    val visualTarget = when {
-        dragging -> dragProgress
-        pendingSnapTarget != null -> pendingSnapTarget!!
-        else -> externalTarget
-    }
-    val knobProgress by animateFloatAsState(
-        targetValue = visualTarget,
-        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-        label = "tunnel_toggle_knob",
-    )
-    LaunchedEffect(externalTarget) {
-        if (!dragging) pendingSnapTarget = null
-    }
+    val activeGlow = connected || busy
     val shellColor = NvpnFloatingShell.shellColor()
-    val knobColor = when {
-        checked -> Color(0xFF35C759)
-        else -> Color(0xFF8E949B)
+    val accentColor = when {
+        connected -> Color(0xFF35C759)
+        busy -> Color(0xFF6FCF97)
+        else -> Color.White.copy(alpha = 0.75f)
     }
-    Surface(
-        modifier = modifier
-            .clickable(enabled = !busy) {
-                if (suppressNextTap) {
-                    suppressNextTap = false
-                    return@clickable
-                }
-                pendingSnapTarget = null
-                runCatching { onClick() }
-                    .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
-            },
-        color = shellColor,
-        border = NvpnFloatingShell.shellBorder(),
-        shape = RoundedCornerShape(56.dp),
-        shadowElevation = NvpnFloatingShell.shadowElevation,
-    ) {
-        val density = LocalDensity.current
-        BoxWithConstraints(
+    val pulseScale by animateFloatAsState(
+        targetValue = if (activeGlow) 1.08f else 1f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "awg_pulse_scale",
+    )
+    val pulseAlpha by animateFloatAsState(
+        targetValue = if (activeGlow) 0.28f else 0.12f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "awg_pulse_alpha",
+    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .size(132.dp * pulseScale)
+                .background(
+                    color = accentColor.copy(alpha = pulseAlpha),
+                    shape = CircleShape,
+                ),
+        )
+        Surface(
+            modifier = Modifier
+                .size(120.dp)
+                .clickable(enabled = !busy) {
+                    runCatching { onClick() }
+                        .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
+                },
+            color = shellColor,
+            border = NvpnFloatingShell.shellBorder(),
+            shape = CircleShape,
+            shadowElevation = NvpnFloatingShell.shadowElevation,
         ) {
-            val knobSize = (maxHeight - 8.dp).coerceAtLeast(48.dp)
-            val travel = (maxWidth - knobSize).coerceAtLeast(0.dp)
-            val knobOffset = travel * knobProgress
-            val travelPx = with(density) { travel.toPx().coerceAtLeast(1f) }
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 26.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    "OFF",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                        color = Color.White.copy(alpha = if (checked) 0.56f else 0.98f),
-                )
-                Text(
-                    "ON",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White.copy(alpha = if (checked) 0.98f else 0.56f),
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.PowerSettingsNew,
+                    contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
+                    tint = accentColor,
+                    modifier = Modifier.size(54.dp),
                 )
             }
-            Surface(
-                modifier = Modifier
-                    .size(knobSize)
-                    .offset(x = knobOffset),
-                color = knobColor,
-                shape = RoundedCornerShape(48.dp),
-                shadowElevation = 4.dp,
-            ) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (busy) "…" else if (checked) "ON" else "OFF",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .pointerInput(busy, travelPx, externalTarget) {
-                        if (busy) return@pointerInput
-                        detectDragGestures(
-                            onDragStart = {
-                                dragging = true
-                                dragMoved = false
-                                pendingSnapTarget = null
-                                dragProgress = knobProgress
-                            },
-                            onDragEnd = {
-                                dragging = false
-                                if (dragMoved) suppressNextTap = true
-                                val snap = if (dragProgress >= 0.5f) 1f else 0f
-                                pendingSnapTarget = snap
-                                val needToggle = (snap == 1f) != connected
-                                if (needToggle) {
-                                    runCatching { onClick() }
-                                        .onFailure { t -> AppLog.e("TunnelToggle", "swipe toggle failed: ${t.message}") }
-                                }
-                            },
-                            onDragCancel = {
-                                dragging = false
-                                pendingSnapTarget = externalTarget
-                            },
-                        ) { change, dragAmount ->
-                            change.consume()
-                            if (kotlin.math.abs(dragAmount.x) > 0.6f || kotlin.math.abs(dragAmount.y) > 0.6f) {
-                                dragMoved = true
-                            }
-                            dragProgress = (dragProgress + dragAmount.x / travelPx).coerceIn(0f, 1f)
-                        }
-                    },
-            )
         }
     }
 }
