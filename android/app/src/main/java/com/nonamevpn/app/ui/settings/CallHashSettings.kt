@@ -156,7 +156,7 @@ fun CallHashSettingsContent(
                     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 ),
             ) {
-                Text("Завершить сессию ВКонтакте")
+                Text("Завершить сессию")
             }
         }
         Row(
@@ -183,7 +183,7 @@ fun CallHashSettingsContent(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                Text("Новый код")
+                Text("Создать код")
             }
             OutlinedButton(
                 onClick = { showManual = true },
