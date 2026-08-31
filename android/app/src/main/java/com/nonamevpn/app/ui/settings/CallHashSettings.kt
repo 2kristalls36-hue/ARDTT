@@ -3,12 +3,17 @@ package com.nonamevpn.app.ui.settings
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -19,9 +24,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,12 +64,14 @@ fun CallHashSettingsContent(
     showHeader: Boolean,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val conn = remember { ConnectionManager.get(context) }
     val profiles = remember { ProfileRepository(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
     var showManual by remember { mutableStateOf(false) }
+    var manualDraft by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
@@ -175,6 +185,8 @@ fun CallHashSettingsContent(
 
     if (showManual) {
         CallHashDialog(
+            value = manualDraft,
+            onValueChange = { manualDraft = it },
             onDismiss = { showManual = false },
             onSave = { raw ->
                 val cleaned = VkUrl.strip(raw)
@@ -191,24 +203,31 @@ fun CallHashSettingsContent(
                 showManual = false
                 message = "Код звонка удалён."
             },
+            onCopy = {
+                if (manualDraft.isBlank()) return@CallHashDialog
+                clipboard.setText(AnnotatedString(manualDraft))
+                Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
+            },
         )
     }
 }
 
 @Composable
 private fun CallHashDialog(
+    value: String,
+    onValueChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     onClear: () -> Unit,
+    onCopy: () -> Unit,
 ) {
-    var text by remember { mutableStateOf("") }
     NvpnDialog(
         title = "Код звонка",
         onDismissRequest = onDismiss,
         confirmAction = NvpnDialogAction(
             text = "Сохранить",
-            onClick = { onSave(text) },
-            enabled = text.isNotBlank(),
+            onClick = { onSave(value) },
+            enabled = value.isNotBlank(),
         ),
         dismissAction = NvpnDialogAction("Отмена", onDismiss),
         secondaryAction = NvpnDialogAction(
@@ -224,12 +243,21 @@ private fun CallHashDialog(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
+                value = value,
+                onValueChange = onValueChange,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true,
             )
+            OutlinedButton(
+                onClick = onCopy,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                enabled = value.isNotBlank(),
+            ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null)
+                Text("Копировать", modifier = Modifier.padding(start = 8.dp))
+            }
         }
     }
 }
