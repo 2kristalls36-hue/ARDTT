@@ -783,4 +783,44 @@ class NetworkRecoveryPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun handshakeStallRebindsQuietBypassAfterHandoff() {
+        assertFalse(
+            shouldSoftRestartForHandshakeStall(
+                bypassPath = true,
+                activeWorkers = 9,
+                trafficKb = 90L,
+                nowMs = 10_000L,
+                handoffAtMs = 1_000L,
+            ),
+        )
+        assertTrue(
+            shouldSoftRestartForHandshakeStall(
+                bypassPath = true,
+                activeWorkers = 9,
+                trafficKb = 110L,
+                nowMs = 20_000L,
+                handoffAtMs = 1_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForHandshakeStall(
+                bypassPath = true,
+                activeWorkers = 9,
+                trafficKb = 5_000L,
+                nowMs = 20_000L,
+                handoffAtMs = 1_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForHandshakeStall(
+                bypassPath = false,
+                activeWorkers = 9,
+                trafficKb = 110L,
+                nowMs = 20_000L,
+                handoffAtMs = 1_000L,
+            ),
+        )
+    }
 }

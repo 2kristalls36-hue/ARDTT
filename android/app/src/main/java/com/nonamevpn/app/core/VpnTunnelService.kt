@@ -87,6 +87,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var zeroWorkersSinceMs = 0L
     @Volatile private var processDeadSinceMs = 0L
     @Volatile private var lastHandoffAtMs = 0L
+    /** Bypass started before Android VALIDATED LTE — rebind once it does. */
+    @Volatile private var rebindBypassWhenValidated = false
     @Volatile private var sessionStartedAtMs = 0L
     @Volatile private var stableNetworkEvidenceSinceMs = 0L
     @Volatile private var deadDirectHandledAtMs = 0L
@@ -651,7 +653,26 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     }
                 } else {
                     zeroWorkersSinceMs = 0L
+                    val bypass = path == VpnPath.Bypass
                     if (
+                        shouldSoftRestartForHandshakeStall(
+                            bypassPath = bypass,
+                            activeWorkers = workers,
+                            trafficKb = TransportHealth.trafficKb,
+                            nowMs = now,
+                            handoffAtMs = lastHandoffAtMs,
+                        )
+                    ) {
+                        AppLog.w(
+                            TAG,
+                            "watchdog: Bypass handshake-only traffic=${TransportHealth.trafficKb}KB " +
+                                "workers=$workers sinceHandoff=${now - lastHandoffAtMs}ms",
+                        )
+                        requestSoftRestart(
+                            reason = "[ЗДОРОВЬЕ] Обход без полезного трафика — переподключаем TURN",
+                            force = true,
+                        )
+                    } else if (
                         shouldSoftRestartForTrafficStall(
                             activeWorkers = workers,
                             trafficBytes = TransportHealth.trafficKb,
@@ -930,6 +951,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     previousNetworkWasLost = stableNetworkWasLost,
                 )
                 lastValidatedNetworkId = id
+                if (
+                    rebindBypassWhenValidated &&
+                    TunnelSessionHolder.config?.path == VpnPath.Bypass &&
+                    transition != ValidatedNetworkTransition.HANDOVER
+                ) {
+                    rebindBypassWhenValidated = false
+                    scheduleUnderlyingNetworkReconnect(
+                        reason = "Android VALIDATED LTE — перепривязываем обход",
+                        previousNetworkId = previous,
+                    )
+                    return
+                }
+                rebindBypassWhenValidated = false
                 when (transition) {
                     ValidatedNetworkTransition.HANDOVER ->
                         scheduleUnderlyingNetworkReconnect(
@@ -1049,11 +1083,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 }
                 val validatedWaited = System.currentTimeMillis() - validatedWaitStart
                 if (!hasValidatedRealNetwork()) {
+                    rebindBypassWhenValidated = true
                     AppLog.w(
                         TAG,
                         "handover: underlay not VALIDATED after ${validatedWaited}ms — continue anyway ($reason)",
                     )
                 } else {
+                    rebindBypassWhenValidated = false
                     AppLog.v(TAG, "handover: underlay VALIDATED in ${validatedWaited}ms ($reason)")
                 }
 
@@ -1181,6 +1217,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         stableNetworkReconnectPending = false
         pendingHandoverUnderlayChanged = false
         stableNetworkEvidenceSinceMs = 0L
+        rebindBypassWhenValidated = false
         softRestartInProgress = false
         trustedWifiEvalJob?.cancel()
         watchdogJob?.cancel()

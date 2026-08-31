@@ -13,7 +13,7 @@ class TunnelStatusCopyTest {
             sessionCardStatusText(ConnState.Connected, publicIp = "1.1.1.1"),
         )
         assertEquals(
-            "Подключение…",
+            "Подключено",
             sessionCardStatusText(ConnState.Connected, publicIp = null),
         )
         assertEquals(
