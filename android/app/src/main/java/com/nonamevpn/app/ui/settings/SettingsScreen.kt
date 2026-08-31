@@ -929,7 +929,7 @@ private fun ChoiceChipButton(
                 1.dp,
                 if (isDark) colors.primary.copy(alpha = 0.35f) else colors.primary.copy(alpha = 0.25f),
             ),
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
         ) {
             Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
@@ -943,7 +943,7 @@ private fun ChoiceChipButton(
                 1.dp,
                 colors.outline.copy(alpha = 0.45f),
             ),
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
         ) {
             Text(
                 label,

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -54,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -362,6 +364,7 @@ fun TunnelScreen(
                                 label = item.profile.name.ifBlank { item.id },
                                 selected = item.id == catalog.activeId,
                                 enabled = true,
+                                minWidth = 110.dp,
                                 onClick = { activateStored(item) },
                             )
                         }
@@ -673,6 +676,7 @@ private fun ChoiceChipButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selectedContainer: Color? = null,
+    minWidth: Dp? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val isDark = NvpnFloatingShell.isDarkTheme()
@@ -682,12 +686,13 @@ private fun ChoiceChipButton(
         lerp(colors.primaryContainer, colors.surface, 0.18f).copy(alpha = 0.94f)
     }
     val defaultSelectedContent = colors.primary
+    val widthModifier = if (minWidth != null) modifier.height(44.dp).widthIn(min = minWidth) else modifier.height(44.dp)
 
     if (selected) {
         Button(
             onClick = onClick,
             enabled = enabled,
-            modifier = modifier.height(44.dp),
+            modifier = widthModifier,
             shape = RoundedCornerShape(16.dp),
             colors = if (selectedContainer != null) {
                 ButtonDefaults.buttonColors(
@@ -708,7 +713,7 @@ private fun ChoiceChipButton(
             } else {
                 null
             },
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp),
         ) {
             Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
@@ -716,13 +721,13 @@ private fun ChoiceChipButton(
         OutlinedButton(
             onClick = onClick,
             enabled = enabled,
-            modifier = modifier.height(44.dp),
+            modifier = widthModifier,
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(
                 1.dp,
                 colors.outline.copy(alpha = 0.45f),
             ),
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp),
         ) {
             Text(
                 label,
