@@ -17,12 +17,12 @@ android {
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
-            "\"http://45.129.2.3:9200/api/upload-log\"",
+            "\"https://45.129.2.3/api/upload-log\"",
         )
         buildConfigField(
             "String",
             "UPDATE_MANIFEST_URL",
-            "\"http://45.129.2.3:8088/update.json\"",
+            "\"https://45.129.2.3/update.json\"",
         )
     }
 
