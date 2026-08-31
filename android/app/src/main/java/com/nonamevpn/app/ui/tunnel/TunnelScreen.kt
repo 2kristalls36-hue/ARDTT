@@ -6,10 +6,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -55,10 +51,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -931,17 +929,25 @@ private fun AnimatedDrone(
         animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
         label = "drone_orbit_blend_$index",
     )
-    val orbit by rememberInfiniteTransition(label = "drone_orbit_$index").animateFloat(
+    val orbit by produceState(
         initialValue = 0f,
-        targetValue = (Math.PI * 2.0).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = spec.orbitDurationMs,
-                easing = LinearEasing,
-            ),
-        ),
-        label = "drone_orbit_angle_$index",
-    )
+        key1 = spec.orbitDurationMs,
+        key2 = restartToken,
+    ) {
+        val frameNs = 16_666_667L // fixed 60 FPS sampling
+        val periodNs = spec.orbitDurationMs.toLong() * 1_000_000L
+        val startNs = withFrameNanos { it }
+        while (true) {
+            val nowNs = withFrameNanos { it }
+            val elapsedNs = (nowNs - startNs).coerceAtLeast(0L)
+            val frameIndex = elapsedNs / frameNs
+            val snappedNs = frameIndex * frameNs
+            val phase = if (periodNs <= 0L) 0f else {
+                ((snappedNs % periodNs).toDouble() / periodNs.toDouble()).toFloat()
+            }
+            value = ((Math.PI * 2.0) * phase).toFloat()
+        }
+    }
 
     val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
     val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
