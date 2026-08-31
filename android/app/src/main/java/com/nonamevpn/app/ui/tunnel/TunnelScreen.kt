@@ -108,6 +108,7 @@ import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.rememberPullRefresh
@@ -771,8 +772,9 @@ private fun UserTunnelSimpleScreen(
                     onLongClick = onOpenWallpaperSettings,
                 ),
             shape = RoundedCornerShape(19.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
-            shadowElevation = 6.dp,
+            color = NvpnFloatingShell.shellColor(),
+            border = NvpnFloatingShell.shellBorder(),
+            shadowElevation = NvpnFloatingShell.shadowElevation,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 when (modeBadge) {
