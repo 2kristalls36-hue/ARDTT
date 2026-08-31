@@ -42,6 +42,19 @@ import kotlinx.coroutines.launch
 fun CallHashSettingsCard(
     modifier: Modifier = Modifier,
 ) {
+    AppSectionCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        CallHashSettingsContent(showHeader = true)
+    }
+}
+
+@Composable
+fun CallHashSettingsContent(
+    showHeader: Boolean,
+) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val profiles = remember { ProfileRepository(context) }
@@ -59,16 +72,16 @@ fun CallHashSettingsCard(
         ui.state == ConnState.Disconnecting
     val canEdit = profile != null && !vpnActive && !busy
 
-    AppSectionCard(
-        modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
+    Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            "Код звонка",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
+        if (showHeader) {
+            Text(
+                "Код звонка",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         Text(
             "Нужен для обхода. Хранится на устройстве, в профиль не входит.",
             style = MaterialTheme.typography.bodySmall,
