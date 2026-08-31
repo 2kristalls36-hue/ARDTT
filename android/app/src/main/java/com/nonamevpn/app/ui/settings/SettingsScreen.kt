@@ -57,6 +57,10 @@ import android.os.Build
 import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.DialPath
+import androidx.compose.foundation.animateScrollTo
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
@@ -79,6 +83,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     settings: AppSettingsRepository,
+    isRecording: Boolean = false,
+    scrollToDial: Boolean = false,
+    onScrolledToDial: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -141,7 +148,17 @@ fun SettingsScreen(
         }
     }
 
-    EdgeFeedColumn {
+    val scrollState = rememberScrollState()
+    var dialCardOffsetY by remember { mutableFloatStateOf(-1f) }
+
+    LaunchedEffect(scrollToDial, dialCardOffsetY) {
+        if (scrollToDial && dialCardOffsetY >= 0f) {
+            scrollState.animateScrollTo(dialCardOffsetY.toInt().coerceAtLeast(0))
+            onScrolledToDial()
+        }
+    }
+
+    EdgeFeedColumn(scrollState = scrollState) {
         val modeLabel = if (admin) "администратор" else "пользователь"
         AppTabPageHeader(
             tabTitle = "Настройки",
@@ -199,80 +216,82 @@ fun SettingsScreen(
             },
         )
 
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Тема оформления",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+        if (!isRecording) {
+            AppSectionCard(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                ChoiceChipButton(
-                    label = "Сист.",
-                    selected = themeMode == "system",
-                    enabled = true,
-                    onClick = { scope.launch { settings.setThemeMode("system") } },
-                    modifier = Modifier.weight(1f),
-                )
-                ChoiceChipButton(
-                    label = "Свет.",
-                    selected = themeMode == "light",
-                    enabled = true,
-                    onClick = { scope.launch { settings.setThemeMode("light") } },
-                    modifier = Modifier.weight(1f),
-                )
-                ChoiceChipButton(
-                    label = "Темн.",
-                    selected = themeMode == "dark",
-                    enabled = true,
-                    onClick = { scope.launch { settings.setThemeMode("dark") } },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text("Динамические цвета", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Material You",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = dynamicColor,
-                        onCheckedChange = { scope.launch { settings.setDynamicColor(it) } },
-                    )
-                }
-            }
-            if (!dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Цветовая палитра",
+                    "Тема оформления",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PaletteCircle("indigo", 0xFF5B588D, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
+                    ChoiceChipButton(
+                        label = "Сист.",
+                        selected = themeMode == "system",
+                        enabled = true,
+                        onClick = { scope.launch { settings.setThemeMode("system") } },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChipButton(
+                        label = "Свет.",
+                        selected = themeMode == "light",
+                        enabled = true,
+                        onClick = { scope.launch { settings.setThemeMode("light") } },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChoiceChipButton(
+                        label = "Темн.",
+                        selected = themeMode == "dark",
+                        enabled = true,
+                        onClick = { scope.launch { settings.setThemeMode("dark") } },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("Динамические цвета", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Material You",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = dynamicColor,
+                            onCheckedChange = { scope.launch { settings.setDynamicColor(it) } },
+                        )
                     }
-                    PaletteCircle("forest", 0xFF5F5D68, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
+                }
+                if (!dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                    Text(
+                        "Цветовая палитра",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PaletteCircle("indigo", 0xFF5B588D, themePalette) {
+                            scope.launch { settings.setThemePalette(it) }
+                        }
+                        PaletteCircle("forest", 0xFF5F5D68, themePalette) {
+                            scope.launch { settings.setThemePalette(it) }
+                        }
+                        PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
+                            scope.launch { settings.setThemePalette(it) }
+                        }
                     }
                 }
             }
@@ -365,6 +384,9 @@ fun SettingsScreen(
         }
 
         AppSectionCard(
+            modifier = Modifier.onGloballyPositioned { coordinates ->
+                dialCardOffsetY = coordinates.positionInParent().y
+            },
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {

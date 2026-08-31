@@ -1,5 +1,6 @@
 package com.nonamevpn.app.ui.components
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -110,6 +111,7 @@ fun EdgeFeedTopInset(extra: Dp = 8.dp) {
 @Composable
 fun EdgeFeedColumn(
     modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState(),
     bottomExtra: Dp = 24.dp,
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
     content: @Composable ColumnScope.() -> Unit,
@@ -117,7 +119,7 @@ fun EdgeFeedColumn(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = 16.dp)
             .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
         verticalArrangement = verticalArrangement,
