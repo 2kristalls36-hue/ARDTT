@@ -1,6 +1,7 @@
 # ARDTT — архитектура
 
 Легенда имени и смыслов: [LEGEND.md](LEGEND.md).  
+Деплой VPS (приложение / Compose, `install.sh`, версии): [DEPLOY.md](DEPLOY.md).  
 **ARDTT** = Amnezia + RAW Dial via TURN (черновики: nonameVPN → AWDTT).  
 Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DTLS); см. [LEGEND.md](LEGEND.md).
 
@@ -19,7 +20,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 |------|---------|
 | Платформа | Android; форк `amneziawg-android` + RAW bypass из qWDTT / SpaceNeuroX |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
-| Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
+| Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision` + `telemetry`; `host_id` → IP в подсетях direct/bypass. Из приложения: SSH + `install.sh` — [DEPLOY.md](DEPLOY.md) |
 | WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
 
 | Call hash | **1 hash на пользователя VPN**, только на телефоне (не в серверном `nvpn` как обязательное поле) |
@@ -298,6 +299,8 @@ Probe **никогда** не держит VpnService up.
 
 ## Деплой (кратко)
 
+Полная механика: [DEPLOY.md](DEPLOY.md).
+
 ```
 direct  awg0   10.8.0.0/24
 bypass  raw0   10.9.0.0/24
@@ -307,6 +310,9 @@ provision /data — host_id, keys, passwords
 
 `network_mode: host`, `NET_ADMIN`, `/dev/net/tun`.  
 Create-user: адреса в `10.8` и `10.9` с одним octet; флаг hide-IP — клиентский/сессионный, применяется policy на сервере (mark по IP клиента).
+
+Боевой путь: админ в приложении → SSH → `/opt/nonamevpn` + `install.sh` + Compose.  
+Версия стека (`DEPLOY_VERSION`) сравнивается с APK через `GET /health`.
 
 ---
 
@@ -348,7 +354,7 @@ Call hash — **локально на устройстве**, не обязан 
 1. Форк AmneziaWG Android + AWG direct.
 2. Bypass RAW + TCP + dial auto (vkcalls→legacy).
 3. Hash на телефоне; VK только create/recreate call.
-4. Compose: direct + bypass + dns + warp (hide-IP egress) + provision.
+4. Compose: direct + bypass + dns + warp (hide-IP egress) + provision + telemetry. Деплой: [DEPLOY.md](DEPLOY.md).
 5. Лёгкий parallel probe + re-probe на Connect; без hard-block OpenNoVps.
 6. LICENSE/NOTICE (GPL-3 + атрибуции).
 7. warp без restart-on-OOM; GOMEMLIMIT/soft recycle.

@@ -1,0 +1,31 @@
+package com.nonamevpn.app.deploy
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DeployBundleTest {
+    @Test
+    fun fallbackVersionIsSemverStack() {
+        assertTrue(
+            "FALLBACK_VERSION must stay in lockstep with server/DEPLOY_VERSION",
+            DeployBundle.FALLBACK_VERSION.matches(Regex("""\d+\.\d+\.\d+""")),
+        )
+    }
+
+    @Test
+    fun isCurrentRequiresExactMatch() {
+        assertTrue(DeployBundle.isCurrent("1.0.6", "1.0.6"))
+        assertTrue(DeployBundle.isCurrent("1.0.6", " 1.0.6 "))
+        assertFalse(DeployBundle.isCurrent("1.0.5", "1.0.6"))
+        assertFalse(DeployBundle.isCurrent("", "1.0.6"))
+        assertFalse(DeployBundle.isCurrent(null, "1.0.6"))
+        assertFalse(DeployBundle.isCurrent("1.0.6", ""))
+    }
+
+    @Test
+    fun assetPathMatchesPackScript() {
+        assertEquals("deploy/DEPLOY_VERSION", DeployBundle.ASSET_VERSION_FILE)
+    }
+}
