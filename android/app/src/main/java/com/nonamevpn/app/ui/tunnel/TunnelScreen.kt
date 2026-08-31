@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,7 +52,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +65,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.widget.Toast
 import com.nonamevpn.app.BuildConfig
+import com.nonamevpn.app.R
 import com.nonamevpn.app.bypass.VkCallHashGenerator
 import com.nonamevpn.app.bypass.VkLoginActivity
 import com.nonamevpn.app.bypass.VkSession
@@ -277,6 +282,16 @@ fun TunnelScreen(
             AppPageHeader(
                 title = "ARDTT",
                 subtitle = "Туннель и быстрые настройки",
+            )
+
+            Image(
+                painter = painterResource(R.drawable.bg_refinery_collage),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(168.dp)
+                    .clip(RoundedCornerShape(24.dp)),
             )
 
             if (!admin && profile != null) {

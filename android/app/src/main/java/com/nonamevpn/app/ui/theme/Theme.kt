@@ -6,7 +6,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -216,7 +215,6 @@ fun NonameTheme(
     themeMode: String = "system",
     /** `espresso` (default) | `indigo` | `forest`. */
     palette: String = "espresso",
-    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
@@ -224,12 +222,7 @@ fun NonameTheme(
         "light" -> false
         else -> isSystemInDarkTheme()
     }
-    val colorScheme = when {
-        dynamicColor && !darkTheme && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            dynamicLightColorScheme(LocalContext.current)
-        }
-        else -> schemeFor(palette, darkTheme)
-    }
+    val colorScheme = schemeFor(palette, darkTheme)
 
     val view = LocalView.current
     if (!view.isInEditMode) {

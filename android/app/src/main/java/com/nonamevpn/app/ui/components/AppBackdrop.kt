@@ -44,7 +44,7 @@ enum class AppWallpaper(
 /** Soft gradient + glow orbs or custom illustrated wallpaper behind screens. */
 @Composable
 fun AppBackdrop(
-    wallpaperId: String = "day",
+    wallpaperId: String = "none",
     modifier: Modifier = Modifier,
 ) {
     val wallpaper = remember(wallpaperId) { AppWallpaper.fromId(wallpaperId) }

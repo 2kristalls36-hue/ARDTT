@@ -40,12 +40,10 @@ class MainActivity : ComponentActivity() {
             val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
             val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
             val palette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
-            val dynamic by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
             androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
                 NonameTheme(
                     themeMode = themeMode,
                     palette = palette,
-                    dynamicColor = dynamic,
                 ) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),

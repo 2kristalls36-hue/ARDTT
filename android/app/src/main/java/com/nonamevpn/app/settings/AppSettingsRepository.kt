@@ -32,8 +32,6 @@ class AppSettingsRepository(private val context: Context) {
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
     private val themePalette = stringPreferencesKey("theme_palette")
-    private val dynamicColor = booleanPreferencesKey("is_dynamic_color")
-    private val wallpaper = stringPreferencesKey("app_wallpaper")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
@@ -76,11 +74,6 @@ class AppSettingsRepository(private val context: Context) {
     /** `espresso` | `indigo` | `forest` */
     val themePaletteFlow: Flow<String> = context.dataStore.data.map {
         normalizeThemePalette(it[themePalette])
-    }
-    val dynamicColorFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[dynamicColor] == true }
-    val wallpaperFlow: Flow<String> = context.dataStore.data.map {
-        normalizeWallpaper(it[wallpaper])
     }
 
     suspend fun setHideIp(enabled: Boolean) {
@@ -259,14 +252,6 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[themePalette] = normalizeThemePalette(palette) }
     }
 
-    suspend fun setDynamicColor(enabled: Boolean) {
-        context.dataStore.edit { it[dynamicColor] = enabled }
-    }
-
-    suspend fun setWallpaper(name: String) {
-        context.dataStore.edit { it[wallpaper] = normalizeWallpaper(name) }
-    }
-
     private fun sha256(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
@@ -295,15 +280,6 @@ class AppSettingsRepository(private val context: Context) {
             "indigo" -> "indigo"
             "forest" -> "forest"
             else -> "espresso"
-        }
-
-        fun normalizeWallpaper(raw: String?): String = when (raw?.lowercase()?.trim()) {
-            "day", "день" -> "day"
-            "sunset", "закат" -> "sunset"
-            "night", "ночь" -> "night"
-            "fog", "туман" -> "fog"
-            "collage", "коллаж" -> "collage"
-            else -> "day"
         }
 
         fun parseSsidSet(raw: String?): Set<String> =
