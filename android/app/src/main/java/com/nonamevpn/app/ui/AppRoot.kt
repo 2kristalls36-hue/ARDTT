@@ -6,6 +6,7 @@ import android.net.VpnService
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
@@ -31,7 +32,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,6 +64,9 @@ import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaper
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperScene
 import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.delay
@@ -99,6 +102,8 @@ fun AppRoot(
     val conn = remember { ConnectionManager.get(context) }
     val scope = rememberCoroutineScope()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val appsWhitelistMode by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
+    val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -111,6 +116,17 @@ fun AppRoot(
     val updates = remember { AppUpdateController.get(context) }
     val updateUi by updates.ui.collectAsStateWithLifecycle()
     var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
+    val tunnelWallpaperScene = remember { TunnelWallpaperScene.random() }
+    val darkTheme = when (themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
+    val tunnelWallpaper = TunnelWallpaper.resolve(
+        scene = tunnelWallpaperScene,
+        whitelistMode = appsWhitelistMode,
+        darkTheme = darkTheme,
+    )
 
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
@@ -271,7 +287,6 @@ fun AppRoot(
         previousRoute = currentRoute
     }
     val softenBackdropForUserMode = !admin && currentRoute != AppDestination.Tunnel.route
-    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.22f
     val wallpaperFadeColor = if (darkTheme) {
         MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
     } else {
@@ -283,10 +298,14 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AppBackdrop(
-                wallpaperId = "collage",
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (currentRoute == AppDestination.Tunnel.route && !admin) {
+                TunnelWallpaperBackdrop(
+                    wallpaper = tunnelWallpaper,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                AppBackdrop(modifier = Modifier.fillMaxSize())
+            }
             if (softenBackdropForUserMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),

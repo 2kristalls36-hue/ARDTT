@@ -1,7 +1,5 @@
 package com.nonamevpn.app.ui.components
 
-import androidx.annotation.DrawableRes
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -16,39 +14,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.nonamevpn.app.R
 
-enum class AppWallpaper(
-    val id: String,
-    val title: String,
-    @DrawableRes val drawableRes: Int?,
-) {
-    None("none", "Градиент", null),
-    Day("day", "День", R.drawable.bg_refinery_day),
-    Sunset("sunset", "Закат", R.drawable.bg_refinery_sunset),
-    Night("night", "Ночь", R.drawable.bg_refinery_night),
-    Fog("fog", "Туман", R.drawable.bg_refinery_fog),
-    Collage("collage", "Коллаж", R.drawable.bg_refinery_collage);
-
-    companion object {
-        fun fromId(id: String?): AppWallpaper =
-            entries.find { it.id.equals(id, ignoreCase = true) } ?: Collage
-    }
-}
-
-/** Soft gradient + glow orbs or custom illustrated wallpaper behind screens. */
+/** Soft gradient + glow orbs behind non-tunnel screens. */
 @Composable
 fun AppBackdrop(
-    wallpaperId: String = "collage",
     modifier: Modifier = Modifier,
 ) {
-    val wallpaper = remember(wallpaperId) { AppWallpaper.fromId(wallpaperId) }
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
     val baseBrush = remember(colors.background, colors.surface, colors.surfaceVariant) {
@@ -67,32 +41,6 @@ fun AppBackdrop(
                 )
             },
         )
-    }
-
-    if (wallpaper.drawableRes != null) {
-        val overlayColor = if (isDark) {
-            Color(0xFF0F0E13).copy(alpha = 0.65f)
-        } else {
-            Color(0xFFF7F5F0).copy(alpha = 0.68f)
-        }
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(colors.background),
-        ) {
-            Image(
-                painter = painterResource(id = wallpaper.drawableRes),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(overlayColor),
-            )
-        }
-        return
     }
 
     val topGlow = if (isDark) {
