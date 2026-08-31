@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -83,7 +84,9 @@ import com.nonamevpn.app.deploy.DeployBundle
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
+import com.nonamevpn.app.deploy.ServerOsProbe
 import com.nonamevpn.app.deploy.ServersRepository
+import com.nonamevpn.app.deploy.isRecognizedServerOsId
 import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
@@ -212,10 +215,16 @@ fun ServersScreen(
     serversRepo: ServersRepository,
     engine: DeployEngine,
     profiles: ProfileRepository,
+    reselectSignal: Int = 0,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
     var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
         mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
+    }
+    LaunchedEffect(reselectSignal) {
+        if (reselectSignal > 0) {
+            screen = ServersNavScreen.List
+        }
     }
 
     BackHandler(enabled = screen !is ServersNavScreen.List) {
@@ -302,6 +311,21 @@ private fun ServerListScreen(
                     val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
                         .getOrNull()
                     val status = healthUiOf(info)
+                    if (target.osVersion.isBlank()) {
+                        val osInfo = ServerOsProbe.probe(target).getOrNull()
+                        if (osInfo != null) {
+                            val nextId = osInfo.osId.trim()
+                            val nextVersion = osInfo.osVersionLabel.trim()
+                            if (target.osId != nextId || target.osVersion != nextVersion) {
+                                serversRepo.upsert(
+                                    target.copy(
+                                        osId = nextId,
+                                        osVersion = nextVersion,
+                                    ),
+                                )
+                            }
+                        }
+                    }
                     healthById = healthById + (target.id to status)
                 }
             }.awaitAll()
@@ -433,16 +457,8 @@ private fun ServerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (server.name.isNotBlank() && server.name != server.host) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        server.host,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Spacer(modifier = Modifier.height(2.dp))
+                ServerHostLine(server = server)
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     "SSH ${server.sshPort}",
@@ -485,6 +501,52 @@ private fun ServerCard(
 }
 
 @Composable
+private fun ServerHostLine(
+    server: DeployTarget,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodySmall,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    val osVersion = server.osVersion.trim()
+    val osRecognized = isRecognizedServerOsId(server.osId)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (osVersion.isNotBlank()) {
+            if (osRecognized) {
+                Icon(
+                    imageVector = Icons.Outlined.Terminal,
+                    contentDescription = "ОС сервера",
+                    tint = iconTint,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            Text(
+                osVersion,
+                style = style,
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "·",
+                style = style,
+                color = color.copy(alpha = 0.7f),
+                maxLines = 1,
+            )
+        }
+        Text(
+            server.host,
+            style = style,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun ServerOverviewHost(
     servers: List<DeployTarget>,
     serversRepo: ServersRepository,
@@ -521,6 +583,21 @@ private fun ServerOverviewHost(
         health = HealthUi.Checking
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
         health = healthUiOf(info)
+        if (target.osVersion.isBlank()) {
+            val osInfo = ServerOsProbe.probe(target).getOrNull()
+            if (osInfo != null) {
+                val nextId = osInfo.osId.trim()
+                val nextVersion = osInfo.osVersionLabel.trim()
+                if (target.osId != nextId || target.osVersion != nextVersion) {
+                    serversRepo.upsert(
+                        target.copy(
+                            osId = nextId,
+                            osVersion = nextVersion,
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     LaunchedEffect(busy, activeTargetId, serverId) {
@@ -554,6 +631,21 @@ private fun ServerOverviewHost(
         val target = server ?: return@rememberPullRefresh
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
         health = healthUiOf(info)
+        if (target.osVersion.isBlank()) {
+            val osInfo = ServerOsProbe.probe(target).getOrNull()
+            if (osInfo != null) {
+                val nextId = osInfo.osId.trim()
+                val nextVersion = osInfo.osVersionLabel.trim()
+                if (target.osId != nextId || target.osVersion != nextVersion) {
+                    serversRepo.upsert(
+                        target.copy(
+                            osId = nextId,
+                            osVersion = nextVersion,
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     if (server == null) {
@@ -833,10 +925,11 @@ private fun ServerOverviewScreen(
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                server.host,
+                            ServerHostLine(
+                                server = server,
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                iconTint = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
                                 "SSH ${server.sshPort}",
@@ -1027,6 +1120,8 @@ fun DeployScreen(
     var publicHost by remember { mutableStateOf(initial?.publicHost ?: "") }
     var directPort by remember { mutableStateOf((initial?.directPort ?: 51820).toString()) }
     var bypassPort by remember { mutableStateOf((initial?.bypassPort ?: 56003).toString()) }
+    var osId by remember { mutableStateOf(initial?.osId ?: "") }
+    var osVersion by remember { mutableStateOf(initial?.osVersion ?: "") }
     var lastDeployedAtMs by remember { mutableStateOf(initial?.lastDeployedAtMs ?: 0L) }
     var status by remember { mutableStateOf<String?>(null) }
 
@@ -1043,6 +1138,8 @@ fun DeployScreen(
         publicHost = t.publicHost
         directPort = t.directPort.toString()
         bypassPort = t.bypassPort.toString()
+        osId = t.osId
+        osVersion = t.osVersion
         lastDeployedAtMs = t.lastDeployedAtMs
     }
 
@@ -1067,6 +1164,8 @@ fun DeployScreen(
         publicHost = publicHost.trim().ifBlank { host.trim() },
         directPort = directPort.toIntOrNull() ?: 51820,
         bypassPort = bypassPort.toIntOrNull() ?: 56003,
+        osId = osId.trim(),
+        osVersion = osVersion.trim(),
         lastDeployedAtMs = deployedAt,
     )
 
