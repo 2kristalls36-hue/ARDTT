@@ -715,14 +715,6 @@ private fun UserTunnelSimpleScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AppTabPageHeader(
-                title = "Подключение",
-                subtitle = when {
-                    whitelistDetected -> "Белые списки обнаружены"
-                    activeItem == null -> "Профиль не выбран"
-                    else -> activeItem.profile.name
-                },
-            )
             Spacer(modifier = Modifier.weight(1f))
 
             TunnelPowerToggle(
