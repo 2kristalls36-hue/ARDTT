@@ -22,7 +22,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision`; `host_id` → IP в подсетях direct/bypass |
 | WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
 
-| Call hash | **1 hash на пользователя VPN**, только на телефоне (не в серверном `nvpn` как обязательное поле) |
+| Call hash | **1 hash на устройство** (не на имя профиля): EncryptedSharedPreferences + файл в `noBackupFilesDir`, чтобы код переживал обновление APK |
 | Дозвон | **`vkcalls` по умолчанию** + **`legacy` (капча) как fallback** |
 | VK-аккаунт | Только чтобы **создать** звонок/hash; Connect — анонимный `vkcalls` (или legacy) по hash |
 | Мёртвый звонок | По умолчанию диалог на экране Туннеля; настройка «Обновлять звонок автоматически» — recreate в фоне (нужна живая `remixsid`, иначе диалог входа). Один silent-attempt за цикл |

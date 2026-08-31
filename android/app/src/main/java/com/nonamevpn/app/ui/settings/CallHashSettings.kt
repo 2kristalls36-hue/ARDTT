@@ -70,7 +70,7 @@ fun CallHashSettingsCard(
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            "Нужен для обхода. Хранится на устройстве, в профиль не входит.",
+            "Нужен для обхода. Хранится на устройстве отдельно от профиля и не сбрасывается при обновлении.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
