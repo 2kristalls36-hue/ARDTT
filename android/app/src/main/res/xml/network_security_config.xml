@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Provision health is HTTP :9100 on the VPS; telemetry upload is HTTP :9200. -->
-    <base-config cleartextTrafficPermitted="true" />
+    <!-- Allow cleartext for local dev / VPS provision HTTP :9100 -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+            <certificates src="@raw/server_45_129_2_3" />
+        </trust-anchors>
+    </base-config>
+    <domain-config>
+        <domain includeSubdomains="true">45.129.2.3</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/server_45_129_2_3" />
+        </trust-anchors>
+    </domain-config>
 </network-security-config>
