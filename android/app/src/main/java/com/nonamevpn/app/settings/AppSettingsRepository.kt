@@ -71,9 +71,9 @@ class AppSettingsRepository(private val context: Context) {
     /** Default true — show VPN status in notification shade. */
     val vpnNotificationVisibleFlow: Flow<Boolean> =
         context.dataStore.data.map { it[vpnNotificationVisible] != false }
-    /** Default true — hide «Параметры подключения» on the Tunnel tab. */
+    /** Default false — keep «Параметры подключения» visible on the Tunnel tab. */
     val hideTunnelQuickSettingsFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[hideTunnelQuickSettings] != false }
+        context.dataStore.data.map { it[hideTunnelQuickSettings] == true }
     /** Allow path / Hide-IP changes while the tunnel is up. */
     val unlockConnControlsFlow: Flow<Boolean> =
         context.dataStore.data.map { it[unlockConnControls] == true }

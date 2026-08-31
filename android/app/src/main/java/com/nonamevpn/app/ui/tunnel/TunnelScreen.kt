@@ -25,11 +25,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -41,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -140,9 +144,10 @@ fun TunnelScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
-    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
+    var showConnectionHint by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(profile?.deviceId, hideIp) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
@@ -282,6 +287,14 @@ fun TunnelScreen(
             AppTabPageHeader(
                 title = "Подключение",
             )
+            if (showConnectionHint) {
+                TunnelConnectionHintBanner(
+                    vpnLocked = vpnLocked,
+                    sessionSwitchingEnabled = (connected || connecting || pausedTrusted) && unlockConnControls,
+                    quickSettingsHidden = hideTunnelQuickSettings,
+                    onDismiss = { showConnectionHint = false },
+                )
+            }
 
             if (!admin && profile != null) {
                 val active = profile!!.subscriptionActive
@@ -338,19 +351,6 @@ fun TunnelScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    when {
-                        vpnLocked ->
-                            "Недоступно во время соединения. Разблокировка — в «Настройках»."
-                        (connected || connecting || pausedTrusted) && unlockConnControls ->
-                            "Нажатие «Прямое» или «Обход» переключает маршрут на лету, без отключения."
-                        else ->
-                            "Маршрут, исходящий адрес и доверенная Wi‑Fi. Код звонка — в «Настройках»."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
                 QuickSettingRow(
                     title = "Маршрут",
                     subtitle = when {
@@ -601,6 +601,68 @@ fun TunnelScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun TunnelConnectionHintBanner(
+    vpnLocked: Boolean,
+    sessionSwitchingEnabled: Boolean,
+    quickSettingsHidden: Boolean,
+    onDismiss: () -> Unit,
+) {
+    AppSectionCard(
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(18.dp),
+            )
+            Text(
+                "Подсказка по подключению",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(28.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "Скрыть подсказку",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Text(
+            when {
+                vpnLocked ->
+                    "Во время активного соединения параметры заблокированы. " +
+                        "Разблокировка доступна в «Настройках» → «Подключение»."
+                sessionSwitchingEnabled ->
+                    "Маршрут можно переключать на лету: «Прямое» и «Обход» применяются без отключения туннеля."
+                quickSettingsHidden ->
+                    "Быстрые параметры скрыты. Включите их в «Настройках» через пункт «Скрыть быстрые настройки»."
+                else ->
+                    "Здесь вы управляете маршрутом, исходящим адресом и доверенной Wi‑Fi. " +
+                        "Код звонка для обхода настраивается на вкладке «Настройки»."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

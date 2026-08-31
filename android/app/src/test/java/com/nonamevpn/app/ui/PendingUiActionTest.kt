@@ -30,4 +30,14 @@ class PendingUiActionTest {
         assertFalse(HideIpCopy.subtitle(true).contains("Cloudflare", ignoreCase = true))
         assertEquals("Выход с адреса сервера.", HideIpCopy.subtitle(false))
     }
+
+    @Test
+    fun openUpdateDownloadIsOneShotFlag() {
+        PendingUiAction.consumeOpenUpdateDownload()
+        PendingUiAction.requestOpenUpdateDownload()
+        assertTrue(PendingUiAction.openUpdateDownload.value)
+        assertTrue(PendingUiAction.consumeOpenUpdateDownload())
+        assertFalse(PendingUiAction.openUpdateDownload.value)
+        assertFalse(PendingUiAction.consumeOpenUpdateDownload())
+    }
 }

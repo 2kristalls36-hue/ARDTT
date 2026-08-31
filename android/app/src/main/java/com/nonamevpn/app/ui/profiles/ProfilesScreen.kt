@@ -27,8 +27,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.CircularProgressIndicator
@@ -129,6 +131,9 @@ fun ProfilesScreen(
         if (selectedFolder != null && selectedFolder !in folders) selectedFolder = null
     }
     val folderItems = if (selectedFolder == null) catalog.items else catalog.inFolder(selectedFolder!!)
+    val activeItem = remember(catalog.items, catalog.activeId) {
+        catalog.items.find { it.id == catalog.activeId }
+    }
     val visible = remember(folderItems, pingResults.toMap(), sortByPing) {
         if (!sortByPing) folderItems
         else {
@@ -272,7 +277,7 @@ fun ProfilesScreen(
             subtitle = if (catalog.items.isEmpty()) {
                 "Импортируйте JSON с сервера. Можно несколько профилей и папки."
             } else {
-                "${catalog.items.size} · активен: ${catalog.active?.name ?: "—"}"
+                "${catalog.items.size} профилей · папок: ${folders.size}"
             },
             actions = {
                 IconButton(onClick = { pingAll() }) {
@@ -309,6 +314,130 @@ fun ProfilesScreen(
             },
         )
 
+        activeItem?.let { active ->
+            AppSectionCard(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                border = BorderStroke(2.dp, NvpnColors.connected),
+            ) {
+                Text(
+                    "Активный профиль",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = NvpnColors.connected,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    active.profile.name.ifBlank { "Без имени" },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    active.profile.bypass.peer.ifBlank { active.profile.direct.endpoint }.ifBlank { "—" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    buildString {
+                        append(active.folder)
+                        if (active.profile.hostId > 0) append(" · host ${active.profile.hostId}")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = onApplied,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Открыть туннель") }
+                    OutlinedButton(
+                        onClick = { shareProfile = active.profile },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Ссылка / QR") }
+                }
+            }
+        }
+
+        AppSectionCard(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "Быстрые действия",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { showAddSheet = true },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy,
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text("Добавить", modifier = Modifier.padding(start = 6.dp))
+                }
+                OutlinedButton(
+                    onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                        if (clip.isBlank()) {
+                            Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+                        } else {
+                            importResolved(clip)
+                        }
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy,
+                ) {
+                    Icon(Icons.Filled.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text("Буфер", modifier = Modifier.padding(start = 6.dp))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = {
+                        scanQr.launch(
+                            ScanOptions().apply {
+                                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                setPrompt("Наведите на QR-код профиля ARDTT")
+                                setBeepEnabled(false)
+                                setOrientationLocked(false)
+                            },
+                        )
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy,
+                ) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text("QR", modifier = Modifier.padding(start = 6.dp))
+                }
+                OutlinedButton(
+                    onClick = { pingAll() },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy && folderItems.isNotEmpty(),
+                ) {
+                    Icon(Icons.Filled.SignalCellularAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text("Пинг", modifier = Modifier.padding(start = 6.dp))
+                }
+            }
+        }
+
+        Text(
+            "Папки",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -332,6 +461,12 @@ fun ProfilesScreen(
                 Icon(Icons.Default.Add, contentDescription = "Новая папка")
             }
         }
+        Text(
+            "Список профилей",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
 
         error?.let {
             AppSectionCard(contentPadding = PaddingValues(16.dp)) {
