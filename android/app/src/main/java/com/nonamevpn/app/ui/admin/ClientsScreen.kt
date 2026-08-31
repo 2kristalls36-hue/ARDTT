@@ -823,17 +823,27 @@ private fun ClientCard(
                 )
             }
 
-            val detail = listOfNotNull(
-                deviceLine.takeIf { it.isNotBlank() },
-                user.lastExternalIp.takeIf { it.isNotBlank() },
-            ).joinToString(" · ")
-            if (detail.isNotBlank()) {
+            val externalIp = user.lastExternalIp.trim()
+            if (externalIp.isNotBlank()) {
                 Text(
-                    detail,
+                    externalIp,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
+                )
+            }
+            if (deviceLine.isNotBlank()) {
+                Text(
+                    deviceLine,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
                 )
             }
         }
