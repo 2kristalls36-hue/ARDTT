@@ -147,6 +147,7 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val wallpaperVariant by settings.tunnelWallpaperVariantFlow.collectAsStateWithLifecycle(initialValue = 0)
     val isWhitelist by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
     val whitelistApps by settings.excludedAppsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val whitelistHosts by settings.excludedHostsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
@@ -285,6 +286,7 @@ fun TunnelScreen(
             catalogItems = catalog.items,
             activeProfileId = catalog.activeId,
             whitelistDetected = whitelistDetected,
+            wallpaperVariant = wallpaperVariant,
             onToggleTunnel = {
                 when (ui.state) {
                     ConnState.Connected,
@@ -634,16 +636,17 @@ private fun UserTunnelSimpleScreen(
     catalogItems: List<StoredProfile>,
     activeProfileId: String?,
     whitelistDetected: Boolean,
+    wallpaperVariant: Int,
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
 ) {
     val isDark = isSystemInDarkTheme()
-    val bgRes = when {
-        whitelistDetected -> R.drawable.tunnel_user_whitelist
-        isDark -> R.drawable.tunnel_user_night
-        else -> R.drawable.tunnel_user_day
-    }
+    val bgRes = resolveUserTunnelWallpaper(
+        variant = wallpaperVariant,
+        isDark = isDark,
+        whitelistDetected = whitelistDetected,
+    )
     val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
     val connected = ui.state == ConnState.Connected
     val trackColor = if (connected) Color(0xFF35C759) else Color(0xFF9AA0A8)
@@ -712,6 +715,22 @@ private fun UserTunnelSimpleScreen(
                 busy = connectingLike,
             )
         }
+    }
+}
+
+private fun resolveUserTunnelWallpaper(
+    variant: Int,
+    isDark: Boolean,
+    whitelistDetected: Boolean,
+): Int {
+    val normalized = variant.mod(2)
+    return when {
+        whitelistDetected && normalized == 0 -> R.drawable.tunnel_user_whitelist
+        whitelistDetected -> R.drawable.tunnel_user_whitelist_alt
+        isDark && normalized == 0 -> R.drawable.tunnel_user_night
+        isDark -> R.drawable.tunnel_user_night_alt
+        normalized == 0 -> R.drawable.tunnel_user_day
+        else -> R.drawable.tunnel_user_day_alt
     }
 }
 
