@@ -1,25 +1,23 @@
 package com.nonamevpn.app.core
 
 /**
- * Initial Connect path. Auto uses Bypass on cellular (operator LTE / dual-SIM)
- * when a call hash exists — TCP :9100 is not proof AWG UDP works. On Wi‑Fi,
- * follow the underlay probe. Forced Direct/Bypass ignore the probe.
+ * Initial Connect path. Auto follows the underlay probe on Wi‑Fi and LTE:
+ * VPS :9100 up → Direct, Yandex-only whitelist → Bypass. Forced Direct/Bypass
+ * ignore the probe. [underlayKind] / [bypassAllowed] stay on the signature
+ * so call sites can keep passing them; they do not override a Direct probe.
  */
 fun resolveConnectPath(
     mode: ConnPathMode,
     probePreferred: VpnPath?,
     lastGood: ProbeResult?,
     fresh: ProbeResult,
-    underlayKind: UnderlayKind = UnderlayKind.Other,
-    bypassAllowed: Boolean = true,
+    @Suppress("UNUSED_PARAMETER") underlayKind: UnderlayKind = UnderlayKind.Other,
+    @Suppress("UNUSED_PARAMETER") bypassAllowed: Boolean = true,
 ): VpnPath? {
     when (mode) {
         ConnPathMode.Direct -> return VpnPath.Direct
         ConnPathMode.Bypass -> return VpnPath.Bypass
         ConnPathMode.Auto -> Unit
-    }
-    if (shouldAutoUseBypassOnCellular(bypassAllowed, underlayKind)) {
-        return VpnPath.Bypass
     }
     return fresh.preselectedPath ?: probePreferred.takeIf {
         lastGood?.networkClass == NetworkClass.DirectOk || lastGood?.preselectedPath != null
@@ -27,15 +25,15 @@ fun resolveConnectPath(
 }
 
 /**
- * qWDTT starts RAW immediately. Auto on cellular and forced Bypass must not
- * wait on TCP :9100 — some SIMs cannot reach the hub at all.
+ * Forced Bypass starts RAW without waiting on TCP :9100. Auto always probes:
+ * open LTE (VPS up) must not skip into Bypass.
  */
 fun shouldSkipConnectProbe(
     pathMode: ConnPathMode,
     bypassAllowed: Boolean,
-    underlayKind: UnderlayKind,
+    @Suppress("UNUSED_PARAMETER") underlayKind: UnderlayKind,
 ): Boolean = when (pathMode) {
     ConnPathMode.Direct -> false
     ConnPathMode.Bypass -> bypassAllowed
-    ConnPathMode.Auto -> shouldAutoUseBypassOnCellular(bypassAllowed, underlayKind)
+    ConnPathMode.Auto -> false
 }

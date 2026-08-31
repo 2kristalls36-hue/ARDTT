@@ -314,11 +314,6 @@ fun classifyUnderlayKind(wifi: Boolean, cellular: Boolean): UnderlayKind = when 
     else -> UnderlayKind.Other
 }
 
-fun shouldAutoUseBypassOnCellular(
-    bypassAllowed: Boolean,
-    underlayKind: UnderlayKind,
-): Boolean = bypassAllowed && underlayKind == UnderlayKind.Cellular
-
 fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak {
     if (probedPath == null) return ProbeStreak()
     if (probedPath == previous.path) return ProbeStreak(probedPath, previous.count + 1)
@@ -327,12 +322,13 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
 
 /**
  * Auto handover:
- * - Cellular + call hash → Bypass immediately. TCP :9100 on LTE is not AWG UDP;
- *   waiting for dead-Direct after Wi‑Fi→LTE / Connect on SIM costs ~10–20 s.
- * - Direct → Bypass on NeedBypass when the underlay changed (first hit), or
- *   after [HANDOVER_DIRECT_TO_BYPASS_STREAK] hits without a new network.
+ * - Direct → Bypass on NeedBypass (VPS :9100 down, Yandex up) when the underlay
+ *   changed, or after [HANDOVER_DIRECT_TO_BYPASS_STREAK] hits without a new network.
+ *   Open LTE (VPS up) keeps Direct — do not force Bypass just because the
+ *   underlay is cellular.
  * - Bypass → Direct immediately on Wi‑Fi + underlay change (no VPS probe).
- *   SIM swap to a cell that can TCP :9100 must not yank Bypass.
+ *   A cellular underlay change must not yank a working Bypass just because
+ *   TCP :9100 answered (AWG UDP may still be dead).
  * - Forced Direct/Bypass only rebind when the underlay actually changed.
  */
 fun decideNetworkHandoverAction(
@@ -361,11 +357,7 @@ fun decideNetworkHandoverAction(
         }
     }
     val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
-    val cellBypass = shouldAutoUseBypassOnCellular(bypassAllowed, underlayKind)
     if (currentPath == VpnPath.Direct) {
-        if (cellBypass && underlayChanged) {
-            return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
-        }
         val needBypass = probedPath == VpnPath.Bypass && bypassAllowed && !vpsUp
         if (needBypass && (underlayChanged || sameProbeStreak >= HANDOVER_DIRECT_TO_BYPASS_STREAK)) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)

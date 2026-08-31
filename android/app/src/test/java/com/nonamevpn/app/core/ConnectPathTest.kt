@@ -76,9 +76,9 @@ class ConnectPathTest {
     }
 
     @Test
-    fun autoCellularPrefersBypassEvenWhenProbeSaysDirect() {
+    fun autoOnCellularFollowsDirectProbe() {
         assertEquals(
-            VpnPath.Bypass,
+            VpnPath.Direct,
             resolveConnectPath(
                 mode = ConnPathMode.Auto,
                 probePreferred = VpnPath.Direct,
@@ -89,14 +89,14 @@ class ConnectPathTest {
             ),
         )
         assertEquals(
-            VpnPath.Direct,
+            VpnPath.Bypass,
             resolveConnectPath(
                 mode = ConnPathMode.Auto,
-                probePreferred = VpnPath.Direct,
-                lastGood = directOk,
-                fresh = directOk,
+                probePreferred = VpnPath.Bypass,
+                lastGood = needBypass,
+                fresh = needBypass,
                 underlayKind = UnderlayKind.Cellular,
-                bypassAllowed = false,
+                bypassAllowed = true,
             ),
         )
         assertEquals(
@@ -113,8 +113,8 @@ class ConnectPathTest {
     }
 
     @Test
-    fun skipConnectProbeOnCellularAutoAndForcedBypass() {
-        assertTrue(
+    fun skipConnectProbeOnlyForForcedBypass() {
+        assertFalse(
             shouldSkipConnectProbe(
                 pathMode = ConnPathMode.Auto,
                 bypassAllowed = true,
@@ -144,7 +144,7 @@ class ConnectPathTest {
         )
         assertFalse(
             shouldSkipConnectProbe(
-                pathMode = ConnPathMode.Auto,
+                pathMode = ConnPathMode.Bypass,
                 bypassAllowed = false,
                 underlayKind = UnderlayKind.Cellular,
             ),
