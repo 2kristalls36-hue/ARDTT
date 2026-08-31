@@ -98,6 +98,8 @@ fun SettingsScreen(
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
+    val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
+    val updateBringIntoView = remember { BringIntoViewRequester() }
     val vpnSessionActive = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
         connUi.state == ConnState.PausedTrustedWifi ||
@@ -146,6 +148,22 @@ fun SettingsScreen(
         runCatching { callHashBringIntoView.bringIntoView() }
         PendingUiAction.consumeCallHashSettings()
     }
+    LaunchedEffect(openUpdateDownload, updateUi.visible, updateUi.downloading, updateUi.downloadedFile) {
+        if (!openUpdateDownload) return@LaunchedEffect
+        if (!updateUi.visible) {
+            updates.checkAndWait()
+        }
+        kotlinx.coroutines.delay(120)
+        runCatching { updateBringIntoView.bringIntoView() }
+        if (
+            !updateUi.downloading &&
+            updateUi.downloadedFile == null &&
+            updateUi.available?.isNewer == true
+        ) {
+            updates.download()
+        }
+        PendingUiAction.consumeOpenUpdateDownload()
+    }
 
     LaunchedEffect(Unit) {
         updates.checkInBackground()
@@ -167,6 +185,7 @@ fun SettingsScreen(
 
         if (updateUi.visible) {
             UpdateSettingsCard(
+                modifier = Modifier.bringIntoViewRequester(updateBringIntoView),
                 info = updateUi.available,
                 downloading = updateUi.downloading,
                 progress = updateUi.progress,
@@ -442,6 +461,7 @@ fun SettingsScreen(
 
 @Composable
 private fun UpdateSettingsCard(
+    modifier: Modifier = Modifier,
     info: AppUpdateInfo?,
     downloading: Boolean,
     progress: Float,
@@ -452,6 +472,7 @@ private fun UpdateSettingsCard(
     onInstall: () -> Unit,
 ) {
     AppSectionCard(
+        modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
