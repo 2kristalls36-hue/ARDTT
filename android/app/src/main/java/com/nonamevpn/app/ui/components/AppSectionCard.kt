@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,10 +27,12 @@ fun AppSectionCard(
     contentPadding: PaddingValues = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(16.dp),
     border: BorderStroke? = null,
+    showBorder: Boolean = true,
     color: Color? = null,
     shadowElevation: Dp? = null,
     tonalElevation: Dp? = null,
     shape: Shape = RoundedCornerShape(28.dp),
+    fillHeight: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -49,7 +52,7 @@ fun AppSectionCard(
         shape = shape,
         color = cardColor,
         contentColor = colors.onSurface,
-        border = border ?: BorderStroke(1.dp, borderColor),
+        border = border ?: if (showBorder) BorderStroke(1.dp, borderColor) else null,
         shadowElevation = shadowElevation ?: if (isDark) 2.dp else 10.dp,
         tonalElevation = tonalElevation ?: if (isDark) 0.dp else 2.dp,
         modifier = modifier.fillMaxWidth(),
@@ -57,6 +60,7 @@ fun AppSectionCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (fillHeight) Modifier.fillMaxHeight() else Modifier)
                 .padding(contentPadding),
             verticalArrangement = verticalArrangement,
             content = content,

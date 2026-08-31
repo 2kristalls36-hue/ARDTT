@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -39,6 +40,7 @@ import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.ServersRepository
@@ -51,11 +53,13 @@ import com.nonamevpn.app.ui.admin.TestingScreen
 import com.nonamevpn.app.ui.components.AppBackdrop
 import com.nonamevpn.app.ui.components.NavBarItem
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
+import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
+import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -67,6 +71,24 @@ fun AppRoot(
     deployEngine: DeployEngine,
 ) {
     val context = LocalContext.current
+    var alphaUnlocked by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(settings) {
+        settings.alphaUnlockedFlow.collect { alphaUnlocked = it }
+    }
+    when (alphaUnlocked) {
+        null -> {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AppBackdrop(modifier = Modifier.fillMaxSize())
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
+            return
+        }
+        false -> {
+            AlphaUnlockScreen(settings = settings)
+            return
+        }
+        true -> Unit
+    }
     val activity = context as? Activity
     val conn = remember { ConnectionManager.get(context) }
     val scope = rememberCoroutineScope()
@@ -84,7 +106,8 @@ fun AppRoot(
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
         when (dest) {
-            AppDestination.Testing -> admin && testingMode
+            AppDestination.Testing ->
+                TestingSessionGuard.testingTabVisible(admin, testingMode, isRecording)
             else -> !dest.adminOnly || admin
         }
     }
@@ -98,11 +121,11 @@ fun AppRoot(
     ) { result ->
         vpnConsentBackgroundVisible = false
         if (result.resultCode == Activity.RESULT_OK) {
-            AppLog.i("VpnPrep", "VPN permission granted")
+            AppLog.i("TunnelPrep", "Tunnel permission granted")
             conn.connect()
         } else {
-            AppLog.w("VpnPrep", "VPN permission denied/cancelled")
-            conn.reportUserError("Нужно разрешить VPN в системном диалоге")
+            AppLog.w("TunnelPrep", "Tunnel permission denied/cancelled")
+            conn.reportUserError("Нужно разрешить создание туннеля в системном диалоге")
         }
     }
 
@@ -110,7 +133,7 @@ fun AppRoot(
         scope.launch {
             val prep = runCatching { VpnService.prepare(activity ?: context) }.getOrNull()
             if (prep != null) {
-                AppLog.i("VpnPrep", "Launching system VPN consent")
+                AppLog.i("TunnelPrep", "Launching system tunnel consent")
                 // Some vendor Android builds render the system VPN consent
                 // surface translucent. Paint an opaque app surface first so
                 // system text never overlaps the busy tunnel screen.
@@ -119,10 +142,10 @@ fun AppRoot(
                 runCatching { vpnPermission.launch(prep) }
                     .onFailure {
                         vpnConsentBackgroundVisible = false
-                        conn.reportUserError("Не удалось открыть системное разрешение VPN")
+                        conn.reportUserError("Не удалось открыть системное разрешение туннеля")
                     }
             } else {
-                AppLog.i("VpnPrep", "VPN already permitted — connect")
+                AppLog.i("TunnelPrep", "Tunnel already permitted — connect")
                 conn.connect()
             }
         }
@@ -157,6 +180,20 @@ fun AppRoot(
         }
     }
 
+    val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
+    LaunchedEffect(openCallHash) {
+        if (openCallHash && currentRoute != AppDestination.Settings.route) {
+            navigateTab(AppDestination.Settings.route)
+        }
+    }
+
+    val openDeploy by PendingUiAction.openDeployServerId.collectAsStateWithLifecycle()
+    LaunchedEffect(openDeploy) {
+        if (openDeploy != null && currentRoute != AppDestination.Servers.route) {
+            navigateTab(AppDestination.Servers.route)
+        }
+    }
+
     LaunchedEffect(Unit) {
         AppLog.i("App", "UI ready")
     }
@@ -168,7 +205,7 @@ fun AppRoot(
 
     LaunchedEffect(silent, dial, pathModeSetting) {
         conn.setSilentRecreate(silent)
-        conn.setWorkers(3)
+        conn.setWorkers(BypassWorkers.DEFAULT)
         conn.setDialPath(
             when (dial) {
                 "vkcalls" -> DialPath.VkCalls
@@ -179,10 +216,11 @@ fun AppRoot(
         conn.setPathMode(ConnPathMode.fromSetting(pathModeSetting))
     }
 
-    LaunchedEffect(admin, testingMode, currentRoute) {
+    LaunchedEffect(admin, testingMode, isRecording, currentRoute) {
         val dest = AppDestination.entries.find { it.route == currentRoute }
         val blocked = when {
-            dest == AppDestination.Testing -> !admin || !testingMode
+            dest == AppDestination.Testing ->
+                !TestingSessionGuard.testingTabVisible(admin, testingMode, isRecording)
             dest?.adminOnly == true -> !admin
             else -> false
         }
@@ -219,6 +257,10 @@ fun AppRoot(
                         settings = settings,
                         profiles = profiles,
                         onRequestConnect = { requestVpnThenConnect() },
+                        onOpenCallHashSettings = {
+                            PendingUiAction.requestCallHashSettings()
+                            navigateTab(AppDestination.Settings.route)
+                        },
                     )
                 }
                 composable(AppDestination.Servers.route) {

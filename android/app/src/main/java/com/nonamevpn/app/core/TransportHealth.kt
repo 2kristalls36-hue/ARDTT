@@ -79,6 +79,12 @@ object TransportHealth {
     fun hasFreshStatsSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
         lastStatsAtMs >= sinceMs && activeWorkers > 0 && nowMs - lastStatsAtMs < 90_000L
 
+    /** Inbound/total traffic grew after [sinceMs] — Plus skip-if-alive analogue. */
+    fun hasFreshInboundSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        activeWorkers > 0 &&
+            lastTrafficGrowthAtMs >= sinceMs &&
+            nowMs - lastTrafficGrowthAtMs < 90_000L
+
     internal fun parseTrafficKb(line: String): Long? {
         val pair = parseDownUpBytes(line)
         if (pair != null) {

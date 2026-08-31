@@ -2,16 +2,27 @@ package com.nonamevpn.app.ui.admin
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
@@ -37,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.BuildConfig
@@ -47,15 +59,18 @@ import com.nonamevpn.app.telemetry.TelemetryFileManager
 import com.nonamevpn.app.telemetry.TelemetryLogEntry
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.telemetry.TelemetryUploadClient
-import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
-import com.nonamevpn.app.ui.components.StickyBottomScaffold
+import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -69,7 +84,7 @@ fun TestingScreen(profiles: ProfileRepository) {
     val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
 
     val logs = remember { mutableStateListOf<TelemetryLogEntry>() }
-    var message by remember { mutableStateOf<String?>(null) }
+    var dismissingNames by remember { mutableStateOf(setOf<String>()) }
     var uploadingFile by remember { mutableStateOf<String?>(null) }
     var uploadProgress by remember { mutableFloatStateOf(0f) }
     var uploadTarget by remember { mutableStateOf<TelemetryLogEntry?>(null) }
@@ -78,6 +93,10 @@ fun TestingScreen(profiles: ProfileRepository) {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { /* refresh on grant */ }
+
+    fun notifyError(text: String) {
+        Toast.makeText(context.applicationContext, text, Toast.LENGTH_LONG).show()
+    }
 
     LaunchedEffect(Unit) {
         val needed = buildList {
@@ -98,8 +117,12 @@ fun TestingScreen(profiles: ProfileRepository) {
     }
 
     fun refreshLogs() {
+        val animating = logs.filter { it.file.name in dismissingNames }
+        val fromDisk = fileManager.listLogs()
+            .filter { disk -> animating.none { it.file.name == disk.file.name } }
         logs.clear()
-        logs.addAll(fileManager.listLogs())
+        logs.addAll(fromDisk)
+        logs.addAll(animating)
     }
 
     LaunchedEffect(isRecording) {
@@ -118,7 +141,7 @@ fun TestingScreen(profiles: ProfileRepository) {
         if (BuildConfig.TELEMETRY_UPLOAD_URL.isNotBlank()) {
             BuildConfig.TELEMETRY_UPLOAD_URL
         } else if (serverIp != "unknown") {
-            "http://$serverIp:9200/api/upload-log"
+            "https://$serverIp/api/upload-log"
         } else {
             ""
         }
@@ -128,10 +151,8 @@ fun TestingScreen(profiles: ProfileRepository) {
         if (isRecording) {
             recorder.stop()
             refreshLogs()
-            message = "Запись остановлена"
         } else {
             recorder.start(serverIp)
-            message = "Запись начата"
         }
     }
 
@@ -139,34 +160,156 @@ fun TestingScreen(profiles: ProfileRepository) {
         scope.launch {
             uploadingFile = entry.file.name
             uploadProgress = 0f
-            message = "Встраиваем комментарий…"
             val embedded = runCatching {
                 TelemetryFileManager.embedUserComment(entry.file, comment)
             }
             if (embedded.isFailure) {
                 uploadingFile = null
-                message = embedded.exceptionOrNull()?.message ?: "Не удалось добавить комментарий"
+                notifyError(embedded.exceptionOrNull()?.message ?: "Не удалось добавить комментарий")
                 return@launch
             }
             refreshLogs()
-            message = "Отправка ${entry.displayName}…"
             val clientId = TelemetryClientId.getAsync(context)
             val result = uploadClient.upload(
+                context = context,
                 file = entry.file,
                 clientId = clientId,
                 uploadUrl = uploadUrl,
                 onProgress = { uploadProgress = it },
             )
             uploadingFile = null
-            message = result.fold(
-                onSuccess = { "Отправлено с комментарием: ${entry.displayName}" },
-                onFailure = { it.message ?: "Ошибка отправки" },
+            result.fold(
+                onSuccess = {
+                    dismissingNames = dismissingNames + entry.file.name
+                    delay(LOG_DISMISS_MS + 40L)
+                    fileManager.delete(entry.file)
+                    logs.removeAll { it.file.name == entry.file.name }
+                    dismissingNames = dismissingNames - entry.file.name
+                },
+                onFailure = {
+                    notifyError(it.message ?: "Ошибка отправки")
+                },
             )
         }
     }
 
-    StickyBottomScaffold(
-        stickyContent = {
+    val pull = rememberPullRefresh { refreshLogs() }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp)),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            AppTabPageHeader(
+                title = "Режим тестирования",
+                subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
+            )
+
+            AppSectionCard(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "Статус записи",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                StatusPill(
+                    text = if (isRecording) "Идёт запись" else "Запись остановлена",
+                    accent = isRecording,
+                )
+                Text(
+                    "Во время записи весь интерфейс подсвечивается пульсирующей тёмно-красной рамкой.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "Сервер: ${uploadUrl.ifBlank { "не задан" }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            AppSectionCard(
+                modifier = Modifier.weight(1f),
+                fillHeight = true,
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "Сохранённые логи",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    if (logs.isEmpty()) {
+                        "Записей пока нет"
+                    } else {
+                        "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (logs.isEmpty()) {
+                    EmptyLogsBlock()
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(logs, key = { it.file.name }) { entry ->
+                            AnimatedVisibility(
+                                visible = entry.file.name !in dismissingNames,
+                                modifier = Modifier.fillMaxWidth(),
+                                enter = EnterTransition.None,
+                                exit = fadeOut(
+                                    animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                                ) + slideOutVertically(
+                                    animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                                ) { -it } + shrinkVertically(
+                                    animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                                ),
+                            ) {
+                                LogRow(
+                                    entry = entry,
+                                    uploading = uploadingFile == entry.file.name,
+                                    progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
+                                    onDelete = {
+                                        scope.launch {
+                                            fileManager.delete(entry.file)
+                                            refreshLogs()
+                                        }
+                                    },
+                                    onUpload = {
+                                        uploadTarget = entry
+                                        uploadComment = ""
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .zIndex(2f)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
+        ) {
             StickyPrimaryButton(
                 text = if (isRecording) "Остановить запись" else "Начать запись",
                 onClick = { toggleRecording() },
@@ -181,96 +324,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     MaterialTheme.colorScheme.onPrimary
                 },
             )
-        },
-    ) {
-        AppTabPageHeader(
-            tabTitle = "Тестирование",
-            subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на VPS",
-        )
-
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                "Статус записи",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            StatusPill(
-                text = if (isRecording) "Идёт запись" else "Запись остановлена",
-                accent = isRecording,
-            )
-            Text(
-                "Во время записи весь интерфейс подсвечивается пульсирующей тёмно-красной рамкой.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                "Сервер: ${uploadUrl.ifBlank { "не задан" }}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
-
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                "Сохранённые логи",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                if (logs.isEmpty()) {
-                    "Записей пока нет"
-                } else {
-                    "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (logs.isEmpty()) {
-                EmptyLogsBlock()
-            } else {
-                logs.forEach { entry ->
-                    LogRow(
-                        entry = entry,
-                        uploading = uploadingFile == entry.file.name,
-                        progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
-                        onDelete = {
-                            scope.launch {
-                                fileManager.delete(entry.file)
-                                refreshLogs()
-                                message = "Удалено: ${entry.displayName}"
-                            }
-                        },
-                        onUpload = {
-                            uploadTarget = entry
-                            uploadComment = ""
-                        },
-                    )
-                }
-            }
-        }
-
-        message?.let {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    it,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
     }
 
     uploadTarget?.let { entry ->
@@ -418,3 +472,5 @@ private fun formatDuration(ms: Long): String {
         else -> "${sec}с"
     }
 }
+
+private const val LOG_DISMISS_MS = 480L

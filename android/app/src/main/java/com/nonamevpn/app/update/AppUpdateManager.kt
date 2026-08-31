@@ -11,7 +11,12 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -69,14 +74,21 @@ class AppUpdateManager(private val context: Context) {
         info: AppUpdateInfo,
         onProgress: (Float) -> Unit,
     ): Result<File> = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = Request.Builder()
-                .url(info.apkUrl)
-                .get()
-                .build()
-            val updatesDir = File(appContext.cacheDir, "updates").also { it.mkdirs() }
-            val target = File(updatesDir, "ardtt-${info.versionName}.apk")
-            client.newCall(request).execute().use { response ->
+        val request = Request.Builder()
+            .url(info.apkUrl)
+            .get()
+            .build()
+        val updatesDir = File(appContext.cacheDir, "updates").also { it.mkdirs() }
+        val target = File(updatesDir, "ardtt-${info.versionName}.apk")
+        val call = client.newCall(request)
+        currentCoroutineContext().job.invokeOnCompletion { cause ->
+            if (cause is CancellationException) {
+                call.cancel()
+                runCatching { if (target.exists()) target.delete() }
+            }
+        }
+        try {
+            call.execute().use { response ->
                 if (!response.isSuccessful) {
                     error("APK недоступен: HTTP ${response.code}")
                 }
@@ -87,6 +99,7 @@ class AppUpdateManager(private val context: Context) {
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                         var copied = 0L
                         while (true) {
+                            ensureActive()
                             val read = input.read(buffer)
                             if (read < 0) break
                             output.write(buffer, 0, read)
@@ -106,7 +119,16 @@ class AppUpdateManager(private val context: Context) {
                 }
             }
             onProgress(1f)
-            target
+            Result.success(target)
+        } catch (e: CancellationException) {
+            runCatching { if (target.exists()) target.delete() }
+            throw e
+        } catch (e: Exception) {
+            runCatching { if (target.exists()) target.delete() }
+            if (!currentCoroutineContext().isActive || call.isCanceled()) {
+                throw CancellationException("Загрузка отменена", e)
+            }
+            Result.failure(e)
         }
     }
 

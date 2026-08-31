@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
@@ -20,15 +22,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+/** Shared metrics so every bottom-tab title sits on the same Y. */
+private val TabTitleRowHeight = 44.dp
+private val TabHeaderTopAfterStatusBar = 8.dp
+
 /**
- * Shared page chrome for ARDTT tabs and nested admin screens.
+ * Shared page chrome for tabs and nested admin screens.
  *
  * Title: headlineMedium ExtraBold primary.
  * Subtitle: bodyMedium onSurfaceVariant.
+ * Actions sit on the row below the title so long titles are not clipped.
  *
- * When the parent Column already applies [statusBarsPadding] + horizontal 16.dp
- * (Tunnel / Profiles / …), leave [applyStatusBarsPadding] false.
- * Nested admin screens that own their own top inset should set it true.
+ * Bottom tabs must use [AppTabPageHeader]: it owns the status-bar inset so
+ * titles do not jump when a screen also uses [Arrangement.spacedBy].
  */
 @Composable
 fun AppPageHeader(
@@ -37,7 +43,8 @@ fun AppPageHeader(
     onBack: (() -> Unit)? = null,
     applyStatusBarsPadding: Boolean = false,
     contentHorizontalPadding: Boolean = false,
-    actions: @Composable RowScope.() -> Unit = {},
+    pinBelowStatusBar: Boolean = false,
+    actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val startPad = when {
         onBack != null -> 4.dp
@@ -48,65 +55,85 @@ fun AppPageHeader(
         contentHorizontalPadding || onBack != null -> 8.dp
         else -> 0.dp
     }
-    Row(
+    val topPad = if (pinBelowStatusBar) TabHeaderTopAfterStatusBar else 8.dp
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (applyStatusBarsPadding) Modifier.statusBarsPadding() else Modifier)
-            .padding(start = startPad, end = endPad, top = 8.dp, bottom = 12.dp),
-        // Keep every page title on the same baseline. Centering moved titles
-        // down whenever a screen added 48dp back/action IconButtons.
-        verticalAlignment = Alignment.Top,
+            .then(
+                if (pinBelowStatusBar || applyStatusBarsPadding) {
+                    Modifier.statusBarsPadding()
+                } else {
+                    Modifier
+                },
+            )
+            .padding(start = startPad, end = endPad, top = topPad, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Назад",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-        Column(
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .padding(end = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                .fillMaxWidth()
+                .then(if (pinBelowStatusBar) Modifier.height(TabTitleRowHeight) else Modifier),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Назад",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             Text(
                 title,
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        }
+        if (!subtitle.isNullOrBlank() || actions != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (onBack != null) Modifier.padding(start = 48.dp) else Modifier),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        subtitle,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                if (actions != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = actions,
+                    )
+                }
             }
         }
-        actions()
     }
 }
 
-/** Main bottom-tab chrome: bold ARDTT title with the tab name on the subtitle line. */
+/** Main bottom-tab chrome: status inset + title on a fixed row. */
 @Composable
 fun AppTabPageHeader(
-    tabTitle: String,
+    title: String,
     subtitle: String? = null,
-    actions: @Composable RowScope.() -> Unit = {},
+    actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
-    val line = when {
-        subtitle.isNullOrBlank() -> tabTitle
-        else -> "$tabTitle · $subtitle"
-    }
     AppPageHeader(
-        title = "ARDTT",
-        subtitle = line,
+        title = title,
+        subtitle = subtitle,
         actions = actions,
+        pinBelowStatusBar = true,
     )
 }

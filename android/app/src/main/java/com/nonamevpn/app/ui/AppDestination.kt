@@ -3,7 +3,7 @@ package com.nonamevpn.app.ui
 /**
  * Bottom tabs: Tunnel → Servers → Profiles → Exceptions → Logs → Settings.
  * Deploy is reached from Servers (not a bottom tab).
- * Testing appears only in admin mode when enabled in settings.
+ * Testing appears for admin+tester, and stays visible while a session is recording.
  */
 enum class AppDestination(
     val route: String,
@@ -12,8 +12,8 @@ enum class AppDestination(
     val adminOnly: Boolean,
     val inBottomNav: Boolean = true,
 ) {
-    Tunnel("tunnel", "Туннель", navLabel = "VPN", adminOnly = false),
-    Servers("servers", "Серверы", navLabel = "VPS", adminOnly = true),
+    Tunnel("tunnel", "Туннель", navLabel = "Туннель", adminOnly = false),
+    Servers("servers", "Серверы", navLabel = "Сервера", adminOnly = true),
     Profiles("profiles", "Профили", adminOnly = false),
     Exceptions("exceptions", "Обход", adminOnly = false),
     Logs("logs", "Логи", adminOnly = false),

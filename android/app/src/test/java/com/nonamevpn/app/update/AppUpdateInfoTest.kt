@@ -12,7 +12,7 @@ class AppUpdateInfoTest {
             {
               "versionCode": 78,
               "versionName": "0.5.60",
-              "apkUrl": "http://159.194.225.162:8088/ardtt-latest.apk",
+              "apkUrl": "https://45.129.2.3/ardtt-latest.apk",
               "sha256": "ABCDEF",
               "sizeBytes": 123456,
               "notes": "test build"
@@ -22,7 +22,7 @@ class AppUpdateInfoTest {
 
         assertEquals(78, info.versionCode)
         assertEquals("0.5.60", info.versionName)
-        assertEquals("http://159.194.225.162:8088/ardtt-latest.apk", info.apkUrl)
+        assertEquals("https://45.129.2.3/ardtt-latest.apk", info.apkUrl)
         assertEquals("abcdef", info.sha256)
         assertEquals(123456, info.sizeBytes)
         assertTrue(info.notes.contains("test"))

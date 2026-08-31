@@ -1,10 +1,7 @@
 package com.nonamevpn.app.ui.admin
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -23,21 +19,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,28 +40,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
+import com.nonamevpn.app.deploy.deviceDisplayLabels
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.profile.VpnProfileJson
-import com.nonamevpn.app.ui.profiles.ProfileShareDialog
+import com.nonamevpn.app.ui.latestAppVersionCode
+import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.launch
 
 private val createDayOptions = listOf(0 to "∞", 7 to "7 дн", 30 to "30 дн", 90 to "90 дн")
@@ -104,6 +97,12 @@ private fun ClientsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val updates = remember { AppUpdateController.get(context) }
+    val updateUi by updates.ui.collectAsStateWithLifecycle()
+    val latestVersionCode = latestAppVersionCode(
+        installedCode = BuildConfig.VERSION_CODE,
+        catalogCode = updateUi.available?.versionCode ?: 0,
+    )
     val base = remember(server.id, server.host, server.publicHost) {
         ProvisionAdminApi.provisionBase(server)
     }
@@ -116,7 +115,12 @@ private fun ClientsScreen(
     var createDays by remember { mutableIntStateOf(30) }
     var createMaxDevices by remember { mutableIntStateOf(1) }
     var creating by remember { mutableStateOf(false) }
-    var profileShare by remember { mutableStateOf<VpnProfile?>(null) }
+    var sheetUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
+    var sheetProfile by remember { mutableStateOf<VpnProfile?>(null) }
+    var sheetLoadingProfile by remember { mutableStateOf(false) }
+    var renameUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
+    var renameDraft by remember { mutableStateOf("") }
+    var renaming by remember { mutableStateOf(false) }
     var busyUser by remember { mutableStateOf<String?>(null) }
     var editUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var editMaxDevices by remember { mutableStateOf("1") }
@@ -125,12 +129,6 @@ private fun ClientsScreen(
     var editing by remember { mutableStateOf(false) }
     var deleteUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var deleting by remember { mutableStateOf(false) }
-
-    fun copyText(label: String, text: String) {
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText(label, text))
-        Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-    }
 
     fun addToPhone(json: String) {
         scope.launch {
@@ -148,23 +146,38 @@ private fun ClientsScreen(
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     }
 
+    fun applyUsersResult(result: Result<List<ProvisionAdminApi.UserSummary>>) {
+        result.fold(
+            onSuccess = {
+                users = it
+                error = null
+            },
+            onFailure = {
+                users = emptyList()
+                error = it.message ?: "Provision недоступен"
+            },
+        )
+    }
+
     fun refresh() {
         loading = true
         error = null
         scope.launch {
-            val result = ProvisionAdminApi.listUsers(base)
-            result.fold(
-                onSuccess = {
-                    users = it
-                    error = null
-                },
-                onFailure = {
-                    users = emptyList()
-                    error = it.message ?: "Provision недоступен"
-                },
-            )
+            applyUsersResult(ProvisionAdminApi.listUsers(base))
             loading = false
         }
+    }
+
+    val pull = rememberPullRefresh {
+        error = null
+        applyUsersResult(ProvisionAdminApi.listUsers(base))
+    }
+
+    fun replaceUser(previousName: String, updated: ProvisionAdminApi.UserSummary) {
+        users = users.map { if (it.name == previousName) updated else it }
+        if (sheetUser?.name == previousName) sheetUser = updated
+        if (renameUser?.name == previousName) renameUser = updated
+        if (editUser?.name == previousName) editUser = updated
     }
 
     fun loadProfile(name: String, after: (String) -> Unit) {
@@ -174,48 +187,53 @@ private fun ClientsScreen(
             busyUser = null
             result.fold(
                 onSuccess = after,
-                onFailure = { toast(it.message ?: "Ошибка профиля") },
+                onFailure = {
+                    sheetLoadingProfile = false
+                    toast(it.message ?: "Ошибка профиля")
+                },
             )
         }
     }
 
     fun applyUser(updated: ProvisionAdminApi.UserSummary) {
-        users = users.map { if (it.name == updated.name) updated else it }
+        replaceUser(updated.name, updated)
+    }
+
+    LaunchedEffect(users, sheetUser?.name) {
+        val openName = sheetUser?.name ?: return@LaunchedEffect
+        users.find { it.name == openName }?.let { latest ->
+            if (latest != sheetUser) sheetUser = latest
+        }
     }
 
     LaunchedEffect(base) { refresh() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            EdgeFeedTopInset()
-            AppPageHeader(
-                applyStatusBarsPadding = false,
-                contentHorizontalPadding = true,
-                title = "Клиенты",
-                subtitle = when {
-                    loading -> "Загрузка…"
-                    error != null -> server.host
-                    else -> "${users.size} · ${server.name.ifBlank { server.host }}"
-                },
-                onBack = onBack,
-                actions = {
-                    IconButton(onClick = { refresh() }, enabled = !loading) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = "Обновить",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
-            )
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = { if (!loading) pull.onRefresh() },
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                EdgeFeedTopInset()
+                AppPageHeader(
+                    applyStatusBarsPadding = false,
+                    contentHorizontalPadding = true,
+                    title = "Клиенты",
+                    subtitle = when {
+                        loading -> "Загрузка…"
+                        error != null -> server.host
+                        else -> "${users.size} · ${server.name.ifBlank { server.host }}"
+                    },
+                    onBack = onBack,
+                )
 
-            when {
-                loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                when {
+                    loading -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
                     }
-                }
-                error != null -> {
+                    error != null -> {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -273,66 +291,27 @@ private fun ClientsScreen(
                                 top = 8.dp,
                                 bottom = NvpnBottomChrome.scrollContentPadding(),
                             ),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             items(users, key = { "${it.name}-${it.hostId}" }) { user ->
                                 ClientCard(
                                     user = user,
+                                    latestVersionCode = latestVersionCode,
                                     busy = busyUser != null,
-                                    onCopyPassword = {
+                                    onOpenProfile = {
+                                        sheetUser = user
+                                        sheetProfile = null
+                                        sheetLoadingProfile = true
                                         loadProfile(user.name) { json ->
-                                            val password = runCatching {
-                                                org.json.JSONObject(json)
-                                                    .getJSONObject("bypass")
-                                                    .optString("password")
-                                            }.getOrDefault("")
-                                            if (password.isBlank()) {
-                                                toast("В профиле нет пароля")
-                                            } else {
-                                                copyText("ARDTT password", password)
-                                            }
-                                        }
-                                    },
-                                    onShareProfile = {
-                                        loadProfile(user.name) { json ->
-                                            profileShare = VpnProfileJson.parse(json)
-                                        }
-                                    },
-                                    onUnbindAll = {
-                                        busyUser = user.name
-                                        scope.launch {
-                                            val result = ProvisionAdminApi.updateUser(
-                                                base,
-                                                user.name,
-                                                clearDevices = true,
-                                            )
-                                            result.fold(
-                                                onSuccess = {
-                                                    applyUser(it)
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Устройства отвязаны",
-                                                        Toast.LENGTH_SHORT,
-                                                    ).show()
-                                                },
-                                                onFailure = { toast(it.message ?: "Не удалось отвязать") },
-                                            )
-                                            busyUser = null
-                                        }
-                                    },
-                                    onBan = {
-                                        busyUser = user.name
-                                        scope.launch {
-                                            val result = ProvisionAdminApi.updateUser(
-                                                base,
-                                                user.name,
-                                                deactivated = !user.deactivated,
-                                            )
-                                            result.fold(
-                                                onSuccess = ::applyUser,
-                                                onFailure = { toast(it.message ?: "Ошибка") },
-                                            )
-                                            busyUser = null
+                                            runCatching { VpnProfileJson.parse(json) }
+                                                .onSuccess {
+                                                    sheetProfile = it
+                                                    sheetLoadingProfile = false
+                                                }
+                                                .onFailure {
+                                                    sheetLoadingProfile = false
+                                                    toast(it.message ?: "Ошибка профиля")
+                                                }
                                         }
                                     },
                                     onEditLimits = {
@@ -346,27 +325,13 @@ private fun ClientsScreen(
                                                 (1024L * 1024L * 1024L)).toString()
                                         }
                                     },
-                                    onUnbindOne = { deviceId ->
-                                        busyUser = user.name
-                                        scope.launch {
-                                            val result = ProvisionAdminApi.unbindDevice(
-                                                base,
-                                                user.name,
-                                                deviceId,
-                                            )
-                                            result.fold(
-                                                onSuccess = ::applyUser,
-                                                onFailure = { toast(it.message ?: "Не удалось открепить") },
-                                            )
-                                            busyUser = null
-                                        }
-                                    },
                                     onDelete = { deleteUser = user },
                                 )
                             }
                         }
                     }
                 }
+            }
             }
         }
 
@@ -406,8 +371,15 @@ private fun ClientsScreen(
                         creating = false
                         result.fold(
                             onSuccess = { body ->
+                                val profile = runCatching { VpnProfileJson.parse(body) }.getOrElse {
+                                    toast(it.message ?: "Ответ сервера не разобран")
+                                    refresh()
+                                    return@fold
+                                }
                                 showCreate = false
-                                profileShare = VpnProfileJson.parse(body)
+                                sheetProfile = profile
+                                sheetLoadingProfile = false
+                                sheetUser = userStubFromProfile(profile)
                                 refresh()
                             },
                             onFailure = { toast(it.message ?: "Ошибка создания") },
@@ -557,6 +529,10 @@ private fun ClientsScreen(
                         result.fold(
                             onSuccess = {
                                 users = users.filterNot { it.name == target.name }
+                                if (sheetUser?.name == target.name) {
+                                    sheetUser = null
+                                    sheetProfile = null
+                                }
                                 deleteUser = null
                                 Toast.makeText(context, "Клиент удалён", Toast.LENGTH_SHORT).show()
                             },
@@ -579,37 +555,125 @@ private fun ClientsScreen(
         }
     }
 
-    profileShare?.let { profile ->
-        ProfileShareDialog(
-            profile = profile,
-            onDismissRequest = { profileShare = null },
-            extraActions = {
-                OutlinedButton(
-                    onClick = { addToPhone(VpnProfileJson.encode(profile)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Text("Добавить на этот телефон")
+    renameUser?.let { target ->
+        NvpnDialog(
+            title = "Имя клиента",
+            onDismissRequest = { if (!renaming) renameUser = null },
+            confirmAction = NvpnDialogAction(
+                text = if (renaming) "Сохранение…" else "Сохранить",
+                onClick = click@{
+                    val next = renameDraft.trim()
+                    if (next.isBlank()) return@click
+                    if (next == target.name) {
+                        renameUser = null
+                        return@click
+                    }
+                    renaming = true
+                    scope.launch {
+                        val result = ProvisionAdminApi.updateUser(
+                            base,
+                            target.name,
+                            newName = next,
+                        )
+                        renaming = false
+                        result.fold(
+                            onSuccess = { updated ->
+                                if (updated.name != next) {
+                                    toast("Сервер не сменил имя")
+                                    return@fold
+                                }
+                                replaceUser(target.name, updated)
+                                renameUser = null
+                                loadProfile(updated.name) { json ->
+                                    runCatching { VpnProfileJson.parse(json) }
+                                        .onSuccess {
+                                            sheetProfile = it
+                                            sheetLoadingProfile = false
+                                        }
+                                        .onFailure {
+                                            sheetLoadingProfile = false
+                                            toast(it.message ?: "Ошибка профиля")
+                                        }
+                                }
+                            },
+                            onFailure = { toast(it.message ?: "Не удалось изменить имя") },
+                        )
+                    }
+                },
+                enabled = !renaming && renameDraft.trim().isNotBlank(),
+            ),
+            dismissAction = NvpnDialogAction("Отмена", { renameUser = null }, enabled = !renaming),
+            dismissOnBackPress = !renaming,
+            dismissOnClickOutside = !renaming,
+        ) {
+            OutlinedTextField(
+                value = renameDraft,
+                onValueChange = { renameDraft = it },
+                label = { Text("Имя") },
+                singleLine = true,
+                enabled = !renaming,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    sheetUser?.let { user ->
+        ClientSettingsSheet(
+            user = user,
+            latestVersionCode = latestVersionCode,
+            profile = sheetProfile,
+            loadingProfile = sheetLoadingProfile,
+            busy = busyUser != null || renaming,
+            onDismissRequest = {
+                sheetUser = null
+                sheetProfile = null
+                sheetLoadingProfile = false
+            },
+            onEditName = {
+                renameDraft = user.name
+                renameUser = user
+            },
+            onUnbindDevice = { deviceId ->
+                busyUser = user.name
+                scope.launch {
+                    val result = ProvisionAdminApi.unbindDevice(base, user.name, deviceId)
+                    busyUser = null
+                    result.fold(
+                        onSuccess = { replaceUser(user.name, it) },
+                        onFailure = { toast(it.message ?: "Не удалось отвязать") },
+                    )
                 }
+            },
+            onAddToPhone = {
+                sheetProfile?.let { addToPhone(VpnProfileJson.encode(it)) }
             },
         )
     }
 }
 
+private fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSummary(
+    name = profile.name,
+    hostId = profile.hostId,
+    deviceId = profile.deviceId,
+    deviceIds = listOf(profile.deviceId).filter { it.isNotBlank() },
+    maxDevices = profile.maxDevices,
+    hideIp = profile.hideIp,
+    createdAt = "",
+    expiresAt = profile.expiresAt,
+    deactivated = profile.deactivated,
+)
+
 @Composable
 private fun ClientCard(
     user: ProvisionAdminApi.UserSummary,
+    latestVersionCode: Int,
     busy: Boolean,
-    onCopyPassword: () -> Unit,
-    onShareProfile: () -> Unit,
-    onUnbindAll: () -> Unit,
-    onBan: () -> Unit,
+    onOpenProfile: () -> Unit,
     onEditLimits: () -> Unit,
-    onUnbindOne: (String) -> Unit,
     onDelete: () -> Unit,
 ) {
-    val subActive = !user.deactivated &&
-        (user.expiresAt <= 0L || user.expiresAt * 1000L > System.currentTimeMillis())
+    val subActive = clientSubscriptionActive(user)
     val used = user.usedBytes
     val limit = user.trafficLimitBytes
     val progress = when {
@@ -622,120 +686,155 @@ private fun ClientCard(
         progress >= 0.55f -> NvpnColors.warning
         else -> NvpnColors.connected
     }
+    val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
+        .joinToString(" · ")
+        .ifBlank { "" }
+    val presence = when {
+        user.deactivated -> "отключён"
+        !subActive -> "истекла"
+        user.online -> "онлайн"
+        user.lastSeenAt > 0L -> formatClientRelative(user.lastSeenAt * 1000L)
+        else -> "оффлайн"
+    }
+    val presenceColor = when {
+        user.deactivated || !subActive -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val expiresTone = clientExpiresTone(user.expiresAt)
+    val expiresColor = when (expiresTone) {
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> NvpnColors.connected
+        ClientExpiresTone.ExpiringSoon -> NvpnColors.warning
+        ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
+    }
     AppSectionCard(
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(
-            2.dp,
-            if (subActive) NvpnColors.connected else MaterialTheme.colorScheme.error,
-        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = 4.dp,
+        tonalElevation = 0.dp,
+        showBorder = false,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !busy, onClick = onOpenProfile),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                user.name.ifBlank { "user" },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = if (user.online) NvpnColors.connected else MaterialTheme.colorScheme.outlineVariant,
-                modifier = Modifier
-                    .padding(end = 6.dp)
-                    .size(10.dp),
-            ) {}
-            Text(
-                if (user.online) "онлайн" else "оффлайн",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    user.name.ifBlank { "user" },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (user.online) NvpnColors.connected else MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier
+                        .padding(end = 6.dp)
+                        .size(8.dp),
+                ) {}
+                Text(
+                    presence,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = presenceColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "Трафик",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 Text(
                     if (limit > 0L) {
                         "${formatClientBytes(used)} / ${formatClientBytes(limit)}"
                     } else {
                         formatClientBytes(used)
                     },
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = trafficColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "${user.deviceIds.size}/${user.maxDevices}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val appVer = clientAppVersionView(user, latestVersionCode)
+                    val appVerColor = when (appVer.tone) {
+                        ClientAppVersionTone.Current -> NvpnColors.connected
+                        ClientAppVersionTone.Outdated -> MaterialTheme.colorScheme.error
+                        ClientAppVersionTone.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = appVerColor.copy(alpha = 0.18f),
+                    ) {
+                        Text(
+                            appVer.label,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = appVerColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = expiresColor.copy(alpha = 0.18f),
+                    ) {
+                        Text(
+                            formatClientExpires(user.expiresAt),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = expiresColor,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
             if (limit > 0L) {
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(8.dp),
+                        .height(4.dp),
                     color = trafficColor,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
             }
-        }
 
-        Text(
-            "hostId ${user.hostId} · устройств ${user.deviceIds.size}/${user.maxDevices} · до ${formatClientExpires(user.expiresAt)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            when {
-                user.deactivated -> "Забанен"
-                !subActive -> "Подписка истекла"
-                user.online -> "Последнее подключение: сейчас"
-                user.lastSeenAt > 0L ->
-                    "Последнее: ${formatClientRelative(user.lastSeenAt * 1000L)}"
-                else -> "Ещё не подключался"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = when {
-                user.deactivated || !subActive -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
-        if (user.lastExternalIp.isNotBlank()) {
-            Text(
-                user.lastExternalIp,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (user.deviceIds.isNotEmpty()) {
-            user.deviceIds.forEach { deviceId ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        deviceId,
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    TextButton(
-                        onClick = { onUnbindOne(deviceId) },
-                        enabled = !busy,
-                    ) { Text("Открепить") }
-                }
+            val detail = listOfNotNull(
+                deviceLine.takeIf { it.isNotBlank() },
+                user.lastExternalIp.takeIf { it.isNotBlank() },
+            ).joinToString(" · ")
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 
@@ -743,21 +842,7 @@ private fun ClientCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ClientActionButton("Пароль", busy, Modifier.weight(1f), onCopyPassword)
-            ClientActionButton("Профиль", busy, Modifier.weight(1f), onShareProfile)
             ClientActionButton("Лимит", busy, Modifier.weight(1f), onEditLimits)
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ClientActionButton("Отвязать", busy, Modifier.weight(1f), onUnbindAll)
-            ClientActionButton(
-                if (user.deactivated) "Разбан" else "Бан",
-                busy,
-                Modifier.weight(1f),
-                onBan,
-            )
             ClientActionButton("Удалить", busy, Modifier.weight(1f), onDelete)
         }
     }
@@ -773,41 +858,10 @@ private fun ClientActionButton(
     OutlinedButton(
         onClick = onClick,
         enabled = !busy,
-        modifier = modifier.height(42.dp),
-        shape = RoundedCornerShape(14.dp),
+        modifier = modifier.height(36.dp),
+        shape = RoundedCornerShape(12.dp),
         contentPadding = PaddingValues(horizontal = 8.dp),
     ) {
         Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
-
-private fun formatClientBytes(bytes: Long): String {
-    val b = bytes.coerceAtLeast(0L)
-    return when {
-        b < 1024L -> "$b Б"
-        b < 1024L * 1024L -> String.format(Locale.US, "%.1f КБ", b / 1024.0)
-        b < 1024L * 1024L * 1024L -> String.format(Locale.US, "%.2f МБ", b / (1024.0 * 1024.0))
-        else -> String.format(Locale.US, "%.2f ГБ", b / (1024.0 * 1024.0 * 1024.0))
-    }
-}
-
-private fun formatClientExpires(expiresAt: Long): String {
-    if (expiresAt <= 0L) return "без срока"
-    return SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(expiresAt * 1000L))
-}
-
-private fun formatClientRelative(ms: Long): String {
-    if (ms <= 0L) return ""
-    val diff = (System.currentTimeMillis() - ms).coerceAtLeast(0L)
-    val minutes = diff / 60_000L
-    val hours = diff / 3_600_000L
-    val days = diff / 86_400_000L
-    return when {
-        minutes < 1L -> "только что"
-        minutes < 60L -> "$minutes мин назад"
-        hours < 24L -> "$hours ч назад"
-        days < 30L -> "$days дн назад"
-        else -> SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(ms))
-    }
-}
-

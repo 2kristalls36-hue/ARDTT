@@ -11,6 +11,7 @@ import (
 	neturl "net/url"
 	"os"
 	"strings"
+	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
 	tlsclient "github.com/bogdanfinn/tls-client"
@@ -127,7 +128,31 @@ func (e *vkCallsOKAPIError) Error() string {
 	return fmt.Sprintf("error_code=%d %s", e.Code, e.Message)
 }
 
+const vkCallsStaleAnonymRetries = 2
+
 func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (string, string, []string, error) {
+	var lastErr error
+	for attempt := 0; attempt <= vkCallsStaleAnonymRetries; attempt++ {
+		user, pass, addrs, err := vkCallsCredentialChain(ctx, link, streamID)
+		if err == nil {
+			return user, pass, addrs, nil
+		}
+		lastErr = err
+		if !isStaleAnonymTokenError(err) {
+			return "", "", nil, err
+		}
+		log.Printf("[STREAM %d] [VKCalls] anonym token outdated (attempt %d/%d) — fresh chain, no captcha",
+			streamID, attempt+1, vkCallsStaleAnonymRetries+1)
+		select {
+		case <-ctx.Done():
+			return "", "", nil, ctx.Err()
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
+	return "", "", nil, lastErr
+}
+
+func vkCallsCredentialChain(ctx context.Context, link string, streamID int) (string, string, []string, error) {
 	if os.Getenv("VK_SKIP_VKCALLS") == "1" {
 		return "", "", nil, newVKCallsFailure("preflight", vkCallsFailureSkipped, fmt.Errorf("disabled by VK_SKIP_VKCALLS=1"))
 	}

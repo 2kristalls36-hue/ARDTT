@@ -36,7 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.nonamevpn.app.core.AppLog
-import com.nonamevpn.app.ui.theme.NonameTheme
+import com.nonamevpn.app.ui.theme.ArdttTheme
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
@@ -64,8 +64,8 @@ class VkLoginActivity : ComponentActivity() {
         CookieManager.getInstance().setAcceptCookie(true)
 
         val title = when (mode) {
-            Mode.LOGIN -> "Войдите в аккаунт VK"
-            Mode.TOKEN -> "Получаем доступ VK API…"
+            Mode.LOGIN -> "Авторизация во ВКонтакте"
+            Mode.TOKEN -> "Получение доступа к API ВКонтакте…"
         }
         val startUrl = when (mode) {
             Mode.LOGIN -> VkSession.loginStartUrl(0)
@@ -73,7 +73,7 @@ class VkLoginActivity : ComponentActivity() {
         }
 
         setContent {
-            NonameTheme {
+            ArdttTheme {
                 var loading by remember { mutableStateOf(true) }
                 Column(
                     modifier = Modifier
@@ -178,7 +178,7 @@ class VkLoginActivity : ComponentActivity() {
         if (loginFlowAttempt >= 2) {
             AppLog.e(TAG_ACT, "All login variants exhausted ($reason)")
             pendingLogin.getAndSet(null)?.complete(
-                Result.failure(IllegalStateException("Не удалось открыть вход VK ($reason)")),
+                Result.failure(IllegalStateException("Не удалось открыть авторизацию ВКонтакте ($reason)")),
             )
             finish()
             return

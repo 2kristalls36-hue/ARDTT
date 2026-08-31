@@ -265,7 +265,7 @@ func main() {
 			*numW = 1
 		}
 	} else {
-		// nonameVPN: honour -n as 1..max (economy=1, default=3).
+		// ARDTT: honour -n as 1..max (economy=1, default=3).
 		// Upstream WDTT forced multiples of workersPerGroup (9); we keep
 		// grouping math below but do not bump a small -n up to 9.
 		if *numW < 1 {
@@ -449,7 +449,7 @@ func main() {
 				fmt.Printf("║ %-44s ║\n", line)
 			}
 			fmt.Println("╚══════════════════════════════════════════════╝")
-			if err := os.WriteFile("wg-turn.conf", []byte(finalConf+"\n"), 0600); err != nil {
+			if err := os.WriteFile(statePath("wg-turn.conf"), []byte(finalConf+"\n"), 0600); err != nil {
 				log.Printf("[КОНФИГ] Ошибка сохранения: %v", err)
 			} else {
 				log.Println("[КОНФИГ] Сохранён в wg-turn.conf")

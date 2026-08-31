@@ -14,6 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "nonameVPN"
+rootProject.name = "ARDTT"
 include(":app")
 include(":tunnel")

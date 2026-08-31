@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Transparent system bars; Compose theme paints content. -->
-    <style name="Theme.NonameVPN" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Ardtt" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">@android:color/white</item>
@@ -9,7 +9,7 @@
     </style>
 
     <!-- Opaque host behind vendor-specific translucent VpnService consent UI. -->
-    <style name="Theme.NonameVPN.VpnPermission" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Ardtt.VpnPermission" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>
         <item name="android:windowIsTranslucent">false</item>
         <item name="android:windowDisablePreview">false</item>

@@ -48,7 +48,6 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.VpnLiveStats
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
@@ -113,9 +112,8 @@ fun LogsScreen() {
             .padding(horizontal = 16.dp)
             .padding(bottom = NvpnBottomChrome.navigationReserve() + 12.dp),
     ) {
-        EdgeFeedTopInset()
         AppTabPageHeader(
-            tabTitle = "Логи",
+            title = "Журнал событий",
             subtitle = if (AppLog.isDetailedEnabled()) {
                 "Подробные события (админ)"
             } else {
@@ -221,7 +219,7 @@ fun LogsScreen() {
 
                 if (entries.isEmpty()) {
                     Text(
-                        "Пока пусто. Нажмите «Сеть» или «Подключить» — сюда пойдут probe / VPN / go_client.",
+                        "Пока пусто. Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client.",
                         modifier = Modifier.padding(16.dp),
                         color = NvpnColors.terminalText.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall,

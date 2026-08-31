@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,22 +45,25 @@ type Config struct {
 }
 
 type User struct {
-	Name              string    `json:"name"`
-	HostID            int       `json:"hostId"`
-	DeviceID          string    `json:"deviceId"`
-	DeviceIDs         []string  `json:"deviceIds,omitempty"`
-	MaxDevices        int       `json:"maxDevices"`
-	Password          string    `json:"password"`
-	HideIP            bool      `json:"hideIp"`
-	ExpiresAt         int64     `json:"expiresAt"` // unix seconds; 0 = no expiry
-	Deactivated       bool      `json:"deactivated"`
-	TrafficLimitBytes int64     `json:"trafficLimitBytes,omitempty"` // 0 = unlimited
-	LastSeenAt        int64     `json:"lastSeenAt,omitempty"`
-	LastExternalIP    string    `json:"lastExternalIp,omitempty"`
-	CreatedAt         time.Time `json:"createdAt"`
-	DirectPrivateKey  string    `json:"directPrivateKey,omitempty"`
-	DirectPublicKey   string    `json:"directPublicKey,omitempty"`
-	ServerPublicKey   string    `json:"serverPublicKey,omitempty"`
+	Name              string            `json:"name"`
+	HostID            int               `json:"hostId"`
+	DeviceID          string            `json:"deviceId"`
+	DeviceIDs         []string          `json:"deviceIds,omitempty"`
+	MaxDevices        int               `json:"maxDevices"`
+	Password          string            `json:"password"`
+	HideIP            bool              `json:"hideIp"`
+	ExpiresAt         int64             `json:"expiresAt"` // unix seconds; 0 = no expiry
+	Deactivated       bool              `json:"deactivated"`
+	TrafficLimitBytes int64             `json:"trafficLimitBytes,omitempty"` // 0 = unlimited
+	LastSeenAt            int64             `json:"lastSeenAt,omitempty"`
+	LastExternalIP        string            `json:"lastExternalIp,omitempty"`
+	DeviceModels          map[string]string `json:"deviceModels,omitempty"`
+	DeviceAppVersions     map[string]string `json:"deviceAppVersions,omitempty"`
+	DeviceAppVersionCodes map[string]int    `json:"deviceAppVersionCodes,omitempty"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	DirectPrivateKey  string            `json:"directPrivateKey,omitempty"`
+	DirectPublicKey   string            `json:"directPublicKey,omitempty"`
+	ServerPublicKey   string            `json:"serverPublicKey,omitempty"`
 }
 
 const onlineGraceSeconds = 120
@@ -102,22 +106,27 @@ type Profile struct {
 
 // UserPublic is the admin list/detail shape (includes online presence).
 type UserPublic struct {
-	Name              string   `json:"name"`
-	HostID            int      `json:"hostId"`
-	DeviceID          string   `json:"deviceId"`
-	DeviceIDs         []string `json:"deviceIds"`
-	MaxDevices        int      `json:"maxDevices"`
-	HideIP            bool     `json:"hideIp"`
-	ExpiresAt         int64    `json:"expiresAt"`
-	Deactivated       bool     `json:"deactivated"`
-	CreatedAt         string   `json:"createdAt"`
-	LastSeenAt        int64    `json:"lastSeenAt"`
-	LastExternalIP    string   `json:"lastExternalIp"`
-	Online            bool     `json:"online"`
-	OfflineForSec     int64    `json:"offlineForSec"`
-	DownBytes         int64    `json:"downBytes"`
-	UpBytes           int64    `json:"upBytes"`
-	TrafficLimitBytes int64    `json:"trafficLimitBytes"`
+	Name              string            `json:"name"`
+	HostID            int               `json:"hostId"`
+	DeviceID          string            `json:"deviceId"`
+	DeviceIDs         []string          `json:"deviceIds"`
+	MaxDevices        int               `json:"maxDevices"`
+	HideIP            bool              `json:"hideIp"`
+	ExpiresAt         int64             `json:"expiresAt"`
+	Deactivated       bool              `json:"deactivated"`
+	CreatedAt         string            `json:"createdAt"`
+	LastSeenAt        int64             `json:"lastSeenAt"`
+	LastExternalIP    string            `json:"lastExternalIp"`
+	Online            bool              `json:"online"`
+	OfflineForSec     int64             `json:"offlineForSec"`
+	DownBytes         int64             `json:"downBytes"`
+	UpBytes           int64             `json:"upBytes"`
+	TrafficLimitBytes     int64             `json:"trafficLimitBytes"`
+	DeviceModels          map[string]string `json:"deviceModels,omitempty"`
+	AppVersion            string            `json:"appVersion,omitempty"`
+	AppVersionCode        int               `json:"appVersionCode,omitempty"`
+	DeviceAppVersions     map[string]string `json:"deviceAppVersions,omitempty"`
+	DeviceAppVersionCodes map[string]int    `json:"deviceAppVersionCodes,omitempty"`
 }
 
 func main() {
@@ -210,6 +219,7 @@ func runServer(store *Store, listen string) error {
 		}
 		var body struct {
 			Name              string `json:"name"`
+			NewName           *string `json:"newName"`
 			MaxDevices        *int   `json:"maxDevices"`
 			Days              *int   `json:"days"`
 			Deactivated       *bool  `json:"deactivated"`
@@ -231,7 +241,7 @@ func runServer(store *Store, listen string) error {
 			}
 			limitBytes = &v
 		}
-		u, err := store.UpdateUser(body.Name, body.MaxDevices, body.Days, body.Deactivated, body.ClearDevices, limitBytes)
+		u, err := store.UpdateUser(body.Name, body.MaxDevices, body.Days, body.Deactivated, body.ClearDevices, limitBytes, body.NewName)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
@@ -282,9 +292,12 @@ func runServer(store *Store, listen string) error {
 			return
 		}
 		var body struct {
-			DeviceID   string `json:"deviceId"`
-			Name       string `json:"name"`
-			ExternalIP string `json:"externalIp"`
+			DeviceID       string `json:"deviceId"`
+			Name           string `json:"name"`
+			ExternalIP     string `json:"externalIp"`
+			DeviceModel    string `json:"deviceModel"`
+			AppVersion     string `json:"appVersion"`
+			AppVersionCode int    `json:"appVersionCode"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
@@ -298,7 +311,7 @@ func runServer(store *Store, listen string) error {
 		if ext == "" {
 			ext = clientIP(r)
 		}
-		u, err := store.TouchPresence(body.DeviceID, body.Name, ext)
+		u, err := store.TouchPresence(body.DeviceID, body.Name, ext, body.DeviceModel, body.AppVersion, body.AppVersionCode)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
@@ -311,14 +324,14 @@ func runServer(store *Store, listen string) error {
 		})
 	})
 	mux.HandleFunc("/v1/profile/", func(w http.ResponseWriter, r *http.Request) {
-		name := filepath.Base(r.URL.Path)
+		name := profileNameFromPath(r.URL.Path)
 		u, err := store.FindUser(name)
 		if err != nil {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 			return
 		}
 		// Best-effort presence when profile is fetched (connect / import).
-		_, _ = store.TouchPresence(u.DeviceID, u.Name, clientIP(r))
+		_, _ = store.TouchPresence(u.DeviceID, u.Name, clientIP(r), "", "", 0)
 		u2, _ := store.FindUser(name)
 		if u2.Name != "" {
 			u = u2
@@ -348,7 +361,7 @@ func runServer(store *Store, listen string) error {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
 		}
-		_, _ = store.TouchPresence(body.DeviceID, body.Name, clientIP(r))
+		_, _ = store.TouchPresence(body.DeviceID, body.Name, clientIP(r), "", "", 0)
 		store.mu.Lock()
 		directBase := subnetBase(store.Config.DirectSubnet)
 		bypassBase := subnetBase(store.Config.BypassSubnet)
@@ -410,6 +423,31 @@ func runServer(store *Store, listen string) error {
 			"ip":      ip,
 			"viaWarp": viaWarp,
 		})
+	})
+	// Service unlock / IP-type check from the VPS WAN (or warp0). Same idea as
+	// xykt/IPQuality and lmc999/RegionRestrictionCheck, without running those scripts.
+	mux.HandleFunc("/v1/netcheck", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		deviceID := r.URL.Query().Get("deviceId")
+		name := r.URL.Query().Get("name")
+		viaWarp := false
+		if deviceID != "" || name != "" {
+			if u, err := store.FindUserByDeviceOrName(deviceID, name); err == nil {
+				viaWarp = u.HideIP
+			}
+		}
+		switch strings.ToLower(r.URL.Query().Get("viaWarp")) {
+		case "1", "true", "yes":
+			viaWarp = true
+		case "0", "false", "no":
+			viaWarp = false
+		}
+		refresh := strings.EqualFold(r.URL.Query().Get("refresh"), "1") ||
+			strings.EqualFold(r.URL.Query().Get("refresh"), "true")
+		writeJSON(w, getNetcheck(viaWarp, refresh))
 	})
 
 	ln, err := net.Listen("tcp", listen)
@@ -654,6 +692,7 @@ func toPublicLocked(u User, now int64) UserPublic {
 		}
 	}
 	ids := append([]string{}, u.DeviceIDs...)
+	appVer, appCode := primaryAppVersion(u)
 	return UserPublic{
 		Name:              u.Name,
 		HostID:            u.HostID,
@@ -668,7 +707,12 @@ func toPublicLocked(u User, now int64) UserPublic {
 		LastExternalIP:    u.LastExternalIP,
 		Online:            online,
 		OfflineForSec:     offlineFor,
-		TrafficLimitBytes: u.TrafficLimitBytes,
+		TrafficLimitBytes:     u.TrafficLimitBytes,
+		DeviceModels:          copyDeviceModels(u.DeviceModels),
+		AppVersion:            appVer,
+		AppVersionCode:        appCode,
+		DeviceAppVersions:     copyDeviceModels(u.DeviceAppVersions),
+		DeviceAppVersionCodes: copyDeviceIntMap(u.DeviceAppVersionCodes),
 	}
 }
 
@@ -677,6 +721,32 @@ type bypassTrafficFile struct {
 		DownBytes int64 `json:"downBytes"`
 		UpBytes   int64 `json:"upBytes"`
 	} `json:"byName"`
+}
+
+func (s *Store) renameBypassTrafficLocked(oldName, newName string) {
+	if oldName == "" || newName == "" || oldName == newName {
+		return
+	}
+	path := filepath.Join(filepath.Dir(s.path), "bypass-traffic.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var snap bypassTrafficFile
+	if json.Unmarshal(raw, &snap) != nil || snap.ByName == nil {
+		return
+	}
+	t, ok := snap.ByName[oldName]
+	if !ok {
+		return
+	}
+	delete(snap.ByName, oldName)
+	snap.ByName[newName] = t
+	out, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, out, 0o600)
 }
 
 func loadBypassTrafficLocked(dataDir string) map[string]struct{ DownBytes, UpBytes int64 } {
@@ -695,13 +765,29 @@ func loadBypassTrafficLocked(dataDir string) map[string]struct{ DownBytes, UpByt
 	return out
 }
 
-func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool, clearDevices bool, trafficLimitBytes *int64) (User, error) {
+func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool, clearDevices bool, trafficLimitBytes *int64, newName *string) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.Users {
 		u := &s.Users[i]
 		if u.Name != name {
 			continue
+		}
+		if newName != nil {
+			next := strings.TrimSpace(*newName)
+			if next == "" {
+				return User{}, fmt.Errorf("newName required")
+			}
+			if next != u.Name {
+				for _, other := range s.Users {
+					if other.Name == next {
+						return User{}, fmt.Errorf("user %q already exists", next)
+					}
+				}
+				oldName := u.Name
+				u.Name = next
+				s.renameBypassTrafficLocked(oldName, next)
+			}
 		}
 		if maxDevices != nil {
 			if *maxDevices <= 0 {
@@ -726,6 +812,9 @@ func (s *Store) UpdateUser(name string, maxDevices, days *int, deactivated *bool
 		if clearDevices {
 			u.DeviceIDs = nil
 			u.DeviceID = ""
+			u.DeviceModels = nil
+			u.DeviceAppVersions = nil
+			u.DeviceAppVersionCodes = nil
 		}
 		if trafficLimitBytes != nil {
 			if *trafficLimitBytes < 0 {
@@ -782,6 +871,15 @@ func (s *Store) UnbindDevice(name, deviceID string) (User, error) {
 			}
 		}
 		u.DeviceIDs = next
+		if u.DeviceModels != nil {
+			delete(u.DeviceModels, deviceID)
+		}
+		if u.DeviceAppVersions != nil {
+			delete(u.DeviceAppVersions, deviceID)
+		}
+		if u.DeviceAppVersionCodes != nil {
+			delete(u.DeviceAppVersionCodes, deviceID)
+		}
 		if u.DeviceID == deviceID {
 			if len(next) > 0 {
 				u.DeviceID = next[0]
@@ -797,7 +895,7 @@ func (s *Store) UnbindDevice(name, deviceID string) (User, error) {
 	return User{}, fmt.Errorf("not found")
 }
 
-func (s *Store) TouchPresence(deviceID, name, externalIP string) (User, error) {
+func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel, appVersion string, appVersionCode int) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.Users {
@@ -828,7 +926,28 @@ func (s *Store) TouchPresence(deviceID, name, externalIP string) (User, error) {
 					}
 				}
 			}
+			if containsString(u.DeviceIDs, deviceID) {
+				if model := sanitizeDeviceModel(deviceModel); model != "" {
+					if u.DeviceModels == nil {
+						u.DeviceModels = map[string]string{}
+					}
+					u.DeviceModels[deviceID] = model
+				}
+				if ver := sanitizeDeviceModel(appVersion); ver != "" {
+					if u.DeviceAppVersions == nil {
+						u.DeviceAppVersions = map[string]string{}
+					}
+					u.DeviceAppVersions[deviceID] = ver
+				}
+				if appVersionCode > 0 {
+					if u.DeviceAppVersionCodes == nil {
+						u.DeviceAppVersionCodes = map[string]int{}
+					}
+					u.DeviceAppVersionCodes[deviceID] = appVersionCode
+				}
+			}
 		}
+		normalizeUserDevices(u)
 		if err := s.saveLocked(); err != nil {
 			return User{}, err
 		}
@@ -985,6 +1104,14 @@ func randomToken(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+func profileNameFromPath(path string) string {
+	raw := filepath.Base(path)
+	if unesc, err := url.PathUnescape(raw); err == nil {
+		raw = unesc
+	}
+	return strings.TrimSpace(strings.ReplaceAll(raw, "+", " "))
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
@@ -1094,7 +1221,193 @@ func normalizeUserDevices(u *User) bool {
 		u.DeviceID = out[0]
 		changed = true
 	}
+	if pruneDeviceModels(u) {
+		changed = true
+	}
+	if pruneDeviceAppVersions(u) {
+		changed = true
+	}
+	if pruneDeviceAppVersionCodes(u) {
+		changed = true
+	}
 	return changed
+}
+
+func pruneDeviceModels(u *User) bool {
+	if len(u.DeviceModels) == 0 {
+		if u.DeviceModels != nil {
+			u.DeviceModels = nil
+			return true
+		}
+		return false
+	}
+	allowed := map[string]bool{}
+	for _, id := range u.DeviceIDs {
+		allowed[id] = true
+	}
+	next := make(map[string]string, len(u.DeviceIDs))
+	changed := false
+	for id, model := range u.DeviceModels {
+		model = strings.TrimSpace(model)
+		if !allowed[id] || model == "" {
+			changed = true
+			continue
+		}
+		next[id] = model
+	}
+	if !changed && len(next) == len(u.DeviceModels) {
+		return false
+	}
+	if len(next) == 0 {
+		u.DeviceModels = nil
+	} else {
+		u.DeviceModels = next
+	}
+	return true
+}
+
+func copyDeviceModels(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		if s := strings.TrimSpace(v); s != "" {
+			out[k] = s
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func copyDeviceIntMap(in map[string]int) map[string]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(in))
+	for k, v := range in {
+		if strings.TrimSpace(k) != "" && v > 0 {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func primaryAppVersion(u User) (string, int) {
+	ids := append([]string{}, u.DeviceIDs...)
+	if u.DeviceID != "" {
+		ids = append([]string{u.DeviceID}, ids...)
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		name := ""
+		if u.DeviceAppVersions != nil {
+			name = strings.TrimSpace(u.DeviceAppVersions[id])
+		}
+		code := 0
+		if u.DeviceAppVersionCodes != nil {
+			code = u.DeviceAppVersionCodes[id]
+		}
+		if name != "" || code > 0 {
+			return name, code
+		}
+	}
+	return "", 0
+}
+
+func pruneDeviceAppVersions(u *User) bool {
+	if len(u.DeviceAppVersions) == 0 {
+		if u.DeviceAppVersions != nil {
+			u.DeviceAppVersions = nil
+			return true
+		}
+		return false
+	}
+	allowed := map[string]bool{}
+	for _, id := range u.DeviceIDs {
+		allowed[id] = true
+	}
+	next := make(map[string]string, len(u.DeviceIDs))
+	changed := false
+	for id, ver := range u.DeviceAppVersions {
+		ver = strings.TrimSpace(ver)
+		if !allowed[id] || ver == "" {
+			changed = true
+			continue
+		}
+		next[id] = ver
+	}
+	if !changed && len(next) == len(u.DeviceAppVersions) {
+		return false
+	}
+	if len(next) == 0 {
+		u.DeviceAppVersions = nil
+	} else {
+		u.DeviceAppVersions = next
+	}
+	return true
+}
+
+func pruneDeviceAppVersionCodes(u *User) bool {
+	if len(u.DeviceAppVersionCodes) == 0 {
+		if u.DeviceAppVersionCodes != nil {
+			u.DeviceAppVersionCodes = nil
+			return true
+		}
+		return false
+	}
+	allowed := map[string]bool{}
+	for _, id := range u.DeviceIDs {
+		allowed[id] = true
+	}
+	next := make(map[string]int, len(u.DeviceIDs))
+	changed := false
+	for id, code := range u.DeviceAppVersionCodes {
+		if !allowed[id] || code <= 0 {
+			changed = true
+			continue
+		}
+		next[id] = code
+	}
+	if !changed && len(next) == len(u.DeviceAppVersionCodes) {
+		return false
+	}
+	if len(next) == 0 {
+		u.DeviceAppVersionCodes = nil
+	} else {
+		u.DeviceAppVersionCodes = next
+	}
+	return true
+}
+
+func sanitizeDeviceModel(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	s = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	rs := []rune(s)
+	const maxRunes = 80
+	if len(rs) > maxRunes {
+		s = string(rs[:maxRunes])
+	}
+	return s
 }
 
 func containsString(list []string, want string) bool {

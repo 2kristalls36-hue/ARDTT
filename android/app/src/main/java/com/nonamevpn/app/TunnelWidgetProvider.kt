@@ -37,7 +37,7 @@ class TunnelWidgetProvider : AppWidgetProvider() {
             if (prep != null) {
                 Toast.makeText(
                     app,
-                    "Разрешите ARDTT создать VPN-подключение",
+                    "Разрешите ARDTT создать туннель",
                     Toast.LENGTH_LONG,
                 ).show()
                 openVpnPermission(app)
@@ -89,7 +89,6 @@ class TunnelWidgetProvider : AppWidgetProvider() {
         private fun buildViews(context: Context, running: Boolean, statsText: String?): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.tunnel_widget)
             if (running) {
-                views.setImageViewResource(R.id.widget_status_dot, R.drawable.widget_dot_green)
                 views.setTextViewText(R.id.widget_status_title, context.getString(R.string.widget_connected))
                 views.setTextViewText(
                     R.id.widget_stats_text,
@@ -102,7 +101,6 @@ class TunnelWidgetProvider : AppWidgetProvider() {
                     android.graphics.Color.parseColor("#FF5252"),
                 )
             } else {
-                views.setImageViewResource(R.id.widget_status_dot, R.drawable.widget_dot_gray)
                 views.setTextViewText(R.id.widget_status_title, context.getString(R.string.widget_disconnected))
                 views.setTextViewText(
                     R.id.widget_stats_text,

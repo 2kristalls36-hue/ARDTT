@@ -1,22 +1,29 @@
 package com.nonamevpn.app.ui.exceptions
 
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
+import android.net.Uri
 import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,16 +34,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -61,22 +65,30 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.ExceptionAppVisibility
+import com.nonamevpn.app.core.appIconDecodeSize
 import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.settings.AppSettingsRepository
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -86,18 +98,81 @@ import kotlinx.coroutines.withContext
 private enum class ExceptionsPane { Apps, Sites }
 
 private val CardShape = RoundedCornerShape(24.dp)
-private val ControlShape = RoundedCornerShape(14.dp)
+private val AppCardShape = RoundedCornerShape(14.dp)
 
 @Stable
 data class ExceptionAppItem(
     val name: String,
     val packageName: String,
     val icon: ImageBitmap?,
-    val isSystem: Boolean,
+    val hideByDefault: Boolean,
 )
 
 object ExceptionAppCache {
     @Volatile var cachedList: List<ExceptionAppItem>? = null
+}
+
+private fun httpsHandlerPackages(pm: PackageManager): Set<String> {
+    val https = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+        .addCategory(Intent.CATEGORY_BROWSABLE)
+    val browser = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER)
+    fun query(intent: Intent): List<ResolveInfo> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.queryIntentActivities(
+                intent,
+                PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong()),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+        }
+    }
+    return (query(https) + query(browser))
+        .mapNotNull { it.activityInfo?.packageName }
+        .toSet()
+}
+
+private suspend fun loadInstalledExceptionApps(
+    context: android.content.Context,
+): List<ExceptionAppItem> = withContext(Dispatchers.IO) {
+    val pm = context.packageManager
+    val installed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+    } else {
+        @Suppress("DEPRECATION")
+        pm.getInstalledApplications(PackageManager.GET_META_DATA)
+    }
+    val httpsHandlers = httpsHandlerPackages(pm)
+    val list = installed.mapNotNull { app ->
+        if (app.packageName == context.packageName) return@mapNotNull null
+        if (app.packageName.contains("vkontakte") || app.packageName.contains("vk.calls")) {
+            return@mapNotNull null
+        }
+        val systemPkg = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
+            (app.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+        val hasLauncher = pm.getLaunchIntentForPackage(app.packageName) != null
+        val userFacing = ExceptionAppVisibility.isUserFacing(
+            packageName = app.packageName,
+            hasLauncher = hasLauncher,
+            httpsHandlerPackages = httpsHandlers,
+        )
+        val drawable = app.loadIcon(pm)
+        val iconBitmap = if (drawable != null) {
+            val (w, h) = appIconDecodeSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
+            runCatching { drawable.toBitmap(w, h).asImageBitmap() }.getOrNull()
+        } else {
+            null
+        }
+        ExceptionAppItem(
+            name = app.loadLabel(pm).toString(),
+            packageName = app.packageName,
+            icon = iconBitmap,
+            hideByDefault = ExceptionAppVisibility.hideByDefault(systemPkg, userFacing),
+        )
+    }
+    list.sortedWith(
+        compareBy({ it.name.lowercase(Locale.getDefault()) }, { it.packageName }),
+    )
 }
 
 /**
@@ -124,6 +199,11 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 
     val orderedSites = remember(siteRules) { siteRules.sortedBy { it.lowercase(Locale.getDefault()) } }
     var newRule by remember { mutableStateOf("") }
+    val visibleSites = remember(orderedSites, newRule) {
+        val query = newRule.trim()
+        if (query.isEmpty()) orderedSites
+        else orderedSites.filter { it.contains(query, ignoreCase = true) }
+    }
     var hint by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
@@ -174,46 +254,24 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             return@LaunchedEffect
         }
         isLoading = true
-        appsList = withContext(Dispatchers.IO) {
-            val pm = context.packageManager
-            val installed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            }
-            val list = installed.mapNotNull { app ->
-                if (app.packageName == context.packageName) return@mapNotNull null
-                if (app.packageName.contains("vkontakte") || app.packageName.contains("vk.calls")) {
-                    return@mapNotNull null
-                }
-                val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                val drawable = app.loadIcon(pm)
-                val iconBitmap = if (drawable != null) {
-                    val w = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128
-                    val h = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128
-                    runCatching { drawable.toBitmap(w, h).asImageBitmap() }.getOrNull()
-                } else {
-                    null
-                }
-                ExceptionAppItem(
-                    name = app.loadLabel(pm).toString(),
-                    packageName = app.packageName,
-                    icon = iconBitmap,
-                    isSystem = isSystem,
-                )
-            }
-            list.sortedWith(
-                compareBy({ it.name.lowercase(Locale.getDefault()) }, { it.packageName }),
-            )
-        }
+        appsList = loadInstalledExceptionApps(context)
         ExceptionAppCache.cachedList = appsList
         isLoading = false
     }
 
+    val pull = rememberPullRefresh {
+        val list = loadInstalledExceptionApps(context)
+        ExceptionAppCache.cachedList = list
+        appsList = list
+    }
+
     // Выбранные вверх, внутри групп — алфавит (как qWDTT).
     val filteredApps = remember(appsList, showSystemApps, searchQuery, selectedPackages) {
-        val base = if (showSystemApps) appsList else appsList.filter { !it.isSystem }
+        val base = if (showSystemApps) {
+            appsList
+        } else {
+            appsList.filter { !it.hideByDefault || it.packageName in selectedPackages }
+        }
         val matching = if (searchQuery.isBlank()) {
             base
         } else {
@@ -229,98 +287,93 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = NvpnBottomChrome.navigationReserve()),
-    ) {
-        EdgeFeedTopInset()
-        AppTabPageHeader(
-            tabTitle = "Обход",
-            subtitle = "Сайты и приложения вне туннеля",
-        )
-
-        if (busy) {
-            androidx.compose.material3.LinearProgressIndicator(
+    Box(modifier = Modifier.fillMaxSize()) {
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
+        ) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 10.dp)
-                    .height(2.dp),
-                color = colors.primary,
-                trackColor = colors.surfaceVariant,
-            )
-        }
-
-        // Приложения слева, сайты справа (в отличие от qWDTT).
-        SingleChoiceSegmentedButtonRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 14.dp),
-        ) {
-            SegmentedButton(
-                selected = pane == ExceptionsPane.Apps,
-                onClick = { pane = ExceptionsPane.Apps },
-                shape = SegmentedButtonDefaults.itemShape(0, 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.secondaryContainer,
-                    activeContentColor = colors.onSecondaryContainer,
-                    inactiveContainerColor = Color.Transparent,
-                    inactiveContentColor = colors.onSurfaceVariant,
-                ),
-                border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
             ) {
-                Text(
-                    "Приложения ${selectedPackages.size}",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
+                AppTabPageHeader(
+                    title = "Исключения",
+                    subtitle = "Приложения и сайты вне туннеля",
                 )
-            }
-            SegmentedButton(
-                selected = pane == ExceptionsPane.Sites,
-                onClick = { pane = ExceptionsPane.Sites },
-                shape = SegmentedButtonDefaults.itemShape(1, 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.secondaryContainer,
-                    activeContentColor = colors.onSecondaryContainer,
-                    inactiveContainerColor = Color.Transparent,
-                    inactiveContentColor = colors.onSurfaceVariant,
-                ),
-                border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
-            ) {
-                Text(
-                    "Сайты ${orderedSites.size}",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
 
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 4.dp),
-            shape = CardShape,
-            color = colors.surfaceVariant.copy(alpha = 0.35f),
-            border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-        ) {
+                if (busy) {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
+                            .height(2.dp),
+                        color = colors.primary,
+                        trackColor = colors.surfaceVariant,
+                    )
+                }
+
+                // Приложения слева, сайты справа (в отличие от qWDTT).
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 14.dp),
+                ) {
+                    SegmentedButton(
+                        selected = pane == ExceptionsPane.Apps,
+                        onClick = { pane = ExceptionsPane.Apps },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2),
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = colors.secondaryContainer,
+                            activeContentColor = colors.onSecondaryContainer,
+                            inactiveContainerColor = Color.Transparent,
+                            inactiveContentColor = colors.onSurfaceVariant,
+                        ),
+                        border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
+                    ) {
+                        Text(
+                            "Приложения ${selectedPackages.size}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    SegmentedButton(
+                        selected = pane == ExceptionsPane.Sites,
+                        onClick = { pane = ExceptionsPane.Sites },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2),
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = colors.secondaryContainer,
+                            activeContentColor = colors.onSecondaryContainer,
+                            inactiveContainerColor = Color.Transparent,
+                            inactiveContentColor = colors.onSurfaceVariant,
+                        ),
+                        border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
+                    ) {
+                        Text(
+                            "Сайты ${orderedSites.size}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    shape = CardShape,
+                    color = colors.surfaceVariant.copy(alpha = 0.35f),
+                    border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                ) {
             when (pane) {
                 ExceptionsPane.Apps -> {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        BypassSearchBar(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 14.dp),
-                        )
-
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 18.dp),
+                                .padding(start = 18.dp, end = 18.dp, top = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
@@ -331,9 +384,9 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 )
                                 Text(
                                     if (isWhitelist) {
-                                        "БС: только выбранные через VPN"
+                                        "БС: только выбранные через туннель"
                                     } else {
-                                        "ЧС: выбранные мимо VPN"
+                                        "ЧС: выбранные мимо туннеля"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = colors.onSurfaceVariant,
@@ -390,7 +443,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                "Системные",
+                                "Системные приложения",
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.weight(1f),
                             )
@@ -414,7 +467,10 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             LazyColumn(
                                 state = rememberLazyListState(),
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 24.dp),
+                                contentPadding = PaddingValues(
+                                    top = 8.dp,
+                                    bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp),
+                                ),
                             ) {
                                 items(filteredApps, key = { it.packageName }) { app ->
                                     val isSelected = app.packageName in selectedPackages
@@ -423,7 +479,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                         isSelected = isSelected,
                                         onClick = {
                                             scope.launch {
-                                                if (isSelected) {
+                                                val selected = settings.excludedAppsSnapshot()
+                                                if (app.packageName in selected) {
                                                     settings.removeExcludedApp(app.packageName)
                                                 } else {
                                                     settings.addExcludedApp(app.packageName)
@@ -431,10 +488,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                                 applyTransport("Обновлены исключения приложений")
                                             }
                                         },
-                                    )
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(start = 68.dp, end = 16.dp),
-                                        color = colors.outlineVariant.copy(alpha = 0.22f),
                                     )
                                 }
                             }
@@ -474,17 +527,14 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             }
                         }
 
-                        BypassInputBar(
-                            value = newRule,
-                            onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
-                            enabled = !busy,
-                            canAdd = !busy && newRule.isNotBlank(),
-                            busy = busy,
-                            onAdd = { addSite() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 4.dp),
-                        )
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                            Text(
+                                "Исключение сайтов по IP требует Android 13+",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+                            )
+                        }
 
                         hint?.let {
                             Text(
@@ -495,17 +545,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             )
                         }
 
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                            Text(
-                                "Исключение сайтов по IP требует Android 13+",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = colors.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-                            )
-                        }
-
                         HorizontalDivider(
-                            modifier = Modifier.padding(top = 10.dp),
+                            modifier = Modifier.padding(top = 4.dp),
                             color = colors.outlineVariant.copy(alpha = 0.35f),
                         )
 
@@ -521,12 +562,27 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
                             }
+                        } else if (visibleSites.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "Нет совпадений",
+                                    textAlign = TextAlign.Center,
+                                    color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(bottom = 24.dp),
+                                contentPadding = PaddingValues(
+                                    top = 8.dp,
+                                    bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp),
+                                ),
                             ) {
-                                items(orderedSites, key = { it }) { rule ->
+                                items(visibleSites, key = { it }) { rule ->
                                     BypassRuleRow(
                                         rule = rule,
                                         enabled = !busy,
@@ -543,6 +599,48 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         }
                     }
                 }
+                }
+            }
+            }
+        }
+
+        val chromePad = NvpnBottomChrome.stickyBottomPadding()
+        val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+        val keyboardVisible = imePad > 12.dp
+        val floatingBarModifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .zIndex(2f)
+            .padding(horizontal = 16.dp)
+            .padding(bottom = maxOf(chromePad, imePad + 8.dp))
+        if (pane == ExceptionsPane.Apps) {
+            BypassSearchBar(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                keyboardVisible = keyboardVisible,
+                modifier = floatingBarModifier,
+            )
+        } else {
+            Row(
+                modifier = floatingBarModifier,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BypassSearchBar(
+                    value = newRule,
+                    onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
+                    keyboardVisible = keyboardVisible,
+                    placeholder = "домен или IP",
+                    imeAction = ImeAction.Done,
+                    onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
+                    modifier = Modifier.weight(1f),
+                )
+                BypassAddButton(
+                    enabled = !busy && newRule.isNotBlank(),
+                    busy = busy,
+                    keyboardVisible = keyboardVisible,
+                    onClick = { addSite() },
+                )
             }
         }
     }
@@ -571,83 +669,48 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 }
 
 @Composable
-private fun BypassInputBar(
-    value: String,
-    onValueChange: (String) -> Unit,
+private fun BypassAddButton(
     enabled: Boolean,
-    canAdd: Boolean,
     busy: Boolean,
-    onAdd: () -> Unit,
+    keyboardVisible: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val elevation = NvpnFloatingShell.shadowElevation
+    val fill = if (keyboardVisible) {
+        colors.primary
+    } else {
+        NvpnFloatingShell.tintedShell(colors.primary, mix = 0.62f)
+    }
     Surface(
-        modifier = modifier.height(52.dp),
-        shape = ControlShape,
-        color = colors.surface,
-        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.55f)),
+        onClick = onClick,
+        enabled = enabled && !busy,
+        modifier = modifier.height(NvpnBottomChrome.ButtonHeight),
+        shape = RoundedCornerShape(20.dp),
+        color = fill,
+        contentColor = colors.onPrimary,
+        shadowElevation = elevation,
+        tonalElevation = 0.dp,
+        border = if (keyboardVisible) null else NvpnFloatingShell.shellBorder(),
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier.padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                enabled = enabled,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = colors.onSurface,
-                    fontSize = 14.sp,
-                ),
-                cursorBrush = SolidColor(colors.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (canAdd) onAdd() }),
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 14.dp),
-                decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (value.isEmpty()) {
-                            Text(
-                                "домен или IP…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = colors.onSurfaceVariant.copy(alpha = 0.65f),
-                                fontSize = 14.sp,
-                            )
-                        }
-                        inner()
-                    }
-                },
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(1.dp)
-                    .background(colors.outlineVariant.copy(alpha = 0.45f)),
-            )
-            IconButton(
-                onClick = onAdd,
-                enabled = canAdd,
-                modifier = Modifier.size(52.dp),
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = colors.primary,
-                    )
-                } else {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = "Добавить",
-                        tint = if (canAdd) {
-                            colors.primary
-                        } else {
-                            colors.onSurfaceVariant.copy(alpha = 0.35f)
-                        },
-                    )
-                }
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.onPrimary,
+                )
+            } else {
+                Text(
+                    "Добавить",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -657,48 +720,103 @@ private fun BypassInputBar(
 private fun BypassSearchBar(
     value: String,
     onValueChange: (String) -> Unit,
+    keyboardVisible: Boolean,
     modifier: Modifier = Modifier,
+    placeholder: String = "Поиск",
+    imeAction: ImeAction = ImeAction.Search,
+    onImeAction: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val elevation = NvpnFloatingShell.shadowElevation
+    val fill = if (keyboardVisible) {
+        colors.surface
+    } else {
+        NvpnFloatingShell.shellColor()
+    }
     Surface(
-        modifier = modifier.height(48.dp),
-        shape = ControlShape,
-        color = colors.surface,
-        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.55f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(NvpnBottomChrome.ButtonHeight),
+        shape = RoundedCornerShape(20.dp),
+        color = fill,
+        border = NvpnFloatingShell.shellBorder(),
+        shadowElevation = elevation,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 Icons.Outlined.Search,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                contentDescription = "Поиск",
+                modifier = Modifier
+                    .size(22.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {
+                        focusRequester.requestFocus()
+                        keyboard?.show()
+                    },
                 tint = colors.onSurfaceVariant,
             )
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
+            val fieldStyle = MaterialTheme.typography.titleMedium.copy(
+                color = colors.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                background = Color.Transparent,
+            )
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
+                textStyle = fieldStyle,
                 cursorBrush = SolidColor(colors.primary),
-                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(imeAction = imeAction),
+                keyboardActions = KeyboardActions(
+                    onSearch = { onImeAction?.invoke() ?: keyboard?.hide() },
+                    onDone = { onImeAction?.invoke() ?: keyboard?.hide() },
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .background(Color.Transparent)
+                    .focusRequester(focusRequester),
                 decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
+                    Box(
+                        modifier = Modifier.background(Color.Transparent),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
                         if (value.isEmpty()) {
                             Text(
-                                "Поиск…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = colors.onSurfaceVariant.copy(alpha = 0.65f),
+                                placeholder,
+                                style = fieldStyle.copy(
+                                    color = colors.onSurfaceVariant.copy(alpha = 0.65f),
+                                    background = Color.Transparent,
+                                ),
                             )
                         }
                         inner()
                     }
                 },
             )
+            if (value.isNotEmpty()) {
+                IconButton(
+                    onClick = { onValueChange("") },
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Очистить",
+                        modifier = Modifier.size(18.dp),
+                        tint = colors.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -749,12 +867,20 @@ private fun AppExceptionRow(
     val colors = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        color = Color.Transparent,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 3.dp),
+        shape = AppCardShape,
+        color = colors.surface,
         contentColor = colors.onSurface,
+        shadowElevation = 1.dp,
+        tonalElevation = 0.dp,
+        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.35f)),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (app.icon != null) {
@@ -772,25 +898,30 @@ private fun AppExceptionRow(
                         .background(colors.surfaceVariant, RoundedCornerShape(8.dp)),
                 )
             }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+            ) {
                 Text(
                     text = app.name,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = app.packageName,
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Checkbox(
+            Switch(
                 checked = isSelected,
-                onCheckedChange = null,
-                colors = CheckboxDefaults.colors(checkedColor = colors.primary),
+                onCheckedChange = { onClick() },
             )
         }
     }
