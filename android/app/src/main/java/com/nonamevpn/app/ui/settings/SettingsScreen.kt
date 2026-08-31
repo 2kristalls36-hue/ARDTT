@@ -294,17 +294,14 @@ fun SettingsScreen(
 
         TrustedWifiSettingsCard(settings = settings)
 
-        CallHashSettingsCard(
-            modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
-        )
-
         AppSectionCard(
+            modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Обход", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Метод обхода", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Источник параметров обхода. Авто — vkcalls, иначе резерв. Нужен код звонка выше.",
+                "Источник параметров обхода и код звонка. Авто — vkcalls, иначе резерв.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -322,6 +319,7 @@ fun SettingsScreen(
                 checked = silent,
                 onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
             )
+            CallHashSettingsContent(showHeader = false)
         }
 
         AppSectionCard(
