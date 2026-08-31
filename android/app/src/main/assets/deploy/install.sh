@@ -177,7 +177,7 @@ if [ -n "$missing_contexts" ]; then
   die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Обновите APK или пересоберите архив scripts/pack-deploy-assets.sh"
 fi
 
-prog 0.25 "Установка Docker (если нужно)"
+prog 0.25 "Установка Docker и Docker Compose (если нужно)"
 if ! command -v docker >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
@@ -190,6 +190,30 @@ if ! command -v docker >/dev/null 2>&1; then
     curl -fsSL https://get.docker.com | sh
   fi
   systemctl enable --now docker || service docker start || true
+  cleanup_host_packages
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+  prog 0.27 "Установка плагина docker compose v2"
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y || true
+    apt-get install -y --no-install-recommends docker-compose-plugin || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf -y install docker-compose-plugin || true
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    mkdir -p /usr/local/lib/docker/cli-plugins /usr/lib/docker/cli-plugins /root/.docker/cli-plugins
+    arch="$(uname -m)"
+    case "$arch" in
+      x86_64|amd64) compose_arch="x86_64" ;;
+      aarch64|arm64) compose_arch="aarch64" ;;
+      *) compose_arch="$arch" ;;
+    esac
+    curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${compose_arch}" -o /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+    cp -f /usr/local/lib/docker/cli-plugins/docker-compose /usr/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+  fi
   cleanup_host_packages
 fi
 
@@ -249,12 +273,26 @@ fi
 
 prog 0.50 "Сборка образов (старый стек ещё работает)"
 cd "$STAGING"
-export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
+# Docker Compose v1 (python docker-compose) rejects COMPOSE_PARALLEL_LIMIT < 2
+# Docker Compose v2 (docker compose) accepts 1.
+if [ -z "${COMPOSE_PARALLEL_LIMIT:-}" ]; then
+  if docker compose version >/dev/null 2>&1; then
+    export COMPOSE_PARALLEL_LIMIT="1"
+  else
+    export COMPOSE_PARALLEL_LIMIT="2"
+  fi
+fi
 export BUILDKIT_PROGRESS=plain
 export COMPOSE_ANSI=never
 # Cap parallel Go/cgo work on tiny VPS (~1 GiB RAM).
 export GOMAXPROCS="${GOMAXPROCS:-1}"
-export DOCKER_BUILDKIT=1
+
+# Check if buildx / buildkit actually works with this docker cli
+if docker buildx version >/dev/null 2>&1; then
+  export DOCKER_BUILDKIT=1
+else
+  export DOCKER_BUILDKIT=0
+fi
 
 if [ -z "${avail_mb:-}" ] || [ "$avail_mb" -ge "$MIN_DISK_MB" ] 2>/dev/null; then
   compose pull 2>/dev/null || true
@@ -277,7 +315,12 @@ for svc in $BUILD_SERVICES; do
   # Progress 0.50 → 0.72 across sequential builds
   frac="$(awk -v i="$svc_i" -v n="$svc_n" 'BEGIN { printf "%.2f", 0.50 + (0.22 * i / n) }')"
   prog "$frac" "Сборка $svc ($svc_i/$svc_n)"
-  if ! compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
+  if docker compose version >/dev/null 2>&1; then
+    build_cmd=(compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc")
+  else
+    build_cmd=(compose -f "$STAGING/docker-compose.yml" build "$svc")
+  fi
+  if ! (cd "$STAGING" && "${build_cmd[@]}" 2>&1 | tee -a "$BUILD_LOG"); then
     build_tail="$(tail -n 20 "$BUILD_LOG" | tr '\n' ' ' | cut -c1-1000)"
     rm -f "$BUILD_LOG"
     cleanup_docker_build_junk
@@ -285,7 +328,7 @@ for svc in $BUILD_SERVICES; do
   fi
   docker builder prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
-  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/{printf \"%d\", $2/1024}' /proc/meminfo) МБ"
+  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/{printf "%d", $2/1024}' /proc/meminfo) МБ"
 done
 rm -f "$BUILD_LOG"
 
@@ -334,7 +377,12 @@ done
 prog 0.78 "Запуск Compose"
 cd "$STACK"
 UP_LOG="$(mktemp /tmp/nvpn-compose-up.XXXXXX.log)"
-if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d 2>&1 | tee "$UP_LOG"; then
+if docker compose version >/dev/null 2>&1; then
+  up_cmd=(compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d)
+else
+  up_cmd=(compose -f "$STACK/docker-compose.yml" up -d)
+fi
+if ! (cd "$STACK" && "${up_cmd[@]}" 2>&1 | tee "$UP_LOG"); then
   up_tail="$(tail -n 20 "$UP_LOG" | tr '\n' ' ' | cut -c1-1000)"
   rm -f "$UP_LOG"
   die "Запуск Compose не удался: ${up_tail:-причина не определена}"
