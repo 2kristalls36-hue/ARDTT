@@ -3,18 +3,28 @@ package com.nonamevpn.app.ui.tunnel
 import android.os.Build
 import android.telephony.SubscriptionManager
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +32,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
@@ -48,15 +60,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
 import com.nonamevpn.app.bypass.CallRecreatePrompt
@@ -70,10 +89,13 @@ import com.nonamevpn.app.core.NetcheckItem
 import com.nonamevpn.app.core.NetcheckReport
 import com.nonamevpn.app.core.NetcheckTone
 import com.nonamevpn.app.core.NetcheckUiRow
+import com.nonamevpn.app.core.NetworkClass
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
 import com.nonamevpn.app.profile.ProfileRepository
+import com.nonamevpn.app.profile.ProfileCatalog
+import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.connectionControlsLocked
@@ -91,6 +113,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 fun TunnelScreen(
@@ -103,6 +128,7 @@ fun TunnelScreen(
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
+    val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
     var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
@@ -143,6 +169,7 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val wallpaperVariant by settings.tunnelWallpaperVariantFlow.collectAsStateWithLifecycle(initialValue = 0)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -269,6 +296,54 @@ fun TunnelScreen(
             }
         }
         refreshNetcheck(force = true)
+    }
+
+    val autoBypassDetected = pathMode == "auto" && (
+        ui.probe?.networkClass == NetworkClass.NeedBypass ||
+            ui.probe?.networkClass == NetworkClass.OpenNeedBypass
+        )
+    val whitelistDetected = autoBypassDetected || pathMode == "bypass"
+    if (!admin) {
+        UserTunnelSimpleScreen(
+            ui = ui,
+            catalogItems = catalog.items,
+            activeProfileId = catalog.activeId,
+            whitelistDetected = whitelistDetected,
+            wallpaperVariant = wallpaperVariant,
+            onToggleTunnel = {
+                when (ui.state) {
+                    ConnState.Connected,
+                    ConnState.Connecting,
+                    ConnState.Probing,
+                    ConnState.Disconnecting,
+                    ConnState.PausedTrustedWifi -> conn.disconnect()
+                    else -> onRequestConnect()
+                }
+            },
+            onSelectPreviousProfile = {
+                val items = catalog.items
+                if (items.size <= 1) return@UserTunnelSimpleScreen
+                val currentIndex = items.indexOfFirst { it.id == catalog.activeId }.let { if (it < 0) 0 else it }
+                val target = items[(currentIndex - 1 + items.size) % items.size]
+                scope.launch {
+                    profiles.setActive(target.id)
+                    settings.setProfileName(target.profile.name)
+                    conn.updateProfile(target.profile)
+                }
+            },
+            onSelectNextProfile = {
+                val items = catalog.items
+                if (items.size <= 1) return@UserTunnelSimpleScreen
+                val currentIndex = items.indexOfFirst { it.id == catalog.activeId }.let { if (it < 0) 0 else it }
+                val target = items[(currentIndex + 1) % items.size]
+                scope.launch {
+                    profiles.setActive(target.id)
+                    settings.setProfileName(target.profile.name)
+                    conn.updateProfile(target.profile)
+                }
+            },
+        )
+        return
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -600,6 +675,346 @@ fun TunnelScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun UserTunnelSimpleScreen(
+    ui: com.nonamevpn.app.core.ConnUiState,
+    catalogItems: List<StoredProfile>,
+    activeProfileId: String?,
+    whitelistDetected: Boolean,
+    wallpaperVariant: Int,
+    onToggleTunnel: () -> Unit,
+    onSelectPreviousProfile: () -> Unit,
+    onSelectNextProfile: () -> Unit,
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var animationRestartToken by remember { mutableStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                animationRestartToken += 1
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    val isDark = isSystemInDarkTheme()
+    val bgRes = resolveUserTunnelWallpaper(
+        variant = wallpaperVariant,
+        isDark = isDark,
+        whitelistDetected = whitelistDetected,
+    )
+    val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
+    val connected = ui.state == ConnState.Connected
+    val trackColor = if (connected) Color(0xFF35C759) else Color(0xFF9AA0A8)
+    val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(bgRes),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        if (whitelistDetected) {
+            WhitelistDroneSkyAnimation(
+                restartToken = animationRestartToken,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.34f)
+                    .align(Alignment.TopCenter),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AppTabPageHeader(
+                title = "Подключение",
+                subtitle = when {
+                    whitelistDetected -> "Белые списки обнаружены"
+                    activeItem == null -> "Профиль не выбран"
+                    else -> activeItem.profile.name
+                },
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                Switch(
+                    checked = connected,
+                    onCheckedChange = { onToggleTunnel() },
+                    enabled = ui.state != ConnState.Disconnecting,
+                    thumbContent = {
+                        Text(
+                            if (connected) "ON" else "OFF",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedTrackColor = trackColor,
+                        uncheckedTrackColor = trackColor,
+                        checkedThumbColor = Color.White,
+                        uncheckedThumbColor = Color.White,
+                        checkedBorderColor = Color.Transparent,
+                        uncheckedBorderColor = Color.Transparent,
+                        disabledUncheckedTrackColor = Color(0xFF9AA0A8),
+                        disabledCheckedTrackColor = Color(0xFF9AA0A8),
+                    ),
+                    modifier = Modifier
+                        .padding(top = 56.dp)
+                        .height(46.dp)
+                        .width(112.dp),
+                )
+            }
+
+            ProfileSwitcherBar(
+                activeItem = activeItem,
+                canSwitch = catalogItems.size > 1,
+                onPrev = onSelectPreviousProfile,
+                onNext = onSelectNextProfile,
+                busy = connectingLike,
+            )
+        }
+    }
+}
+
+private data class DroneFlightSpec(
+    val resId: Int,
+    val sizeDp: Int,
+    val startXFrac: Float,
+    val startYFrac: Float,
+    val anchorXFrac: Float,
+    val anchorYFrac: Float,
+    val orbitRadiusXFrac: Float,
+    val orbitRadiusYFrac: Float,
+    val orbitDurationMs: Int,
+    val delayMs: Long,
+    val phaseRad: Float,
+)
+
+@Composable
+private fun WhitelistDroneSkyAnimation(
+    restartToken: Int,
+    modifier: Modifier = Modifier,
+) {
+    val drones = remember {
+        listOf(
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_near,
+                sizeDp = 186,
+                startXFrac = -0.30f,
+                startYFrac = -0.56f,
+                anchorXFrac = 0.10f,
+                anchorYFrac = 0.05f,
+                orbitRadiusXFrac = 0.017f,
+                orbitRadiusYFrac = 0.013f,
+                orbitDurationMs = 6000,
+                delayMs = 0L,
+                phaseRad = 0.4f,
+            ),
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_mid,
+                sizeDp = 132,
+                startXFrac = 1.06f,
+                startYFrac = -0.46f,
+                anchorXFrac = 0.62f,
+                anchorYFrac = 0.08f,
+                orbitRadiusXFrac = 0.015f,
+                orbitRadiusYFrac = 0.011f,
+                orbitDurationMs = 6700,
+                delayMs = 110L,
+                phaseRad = 1.3f,
+            ),
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_far,
+                sizeDp = 96,
+                startXFrac = 0.44f,
+                startYFrac = -0.52f,
+                anchorXFrac = 0.37f,
+                anchorYFrac = 0.13f,
+                orbitRadiusXFrac = 0.012f,
+                orbitRadiusYFrac = 0.009f,
+                orbitDurationMs = 7600,
+                delayMs = 220L,
+                phaseRad = 2.2f,
+            ),
+        )
+    }
+    BoxWithConstraints(modifier = modifier) {
+        val sceneWidthPx = constraints.maxWidth.toFloat()
+        val sceneHeightPx = constraints.maxHeight.toFloat()
+        drones.forEachIndexed { index, spec ->
+            AnimatedDrone(
+                spec = spec,
+                index = index,
+                restartToken = restartToken,
+                sceneWidthPx = sceneWidthPx,
+                sceneHeightPx = sceneHeightPx,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnimatedDrone(
+    spec: DroneFlightSpec,
+    index: Int,
+    restartToken: Int,
+    sceneWidthPx: Float,
+    sceneHeightPx: Float,
+) {
+    var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
+    LaunchedEffect(spec.resId, restartToken) {
+        delay(spec.delayMs)
+        launchStarted = true
+    }
+    val arrivalProgress by animateFloatAsState(
+        targetValue = if (launchStarted) 1f else 0f,
+        animationSpec = keyframes {
+            durationMillis = 1_050
+            0f at 0
+            0.80f at 280 with LinearEasing
+            1f at 1_050 with FastOutSlowInEasing
+        },
+        label = "drone_arrival_$index",
+    )
+    val orbitBlend by animateFloatAsState(
+        targetValue = if (arrivalProgress > 0.985f) 1f else 0f,
+        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+        label = "drone_orbit_blend_$index",
+    )
+    val orbit by rememberInfiniteTransition(label = "drone_orbit_$index").animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2.0).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = spec.orbitDurationMs,
+                easing = LinearEasing,
+            ),
+        ),
+        label = "drone_orbit_angle_$index",
+    )
+
+    val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
+    val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
+    // Wind-like hover: small wave drift around fixed anchor + stabilization compensation.
+    val windCarrier = sin((orbit * 0.24f + spec.phaseRad).toDouble()).toFloat()
+    val waveX = sin((orbit * 0.95f + spec.phaseRad).toDouble()).toFloat()
+    val waveY = sin((orbit * 1.35f + spec.phaseRad * 1.6f).toDouble()).toFloat()
+    val compensationX = sin((orbit * 2.2f + spec.phaseRad * 0.75f).toDouble()).toFloat()
+    val compensationY = sin((orbit * 2.6f + spec.phaseRad * 0.55f).toDouble()).toFloat()
+    val windAmp = (0.65f + 0.35f * windCarrier) * orbitBlend
+    val orbitX = (waveX * 0.78f + compensationX * 0.22f) *
+        (sceneWidthPx * spec.orbitRadiusXFrac) * windAmp
+    val orbitY = (waveY * 0.72f + compensationY * 0.28f) *
+        (sceneHeightPx * spec.orbitRadiusYFrac) * windAmp
+    val wobbleRotation = (
+        sin((orbit * 0.62f + spec.phaseRad).toDouble()).toFloat() * 1.1f +
+            sin((orbit * 1.85f + spec.phaseRad * 0.9f).toDouble()).toFloat() * 0.55f
+        ) * orbitBlend
+    val alpha = (0.22f + 0.78f * arrivalProgress).coerceIn(0f, 1f)
+
+    Image(
+        painter = painterResource(spec.resId),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = (xFrac * sceneWidthPx + orbitX).roundToInt(),
+                    y = (yFrac * sceneHeightPx + orbitY).roundToInt(),
+                )
+            }
+            .size(spec.sizeDp.dp)
+            .graphicsLayer {
+                this.alpha = alpha
+                rotationZ = wobbleRotation
+            },
+    )
+}
+
+private fun resolveUserTunnelWallpaper(
+    variant: Int,
+    isDark: Boolean,
+    whitelistDetected: Boolean,
+): Int {
+    val normalized = variant.mod(2)
+    return when {
+        whitelistDetected && normalized == 0 -> R.drawable.tunnel_user_whitelist
+        whitelistDetected -> R.drawable.tunnel_user_whitelist_alt
+        isDark && normalized == 0 -> R.drawable.tunnel_user_night
+        isDark -> R.drawable.tunnel_user_night_alt
+        normalized == 0 -> R.drawable.tunnel_user_day
+        else -> R.drawable.tunnel_user_day_alt
+    }
+}
+
+@Composable
+private fun ProfileSwitcherBar(
+    activeItem: StoredProfile?,
+    canSwitch: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    busy: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = NvpnBottomChrome.navigationReserve() + 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OutlinedButton(
+            onClick = onPrev,
+            enabled = canSwitch && !busy,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .height(NvpnBottomChrome.ButtonHeight)
+                .width(62.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий профиль")
+        }
+        Button(
+            onClick = { if (canSwitch) onNext() },
+            enabled = activeItem != null && !busy,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .weight(1f)
+                .height(NvpnBottomChrome.ButtonHeight),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+                disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+            ),
+        ) {
+            Text(
+                activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль",
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        OutlinedButton(
+            onClick = onNext,
+            enabled = canSwitch && !busy,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .height(NvpnBottomChrome.ButtonHeight)
+                .width(62.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий профиль")
         }
     }
 }
