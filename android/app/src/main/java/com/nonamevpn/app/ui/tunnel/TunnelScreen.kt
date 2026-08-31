@@ -3,18 +3,28 @@ package com.nonamevpn.app.ui.tunnel
 import android.os.Build
 import android.telephony.SubscriptionManager
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,7 +60,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -95,6 +107,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 fun TunnelScreen(
@@ -661,6 +676,14 @@ private fun UserTunnelSimpleScreen(
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
         )
+        if (whitelistDetected) {
+            WhitelistDroneSkyAnimation(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.38f)
+                    .align(Alignment.TopCenter),
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -718,6 +741,148 @@ private fun UserTunnelSimpleScreen(
             )
         }
     }
+}
+
+private data class DroneFlightSpec(
+    val resId: Int,
+    val sizeDp: Int,
+    val startXFrac: Float,
+    val startYFrac: Float,
+    val anchorXFrac: Float,
+    val anchorYFrac: Float,
+    val orbitRadiusXFrac: Float,
+    val orbitRadiusYFrac: Float,
+    val orbitDurationMs: Int,
+    val delayMs: Long,
+    val phaseRad: Float,
+)
+
+@Composable
+private fun WhitelistDroneSkyAnimation(
+    modifier: Modifier = Modifier,
+) {
+    val drones = remember {
+        listOf(
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_near,
+                sizeDp = 178,
+                startXFrac = -0.24f,
+                startYFrac = -0.50f,
+                anchorXFrac = 0.07f,
+                anchorYFrac = 0.03f,
+                orbitRadiusXFrac = 0.020f,
+                orbitRadiusYFrac = 0.016f,
+                orbitDurationMs = 6200,
+                delayMs = 0L,
+                phaseRad = 0.4f,
+            ),
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_mid,
+                sizeDp = 136,
+                startXFrac = 0.96f,
+                startYFrac = -0.42f,
+                anchorXFrac = 0.58f,
+                anchorYFrac = 0.06f,
+                orbitRadiusXFrac = 0.017f,
+                orbitRadiusYFrac = 0.013f,
+                orbitDurationMs = 6800,
+                delayMs = 120L,
+                phaseRad = 1.3f,
+            ),
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_far,
+                sizeDp = 102,
+                startXFrac = 0.38f,
+                startYFrac = -0.48f,
+                anchorXFrac = 0.34f,
+                anchorYFrac = 0.11f,
+                orbitRadiusXFrac = 0.015f,
+                orbitRadiusYFrac = 0.010f,
+                orbitDurationMs = 7400,
+                delayMs = 240L,
+                phaseRad = 2.2f,
+            ),
+        )
+    }
+    BoxWithConstraints(modifier = modifier) {
+        val sceneWidthPx = constraints.maxWidth.toFloat()
+        val sceneHeightPx = constraints.maxHeight.toFloat()
+        drones.forEachIndexed { index, spec ->
+            AnimatedDrone(
+                spec = spec,
+                index = index,
+                sceneWidthPx = sceneWidthPx,
+                sceneHeightPx = sceneHeightPx,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnimatedDrone(
+    spec: DroneFlightSpec,
+    index: Int,
+    sceneWidthPx: Float,
+    sceneHeightPx: Float,
+) {
+    var launchStarted by remember(spec.resId) { mutableStateOf(false) }
+    LaunchedEffect(spec.resId) {
+        delay(spec.delayMs)
+        launchStarted = true
+    }
+    val arrivalProgress by animateFloatAsState(
+        targetValue = if (launchStarted) 1f else 0f,
+        animationSpec = keyframes {
+            durationMillis = 1_200
+            0f at 0
+            0.74f at 420 with LinearEasing
+            1f at 1_200 with FastOutSlowInEasing
+        },
+        label = "drone_arrival_$index",
+    )
+    val orbitBlend by animateFloatAsState(
+        targetValue = if (arrivalProgress > 0.985f) 1f else 0f,
+        animationSpec = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+        label = "drone_orbit_blend_$index",
+    )
+    val orbit by rememberInfiniteTransition(label = "drone_orbit_$index").animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2.0).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = spec.orbitDurationMs,
+                easing = LinearEasing,
+            ),
+        ),
+        label = "drone_orbit_angle_$index",
+    )
+
+    val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
+    val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
+    val orbitX = cos((orbit + spec.phaseRad).toDouble()).toFloat() *
+        (sceneWidthPx * spec.orbitRadiusXFrac) * orbitBlend
+    val orbitY = sin((orbit * 1.12f + spec.phaseRad).toDouble()).toFloat() *
+        (sceneHeightPx * spec.orbitRadiusYFrac) * orbitBlend
+    val wobbleRotation = sin((orbit * 0.65f + spec.phaseRad).toDouble()).toFloat() * 2.4f * orbitBlend
+    val alpha = (0.22f + 0.78f * arrivalProgress).coerceIn(0f, 1f)
+
+    Image(
+        painter = painterResource(spec.resId),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = (xFrac * sceneWidthPx + orbitX).roundToInt(),
+                    y = (yFrac * sceneHeightPx + orbitY).roundToInt(),
+                )
+            }
+            .size(spec.sizeDp.dp)
+            .graphicsLayer {
+                this.alpha = alpha
+                rotationZ = wobbleRotation
+            },
+    )
 }
 
 private fun resolveUserTunnelWallpaper(
