@@ -40,13 +40,11 @@ class AppSettingsRepository(private val context: Context) {
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
     private val themePalette = stringPreferencesKey("theme_palette")
-    private val dynamicColor = booleanPreferencesKey("is_dynamic_color")
     private val alphaChallengeHex = stringPreferencesKey("alpha_challenge_hex")
     private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
     private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
     private val alphaUnlockLockUntil = longPreferencesKey("alpha_unlock_lock_until")
     private val tunnelWallpaperVariant = intPreferencesKey("tunnel_wallpaper_variant")
-    private val wallpaper = stringPreferencesKey("app_wallpaper")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
@@ -98,8 +96,6 @@ class AppSettingsRepository(private val context: Context) {
     val themePaletteFlow: Flow<String> = context.dataStore.data.map {
         normalizeThemePalette(it[themePalette])
     }
-    val dynamicColorFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[dynamicColor] != false }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
     /** User tunnel gallery variant, rotates between app launches. */
@@ -108,10 +104,6 @@ class AppSettingsRepository(private val context: Context) {
             val raw = prefs[tunnelWallpaperVariant] ?: 0
             raw.coerceAtLeast(0)
         }
-    /** `none` | `day` | `sunset` | `night` | `fog` | `collage` */
-    val wallpaperFlow: Flow<String> = context.dataStore.data.map {
-        normalizeWallpaper(it[wallpaper])
-    }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -301,14 +293,6 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[themePalette] = normalizeThemePalette(palette) }
     }
 
-    suspend fun setDynamicColor(enabled: Boolean) {
-        context.dataStore.edit { it[dynamicColor] = enabled }
-    }
-
-    suspend fun setWallpaper(name: String) {
-        context.dataStore.edit { it[wallpaper] = normalizeWallpaper(name) }
-    }
-
     suspend fun alphaUnlockedSnapshot(): Boolean {
         val prefs = context.dataStore.data.first()
         return prefs[alphaUnlocked] == true
@@ -416,15 +400,6 @@ class AppSettingsRepository(private val context: Context) {
             "indigo" -> "indigo"
             "forest" -> "forest"
             else -> "espresso"
-        }
-
-        fun normalizeWallpaper(raw: String?): String = when (raw?.lowercase()?.trim()) {
-            "day", "день" -> "day"
-            "sunset", "закат" -> "sunset"
-            "night", "ночь" -> "night"
-            "fog", "туман" -> "fog"
-            "collage", "коллаж" -> "collage"
-            else -> "collage"
         }
 
         fun parseSsidSet(raw: String?): Set<String> =

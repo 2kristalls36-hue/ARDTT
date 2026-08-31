@@ -112,7 +112,6 @@ fun SettingsScreen(
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
-    val dynamicColor by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = true)
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
@@ -416,33 +415,23 @@ fun SettingsScreen(
                     DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
                     DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    RowSetting(
-                        title = "Динамические цвета",
-                        subtitle = "Material You",
-                        checked = dynamicColor,
-                        onCheckedChange = { scope.launch { settings.setDynamicColor(it) } },
-                    )
-                }
-                if (!dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                    Text(
-                        "Цветовая палитра",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        PaletteCircle("indigo", 0xFF5B588D, themePalette) {
-                            scope.launch { settings.setThemePalette(it) }
-                        }
-                        PaletteCircle("forest", 0xFF5F5D68, themePalette) {
-                            scope.launch { settings.setThemePalette(it) }
-                        }
-                        PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
-                            scope.launch { settings.setThemePalette(it) }
-                        }
+                Text(
+                    "Цветовая палитра",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PaletteCircle("indigo", 0xFF5B588D, themePalette) {
+                        scope.launch { settings.setThemePalette(it) }
+                    }
+                    PaletteCircle("forest", 0xFF5F5D68, themePalette) {
+                        scope.launch { settings.setThemePalette(it) }
+                    }
+                    PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
+                        scope.launch { settings.setThemePalette(it) }
                     }
                 }
             }
