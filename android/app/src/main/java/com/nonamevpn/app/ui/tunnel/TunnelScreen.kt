@@ -72,6 +72,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
@@ -658,6 +661,19 @@ private fun UserTunnelSimpleScreen(
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var animationRestartToken by remember { mutableStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                animationRestartToken += 1
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     val isDark = isSystemInDarkTheme()
     val bgRes = resolveUserTunnelWallpaper(
         variant = wallpaperVariant,
@@ -678,6 +694,7 @@ private fun UserTunnelSimpleScreen(
         )
         if (whitelistDetected) {
             WhitelistDroneSkyAnimation(
+                restartToken = animationRestartToken,
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(0.34f)
@@ -759,6 +776,7 @@ private data class DroneFlightSpec(
 
 @Composable
 private fun WhitelistDroneSkyAnimation(
+    restartToken: Int,
     modifier: Modifier = Modifier,
 ) {
     val drones = remember {
@@ -811,6 +829,7 @@ private fun WhitelistDroneSkyAnimation(
             AnimatedDrone(
                 spec = spec,
                 index = index,
+                restartToken = restartToken,
                 sceneWidthPx = sceneWidthPx,
                 sceneHeightPx = sceneHeightPx,
             )
@@ -822,11 +841,12 @@ private fun WhitelistDroneSkyAnimation(
 private fun AnimatedDrone(
     spec: DroneFlightSpec,
     index: Int,
+    restartToken: Int,
     sceneWidthPx: Float,
     sceneHeightPx: Float,
 ) {
-    var launchStarted by remember(spec.resId) { mutableStateOf(false) }
-    LaunchedEffect(spec.resId) {
+    var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
+    LaunchedEffect(spec.resId, restartToken) {
         delay(spec.delayMs)
         launchStarted = true
     }
