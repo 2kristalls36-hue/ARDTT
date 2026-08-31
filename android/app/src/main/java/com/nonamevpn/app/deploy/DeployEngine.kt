@@ -119,6 +119,7 @@ class DeployEngine(private val appContext: Context) {
                     .put("ssh_user", target.sshUser.trim().ifBlank { "root" })
                     .put("auth_type", if (target.privateKeyPem.isNotBlank()) "key" else "password")
                     .put("is_update", _isUpdate.value)
+                    .put("cascade_enabled", target.cascadeEnabled)
                     .put("public_host", target.publicHost.ifBlank { target.host }.trim()),
             )
             append("Старт деплоя ${target.name.ifBlank { target.host }}")
@@ -165,12 +166,23 @@ class DeployEngine(private val appContext: Context) {
             )
 
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
+            if (target.cascadeEnabled) {
+                append(
+                    "Каскад: ${target.cascadeHost.trim().ifBlank { "—" }}:" +
+                        "${target.cascadePort} · user ${target.cascadeUser.trim().ifBlank { "—" }}",
+                )
+            }
             emit(0.25f, "Запуск установщика…")
             val env = buildString {
                 append("NVPN_PUBLIC_HOST="); append(SshClient.shellQuote(publicHost)); append(' ')
                 append("NVPN_DIRECT_PORT="); append(target.directPort); append(' ')
                 append("NVPN_BYPASS_PORT="); append(target.bypassPort); append(' ')
                 append("NVPN_DEPLOY_VERSION="); append(SshClient.shellQuote(deployVersion)); append(' ')
+                append("NVPN_CASCADE_ENABLED="); append(if (target.cascadeEnabled) "1" else "0"); append(' ')
+                append("NVPN_CASCADE_HOST="); append(SshClient.shellQuote(target.cascadeHost.trim())); append(' ')
+                append("NVPN_CASCADE_PORT="); append(target.cascadePort); append(' ')
+                append("NVPN_CASCADE_USER="); append(SshClient.shellQuote(target.cascadeUser.trim())); append(' ')
+                append("NVPN_CASCADE_PASSWORD="); append(SshClient.shellQuote(target.cascadePassword)); append(' ')
                 append("bash /opt/nonamevpn/install.sh")
             }
             var failed: String? = null
