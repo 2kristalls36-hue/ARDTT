@@ -6,6 +6,7 @@ import android.net.VpnService
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
@@ -58,6 +59,7 @@ import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperScene
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -73,6 +75,8 @@ fun AppRoot(
     val conn = remember { ConnectionManager.get(context) }
     val scope = rememberCoroutineScope()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val appsWhitelistMode by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
+    val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -82,7 +86,17 @@ fun AppRoot(
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
     val recorder = remember { TelemetryRecorder.get(context) }
     val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
-    val tunnelWallpaper = remember { TunnelWallpaper.random() }
+    val tunnelWallpaperScene = remember { TunnelWallpaperScene.random() }
+    val darkTheme = when (themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
+    val tunnelWallpaper = TunnelWallpaper.resolve(
+        scene = tunnelWallpaperScene,
+        whitelistMode = appsWhitelistMode,
+        darkTheme = darkTheme,
+    )
 
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
@@ -211,7 +225,7 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (currentRoute == AppDestination.Tunnel.route) {
+            if (currentRoute == AppDestination.Tunnel.route && !admin) {
                 TunnelWallpaperBackdrop(
                     wallpaper = tunnelWallpaper,
                     modifier = Modifier.fillMaxSize(),
