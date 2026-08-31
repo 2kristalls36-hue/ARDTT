@@ -225,7 +225,7 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (currentRoute == AppDestination.Tunnel.route && !admin) {
+            if (currentRoute == AppDestination.Tunnel.route) {
                 TunnelWallpaperBackdrop(
                     wallpaper = tunnelWallpaper,
                     modifier = Modifier.fillMaxSize(),
