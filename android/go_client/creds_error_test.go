@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +16,17 @@ func TestFatalCallErrorIgnoresAnonymOutdated(t *testing.T) {
 	}
 	if got := fatalCallError(resp); got != nil {
 		t.Fatalf("error_code=100 must not be fatal: %v", got)
+	}
+}
+
+func TestCallUnavailableErrorString(t *testing.T) {
+	err := &CallUnavailableError{Code: 951}
+	got := err.Error()
+	if !strings.Contains(got, "VK call is unavailable") {
+		t.Fatalf("expected Android-visible call text, got %q", got)
+	}
+	if !strings.Contains(got, "error_code=951") {
+		t.Fatalf("expected error_code in message, got %q", got)
 	}
 }
 

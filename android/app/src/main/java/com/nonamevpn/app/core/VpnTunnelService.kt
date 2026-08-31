@@ -332,13 +332,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             }
                             AppLog.e(TAG, "Failed: ${state.message}")
                             softRestartInProgress = false
-                            val fallback = ConnectionManager.getOrNull()?.onTunnelFailed(state.message) == true
-                            if (fallback) {
-                                AppLog.i(TAG, "Auto fallback Direct → Bypass")
-                                launchBackend(VpnPath.Bypass, softRestart = true)
-                            } else {
-                                stopSelf()
-                            }
+                            applyTunnelFailureAction(state.message)
                         }
                         is TunnelBackendState.Stopped -> Unit
                         is TunnelBackendState.Starting -> {
@@ -357,14 +351,26 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 }
                 AppLog.e(TAG, "backend crash: ${t.message}")
                 softRestartInProgress = false
-                val fallback = ConnectionManager.getOrNull()?.onTunnelFailed(t.message ?: "tunnel crash") == true
-                if (fallback) {
-                    AppLog.i(TAG, "Auto fallback Direct → Bypass after crash")
-                    launchBackend(VpnPath.Bypass, softRestart = true)
-                } else {
-                    stopSelf()
-                }
+                applyTunnelFailureAction(t.message ?: "tunnel crash")
             }
+        }
+    }
+
+    private fun applyTunnelFailureAction(message: String) {
+        when (ConnectionManager.getOrNull()?.onTunnelFailed(message) ?: TunnelFailureAction.Stop) {
+            TunnelFailureAction.Ignore -> Unit
+            TunnelFailureAction.SwitchToBypass -> {
+                AppLog.i(TAG, "Auto fallback Direct → Bypass")
+                launchBackend(VpnPath.Bypass, softRestart = true)
+            }
+            TunnelFailureAction.HoldForCallRecreate -> {
+                AppLog.i(TAG, "Holding VPN while recreating VK call")
+                softRestartInProgress = true
+                tunnelSessionActive = true
+                val path = TunnelSessionHolder.config?.path ?: VpnPath.Bypass
+                updateNotification(path, "Обновление звонка…")
+            }
+            TunnelFailureAction.Stop -> stopSelf()
         }
     }
 

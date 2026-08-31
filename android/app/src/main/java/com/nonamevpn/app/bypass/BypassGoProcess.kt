@@ -193,19 +193,9 @@ class BypassGoProcess(
             return RawConf(ip, parts[1].trim().ifBlank { "10.9.0.1" }, mtu)
         }
 
-        private fun classifyFatal(line: String): String? {
-            val l = line.lowercase()
-            return when {
-                l.contains("fatal_auth") || l.contains("неверный пароль") ->
-                    "Неверный пароль обхода (WRAP)"
-                l.contains("хеш мёртв") || l.contains("call not found") || l.contains("callunavailable") ->
-                    "Звонок не найден или закрыт. Создайте новый код звонка."
-                l.contains("captcha") && (l.contains("required") || l.contains("wait")) ->
-                    "Требуется проверка капчи. Выберите способ «Капча» в настройках обхода."
-                l.contains("all vk credentials failed") ->
-                    "Не удалось получить TURN (vkcalls/legacy)"
-                else -> null
-            }
+        internal fun classifyFatal(line: String): String? {
+            val kind = classifyBypassFatalKind(line) ?: return null
+            return userMessageForBypassFatal(kind)
         }
     }
 }

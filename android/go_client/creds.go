@@ -349,7 +349,7 @@ func fetchVkCreds(ctx context.Context, link string, streamID int) (string, strin
 			return user, pass, addrs, nil
 		} else {
 			if callErr, ok := asCallUnavailableError(err); ok {
-				log.Printf("[STREAM %d] [VK Auth] VK Calls path returned non-retryable call error: %v", streamID, callErr)
+				log.Printf("[STREAM %d] CALL_UNAVAILABLE: VK Calls path returned non-retryable call error: %v", streamID, callErr)
 				return "", "", nil, callErr
 			}
 			if isStaleAnonymTokenError(err) {
@@ -380,6 +380,7 @@ func fetchVkCreds(ctx context.Context, link string, streamID int) (string, strin
 		log.Printf("[STREAM %d] [VK Auth] Failed with client_id=%s: %v", streamID, creds.ClientID, err)
 
 		if callErr, ok := asCallUnavailableError(err); ok {
+			log.Printf("[STREAM %d] CALL_UNAVAILABLE: Failed with client_id=%s: %v", streamID, creds.ClientID, err)
 			return "", "", nil, callErr
 		}
 
@@ -496,7 +497,7 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 	if err != nil {
 		log.Printf("[STREAM %d] [VK Auth] Warning: getCallPreview failed: %v", streamID, err)
 	} else if callErr := fatalCallError(resp); callErr != nil {
-		log.Printf("[STREAM %d] [VK Auth] getCallPreview returned non-retryable call error: %v", streamID, callErr)
+		log.Printf("[STREAM %d] CALL_UNAVAILABLE: getCallPreview returned non-retryable call error: %v", streamID, callErr)
 		return "", "", nil, callErr
 	}
 
@@ -519,7 +520,7 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 
 		if errObj, hasErr := resp["error"].(map[string]interface{}); hasErr {
 			if callErr := fatalCallError(resp); callErr != nil {
-				log.Printf("[STREAM %d] [VK Auth] getAnonymousToken returned non-retryable call error: %v", streamID, callErr)
+				log.Printf("[STREAM %d] CALL_UNAVAILABLE: getAnonymousToken returned non-retryable call error: %v", streamID, callErr)
 				return "", "", nil, callErr
 			}
 

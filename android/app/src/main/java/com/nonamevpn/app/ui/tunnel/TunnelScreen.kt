@@ -55,6 +55,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
+import com.nonamevpn.app.bypass.CallRecreatePrompt
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
@@ -77,6 +78,8 @@ import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
@@ -572,6 +575,32 @@ fun TunnelScreen(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
+    }
+
+    ui.callRecreatePrompt?.let { prompt ->
+        val needLogin = prompt == CallRecreatePrompt.NeedLogin
+        NvpnDialog(
+            title = "Звонок закрыт",
+            onDismissRequest = { conn.dismissCallRecreatePrompt() },
+            confirmAction = NvpnDialogAction(
+                text = if (needLogin) "Войти и создать" else "Создать новый",
+                onClick = { conn.confirmCallRecreate() },
+            ),
+            dismissAction = NvpnDialogAction(
+                text = "Позже",
+                onClick = { conn.dismissCallRecreatePrompt() },
+            ),
+        ) {
+            Text(
+                if (needLogin) {
+                    "Обход не может дозвониться: звонок не найден. Войдите во ВКонтакте и создайте новый код."
+                } else {
+                    "Обход не может дозвониться: звонок не найден или закрыт. Создать новый код на этом устройстве?"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
