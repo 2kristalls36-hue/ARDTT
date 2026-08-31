@@ -840,6 +840,8 @@ private fun TunnelPowerToggle(
     modifier: Modifier = Modifier,
 ) {
     var dragging by remember { mutableStateOf(false) }
+    var dragMoved by remember { mutableStateOf(false) }
+    var suppressNextTap by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableStateOf(0f) }
     var pendingSnapTarget by remember { mutableStateOf<Float?>(null) }
     val checked = connected
@@ -865,6 +867,10 @@ private fun TunnelPowerToggle(
     Surface(
         modifier = modifier
             .clickable(enabled = !busy) {
+                if (suppressNextTap) {
+                    suppressNextTap = false
+                    return@clickable
+                }
                 pendingSnapTarget = null
                 runCatching { onClick() }
                     .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
@@ -929,11 +935,13 @@ private fun TunnelPowerToggle(
                         detectDragGestures(
                             onDragStart = {
                                 dragging = true
+                                dragMoved = false
                                 pendingSnapTarget = null
                                 dragProgress = knobProgress
                             },
                             onDragEnd = {
                                 dragging = false
+                                if (dragMoved) suppressNextTap = true
                                 val snap = if (dragProgress >= 0.5f) 1f else 0f
                                 pendingSnapTarget = snap
                                 val needToggle = (snap == 1f) != connected
@@ -948,6 +956,9 @@ private fun TunnelPowerToggle(
                             },
                         ) { change, dragAmount ->
                             change.consume()
+                            if (kotlin.math.abs(dragAmount.x) > 0.6f || kotlin.math.abs(dragAmount.y) > 0.6f) {
+                                dragMoved = true
+                            }
                             dragProgress = (dragProgress + dragAmount.x / travelPx).coerceIn(0f, 1f)
                         }
                     },
@@ -990,9 +1001,9 @@ private fun WhitelistDroneSkyAnimation(
                 startXFrac = 0.44f,
                 startYFrac = -0.74f,
                 anchorXFrac = 0.43f,
-                anchorYFrac = 0.12f,
-                orbitRadiusXFrac = 0.018f,
-                orbitRadiusYFrac = 0.014f,
+                anchorYFrac = 0.18f,
+                orbitRadiusXFrac = 0.027f,
+                orbitRadiusYFrac = 0.021f,
                 orbitDurationMs = 9_200,
                 delayMs = 80L,
                 phaseRad = 0.4f,
@@ -1010,8 +1021,8 @@ private fun WhitelistDroneSkyAnimation(
                 startYFrac = 0.14f,
                 anchorXFrac = 0.13f,
                 anchorYFrac = 0.12f,
-                orbitRadiusXFrac = 0.015f,
-                orbitRadiusYFrac = 0.011f,
+                orbitRadiusXFrac = 0.023f,
+                orbitRadiusYFrac = 0.017f,
                 orbitDurationMs = 10_100,
                 delayMs = 0L,
                 phaseRad = 1.3f,
@@ -1029,8 +1040,8 @@ private fun WhitelistDroneSkyAnimation(
                 startYFrac = 0.18f,
                 anchorXFrac = 0.72f,
                 anchorYFrac = 0.14f,
-                orbitRadiusXFrac = 0.012f,
-                orbitRadiusYFrac = 0.009f,
+                orbitRadiusXFrac = 0.018f,
+                orbitRadiusYFrac = 0.014f,
                 orbitDurationMs = 11_200,
                 delayMs = 140L,
                 phaseRad = 2.2f,
@@ -1139,11 +1150,10 @@ private fun AnimatedDrone(
     val dragLimitX = sceneWidthPx * spec.dragLimitXFrac
     val dragLimitY = sceneHeightPx * spec.dragLimitYFrac
 
-    Image(
-        painter = painterResource(spec.resId),
-        contentDescription = null,
-        contentScale = ContentScale.Fit,
+    val touchSizeDp = (spec.sizeDp * 1.35f).dp
+    Box(
         modifier = Modifier
+            .size(touchSizeDp)
             .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
                 detectDragGestures(
                     onDragStart = {
@@ -1195,14 +1205,21 @@ private fun AnimatedDrone(
                     dragDy = (dragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
                 }
             }
-            .size(spec.sizeDp.dp)
             .graphicsLayer {
                 translationX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
                 translationY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
                 this.alpha = alpha
                 rotationZ = wobbleRotation + blowRotation
             },
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(spec.resId),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(spec.sizeDp.dp),
+        )
+    }
 }
 
 private fun resolveUserTunnelWallpaper(
