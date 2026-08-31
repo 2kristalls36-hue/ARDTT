@@ -5,8 +5,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,11 +14,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -75,8 +71,8 @@ import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
@@ -111,7 +107,6 @@ fun SettingsScreen(
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-    val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
@@ -222,13 +217,14 @@ fun SettingsScreen(
         scrollState = scrollState,
         refreshing = pull.refreshing,
         onRefresh = pull.onRefresh,
+        header = {
+            val modeLabel = if (admin) "администратор" else "пользователь"
+            AppTabPageHeader(
+                title = "Настройки приложения",
+                subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
+            )
+        },
     ) {
-        val modeLabel = if (admin) "администратор" else "пользователь"
-        AppTabPageHeader(
-            title = "Настройки приложения",
-            subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
-        )
-
         if (updateUi.visible) {
             UpdateSettingsCard(
                 modifier = Modifier.bringIntoViewRequester(updateBringIntoView),
@@ -414,25 +410,6 @@ fun SettingsScreen(
                     DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
                     DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
                     DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
-                }
-                Text(
-                    "Цветовая палитра",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    PaletteCircle("indigo", 0xFF5B588D, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("forest", 0xFF5F5D68, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
                 }
             }
             RowSetting(
@@ -914,30 +891,6 @@ private fun DialChip(
                 MaterialTheme.colorScheme.onSurface
             },
         ),
-    )
-}
-
-@Composable
-private fun PaletteCircle(
-    paletteId: String,
-    colorHex: Long,
-    selectedId: String,
-    onClick: (String) -> Unit,
-) {
-    val selected = paletteId == selectedId
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(Color(colorHex))
-            .then(
-                if (selected) {
-                    Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                } else {
-                    Modifier
-                },
-            )
-            .clickable { onClick(paletteId) },
     )
 }
 

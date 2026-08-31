@@ -6,6 +6,8 @@ import android.net.VpnService
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,7 +69,8 @@ import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
-import com.nonamevpn.app.ui.tunnel.TunnelWallpaperScene
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
+import com.nonamevpn.app.ui.tunnel.tunnelWallpaperVisible
 import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.delay
@@ -116,7 +120,7 @@ fun AppRoot(
     val updates = remember { AppUpdateController.get(context) }
     val updateUi by updates.ui.collectAsStateWithLifecycle()
     var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
-    val tunnelWallpaperScene = remember { TunnelWallpaperScene.random() }
+    val tunnelWallpaperScene = TunnelWallpaperSession.currentOrPick()
     val darkTheme = when (themeMode) {
         "dark" -> true
         "light" -> false
@@ -292,17 +296,22 @@ fun AppRoot(
     } else {
         MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
     }
+    val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
 
     TelemetryRecordingOverlay(
         isRecording = isRecording,
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (currentRoute == AppDestination.Tunnel.route && !admin) {
-                TunnelWallpaperBackdrop(
-                    wallpaper = tunnelWallpaper,
-                    modifier = Modifier.fillMaxSize(),
-                )
+            // Same cached scene on every user-mode tab. Admin keeps the gradient.
+            // Keep the Image composed so tab switches do not flash Field.
+            if (showUserWallpaper) {
+                key(tunnelWallpaper.scene) {
+                    TunnelWallpaperBackdrop(
+                        wallpaper = tunnelWallpaper,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             } else {
                 AppBackdrop(modifier = Modifier.fillMaxSize())
             }
@@ -317,6 +326,11 @@ fun AppRoot(
                 navController = navController,
                 startDestination = AppDestination.Tunnel.route,
                 modifier = Modifier.fillMaxSize(),
+                enterTransition = { EnterTransition.None },
+                exitTransition = { ExitTransition.None },
+                popEnterTransition = { EnterTransition.None },
+                popExitTransition = { ExitTransition.None },
+                sizeTransform = { null },
             ) {
                 composable(AppDestination.Tunnel.route) {
                     TunnelScreen(

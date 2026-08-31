@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -42,15 +43,11 @@ class MainActivity : ComponentActivity() {
             val recorder = androidx.compose.runtime.remember { TelemetryRecorder.get(applicationContext) }
             val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
             val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-            val palette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
             androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
-                ArdttTheme(
-                    themeMode = themeMode,
-                    palette = palette,
-                ) {
+                ArdttTheme(themeMode = themeMode) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
-                        color = androidx.compose.ui.graphics.Color.Transparent,
+                        color = MaterialTheme.colorScheme.background,
                     ) {
                         AppRoot(
                             settings = settings,

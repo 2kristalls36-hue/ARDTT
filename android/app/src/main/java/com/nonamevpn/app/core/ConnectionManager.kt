@@ -126,7 +126,7 @@ class ConnectionManager(
             directEndpoint = null
             provisionUrl = null
             tunAddress = null
-            _ui.value = _ui.value.copy(hasCallHash = false)
+            refreshHashFlag()
         }
     }
 
@@ -403,25 +403,22 @@ class ConnectionManager(
     }
 
     fun saveCallHash(hash: String) {
-        val name = profile?.name ?: return
         val cleaned = com.nonamevpn.app.bypass.VkUrl.strip(hash)
         if (!com.nonamevpn.app.bypass.VkUrl.isPlausibleHash(cleaned)) return
-        hashStore.setHash(name, cleaned)
+        hashStore.setHash(profile?.name, cleaned)
         refreshHashFlag()
     }
 
     fun clearCallHash() {
-        val name = profile?.name ?: return
-        hashStore.clear(name)
+        hashStore.clear()
         refreshHashFlag()
     }
 
-    fun callHashOrNull(): String? = profile?.name?.let { hashStore.getHash(it) }
+    fun callHashOrNull(): String? = hashStore.getHash(profile?.name)
 
     private fun refreshHashFlag() {
-        val name = profile?.name
         _ui.value = _ui.value.copy(
-            hasCallHash = name != null && hashStore.hasHash(name),
+            hasCallHash = hashStore.hasHash(profile?.name),
         )
         com.nonamevpn.app.QuickToggleTileService.requestTileUpdate(appContext)
     }
@@ -832,7 +829,7 @@ class ConnectionManager(
             ?: _ui.value.activePath
             ?: return NetworkHandoverDecision.SoftRestartSamePath
         val mode = pathMode
-        val bypassAllowed = profile?.name?.let { hashStore.hasHash(it) } == true
+        val bypassAllowed = hashStore.hasHash(profile?.name)
         val pathHealthy = currentPathLooksHealthy(currentPath)
         bindNetwork?.networkHandle?.let { lastHandoverBindHandle = it }
         val sameDeadUnderlay = deadDirectBindHandle != null &&
@@ -930,7 +927,7 @@ class ConnectionManager(
         _ui.value = _ui.value.copy(
             probe = fresh,
             softInfo = softInfoFor(fresh),
-            hasCallHash = profile?.name?.let { hashStore.hasHash(it) } == true,
+            hasCallHash = hashStore.hasHash(profile?.name),
         )
 
         val vpsReachable = fresh.provisionOk
