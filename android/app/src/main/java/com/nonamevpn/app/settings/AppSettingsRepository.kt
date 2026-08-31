@@ -79,7 +79,6 @@ class AppSettingsRepository(private val context: Context) {
     }
     val dynamicColorFlow: Flow<Boolean> =
         context.dataStore.data.map { it[dynamicColor] == true }
-    /** `none` | `morning` | `day` | `sunset` | `night` | `fog` | `storm` */
     val wallpaperFlow: Flow<String> = context.dataStore.data.map {
         normalizeWallpaper(it[wallpaper])
     }
@@ -299,13 +298,12 @@ class AppSettingsRepository(private val context: Context) {
         }
 
         fun normalizeWallpaper(raw: String?): String = when (raw?.lowercase()?.trim()) {
-            "morning", "sunrise", "утро" -> "morning"
             "day", "день" -> "day"
             "sunset", "закат" -> "sunset"
             "night", "ночь" -> "night"
             "fog", "туман" -> "fog"
-            "storm", "гроза" -> "storm"
-            else -> "none"
+            "collage", "коллаж" -> "collage"
+            else -> "day"
         }
 
         fun parseSsidSet(raw: String?): Set<String> =
