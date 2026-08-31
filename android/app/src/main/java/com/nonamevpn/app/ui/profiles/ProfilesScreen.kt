@@ -60,7 +60,7 @@ import com.nonamevpn.app.profile.VpnProfileJson
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -179,16 +179,17 @@ fun ProfilesScreen(
                 icon = Icons.Default.Add,
             )
         },
+        header = {
+            AppPageHeader(
+                title = "ARDTT",
+                subtitle = if (catalog.items.isEmpty()) {
+                    "Профили — импортируйте JSON с сервера"
+                } else {
+                    "Профили — ${catalog.items.size} шт., активен: ${catalog.active?.name ?: "—"}"
+                },
+            )
+        },
     ) {
-        AppTabPageHeader(
-            tabTitle = "Профили",
-            subtitle = if (catalog.items.isEmpty()) {
-                "Импортируйте JSON с сервера"
-            } else {
-                "${catalog.items.size} профилей · активен: ${catalog.active?.name ?: "—"}"
-            },
-        )
-
         error?.let {
             AppSectionCard(contentPadding = PaddingValues(16.dp)) {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
