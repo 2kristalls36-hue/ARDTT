@@ -126,7 +126,6 @@ fun TunnelScreen(
     onOpenWallpaperSettings: () -> Unit = {},
     onOpenCallHashSettings: () -> Unit = {},
 ) {
-    val wallpaperVariantCount = 2
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
@@ -320,9 +319,15 @@ fun TunnelScreen(
             whitelistDetected = whitelistDetected,
             isDarkTheme = isDarkTheme,
             wallpaperVariant = wallpaperVariant,
-            onSwitchWallpaperMode = {
+            themeMode = themeMode,
+            onSwitchThemeMode = {
                 scope.launch {
-                    settings.setTunnelWallpaperVariant((wallpaperVariant + 1).mod(wallpaperVariantCount))
+                    val nextThemeMode = when (themeMode) {
+                        "system" -> "light"
+                        "light" -> "dark"
+                        else -> "system"
+                    }
+                    settings.setThemeMode(nextThemeMode)
                 }
             },
             onOpenWallpaperSettings = onOpenWallpaperSettings,
@@ -678,7 +683,8 @@ private fun UserTunnelSimpleScreen(
     whitelistDetected: Boolean,
     isDarkTheme: Boolean,
     wallpaperVariant: Int,
-    onSwitchWallpaperMode: () -> Unit,
+    themeMode: String,
+    onSwitchThemeMode: () -> Unit,
     onOpenWallpaperSettings: () -> Unit,
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
@@ -724,6 +730,11 @@ private fun UserTunnelSimpleScreen(
     val disconnecting = ui.state == ConnState.Disconnecting
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
 
+    val modeBadge = when (themeMode) {
+        "light" -> "Д"
+        "dark" -> "Н"
+        else -> "A"
+    }
     Box(modifier = Modifier.fillMaxSize()) {
         Crossfade(
             targetState = bgRes,
@@ -754,7 +765,7 @@ private fun UserTunnelSimpleScreen(
                 .padding(top = 8.dp, end = 12.dp)
                 .size(38.dp)
                 .combinedClickable(
-                    onClick = onSwitchWallpaperMode,
+                    onClick = onSwitchThemeMode,
                     onLongClick = onOpenWallpaperSettings,
                 ),
             shape = RoundedCornerShape(19.dp),
@@ -763,7 +774,7 @@ private fun UserTunnelSimpleScreen(
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
-                    "BG",
+                    modeBadge,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
