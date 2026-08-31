@@ -236,7 +236,7 @@ func vkCallsCredentialChain(ctx context.Context, link string, streamID int) (str
 		if captchaErr, ok := apiErr.(*VkCaptchaError); ok {
 			log.Printf("[STREAM %d] [VKCalls] step2 captcha gate appeared (sid=%q, redirect_uri=%t)", streamID, captchaErr.CaptchaSid, captchaErr.RedirectURI != "")
 		} else if callErr, ok := asCallUnavailableError(apiErr); ok {
-			log.Printf("[STREAM %d] [VKCalls] step2 non-retryable call error: %v", streamID, callErr)
+			log.Printf("[STREAM %d] CALL_UNAVAILABLE: step2 non-retryable call error: %v", streamID, callErr)
 		}
 		return "", "", nil, newVKCallsFailure(step2, vkCallsAPIErrorKind(apiErr), apiErr)
 	}
@@ -265,7 +265,7 @@ func vkCallsCredentialChain(ctx context.Context, link string, streamID int) (str
 		if captchaErr, ok := apiErr.(*VkCaptchaError); ok {
 			log.Printf("[STREAM %d] [VKCalls] step3 captcha gate appeared (sid=%q, redirect_uri=%t)", streamID, captchaErr.CaptchaSid, captchaErr.RedirectURI != "")
 		} else if callErr, ok := asCallUnavailableError(apiErr); ok {
-			log.Printf("[STREAM %d] [VKCalls] step3 non-retryable call error: %v", streamID, callErr)
+			log.Printf("[STREAM %d] CALL_UNAVAILABLE: step3 non-retryable call error: %v", streamID, callErr)
 		}
 		return "", "", nil, newVKCallsFailure(step3, vkCallsAPIErrorKind(apiErr), apiErr)
 	}

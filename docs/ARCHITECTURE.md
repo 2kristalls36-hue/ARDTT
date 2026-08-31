@@ -25,7 +25,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Call hash | **1 hash на пользователя VPN**, только на телефоне (не в серверном `nvpn` как обязательное поле) |
 | Дозвон | **`vkcalls` по умолчанию** + **`legacy` (капча) как fallback** |
 | VK-аккаунт | Только чтобы **создать** звонок/hash; Connect — анонимный `vkcalls` (или legacy) по hash |
-| Мёртвый звонок | По умолчанию спросить; настройка «тихий режим» — recreate в фоне |
+| Мёртвый звонок | По умолчанию диалог на экране Туннеля; настройка «Обновлять звонок автоматически» — recreate в фоне (нужна живая `remixsid`, иначе диалог входа). Один silent-attempt за цикл |
 | TURN transport | **TCP** |
 | Workers | **Default 3** на один hash (TCP); в настройках можно 1 («экономия») |
 | Имя | **ARDTT** (Amnezia + RAW Dial via TURN); см. [LEGEND.md](LEGEND.md). Внутренние id/`nvpn`/каталоги `wdtt-*` — совместимость |
@@ -213,7 +213,7 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 ```
 Создать hash: логин VK → создать звонок → сохранить hash на телефоне
 Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
-Звонок мёртв: спросить | тихий recreate (настройка)
+Звонок мёртв: спросить (диалог) | тихий recreate (настройка) | вход VK если нет remixsid
 ```
 
 ### Как в WDTT (#7 — сессия / тихий режим)
@@ -226,7 +226,14 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 | Hash | В профиле приложения (пользователь/генератор хешей) |
 | Refresh | При ошибках Allocate — refresh creds; смена hash; цепочка captcha для legacy |
 
-**Для нас (тихий recreate):** хранить hash + возможность открыть WebView/сессию VK при recreate; TURN creds кэшировать ≤9 мин как WDTT; не хранить пароль VK — только cookies/сессия WebView (как WDTT) в app-private storage. Тихий режим = auto WebView/API recreate без диалога (нужна ещё живая cookie-сессия; иначе всё равно показать логин).
+**Для нас (тихий recreate, реализовано):** hash на устройстве; Connect остаётся anonymous `vkcalls`. Если `libclient` / логи дают мёртвый звонок (`CALL_UNAVAILABLE`, `VK call is unavailable`, `error_code=951/954`, «Звонок не найден»):
+
+- настройка выкл. → диалог «Создать новый»;
+- настройка вкл. и есть cookie `remixsid` → создать звонок через `VkCallHashGenerator` и перезапустить Bypass, не роняя VpnService;
+- нет сессии → диалог «Войти и создать»;
+- повторный мёртвый hash в том же цикле → стоп, «создайте код вручную» (без петли).
+
+TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9 мин). Пароль VK не храним. Legacy captcha WebView — отдельно, не часть этого контура.
 
 ### Зависимость от VK (#10)
 
@@ -383,4 +390,5 @@ Call hash — **локально на устройстве**, не обязан 
 10. ~~Native Bypass (TURN TCP / vkcalls / RAW via go_client).~~ (`libclient.so` + `BypassSession`)
 11. ~~Client: WebView create-call (VK login → calls.start → hash on device).~~
 12. ~~Client: dial path UI (Авто / vkcalls / legacy) в Настройках + DataStore.~~
-13. Legacy captcha WebView bridge (если нужно); WARP egress (не stub); UX vs SmartVPN.
+13. ~~Мёртвый звонок: диалог Ask/NeedLogin или тихий recreate (один attempt).~~
+14. Legacy captcha WebView bridge (если нужно); WARP egress (не stub); UX vs SmartVPN.

@@ -9,7 +9,14 @@ import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import com.nonamevpn.app.bypass.CallHashStore
+import com.nonamevpn.app.bypass.CallRecreatePrompt
+import com.nonamevpn.app.bypass.DeadCallAction
 import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.bypass.VkCallHashGenerator
+import com.nonamevpn.app.bypass.VkLoginActivity
+import com.nonamevpn.app.bypass.VkSession
+import com.nonamevpn.app.bypass.decideDeadCallAction
+import com.nonamevpn.app.bypass.isDeadCallMessage
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.unlock.DeviceUnlockCopy
@@ -49,6 +56,7 @@ data class ConnUiState(
     val connectEnabled: Boolean = false,
     val lastError: String? = null,
     val hasCallHash: Boolean = false,
+    val callRecreatePrompt: CallRecreatePrompt? = null,
 )
 
 class ConnectionManager(
@@ -69,7 +77,9 @@ class ConnectionManager(
     private var provisionUrl: String? = null
     private var tunAddress: String? = null
     private var workers: Int = BypassWorkers.DEFAULT
-    private var silentRecreate: Boolean = false
+    @Volatile private var silentRecreate: Boolean = false
+    @Volatile private var callRecreateAttempts: Int = 0
+    private var callRecreateJob: Job? = null
     private var dialPath: DialPath = DialPath.Auto
     private var pathMode: ConnPathMode = ConnPathMode.Auto
     /** Soft transport restart in progress (Wi‑Fi↔LTE); do not treat as user disconnect. */
@@ -426,6 +436,10 @@ class ConnectionManager(
             AppLog.v(TAG, "Probe skipped — tunnel busy (${_ui.value.state})")
             return
         }
+        if (_ui.value.callRecreatePrompt != null) {
+            AppLog.v(TAG, "Probe skipped — waiting for call recreate")
+            return
+        }
         probeJob?.cancel()
         probeJob = scope.launch {
             AppLog.v(TAG, "Probe start endpoint=$directEndpoint provision=$provisionUrl")
@@ -489,6 +503,7 @@ class ConnectionManager(
         lastHandoverBindHandle = null
         deadDirectBindHandle = null
         blockBypassToDirectUntilUnderlayChange = false
+        callRecreateAttempts = 0
 
         // Sync Hide-IP preference to VPS (policy route via warp0). WARP must be up.
         if (current.hideIp) {
@@ -712,6 +727,9 @@ class ConnectionManager(
         lastHandoverBindHandle = null
         deadDirectBindHandle = null
         blockBypassToDirectUntilUnderlayChange = false
+        callRecreateAttempts = 0
+        callRecreateJob?.cancel()
+        callRecreateJob = null
         presenceJob?.cancel()
         presenceJob = null
         connectJob?.cancel()
@@ -724,6 +742,7 @@ class ConnectionManager(
                 statusText = "Отключение…",
                 connectEnabled = false,
                 lastError = null,
+                callRecreatePrompt = null,
             )
             // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
             // If user turned hideIp off, clear server route.
@@ -1110,8 +1129,12 @@ class ConnectionManager(
                 },
                 connectEnabled = true,
                 lastError = null,
+                callRecreatePrompt = null,
                 softInfo = softInfoFor(_ui.value.probe),
             )
+            if (path == VpnPath.Bypass) {
+                callRecreateAttempts = 0
+            }
             refreshVpnNotification()
             if (pendingHideIpSync || _ui.value.hideIp) {
                 val want = _ui.value.hideIp
@@ -1138,17 +1161,20 @@ class ConnectionManager(
     }
 
     /**
-     * @return true if the VPN service should switch to Bypass instead of stopping.
+     * @return what VpnTunnelService should do instead of blindly stopping.
      */
-    fun onTunnelFailed(message: String): Boolean {
+    fun onTunnelFailed(message: String): TunnelFailureAction {
         if (
             message.contains("cancelled", ignoreCase = true) ||
             message.contains("StandaloneCoroutine", ignoreCase = true)
         ) {
             AppLog.w(TAG, "Ignoring cancel as tunnel failure: $message")
-            return false
+            return TunnelFailureAction.Ignore
         }
         val failedPath = TunnelSessionHolder.config?.path ?: _ui.value.activePath
+        if (failedPath == VpnPath.Bypass && isDeadCallMessage(message)) {
+            return onDeadCallFailed(message)
+        }
         val canFallback =
             pathMode == ConnPathMode.Auto &&
                 failedPath == VpnPath.Direct &&
@@ -1163,27 +1189,152 @@ class ConnectionManager(
                 activePath = VpnPath.Bypass,
                 statusText = "Прямое подключение недоступно. Выполняется переход на обход…",
                 lastError = null,
+                callRecreatePrompt = null,
                 connectEnabled = true,
             )
-            return true
+            return TunnelFailureAction.SwitchToBypass
         }
+        failToError(message)
+        return TunnelFailureAction.Stop
+    }
+
+    fun dismissCallRecreatePrompt() {
+        _ui.value = _ui.value.copy(callRecreatePrompt = null)
+    }
+
+    /** User confirmed a new VK call from the Tunnel dialog. */
+    fun confirmCallRecreate() {
+        startCallRecreate(holdService = false)
+    }
+
+    private fun startCallRecreate(holdService: Boolean) {
+        if (callRecreateJob?.isActive == true) {
+            AppLog.w(TAG, "Call recreate already in progress")
+            return
+        }
+        callRecreateJob = scope.launch {
+            recreateCallThenReconnect(holdService = holdService)
+        }
+    }
+
+    private fun onDeadCallFailed(message: String): TunnelFailureAction {
+        val action = decideDeadCallAction(
+            silentRecreate = silentRecreate,
+            hasVkSession = VkSession.hasSessionCookie(),
+            recreateAttempts = callRecreateAttempts,
+        )
+        AppLog.i(TAG, "Dead VK call action=$action attempts=$callRecreateAttempts silent=$silentRecreate")
+        return when (action) {
+            DeadCallAction.SilentRecreate -> {
+                startCallRecreate(holdService = true)
+                TunnelFailureAction.HoldForCallRecreate
+            }
+            DeadCallAction.AskUser -> {
+                failToError(
+                    message = message,
+                    prompt = CallRecreatePrompt.Ask,
+                    status = "Звонок закрыт",
+                )
+                TunnelFailureAction.Stop
+            }
+            DeadCallAction.NeedVkLogin -> {
+                failToError(
+                    message = "Звонок закрыт. Войдите во ВКонтакте, чтобы создать новый код.",
+                    prompt = CallRecreatePrompt.NeedLogin,
+                    status = "Нужна авторизация ВКонтакте",
+                )
+                TunnelFailureAction.Stop
+            }
+            DeadCallAction.GiveUp -> {
+                failToError("Не удалось обновить звонок. Создайте код вручную в настройках.")
+                TunnelFailureAction.Stop
+            }
+        }
+    }
+
+    private suspend fun recreateCallThenReconnect(holdService: Boolean) {
+        callRecreateAttempts++
+        _ui.value = _ui.value.copy(
+            state = ConnState.Connecting,
+            activePath = VpnPath.Bypass,
+            statusText = if (holdService) "Обновляю звонок…" else "Создаю новый звонок…",
+            lastError = null,
+            callRecreatePrompt = null,
+            connectEnabled = true,
+            softInfo = "Нужна сессия ВКонтакте на этом устройстве.",
+        )
+        if (!VkSession.hasSessionCookie()) {
+            val login = runCatching { VkLoginActivity.login(appContext) }.getOrElse { Result.failure(it) }
+            if (login.isFailure || !VkSession.hasSessionCookie()) {
+                failToError(
+                    message = login.exceptionOrNull()?.message
+                        ?: "Авторизация ВКонтакте не выполнена.",
+                    prompt = CallRecreatePrompt.NeedLogin,
+                    status = "Нужна авторизация ВКонтакте",
+                )
+                if (holdService) stopTunnel()
+                return
+            }
+        }
+        val generated = VkCallHashGenerator.generateOne(appContext)
+        val hash = generated.getOrNull()
+        if (hash.isNullOrBlank()) {
+            failToError(
+                message = generated.exceptionOrNull()?.message
+                    ?: "Не удалось создать новый звонок.",
+                prompt = if (VkSession.hasSessionCookie()) {
+                    CallRecreatePrompt.Ask
+                } else {
+                    CallRecreatePrompt.NeedLogin
+                },
+                status = "Не удалось обновить звонок",
+            )
+            if (holdService) stopTunnel()
+            return
+        }
+        saveCallHash(hash)
+        applySessionPath(VpnPath.Bypass)
+        AppLog.i(TAG, "Saved recreated call hash, restarting Bypass hold=$holdService")
+        if (holdService && TunnelSessionHolder.config != null) {
+            requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
+        } else {
+            _ui.value = _ui.value.copy(
+                state = ConnState.Ready,
+                lastError = null,
+                callRecreatePrompt = null,
+                connectEnabled = true,
+            )
+            connect()
+        }
+    }
+
+    private fun failToError(
+        message: String,
+        prompt: CallRecreatePrompt? = null,
+        status: String? = null,
+    ) {
         val wasSoft = softRestartInProgress
         softRestartInProgress = false
-        scope.launch {
-            if (_ui.value.state == ConnState.Disconnecting || _ui.value.state == ConnState.Ready) {
-                AppLog.w(TAG, "Ignoring late tunnel failure in ${_ui.value.state}: $message")
-                return@launch
-            }
-            stopTunnel()
-            _ui.value = _ui.value.copy(
-                state = ConnState.Error,
-                activePath = null,
-                statusText = if (wasSoft) "Не удалось переподключиться" else "Ошибка подключения",
-                lastError = message,
-                connectEnabled = connectAllowed(_ui.value.probe),
-            )
+        val cur = _ui.value
+        if (cur.state == ConnState.Disconnecting) {
+            AppLog.w(TAG, "Ignoring late tunnel failure in Disconnecting: $message")
+            return
         }
-        return false
+        if (cur.state == ConnState.Ready && prompt == null) {
+            AppLog.w(TAG, "Ignoring late tunnel failure in Ready: $message")
+            return
+        }
+        // Set Error before stopSelf/onDestroy can flip Connecting → Ready and drop the dialog.
+        _ui.value = cur.copy(
+            state = ConnState.Error,
+            activePath = null,
+            statusText = status
+                ?: if (wasSoft) "Не удалось переподключиться" else "Ошибка подключения",
+            lastError = message,
+            callRecreatePrompt = prompt,
+            connectEnabled = connectAllowed(cur.probe),
+        )
+        scope.launch { stopTunnel() }
     }
 
     fun onServiceStopped() {
