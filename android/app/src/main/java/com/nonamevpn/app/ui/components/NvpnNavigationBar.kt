@@ -106,7 +106,7 @@ fun NvpnNavigationBar(
 
         Surface(
             shape = RoundedCornerShape(28.dp),
-            color = NvpnFloatingShell.shellColor(opaque = true),
+            color = shellColor,
             border = NvpnFloatingShell.shellBorder(),
             tonalElevation = 0.dp,
             shadowElevation = NvpnFloatingShell.shadowElevation,
