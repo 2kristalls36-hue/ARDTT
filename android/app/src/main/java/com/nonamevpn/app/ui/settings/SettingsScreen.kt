@@ -5,22 +5,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
@@ -36,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,9 +44,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import android.widget.Toast
 import androidx.compose.ui.unit.dp
@@ -80,7 +77,6 @@ import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.AppWallpaper
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
@@ -96,13 +92,17 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     settings: AppSettingsRepository,
+    isRecording: Boolean = false,
+    scrollToDial: Boolean = false,
+    onScrolledToDial: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val recorder = remember { TelemetryRecorder.get(context) }
-    val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
+    val recorderActive by recorder.isRecording.collectAsStateWithLifecycle()
+    val recordingActive = isRecording || recorderActive
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -113,7 +113,6 @@ fun SettingsScreen(
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
     val dynamicColor by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = true)
-    val currentWallpaper by settings.wallpaperFlow.collectAsStateWithLifecycle(initialValue = "none")
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
@@ -121,6 +120,8 @@ fun SettingsScreen(
     val updateBringIntoView = remember { BringIntoViewRequester() }
     val openAppearanceSettings by PendingUiAction.openAppearanceSettings.collectAsStateWithLifecycle()
     val appearanceBringIntoView = remember { BringIntoViewRequester() }
+    val scrollState = rememberScrollState()
+    var dialCardOffsetY by remember { mutableFloatStateOf(-1f) }
     val vpnSessionActive = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
         connUi.state == ConnState.PausedTrustedWifi ||
@@ -211,7 +212,15 @@ fun SettingsScreen(
         updates.checkAndWait()
     }
 
+    LaunchedEffect(scrollToDial, dialCardOffsetY) {
+        if (scrollToDial && dialCardOffsetY >= 0f) {
+            scrollState.animateScrollTo(dialCardOffsetY.toInt().coerceAtLeast(0))
+            onScrolledToDial()
+        }
+    }
+
     EdgeFeedColumn(
+        scrollState = scrollState,
         refreshing = pull.refreshing,
         onRefresh = pull.onRefresh,
     ) {
@@ -352,7 +361,11 @@ fun SettingsScreen(
         TrustedWifiSettingsCard(settings = settings)
 
         AppSectionCard(
-            modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
+            modifier = Modifier
+                .bringIntoViewRequester(callHashBringIntoView)
+                .onGloballyPositioned { coordinates ->
+                    dialCardOffsetY = coordinates.positionInParent().y
+                },
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -393,64 +406,44 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f + 0.50f * appearanceHighlightAlpha),
             ),
         ) {
-            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
-                DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
-                DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                RowSetting(
-                    title = "Динамические цвета",
-                    subtitle = "Material You",
-                    checked = dynamicColor,
-                    onCheckedChange = { scope.launch { settings.setDynamicColor(it) } },
-                )
-            }
-            if (!dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                Text(
-                    "Цветовая палитра",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+            if (!recordingActive) {
+                Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PaletteCircle("indigo", 0xFF5B588D, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("forest", 0xFF5F5D68, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
+                    DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
+                    DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
+                    DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
                 }
-            }
-            Text(
-                "Фоновые обои",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppWallpaper.entries.forEach { wp ->
-                    WallpaperCard(
-                        wallpaper = wp,
-                        selected = wp.id == currentWallpaper,
-                        onClick = {
-                            scope.launch { settings.setWallpaper(wp.id) }
-                        },
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    RowSetting(
+                        title = "Динамические цвета",
+                        subtitle = "Material You",
+                        checked = dynamicColor,
+                        onCheckedChange = { scope.launch { settings.setDynamicColor(it) } },
                     )
+                }
+                if (!dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                    Text(
+                        "Цветовая палитра",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PaletteCircle("indigo", 0xFF5B588D, themePalette) {
+                            scope.launch { settings.setThemePalette(it) }
+                        }
+                        PaletteCircle("forest", 0xFF5F5D68, themePalette) {
+                            scope.launch { settings.setThemePalette(it) }
+                        }
+                        PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
+                            scope.launch { settings.setThemePalette(it) }
+                        }
+                    }
                 }
             }
             RowSetting(
@@ -510,7 +503,7 @@ fun SettingsScreen(
                     checked = testingMode,
                     onCheckedChange = { enabled ->
                         if (!enabled) {
-                            if (!TestingSessionGuard.canLeaveTestingSession(isRecording)) {
+                            if (!TestingSessionGuard.canLeaveTestingSession(recordingActive)) {
                                 refuseLeaveTestingSession()
                             } else {
                                 scope.launch { settings.setTestingMode(false) }
@@ -522,7 +515,7 @@ fun SettingsScreen(
                 )
                 OutlinedButton(
                     onClick = {
-                        if (!TestingSessionGuard.canLeaveTestingSession(isRecording)) {
+                        if (!TestingSessionGuard.canLeaveTestingSession(recordingActive)) {
                             refuseLeaveTestingSession()
                         } else {
                             scope.launch {
@@ -933,64 +926,6 @@ private fun DialChip(
             },
         ),
     )
-}
-
-@Composable
-private fun WallpaperCard(
-    wallpaper: AppWallpaper,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val borderStroke = if (selected) {
-        BorderStroke(2.5.dp, colors.primary)
-    } else {
-        BorderStroke(1.dp, colors.outline.copy(alpha = 0.35f))
-    }
-
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        border = borderStroke,
-        modifier = Modifier
-            .width(76.dp)
-            .height(118.dp),
-        color = colors.surfaceVariant,
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (wallpaper.drawableRes != null) {
-                Image(
-                    painter = painterResource(id = wallpaper.drawableRes),
-                    contentDescription = wallpaper.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(colors.surface),
-                )
-            }
-
-            Surface(
-                color = Color.Black.copy(alpha = 0.65f),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
-            ) {
-                Text(
-                    text = wallpaper.title,
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
 }
 
 @Composable

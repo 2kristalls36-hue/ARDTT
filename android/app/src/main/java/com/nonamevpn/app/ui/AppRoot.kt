@@ -103,7 +103,6 @@ fun AppRoot(
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
-    val wallpaper by settings.wallpaperFlow.collectAsStateWithLifecycle(initialValue = "none")
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
@@ -132,6 +131,7 @@ fun AppRoot(
     }
     val selectedNavRoute = currentRoute
     var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
+    var scrollToDialInSettings by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -284,7 +284,7 @@ fun AppRoot(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AppBackdrop(
-                wallpaperId = wallpaper,
+                wallpaperId = "collage",
                 modifier = Modifier.fillMaxSize(),
             )
             if (softenBackdropForUserMode) {
@@ -304,12 +304,8 @@ fun AppRoot(
                         settings = settings,
                         profiles = profiles,
                         onRequestConnect = { requestVpnThenConnect() },
-                        onOpenWallpaperSettings = {
-                            PendingUiAction.requestOpenAppearanceSettings()
-                            navigateTab(AppDestination.Settings.route)
-                        },
-                        onOpenCallHashSettings = {
-                            PendingUiAction.requestCallHashSettings()
+                        onNavigateToDialSettings = {
+                            scrollToDialInSettings = true
                             navigateTab(AppDestination.Settings.route)
                         },
                     )
@@ -336,7 +332,12 @@ fun AppRoot(
                     LogsScreen()
                 }
                 composable(AppDestination.Settings.route) {
-                    SettingsScreen(settings = settings)
+                    SettingsScreen(
+                        settings = settings,
+                        isRecording = isRecording,
+                        scrollToDial = scrollToDialInSettings,
+                        onScrolledToDial = { scrollToDialInSettings = false },
+                    )
                 }
                 composable(AppDestination.Testing.route) {
                     TestingScreen(profiles = profiles)

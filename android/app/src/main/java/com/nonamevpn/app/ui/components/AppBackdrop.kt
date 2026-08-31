@@ -30,22 +30,22 @@ enum class AppWallpaper(
     @DrawableRes val drawableRes: Int?,
 ) {
     None("none", "Градиент", null),
-    Morning("morning", "Утро", R.drawable.bg_refinery_morning),
     Day("day", "День", R.drawable.bg_refinery_day),
     Sunset("sunset", "Закат", R.drawable.bg_refinery_sunset),
     Night("night", "Ночь", R.drawable.bg_refinery_night),
     Fog("fog", "Туман", R.drawable.bg_refinery_fog),
-    Storm("storm", "Гроза", R.drawable.bg_refinery_storm);
+    Collage("collage", "Коллаж", R.drawable.bg_refinery_collage);
 
     companion object {
-        fun fromId(id: String?): AppWallpaper = entries.find { it.id.equals(id, ignoreCase = true) } ?: None
+        fun fromId(id: String?): AppWallpaper =
+            entries.find { it.id.equals(id, ignoreCase = true) } ?: Collage
     }
 }
 
 /** Soft gradient + glow orbs or custom illustrated wallpaper behind screens. */
 @Composable
 fun AppBackdrop(
-    wallpaperId: String = "none",
+    wallpaperId: String = "collage",
     modifier: Modifier = Modifier,
 ) {
     val wallpaper = remember(wallpaperId) { AppWallpaper.fromId(wallpaperId) }
@@ -71,9 +71,9 @@ fun AppBackdrop(
 
     if (wallpaper.drawableRes != null) {
         val overlayColor = if (isDark) {
-            Color(0xFF0F0E13).copy(alpha = 0.82f)
+            Color(0xFF0F0E13).copy(alpha = 0.65f)
         } else {
-            Color(0xFFF7F5F0).copy(alpha = 0.84f)
+            Color(0xFFF7F5F0).copy(alpha = 0.68f)
         }
         Box(
             modifier = modifier

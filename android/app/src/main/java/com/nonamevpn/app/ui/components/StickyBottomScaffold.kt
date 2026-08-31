@@ -1,5 +1,6 @@
 package com.nonamevpn.app.ui.components
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -83,6 +84,7 @@ fun StickyBottomScaffold(
                     .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                EdgeFeedTopInset()
                 content()
             }
         }
@@ -126,21 +128,23 @@ fun EdgeFeedTopInset(extra: Dp = 8.dp) {
 @Composable
 fun EdgeFeedColumn(
     modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState(),
     bottomExtra: Dp = 24.dp,
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val feed: @Composable () -> Unit = {
+    val feed: @Composable (Modifier: Modifier) -> Unit = { columnModifier ->
         Column(
-            modifier = Modifier
+            modifier = columnModifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
             verticalArrangement = verticalArrangement,
         ) {
+            EdgeFeedTopInset()
             content()
         }
     }
@@ -150,19 +154,10 @@ fun EdgeFeedColumn(
             onRefresh = onRefresh,
             modifier = modifier.fillMaxSize(),
         ) {
-            feed()
+            feed(Modifier)
         }
     } else {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
-            verticalArrangement = verticalArrangement,
-        ) {
-            content()
-        }
+        feed(modifier)
     }
 }
 
