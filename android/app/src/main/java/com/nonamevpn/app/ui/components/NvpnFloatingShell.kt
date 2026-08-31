@@ -21,16 +21,13 @@ object NvpnFloatingShell {
     fun isDarkTheme(): Boolean = MaterialTheme.colorScheme.background.luminance() < 0.22f
 
     @Composable
-    fun shellColor(opaque: Boolean = false): Color {
+    fun shellColor(): Color {
         val colors = MaterialTheme.colorScheme
-        val isDark = isDarkTheme()
-        val base = if (isDark) {
-            lerp(colors.surface, colors.surfaceVariant, 0.10f)
+        return if (isDarkTheme()) {
+            colors.surface.copy(alpha = DarkShellAlpha)
         } else {
-            lerp(colors.surface, colors.surfaceVariant, 0.48f)
+            lerp(colors.surface, colors.surfaceVariant, 0.48f).copy(alpha = LightShellAlpha)
         }
-        if (opaque) return base
-        return base.copy(alpha = if (isDark) DarkShellAlpha else LightShellAlpha)
     }
 
     @Composable
