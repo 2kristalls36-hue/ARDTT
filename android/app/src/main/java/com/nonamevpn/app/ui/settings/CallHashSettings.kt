@@ -14,11 +14,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,18 +98,6 @@ fun CallHashSettingsContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(
-            when {
-                vpnActive -> "Недоступно во время соединения."
-                !message.isNullOrBlank() -> message.orEmpty()
-                ui.hasCallHash -> "Код сохранён на этом устройстве."
-                vkLoggedIn -> "Вход выполнен. Создайте код звонка."
-                profile == null -> "Сначала выберите профиль."
-                else -> "Код не задан."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -138,6 +127,29 @@ fun CallHashSettingsContent(
             ) {
                 Text("Авторизация")
             }
+            Button(
+                onClick = {
+                    VkSession.clear()
+                    vkLoggedIn = false
+                    message = "Сессия ВКонтакте завершена."
+                },
+                enabled = !vpnActive && !busy && vkLoggedIn,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                ),
+            ) {
+                Text("Завершить сессию ВКонтакте")
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             OutlinedButton(
                 onClick = {
                     scope.launch {
@@ -158,29 +170,29 @@ fun CallHashSettingsContent(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                Text("Создать")
+                Text("Новый код")
             }
-        }
-        OutlinedButton(
-            onClick = { showManual = true },
-            enabled = canEdit,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-        ) {
-            Text("Ввести вручную")
-        }
-        if (vkLoggedIn) {
-            TextButton(
-                onClick = {
-                    VkSession.clear()
-                    vkLoggedIn = false
-                    message = "Сессия ВКонтакте завершена."
-                },
-                enabled = !vpnActive && !busy,
+            OutlinedButton(
+                onClick = { showManual = true },
+                enabled = canEdit,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
             ) {
-                Text("Завершить сессию ВКонтакте")
+                Text("Ввести вручную")
             }
         }
+        Text(
+            when {
+                vpnActive -> "Недоступно во время соединения."
+                !message.isNullOrBlank() -> message.orEmpty()
+                ui.hasCallHash -> "Код сохранён на этом устройстве."
+                vkLoggedIn -> "Вход выполнен. Создайте код звонка."
+                profile == null -> "Сначала выберите профиль."
+                else -> "Код не задан."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
     }
 
     if (showManual) {
