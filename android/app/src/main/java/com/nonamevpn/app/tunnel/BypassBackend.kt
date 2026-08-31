@@ -97,6 +97,14 @@ class BypassBackend(
         session.stop(keepTun = true)
     }
 
+    /** Leave libclient in the VK call; TUN is released for Direct. */
+    fun parkCall() {
+        session.parkCall()
+    }
+
+    val isCallParked: Boolean
+        get() = session.isCallParked
+
     companion object {
         private const val TAG = "BypassBackend"
     }

@@ -490,7 +490,7 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            NetworkHandoverDecision.SoftRestartSamePath,
+            NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Bypass,
@@ -610,11 +610,20 @@ class NetworkRecoveryPolicyTest {
         assertEquals(80L, updatedUnderlyingNetworkEvidenceSince(50L, 80L))
         assertEquals(90L, updatedUnderlyingNetworkEvidenceSince(90L, 20L))
 
+        assertFalse(
+            shouldSkipHandoverRestartIfTrafficFresh(
+                bypassTrafficFresh = true,
+                directTrafficFresh = false,
+                path = VpnPath.Bypass,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
         assertTrue(
             shouldSkipHandoverRestartIfTrafficFresh(
                 bypassTrafficFresh = true,
                 directTrafficFresh = false,
                 path = VpnPath.Bypass,
+                underlayKind = UnderlayKind.Cellular,
             ),
         )
         assertFalse(
@@ -661,8 +670,9 @@ class NetworkRecoveryPolicyTest {
                 skipWait = true,
             ),
         )
-        assertTrue(shouldSkipValidatedWait(VpnPath.Bypass, UnderlayKind.Wifi))
+        assertFalse(shouldSkipValidatedWait(VpnPath.Bypass, UnderlayKind.Wifi))
         assertTrue(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Cellular))
+        assertTrue(shouldSkipValidatedWait(VpnPath.Bypass, UnderlayKind.Cellular))
         assertFalse(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Wifi))
         assertEquals(
             BYPASS_UNVALIDATED_SETTLE_MS,
@@ -782,21 +792,30 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
-    fun cellularAutoGoesBypassEvenIfVpsTcpIsUp() {
-        assertTrue(shouldAutoUseBypassOnCellular(true, UnderlayKind.Cellular))
-        assertFalse(shouldAutoUseBypassOnCellular(false, UnderlayKind.Cellular))
-        assertFalse(shouldAutoUseBypassOnCellular(true, UnderlayKind.Wifi))
+    fun cellularAutoKeepsDirectWhenVpsIsReachable() {
         assertEquals(UnderlayKind.Wifi, classifyUnderlayKind(wifi = true, cellular = true))
         assertEquals(UnderlayKind.Cellular, classifyUnderlayKind(wifi = false, cellular = true))
 
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            NetworkHandoverDecision.SoftRestartSamePath,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
                 probedPath = VpnPath.Direct,
                 bypassAllowed = true,
                 underlayVpsReachable = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayVpsReachable = false,
                 underlayChanged = true,
                 underlayKind = UnderlayKind.Cellular,
             ),
@@ -853,5 +872,43 @@ class NetworkRecoveryPolicyTest {
                 handoffAtMs = 1_000L,
             ),
         )
+    }
+
+    @Test
+    fun wifiUnderlaySwitchesBypassToDirectImmediately() {
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayVpsReachable = false,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayVpsReachable = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Wifi,
+                directFailedOnCurrentUnderlay = true,
+            ),
+        )
+    }
+
+    @Test
+    fun parkBypassCallOnlyWhenLeavingForDirect() {
+        assertTrue(shouldParkBypassCall(VpnPath.Bypass, VpnPath.Direct))
+        assertFalse(shouldParkBypassCall(VpnPath.Direct, VpnPath.Bypass))
+        assertFalse(shouldParkBypassCall(VpnPath.Bypass, VpnPath.Bypass))
+        assertEquals(UnderlayKind.Wifi, preferWifiUnderlayKind(true, UnderlayKind.Cellular))
+        assertEquals(UnderlayKind.Cellular, preferWifiUnderlayKind(false, UnderlayKind.Cellular))
     }
 }

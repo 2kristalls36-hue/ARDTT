@@ -838,34 +838,31 @@ class ConnectionManager(
             return decision
         }
 
-        if (
-            underlayChanged &&
-            shouldAutoUseBypassOnCellular(bypassAllowed, kind)
-        ) {
+        if (underlayChanged && kind == UnderlayKind.Wifi) {
             AppLog.v(
                 TAG,
-                "Handover: skip VPS probe — cellular Auto uses Bypass path=$currentPath kind=$kind",
+                "Handover: skip VPS probe — Wi‑Fi Auto uses Direct path=$currentPath",
             )
             val decision = decideNetworkHandoverAction(
                 pathMode = mode,
                 currentPath = currentPath,
-                probedPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
                 bypassAllowed = bypassAllowed,
                 sessionAgeMs = handoverSessionAgeMs(),
                 currentPathHealthy = pathHealthy,
-                underlayVpsReachable = false,
+                underlayVpsReachable = true,
                 sameProbeStreak = 1,
                 underlayChanged = true,
                 allowBypassToDirect = allowBypassToDirect,
                 directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
-                underlayKind = kind,
+                underlayKind = UnderlayKind.Wifi,
             )
             when (decision) {
                 NetworkHandoverDecision.NoAction -> {
-                    AppLog.v(TAG, "Handover: no action (cellular skip-probe) path=$currentPath")
+                    AppLog.v(TAG, "Handover: no action (Wi‑Fi skip-probe) path=$currentPath")
                 }
                 is NetworkHandoverDecision.SwitchPath -> {
-                    AppLog.v(TAG, "Handover: switch $currentPath → ${decision.path} (cellular)")
+                    AppLog.v(TAG, "Handover: switch $currentPath → ${decision.path} (Wi‑Fi)")
                     applySessionPath(decision.path)
                     softRestartInProgress = true
                     _ui.value = _ui.value.copy(
@@ -877,7 +874,7 @@ class ConnectionManager(
                     )
                 }
                 NetworkHandoverDecision.SoftRestartSamePath -> {
-                    AppLog.v(TAG, "Handover: keep $currentPath (cellular skip-probe)")
+                    AppLog.v(TAG, "Handover: keep $currentPath (Wi‑Fi skip-probe)")
                 }
             }
             return decision
