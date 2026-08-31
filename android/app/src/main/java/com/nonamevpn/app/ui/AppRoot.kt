@@ -23,6 +23,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -114,6 +115,12 @@ fun AppRoot(
     val navItems = tabs.map { dest ->
         NavBarItem(route = dest.route, label = dest.navLabel, icon = dest.icon())
     }
+    val tabReselectSignal = remember { mutableStateMapOf<String, Int>() }
+    tabs.forEach { tab ->
+        if (tab.route !in tabReselectSignal) {
+            tabReselectSignal[tab.route] = 0
+        }
+    }
     val selectedNavRoute = currentRoute
     var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
@@ -173,6 +180,11 @@ fun AppRoot(
     }
 
     fun navigateTab(route: String) {
+        if (route == currentRoute) {
+            tabReselectSignal[route] = (tabReselectSignal[route] ?: 0) + 1
+            navController.popBackStack(route, inclusive = false)
+            return
+        }
         navController.navigate(route) {
             popUpTo(AppDestination.Tunnel.route) { saveState = true }
             launchSingleTop = true
@@ -268,6 +280,7 @@ fun AppRoot(
                         serversRepo = serversRepo,
                         engine = deployEngine,
                         profiles = profiles,
+                        reselectSignal = tabReselectSignal[AppDestination.Servers.route] ?: 0,
                     )
                 }
                 composable(AppDestination.Profiles.route) {
