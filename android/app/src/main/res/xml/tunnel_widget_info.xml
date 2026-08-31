@@ -4,5 +4,6 @@
     android:minHeight="70dp"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/tunnel_widget"
+    android:previewImage="@drawable/ic_logo_full"
     android:resizeMode="horizontal"
     android:widgetCategory="home_screen" />

@@ -1,9 +1,12 @@
 package com.nonamevpn.app.ui.admin
 
+import android.Manifest
 import android.content.Context
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,7 +40,6 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,7 +61,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -77,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.deploy.DeployBundle
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
@@ -85,6 +87,7 @@ import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
+import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -92,15 +95,37 @@ import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+
+@Composable
+private fun rememberStartDeploy(engine: DeployEngine): (DeployTarget, Boolean) -> Boolean {
+    val context = LocalContext.current
+    val pending = remember { mutableStateOf<Pair<DeployTarget, Boolean>?>(null) }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        val job = pending.value ?: return@rememberLauncherForActivityResult
+        pending.value = null
+        engine.enqueue(job.first, job.second)
+    }
+    return { target, isUpdate ->
+        if (needsNotificationPermission(context) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        ) {
+            pending.value = target to isUpdate
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            true
+        } else {
+            engine.enqueue(target, isUpdate)
+        }
+    }
+}
 
 private sealed class ServersNavScreen {
     data object List : ServersNavScreen()
@@ -164,75 +189,22 @@ private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
     },
 )
 
-private sealed class HealthUi {
-    data object Checking : HealthUi()
-    data class Online(val deployVersion: String = "") : HealthUi()
-    data object Offline : HealthUi()
-}
-
-private fun formatDeployRelative(ms: Long): String {
-    if (ms <= 0L) return ""
-    val diff = (System.currentTimeMillis() - ms).coerceAtLeast(0L)
-    val minutes = diff / 60_000L
-    val hours = diff / 3_600_000L
-    val days = diff / 86_400_000L
-    return when {
-        minutes < 1L -> "только что"
-        minutes < 60L -> "$minutes мин назад"
-        hours < 24L -> "$hours ч назад"
-        days < 30L -> "$days дн назад"
-        else -> SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(ms))
-    }
-}
-
 private fun healthStatusLine(
     health: HealthUi?,
     lastDeployedAtMs: Long,
     expectedVersion: String,
 ): Pair<String, Color?> {
-    return when (health) {
-        null, HealthUi.Checking -> "● Проверка…" to null
-        is HealthUi.Online -> {
-            val ver = health.deployVersion.ifBlank { "—" }
-            val current = DeployBundle.isCurrent(health.deployVersion, expectedVersion)
-            val freshness = if (current) "актуален" else "нужно обновить"
-            val base = "● Онлайн · деплой $ver · $freshness"
-            val text = if (lastDeployedAtMs > 0L) {
-                "$base · ${formatDeployRelative(lastDeployedAtMs)}"
+    val text = healthStatusLabel(health, lastDeployedAtMs)
+    val hint = when (health) {
+        is HealthUi.Online ->
+            if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
+                NvpnColors.connected
             } else {
-                base
+                NvpnColors.warning
             }
-            text to if (current) NvpnColors.connected else NvpnColors.warning
-        }
-        HealthUi.Offline -> {
-            val text = if (lastDeployedAtMs == 0L) {
-                "● Не установлен / нет связи"
-            } else {
-                "● Нет связи"
-            }
-            text to null // error color applied by caller when null + offline
-        }
+        else -> null
     }
-}
-
-/** Green = current stack; orange = online but outdated; null = no special border. */
-private fun deployFreshnessBorder(
-    health: HealthUi?,
-    isActiveDeploy: Boolean,
-    expectedVersion: String,
-): BorderStroke? {
-    if (!isActiveDeploy) return null
-    val online = health as? HealthUi.Online ?: return BorderStroke(2.dp, NvpnColors.warning)
-    return if (DeployBundle.isCurrent(online.deployVersion, expectedVersion)) {
-        BorderStroke(2.dp, NvpnColors.connected)
-    } else {
-        BorderStroke(2.dp, NvpnColors.warning)
-    }
-}
-
-private fun isDeployOutdated(health: HealthUi?, expectedVersion: String): Boolean {
-    val online = health as? HealthUi.Online ?: return true
-    return !DeployBundle.isCurrent(online.deployVersion, expectedVersion)
+    return text to hint
 }
 
 @Composable
@@ -242,10 +214,6 @@ fun ServersScreen(
     profiles: ProfileRepository,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
-    val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
-    val activeDeployServerId = remember(servers, profile) {
-        findActiveDeployServerId(servers, activeProfileHost(profile))
-    }
     var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
         mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
     }
@@ -261,12 +229,17 @@ fun ServersScreen(
         }
     }
 
+    val openDeployId by PendingUiAction.openDeployServerId.collectAsStateWithLifecycle()
+    LaunchedEffect(openDeployId) {
+        val id = PendingUiAction.consumeOpenDeploy() ?: return@LaunchedEffect
+        screen = ServersNavScreen.Overview(id)
+    }
+
     Crossfade(targetState = screen, label = "servers_nav") { current ->
         when (val s = current) {
             is ServersNavScreen.List -> ServerListScreen(
                 servers = servers,
                 serversRepo = serversRepo,
-                activeDeployServerId = activeDeployServerId,
                 onOpenServer = { id -> screen = ServersNavScreen.Overview(id) },
                 onAddServer = { screen = ServersNavScreen.Deploy(null) },
             )
@@ -275,7 +248,6 @@ fun ServersScreen(
                 serversRepo = serversRepo,
                 engine = engine,
                 serverId = s.serverId,
-                isActiveDeploy = s.serverId == activeDeployServerId,
                 onOpenClients = { screen = ServersNavScreen.Clients(s.serverId) },
                 onOpenDeploySettings = { screen = ServersNavScreen.Deploy(s.serverId) },
                 onBack = { screen = ServersNavScreen.List },
@@ -310,41 +282,29 @@ fun ServersScreen(
 private fun ServerListScreen(
     servers: List<DeployTarget>,
     serversRepo: ServersRepository,
-    activeDeployServerId: String?,
     onOpenServer: (String) -> Unit,
     onAddServer: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
     var healthById by remember { mutableStateOf<Map<String, HealthUi>>(emptyMap()) }
-    var probing by remember { mutableStateOf(false) }
 
-    fun probeAll() {
+    suspend fun probeAll() {
         val snapshot = serversRepo.snapshot()
         if (snapshot.isEmpty()) {
             healthById = emptyMap()
-            probing = false
             return
         }
-        probing = true
         healthById = snapshot.associate { it.id to HealthUi.Checking }
-        scope.launch {
-            coroutineScope {
-                snapshot.map { target ->
-                    async {
-                        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
-                            .getOrNull()
-                        val status = if (info?.ok == true) {
-                            HealthUi.Online(info.deployVersion)
-                        } else {
-                            HealthUi.Offline
-                        }
-                        healthById = healthById + (target.id to status)
-                    }
-                }.awaitAll()
-            }
-            probing = false
+        coroutineScope {
+            snapshot.map { target ->
+                async {
+                    val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
+                        .getOrNull()
+                    val status = healthUiOf(info)
+                    healthById = healthById + (target.id to status)
+                }
+            }.awaitAll()
         }
     }
 
@@ -353,91 +313,65 @@ private fun ServerListScreen(
         probeAll()
     }
 
+    val pull = rememberPullRefresh {
+        if (servers.isNotEmpty()) probeAll()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
+        PullRefreshHost(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
         ) {
-            EdgeFeedTopInset()
-            AppTabPageHeader(
-                tabTitle = "Серверы",
-                subtitle = "Управление вашими VPS",
-                actions = {
-                    IconButton(
-                        onClick = { probeAll() },
-                        enabled = !probing && servers.isNotEmpty(),
-                    ) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = "Обновить статус",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+            ) {
+                AppTabPageHeader(
+                    title = "Управление серверами",
+                )
 
-            if (servers.isNotEmpty()) {
-                OutlinedButton(
-                    onClick = { probeAll() },
-                    enabled = !probing,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (probing) "Проверка…" else "Обновить статус всех",
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-
-            if (servers.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .widthIn(max = 340.dp)
-                            .fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                if (servers.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.Filled.Dns,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(48.dp),
-                        )
-                        Spacer(modifier = Modifier.height(26.dp))
-                        Text(
-                            "Добавьте первый VPS, чтобы установить сервер и управлять пользователями",
-                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        Column(
+                            modifier = Modifier
+                                .widthIn(max = 340.dp)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.Filled.Dns,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(48.dp),
+                            )
+                            Spacer(modifier = Modifier.height(26.dp))
+                            Text(
+                                "Добавьте первый сервер, чтобы установить стек и управлять пользователями",
+                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(servers, key = { it.id }) { server ->
-                        ServerCard(
-                            server = server,
-                            health = healthById[server.id],
-                            isActiveDeploy = server.id == activeDeployServerId,
-                            expectedVersion = expectedVersion,
-                            onOpenServer = { onOpenServer(server.id) },
-                        )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(servers, key = { it.id }) { server ->
+                            ServerCard(
+                                server = server,
+                                health = healthById[server.id],
+                                expectedVersion = expectedVersion,
+                                onOpenServer = { onOpenServer(server.id) },
+                            )
+                        }
                     }
                 }
             }
@@ -452,7 +386,6 @@ private fun ServerListScreen(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
-
     }
 }
 
@@ -460,7 +393,6 @@ private fun ServerListScreen(
 private fun ServerCard(
     server: DeployTarget,
     health: HealthUi?,
-    isActiveDeploy: Boolean,
     expectedVersion: String,
     onOpenServer: () -> Unit,
 ) {
@@ -470,13 +402,11 @@ private fun ServerCard(
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
-    val activeBorder = deployFreshnessBorder(health, isActiveDeploy, expectedVersion)
 
     AppSectionCard(
         modifier = Modifier.clickable(onClick = onOpenServer),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
-        border = activeBorder,
         shadowElevation = 0.dp,
         shape = RoundedCornerShape(24.dp),
     ) {
@@ -529,30 +459,18 @@ private fun ServerCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (isActiveDeploy) {
-                    val online = health as? HealthUi.Online
-                    val installed = online?.deployVersion.orEmpty().ifBlank { "—" }
-                    val current = online != null &&
-                        DeployBundle.isCurrent(online.deployVersion, expectedVersion)
+                deployFreshnessChipText(health, expectedVersion)?.let { chip ->
                     Spacer(modifier = Modifier.height(8.dp))
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = if (current) {
-                            NvpnColors.connected.copy(alpha = 0.18f)
-                        } else {
-                            NvpnColors.warning.copy(alpha = 0.18f)
-                        },
+                        color = NvpnColors.warning.copy(alpha = 0.18f),
                     ) {
                         Text(
-                            if (current) {
-                                "Актуальный деплой · $installed"
-                            } else {
-                                "Требуется обновление · $installed → $expectedVersion"
-                            },
+                            chip,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (current) NvpnColors.connected else NvpnColors.warning,
+                            color = NvpnColors.warning,
                         )
                     }
                 }
@@ -572,7 +490,6 @@ private fun ServerOverviewHost(
     serversRepo: ServersRepository,
     engine: DeployEngine,
     serverId: String,
-    isActiveDeploy: Boolean,
     onOpenClients: () -> Unit,
     onOpenDeploySettings: () -> Unit,
     onBack: () -> Unit,
@@ -587,11 +504,13 @@ private fun ServerOverviewHost(
     var health by remember { mutableStateOf<HealthUi?>(HealthUi.Checking) }
     val context = LocalContext.current
     val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
-    val scope = rememberCoroutineScope()
+    val startDeploy = rememberStartDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
     val progress by engine.progress.collectAsStateWithLifecycle()
     val step by engine.step.collectAsStateWithLifecycle()
     val deployLog by engine.log.collectAsStateWithLifecycle()
+    val outcome by engine.outcome.collectAsStateWithLifecycle()
+    val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
 
     LaunchedEffect(servers, serverId) {
         if (servers.isNotEmpty() && server == null) onBack()
@@ -601,35 +520,40 @@ private fun ServerOverviewHost(
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
+        health = healthUiOf(info)
     }
 
-    fun refreshHealth(target: DeployTarget) {
-        scope.launch {
-            health = HealthUi.Checking
-            val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-            health = if (info?.ok == true) HealthUi.Online(info.deployVersion) else HealthUi.Offline
+    LaunchedEffect(busy, activeTargetId, serverId) {
+        if (busy && activeTargetId == serverId) {
+            showRedeployProgress = true
+            redeployStatus = null
         }
+    }
+
+    LaunchedEffect(busy, outcome, serverId, activeTargetId) {
+        if (busy || outcome == null) return@LaunchedEffect
+        if (activeTargetId != null && activeTargetId != serverId) return@LaunchedEffect
+        if (!showRedeployProgress) return@LaunchedEffect
+        redeployStatus = outcome
+        val target = server ?: return@LaunchedEffect
+        health = HealthUi.Checking
+        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
+        health = healthUiOf(info)
     }
 
     fun startRedeploy(target: DeployTarget) {
         showRedeployConfirm = false
         showRedeployProgress = true
         redeployStatus = null
-        scope.launch {
-            val result = engine.deploy(target)
-            result.fold(
-                onSuccess = { msg ->
-                    val deployedAt = System.currentTimeMillis()
-                    serversRepo.upsert(target.copy(lastDeployedAtMs = deployedAt))
-                    redeployStatus = msg
-                    refreshHealth(target)
-                },
-                onFailure = { e ->
-                    redeployStatus = "Ошибка: ${e.message}"
-                },
-            )
+        if (!startDeploy(target, true)) {
+            redeployStatus = "Ошибка: деплой уже идёт"
         }
+    }
+
+    val pull = rememberPullRefresh {
+        val target = server ?: return@rememberPullRefresh
+        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
+        health = healthUiOf(info)
     }
 
     if (server == null) {
@@ -640,7 +564,6 @@ private fun ServerOverviewHost(
         ServerOverviewScreen(
             server = server,
             health = health,
-            isActiveDeploy = isActiveDeploy,
             expectedVersion = expectedVersion,
             onOpenClients = onOpenClients,
             onUpdateDeploy = { showRedeployConfirm = true },
@@ -650,6 +573,8 @@ private fun ServerOverviewHost(
             onShowActions = { showActions = it },
             onRename = { showRename = true },
             onDelete = { showDeleteConfirm = true },
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
         )
         if (showRename) {
             RenameServerDialog(
@@ -770,7 +695,6 @@ private fun ServerOverviewHost(
 private fun ServerOverviewScreen(
     server: DeployTarget,
     health: HealthUi?,
-    isActiveDeploy: Boolean,
     expectedVersion: String,
     onOpenClients: () -> Unit,
     onUpdateDeploy: () -> Unit,
@@ -780,6 +704,8 @@ private fun ServerOverviewScreen(
     onShowActions: (Boolean) -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
 ) {
     val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
     val statusColor = when {
@@ -787,84 +713,108 @@ private fun ServerOverviewScreen(
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
-    val activeBorder = deployFreshnessBorder(health, isActiveDeploy, expectedVersion)
+    val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
+    val publicHostLine = distinctPublicHost(server.host, server.publicHost)
+    val freshnessChip = deployFreshnessChipText(health, expectedVersion)
 
     Box(modifier = Modifier.fillMaxSize()) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        EdgeFeedTopInset()
-        AppPageHeader(
-            applyStatusBarsPadding = false,
-            contentHorizontalPadding = true,
-            title = server.name.ifBlank { server.host },
-            subtitle = "Управление сервером",
-            onBack = onBack,
-            actions = {
-                Box {
-                    IconButton(onClick = { onShowActions(true) }) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "Действия с сервером",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showActions,
-                        onDismissRequest = { onShowActions(false) },
-                        modifier = Modifier
-                            .width(216.dp)
-                            .padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(22.dp),
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        tonalElevation = 2.dp,
-                        shadowElevation = 6.dp,
-                    ) {
-                        DropdownMenuItem(
-                            modifier = Modifier.heightIn(min = 54.dp),
-                            contentPadding = PaddingValues(horizontal = 18.dp),
-                            text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
-                            leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                            onClick = {
-                                onShowActions(false)
-                                onRename()
-                            },
-                        )
-                        DropdownMenuItem(
-                            modifier = Modifier.heightIn(min = 54.dp),
-                            contentPadding = PaddingValues(horizontal = 18.dp),
-                            text = {
-                                Text(
-                                    "Удалить",
-                                    color = MaterialTheme.colorScheme.error,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Filled.Delete,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                            },
-                            onClick = {
-                                onShowActions(false)
-                                onDelete()
-                            },
-                        )
-                    }
-                }
-            },
-        )
-
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        PullRefreshHost(
+            refreshing = refreshing,
+            onRefresh = onRefresh,
         ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                EdgeFeedTopInset()
+                AppPageHeader(
+                    applyStatusBarsPadding = false,
+                    contentHorizontalPadding = true,
+                    title = server.name.ifBlank { server.host },
+                    subtitle = "Управление сервером",
+                    onBack = onBack,
+                    actions = {
+                        Box {
+                            IconButton(onClick = { onShowActions(true) }) {
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = "Действия с сервером",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showActions,
+                                onDismissRequest = { onShowActions(false) },
+                                modifier = Modifier
+                                    .width(216.dp)
+                                    .padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(22.dp),
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                tonalElevation = 2.dp,
+                                shadowElevation = 6.dp,
+                            ) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.heightIn(min = 54.dp),
+                                    contentPadding = PaddingValues(horizontal = 18.dp),
+                                    text = { Text("Обновить деплой", fontWeight = FontWeight.Medium) },
+                                    leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
+                                    onClick = {
+                                        onShowActions(false)
+                                        onUpdateDeploy()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.heightIn(min = 54.dp),
+                                    contentPadding = PaddingValues(horizontal = 18.dp),
+                                    text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                    onClick = {
+                                        onShowActions(false)
+                                        onRename()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.heightIn(min = 54.dp),
+                                    contentPadding = PaddingValues(horizontal = 18.dp),
+                                    text = {
+                                        Text(
+                                            "Удалить",
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        onShowActions(false)
+                                        onDelete()
+                                    },
+                                )
+                            }
+                        }
+                    },
+                )
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 8.dp,
+                        bottom = if (showUpdateButton) {
+                            NvpnBottomChrome.scrollContentPadding()
+                        } else {
+                            NvpnBottomChrome.navigationReserve() + 16.dp
+                        },
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
             item {
                 AppSectionCard(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    border = activeBorder,
                     shape = RoundedCornerShape(24.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -895,11 +845,13 @@ private fun ServerOverviewScreen(
                             )
                         }
                     }
-                    Text(
-                        "Публичный host: ${server.publicHost.ifBlank { server.host }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (publicHostLine != null) {
+                        Text(
+                            "Публичный host: $publicHostLine",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
                         "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}",
                         style = MaterialTheme.typography.bodySmall,
@@ -911,35 +863,19 @@ private fun ServerOverviewScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = statusColor,
                     )
-                    if (isActiveDeploy || health is HealthUi.Online || health == HealthUi.Offline) {
-                        val online = health as? HealthUi.Online
-                        val installed = online?.deployVersion.orEmpty().ifBlank {
-                            if (health == HealthUi.Offline) "нет связи" else "—"
-                        }
-                        val outdated = isDeployOutdated(health, expectedVersion)
-                        val current = !outdated && online != null
+                    if (freshnessChip != null) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = when {
-                                current -> NvpnColors.connected.copy(alpha = 0.18f)
-                                else -> NvpnColors.warning.copy(alpha = 0.18f)
-                            },
+                            color = NvpnColors.warning.copy(alpha = 0.18f),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Column(
+                            Text(
+                                freshnessChip,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Text(
-                                    when {
-                                        current -> "Актуальный деплой · $installed"
-                                        else -> "Неактуальный деплой · $installed → $expectedVersion"
-                                    },
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (current) NvpnColors.connected else NvpnColors.warning,
-                                )
-                            }
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NvpnColors.warning,
+                            )
                         }
                     }
                 }
@@ -969,23 +905,22 @@ private fun ServerOverviewScreen(
                     onClick = onOpenDeploySettings,
                 )
             }
+                }
+            }
         }
-    }
 
-        StickyPrimaryButton(
-            text = "Обновить деплой",
-            onClick = onUpdateDeploy,
-            containerColor = if (isDeployOutdated(health, expectedVersion)) {
-                NvpnColors.warning
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
-            icon = Icons.Filled.CloudUpload,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
-        )
+        if (showUpdateButton) {
+            StickyPrimaryButton(
+                text = "Обновить деплой",
+                onClick = onUpdateDeploy,
+                containerColor = NvpnColors.warning,
+                icon = Icons.Filled.CloudUpload,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
+            )
+        }
     }
 }
 
@@ -1074,11 +1009,12 @@ fun DeployScreen(
     onSaved: (serverId: String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
+    val startDeploy = rememberStartDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
     val progress by engine.progress.collectAsStateWithLifecycle()
     val step by engine.step.collectAsStateWithLifecycle()
     val log by engine.log.collectAsStateWithLifecycle()
+    val outcome by engine.outcome.collectAsStateWithLifecycle()
 
     var id by remember { mutableStateOf(initial?.id ?: serversRepo.newId()) }
     var name by remember { mutableStateOf(initial?.name ?: "") }
@@ -1108,6 +1044,14 @@ fun DeployScreen(
         directPort = t.directPort.toString()
         bypassPort = t.bypassPort.toString()
         lastDeployedAtMs = t.lastDeployedAtMs
+    }
+
+    LaunchedEffect(busy, outcome) {
+        if (!busy && outcome != null) {
+            status = outcome
+            val deployedAt = serversRepo.snapshot().find { it.id == id }?.lastDeployedAtMs
+            if (deployedAt != null && deployedAt > 0L) lastDeployedAtMs = deployedAt
+        }
     }
 
     fun buildTarget(deployedAt: Long = lastDeployedAtMs): DeployTarget = DeployTarget(
@@ -1293,18 +1237,9 @@ fun DeployScreen(
                 }
                 val target = buildTarget()
                 serversRepo.upsert(target)
-                scope.launch {
-                    status = null
-                    val result = engine.deploy(target)
-                    status = result.fold(
-                        onSuccess = { msg ->
-                            val deployedAt = System.currentTimeMillis()
-                            lastDeployedAtMs = deployedAt
-                            serversRepo.upsert(target.copy(lastDeployedAtMs = deployedAt))
-                            msg
-                        },
-                        onFailure = { "Ошибка: ${it.message}" },
-                    )
+                status = null
+                if (!startDeploy(target, isUpdate)) {
+                    status = "Ошибка: деплой уже идёт"
                 }
             },
             enabled = !busy,
@@ -1332,10 +1267,9 @@ fun DeployScreen(
 
         OutlinedButton(
             onClick = onBack,
-            enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Назад")
+            Text(if (busy) "Свернуть (деплой в фоне)" else "Назад")
         }
 
         if (busy) {

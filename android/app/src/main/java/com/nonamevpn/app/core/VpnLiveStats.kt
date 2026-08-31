@@ -29,6 +29,9 @@ object VpnLiveStats {
         private set
     @Volatile var source: String? = null
         private set
+    /** Last time session-relative rx increased (Direct skip-if-alive / dead-egress). */
+    @Volatile var lastRxGrowthAtMs: Long = 0L
+        private set
 
     private var lastRx = -1L
     private var lastTx = -1L
@@ -53,6 +56,7 @@ object VpnLiveStats {
         baselineRx = -1L
         baselineTx = -1L
         lastLogAtMs = 0L
+        lastRxGrowthAtMs = 0L
         // Keep awgHandle — DirectBackend owns lifecycle across soft-restarts.
     }
 
@@ -91,6 +95,10 @@ object VpnLiveStats {
         val rx = (rxAbs - baselineRx).coerceAtLeast(0L)
         val tx = (txAbs - baselineTx).coerceAtLeast(0L)
 
+        if (lastRx >= 0L && rx > lastRx) {
+            lastRxGrowthAtMs = now
+        }
+
         if (lastAtMs > 0L && now > lastAtMs) {
             val dtSec = (now - lastAtMs) / 1000.0
             if (dtSec >= 0.2) {
@@ -108,6 +116,17 @@ object VpnLiveStats {
         if (rx > 0L || tx > 0L || downBps > 0L || upBps > 0L) {
             maybeLog(now, "src=$src iface=$iface ↓$downBps ↑$upBps rx=$rx tx=$tx")
         }
+    }
+
+    fun hasFreshRxSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        lastRxGrowthAtMs >= sinceMs &&
+            nowMs - lastRxGrowthAtMs < 90_000L &&
+            totalRx > 0L
+
+    /** Test helper: pretend session-relative rx grew at [nowMs]. */
+    internal fun recordRxGrowthForTest(rx: Long, nowMs: Long) {
+        if (rx > totalRx) lastRxGrowthAtMs = nowMs
+        totalRx = rx
     }
 
     private fun maybeLog(now: Long, msg: String) {

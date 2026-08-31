@@ -1,5 +1,6 @@
 package com.nonamevpn.app.profile
 
+import com.nonamevpn.app.core.BypassWorkers
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -104,7 +105,7 @@ object VpnProfileJson {
                 peer = bypass.optString("peer", ""),
                 address = bypass.optString("address", ""),
                 password = bypass.optString("password", ""),
-                workers = 3,
+                workers = BypassWorkers.DEFAULT,
                 transport = bypass.optString("transport", "tcp"),
                 mode = bypass.optString("mode", "raw"),
                 dial = bypass.optString("dial", "auto"),
@@ -143,12 +144,12 @@ object VpnProfileJson {
                     .put("peer", profile.bypass.peer)
                     .put("address", profile.bypass.address)
                     .put("password", profile.bypass.password)
-                    .put("workers", 3)
+                    .put("workers", BypassWorkers.DEFAULT)
                     .put("transport", profile.bypass.transport)
                     .put("mode", profile.bypass.mode)
                     .put("dial", profile.bypass.dial),
             )
-            .toString(2)
+            .toString()
     }
 
     fun parseMany(raw: String): List<VpnProfile> {

@@ -7,6 +7,7 @@ import com.nonamevpn.app.bypass.BypassConfig
 import com.nonamevpn.app.bypass.BypassPhase
 import com.nonamevpn.app.bypass.BypassSession
 import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.VpnPath
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
@@ -29,8 +30,8 @@ class BypassBackend(
         config: TunnelSessionConfig,
         onState: (TunnelBackendState) -> Unit,
     ) {
-        // Pre-created TUN is unused for Path B (see VpnTunnelService).
-        runCatching { tun?.close() }
+        // Path B opens TUN after RAWCONF. Soft restart may keep the existing
+        // VpnService fd; do not close a pre-created descriptor here.
 
         val profile = config.profile
         if (profile == null) {
@@ -39,11 +40,11 @@ class BypassBackend(
         }
         val hash = config.callHash
         if (hash.isNullOrBlank()) {
-            onState(TunnelBackendState.Failed("Нужен hash звонка — сохраните его в настройках туннеля"))
+            onState(TunnelBackendState.Failed("Для обхода необходимо сохранить код звонка в настройках"))
             return
         }
         if (profile.bypass.password.isBlank() || profile.bypass.peer.isBlank()) {
-            onState(TunnelBackendState.Failed("В профиле нет bypass peer/password"))
+            onState(TunnelBackendState.Failed("В профиле отсутствуют параметры обхода."))
             return
         }
 
@@ -58,14 +59,14 @@ class BypassBackend(
                 config = BypassConfig(
                     profile = profile,
                     callHash = hash,
-                    workers = config.workers.coerceIn(1, 9),
+                    workers = config.workers.coerceIn(BypassWorkers.MIN, BypassWorkers.MAX),
                     dialPath = dialPath,
                     silentRecreate = config.silentRecreate,
                     hideIp = config.hideIp,
                 ),
                 establishTun = { ip, dnsCsv, mtu ->
                     (service as? TunEstablisher)?.establishTun(ip, dnsCsv, mtu)
-                        ?: error("VpnService не умеет establishTun")
+                        ?: error("Не удалось открыть TUN")
                 },
             ) { phase ->
                 Log.i(TAG, "phase=$phase")
@@ -89,7 +90,11 @@ class BypassBackend(
     }
 
     override fun stop() {
-        session.stop()
+        session.stop(keepTun = false)
+    }
+
+    fun stopKeepingTun() {
+        session.stop(keepTun = true)
     }
 
     companion object {

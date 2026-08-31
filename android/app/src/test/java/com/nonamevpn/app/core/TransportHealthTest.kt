@@ -34,4 +34,14 @@ class TransportHealthTest {
         assertEquals((0.5 * 1024 * 1024).toLong(), TransportHealth.upBytes)
         assertEquals(1024L + 512L, TransportHealth.trafficKb)
     }
+
+    @Test
+    fun freshInboundRequiresTrafficGrowthAfterEvent() {
+        TransportHealth.onLogLine("[СТАТИСТИКА] Активных: 2 | Трафик: 1.00 МБ | ↓0.80 МБ / ↑0.20 МБ")
+        val afterStats = TransportHealth.lastTrafficGrowthAtMs
+        assertTrue(TransportHealth.hasFreshInboundSince(afterStats - 10L))
+        assertFalse(TransportHealth.hasFreshInboundSince(afterStats + 10L))
+        TransportHealth.reset()
+        assertFalse(TransportHealth.hasFreshInboundSince(0L))
+    }
 }

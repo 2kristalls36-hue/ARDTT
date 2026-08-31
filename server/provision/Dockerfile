@@ -5,7 +5,7 @@ COPY *.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/provision .
 
 FROM alpine:3.20
-# curl used by /v1/egress-ip (bind to warp0 for Hide-IP / WARP public IP).
+# curl used by /v1/egress-ip and /v1/netcheck (bind to warp0 for Hide-IP).
 RUN apk add --no-cache ca-certificates curl
 COPY --from=build /out/provision /usr/local/bin/provision
 VOLUME ["/data"]

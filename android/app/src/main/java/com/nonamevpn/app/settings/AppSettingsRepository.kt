@@ -5,9 +5,14 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.nonamevpn.app.core.HostExclusion
 import com.nonamevpn.app.core.sanitizeTrustedWifiSsid
+import com.nonamevpn.app.unlock.AlphaGate
+import com.nonamevpn.app.unlock.AlphaUnlockResult
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -23,19 +28,28 @@ class AppSettingsRepository(private val context: Context) {
     private val silentRecreate = booleanPreferencesKey("silent_recreate")
     private val dialPath = stringPreferencesKey("dial_path")
     private val testingMode = booleanPreferencesKey("testing_mode")
+    private val testingAgreementVersion = intPreferencesKey("testing_agreement_version")
     private val pathMode = stringPreferencesKey("conn_path_mode")
     private val trustedWifiEnabled = booleanPreferencesKey("trusted_wifi_enabled")
     private val trustedWifiSsids = stringPreferencesKey("trusted_wifi_ssids")
     private val vpnNotificationVisible = booleanPreferencesKey("vpn_notification_visible")
+    private val hideTunnelQuickSettings = booleanPreferencesKey("hide_tunnel_quick_settings")
+    private val unlockConnControls = booleanPreferencesKey("unlock_conn_controls")
     private val excludedApps = stringPreferencesKey("excluded_apps")
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
     private val themePalette = stringPreferencesKey("theme_palette")
     private val dynamicColor = booleanPreferencesKey("is_dynamic_color")
+    private val alphaChallengeHex = stringPreferencesKey("alpha_challenge_hex")
+    private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
+    private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
+    private val alphaUnlockLockUntil = longPreferencesKey("alpha_unlock_lock_until")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
+    val testingAgreementVersionFlow: Flow<Int> =
+        context.dataStore.data.map { it[testingAgreementVersion] ?: 0 }
     val hideIpEnabled: Flow<Boolean> = context.dataStore.data.map { it[hideIp] == true }
     val hasAdminPin: Flow<Boolean> = context.dataStore.data.map { !it[adminPinHash].isNullOrBlank() }
     val currentProfileName: Flow<String> = context.dataStore.data.map { it[profileName] ?: "" }
@@ -57,6 +71,12 @@ class AppSettingsRepository(private val context: Context) {
     /** Default true — show VPN status in notification shade. */
     val vpnNotificationVisibleFlow: Flow<Boolean> =
         context.dataStore.data.map { it[vpnNotificationVisible] != false }
+    /** Default true — hide «Параметры подключения» on the Tunnel tab. */
+    val hideTunnelQuickSettingsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[hideTunnelQuickSettings] != false }
+    /** Allow path / Hide-IP changes while the tunnel is up. */
+    val unlockConnControlsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[unlockConnControls] == true }
     /** Package names that bypass the VPN (disallowed applications). */
     val excludedAppsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         parseLineSet(prefs[excludedApps])
@@ -77,7 +97,9 @@ class AppSettingsRepository(private val context: Context) {
         normalizeThemePalette(it[themePalette])
     }
     val dynamicColorFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[dynamicColor] == true }
+        context.dataStore.data.map { it[dynamicColor] != false }
+    val alphaUnlockedFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[alphaUnlocked] == true }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -133,6 +155,14 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setVpnNotificationVisible(visible: Boolean) {
         context.dataStore.edit { it[vpnNotificationVisible] = visible }
+    }
+
+    suspend fun setHideTunnelQuickSettings(hidden: Boolean) {
+        context.dataStore.edit { it[hideTunnelQuickSettings] = hidden }
+    }
+
+    suspend fun setUnlockConnControls(enabled: Boolean) {
+        context.dataStore.edit { it[unlockConnControls] = enabled }
     }
 
     suspend fun setAppsWhitelistMode(whitelist: Boolean) {
@@ -235,7 +265,7 @@ class AppSettingsRepository(private val context: Context) {
     }
 
     suspend fun setAdminPin(pin: String) {
-        // No-op: PIN flow removed in favour of long-press unlock.
+        // No-op: PIN flow removed in favour of slider unlock.
         unlockAdmin()
     }
 
@@ -245,6 +275,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setTestingMode(enabled: Boolean) {
         context.dataStore.edit { it[testingMode] = enabled }
+    }
+
+    suspend fun setTestingAgreementVersion(version: Int) {
+        context.dataStore.edit { it[testingAgreementVersion] = version }
     }
 
     suspend fun setThemeMode(mode: String) {
@@ -257,6 +291,63 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setDynamicColor(enabled: Boolean) {
         context.dataStore.edit { it[dynamicColor] = enabled }
+    }
+
+    suspend fun alphaUnlockedSnapshot(): Boolean {
+        val prefs = context.dataStore.data.first()
+        return prefs[alphaUnlocked] == true
+    }
+
+    /**
+     * Device challenge is created once and never rotated. Regenerating it would
+     * invalidate a code the developer already issued.
+     */
+    suspend fun ensureAlphaChallengeHex(): String {
+        var result = ""
+        context.dataStore.edit { prefs ->
+            val existing = AlphaGate.normalizeChallenge(prefs[alphaChallengeHex].orEmpty())
+            if (existing != null) {
+                result = existing
+            } else {
+                val generated = AlphaGate.newChallengeHex()
+                prefs[alphaChallengeHex] = generated
+                result = generated
+            }
+        }
+        return result
+    }
+
+    suspend fun tryAlphaUnlock(otp: String): AlphaUnlockResult {
+        var result: AlphaUnlockResult = AlphaUnlockResult.WrongCode(fails = 0, lockMs = 0L)
+        context.dataStore.edit { prefs ->
+            if (prefs[alphaUnlocked] == true) {
+                result = AlphaUnlockResult.Success
+                return@edit
+            }
+            val now = System.currentTimeMillis()
+            val lockUntil = prefs[alphaUnlockLockUntil] ?: 0L
+            if (now < lockUntil) {
+                result = AlphaUnlockResult.Locked(lockUntil - now)
+                return@edit
+            }
+            val challenge = AlphaGate.normalizeChallenge(prefs[alphaChallengeHex].orEmpty())
+                ?: AlphaGate.newChallengeHex().also { prefs[alphaChallengeHex] = it }
+            if (AlphaGate.otpMatches(challenge, otp)) {
+                prefs[alphaUnlocked] = true
+                prefs[alphaUnlockFails] = 0
+                prefs[alphaUnlockLockUntil] = 0L
+                result = AlphaUnlockResult.Success
+                return@edit
+            }
+            val fails = (prefs[alphaUnlockFails] ?: 0) + 1
+            val lockMs = AlphaGate.lockMsAfterFails(fails)
+            prefs[alphaUnlockFails] = fails
+            if (lockMs > 0L) {
+                prefs[alphaUnlockLockUntil] = now + lockMs
+            }
+            result = AlphaUnlockResult.WrongCode(fails = fails, lockMs = lockMs)
+        }
+        return result
     }
 
     private fun sha256(value: String): String {
@@ -302,12 +393,6 @@ class AppSettingsRepository(private val context: Context) {
                 .filter { it.isNotBlank() }
                 .toSet()
 
-        fun normalizeHost(value: String): String {
-            var h = value.trim().lowercase()
-            if (h.startsWith("http://")) h = h.removePrefix("http://")
-            if (h.startsWith("https://")) h = h.removePrefix("https://")
-            h = h.substringBefore('/').substringBefore(':').trim()
-            return h
-        }
+        fun normalizeHost(value: String): String = HostExclusion.normalize(value)
     }
 }

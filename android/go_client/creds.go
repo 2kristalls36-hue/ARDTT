@@ -81,6 +81,39 @@ func fatalCallError(resp map[string]interface{}) *CallUnavailableError {
 	return &CallUnavailableError{Code: code, Message: msg}
 }
 
+// isStaleAnonymTokenError is OKCDN error_code=100 / "anonym_*.outdated".
+// Retry a fresh VKCalls chain — do not treat as captcha or a dead call.
+func isStaleAnonymTokenError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var okErr *vkCallsOKAPIError
+	if errors.As(err, &okErr) && okErr != nil {
+		if staleAnonymMessage(okErr.Message) {
+			return true
+		}
+		if okErr.Code == 100 && looksAnonymRelated(okErr.Message) {
+			return true
+		}
+	}
+	return staleAnonymMessage(err.Error())
+}
+
+func staleAnonymMessage(msg string) bool {
+	s := strings.ToLower(msg)
+	if !strings.Contains(s, "anonym") {
+		return false
+	}
+	return strings.Contains(s, "outdated") ||
+		strings.Contains(s, "expired") ||
+		strings.Contains(s, "устарел")
+}
+
+func looksAnonymRelated(msg string) bool {
+	s := strings.ToLower(msg)
+	return strings.Contains(s, "anonym") || strings.Contains(s, "anonymous")
+}
+
 func vkErrorCode(raw interface{}) int {
 	switch v := raw.(type) {
 	case float64:
@@ -319,6 +352,10 @@ func fetchVkCreds(ctx context.Context, link string, streamID int) (string, strin
 				log.Printf("[STREAM %d] [VK Auth] VK Calls path returned non-retryable call error: %v", streamID, callErr)
 				return "", "", nil, callErr
 			}
+			if isStaleAnonymTokenError(err) {
+				log.Printf("[STREAM %d] [VK Auth] VK Calls anonym token outdated after retries — not falling back to legacy (would hit captcha)", streamID)
+				return "", "", nil, err
+			}
 			log.Printf("[STREAM %d] [VK Auth] VK Calls path failed (%s), falling back to legacy", streamID, describeVKCallsFailure(err))
 		}
 	} else {
@@ -552,6 +589,9 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 	resp, err = doRequest(data, "https://calls.okcdn.ru/fb.do")
 	if err != nil {
 		return "", "", nil, err
+	}
+	if okErr := vkCallsOKError(resp); okErr != nil {
+		return "", "", nil, okErr
 	}
 
 	tsRaw, ok := resp["turn_server"].(map[string]interface{})

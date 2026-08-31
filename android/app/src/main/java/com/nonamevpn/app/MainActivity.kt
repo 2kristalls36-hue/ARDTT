@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.deploy.DeployEngine
@@ -23,7 +24,9 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.ui.AppRoot
 import com.nonamevpn.app.ui.telemetry.RecordingBorderOverlay
-import com.nonamevpn.app.ui.theme.NonameTheme
+import com.nonamevpn.app.ui.PendingUiAction
+import com.nonamevpn.app.ui.theme.ArdttTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,20 +36,14 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
         val settings = AppSettingsRepository(applicationContext)
         val profiles = ProfileRepository(applicationContext)
-        val servers = ServersRepository(applicationContext)
-        val deploy = DeployEngine(applicationContext)
+        val servers = ServersRepository.get(applicationContext)
+        val deploy = DeployEngine.get(applicationContext)
         setContent {
             val recorder = androidx.compose.runtime.remember { TelemetryRecorder.get(applicationContext) }
             val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
             val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-            val palette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
-            val dynamic by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
             androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
-                NonameTheme(
-                    themeMode = themeMode,
-                    palette = palette,
-                    dynamicColor = dynamic,
-                ) {
+                ArdttTheme(themeMode = themeMode) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = androidx.compose.ui.graphics.Color.Transparent,
@@ -72,6 +69,11 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingIntent(intent: Intent?) {
         when (intent?.action) {
+            ACTION_OPEN_CALL_HASH -> PendingUiAction.requestCallHashSettings()
+            com.nonamevpn.app.deploy.DeployService.ACTION_OPEN -> {
+                val id = intent.getStringExtra(com.nonamevpn.app.deploy.DeployService.EXTRA_SERVER_ID)
+                if (!id.isNullOrBlank()) PendingUiAction.requestOpenDeploy(id)
+            }
             AppShortcuts.ACTION_START_TUNNEL -> startTunnelFromShortcut()
             AppShortcuts.ACTION_STOP_TUNNEL -> {
                 ConnectionManager.get(applicationContext).disconnect()
@@ -91,6 +93,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startTunnelFromShortcut() {
+        val settings = AppSettingsRepository(applicationContext)
+        lifecycleScope.launch {
+            if (!settings.alphaUnlockedSnapshot()) return@launch
+            startTunnelFromShortcutUnlocked()
+        }
+    }
+
+    private fun startTunnelFromShortcutUnlocked() {
         val conn = ConnectionManager.get(applicationContext)
         val state = conn.ui.value.state
         if (
@@ -104,12 +114,16 @@ class MainActivity : ComponentActivity() {
         if (prep != null) {
             Toast.makeText(
                 this,
-                "Разрешите ARDTT создать VPN-подключение",
+                "Разрешите ARDTT создать туннель",
                 Toast.LENGTH_LONG,
             ).show()
             startActivity(Intent(this, VpnPermissionActivity::class.java))
         } else {
             conn.connect()
         }
+    }
+
+    companion object {
+        const val ACTION_OPEN_CALL_HASH = "com.nonamevpn.app.OPEN_CALL_HASH"
     }
 }

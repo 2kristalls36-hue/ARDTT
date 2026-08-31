@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Accept telemetry log uploads from nonameVPN Android client."""
+"""Accept telemetry log uploads from the ARDTT Android client."""
 
 from __future__ import annotations
 

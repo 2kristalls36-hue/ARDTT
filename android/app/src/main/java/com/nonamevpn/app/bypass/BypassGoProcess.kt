@@ -2,6 +2,7 @@ package com.nonamevpn.app.bypass
 
 import android.content.Context
 import android.util.Log
+import com.nonamevpn.app.core.AppLog
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -79,7 +80,7 @@ class BypassGoProcess(
             "-turn-tcp",
             "-mode", "rawtun",
             "-tun-fd-sock", TunFdBridge.goSockPath(args.tunSockName),
-            "-go-dns", "system",
+            "-go-dns", "yandex",
             "-obfs", "audio",
             "-notls",
         )
@@ -87,7 +88,11 @@ class BypassGoProcess(
 
         val pb = ProcessBuilder(cmd)
         pb.redirectErrorStream(true)
+        val stateDir = bypassGoStateDir(context.filesDir).also { it.mkdirs() }
+        pb.directory(stateDir)
         pb.environment()["LD_LIBRARY_PATH"] = context.applicationInfo.nativeLibraryDir
+        pb.environment()[STATE_DIR_ENV] = stateDir.absolutePath
+        AppLog.i(TAG, "state dir=${stateDir.absolutePath}")
         val proc = pb.start()
         processRef.set(proc)
 
@@ -138,7 +143,7 @@ class BypassGoProcess(
             }
             val code = runCatching { proc.waitFor() }.getOrDefault(-1)
             if (!rawDelivered) {
-                val msg = lastError ?: "go_client завершился (код $code) без RAWCONF — проверьте hash звонка"
+                val msg = lastError ?: "Модуль обхода завершился (код $code) без конфигурации. Проверьте код звонка."
                 lastError = msg
                 onFatal(msg)
             }
@@ -162,6 +167,7 @@ class BypassGoProcess(
 
     companion object {
         private const val TAG = "BypassGo"
+        internal const val STATE_DIR_ENV = "NVPN_STATE_DIR"
 
         fun parseRawBox(box: String): RawConf? {
             val fields = box.lines().mapNotNull { line ->
@@ -193,9 +199,9 @@ class BypassGoProcess(
                 l.contains("fatal_auth") || l.contains("неверный пароль") ->
                     "Неверный пароль обхода (WRAP)"
                 l.contains("хеш мёртв") || l.contains("call not found") || l.contains("callunavailable") ->
-                    "Звонок не найден или закрыт — создайте новый hash"
+                    "Звонок не найден или закрыт. Создайте новый код звонка."
                 l.contains("captcha") && (l.contains("required") || l.contains("wait")) ->
-                    "VK просит капчу (нужен legacy / WebView)"
+                    "Требуется проверка капчи. Выберите способ «Капча» в настройках обхода."
                 l.contains("all vk credentials failed") ->
                     "Не удалось получить TURN (vkcalls/legacy)"
                 else -> null
@@ -203,3 +209,6 @@ class BypassGoProcess(
         }
     }
 }
+
+/** Writable dir for libclient.so (`vk_profile.json`). The APK native dir is read-only. */
+internal fun bypassGoStateDir(filesDir: File): File = File(filesDir, "bypass")

@@ -154,8 +154,9 @@ class SshClient(
             session.setConfig(
                 Properties().apply {
                     put("StrictHostKeyChecking", "no")
-                    put("ServerAliveInterval", "10")
-                    put("ServerAliveCountMax", "6")
+                    // Long Compose builds on ~1 GiB VPS can stall stdout for minutes.
+                    put("ServerAliveInterval", "15")
+                    put("ServerAliveCountMax", "40")
                     put("PreferredAuthentications", when (auth) {
                         is DeployAuth.Key -> "publickey"
                         is DeployAuth.Password -> "password,keyboard-interactive"

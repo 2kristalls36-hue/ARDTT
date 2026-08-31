@@ -2,24 +2,21 @@ package com.nonamevpn.app.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -35,13 +32,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.AwaitPointerEventScope
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToUp
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import android.widget.Toast
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
@@ -51,23 +48,35 @@ import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
+import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.hasTrustedWifiBackgroundPermission
-import com.nonamevpn.app.core.hasTrustedWifiForegroundPermission
+import com.nonamevpn.app.core.hasTrustedWifiLocationPermission
+import com.nonamevpn.app.core.nextTrustedWifiPermissionAsk
 import com.nonamevpn.app.core.readConnectedWifiState
 import com.nonamevpn.app.core.trustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiAccessProblem
+import com.nonamevpn.app.core.TrustedWifiPermissionAsk
+import com.nonamevpn.app.ui.HideIpCopy
+import com.nonamevpn.app.ui.PendingUiAction
+import com.nonamevpn.app.ui.TestingSessionGuard
+import com.nonamevpn.app.ui.connectionControlsLocked
+import com.nonamevpn.app.legal.TestingModeAgreement
+import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.rememberPullRefresh
+import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.update.AppUpdateInfo
-import com.nonamevpn.app.update.AppUpdateManager
-import java.io.File
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import com.nonamevpn.app.update.updateCardCopy
+import com.nonamevpn.app.update.updatePrimaryActionLabel
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
     settings: AppSettingsRepository,
@@ -76,23 +85,37 @@ fun SettingsScreen(
     val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val recorder = remember { TelemetryRecorder.get(context) }
+    val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
+    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-    val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
-    val dynamicColor by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = false)
+    val connUi by conn.ui.collectAsStateWithLifecycle()
+    val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
+    val callHashBringIntoView = remember { BringIntoViewRequester() }
+    val vpnSessionActive = connUi.state == ConnState.Connecting ||
+        connUi.state == ConnState.Connected ||
+        connUi.state == ConnState.PausedTrustedWifi ||
+        connUi.state == ConnState.Disconnecting
+    val vpnLocked = connectionControlsLocked(vpnSessionActive, unlockConnControls)
     val scope = rememberCoroutineScope()
-    val updateManager = remember { AppUpdateManager(context) }
+    val updates = remember { AppUpdateController.get(context) }
+    val updateUi by updates.ui.collectAsStateWithLifecycle()
     var adminHint by remember { mutableStateOf<String?>(null) }
-    var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
-    var downloadedUpdate by remember { mutableStateOf<File?>(null) }
-    var updateChecking by remember { mutableStateOf(false) }
-    var updateDownloading by remember { mutableStateOf(false) }
-    var updateProgress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var updateMessage by remember { mutableStateOf<String?>(null) }
+    var showTestingAgreement by remember { mutableStateOf(false) }
+    val refuseLeaveTestingSession: () -> Unit = {
+        adminHint = TestingSessionGuard.STOP_RECORDING_FIRST
+        Toast.makeText(
+            context,
+            TestingSessionGuard.STOP_RECORDING_FIRST,
+            Toast.LENGTH_LONG,
+        ).show()
+    }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -100,13 +123,13 @@ fun SettingsScreen(
         AppLog.i("NotifPrep", "settings POST_NOTIFICATIONS granted=$granted")
         conn.refreshVpnNotification()
         if (!granted) {
-            adminHint = "Без разрешения Android плашка в шторке не появится"
+            adminHint = "Без разрешения система не сможет отображать уведомление о состоянии подключения."
         }
     }
 
     LaunchedEffect(silent, dial, pathMode) {
         conn.setSilentRecreate(silent)
-        conn.setWorkers(3)
+        conn.setWorkers(BypassWorkers.DEFAULT)
         conn.setDialPath(
             when (dial) {
                 "vkcalls" -> DialPath.VkCalls
@@ -117,139 +140,42 @@ fun SettingsScreen(
         conn.setPathMode(ConnPathMode.fromSetting(pathMode))
     }
 
-    LaunchedEffect(Unit) {
-        updateChecking = true
-        val result = updateManager.check()
-        updateChecking = false
-        result.onSuccess { info ->
-            updateInfo = info
-            updateMessage = if (info.isNewer) {
-                "Доступна версия ${info.versionName}"
-            } else {
-                "Установлена актуальная версия"
-            }
-        }.onFailure {
-            updateMessage = it.message ?: "Не удалось проверить обновления"
-        }
+    LaunchedEffect(openCallHash) {
+        if (!openCallHash) return@LaunchedEffect
+        kotlinx.coroutines.delay(120)
+        runCatching { callHashBringIntoView.bringIntoView() }
+        PendingUiAction.consumeCallHashSettings()
     }
 
-    EdgeFeedColumn {
+    LaunchedEffect(Unit) {
+        updates.checkInBackground()
+    }
+
+    val pull = rememberPullRefresh {
+        updates.checkAndWait()
+    }
+
+    EdgeFeedColumn(
+        refreshing = pull.refreshing,
+        onRefresh = pull.onRefresh,
+    ) {
         val modeLabel = if (admin) "администратор" else "пользователь"
         AppTabPageHeader(
-            tabTitle = "Настройки",
+            title = "Настройки приложения",
             subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
         )
 
-        UpdateSettingsCard(
-            info = updateInfo,
-            checking = updateChecking,
-            downloading = updateDownloading,
-            progress = updateProgress,
-            message = updateMessage,
-            downloadedFile = downloadedUpdate,
-            onCheck = {
-                scope.launch {
-                    updateChecking = true
-                    updateMessage = "Проверяем обновления…"
-                    val result = updateManager.check()
-                    updateChecking = false
-                    result.onSuccess { info ->
-                        updateInfo = info
-                        downloadedUpdate = null
-                        updateMessage = if (info.isNewer) {
-                            "Доступна версия ${info.versionName}"
-                        } else {
-                            "Установлена актуальная версия"
-                        }
-                    }.onFailure {
-                        updateMessage = it.message ?: "Не удалось проверить обновления"
-                    }
-                }
-            },
-            onDownload = {
-                val info = updateInfo ?: return@UpdateSettingsCard
-                scope.launch {
-                    updateDownloading = true
-                    updateProgress = 0f
-                    updateMessage = "Скачиваем ${info.versionName}…"
-                    val result = updateManager.download(info) { updateProgress = it }
-                    updateDownloading = false
-                    result.onSuccess { file ->
-                        downloadedUpdate = file
-                        updateMessage = "APK скачан — запускаем установку"
-                        runCatching { updateManager.install(file) }
-                            .onFailure { updateMessage = it.message ?: "Не удалось открыть установщик" }
-                    }.onFailure {
-                        updateMessage = it.message ?: "Не удалось скачать APK"
-                    }
-                }
-            },
-            onInstall = {
-                val file = downloadedUpdate ?: return@UpdateSettingsCard
-                runCatching { updateManager.install(file) }
-                    .onFailure { updateMessage = it.message ?: "Не удалось открыть установщик" }
-            },
-        )
-
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Тема оформления",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
+        if (updateUi.visible) {
+            UpdateSettingsCard(
+                info = updateUi.available,
+                downloading = updateUi.downloading,
+                progress = updateUi.progress,
+                message = updateUi.message,
+                downloadedFile = updateUi.downloadedFile != null,
+                onDownload = { updates.download() },
+                onCancel = { updates.cancel() },
+                onInstall = { updates.install() },
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DialChip("Сист.", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
-                DialChip("Свет.", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
-                DialChip("Темн.", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text("Динамические цвета", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Material You",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = dynamicColor,
-                        onCheckedChange = { scope.launch { settings.setDynamicColor(it) } },
-                    )
-                }
-            }
-            if (!dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                Text(
-                    "Цветовая палитра",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    PaletteCircle("indigo", 0xFF5B588D, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("forest", 0xFF5F5D68, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                    PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
-                        scope.launch { settings.setThemePalette(it) }
-                    }
-                }
-            }
         }
 
         AppSectionCard(
@@ -258,8 +184,12 @@ fun SettingsScreen(
         ) {
             Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Авто — прямое (AmneziaWG), при недоступности резерв обход (RAW через TURN). " +
-                    "Можно принудительно выбрать один путь для теста.",
+                when {
+                    vpnLocked -> "Недоступно во время соединения."
+                    vpnSessionActive && unlockConnControls ->
+                        "Соединение установлено. Смена маршрута применяется сразу, без отключения."
+                    else -> "Авто: прямое подключение, иначе обход. Маршрут можно задать вручную."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -270,40 +200,67 @@ fun SettingsScreen(
                 DialChip(
                     "Авто",
                     pathMode == "auto",
-                    { scope.launch { settings.setPathMode("auto") } },
+                    {
+                        scope.launch {
+                            settings.setPathMode("auto")
+                            conn.setPathMode(ConnPathMode.Auto, switchLive = true)
+                        }
+                    },
                     Modifier.weight(1f),
+                    enabled = !vpnLocked,
                 )
                 DialChip(
                     "Прямое",
                     pathMode == "direct",
-                    { scope.launch { settings.setPathMode("direct") } },
+                    {
+                        scope.launch {
+                            settings.setPathMode("direct")
+                            conn.setPathMode(ConnPathMode.Direct, switchLive = true)
+                        }
+                    },
                     Modifier.weight(1f),
+                    enabled = !vpnLocked,
                 )
                 DialChip(
                     "Обход",
                     pathMode == "bypass",
-                    { scope.launch { settings.setPathMode("bypass") } },
+                    {
+                        if (!connUi.hasCallHash) {
+                            PendingUiAction.requestCallHashSettings()
+                            scope.launch {
+                                kotlinx.coroutines.delay(80)
+                                runCatching { callHashBringIntoView.bringIntoView() }
+                            }
+                        } else {
+                            scope.launch {
+                                settings.setPathMode("bypass")
+                                conn.setPathMode(ConnPathMode.Bypass, switchLive = true)
+                            }
+                        }
+                    },
                     Modifier.weight(1f),
+                    enabled = !vpnLocked,
+                    dimmed = !connUi.hasCallHash,
                 )
             }
             Text(
                 when (pathMode) {
-                    "direct" -> "Только AmneziaWG (AWG)."
-                    "bypass" -> "Только обход RAW через звонок (нужен hash)."
-                    else -> "Приоритет AWG, резерв RAW/обход."
+                    "direct" -> "Используется только прямое подключение."
+                    "bypass" -> if (connUi.hasCallHash) {
+                        "Используется только обход. Требуется код звонка."
+                    } else {
+                        "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку."
+                    }
+                    else -> "Приоритет прямого подключения, резерв — обход."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             RowSetting(
-                title = "Скрыть свой IP",
-                subtitle = if (hideIp) {
-                    "Включено — выход через Cloudflare (не IP VPS)"
-                } else {
-                    "Выход в интернет через Cloudflare вместо адреса VPS"
-                },
+                title = "Скрыть адрес",
+                subtitle = HideIpCopy.subtitle(hideIp),
                 checked = hideIp,
-                enabled = true,
+                enabled = !vpnLocked,
                 onCheckedChange = {
                     scope.launch {
                         settings.setHideIp(it)
@@ -312,14 +269,82 @@ fun SettingsScreen(
                 },
             )
             RowSetting(
-                title = "Плашка VPN в шторке",
-                subtitle = if (notifVisible) {
-                    "Живой статус, скорость и кнопка «Остановить»"
+                title = "Скрыть быстрые настройки",
+                subtitle = if (hideTunnelQuickSettings) {
+                    "Раздел «Параметры подключения» на вкладке «Туннель» скрыт."
                 } else {
-                    "Скрыта из основной шторки; Android всё равно оставляет тихую запись службы в «Без звука»"
+                    "На вкладке «Туннель» показаны маршрут, адрес и доверенная Wi‑Fi."
+                },
+                checked = hideTunnelQuickSettings,
+                onCheckedChange = { hidden ->
+                    scope.launch { settings.setHideTunnelQuickSettings(hidden) }
+                },
+            )
+            RowSetting(
+                title = "Кнопки во время соединения",
+                subtitle = if (unlockConnControls) {
+                    "Маршрут и исходящий адрес можно менять на лету, пока туннель включён."
+                } else {
+                    "Пока туннель включён, маршрут и адрес заблокированы."
+                },
+                checked = unlockConnControls,
+                onCheckedChange = { scope.launch { settings.setUnlockConnControls(it) } },
+            )
+        }
+
+        TrustedWifiSettingsCard(settings = settings)
+
+        CallHashSettingsCard(
+            modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
+        )
+
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Обход", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Источник параметров обхода. Авто — vkcalls, иначе резерв. Нужен код звонка выше.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DialChip("Авто", dial == "auto", { scope.launch { settings.setDialPath("auto") } }, Modifier.weight(1f))
+                DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
+                DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
+            }
+            RowSetting(
+                title = "Обновлять звонок автоматически",
+                subtitle = "Новый звонок без подтверждения. Нужна сессия ВКонтакте.",
+                checked = silent,
+                onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
+            )
+        }
+
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
+                DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
+                DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
+            }
+            RowSetting(
+                title = "Уведомление",
+                subtitle = if (notifVisible) {
+                    "Состояние, скорость и остановка в уведомлениях."
+                } else {
+                    "Скрыто. Система может оставить служебную запись."
                 },
                 checked = notifVisible,
-                enabled = true,
                 onCheckedChange = {
                     scope.launch {
                         settings.setVpnNotificationVisible(it)
@@ -339,74 +364,61 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Обход (дозвон)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Как получать TURN для обхода (RAW). Авто: vkcalls → legacy. Connect анонимный по hash.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DialChip("Авто", dial == "auto", { scope.launch { settings.setDialPath("auto") } }, Modifier.weight(1f))
-                DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
-                DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
-            }
-            RowSetting(
-                title = "Тихий recreate звонка",
-                subtitle = "Без диалога, если hash «умер» (нужна сессия VK)",
-                checked = silent,
-                onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
-            )
-        }
-
-        TrustedWifiSettingsCard(settings = settings)
-
-        AppSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
             Text("Администратор", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 if (admin) {
-                    "Открыты Серверы / Деплой / Логи. Включите «Тестирование» для вкладки телеметрии."
+                    "Открыты «Сервера», «Деплой» и «Журналы». Телеметрия — после включения тестирования."
                 } else {
-                    "Короткое нажатие — подсказка. Удерживайте кнопку 4 секунды."
+                    "Переместите ползунок вправо до конца."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!admin) {
-                AdminHoldButton(
-                    hint = adminHint,
-                    onHint = { adminHint = it },
+                AdminUnlockSlider(
                     onUnlocked = {
                         scope.launch {
                             settings.unlockAdmin()
-                            adminHint = "Режим админа включён"
-                            AppLog.i("Admin", "Unlocked via 4s hold")
+                            adminHint = "Режим администратора включён."
+                            AppLog.i("Admin", "Unlocked via slider")
                         }
+                    },
+                    onIncomplete = {
+                        adminHint = "Доведите ползунок до конца."
                     },
                 )
             } else {
                 RowSetting(
                     title = "Тестирование",
-                    subtitle = "Вкладка с полной телеметрией и записью логов",
+                    subtitle = "Журналы — после принятия соглашения.",
                     checked = testingMode,
-                    onCheckedChange = { scope.launch { settings.setTestingMode(it) } },
+                    onCheckedChange = { enabled ->
+                        if (!enabled) {
+                            if (!TestingSessionGuard.canLeaveTestingSession(isRecording)) {
+                                refuseLeaveTestingSession()
+                            } else {
+                                scope.launch { settings.setTestingMode(false) }
+                            }
+                        } else {
+                            showTestingAgreement = true
+                        }
+                    },
                 )
                 OutlinedButton(
                     onClick = {
-                        scope.launch {
-                            settings.lockAdmin()
-                            adminHint = "Снова режим пользователя"
+                        if (!TestingSessionGuard.canLeaveTestingSession(isRecording)) {
+                            refuseLeaveTestingSession()
+                        } else {
+                            scope.launch {
+                                settings.lockAdmin()
+                                adminHint = null
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                 ) {
-                    Text("Выйти из режима админа")
+                    Text("Завершить сессию администратора")
                 }
             }
             adminHint?.let {
@@ -414,42 +426,48 @@ fun SettingsScreen(
             }
         }
     }
+
+    if (showTestingAgreement) {
+        TestingModeAgreementDialog(
+            onAccept = {
+                showTestingAgreement = false
+                scope.launch {
+                    settings.setTestingAgreementVersion(TestingModeAgreement.VERSION)
+                    settings.setTestingMode(true)
+                    AppLog.i("Testing", "agreement v${TestingModeAgreement.VERSION} accepted")
+                }
+            },
+            onDismiss = { showTestingAgreement = false },
+        )
+    }
 }
 
 @Composable
 private fun UpdateSettingsCard(
     info: AppUpdateInfo?,
-    checking: Boolean,
     downloading: Boolean,
     progress: Float,
     message: String?,
-    downloadedFile: File?,
-    onCheck: () -> Unit,
+    downloadedFile: Boolean,
     onDownload: () -> Unit,
+    onCancel: () -> Unit,
     onInstall: () -> Unit,
 ) {
     AppSectionCard(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Обновления", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(
-            "Текущая версия: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text("Обновление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         if (info != null) {
+            val copy = updateCardCopy(
+                installedVersionName = BuildConfig.VERSION_NAME,
+                versionName = info.versionName,
+                sizeBytes = info.sizeBytes,
+                notes = info.notes,
+            )
             Surface(
-                color = if (info.isNewer) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.secondaryContainer
-                },
-                contentColor = if (info.isNewer) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                },
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 shape = RoundedCornerShape(18.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -458,36 +476,21 @@ private fun UpdateSettingsCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
-                        if (info.isNewer) {
-                            "Доступна ${info.versionName} (${info.versionCode})"
-                        } else {
-                            "Обновлений нет"
-                        },
+                        copy.headline,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    if (info.sizeBytes > 0) {
-                        Text(
-                            "Размер: ${formatUpdateSize(info.sizeBytes)}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                    copy.installedLabel?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
                     }
-                    if (info.notes.isNotBlank()) {
-                        Text(info.notes, style = MaterialTheme.typography.bodySmall)
+                    copy.sizeLabel?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
+                    copy.notes?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
-        }
-        if (downloading) {
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                "${(progress * 100).toInt()}%",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         message?.let {
             Text(
@@ -496,45 +499,65 @@ private fun UpdateSettingsCard(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                onClick = onCheck,
-                enabled = !checking && !downloading,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Text(if (checking) "Проверка…" else "Проверить")
-            }
-            if (downloadedFile != null) {
-                OutlinedButton(
-                    onClick = onInstall,
-                    enabled = !checking && !downloading,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text("Установить")
-                }
-            } else if (info?.isNewer == true) {
-                OutlinedButton(
-                    onClick = onDownload,
-                    enabled = !checking && !downloading,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text("Скачать")
-                }
-            }
+        if (downloading || downloadedFile || info?.isNewer == true) {
+            UpdateFillButton(
+                text = updatePrimaryActionLabel(downloading, downloadedFile),
+                filling = downloading,
+                progress = progress,
+                onClick = {
+                    when {
+                        downloading -> onCancel()
+                        downloadedFile -> onInstall()
+                        else -> onDownload()
+                    }
+                },
+            )
         }
     }
 }
 
-private fun formatUpdateSize(bytes: Long): String = when {
-    bytes >= 1024 * 1024 -> String.format(java.util.Locale.getDefault(), "%.1f MB", bytes / (1024.0 * 1024.0))
-    bytes >= 1024 -> String.format(java.util.Locale.getDefault(), "%.1f KB", bytes / 1024.0)
-    else -> "$bytes B"
+@Composable
+private fun UpdateFillButton(
+    text: String,
+    filling: Boolean,
+    progress: Float,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(20.dp)
+    val animatedProgress by animateFloatAsState(
+        targetValue = if (filling) progress.coerceIn(0f, 1f) else 1f,
+        label = "update_fill_progress",
+    )
+    val trackColor = lerp(colors.surface, colors.primary, 0.42f)
+    val fillColor = colors.primary
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(NvpnBottomChrome.ButtonHeight)
+            .clip(shape)
+            .drawBehind {
+                drawRect(if (filling) trackColor else fillColor)
+                if (filling) {
+                    drawRect(
+                        color = fillColor,
+                        size = Size(size.width * animatedProgress, size.height),
+                    )
+                }
+            }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = colors.onPrimary,
+            style = MaterialTheme.typography.titleMedium.copy(
+                background = Color.Transparent,
+                fontWeight = FontWeight.SemiBold,
+            ),
+        )
+    }
 }
 
 @Composable
@@ -564,30 +587,89 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     }
     LaunchedEffect(enabled, ssids) { refreshWifi() }
 
+    var pendingAddAfterLocation by remember { mutableStateOf(false) }
+    var pendingBackgroundAfterLocation by remember { mutableStateOf(false) }
+
+    fun tryAddCurrentSsid() {
+        val fresh = readConnectedWifiState(context, requireBackground = false)
+        wifi = fresh
+        val ssid = fresh.ssid
+        if (ssid.isBlank()) {
+            hint = when (fresh.accessProblem) {
+                TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе."
+                TrustedWifiAccessProblem.ForegroundPermission -> "Предоставьте разрешение геолокации."
+                else -> "Имя сети не определено. Подключитесь к Wi‑Fi и предоставьте доступ к геолокации."
+            }
+        } else {
+            scope.launch {
+                settings.addTrustedWifiSsid(ssid)
+                hint = "Добавлено: $ssid"
+            }
+        }
+    }
+
     val bgLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         refreshWifi()
         hint = if (granted) {
-            "Фоновый доступ к локации разрешён"
+            "Фоновый доступ к геолокации разрешён"
         } else {
-            "Без фоновой локации VPN не увидит SSID в фоне — для добавления в настройках хватает обычной локации"
+            "Без фоновой геолокации туннель может не увидеть сеть в фоне. Для добавления текущей сети достаточно обычной геолокации."
         }
     }
-    val fineLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
+    val locationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
         refreshWifi()
+        val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            hint = "Разрешение геолокации получено. Можно добавить текущую сеть."
+            if (pendingAddAfterLocation) {
+                pendingAddAfterLocation = false
+                tryAddCurrentSsid()
+            }
+            if (pendingBackgroundAfterLocation &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                 !hasTrustedWifiBackgroundPermission(context)
             ) {
+                pendingBackgroundAfterLocation = false
                 bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            } else {
-                hint = "Локация разрешена — можно добавить текущую сеть"
             }
         } else {
-            hint = "Нужна локация, чтобы читать имя Wi‑Fi"
+            pendingAddAfterLocation = false
+            pendingBackgroundAfterLocation = false
+            hint = "Для определения имени сети Wi‑Fi требуется разрешение геолокации."
+        }
+    }
+
+    fun askTrustedWifiPermissions(wantBackground: Boolean, addAfter: Boolean) {
+        pendingAddAfterLocation = addAfter
+        pendingBackgroundAfterLocation = wantBackground
+        when (
+            nextTrustedWifiPermissionAsk(
+                hasLocation = hasTrustedWifiLocationPermission(context),
+                hasBackground = hasTrustedWifiBackgroundPermission(context),
+                sdkInt = Build.VERSION.SDK_INT,
+                wantBackground = wantBackground,
+            )
+        ) {
+            TrustedWifiPermissionAsk.Location -> locationLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
+            TrustedWifiPermissionAsk.Background -> {
+                pendingAddAfterLocation = false
+                bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
+            TrustedWifiPermissionAsk.None -> {
+                pendingAddAfterLocation = false
+                pendingBackgroundAfterLocation = false
+                if (addAfter) tryAddCurrentSsid()
+            }
         }
     }
 
@@ -597,31 +679,28 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     ) {
         Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            "В этих сетях VPN сам выключается. При выходе, отключении опции или удалении сети — поднимается снова. Добавляется только текущая Wi‑Fi (списка всех сетей нет).",
+            "В этих сетях туннель приостанавливается. При выходе подключение восстанавливается. Добавляется только текущая сеть.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         RowSetting(
             title = "Включить",
             subtitle = when (val p = trustedWifiAccessProblem(context, requireBackground = false)) {
-                TrustedWifiAccessProblem.ForegroundPermission -> "Нужно разрешение локации"
-                TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе"
-                TrustedWifiAccessProblem.BackgroundPermission -> "Нужна фоновая локация"
+                TrustedWifiAccessProblem.ForegroundPermission ->
+                    "Требуется разрешение геолокации, чтобы определить имя сети."
+                TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию в системе."
+                TrustedWifiAccessProblem.BackgroundPermission -> "Требуется фоновая геолокация."
                 null -> when {
                     !hasTrustedWifiBackgroundPermission(context) ->
-                        "Для авто-паузы в фоне выдайте «Локация → Всегда»"
-                    ssids.isEmpty() -> "Добавьте хотя бы одну сеть"
+                        "Для автоматической паузы в фоне предоставьте геолокацию «Всегда»."
+                    ssids.isEmpty() -> "Добавьте хотя бы одну сеть."
                     else -> "${ssids.size} сетей"
                 }
             },
             checked = enabled,
             onCheckedChange = { on ->
-                if (on && !hasTrustedWifiForegroundPermission(context)) {
-                    fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                } else if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    !hasTrustedWifiBackgroundPermission(context)
-                ) {
-                    bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                if (on) {
+                    askTrustedWifiPermissions(wantBackground = true, addAfter = false)
                 }
                 scope.launch { settings.setTrustedWifiEnabled(on) }
             },
@@ -635,9 +714,10 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         } else if (wifi.connected) {
             Text(
                 when (wifi.accessProblem) {
-                    TrustedWifiAccessProblem.ForegroundPermission -> "Wi‑Fi есть, но нет разрешения локации"
-                    TrustedWifiAccessProblem.LocationDisabled -> "Wi‑Fi есть, но геолокация выключена"
-                    else -> "Wi‑Fi есть, имя сети недоступно — выдайте локацию или включите геолокацию"
+                    TrustedWifiAccessProblem.ForegroundPermission ->
+                        "Сеть Wi‑Fi подключена, но нет разрешения геолокации на определение имени."
+                    TrustedWifiAccessProblem.LocationDisabled -> "Сеть Wi‑Fi подключена, но геолокация выключена."
+                    else -> "Сеть Wi‑Fi подключена, имя сети недоступно. Предоставьте доступ к Wi‑Fi."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -645,25 +725,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         }
         OutlinedButton(
             onClick = {
-                if (!hasTrustedWifiForegroundPermission(context)) {
-                    fineLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                    return@OutlinedButton
-                }
-                val fresh = readConnectedWifiState(context, requireBackground = false)
-                wifi = fresh
-                val ssid = fresh.ssid
-                if (ssid.isBlank()) {
-                    hint = when (fresh.accessProblem) {
-                        TrustedWifiAccessProblem.LocationDisabled -> "Включите геолокацию"
-                        TrustedWifiAccessProblem.ForegroundPermission -> "Выдайте локацию"
-                        else -> "Имя сети не прочиталось — подключитесь к Wi‑Fi и выдайте локацию"
-                    }
-                } else {
-                    scope.launch {
-                        settings.addTrustedWifiSsid(ssid)
-                        hint = "Добавлено: $ssid"
-                    }
-                }
+                askTrustedWifiPermissions(wantBackground = false, addAfter = true)
             },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -684,83 +746,11 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 OutlinedButton(
                     onClick = { scope.launch { settings.removeTrustedWifiSsid(ssid) } },
                     shape = RoundedCornerShape(12.dp),
-                ) { Text("Убрать") }
+                ) { Text("Удалить") }
             }
         }
         hint?.let {
             Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
-private fun AdminHoldButton(
-    hint: String?,
-    onHint: (String) -> Unit,
-    onUnlocked: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    var holdJob by remember { mutableStateOf<Job?>(null) }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    val startedAt = System.currentTimeMillis()
-                    holdJob?.cancel()
-                    holdJob = scope.launch {
-                        for (left in 4 downTo 1) {
-                            onHint("Удерживайте… ещё $left с")
-                            delay(1_000)
-                        }
-                        onUnlocked()
-                    }
-                    // Only release cancels the hold — sliding off the button must not.
-                    waitForPointerUpIgnoringBounds()
-                    val heldMs = System.currentTimeMillis() - startedAt
-                    val finished = holdJob?.isCompleted == true
-                    holdJob?.cancel()
-                    holdJob = null
-                    if (!finished) {
-                        onHint(
-                            if (heldMs < 350) {
-                                "Удерживайте кнопку 4 секунды для режима админа"
-                            } else {
-                                "Отпущено рано — держите полные 4 секунды"
-                            },
-                        )
-                    }
-                }
-            },
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.primary,
-    ) {
-        Text(
-            text = hint?.takeIf { it.startsWith("Удерживайте") } ?: "Удерживать 4 сек — админ",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            color = MaterialTheme.colorScheme.onPrimary,
-            fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-    }
-}
-
-/**
- * Like [androidx.compose.foundation.gestures.waitForUpOrCancellation], but does
- * **not** cancel when the finger slides outside the hit bounds. Hold continues
- * until the pointer is actually released.
- */
-private suspend fun AwaitPointerEventScope.waitForPointerUpIgnoringBounds() {
-    while (true) {
-        val event = awaitPointerEvent(PointerEventPass.Main)
-        if (event.changes.all { it.changedToUp() }) {
-            event.changes.forEach { it.consume() }
-            return
-        }
-        if (event.changes.none { it.pressed }) {
-            return
         }
     }
 }
@@ -771,13 +761,23 @@ private fun DialChip(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    dimmed: Boolean = false,
 ) {
     FilterChip(
         selected = selected,
         onClick = onClick,
+        enabled = enabled,
         label = { Text(label) },
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
+        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+            labelColor = if (dimmed) {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        ),
     )
 }
 
@@ -804,28 +804,4 @@ private fun RowSetting(
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
-}
-
-@Composable
-private fun PaletteCircle(
-    paletteId: String,
-    colorHex: Long,
-    selectedId: String,
-    onClick: (String) -> Unit,
-) {
-    val selected = paletteId == selectedId
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(Color(colorHex))
-            .then(
-                if (selected) {
-                    Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                } else {
-                    Modifier
-                },
-            )
-            .clickable { onClick(paletteId) },
-    )
 }

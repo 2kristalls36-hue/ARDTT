@@ -28,6 +28,7 @@ object EgressIpProbe {
     )
 
     private val cached = AtomicReference<String?>(null)
+    private val underlayCached = AtomicReference<String?>(null)
 
     @Volatile
     var lastError: String? = null
@@ -38,7 +39,18 @@ object EgressIpProbe {
     var lastVia: String? = null
         private set
 
+    @Volatile
+    var lastUnderlayError: String? = null
+        private set
+
+    @Volatile
+    var lastUnderlayVia: String? = null
+        private set
+
     fun current(): String? = cached.get()
+
+    /** Public IP of the phone's provider path (Wi‑Fi / LTE), never through the VPN TUN. */
+    fun currentUnderlay(): String? = underlayCached.get()
 
     fun clear() {
         cached.set(null)
@@ -50,6 +62,11 @@ object EgressIpProbe {
     fun invalidate() {
         cached.set(null)
         lastError = null
+    }
+
+    fun invalidateUnderlay() {
+        underlayCached.set(null)
+        lastUnderlayError = null
     }
 
     /**
@@ -116,6 +133,31 @@ object EgressIpProbe {
         null
     }
 
+    /**
+     * Provider public IP bound to the underlay (NOT_VPN). Used on the tunnel
+     * tab even when the VPN is down.
+     */
+    suspend fun refreshUnderlay(context: Context): String? = withContext(Dispatchers.IO) {
+        val bind = pickBestUnderlayNetwork(context)
+        val errors = mutableListOf<String>()
+        for (url in endpoints) {
+            val ip = runCatching { fetchIp(url, bind) }.getOrElse {
+                errors += "${hostOf(url)}: ${it.message}"
+                null
+            }
+            if (!ip.isNullOrBlank()) {
+                underlayCached.set(ip)
+                lastUnderlayError = null
+                lastUnderlayVia = url
+                AppLog.v(TAG, "underlay ip=$ip via=$url bind=${bind?.networkHandle}")
+                return@withContext ip
+            }
+        }
+        lastUnderlayError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
+        AppLog.w(TAG, "underlay ip failed: $lastUnderlayError")
+        null
+    }
+
     private fun hostOf(url: String): String = runCatching { URL(url).host }.getOrDefault(url)
 
     private fun fetchProvisionEgressIp(
@@ -138,7 +180,7 @@ object EgressIpProbe {
         }
         // Prefer underlay when tunnel is up but app is excluded from TUN —
         // provision :9100 is on the VPS public host, reachable without VPN.
-        val underlay = context?.let { pickUnderlayNetwork(it) }
+        val underlay = context?.let { pickBestUnderlayNetwork(it) }
         val firstBind = when {
             !viaVpn -> underlay
             underlay != null -> underlay
@@ -214,21 +256,6 @@ object EgressIpProbe {
         }
     }
 
-    private fun pickUnderlayNetwork(context: Context): Network? {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        fun score(n: Network): Int {
-            val caps = cm.getNetworkCapabilities(n) ?: return -1
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return -1
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return -1
-            var s = 1
-            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) s += 4
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) s += 8
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) s += 2
-            return s
-        }
-        return cm.allNetworks.maxByOrNull { score(it) }?.takeIf { score(it) > 0 }
-    }
-
     internal fun looksLikeIp(value: String): Boolean {
         if (value.isBlank() || value.length > 45) return false
         if (value.matches(Regex("""\d{1,3}(\.\d{1,3}){3}"""))) return true
@@ -259,4 +286,30 @@ object EgressIpProbe {
     }
 
     private const val TAG = "EgressIp"
+}
+
+/** Shown for IP VPN / status until provision reports a public egress address. */
+const val VPN_EGRESS_CONNECTING_LABEL = "Выполняется подключение…"
+
+fun vpnEgressIpLabel(
+    publicIp: String?,
+    vpnSessionActive: Boolean,
+    pausedOnTrustedWifi: Boolean = false,
+): String {
+    if (pausedOnTrustedWifi) return "—"
+    val ip = publicIp?.trim().orEmpty()
+    if (ip.isNotEmpty()) return ip
+    if (vpnSessionActive) return VPN_EGRESS_CONNECTING_LABEL
+    return "—"
+}
+
+fun vpnSessionStatusText(
+    state: ConnState,
+    statusText: String,
+    publicIp: String?,
+): String {
+    if (state == ConnState.Connecting || state == ConnState.Probing) {
+        return statusText.ifBlank { VPN_EGRESS_CONNECTING_LABEL }
+    }
+    return statusText.ifBlank { "—" }
 }

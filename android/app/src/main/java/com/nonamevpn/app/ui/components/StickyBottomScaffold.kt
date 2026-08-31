@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -67,19 +69,33 @@ object NvpnBottomChrome {
 fun StickyBottomScaffold(
     stickyContent: @Composable BoxScope.() -> Unit,
     modifier: Modifier = Modifier,
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            EdgeFeedTopInset()
-            content()
+        val feed: @Composable () -> Unit = {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                content()
+            }
+        }
+        if (onRefresh != null) {
+            PullRefreshHost(
+                refreshing = refreshing,
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                feed()
+            }
+        } else {
+            feed()
         }
         Box(
             modifier = Modifier
@@ -112,18 +128,41 @@ fun EdgeFeedColumn(
     modifier: Modifier = Modifier,
     bottomExtra: Dp = 24.dp,
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
-        verticalArrangement = verticalArrangement,
-    ) {
-        EdgeFeedTopInset()
-        content()
+    val feed: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
+            verticalArrangement = verticalArrangement,
+        ) {
+            content()
+        }
+    }
+    if (onRefresh != null) {
+        PullRefreshHost(
+            refreshing = refreshing,
+            onRefresh = onRefresh,
+            modifier = modifier.fillMaxSize(),
+        ) {
+            feed()
+        }
+    } else {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
+            verticalArrangement = verticalArrangement,
+        ) {
+            content()
+        }
     }
 }
 
@@ -134,13 +173,14 @@ fun StickyPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    busy: Boolean = false,
     containerColor: Color = MaterialTheme.colorScheme.primary,
     contentColor: Color = MaterialTheme.colorScheme.onPrimary,
     icon: ImageVector? = null,
 ) {
     Button(
         onClick = onClick,
-        enabled = enabled,
+        enabled = enabled && !busy,
         modifier = modifier
             .fillMaxWidth()
             .height(NvpnBottomChrome.ButtonHeight),
@@ -157,15 +197,24 @@ fun StickyPrimaryButton(
             disabledElevation = 0.dp,
         ),
     ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
-            Spacer(modifier = Modifier.width(8.dp))
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.dp,
+                color = contentColor,
+            )
+        } else {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Text(
-            text,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-        )
     }
 }

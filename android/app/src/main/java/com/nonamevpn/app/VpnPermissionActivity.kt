@@ -29,7 +29,7 @@ class VpnPermissionActivity : Activity() {
             if (resultCode == RESULT_OK) {
                 ConnectionManager.get(applicationContext).connect()
             } else {
-                Toast.makeText(this, "VPN не разрешён", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Подключение не разрешено", Toast.LENGTH_SHORT).show()
             }
         }
         finish()

@@ -1,5 +1,6 @@
 package com.nonamevpn.app.deploy
 
+import com.nonamevpn.app.core.AppLog
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,8 @@ object ProvisionAdminApi {
     data class HealthInfo(
         val ok: Boolean,
         val deployVersion: String = "",
+        /** HTTP RTT of GET /health, milliseconds. */
+        val pingMs: Long = -1L,
     )
 
     data class UserSummary(
@@ -31,6 +34,11 @@ object ProvisionAdminApi {
         val downBytes: Long = 0L,
         val upBytes: Long = 0L,
         val trafficLimitBytes: Long = 0L,
+        val deviceModels: Map<String, String> = emptyMap(),
+        val appVersion: String = "",
+        val appVersionCode: Int = 0,
+        val deviceAppVersions: Map<String, String> = emptyMap(),
+        val deviceAppVersionCodes: Map<String, Int> = emptyMap(),
     ) {
         val usedBytes: Long get() = (downBytes + upBytes).coerceAtLeast(0L)
     }
@@ -42,6 +50,7 @@ object ProvisionAdminApi {
 
     suspend fun health(baseUrl: String): Result<HealthInfo> = withContext(Dispatchers.IO) {
         runCatching {
+            val started = System.nanoTime()
             val url = URL("${baseUrl.trimEnd('/')}/health")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -54,6 +63,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
+            val pingMs = ((System.nanoTime() - started) / 1_000_000L).coerceAtLeast(1L)
             if (code !in 200..299) error("HTTP $code")
             val o = runCatching { JSONObject(body) }.getOrNull()
             val ok = o?.optBoolean("ok", false)
@@ -62,6 +72,7 @@ object ProvisionAdminApi {
             HealthInfo(
                 ok = ok,
                 deployVersion = o?.optString("deployVersion").orEmpty().trim(),
+                pingMs = pingMs,
             )
         }
     }
@@ -84,7 +95,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code: $body")
+            if (code !in 200..299) error(fail(code, body, "listUsers"))
             parseUsers(body)
         }
     }
@@ -116,7 +127,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code: $body")
+            if (code !in 200..299) error(fail(code, body, "createUser"))
             body
         }
     }
@@ -129,6 +140,7 @@ object ProvisionAdminApi {
         deactivated: Boolean? = null,
         clearDevices: Boolean = false,
         trafficLimitGb: Int? = null,
+        newName: String? = null,
     ): Result<UserSummary> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users/update")
@@ -138,6 +150,7 @@ object ProvisionAdminApi {
             deactivated?.let { payload.put("deactivated", it) }
             if (clearDevices) payload.put("clearDevices", true)
             trafficLimitGb?.let { payload.put("trafficLimitGb", it.coerceAtLeast(0)) }
+            newName?.trim()?.takeIf { it.isNotEmpty() }?.let { payload.put("newName", it) }
             postJsonUser(url, payload)
         }
     }
@@ -177,7 +190,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code: $body")
+            if (code !in 200..299) error(fail(code, body, "deleteUser"))
             Unit
         }
     }
@@ -187,6 +200,9 @@ object ProvisionAdminApi {
         deviceId: String,
         name: String,
         externalIp: String = "",
+        deviceModel: String = "",
+        appVersion: String = "",
+        appVersionCode: Int = 0,
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/presence")
@@ -194,6 +210,9 @@ object ProvisionAdminApi {
                 .put("deviceId", deviceId.trim())
                 .put("name", name.trim())
                 .put("externalIp", externalIp.trim())
+                .put("deviceModel", deviceModel.trim())
+                .put("appVersion", appVersion.trim())
+                .put("appVersionCode", appVersionCode)
                 .toString()
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -212,7 +231,7 @@ object ProvisionAdminApi {
 
     suspend fun profileJson(baseUrl: String, name: String): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val enc = java.net.URLEncoder.encode(name.trim(), Charsets.UTF_8.name())
+            val enc = encodePathSegment(name.trim())
             val url = URL("${baseUrl.trimEnd('/')}/v1/profile/$enc")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -225,7 +244,7 @@ object ProvisionAdminApi {
                     ?.bufferedReader()?.readText().orEmpty()
             }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code: $body")
+            if (code !in 200..299) error(fail(code, body, "profileJson name=$name"))
             body
         }
     }
@@ -245,11 +264,11 @@ object ProvisionAdminApi {
                 ?.bufferedReader()?.readText().orEmpty()
         }.getOrDefault("")
         conn.disconnect()
-        if (code !in 200..299) error("HTTP $code: $body")
+        if (code !in 200..299) error(fail(code, body, "postJson ${url.path}"))
         return parseUser(JSONObject(body))
     }
 
-    private fun parseUsers(raw: String): List<UserSummary> {
+    internal fun parseUsers(raw: String): List<UserSummary> {
         val trimmed = raw.trim()
         val arr = when {
             trimmed.startsWith("[") -> JSONArray(trimmed)
@@ -266,7 +285,7 @@ object ProvisionAdminApi {
         }
     }
 
-    private fun parseUser(o: JSONObject): UserSummary {
+    internal fun parseUser(o: JSONObject): UserSummary {
         val deviceIds = mutableListOf<String>()
         o.optJSONArray("deviceIds")?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -275,6 +294,31 @@ object ProvisionAdminApi {
         }
         val primary = o.optString("deviceId")
         if (primary.isNotBlank() && primary !in deviceIds) deviceIds.add(0, primary)
+        val deviceModels = linkedMapOf<String, String>()
+        o.optJSONObject("deviceModels")?.let { mo ->
+            val keys = mo.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                mo.optString(key).trim().takeIf { it.isNotEmpty() }?.let { deviceModels[key] = it }
+            }
+        }
+        val deviceAppVersions = linkedMapOf<String, String>()
+        o.optJSONObject("deviceAppVersions")?.let { mo ->
+            val keys = mo.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                mo.optString(key).trim().takeIf { it.isNotEmpty() }?.let { deviceAppVersions[key] = it }
+            }
+        }
+        val deviceAppVersionCodes = linkedMapOf<String, Int>()
+        o.optJSONObject("deviceAppVersionCodes")?.let { mo ->
+            val keys = mo.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val code = mo.optInt(key, 0)
+                if (code > 0) deviceAppVersionCodes[key] = code
+            }
+        }
         return UserSummary(
             name = o.optString("name"),
             hostId = o.optInt("hostId", 0),
@@ -292,6 +336,46 @@ object ProvisionAdminApi {
             downBytes = o.optLong("downBytes", 0L),
             upBytes = o.optLong("upBytes", 0L),
             trafficLimitBytes = o.optLong("trafficLimitBytes", 0L),
+            deviceModels = deviceModels,
+            appVersion = o.optString("appVersion").trim(),
+            appVersionCode = o.optInt("appVersionCode", 0),
+            deviceAppVersions = deviceAppVersions,
+            deviceAppVersionCodes = deviceAppVersionCodes,
         )
+    }
+
+    private fun fail(code: Int, body: String, op: String): String {
+        val message = httpErrorMessage(code, body)
+        AppLog.e("Provision", "$op → $message")
+        return message
+    }
+}
+
+internal fun encodePathSegment(value: String): String =
+    java.net.URLEncoder.encode(value.trim(), Charsets.UTF_8.name()).replace("+", "%20")
+
+internal fun httpErrorMessage(code: Int, body: String): String {
+    val parsed = runCatching { JSONObject(body).optString("error") }.getOrNull()
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    val detail = parsed ?: body.trim().take(180)
+    return when {
+        code == 409 && detail.contains("already exists", ignoreCase = true) ->
+            "Клиент с таким именем уже есть"
+        code == 404 -> "Клиент не найден"
+        detail.isNotBlank() -> detail
+        else -> "Ошибка сервера ($code)"
+    }
+}
+
+/** Labels for bound devices: phone model when known, otherwise the device id. */
+fun deviceDisplayLabels(
+    deviceIds: List<String>,
+    deviceModels: Map<String, String>,
+): List<String> {
+    val ids = deviceIds.map { it.trim() }.filter { it.isNotEmpty() }
+    return ids.map { id ->
+        val model = deviceModels[id]?.trim().orEmpty()
+        if (model.isNotEmpty()) model else id
     }
 }

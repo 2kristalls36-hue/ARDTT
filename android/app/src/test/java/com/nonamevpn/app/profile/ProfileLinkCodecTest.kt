@@ -1,6 +1,7 @@
 package com.nonamevpn.app.profile
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileLinkCodecTest {
@@ -40,5 +41,6 @@ class ProfileLinkCodecTest {
         assertEquals(profile.deviceId, restored.deviceId)
         assertEquals(profile.direct.endpoint, restored.direct.endpoint)
         assertEquals(profile.bypass.password, restored.bypass.password)
+        assertTrue(link.length < 1600)
     }
 }

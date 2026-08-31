@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Converts nonameVPN users.json → WDTT passwords.json (+ device RawIP by host_id)
+// Converts ARDTT users.json → WDTT passwords.json (+ device RawIP by host_id)
 // and writes a provision-readable traffic snapshot to /data/bypass-traffic.json.
 
 type nvpnStore struct {

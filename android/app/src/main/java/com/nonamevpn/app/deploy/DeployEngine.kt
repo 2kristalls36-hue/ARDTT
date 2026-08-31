@@ -5,18 +5,22 @@ import com.jcraft.jsch.Session
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.telemetry.TelemetryBridge
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
-import java.util.zip.GZIPOutputStream
 
 /**
  * Admin deploy: SSH → upload stack.tar.gz + install.sh → run Compose on VPS.
+ * Long work runs inside [DeployService] so lock-screen / background does not abort SSH.
  */
 class DeployEngine(private val appContext: Context) {
+    private val running = AtomicBoolean(false)
+
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
@@ -29,18 +33,81 @@ class DeployEngine(private val appContext: Context) {
     private val _log = MutableStateFlow<List<String>>(emptyList())
     val log: StateFlow<List<String>> = _log.asStateFlow()
 
+    private val _isUpdate = MutableStateFlow(false)
+    val isUpdate: StateFlow<Boolean> = _isUpdate.asStateFlow()
+
+    private val _outcome = MutableStateFlow<String?>(null)
+    val outcome: StateFlow<String?> = _outcome.asStateFlow()
+
+    private val _activeTargetId = MutableStateFlow<String?>(null)
+    val activeTargetId: StateFlow<String?> = _activeTargetId.asStateFlow()
+
     @Volatile private var activeSession: Session? = null
     @Volatile private var activeHost: String = ""
+    @Volatile private var pendingTarget: DeployTarget? = null
 
-    suspend fun deploy(target: DeployTarget): Result<String> = withContext(Dispatchers.IO) {
-        if (_busy.value) return@withContext Result.failure(IllegalStateException("Деплой уже идёт"))
+    val activeHostValue: String get() = activeHost
+
+    fun pendingHostLabel(): String {
+        val t = pendingTarget ?: return activeHost
+        return t.name.ifBlank { t.host }.ifBlank { activeHost }
+    }
+
+    /**
+     * Start (or update) deploy in a foreground service. Returns false if another
+     * deploy is already running.
+     */
+    fun enqueue(target: DeployTarget, isUpdate: Boolean): Boolean {
+        if (!running.compareAndSet(false, true)) return false
+        pendingTarget = target
+        _isUpdate.value = isUpdate
+        _activeTargetId.value = target.id
         _busy.value = true
         _progress.value = 0f
         _step.value = "Инициализация…"
         _log.value = emptyList()
+        _outcome.value = null
         activeHost = target.host.trim()
+        TelemetryBridge.deploy(
+            "deploy_enqueued",
+            activeHost,
+            JSONObject()
+                .put("target_id", target.id)
+                .put("is_update", isUpdate)
+                .put("target_name", target.name),
+        )
+        return try {
+            DeployService.start(appContext)
+            true
+        } catch (t: Throwable) {
+            AppLog.e(TAG, "enqueue failed: ${t.message ?: t.javaClass.simpleName}")
+            running.set(false)
+            _busy.value = false
+            pendingTarget = null
+            _activeTargetId.value = null
+            _outcome.value = "Ошибка: не удалось запустить фоновую установку"
+            false
+        }
+    }
+
+    /** Called from [DeployService] on a background dispatcher. */
+    suspend fun runFromService(): Result<String> {
+        val target = pendingTarget
+            ?: return Result.failure(IllegalStateException("Нет задания деплоя"))
+        return try {
+            execute(target)
+        } finally {
+            running.set(false)
+            _busy.value = false
+            pendingTarget = null
+            // Keep isUpdate / activeTargetId until the finished notification is built.
+        }
+    }
+
+    private suspend fun execute(target: DeployTarget): Result<String> = withContext(Dispatchers.IO) {
         var session: Session? = null
         var client: SshClient? = null
+        activeHost = target.host.trim()
         try {
             TelemetryBridge.deploy(
                 action = "deploy_started",
@@ -51,7 +118,7 @@ class DeployEngine(private val appContext: Context) {
                     .put("ssh_port", target.sshPort)
                     .put("ssh_user", target.sshUser.trim().ifBlank { "root" })
                     .put("auth_type", if (target.privateKeyPem.isNotBlank()) "key" else "password")
-                    .put("is_update", target.lastDeployedAtMs > 0L)
+                    .put("is_update", _isUpdate.value)
                     .put("public_host", target.publicHost.ifBlank { target.host }.trim()),
             )
             append("Старт деплоя ${target.name.ifBlank { target.host }}")
@@ -130,7 +197,10 @@ class DeployEngine(private val appContext: Context) {
             }
             if (code != 0) {
                 val hint = _log.value.takeLast(8).joinToString(" ")
-                val diskHint = when {
+                val detail = when {
+                    code == -1 ->
+                        " — SSH-сессия оборвалась во время установки (Wi‑Fi/фон). " +
+                            "Повторите деплой: образы собираются до остановки старого стека"
                     hint.contains("no space", ignoreCase = true) ||
                         hint.contains("write /") ||
                         hint.contains("Мало места") ->
@@ -144,9 +214,8 @@ class DeployEngine(private val appContext: Context) {
                         .put("exit_code", code)
                         .put("log_tail", hint),
                 )
-                error("install.sh exit=$code$diskHint")
+                error("install.sh exit=$code$detail")
             }
-            // Belt-and-suspenders: ensure archive/logs from older installs are gone
             runCatching {
                 ssh.exec(
                     "rm -f /opt/nonamevpn/stack.tar.gz /var/log/nvpn-build*.log /var/log/nvpn-install.log; " +
@@ -158,6 +227,10 @@ class DeployEngine(private val appContext: Context) {
             val msg = "Стек установлен на $publicHost (/opt/nonamevpn)"
             append(msg)
             emit(1f, msg)
+            val deployedAt = System.currentTimeMillis()
+            runCatching {
+                ServersRepository.get(appContext).upsert(target.copy(lastDeployedAtMs = deployedAt))
+            }
             TelemetryBridge.deploy(
                 "deploy_succeeded",
                 activeHost,
@@ -165,6 +238,7 @@ class DeployEngine(private val appContext: Context) {
                     .put("message", msg)
                     .put("deploy_version", deployVersion),
             )
+            _outcome.value = msg
             Result.success(msg)
         } catch (t: Throwable) {
             AppLog.e(TAG, "deploy failed: ${t.message ?: t.javaClass.simpleName}")
@@ -179,9 +253,14 @@ class DeployEngine(private val appContext: Context) {
                     JSONObject().put("log", remoteLog),
                 )
             }
-            val msg = t.message?.take(300) ?: t.javaClass.simpleName
+            val cancelled = _log.value.any { it.contains("Отменено") }
+            val msg = if (cancelled) {
+                "Отменено"
+            } else {
+                t.message?.take(300) ?: t.javaClass.simpleName
+            }
             append("Ошибка: $msg")
-            emit(_progress.value, "Ошибка")
+            emit(_progress.value, if (cancelled) "Отменено" else "Ошибка")
             TelemetryBridge.deploy(
                 "deploy_failed",
                 activeHost,
@@ -191,21 +270,21 @@ class DeployEngine(private val appContext: Context) {
                     .put("step", _step.value)
                     .put("log_tail", _log.value.takeLast(20).joinToString("\n")),
             )
+            val shown = if (cancelled) "Отменено" else "Ошибка: $msg"
+            _outcome.value = shown
             Result.failure(t)
         } finally {
             runCatching { session?.disconnect() }
             activeSession = null
-            _busy.value = false
             activeHost = ""
         }
     }
 
     fun cancel() {
-        runCatching { activeSession?.disconnect() }
-        activeSession = null
-        _busy.value = false
         append("Отменено")
         TelemetryBridge.deploy("deploy_cancelled", activeHost)
+        runCatching { activeSession?.disconnect() }
+        activeSession = null
     }
 
     /**
@@ -266,5 +345,14 @@ class DeployEngine(private val appContext: Context) {
 
     companion object {
         private const val TAG = "DeployEngine"
+
+        @Volatile
+        private var instance: DeployEngine? = null
+
+        fun get(context: Context): DeployEngine {
+            return instance ?: synchronized(this) {
+                instance ?: DeployEngine(context.applicationContext).also { instance = it }
+            }
+        }
     }
 }
