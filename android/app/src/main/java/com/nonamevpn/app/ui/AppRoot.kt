@@ -286,6 +286,10 @@ fun AppRoot(
                         settings = settings,
                         profiles = profiles,
                         onRequestConnect = { requestVpnThenConnect() },
+                        onOpenWallpaperSettings = {
+                            PendingUiAction.requestOpenAppearanceSettings()
+                            navigateTab(AppDestination.Settings.route)
+                        },
                         onOpenCallHashSettings = {
                             PendingUiAction.requestCallHashSettings()
                             navigateTab(AppDestination.Settings.route)

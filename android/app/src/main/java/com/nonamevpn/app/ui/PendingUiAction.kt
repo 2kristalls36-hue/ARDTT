@@ -18,6 +18,9 @@ object PendingUiAction {
     private val _openUpdateDownload = MutableStateFlow(false)
     val openUpdateDownload: StateFlow<Boolean> = _openUpdateDownload.asStateFlow()
 
+    private val _openAppearanceSettings = MutableStateFlow(false)
+    val openAppearanceSettings: StateFlow<Boolean> = _openAppearanceSettings.asStateFlow()
+
     fun requestCallHashSettings() {
         _openCallHashSettings.value = true
     }
@@ -47,6 +50,16 @@ object PendingUiAction {
     fun consumeOpenUpdateDownload(): Boolean {
         if (!_openUpdateDownload.value) return false
         _openUpdateDownload.value = false
+        return true
+    }
+
+    fun requestOpenAppearanceSettings() {
+        _openAppearanceSettings.value = true
+    }
+
+    fun consumeOpenAppearanceSettings(): Boolean {
+        if (!_openAppearanceSettings.value) return false
+        _openAppearanceSettings.value = false
         return true
     }
 }

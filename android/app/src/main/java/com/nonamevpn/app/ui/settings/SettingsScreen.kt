@@ -103,6 +103,8 @@ fun SettingsScreen(
     val callHashBringIntoView = remember { BringIntoViewRequester() }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
     val updateBringIntoView = remember { BringIntoViewRequester() }
+    val openAppearanceSettings by PendingUiAction.openAppearanceSettings.collectAsStateWithLifecycle()
+    val appearanceBringIntoView = remember { BringIntoViewRequester() }
     val vpnSessionActive = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
         connUi.state == ConnState.PausedTrustedWifi ||
@@ -115,6 +117,7 @@ fun SettingsScreen(
     var showTestingAgreement by remember { mutableStateOf(false) }
     var showBypassMethodDialog by remember { mutableStateOf(false) }
     var highlightBypassDialog by remember { mutableStateOf(false) }
+    var highlightAppearanceCard by remember { mutableStateOf(false) }
     val refuseLeaveTestingSession: () -> Unit = {
         adminHint = TestingSessionGuard.STOP_RECORDING_FIRST
         Toast.makeText(
@@ -173,6 +176,15 @@ fun SettingsScreen(
             updates.download()
         }
         PendingUiAction.consumeOpenUpdateDownload()
+    }
+    LaunchedEffect(openAppearanceSettings) {
+        if (!openAppearanceSettings) return@LaunchedEffect
+        kotlinx.coroutines.delay(120)
+        runCatching { appearanceBringIntoView.bringIntoView() }
+        highlightAppearanceCard = true
+        kotlinx.coroutines.delay(550)
+        highlightAppearanceCard = false
+        PendingUiAction.consumeOpenAppearanceSettings()
     }
 
     LaunchedEffect(Unit) {
@@ -351,9 +363,19 @@ fun SettingsScreen(
             CallHashSettingsContent(showHeader = false)
         }
 
+        val appearanceHighlightAlpha by animateFloatAsState(
+            targetValue = if (highlightAppearanceCard) 1f else 0f,
+            animationSpec = androidx.compose.animation.core.tween(durationMillis = 420),
+            label = "appearance_card_highlight",
+        )
         AppSectionCard(
+            modifier = Modifier.bringIntoViewRequester(appearanceBringIntoView),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                width = 2.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f + 0.50f * appearanceHighlightAlpha),
+            ),
         ) {
             Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(
