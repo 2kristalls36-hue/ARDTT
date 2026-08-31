@@ -321,6 +321,12 @@ class AppSettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun setTunnelWallpaperVariant(variant: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[tunnelWallpaperVariant] = variant.coerceAtLeast(0)
+        }
+    }
+
     /**
      * Device challenge is created once and never rotated. Regenerating it would
      * invalidate a code the developer already issued.

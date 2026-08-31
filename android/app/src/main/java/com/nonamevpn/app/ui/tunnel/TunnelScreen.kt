@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -122,6 +123,7 @@ fun TunnelScreen(
     onRequestConnect: () -> Unit,
     onOpenCallHashSettings: () -> Unit = {},
 ) {
+    val wallpaperVariantCount = 2
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
@@ -315,6 +317,11 @@ fun TunnelScreen(
             whitelistDetected = whitelistDetected,
             isDarkTheme = isDarkTheme,
             wallpaperVariant = wallpaperVariant,
+            onSwitchWallpaperMode = {
+                scope.launch {
+                    settings.setTunnelWallpaperVariant((wallpaperVariant + 1).mod(wallpaperVariantCount))
+                }
+            },
             onToggleTunnel = {
                 when (ui.state) {
                     ConnState.Connected,
@@ -666,6 +673,7 @@ private fun UserTunnelSimpleScreen(
     whitelistDetected: Boolean,
     isDarkTheme: Boolean,
     wallpaperVariant: Int,
+    onSwitchWallpaperMode: () -> Unit,
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
@@ -732,6 +740,26 @@ private fun UserTunnelSimpleScreen(
                     .fillMaxHeight(0.333f)
                     .align(Alignment.TopCenter),
             )
+        }
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 8.dp, end = 12.dp)
+                .size(38.dp)
+                .clickable(onClick = onSwitchWallpaperMode),
+            shape = RoundedCornerShape(19.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+            shadowElevation = 6.dp,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    "BG",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
         Column(
             modifier = Modifier
