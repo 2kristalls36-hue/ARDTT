@@ -748,19 +748,6 @@ class ConnectionManager(
             lastError = null,
         )
         scope.launch {
-<<<<<<< HEAD
-            _ui.value = _ui.value.copy(
-                state = ConnState.Disconnecting,
-                statusText = "Отключение…",
-                connectEnabled = false,
-                lastError = null,
-                callRecreatePrompt = null,
-            )
-            // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
-            // If user turned hideIp off, clear server route.
-            if (!_ui.value.hideIp) {
-                runCatching { syncHideIpToProvision(false, viaVpn = hideIpViaVpn()) }
-=======
             try {
                 // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
                 // If user turned hideIp off, clear server route.
@@ -775,6 +762,7 @@ class ConnectionManager(
                     softInfo = softInfoFor(_ui.value.probe),
                     connectEnabled = connectAllowed(_ui.value.probe),
                     lastError = null,
+                    callRecreatePrompt = null,
                 )
             } catch (_: CancellationException) {
                 _ui.value = _ui.value.copy(
@@ -784,6 +772,7 @@ class ConnectionManager(
                     softInfo = softInfoFor(_ui.value.probe),
                     connectEnabled = connectAllowed(_ui.value.probe),
                     lastError = null,
+                    callRecreatePrompt = null,
                 )
             } catch (t: Throwable) {
                 val msg = t.message?.take(220) ?: t.javaClass.simpleName
@@ -795,7 +784,6 @@ class ConnectionManager(
                     lastError = msg,
                     connectEnabled = connectAllowed(_ui.value.probe),
                 )
->>>>>>> origin/cursor/tab-reselect-root-5e36
             }
         }
     }
