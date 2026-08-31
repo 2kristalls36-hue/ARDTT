@@ -50,17 +50,39 @@ fun resolveTunnelWallpaper(
 fun tunnelWallpaperVisible(admin: Boolean, onTunnelTab: Boolean): Boolean =
     !admin && onTunnelTab
 
-/** One random tunnel scene per app process (cold start). */
+/**
+ * Walk through Field, City, and Refinery before repeating.
+ * A plain 1/3 roll skipped НПЗ for long stretches of cold starts.
+ */
+fun nextTunnelWallpaperScene(
+    previousName: String?,
+    seenNames: Set<String>,
+    randomInt: (Int) -> Int = { Random.nextInt(it) },
+): Pair<TunnelWallpaperScene, Set<String>> {
+    val known = TunnelWallpaperScene.all.map { it.name }.toSet()
+    val seen = seenNames.filter { it in known }.toSet()
+    val unused = TunnelWallpaperScene.all.filter { it.name !in seen }
+    val picked = if (unused.isNotEmpty()) {
+        unused[randomInt(unused.size)]
+    } else {
+        val pool = TunnelWallpaperScene.all.filter { it.name != previousName }
+            .ifEmpty { TunnelWallpaperScene.all }
+        pool[randomInt(pool.size)]
+    }
+    val nextSeen = if (unused.isEmpty()) setOf(picked.name) else seen + picked.name
+    return picked to nextSeen
+}
+
+/** One scene per app process (cold start), rotated so all three appear. */
 object TunnelWallpaperSession {
     private var sceneOrNull: TunnelWallpaperScene? = null
 
     val scene: TunnelWallpaperScene
         get() = sceneOrNull ?: error("TunnelWallpaperSession not initialized")
 
-    fun initForProcess() {
-        if (sceneOrNull == null) {
-            sceneOrNull = TunnelWallpaperScene.random()
-        }
+    fun initForProcess(picked: TunnelWallpaperScene? = null) {
+        if (sceneOrNull != null) return
+        sceneOrNull = picked ?: TunnelWallpaperScene.random()
     }
 
     fun currentOrPick(): TunnelWallpaperScene {
