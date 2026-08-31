@@ -171,16 +171,17 @@ fun ProfilesScreen(
                 icon = Icons.Default.Add,
             )
         },
+        header = {
+            AppTabPageHeader(
+                title = "Профили",
+                subtitle = if (catalog.items.isEmpty()) {
+                    "Импортируйте JSON с сервера"
+                } else {
+                    "${catalog.items.size} профилей · активен: ${catalog.active?.name ?: "—"}"
+                },
+            )
+        },
     ) {
-        AppTabPageHeader(
-            title = "Профили",
-            subtitle = if (catalog.items.isEmpty()) {
-                "Импортируйте JSON с сервера"
-            } else {
-                "${catalog.items.size} профилей · активен: ${catalog.active?.name ?: "—"}"
-            },
-        )
-
         error?.let {
             AppSectionCard(contentPadding = PaddingValues(16.dp)) {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

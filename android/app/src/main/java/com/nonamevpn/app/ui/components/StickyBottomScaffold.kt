@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -63,8 +62,11 @@ object NvpnBottomChrome {
 }
 
 /**
- * Full-screen shell: scrollable edge-to-edge feed + sticky bottom bar
+ * Full-screen shell: sticky page header + scrollable feed + sticky bottom bar
  * pinned above the floating tab bar.
+ *
+ * Pass [header] with [AppTabPageHeader] (owns status-bar inset) so titles align
+ * with Exceptions / Tunnel / Logs and do not scroll away.
  */
 @Composable
 fun StickyBottomScaffold(
@@ -72,6 +74,7 @@ fun StickyBottomScaffold(
     modifier: Modifier = Modifier,
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
+    header: @Composable ColumnScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -79,13 +82,18 @@ fun StickyBottomScaffold(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .padding(horizontal = 16.dp),
             ) {
-                EdgeFeedTopInset()
-                content()
+                header()
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    content()
+                }
             }
         }
         if (onRefresh != null) {
@@ -124,6 +132,9 @@ fun EdgeFeedTopInset(extra: Dp = 8.dp) {
 /**
  * Edge-to-edge column without a sticky CTA (Settings / Logs style).
  * Still reserves space above the floating tab bar.
+ *
+ * Pass [header] with [AppTabPageHeader] to pin titles below the status bar
+ * outside the scroll area (matches Exceptions / Tunnel).
  */
 @Composable
 fun EdgeFeedColumn(
@@ -133,19 +144,25 @@ fun EdgeFeedColumn(
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
+    header: @Composable ColumnScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val feed: @Composable (Modifier: Modifier) -> Unit = { columnModifier ->
         Column(
             modifier = columnModifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
-            verticalArrangement = verticalArrangement,
+                .padding(horizontal = 16.dp),
         ) {
-            EdgeFeedTopInset()
-            content()
+            header()
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(scrollState)
+                    .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
+                verticalArrangement = verticalArrangement,
+            ) {
+                content()
+            }
         }
     }
     if (onRefresh != null) {

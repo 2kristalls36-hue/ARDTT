@@ -39,12 +39,12 @@ class AppSettingsRepository(private val context: Context) {
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
-    private val themePalette = stringPreferencesKey("theme_palette")
     private val alphaChallengeHex = stringPreferencesKey("alpha_challenge_hex")
     private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
     private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
     private val alphaUnlockLockUntil = longPreferencesKey("alpha_unlock_lock_until")
     private val tunnelWallpaperVariant = intPreferencesKey("tunnel_wallpaper_variant")
+    private val legacyWallpaper = stringPreferencesKey("app_wallpaper")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
@@ -91,10 +91,6 @@ class AppSettingsRepository(private val context: Context) {
     /** `system` | `light` | `dark` */
     val themeModeFlow: Flow<String> = context.dataStore.data.map {
         normalizeThemeMode(it[themeMode])
-    }
-    /** `espresso` | `indigo` | `forest` */
-    val themePaletteFlow: Flow<String> = context.dataStore.data.map {
-        normalizeThemePalette(it[themePalette])
     }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
@@ -289,10 +285,6 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[themeMode] = normalizeThemeMode(mode) }
     }
 
-    suspend fun setThemePalette(palette: String) {
-        context.dataStore.edit { it[themePalette] = normalizeThemePalette(palette) }
-    }
-
     suspend fun alphaUnlockedSnapshot(): Boolean {
         val prefs = context.dataStore.data.first()
         return prefs[alphaUnlocked] == true
@@ -372,6 +364,11 @@ class AppSettingsRepository(private val context: Context) {
         return result
     }
 
+    /** Removes obsolete wallpaper preference from older builds. */
+    suspend fun clearLegacyWallpaperPreference() {
+        context.dataStore.edit { it.remove(legacyWallpaper) }
+    }
+
     private fun sha256(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
@@ -394,12 +391,6 @@ class AppSettingsRepository(private val context: Context) {
             "light" -> "light"
             "dark" -> "dark"
             else -> "system"
-        }
-
-        fun normalizeThemePalette(raw: String?): String = when (raw?.lowercase()?.trim()) {
-            "indigo" -> "indigo"
-            "forest" -> "forest"
-            else -> "espresso"
         }
 
         fun parseSsidSet(raw: String?): Set<String> =
