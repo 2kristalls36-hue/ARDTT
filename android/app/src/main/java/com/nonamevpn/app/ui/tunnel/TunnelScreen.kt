@@ -827,6 +827,10 @@ private data class DroneFlightSpec(
     val orbitDurationMs: Int,
     val delayMs: Long,
     val phaseRad: Float,
+    val windStrength: Float,
+    val gustFreqMul: Float,
+    val gustPhase: Float,
+    val compensationStrength: Float,
 )
 
 @Composable
@@ -848,6 +852,10 @@ private fun WhitelistDroneSkyAnimation(
                 orbitDurationMs = 9_200,
                 delayMs = 80L,
                 phaseRad = 0.4f,
+                windStrength = 1.12f,
+                gustFreqMul = 0.92f,
+                gustPhase = 0.25f,
+                compensationStrength = 0.18f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_mid,
@@ -861,6 +869,10 @@ private fun WhitelistDroneSkyAnimation(
                 orbitDurationMs = 10_100,
                 delayMs = 0L,
                 phaseRad = 1.3f,
+                windStrength = 0.84f,
+                gustFreqMul = 1.18f,
+                gustPhase = 1.1f,
+                compensationStrength = 0.26f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_far,
@@ -874,6 +886,10 @@ private fun WhitelistDroneSkyAnimation(
                 orbitDurationMs = 11_200,
                 delayMs = 140L,
                 phaseRad = 2.2f,
+                windStrength = 0.62f,
+                gustFreqMul = 1.43f,
+                gustPhase = 2.05f,
+                compensationStrength = 0.34f,
             ),
         )
     }
@@ -931,17 +947,20 @@ private fun AnimatedDrone(
     val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
     // Smooth hover under wind: periodic waves with integer harmonics avoid restart jumps.
     val base = orbit + spec.phaseRad
-    val windCarrier = sin(base.toDouble()).toFloat()
+    val windCarrier = sin((base * spec.gustFreqMul + spec.gustPhase).toDouble()).toFloat()
     val xPrimary = sin(base.toDouble()).toFloat()
     val xCompensation = sin((base * 2f + 0.9f).toDouble()).toFloat()
     val xMicro = sin((base * 3f + 1.6f).toDouble()).toFloat()
     val yPrimary = sin((base + 1.2f).toDouble()).toFloat()
     val yCompensation = sin((base * 2f + 0.35f).toDouble()).toFloat()
     val yMicro = sin((base * 3f + 2.1f).toDouble()).toFloat()
-    val windAmp = (0.78f + 0.22f * windCarrier) * orbitBlend
-    val orbitX = (xPrimary * 0.72f + xCompensation * 0.20f + xMicro * 0.08f) *
+    val windAmp = ((0.78f + 0.22f * windCarrier) * spec.windStrength).coerceAtLeast(0.05f) * orbitBlend
+    val comp = spec.compensationStrength.coerceIn(0.05f, 0.45f)
+    val micro = (0.10f + comp * 0.35f).coerceAtMost(0.22f)
+    val primary = (1f - comp - micro).coerceAtLeast(0.45f)
+    val orbitX = (xPrimary * primary + xCompensation * comp + xMicro * micro) *
         (sceneWidthPx * spec.orbitRadiusXFrac) * windAmp
-    val orbitY = (yPrimary * 0.66f + yCompensation * 0.24f + yMicro * 0.10f) *
+    val orbitY = (yPrimary * (primary - 0.06f).coerceAtLeast(0.38f) + yCompensation * (comp + 0.04f) + yMicro * micro) *
         (sceneHeightPx * spec.orbitRadiusYFrac) * windAmp
     val wobbleRotation = (
         sin((base + 0.2f).toDouble()).toFloat() * 0.9f +
