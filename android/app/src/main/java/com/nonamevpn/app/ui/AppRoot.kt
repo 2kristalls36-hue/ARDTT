@@ -56,6 +56,8 @@ import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaper
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -80,6 +82,7 @@ fun AppRoot(
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
     val recorder = remember { TelemetryRecorder.get(context) }
     val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
+    val tunnelWallpaper = remember { TunnelWallpaper.random() }
 
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
@@ -208,7 +211,14 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AppBackdrop(modifier = Modifier.fillMaxSize())
+            if (currentRoute == AppDestination.Tunnel.route) {
+                TunnelWallpaperBackdrop(
+                    wallpaper = tunnelWallpaper,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                AppBackdrop(modifier = Modifier.fillMaxSize())
+            }
 
             NavHost(
                 navController = navController,
