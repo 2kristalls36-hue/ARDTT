@@ -102,6 +102,7 @@ fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     onRequestConnect: () -> Unit,
+    onNavigateToDialSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -408,10 +409,14 @@ fun TunnelScreen(
                         enabled = !pathBusy,
                         selectedContainer = NvpnColors.pathBypass,
                         onClick = {
-                            scope.launch {
-                                settings.setPathMode("bypass")
-                                conn.setPathMode(ConnPathMode.Bypass)
-                                AppLog.i("PathMode", "bypass")
+                            if (!ui.hasCallHash) {
+                                onNavigateToDialSettings()
+                            } else {
+                                scope.launch {
+                                    settings.setPathMode("bypass")
+                                    conn.setPathMode(ConnPathMode.Bypass)
+                                    AppLog.i("PathMode", "bypass")
+                                }
                             }
                         },
                         modifier = Modifier.weight(1f),

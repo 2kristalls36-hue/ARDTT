@@ -94,6 +94,7 @@ fun AppRoot(
     }
     val selectedNavRoute = currentRoute
     var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
+    var scrollToDialInSettings by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -223,6 +224,10 @@ fun AppRoot(
                         settings = settings,
                         profiles = profiles,
                         onRequestConnect = { requestVpnThenConnect() },
+                        onNavigateToDialSettings = {
+                            scrollToDialInSettings = true
+                            navigateTab(AppDestination.Settings.route)
+                        },
                     )
                 }
                 composable(AppDestination.Servers.route) {
@@ -246,7 +251,12 @@ fun AppRoot(
                     LogsScreen()
                 }
                 composable(AppDestination.Settings.route) {
-                    SettingsScreen(settings = settings)
+                    SettingsScreen(
+                        settings = settings,
+                        isRecording = isRecording,
+                        scrollToDial = scrollToDialInSettings,
+                        onScrolledToDial = { scrollToDialInSettings = false },
+                    )
                 }
                 composable(AppDestination.Testing.route) {
                     TestingScreen(profiles = profiles)
