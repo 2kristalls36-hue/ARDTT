@@ -289,6 +289,7 @@ fun TunnelScreen(
                     }
                 }
                 AppSectionCard(
+                    opaque = true,
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     shape = RoundedCornerShape(24.dp),
@@ -313,6 +314,7 @@ fun TunnelScreen(
             }
 
             AppSectionCard(
+                opaque = true,
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 shape = RoundedCornerShape(28.dp),
@@ -358,6 +360,7 @@ fun TunnelScreen(
 
             // ═══ Быстрые настройки ═══
             AppSectionCard(
+                opaque = true,
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
                 shape = RoundedCornerShape(28.dp),
@@ -736,6 +739,7 @@ private fun TunnelStatusPanel(
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     AppSectionCard(
+        opaque = true,
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
         shape = RoundedCornerShape(24.dp),
