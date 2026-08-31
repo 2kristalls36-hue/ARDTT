@@ -39,8 +39,6 @@ class AppSettingsRepository(private val context: Context) {
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
-    private val themePalette = stringPreferencesKey("theme_palette")
-    private val dynamicColor = booleanPreferencesKey("is_dynamic_color")
     private val alphaChallengeHex = stringPreferencesKey("alpha_challenge_hex")
     private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
     private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
@@ -92,12 +90,6 @@ class AppSettingsRepository(private val context: Context) {
     val themeModeFlow: Flow<String> = context.dataStore.data.map {
         normalizeThemeMode(it[themeMode])
     }
-    /** `espresso` | `indigo` | `forest` */
-    val themePaletteFlow: Flow<String> = context.dataStore.data.map {
-        normalizeThemePalette(it[themePalette])
-    }
-    val dynamicColorFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[dynamicColor] != false }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
 
@@ -285,14 +277,6 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[themeMode] = normalizeThemeMode(mode) }
     }
 
-    suspend fun setThemePalette(palette: String) {
-        context.dataStore.edit { it[themePalette] = normalizeThemePalette(palette) }
-    }
-
-    suspend fun setDynamicColor(enabled: Boolean) {
-        context.dataStore.edit { it[dynamicColor] = enabled }
-    }
-
     suspend fun alphaUnlockedSnapshot(): Boolean {
         val prefs = context.dataStore.data.first()
         return prefs[alphaUnlocked] == true
@@ -372,12 +356,6 @@ class AppSettingsRepository(private val context: Context) {
             "light" -> "light"
             "dark" -> "dark"
             else -> "system"
-        }
-
-        fun normalizeThemePalette(raw: String?): String = when (raw?.lowercase()?.trim()) {
-            "indigo" -> "indigo"
-            "forest" -> "forest"
-            else -> "espresso"
         }
 
         fun parseSsidSet(raw: String?): Set<String> =

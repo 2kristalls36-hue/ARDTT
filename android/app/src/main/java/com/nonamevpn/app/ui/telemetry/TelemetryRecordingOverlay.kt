@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 
-// Bright red — visible on dark espresso theme; original #8B0000 was nearly invisible.
+// Bright red — visible on dark surfaces; original #8B0000 was nearly invisible.
 private val RecordingRed = Color(0xFFFF3B30)
 
 @Composable
