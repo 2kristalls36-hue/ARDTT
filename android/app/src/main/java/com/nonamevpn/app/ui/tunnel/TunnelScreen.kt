@@ -126,7 +126,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -818,14 +817,15 @@ private fun UserTunnelSimpleScreen(
 
             TunnelPowerToggle(
                 connected = connected,
+                paused = ui.state == ConnState.PausedTrustedWifi,
                 busy = connectingLike || disconnecting,
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .size(132.dp),
+                    .size(198.dp),
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(26.dp))
 
             ProfileSwitcherBar(
                 activeItem = activeItem,
@@ -841,17 +841,14 @@ private fun UserTunnelSimpleScreen(
 @Composable
 private fun TunnelPowerToggle(
     connected: Boolean,
+    paused: Boolean,
     busy: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val activeGlow = connected || busy
+    val activeGlow = connected || paused || busy
     val shellColor = NvpnFloatingShell.shellColor()
-    val accentColor = when {
-        connected -> Color(0xFF35C759)
-        busy -> Color(0xFF6FCF97)
-        else -> Color.White.copy(alpha = 0.75f)
-    }
+    val accentColor = if (connected || paused || busy) Color(0xFF35C759) else Color.White.copy(alpha = 0.75f)
     val pulseScale by animateFloatAsState(
         targetValue = if (activeGlow) 1.08f else 1f,
         animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
@@ -865,7 +862,7 @@ private fun TunnelPowerToggle(
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
-                .size(132.dp * pulseScale)
+                .size(198.dp * pulseScale)
                 .background(
                     color = accentColor.copy(alpha = pulseAlpha),
                     shape = CircleShape,
@@ -873,7 +870,7 @@ private fun TunnelPowerToggle(
         )
         Surface(
             modifier = Modifier
-                .size(120.dp)
+                .size(180.dp)
                 .clickable(enabled = !busy) {
                     runCatching { onClick() }
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
@@ -884,12 +881,29 @@ private fun TunnelPowerToggle(
             shadowElevation = NvpnFloatingShell.shadowElevation,
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.PowerSettingsNew,
-                    contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
-                    tint = accentColor,
-                    modifier = Modifier.size(54.dp),
-                )
+                if (paused) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .width(16.dp)
+                                .height(62.dp)
+                                .background(accentColor, shape = RoundedCornerShape(10.dp)),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(16.dp)
+                                .height(62.dp)
+                                .background(accentColor, shape = RoundedCornerShape(10.dp)),
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.PowerSettingsNew,
+                        contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
+                        tint = accentColor,
+                        modifier = Modifier.size(72.dp),
+                    )
+                }
             }
         }
     }
@@ -926,6 +940,27 @@ private fun WhitelistDroneSkyAnimation(
 ) {
     val drones = remember {
         listOf(
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_far,
+                sizeDp = 74,
+                startXFrac = 1.26f,
+                startYFrac = 0.18f,
+                anchorXFrac = 0.72f,
+                anchorYFrac = 0.14f,
+                orbitRadiusXFrac = 0.018f,
+                orbitRadiusYFrac = 0.014f,
+                orbitDurationMs = 11_200,
+                delayMs = 140L,
+                phaseRad = 2.2f,
+                windStrength = 0.86f,
+                gustFreqMul = 1.43f,
+                gustPhase = 2.05f,
+                compensationStrength = 0.34f,
+                dragLimitXFrac = 0.065f,
+                dragLimitYFrac = 0.05f,
+                centerBiasX = 0.000f,
+                centerBiasY = -0.008f,
+            ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_near,
                 sizeDp = 228,
@@ -968,27 +1003,6 @@ private fun WhitelistDroneSkyAnimation(
                 centerBiasX = 0.023f,
                 centerBiasY = -0.033f,
             ),
-            DroneFlightSpec(
-                resId = R.drawable.tunnel_drone_far,
-                sizeDp = 74,
-                startXFrac = 1.26f,
-                startYFrac = 0.18f,
-                anchorXFrac = 0.72f,
-                anchorYFrac = 0.14f,
-                orbitRadiusXFrac = 0.018f,
-                orbitRadiusYFrac = 0.014f,
-                orbitDurationMs = 11_200,
-                delayMs = 140L,
-                phaseRad = 2.2f,
-                windStrength = 0.86f,
-                gustFreqMul = 1.43f,
-                gustPhase = 2.05f,
-                compensationStrength = 0.34f,
-                dragLimitXFrac = 0.065f,
-                dragLimitYFrac = 0.05f,
-                centerBiasX = 0.000f,
-                centerBiasY = -0.008f,
-            ),
         )
     }
     BoxWithConstraints(modifier = modifier) {
@@ -1017,11 +1031,10 @@ private fun AnimatedDrone(
     sceneHeightPx: Float,
 ) {
     val density = LocalDensity.current
-    val dragScope = rememberCoroutineScope()
     var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
-    var dragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
-    var dragDy by remember(spec.resId, restartToken) { mutableStateOf(0f) }
-    var dragReturnJob by remember(spec.resId, restartToken) { mutableStateOf<Job?>(null) }
+    var dragging by remember(spec.resId, restartToken) { mutableStateOf(false) }
+    var rawDragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
+    var rawDragDy by remember(spec.resId, restartToken) { mutableStateOf(0f) }
     LaunchedEffect(spec.resId, restartToken) {
         delay(spec.delayMs)
         launchStarted = true
@@ -1040,6 +1053,24 @@ private fun AnimatedDrone(
         targetValue = if (blowAway) 1f else 0f,
         animationSpec = tween(durationMillis = 980, easing = FastOutLinearInEasing),
         label = "drone_blow_away_$index",
+    )
+    val dragDx by animateFloatAsState(
+        targetValue = if (dragging) rawDragDx else 0f,
+        animationSpec = if (dragging) {
+            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
+        } else {
+            tween(durationMillis = 420, easing = FastOutSlowInEasing)
+        },
+        label = "drone_drag_dx_$index",
+    )
+    val dragDy by animateFloatAsState(
+        targetValue = if (dragging) rawDragDy else 0f,
+        animationSpec = if (dragging) {
+            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
+        } else {
+            tween(durationMillis = 420, easing = FastOutSlowInEasing)
+        },
+        label = "drone_drag_dy_$index",
     )
     val orbit by produceState(
         initialValue = 0f,
@@ -1105,52 +1136,23 @@ private fun AnimatedDrone(
             .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
                 detectDragGestures(
                     onDragStart = {
-                        dragReturnJob?.cancel()
-                        dragReturnJob = null
+                        dragging = true
                     },
                     onDragEnd = {
-                        dragReturnJob?.cancel()
-                        dragReturnJob = dragScope.launch {
-                            val startX = dragDx
-                            val startY = dragDy
-                            val t0 = withFrameNanos { it }
-                            val durationNs = 420_000_000L
-                            while (true) {
-                                val now = withFrameNanos { it }
-                                val p = ((now - t0).toFloat() / durationNs).coerceIn(0f, 1f)
-                                val eased = 1f - (1f - p) * (1f - p)
-                                dragDx = startX * (1f - eased)
-                                dragDy = startY * (1f - eased)
-                                if (p >= 1f) break
-                            }
-                            dragDx = 0f
-                            dragDy = 0f
-                        }
+                        dragging = false
+                        rawDragDx = 0f
+                        rawDragDy = 0f
                     },
                     onDragCancel = {
-                        dragReturnJob?.cancel()
-                        dragReturnJob = dragScope.launch {
-                            val startX = dragDx
-                            val startY = dragDy
-                            val t0 = withFrameNanos { it }
-                            val durationNs = 420_000_000L
-                            while (true) {
-                                val now = withFrameNanos { it }
-                                val p = ((now - t0).toFloat() / durationNs).coerceIn(0f, 1f)
-                                val eased = 1f - (1f - p) * (1f - p)
-                                dragDx = startX * (1f - eased)
-                                dragDy = startY * (1f - eased)
-                                if (p >= 1f) break
-                            }
-                            dragDx = 0f
-                            dragDy = 0f
-                        }
+                        dragging = false
+                        rawDragDx = 0f
+                        rawDragDy = 0f
                     },
                 ) { change, dragAmount ->
                     if (blowAway) return@detectDragGestures
                     change.consume()
-                    dragDx = (dragDx + dragAmount.x).coerceIn(-dragLimitX, dragLimitX)
-                    dragDy = (dragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
+                    rawDragDx = (rawDragDx + dragAmount.x).coerceIn(-dragLimitX, dragLimitX)
+                    rawDragDy = (rawDragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
                 }
             }
             .graphicsLayer {
