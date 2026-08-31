@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** Soft section card. */
+/** Soft section card; set [opaque] when content must fully cover a wallpaper behind it. */
 @Composable
 fun AppSectionCard(
     modifier: Modifier = Modifier,
@@ -30,14 +30,22 @@ fun AppSectionCard(
     shadowElevation: Dp? = null,
     tonalElevation: Dp? = null,
     shape: Shape = RoundedCornerShape(28.dp),
+    opaque: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
-    val cardColor = color ?: if (isDark) {
-        lerp(colors.surface, colors.surfaceVariant, 0.10f).copy(alpha = 0.82f)
+    val baseColor = if (isDark) {
+        lerp(colors.surface, colors.surfaceVariant, 0.10f)
     } else {
-        lerp(colors.surface, colors.surfaceVariant, 0.28f).copy(alpha = 0.85f)
+        lerp(colors.surface, colors.surfaceVariant, 0.28f)
+    }
+    val cardColor = color ?: if (opaque) {
+        baseColor
+    } else if (isDark) {
+        baseColor.copy(alpha = 0.82f)
+    } else {
+        baseColor.copy(alpha = 0.85f)
     }
     val borderColor = if (isDark) {
         colors.outlineVariant.copy(alpha = 0.26f)
