@@ -46,11 +46,9 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun visibleOnlyOnTunnelTabInUserMode() {
-        assertTrue(tunnelWallpaperVisible(admin = false, onTunnelTab = true))
-        assertFalse(tunnelWallpaperVisible(admin = false, onTunnelTab = false))
-        assertFalse(tunnelWallpaperVisible(admin = true, onTunnelTab = true))
-        assertFalse(tunnelWallpaperVisible(admin = true, onTunnelTab = false))
+    fun visibleOnEveryTabInUserModeOnly() {
+        assertTrue(tunnelWallpaperVisible(admin = false))
+        assertFalse(tunnelWallpaperVisible(admin = true))
     }
 
     @Test
