@@ -156,7 +156,7 @@ fun CallHashSettingsContent(
                     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 ),
             ) {
-                Text("Завершить сессию ВКонтакте")
+                Text("Завершить сессию")
             }
         }
         Row(
