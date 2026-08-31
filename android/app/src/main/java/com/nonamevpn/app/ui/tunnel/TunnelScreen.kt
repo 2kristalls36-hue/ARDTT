@@ -47,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -689,7 +690,7 @@ private fun UserTunnelSimpleScreen(
     )
     val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
     val connected = ui.state == ConnState.Connected
-    val trackColor = if (connected) Color(0xFF35C759) else Color(0xFF9AA0A8)
+    val toggleColor = if (connected) Color(0xFF35C759) else Color(0xFF9AA0A8)
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -722,49 +723,19 @@ private fun UserTunnelSimpleScreen(
                     else -> activeItem.profile.name
                 },
             )
-            Box(
+            Spacer(modifier = Modifier.weight(1f))
+
+            TunnelPowerToggle(
+                connected = connected,
+                busy = connectingLike || ui.state == ConnState.Disconnecting,
+                color = toggleColor,
+                onClick = onToggleTunnel,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                    val maxWidthCap = (maxWidth - 20.dp).coerceAtLeast(280.dp)
-                    val desiredWidth = 560.dp
-                    val switchWidth = minOf(desiredWidth, maxWidthCap)
-                    val rawHeight = switchWidth * (46f / 112f)
-                    val switchHeight = rawHeight.coerceIn(115.dp, maxHeight * 0.42f)
-                    val maxTop = (maxHeight - switchHeight - 10.dp).coerceAtLeast(12.dp)
-                    val topOffset = minOf(240.dp, maxTop)
-                    Switch(
-                        checked = connected,
-                        onCheckedChange = { onToggleTunnel() },
-                        enabled = ui.state != ConnState.Disconnecting,
-                        thumbContent = {
-                            Text(
-                                if (connected) "ON" else "OFF",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        },
-                        colors = androidx.compose.material3.SwitchDefaults.colors(
-                            checkedTrackColor = trackColor,
-                            uncheckedTrackColor = trackColor,
-                            checkedThumbColor = Color.White,
-                            uncheckedThumbColor = Color.White,
-                            checkedBorderColor = Color.Transparent,
-                            uncheckedBorderColor = Color.Transparent,
-                            disabledUncheckedTrackColor = Color(0xFF9AA0A8),
-                            disabledCheckedTrackColor = Color(0xFF9AA0A8),
-                        ),
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = topOffset)
-                            .height(switchHeight)
-                            .width(switchWidth),
-                    )
-                }
-            }
+                    .height(112.dp),
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             ProfileSwitcherBar(
                 activeItem = activeItem,
@@ -772,6 +743,57 @@ private fun UserTunnelSimpleScreen(
                 onPrev = onSelectPreviousProfile,
                 onNext = onSelectNextProfile,
                 busy = connectingLike,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TunnelPowerToggle(
+    connected: Boolean,
+    busy: Boolean,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val title = when {
+        busy && connected -> "ОТКЛЮЧЕНИЕ…"
+        busy -> "ПОДКЛЮЧЕНИЕ…"
+        connected -> "ВКЛ"
+        else -> "ВЫКЛ"
+    }
+    val subtitle = when {
+        busy && connected -> "Завершаем сеанс"
+        busy -> "Устанавливаем соединение"
+        connected -> "Туннель активен"
+        else -> "Туннель отключён"
+    }
+    Surface(
+        modifier = modifier
+            .clickable(enabled = !busy, onClick = onClick),
+        color = color,
+        shape = RoundedCornerShape(36.dp),
+        shadowElevation = 8.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White.copy(alpha = 0.92f),
+                textAlign = TextAlign.Center,
             )
         }
     }
