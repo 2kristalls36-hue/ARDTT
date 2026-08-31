@@ -690,7 +690,7 @@ private fun UserTunnelSimpleScreen(
     )
     val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
     val connected = ui.state == ConnState.Connected
-    val toggleColor = if (connected) Color(0xFF35C759) else Color(0xFF9AA0A8)
+    val disconnecting = ui.state == ConnState.Disconnecting
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -719,8 +719,7 @@ private fun UserTunnelSimpleScreen(
 
             TunnelPowerToggle(
                 connected = connected,
-                busy = connectingLike || ui.state == ConnState.Disconnecting,
-                color = toggleColor,
+                busy = connectingLike || disconnecting,
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -744,49 +743,74 @@ private fun UserTunnelSimpleScreen(
 private fun TunnelPowerToggle(
     connected: Boolean,
     busy: Boolean,
-    color: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val title = when {
-        busy && connected -> "ОТКЛЮЧЕНИЕ…"
-        busy -> "ПОДКЛЮЧЕНИЕ…"
-        connected -> "ВКЛ"
-        else -> "ВЫКЛ"
-    }
-    val subtitle = when {
-        busy && connected -> "Завершаем сеанс"
-        busy -> "Устанавливаем соединение"
-        connected -> "Туннель активен"
-        else -> "Туннель отключён"
+    val checked = connected
+    val knobProgress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "tunnel_toggle_knob",
+    )
+    val trackColor = when {
+        checked -> Color(0xFF35C759)
+        else -> Color(0xFF8E949B)
     }
     Surface(
         modifier = modifier
-            .clickable(enabled = !busy, onClick = onClick),
-        color = color,
-        shape = RoundedCornerShape(36.dp),
+            .clickable(enabled = !busy) {
+                runCatching { onClick() }
+                    .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
+            },
+        color = trackColor,
+        shape = RoundedCornerShape(56.dp),
         shadowElevation = 8.dp,
     ) {
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
+            val knobSize = (maxHeight - 8.dp).coerceAtLeast(48.dp)
+            val travel = (maxWidth - knobSize).coerceAtLeast(0.dp)
+            val knobOffset = travel * knobProgress
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 26.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    "OFF",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White.copy(alpha = if (checked) 0.55f else 0.96f),
+                )
+                Text(
+                    "ON",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White.copy(alpha = if (checked) 0.96f else 0.55f),
+                )
+            }
+            Surface(
+                modifier = Modifier
+                    .size(knobSize)
+                    .offset(x = knobOffset),
                 color = Color.White,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White.copy(alpha = 0.92f),
-                textAlign = TextAlign.Center,
-            )
+                shape = RoundedCornerShape(48.dp),
+                shadowElevation = 4.dp,
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (busy) "…" else if (checked) "ON" else "OFF",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = trackColor,
+                    )
+                }
+            }
         }
     }
 }
