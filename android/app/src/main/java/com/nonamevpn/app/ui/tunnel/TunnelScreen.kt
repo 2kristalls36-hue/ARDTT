@@ -728,32 +728,42 @@ private fun UserTunnelSimpleScreen(
                     .weight(1f),
                 contentAlignment = Alignment.Center,
             ) {
-                Switch(
-                    checked = connected,
-                    onCheckedChange = { onToggleTunnel() },
-                    enabled = ui.state != ConnState.Disconnecting,
-                    thumbContent = {
-                        Text(
-                            if (connected) "ON" else "OFF",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    },
-                    colors = androidx.compose.material3.SwitchDefaults.colors(
-                        checkedTrackColor = trackColor,
-                        uncheckedTrackColor = trackColor,
-                        checkedThumbColor = Color.White,
-                        uncheckedThumbColor = Color.White,
-                        checkedBorderColor = Color.Transparent,
-                        uncheckedBorderColor = Color.Transparent,
-                        disabledUncheckedTrackColor = Color(0xFF9AA0A8),
-                        disabledCheckedTrackColor = Color(0xFF9AA0A8),
-                    ),
-                    modifier = Modifier
-                        .padding(top = 240.dp)
-                        .height(230.dp)
-                        .width(560.dp),
-                )
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val maxWidthCap = (maxWidth - 20.dp).coerceAtLeast(280.dp)
+                    val desiredWidth = 560.dp
+                    val switchWidth = minOf(desiredWidth, maxWidthCap)
+                    val rawHeight = switchWidth * (46f / 112f)
+                    val switchHeight = rawHeight.coerceIn(115.dp, maxHeight * 0.42f)
+                    val maxTop = (maxHeight - switchHeight - 10.dp).coerceAtLeast(12.dp)
+                    val topOffset = minOf(240.dp, maxTop)
+                    Switch(
+                        checked = connected,
+                        onCheckedChange = { onToggleTunnel() },
+                        enabled = ui.state != ConnState.Disconnecting,
+                        thumbContent = {
+                            Text(
+                                if (connected) "ON" else "OFF",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(
+                            checkedTrackColor = trackColor,
+                            uncheckedTrackColor = trackColor,
+                            checkedThumbColor = Color.White,
+                            uncheckedThumbColor = Color.White,
+                            checkedBorderColor = Color.Transparent,
+                            uncheckedBorderColor = Color.Transparent,
+                            disabledUncheckedTrackColor = Color(0xFF9AA0A8),
+                            disabledCheckedTrackColor = Color(0xFF9AA0A8),
+                        ),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = topOffset)
+                            .height(switchHeight)
+                            .width(switchWidth),
+                    )
+                }
             }
 
             ProfileSwitcherBar(
