@@ -41,6 +41,15 @@ class NetworkRecoveryPolicyTest {
                 previousNetworkWasLost = false,
             ),
         )
+        assertEquals(
+            ValidatedNetworkTransition.HANDOVER,
+            classifyValidatedNetworkTransition(
+                previousNetworkId = 2L,
+                currentNetworkId = 2L,
+                previousNetworkWasLost = false,
+                dataSubscriptionChanged = true,
+            ),
+        )
     }
 
     @Test
@@ -312,7 +321,7 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            NetworkHandoverDecision.SoftRestartSamePath,
+            NetworkHandoverDecision.HoldWaitForNetwork,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -320,5 +329,26 @@ class NetworkRecoveryPolicyTest {
                 bypassAllowed = true,
             ),
         )
+        assertEquals(
+            NetworkHandoverDecision.HoldWaitForNetwork,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Direct,
+                currentPath = VpnPath.Direct,
+                probedPath = null,
+                bypassAllowed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun overlappingHandoversAreDeferredNotDropped() {
+        assertTrue(shouldDeferHandoverProbe(handoverProbeInProgress = true, softRestartInProgress = false))
+        assertTrue(shouldDeferHandoverProbe(handoverProbeInProgress = false, softRestartInProgress = true))
+        assertFalse(shouldDeferHandoverProbe(handoverProbeInProgress = false, softRestartInProgress = false))
+    }
+
+    @Test
+    fun settleDelayIsSubSecondForSimHandover() {
+        assertTrue(transportRecoveryPolicy().networkSettleDelayMs <= 500L)
     }
 }

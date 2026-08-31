@@ -813,9 +813,15 @@ private fun TunnelStatusPanel(
                     fontWeight = FontWeight.Medium,
                 )
                 StatusFactRow(label = "Сеть", value = p.networkClass.name)
-                StatusFactRow(label = "Yandex", value = if (p.yandexOk) "ok" else "—")
-                StatusFactRow(label = "Bigtech", value = if (p.bigtechOk) "ok" else "—")
-                StatusFactRow(label = "Health", value = if (p.provisionOk) "ok" else "—")
+                StatusFactRow(
+                    label = "77.88.8.8",
+                    value = if (p.yandexOk) "ok" else "—",
+                )
+                StatusFactRow(
+                    label = "1.1.1.1",
+                    value = if (p.bigtechOk) "ok" else "—",
+                )
+                StatusFactRow(label = "VPS", value = if (p.provisionOk) "ok" else "—")
                 if (p.elapsedMs > 0) {
                     StatusFactRow(label = "Время", value = "${p.elapsedMs} мс")
                 }
