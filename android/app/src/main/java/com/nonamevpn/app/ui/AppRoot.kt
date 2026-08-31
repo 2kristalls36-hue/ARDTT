@@ -220,7 +220,8 @@ fun AppRoot(
     val showUpdatePrompt = availableUpdateVersion != null &&
         availableUpdateVersion != dismissedUpdateVersion &&
         !updateUi.downloading &&
-        updateUi.downloadedFile == null
+        updateUi.downloadedFile == null &&
+        currentRoute != AppDestination.Settings.route
 
     LaunchedEffect(Unit) {
         AppLog.i("App", "UI ready")
