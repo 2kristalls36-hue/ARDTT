@@ -547,7 +547,7 @@ class ConnectionManager(
                 } else if (deferHideIp) {
                     pendingHideIpSync = true
                     AppLog.v(TAG, "Hide-IP deferred until Bypass tunnel (underlay cannot reach provision)")
-                } else if (lastHideIpSent) {
+                } else if (lastHideIpSent == true) {
                     runCatching { syncHideIpToProvision(false, viaVpn = false) }
                         .onSuccess { lastHideIpSent = false }
                 }
