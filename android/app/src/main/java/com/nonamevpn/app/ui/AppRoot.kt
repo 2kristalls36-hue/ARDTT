@@ -75,6 +75,7 @@ fun AppRoot(
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+    val wallpaper by settings.wallpaperFlow.collectAsStateWithLifecycle(initialValue = "none")
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
@@ -207,7 +208,10 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AppBackdrop(modifier = Modifier.fillMaxSize())
+            AppBackdrop(
+                wallpaperId = wallpaper,
+                modifier = Modifier.fillMaxSize(),
+            )
 
             NavHost(
                 navController = navController,
