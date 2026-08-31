@@ -39,7 +39,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -731,9 +733,9 @@ private fun UserTunnelSimpleScreen(
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
 
     val modeBadge = when (themeMode) {
-        "light" -> "Д"
-        "dark" -> "Н"
-        else -> "A"
+        "light" -> "light"
+        "dark" -> "dark"
+        else -> "auto"
     }
     Box(modifier = Modifier.fillMaxSize()) {
         Crossfade(
@@ -773,12 +775,26 @@ private fun UserTunnelSimpleScreen(
             shadowElevation = 6.dp,
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Text(
-                    modeBadge,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                when (modeBadge) {
+                    "light" -> Icon(
+                        imageVector = Icons.Outlined.WbSunny,
+                        contentDescription = "Светлая тема",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    "dark" -> Icon(
+                        imageVector = Icons.Outlined.DarkMode,
+                        contentDescription = "Тёмная тема",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    else -> Text(
+                        "A",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
         Column(
