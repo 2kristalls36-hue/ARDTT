@@ -1,13 +1,17 @@
 package com.nonamevpn.app
 
 import android.app.Application
+import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.telemetry.TelemetryBootstrap
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
 import com.nonamevpn.app.update.AppUpdateController
 
 class ArdttApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        TunnelWallpaperSession.initForProcess()
+        AppLog.i("TunnelWallpaper", "scene=${TunnelWallpaperSession.scene}")
         TelemetryBootstrap.install(this)
         ConnectionManager.get(this)
         AppUpdateController.get(this).checkInBackground()

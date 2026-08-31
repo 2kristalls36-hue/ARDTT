@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
@@ -61,6 +62,10 @@ import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
+import com.nonamevpn.app.ui.tunnel.resolveTunnelWallpaper
+import com.nonamevpn.app.ui.tunnel.tunnelWallpaperVisible
 import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -95,6 +100,8 @@ fun AppRoot(
     val conn = remember { ConnectionManager.get(context) }
     val scope = rememberCoroutineScope()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val appsWhitelistMode by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
+    val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -104,6 +111,21 @@ fun AppRoot(
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
     val recorder = remember { TelemetryRecorder.get(context) }
     val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
+    val tunnelWallpaperScene = remember { TunnelWallpaperSession.currentOrPick() }
+    val darkTheme = when (themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
+    val tunnelWallpaper = resolveTunnelWallpaper(
+        scene = tunnelWallpaperScene,
+        whitelistMode = appsWhitelistMode,
+        darkTheme = darkTheme,
+    )
+    val showTunnelWallpaper = tunnelWallpaperVisible(
+        admin = admin,
+        onTunnelTab = currentRoute == AppDestination.Tunnel.route,
+    )
 
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
@@ -247,7 +269,17 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AppBackdrop(modifier = Modifier.fillMaxSize())
+            // Keep the chosen scene decoded in user mode so tab switches do not
+            // flash "поле" while another wallpaper is loaded.
+            if (!admin) {
+                TunnelWallpaperBackdrop(
+                    wallpaper = tunnelWallpaper,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            if (!showTunnelWallpaper) {
+                AppBackdrop(modifier = Modifier.fillMaxSize())
+            }
 
             NavHost(
                 navController = navController,
