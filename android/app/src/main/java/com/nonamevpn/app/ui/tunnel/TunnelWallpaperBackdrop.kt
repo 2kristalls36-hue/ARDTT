@@ -6,17 +6,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 
 /**
  * Full-screen illustrated wallpaper for the Tunnel tab.
  *
- * All three time-of-day painters for the chosen scene stay composed so tab
- * switches and БС/theme flips do not re-decode and flash another scene.
+ * Draws process-cached bitmaps for the chosen scene only. Field is enum
+ * ordinal 0 — never load it as a placeholder while another scene decodes.
  */
 @Composable
 fun TunnelWallpaperBackdrop(
@@ -30,10 +31,14 @@ fun TunnelWallpaperBackdrop(
     } else {
         Color(0xFFF7F5F0).copy(alpha = 0.30f)
     }
-    val day = painterResource(id = wallpaper.scene.dayRes())
-    val night = painterResource(id = wallpaper.scene.nightRes())
-    val sunset = painterResource(id = wallpaper.scene.sunsetRes())
-    val painter = when (wallpaper.time) {
+    val scene = wallpaper.scene
+    val dayBmp = TunnelWallpaperCache.bitmap(scene, TunnelWallpaperTime.Day)
+    val nightBmp = TunnelWallpaperCache.bitmap(scene, TunnelWallpaperTime.Night)
+    val sunsetBmp = TunnelWallpaperCache.bitmap(scene, TunnelWallpaperTime.Sunset)
+    val day = remember(dayBmp) { dayBmp?.asImageBitmap() }
+    val night = remember(nightBmp) { nightBmp?.asImageBitmap() }
+    val sunset = remember(sunsetBmp) { sunsetBmp?.asImageBitmap() }
+    val imageBitmap = when (wallpaper.time) {
         TunnelWallpaperTime.Day -> day
         TunnelWallpaperTime.Night -> night
         TunnelWallpaperTime.Sunset -> sunset
@@ -44,12 +49,14 @@ fun TunnelWallpaperBackdrop(
             .fillMaxSize()
             .background(colors.background),
     ) {
-        Image(
-            painter = painter,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()

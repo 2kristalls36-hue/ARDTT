@@ -52,17 +52,23 @@ fun tunnelWallpaperVisible(admin: Boolean, onTunnelTab: Boolean): Boolean =
 
 /** One random tunnel scene per app process (cold start). */
 object TunnelWallpaperSession {
-    lateinit var scene: TunnelWallpaperScene
-        private set
+    private var sceneOrNull: TunnelWallpaperScene? = null
+
+    val scene: TunnelWallpaperScene
+        get() = sceneOrNull ?: error("TunnelWallpaperSession not initialized")
 
     fun initForProcess() {
-        scene = TunnelWallpaperScene.random()
+        if (sceneOrNull == null) {
+            sceneOrNull = TunnelWallpaperScene.random()
+        }
     }
 
     fun currentOrPick(): TunnelWallpaperScene {
-        if (!::scene.isInitialized) {
-            initForProcess()
-        }
+        initForProcess()
         return scene
+    }
+
+    internal fun resetForTests() {
+        sceneOrNull = null
     }
 }

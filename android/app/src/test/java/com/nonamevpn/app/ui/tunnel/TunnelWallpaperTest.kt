@@ -52,4 +52,29 @@ class TunnelWallpaperTest {
         assertFalse(tunnelWallpaperVisible(admin = true, onTunnelTab = true))
         assertFalse(tunnelWallpaperVisible(admin = true, onTunnelTab = false))
     }
+
+    @Test
+    fun fieldIsFirstEnumEntryAndMustNotBeUsedAsPlaceholder() {
+        assertEquals(TunnelWallpaperScene.Field, TunnelWallpaperScene.entries.first())
+    }
+
+    @Test
+    fun initForProcessDoesNotRerollTheScene() {
+        TunnelWallpaperSession.resetForTests()
+        TunnelWallpaperSession.initForProcess()
+        val first = TunnelWallpaperSession.scene
+        repeat(8) {
+            TunnelWallpaperSession.initForProcess()
+            assertEquals(first, TunnelWallpaperSession.currentOrPick())
+        }
+    }
+
+    @Test
+    fun tabReentryKeepsTheSameScene() {
+        TunnelWallpaperSession.resetForTests()
+        val scene = TunnelWallpaperSession.currentOrPick()
+        repeat(12) {
+            assertEquals(scene, TunnelWallpaperSession.currentOrPick())
+        }
+    }
 }

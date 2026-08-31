@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -269,13 +270,15 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Keep the chosen scene decoded in user mode so tab switches do not
-            // flash "поле" while another wallpaper is loaded.
+            // Keep the cached scene under an opaque AppBackdrop on other tabs.
+            // Disposing the Image used to re-decode and flash Field (ordinal 0).
             if (!admin) {
-                TunnelWallpaperBackdrop(
-                    wallpaper = tunnelWallpaper,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                key(tunnelWallpaper.scene) {
+                    TunnelWallpaperBackdrop(
+                        wallpaper = tunnelWallpaper,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
             if (!showTunnelWallpaper) {
                 AppBackdrop(modifier = Modifier.fillMaxSize())
