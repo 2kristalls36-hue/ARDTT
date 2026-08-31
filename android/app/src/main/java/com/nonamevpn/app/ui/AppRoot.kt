@@ -59,7 +59,7 @@ import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
-import com.nonamevpn.app.ui.tunnel.TunnelWallpaperScene
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -86,7 +86,7 @@ fun AppRoot(
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
     val recorder = remember { TelemetryRecorder.get(context) }
     val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
-    val tunnelWallpaperScene = remember { TunnelWallpaperScene.random() }
+    val tunnelWallpaperScene = TunnelWallpaperSession.currentOrPick()
     val darkTheme = when (themeMode) {
         "dark" -> true
         "light" -> false

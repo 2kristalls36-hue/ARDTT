@@ -2,6 +2,7 @@ package com.nonamevpn.app.ui.tunnel
 
 import androidx.annotation.DrawableRes
 import com.nonamevpn.app.R
+import kotlin.random.Random
 
 enum class TunnelWallpaperScene {
     Field,
@@ -10,7 +11,9 @@ enum class TunnelWallpaperScene {
     ;
 
     companion object {
-        fun random(): TunnelWallpaperScene = entries.random()
+        val all: List<TunnelWallpaperScene> = listOf(Field, City, Refinery)
+
+        fun random(): TunnelWallpaperScene = all[Random.nextInt(all.size)]
     }
 }
 
@@ -50,5 +53,22 @@ enum class TunnelWallpaper(
             }
             return entries.first { it.scene == scene && it.time == time }
         }
+    }
+}
+
+/** One random tunnel scene per app process (cold start). */
+object TunnelWallpaperSession {
+    lateinit var scene: TunnelWallpaperScene
+        private set
+
+    fun initForProcess() {
+        scene = TunnelWallpaperScene.random()
+    }
+
+    fun currentOrPick(): TunnelWallpaperScene {
+        if (!::scene.isInitialized) {
+            initForProcess()
+        }
+        return scene
     }
 }
