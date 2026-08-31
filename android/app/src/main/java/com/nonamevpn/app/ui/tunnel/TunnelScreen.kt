@@ -5,10 +5,10 @@ import android.telephony.SubscriptionManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -165,6 +165,7 @@ fun TunnelScreen(
 
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+    val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val wallpaperVariant by settings.tunnelWallpaperVariantFlow.collectAsStateWithLifecycle(initialValue = 0)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -300,12 +301,18 @@ fun TunnelScreen(
             ui.probe?.networkClass == NetworkClass.OpenNeedBypass
         )
     val whitelistDetected = autoBypassDetected || pathMode == "bypass"
+    val isDarkTheme = when (themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
     if (!admin) {
         UserTunnelSimpleScreen(
             ui = ui,
             catalogItems = catalog.items,
             activeProfileId = catalog.activeId,
             whitelistDetected = whitelistDetected,
+            isDarkTheme = isDarkTheme,
             wallpaperVariant = wallpaperVariant,
             onToggleTunnel = {
                 when (ui.state) {
@@ -656,6 +663,7 @@ private fun UserTunnelSimpleScreen(
     catalogItems: List<StoredProfile>,
     activeProfileId: String?,
     whitelistDetected: Boolean,
+    isDarkTheme: Boolean,
     wallpaperVariant: Int,
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
@@ -674,10 +682,9 @@ private fun UserTunnelSimpleScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
-    val isDark = isSystemInDarkTheme()
     val bgRes = resolveUserTunnelWallpaper(
         variant = wallpaperVariant,
-        isDark = isDark,
+        isDark = isDarkTheme,
         whitelistDetected = whitelistDetected,
     )
     val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
@@ -728,7 +735,7 @@ private fun UserTunnelSimpleScreen(
                     thumbContent = {
                         Text(
                             if (connected) "ON" else "OFF",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                         )
                     },
@@ -743,9 +750,9 @@ private fun UserTunnelSimpleScreen(
                         disabledCheckedTrackColor = Color(0xFF9AA0A8),
                     ),
                     modifier = Modifier
-                        .padding(top = 56.dp)
-                        .height(46.dp)
-                        .width(112.dp),
+                        .padding(top = 240.dp)
+                        .height(230.dp)
+                        .width(560.dp),
                 )
             }
 
@@ -783,11 +790,11 @@ private fun WhitelistDroneSkyAnimation(
         listOf(
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_near,
-                sizeDp = 186,
-                startXFrac = -0.30f,
-                startYFrac = -0.56f,
-                anchorXFrac = 0.10f,
-                anchorYFrac = 0.05f,
+                sizeDp = 228,
+                startXFrac = -0.36f,
+                startYFrac = -0.62f,
+                anchorXFrac = -0.02f,
+                anchorYFrac = 0.07f,
                 orbitRadiusXFrac = 0.017f,
                 orbitRadiusYFrac = 0.013f,
                 orbitDurationMs = 6000,
@@ -796,28 +803,28 @@ private fun WhitelistDroneSkyAnimation(
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_mid,
-                sizeDp = 132,
-                startXFrac = 1.06f,
+                sizeDp = 146,
+                startXFrac = 0.48f,
                 startYFrac = -0.46f,
-                anchorXFrac = 0.62f,
-                anchorYFrac = 0.08f,
+                anchorXFrac = 0.42f,
+                anchorYFrac = 0.03f,
                 orbitRadiusXFrac = 0.015f,
                 orbitRadiusYFrac = 0.011f,
                 orbitDurationMs = 6700,
-                delayMs = 110L,
+                delayMs = 260L,
                 phaseRad = 1.3f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_far,
-                sizeDp = 96,
-                startXFrac = 0.44f,
-                startYFrac = -0.52f,
-                anchorXFrac = 0.37f,
-                anchorYFrac = 0.13f,
+                sizeDp = 82,
+                startXFrac = 1.18f,
+                startYFrac = -0.58f,
+                anchorXFrac = 0.86f,
+                anchorYFrac = 0.10f,
                 orbitRadiusXFrac = 0.012f,
                 orbitRadiusYFrac = 0.009f,
                 orbitDurationMs = 7600,
-                delayMs = 220L,
+                delayMs = 520L,
                 phaseRad = 2.2f,
             ),
         )
@@ -852,12 +859,7 @@ private fun AnimatedDrone(
     }
     val arrivalProgress by animateFloatAsState(
         targetValue = if (launchStarted) 1f else 0f,
-        animationSpec = keyframes {
-            durationMillis = 1_050
-            0f at 0
-            0.80f at 280 with LinearEasing
-            1f at 1_050 with FastOutSlowInEasing
-        },
+        animationSpec = tween(durationMillis = 4_200, easing = LinearOutSlowInEasing),
         label = "drone_arrival_$index",
     )
     val orbitBlend by animateFloatAsState(
