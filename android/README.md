@@ -11,6 +11,8 @@ Jetpack Compose. Отображаемое имя: **ARDTT** (Amnezia + RAW Dial 
 
 ## Сборка
 
+Debug:
+
 ```bash
 cd android
 ./gradlew assembleDebug
@@ -18,7 +20,23 @@ cd android
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-`assembleRelease` даёт **unsigned** `app-release-unsigned.apk` — Android отклоняет его как повреждённый; для релиза нужен `signingConfig` в `build.gradle` или подпись через `apksigner`.
+Release (подписанный постоянным keystore):
+
+```bash
+# один раз: скачать ключ с VPS дистрибуции
+./scripts/fetch-release-keystore.sh
+
+./scripts/build-release-apk.sh
+# или: cd android && ./gradlew :app:assembleRelease :app:bundleRelease
+```
+
+- APK: `android/app/build/outputs/apk/release/app-release.apk`
+- AAB: `android/app/build/outputs/bundle/release/app-release.aab`
+- Секреты (не в git): `android/keystore.properties` + `android/keystore/ardtt-release.keystore`
+- Каноническая копия ключа: `root@45.129.2.3:/opt/ardtt-distribution/secrets/`
+- Пример: `android/keystore.properties.example`
+
+Важно: debug и release подписаны разными ключами — для перехода с debug-сборки нужна переустановка приложения.
 
 ## Модули
 
