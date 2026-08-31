@@ -12,17 +12,17 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 157
-        versionName = "0.5.139-qwdtt-connect"
+        versionCode = 158
+        versionName = "0.5.140-new-dist"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
-            "\"http://159.194.225.162:9200/api/upload-log\"",
+            "\"https://45.129.2.3/api/upload-log\"",
         )
         buildConfigField(
             "String",
             "UPDATE_MANIFEST_URL",
-            "\"http://159.194.225.162:8088/update.json\"",
+            "\"https://45.129.2.3/update.json\"",
         )
     }
 
