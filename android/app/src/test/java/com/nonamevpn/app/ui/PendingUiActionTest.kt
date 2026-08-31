@@ -40,4 +40,14 @@ class PendingUiActionTest {
         assertFalse(PendingUiAction.openUpdateDownload.value)
         assertFalse(PendingUiAction.consumeOpenUpdateDownload())
     }
+
+    @Test
+    fun openAppearanceSettingsIsOneShotFlag() {
+        PendingUiAction.consumeOpenAppearanceSettings()
+        PendingUiAction.requestOpenAppearanceSettings()
+        assertTrue(PendingUiAction.openAppearanceSettings.value)
+        assertTrue(PendingUiAction.consumeOpenAppearanceSettings())
+        assertFalse(PendingUiAction.openAppearanceSettings.value)
+        assertFalse(PendingUiAction.consumeOpenAppearanceSettings())
+    }
 }

@@ -9,6 +9,8 @@ import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -121,6 +123,7 @@ fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     onRequestConnect: () -> Unit,
+    onOpenWallpaperSettings: () -> Unit = {},
     onOpenCallHashSettings: () -> Unit = {},
 ) {
     val wallpaperVariantCount = 2
@@ -322,6 +325,7 @@ fun TunnelScreen(
                     settings.setTunnelWallpaperVariant((wallpaperVariant + 1).mod(wallpaperVariantCount))
                 }
             },
+            onOpenWallpaperSettings = onOpenWallpaperSettings,
             onToggleTunnel = {
                 when (ui.state) {
                     ConnState.Connected,
@@ -665,6 +669,7 @@ fun TunnelScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UserTunnelSimpleScreen(
     ui: com.nonamevpn.app.core.ConnUiState,
@@ -674,6 +679,7 @@ private fun UserTunnelSimpleScreen(
     isDarkTheme: Boolean,
     wallpaperVariant: Int,
     onSwitchWallpaperMode: () -> Unit,
+    onOpenWallpaperSettings: () -> Unit,
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
@@ -747,7 +753,10 @@ private fun UserTunnelSimpleScreen(
                 .statusBarsPadding()
                 .padding(top = 8.dp, end = 12.dp)
                 .size(38.dp)
-                .clickable(onClick = onSwitchWallpaperMode),
+                .combinedClickable(
+                    onClick = onSwitchWallpaperMode,
+                    onLongClick = onOpenWallpaperSettings,
+                ),
             shape = RoundedCornerShape(19.dp),
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
             shadowElevation = 6.dp,
