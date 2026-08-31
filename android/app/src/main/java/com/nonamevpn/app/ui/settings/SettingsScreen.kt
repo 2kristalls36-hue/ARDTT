@@ -3,18 +3,28 @@ package com.nonamevpn.app.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -37,7 +47,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import android.widget.Toast
 import androidx.compose.ui.unit.dp
@@ -68,6 +80,7 @@ import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.AppWallpaper
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
@@ -98,6 +111,9 @@ fun SettingsScreen(
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val themePalette by settings.themePaletteFlow.collectAsStateWithLifecycle(initialValue = "espresso")
+    val dynamicColor by settings.dynamicColorFlow.collectAsStateWithLifecycle(initialValue = true)
+    val currentWallpaper by settings.wallpaperFlow.collectAsStateWithLifecycle(initialValue = "none")
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
@@ -385,6 +401,57 @@ fun SettingsScreen(
                 DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
                 DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
                 DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                RowSetting(
+                    title = "Динамические цвета",
+                    subtitle = "Material You",
+                    checked = dynamicColor,
+                    onCheckedChange = { scope.launch { settings.setDynamicColor(it) } },
+                )
+            }
+            if (!dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                Text(
+                    "Цветовая палитра",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PaletteCircle("indigo", 0xFF5B588D, themePalette) {
+                        scope.launch { settings.setThemePalette(it) }
+                    }
+                    PaletteCircle("forest", 0xFF5F5D68, themePalette) {
+                        scope.launch { settings.setThemePalette(it) }
+                    }
+                    PaletteCircle("espresso", 0xFF6D4C41, themePalette) {
+                        scope.launch { settings.setThemePalette(it) }
+                    }
+                }
+            }
+            Text(
+                "Фоновые обои",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppWallpaper.entries.forEach { wp ->
+                    WallpaperCard(
+                        wallpaper = wp,
+                        selected = wp.id == currentWallpaper,
+                        onClick = {
+                            scope.launch { settings.setWallpaper(wp.id) }
+                        },
+                    )
+                }
             }
             RowSetting(
                 title = "Уведомление",
@@ -865,6 +932,88 @@ private fun DialChip(
                 MaterialTheme.colorScheme.onSurface
             },
         ),
+    )
+}
+
+@Composable
+private fun WallpaperCard(
+    wallpaper: AppWallpaper,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val borderStroke = if (selected) {
+        BorderStroke(2.5.dp, colors.primary)
+    } else {
+        BorderStroke(1.dp, colors.outline.copy(alpha = 0.35f))
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        border = borderStroke,
+        modifier = Modifier
+            .width(76.dp)
+            .height(118.dp),
+        color = colors.surfaceVariant,
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (wallpaper.drawableRes != null) {
+                Image(
+                    painter = painterResource(id = wallpaper.drawableRes),
+                    contentDescription = wallpaper.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(colors.surface),
+                )
+            }
+
+            Surface(
+                color = Color.Black.copy(alpha = 0.65f),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(),
+            ) {
+                Text(
+                    text = wallpaper.title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PaletteCircle(
+    paletteId: String,
+    colorHex: Long,
+    selectedId: String,
+    onClick: (String) -> Unit,
+) {
+    val selected = paletteId == selectedId
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(Color(colorHex))
+            .then(
+                if (selected) {
+                    Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                } else {
+                    Modifier
+                },
+            )
+            .clickable { onClick(paletteId) },
     )
 }
 

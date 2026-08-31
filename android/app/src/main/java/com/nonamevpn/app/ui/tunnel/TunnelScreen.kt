@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -75,6 +76,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
@@ -83,6 +85,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -1365,14 +1368,27 @@ private fun ChoiceChipButton(
     modifier: Modifier = Modifier,
     selectedContainer: Color? = null,
     dimmed: Boolean = false,
+    minWidth: Dp? = null,
 ) {
     val colors = MaterialTheme.colorScheme
-    val lookEnabled = enabled
+    val isDark = NvpnFloatingShell.isDarkTheme()
+    val defaultSelectedBg = if (isDark) {
+        colors.primary.copy(alpha = 0.22f)
+    } else {
+        lerp(colors.primaryContainer, colors.surface, 0.18f).copy(alpha = 0.94f)
+    }
+    val defaultSelectedContent = colors.primary
+    val widthModifier = if (minWidth != null) {
+        modifier.height(44.dp).widthIn(min = minWidth)
+    } else {
+        modifier.height(44.dp)
+    }
+
     if (selected) {
         Button(
             onClick = onClick,
-            enabled = lookEnabled,
-            modifier = modifier.height(44.dp),
+            enabled = enabled,
+            modifier = widthModifier,
             shape = RoundedCornerShape(16.dp),
             colors = if (selectedContainer != null) {
                 ButtonDefaults.buttonColors(
@@ -1382,9 +1398,20 @@ private fun ChoiceChipButton(
                     disabledContentColor = Color.White.copy(alpha = 0.7f),
                 )
             } else {
-                ButtonDefaults.buttonColors()
+                ButtonDefaults.buttonColors(
+                    containerColor = defaultSelectedBg,
+                    contentColor = defaultSelectedContent,
+                )
             },
-            contentPadding = PaddingValues(horizontal = 8.dp),
+            border = if (selectedContainer == null) {
+                BorderStroke(
+                    1.dp,
+                    if (isDark) colors.primary.copy(alpha = 0.35f) else colors.primary.copy(alpha = 0.25f),
+                )
+            } else {
+                null
+            },
+            contentPadding = PaddingValues(horizontal = 20.dp),
         ) {
             Text(
                 label,
@@ -1396,8 +1423,8 @@ private fun ChoiceChipButton(
     } else {
         OutlinedButton(
             onClick = onClick,
-            enabled = lookEnabled,
-            modifier = modifier.height(44.dp),
+            enabled = enabled,
+            modifier = widthModifier,
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(
                 1.dp,
@@ -1407,10 +1434,10 @@ private fun ChoiceChipButton(
                 contentColor = if (dimmed) {
                     colors.onSurface.copy(alpha = 0.45f)
                 } else {
-                    colors.primary
+                    colors.onSurface
                 },
             ),
-            contentPadding = PaddingValues(horizontal = 8.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp),
         ) {
             Text(label, fontWeight = FontWeight.Medium, maxLines = 1)
         }
