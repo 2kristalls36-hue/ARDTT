@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -68,6 +69,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -116,7 +119,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.cos
+import kotlinx.coroutines.Job
 import kotlin.math.sin
 
 @Composable
@@ -922,6 +925,8 @@ private data class DroneFlightSpec(
     val gustFreqMul: Float,
     val gustPhase: Float,
     val compensationStrength: Float,
+    val dragLimitXFrac: Float,
+    val dragLimitYFrac: Float,
 )
 
 @Composable
@@ -948,6 +953,8 @@ private fun WhitelistDroneSkyAnimation(
                 gustFreqMul = 0.92f,
                 gustPhase = 0.25f,
                 compensationStrength = 0.18f,
+                dragLimitXFrac = 0.09f,
+                dragLimitYFrac = 0.06f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_mid,
@@ -965,6 +972,8 @@ private fun WhitelistDroneSkyAnimation(
                 gustFreqMul = 1.18f,
                 gustPhase = 1.1f,
                 compensationStrength = 0.26f,
+                dragLimitXFrac = 0.08f,
+                dragLimitYFrac = 0.055f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_far,
@@ -982,6 +991,8 @@ private fun WhitelistDroneSkyAnimation(
                 gustFreqMul = 1.43f,
                 gustPhase = 2.05f,
                 compensationStrength = 0.34f,
+                dragLimitXFrac = 0.065f,
+                dragLimitYFrac = 0.05f,
             ),
         )
     }
@@ -1010,7 +1021,11 @@ private fun AnimatedDrone(
     sceneWidthPx: Float,
     sceneHeightPx: Float,
 ) {
+    val dragScope = rememberCoroutineScope()
     var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
+    var dragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
+    var dragDy by remember(spec.resId, restartToken) { mutableStateOf(0f) }
+    var dragReturnJob by remember(spec.resId, restartToken) { mutableStateOf<Job?>(null) }
     LaunchedEffect(spec.resId, restartToken) {
         delay(spec.delayMs)
         launchStarted = true
@@ -1074,16 +1089,69 @@ private fun AnimatedDrone(
     val windKickY = -sceneHeightPx * 0.10f * blowAwayProgress
     val alpha = ((0.22f + 0.78f * arrivalProgress) * (1f - blowAwayProgress * 0.98f)).coerceIn(0f, 1f)
     val blowRotation = -18f * blowAwayProgress
+    val dragLimitX = sceneWidthPx * spec.dragLimitXFrac
+    val dragLimitY = sceneHeightPx * spec.dragLimitYFrac
 
     Image(
         painter = painterResource(spec.resId),
         contentDescription = null,
         contentScale = ContentScale.Fit,
         modifier = Modifier
+            .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
+                detectDragGestures(
+                    onDragStart = {
+                        dragReturnJob?.cancel()
+                        dragReturnJob = null
+                    },
+                    onDragEnd = {
+                        dragReturnJob?.cancel()
+                        dragReturnJob = dragScope.launch {
+                            val startX = dragDx
+                            val startY = dragDy
+                            val t0 = withFrameNanos { it }
+                            val durationNs = 420_000_000L
+                            while (true) {
+                                val now = withFrameNanos { it }
+                                val p = ((now - t0).toFloat() / durationNs).coerceIn(0f, 1f)
+                                val eased = 1f - (1f - p) * (1f - p)
+                                dragDx = startX * (1f - eased)
+                                dragDy = startY * (1f - eased)
+                                if (p >= 1f) break
+                            }
+                            dragDx = 0f
+                            dragDy = 0f
+                        }
+                    },
+                    onDragCancel = {
+                        dragReturnJob?.cancel()
+                        dragReturnJob = dragScope.launch {
+                            val startX = dragDx
+                            val startY = dragDy
+                            val t0 = withFrameNanos { it }
+                            val durationNs = 420_000_000L
+                            while (true) {
+                                val now = withFrameNanos { it }
+                                val p = ((now - t0).toFloat() / durationNs).coerceIn(0f, 1f)
+                                val eased = 1f - (1f - p) * (1f - p)
+                                dragDx = startX * (1f - eased)
+                                dragDy = startY * (1f - eased)
+                                if (p >= 1f) break
+                            }
+                            dragDx = 0f
+                            dragDy = 0f
+                        }
+                    },
+                ) { change, dragAmount ->
+                    if (blowAway) return@detectDragGestures
+                    change.consume()
+                    dragDx = (dragDx + dragAmount.x).coerceIn(-dragLimitX, dragLimitX)
+                    dragDy = (dragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
+                }
+            }
             .size(spec.sizeDp.dp)
             .graphicsLayer {
-                translationX = xFrac * sceneWidthPx + orbitX + windKickX
-                translationY = yFrac * sceneHeightPx + orbitY + windKickY
+                translationX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
+                translationY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
                 this.alpha = alpha
                 rotationZ = wobbleRotation + blowRotation
             },
