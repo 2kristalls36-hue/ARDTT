@@ -781,20 +781,20 @@ private fun UserTunnelSimpleScreen(
                     "light" -> Icon(
                         imageVector = Icons.Outlined.WbSunny,
                         contentDescription = "Светлая тема",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = Color.White,
                         modifier = Modifier.size(18.dp),
                     )
                     "dark" -> Icon(
                         imageVector = Icons.Outlined.DarkMode,
                         contentDescription = "Тёмная тема",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = Color.White,
                         modifier = Modifier.size(18.dp),
                     )
                     else -> Text(
                         "A",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White,
                     )
                 }
             }
