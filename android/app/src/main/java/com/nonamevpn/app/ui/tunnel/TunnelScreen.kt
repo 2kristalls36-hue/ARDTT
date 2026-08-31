@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -68,6 +70,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -78,6 +83,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -121,6 +127,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Job
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 @Composable
@@ -815,8 +822,7 @@ private fun UserTunnelSimpleScreen(
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .fillMaxWidth(0.67f)
-                    .height(75.dp),
+                    .size(132.dp),
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -839,130 +845,52 @@ private fun TunnelPowerToggle(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var dragging by remember { mutableStateOf(false) }
-    var dragMoved by remember { mutableStateOf(false) }
-    var suppressNextTap by remember { mutableStateOf(false) }
-    var dragProgress by remember { mutableStateOf(0f) }
-    var pendingSnapTarget by remember { mutableStateOf<Float?>(null) }
-    val checked = connected
-    val externalTarget = if (checked) 1f else 0f
-    val visualTarget = when {
-        dragging -> dragProgress
-        pendingSnapTarget != null -> pendingSnapTarget!!
-        else -> externalTarget
-    }
-    val knobProgress by animateFloatAsState(
-        targetValue = visualTarget,
-        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
-        label = "tunnel_toggle_knob",
-    )
-    LaunchedEffect(externalTarget) {
-        if (!dragging) pendingSnapTarget = null
-    }
+    val activeGlow = connected || busy
     val shellColor = NvpnFloatingShell.shellColor()
-    val knobColor = when {
-        checked -> Color(0xFF35C759)
-        else -> Color(0xFF8E949B)
+    val accentColor = when {
+        connected -> Color(0xFF35C759)
+        busy -> Color(0xFF6FCF97)
+        else -> Color.White.copy(alpha = 0.75f)
     }
-    Surface(
-        modifier = modifier
-            .clickable(enabled = !busy) {
-                if (suppressNextTap) {
-                    suppressNextTap = false
-                    return@clickable
-                }
-                pendingSnapTarget = null
-                runCatching { onClick() }
-                    .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
-            },
-        color = shellColor,
-        border = NvpnFloatingShell.shellBorder(),
-        shape = RoundedCornerShape(56.dp),
-        shadowElevation = NvpnFloatingShell.shadowElevation,
-    ) {
-        val density = LocalDensity.current
-        BoxWithConstraints(
+    val pulseScale by animateFloatAsState(
+        targetValue = if (activeGlow) 1.08f else 1f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "awg_pulse_scale",
+    )
+    val pulseAlpha by animateFloatAsState(
+        targetValue = if (activeGlow) 0.28f else 0.12f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "awg_pulse_alpha",
+    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .size(132.dp * pulseScale)
+                .background(
+                    color = accentColor.copy(alpha = pulseAlpha),
+                    shape = CircleShape,
+                ),
+        )
+        Surface(
+            modifier = Modifier
+                .size(120.dp)
+                .clickable(enabled = !busy) {
+                    runCatching { onClick() }
+                        .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
+                },
+            color = shellColor,
+            border = NvpnFloatingShell.shellBorder(),
+            shape = CircleShape,
+            shadowElevation = NvpnFloatingShell.shadowElevation,
         ) {
-            val knobSize = (maxHeight - 8.dp).coerceAtLeast(48.dp)
-            val travel = (maxWidth - knobSize).coerceAtLeast(0.dp)
-            val knobOffset = travel * knobProgress
-            val travelPx = with(density) { travel.toPx().coerceAtLeast(1f) }
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 26.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    "OFF",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                        color = Color.White.copy(alpha = if (checked) 0.56f else 0.98f),
-                )
-                Text(
-                    "ON",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White.copy(alpha = if (checked) 0.98f else 0.56f),
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.PowerSettingsNew,
+                    contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
+                    tint = accentColor,
+                    modifier = Modifier.size(54.dp),
                 )
             }
-            Surface(
-                modifier = Modifier
-                    .size(knobSize)
-                    .offset(x = knobOffset),
-                color = knobColor,
-                shape = RoundedCornerShape(48.dp),
-                shadowElevation = 4.dp,
-            ) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (busy) "…" else if (checked) "ON" else "OFF",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .pointerInput(busy, travelPx, externalTarget) {
-                        if (busy) return@pointerInput
-                        detectDragGestures(
-                            onDragStart = {
-                                dragging = true
-                                dragMoved = false
-                                pendingSnapTarget = null
-                                dragProgress = knobProgress
-                            },
-                            onDragEnd = {
-                                dragging = false
-                                if (dragMoved) suppressNextTap = true
-                                val snap = if (dragProgress >= 0.5f) 1f else 0f
-                                pendingSnapTarget = snap
-                                val needToggle = (snap == 1f) != connected
-                                if (needToggle) {
-                                    runCatching { onClick() }
-                                        .onFailure { t -> AppLog.e("TunnelToggle", "swipe toggle failed: ${t.message}") }
-                                }
-                            },
-                            onDragCancel = {
-                                dragging = false
-                                pendingSnapTarget = externalTarget
-                            },
-                        ) { change, dragAmount ->
-                            change.consume()
-                            if (kotlin.math.abs(dragAmount.x) > 0.6f || kotlin.math.abs(dragAmount.y) > 0.6f) {
-                                dragMoved = true
-                            }
-                            dragProgress = (dragProgress + dragAmount.x / travelPx).coerceIn(0f, 1f)
-                        }
-                    },
-            )
         }
     }
 }
@@ -985,6 +913,9 @@ private data class DroneFlightSpec(
     val compensationStrength: Float,
     val dragLimitXFrac: Float,
     val dragLimitYFrac: Float,
+    /** Sprite alpha-center offset from geometric center in normalized square size units. */
+    val centerBiasX: Float = 0f,
+    val centerBiasY: Float = 0f,
 )
 
 @Composable
@@ -998,9 +929,9 @@ private fun WhitelistDroneSkyAnimation(
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_near,
                 sizeDp = 228,
-                startXFrac = 0.44f,
+                startXFrac = 0.40f,
                 startYFrac = -0.74f,
-                anchorXFrac = 0.43f,
+                anchorXFrac = 0.37f,
                 anchorYFrac = 0.18f,
                 orbitRadiusXFrac = 0.027f,
                 orbitRadiusYFrac = 0.021f,
@@ -1013,6 +944,8 @@ private fun WhitelistDroneSkyAnimation(
                 compensationStrength = 0.18f,
                 dragLimitXFrac = 0.09f,
                 dragLimitYFrac = 0.06f,
+                centerBiasX = 0.009f,
+                centerBiasY = 0.028f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_mid,
@@ -1032,6 +965,8 @@ private fun WhitelistDroneSkyAnimation(
                 compensationStrength = 0.26f,
                 dragLimitXFrac = 0.08f,
                 dragLimitYFrac = 0.055f,
+                centerBiasX = 0.023f,
+                centerBiasY = -0.033f,
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_far,
@@ -1051,6 +986,8 @@ private fun WhitelistDroneSkyAnimation(
                 compensationStrength = 0.34f,
                 dragLimitXFrac = 0.065f,
                 dragLimitYFrac = 0.05f,
+                centerBiasX = 0.000f,
+                centerBiasY = -0.008f,
             ),
         )
     }
@@ -1079,6 +1016,7 @@ private fun AnimatedDrone(
     sceneWidthPx: Float,
     sceneHeightPx: Float,
 ) {
+    val density = LocalDensity.current
     val dragScope = rememberCoroutineScope()
     var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
     var dragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
@@ -1149,11 +1087,21 @@ private fun AnimatedDrone(
     val blowRotation = -18f * blowAwayProgress
     val dragLimitX = sceneWidthPx * spec.dragLimitXFrac
     val dragLimitY = sceneHeightPx * spec.dragLimitYFrac
+    val baseX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
+    val baseY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
+    val layoutX = baseX.roundToInt()
+    val layoutY = baseY.roundToInt()
+    val drawOffsetX = baseX - layoutX
+    val drawOffsetY = baseY - layoutY
 
     val touchSizeDp = (spec.sizeDp * 1.35f).dp
+    val imageSizePx = with(density) { spec.sizeDp.dp.toPx() }
+    val spriteFixX = -spec.centerBiasX * imageSizePx
+    val spriteFixY = -spec.centerBiasY * imageSizePx
     Box(
         modifier = Modifier
             .size(touchSizeDp)
+            .offset { IntOffset(layoutX, layoutY) }
             .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
                 detectDragGestures(
                     onDragStart = {
@@ -1206,13 +1154,33 @@ private fun AnimatedDrone(
                 }
             }
             .graphicsLayer {
-                translationX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
-                translationY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
+                translationX = drawOffsetX
+                translationY = drawOffsetY
                 this.alpha = alpha
                 rotationZ = wobbleRotation + blowRotation
             },
         contentAlignment = Alignment.Center,
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    translationX = spriteFixX
+                    translationY = spriteFixY
+                }
+                .drawBehind {
+                    val glowColor = Color(0xFF66D8FF).copy(alpha = 0.10f + 0.08f * orbitBlend)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(glowColor, Color.Transparent),
+                            center = Offset(size.width / 2f, size.height / 2f),
+                            radius = size.minDimension * 0.56f,
+                        ),
+                        radius = size.minDimension * 0.56f,
+                        center = Offset(size.width / 2f, size.height / 2f),
+                    )
+                },
+        )
         Image(
             painter = painterResource(spec.resId),
             contentDescription = null,
