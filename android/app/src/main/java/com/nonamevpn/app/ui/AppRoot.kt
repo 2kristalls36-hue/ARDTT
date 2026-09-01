@@ -43,6 +43,7 @@ import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.needsNotificationPermission
+import com.nonamevpn.app.core.vpnPermissionDeniedHint
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
@@ -175,7 +176,7 @@ fun AppRoot(
             conn.connect()
         } else {
             AppLog.w("TunnelPrep", "Tunnel permission denied/cancelled")
-            conn.reportUserError("Нужно разрешить создание туннеля в системном диалоге")
+            conn.reportUserError(vpnPermissionDeniedHint(context))
         }
     }
 

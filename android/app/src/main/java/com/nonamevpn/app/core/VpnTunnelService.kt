@@ -308,7 +308,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     if (created == null) {
                         AppLog.e(TAG, "TUN establish failed")
                         softRestartInProgress = false
-                        ConnectionManager.getOrNull()?.onTunnelFailed("Не удалось создать TUN (отклонено системное разрешение?)")
+                        ConnectionManager.getOrNull()?.onTunnelFailed(vpnPermissionDeniedHint(this))
                         if (!softRestart && !trustedWifiWaiting) stopSelf()
                     } else {
                         AppLog.v(TAG, "TUN ok ip=$address mtu=$mtu soft=$softRestart")
