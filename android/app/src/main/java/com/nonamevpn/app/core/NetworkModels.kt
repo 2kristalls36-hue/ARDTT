@@ -23,7 +23,7 @@ data class ProbeResult(
     val bigtechOk: Boolean,
     val captive: Boolean,
     /** AWG UDP handshake response from direct.endpoint (not used in live probe). */
-    val awgUdpOk: Boolean,
+    val awgUdpOk: Boolean = false,
     /** TCP to VPS IP:9100 — open internet / Direct target reachable. */
     val provisionOk: Boolean,
     val message: String,

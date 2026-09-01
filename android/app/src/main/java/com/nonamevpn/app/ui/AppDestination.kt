@@ -1,9 +1,24 @@
 package com.nonamevpn.app.ui
 
-enum class AppDestination(val route: String, val label: String, val adminOnly: Boolean) {
-    Tunnel("tunnel", "Туннель", adminOnly = false),
-    Servers("servers", "Серверы", adminOnly = true),
+/**
+ * Bottom tabs: Tunnel → Servers → Profiles → Exceptions → Logs → Settings.
+ * Deploy is reached from Servers (not a bottom tab).
+ * Testing appears for admin+tester, and stays visible while a session is recording.
+ */
+enum class AppDestination(
+    val route: String,
+    val label: String,
+    val navLabel: String = label,
+    val adminOnly: Boolean,
+    val inBottomNav: Boolean = true,
+) {
+    Tunnel("tunnel", "Туннель", navLabel = "Туннель", adminOnly = false),
+    Servers("servers", "Серверы", navLabel = "Сервера", adminOnly = true),
     Profiles("profiles", "Профили", adminOnly = false),
     Exceptions("exceptions", "Обход", adminOnly = false),
-    Logs("logs", "Логи", adminOnly = true),
+    Logs("logs", "Логи", adminOnly = false),
+    Settings("settings", "Настройки", navLabel = "Настр.", adminOnly = false),
+    Testing("testing", "Тестирование", navLabel = "Тест", adminOnly = true),
+    /** Nested from Servers — not in bottom bar. */
+    Deploy("deploy", "Деплой", navLabel = "Деплой", adminOnly = true, inBottomNav = false),
 }

@@ -16,12 +16,17 @@ class DeployBundleTest {
 
     @Test
     fun isCurrentRequiresExactMatch() {
-        assertTrue(DeployBundle.isCurrent("1.0.6", "1.0.6"))
-        assertTrue(DeployBundle.isCurrent("1.0.6", " 1.0.6 "))
-        assertFalse(DeployBundle.isCurrent("1.0.5", "1.0.6"))
-        assertFalse(DeployBundle.isCurrent("", "1.0.6"))
-        assertFalse(DeployBundle.isCurrent(null, "1.0.6"))
-        assertFalse(DeployBundle.isCurrent("1.0.6", ""))
+        assertTrue(DeployBundle.isCurrent("1.0.12", "1.0.12"))
+        assertTrue(DeployBundle.isCurrent("1.0.12", " 1.0.12 "))
+        assertFalse(DeployBundle.isCurrent("1.0.5", "1.0.12"))
+        assertFalse(DeployBundle.isCurrent("", "1.0.12"))
+        assertFalse(DeployBundle.isCurrent(null, "1.0.12"))
+        assertFalse(DeployBundle.isCurrent("1.0.12", ""))
+    }
+
+    @Test
+    fun fallbackMatchesServerDeployVersion() {
+        assertEquals("1.0.12", DeployBundle.FALLBACK_VERSION)
     }
 
     @Test

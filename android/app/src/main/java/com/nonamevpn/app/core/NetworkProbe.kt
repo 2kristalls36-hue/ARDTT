@@ -149,15 +149,15 @@ object NetworkProbe {
         yandexOk: Boolean,
         bigtechOk: Boolean,
         captive: Boolean,
-        awgUdpOk: Boolean,
         provisionOk: Boolean,
+        awgUdpOk: Boolean = false,
     ): ProbeResult = NetworkProbePolicy.classify(
         systemOnline = systemOnline,
         yandexOk = yandexOk,
         bigtechOk = bigtechOk,
         captive = captive,
         provisionOk = provisionOk,
-    )
+    ).copy(awgUdpOk = awgUdpOk)
 
     /**
      * Host:port to probe for “can we reach our VPS IP”.
