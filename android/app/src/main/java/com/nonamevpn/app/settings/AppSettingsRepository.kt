@@ -39,6 +39,7 @@ class AppSettingsRepository(private val context: Context) {
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
+    private val dynamicColors = booleanPreferencesKey("dynamic_colors")
     private val alphaChallengeHex = stringPreferencesKey("alpha_challenge_hex")
     private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
     private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
@@ -92,6 +93,9 @@ class AppSettingsRepository(private val context: Context) {
     val themeModeFlow: Flow<String> = context.dataStore.data.map {
         normalizeThemeMode(it[themeMode])
     }
+    /** Default true — adapt accents to the active user wallpaper. */
+    val dynamicColorsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[dynamicColors] != false }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
     /** User tunnel gallery variant, rotates between app launches. */
@@ -295,6 +299,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setThemeMode(mode: String) {
         context.dataStore.edit { it[themeMode] = normalizeThemeMode(mode) }
+    }
+
+    suspend fun setDynamicColors(enabled: Boolean) {
+        context.dataStore.edit { it[dynamicColors] = enabled }
     }
 
     suspend fun alphaUnlockedSnapshot(): Boolean {
