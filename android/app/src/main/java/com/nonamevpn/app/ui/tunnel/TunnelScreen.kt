@@ -889,7 +889,7 @@ fun TunnelScreen(
             )
         }
         if (showingWhitelistScene) {
-            WhitelistDroneSkyAnimation(
+            WhitelistSkyAnimation(
                 restartToken = animationRestartToken,
                 blowAway = dronesBlowAway,
                 modifier = Modifier
@@ -1044,7 +1044,7 @@ private fun TunnelPowerToggle(
     }
 }
 
-private data class DroneFlightSpec(
+private data class FlightAssetSpec(
     val resId: Int,
     val sizeDp: Int,
     val startXFrac: Float,
@@ -1068,14 +1068,14 @@ private data class DroneFlightSpec(
 )
 
 @Composable
-private fun WhitelistDroneSkyAnimation(
+private fun WhitelistSkyAnimation(
     restartToken: Int,
     blowAway: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val drones = remember {
+    val assets = remember {
         listOf(
-            DroneFlightSpec(
+            FlightAssetSpec(
                 resId = R.drawable.tunnel_drone_far,
                 sizeDp = 74,
                 startXFrac = 1.26f,
@@ -1096,7 +1096,7 @@ private fun WhitelistDroneSkyAnimation(
                 centerBiasX = 0.000f,
                 centerBiasY = -0.008f,
             ),
-            DroneFlightSpec(
+            FlightAssetSpec(
                 resId = R.drawable.tunnel_drone_near,
                 sizeDp = 228,
                 startXFrac = 0.40f,
@@ -1117,7 +1117,7 @@ private fun WhitelistDroneSkyAnimation(
                 centerBiasX = 0.009f,
                 centerBiasY = 0.028f,
             ),
-            DroneFlightSpec(
+            FlightAssetSpec(
                 resId = R.drawable.tunnel_drone_mid,
                 sizeDp = 114,
                 startXFrac = -0.42f,
@@ -1143,8 +1143,8 @@ private fun WhitelistDroneSkyAnimation(
     BoxWithConstraints(modifier = modifier) {
         val sceneWidthPx = constraints.maxWidth.toFloat()
         val sceneHeightPx = constraints.maxHeight.toFloat()
-        drones.forEachIndexed { index, spec ->
-            AnimatedDrone(
+        assets.forEachIndexed { index, spec ->
+            AnimatedFlightAsset(
                 spec = spec,
                 index = index,
                 restartToken = restartToken,
@@ -1157,8 +1157,8 @@ private fun WhitelistDroneSkyAnimation(
 }
 
 @Composable
-private fun AnimatedDrone(
-    spec: DroneFlightSpec,
+private fun AnimatedFlightAsset(
+    spec: FlightAssetSpec,
     index: Int,
     restartToken: Int,
     blowAway: Boolean,
@@ -1177,17 +1177,17 @@ private fun AnimatedDrone(
     val arrivalProgress by animateFloatAsState(
         targetValue = if (launchStarted) 1f else 0f,
         animationSpec = tween(durationMillis = 4_200, easing = LinearOutSlowInEasing),
-        label = "drone_arrival_$index",
+        label = "flight_arrival_$index",
     )
     val orbitBlend by animateFloatAsState(
         targetValue = if (arrivalProgress > 0.985f) 1f else 0f,
         animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-        label = "drone_orbit_blend_$index",
+        label = "flight_orbit_blend_$index",
     )
     val blowAwayProgress by animateFloatAsState(
         targetValue = if (blowAway) 1f else 0f,
         animationSpec = tween(durationMillis = 980, easing = FastOutLinearInEasing),
-        label = "drone_blow_away_$index",
+        label = "flight_blow_away_$index",
     )
     val dragDx by animateFloatAsState(
         targetValue = if (dragging) rawDragDx else 0f,
@@ -1196,7 +1196,7 @@ private fun AnimatedDrone(
         } else {
             tween(durationMillis = 420, easing = FastOutSlowInEasing)
         },
-        label = "drone_drag_dx_$index",
+        label = "flight_drag_dx_$index",
     )
     val dragDy by animateFloatAsState(
         targetValue = if (dragging) rawDragDy else 0f,
@@ -1205,7 +1205,7 @@ private fun AnimatedDrone(
         } else {
             tween(durationMillis = 420, easing = FastOutSlowInEasing)
         },
-        label = "drone_drag_dy_$index",
+        label = "flight_drag_dy_$index",
     )
     val orbit by produceState(
         initialValue = 0f,
