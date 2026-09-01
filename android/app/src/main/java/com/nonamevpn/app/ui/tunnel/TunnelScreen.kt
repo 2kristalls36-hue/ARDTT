@@ -188,6 +188,10 @@ fun TunnelScreen(
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
     val haptics = rememberSmartHaptics(uiHapticsEnabled)
+    var previousConnState by remember { mutableStateOf(ui.state) }
+    var connStateInitialized by remember { mutableStateOf(false) }
+    var previousHasCallHash by remember { mutableStateOf(ui.hasCallHash) }
+    var callHashInitialized by remember { mutableStateOf(false) }
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     var showConnectionHint by rememberSaveable { mutableStateOf(true) }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
@@ -199,6 +203,23 @@ fun TunnelScreen(
         if (!openUpdateDownload) return@LaunchedEffect
         showSettings = true
         PendingUiAction.consumeOpenUpdateDownload()
+    }
+    LaunchedEffect(ui.state) {
+        if (connStateInitialized &&
+            previousConnState != ConnState.Connected &&
+            ui.state == ConnState.Connected
+        ) {
+            haptics.success()
+        }
+        previousConnState = ui.state
+        connStateInitialized = true
+    }
+    LaunchedEffect(ui.hasCallHash) {
+        if (callHashInitialized && !previousHasCallHash && ui.hasCallHash) {
+            haptics.success()
+        }
+        previousHasCallHash = ui.hasCallHash
+        callHashInitialized = true
     }
 
     val connecting = ui.state == ConnState.Connecting
