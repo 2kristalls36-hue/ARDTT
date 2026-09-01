@@ -316,13 +316,13 @@ fun TunnelScreen(
         activePath = ui.activePath,
         networkClass = ui.probe?.networkClass,
     )
-    if (!admin) {
+    if (!admin && !classicAppearance) {
         UserTunnelSimpleScreen(
             ui = ui,
             catalogItems = catalog.items,
             activeProfileId = catalog.activeId,
             bypassActive = bypassActive,
-            showIllustratedWallpaper = !classicAppearance,
+            showIllustratedWallpaper = true,
             themeMode = themeMode,
             onSwitchThemeMode = {
                 scope.launch {
