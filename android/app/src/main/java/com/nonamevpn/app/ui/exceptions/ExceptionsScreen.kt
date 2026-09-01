@@ -569,28 +569,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 }
                             }
                         }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Добавление",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                            FilterChip(
-                                selected = includeSubdomains,
-                                onClick = { includeSubdomains = !includeSubdomains },
-                                label = {
-                                    Text(if (includeSubdomains) "С поддоменами" else "Точный домен")
-                                },
-                            )
-                        }
-
                         hint?.let {
                             Text(
                                 it,
@@ -676,26 +654,50 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 modifier = floatingBarModifier,
             )
         } else {
-            Row(
+            Column(
                 modifier = floatingBarModifier,
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                BypassSearchBar(
-                    value = newRule,
-                    onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
-                    keyboardVisible = keyboardVisible,
-                    placeholder = "домен / *.домен / IP/CIDR",
-                    imeAction = ImeAction.Done,
-                    onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
-                    modifier = Modifier.weight(1f),
-                )
-                BypassAddButton(
-                    enabled = !busy && newRule.isNotBlank(),
-                    busy = busy,
-                    keyboardVisible = keyboardVisible,
-                    onClick = { addSite() },
-                )
+                if (sitesEnabled) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (keyboardVisible) colors.surface else NvpnFloatingShell.shellColor(),
+                        border = if (keyboardVisible) null else NvpnFloatingShell.shellBorder(),
+                        shadowElevation = NvpnFloatingShell.shadowElevation,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.align(Alignment.Start),
+                    ) {
+                        FilterChip(
+                            selected = includeSubdomains,
+                            onClick = { includeSubdomains = !includeSubdomains },
+                            label = {
+                                Text(if (includeSubdomains) "С поддоменами" else "Точный домен")
+                            },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    BypassSearchBar(
+                        value = newRule,
+                        onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
+                        keyboardVisible = keyboardVisible,
+                        placeholder = "домен / *.домен / IP/CIDR",
+                        imeAction = ImeAction.Done,
+                        onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
+                        modifier = Modifier.weight(1f),
+                    )
+                    BypassAddButton(
+                        enabled = !busy && newRule.isNotBlank(),
+                        busy = busy,
+                        keyboardVisible = keyboardVisible,
+                        onClick = { addSite() },
+                    )
+                }
             }
         }
     }
