@@ -56,6 +56,7 @@ import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
 import com.nonamevpn.app.ui.PendingUiAction
+import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
@@ -103,6 +104,8 @@ fun AppRoot(
     val appsWhitelistMode by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
+    val haptics = rememberSmartHaptics(uiHapticsEnabled)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -224,6 +227,7 @@ fun AppRoot(
     }
 
     fun navigateTab(route: String) {
+        haptics.tick()
         if (route == currentRoute) {
             tabReselectSignal[route] = (tabReselectSignal[route] ?: 0) + 1
             navController.popBackStack(route, inclusive = false)

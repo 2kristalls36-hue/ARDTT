@@ -684,6 +684,7 @@ fun TunnelScreen(
                 }
                 Button(
                     onClick = {
+                        haptics.tick()
                         if (sessionUp) conn.disconnect() else onRequestConnect()
                     },
                     enabled = !busy && (sessionUp || ui.connectEnabled),
