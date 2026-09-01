@@ -113,12 +113,12 @@ object VpnProfileJson {
         )
     }
 
-    fun encode(profile: VpnProfile): String {
+    fun encode(profile: VpnProfile, pretty: Boolean = true): String {
         val dns = JSONArray()
         profile.direct.dns.forEach { dns.put(it) }
         val awg = JSONObject()
         profile.direct.awg.forEach { (k, v) -> awg.put(k, v) }
-        return JSONObject()
+        val obj = JSONObject()
             .put("name", profile.name)
             .put("deviceId", profile.deviceId)
             .put("hostId", profile.hostId)
@@ -149,7 +149,7 @@ object VpnProfileJson {
                     .put("mode", profile.bypass.mode)
                     .put("dial", profile.bypass.dial),
             )
-            .toString()
+        return if (pretty) obj.toString(2) else obj.toString()
     }
 
     fun parseMany(raw: String): List<VpnProfile> {

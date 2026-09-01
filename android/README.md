@@ -20,18 +20,23 @@ cd android
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-Release (постоянный keystore, тот же ключ что у 0.5.143+):
+Release (подписанный постоянным keystore):
 
 ```bash
+# один раз: скачать ключ с VPS дистрибуции
 ./scripts/fetch-release-keystore.sh
+
 ./scripts/build-release-apk.sh
+# или: cd android && ./gradlew :app:assembleRelease :app:bundleRelease
 ```
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
-- Секреты не в git: `android/keystore.properties` + `android/keystore/ardtt-release.keystore`
-- Каноническая копия: `root@45.129.2.3:/opt/ardtt-distribution/secrets/`
+- AAB: `android/app/build/outputs/bundle/release/app-release.aab`
+- Секреты (не в git): `android/keystore.properties` + `android/keystore/ardtt-release.keystore`
+- Каноническая копия ключа: `root@45.129.2.3:/opt/ardtt-distribution/secrets/`
+- Пример: `android/keystore.properties.example`
 
-Debug и release подписаны разными ключами — переход с debug-сборки требует переустановки. Дальше обновления этим же release-ключом ставятся поверх.
+Важно: debug и release подписаны разными ключами — для перехода с debug-сборки нужна переустановка приложения.
 
 ## Модули
 

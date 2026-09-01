@@ -43,6 +43,8 @@ class AppSettingsRepository(private val context: Context) {
     private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
     private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
     private val alphaUnlockLockUntil = longPreferencesKey("alpha_unlock_lock_until")
+    private val tunnelWallpaperVariant = intPreferencesKey("tunnel_wallpaper_variant")
+    private val legacyWallpaper = stringPreferencesKey("app_wallpaper")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
@@ -69,9 +71,9 @@ class AppSettingsRepository(private val context: Context) {
     /** Default true — show VPN status in notification shade. */
     val vpnNotificationVisibleFlow: Flow<Boolean> =
         context.dataStore.data.map { it[vpnNotificationVisible] != false }
-    /** Default true — hide «Параметры подключения» on the Tunnel tab. */
+    /** Default false — keep «Параметры подключения» visible on the Tunnel tab. */
     val hideTunnelQuickSettingsFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[hideTunnelQuickSettings] != false }
+        context.dataStore.data.map { it[hideTunnelQuickSettings] == true }
     /** Allow path / Hide-IP changes while the tunnel is up. */
     val unlockConnControlsFlow: Flow<Boolean> =
         context.dataStore.data.map { it[unlockConnControls] == true }
@@ -92,6 +94,12 @@ class AppSettingsRepository(private val context: Context) {
     }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
+    /** User tunnel gallery variant, rotates between app launches. */
+    val tunnelWallpaperVariantFlow: Flow<Int> =
+        context.dataStore.data.map { prefs ->
+            val raw = prefs[tunnelWallpaperVariant] ?: 0
+            raw.coerceAtLeast(0)
+        }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -283,6 +291,28 @@ class AppSettingsRepository(private val context: Context) {
     }
 
     /**
+     * On first launch keeps variant 0, then advances one step on each next
+     * process start (full close/open cycle).
+     */
+    suspend fun rotateTunnelWallpaperVariantOnAppStart(variantCount: Int) {
+        if (variantCount <= 1) return
+        context.dataStore.edit { prefs ->
+            val current = prefs[tunnelWallpaperVariant]
+            prefs[tunnelWallpaperVariant] = if (current == null) {
+                0
+            } else {
+                (current + 1).mod(variantCount)
+            }
+        }
+    }
+
+    suspend fun setTunnelWallpaperVariant(variant: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[tunnelWallpaperVariant] = variant.coerceAtLeast(0)
+        }
+    }
+
+    /**
      * Device challenge is created once and never rotated. Regenerating it would
      * invalidate a code the developer already issued.
      */
@@ -332,6 +362,11 @@ class AppSettingsRepository(private val context: Context) {
             result = AlphaUnlockResult.WrongCode(fails = fails, lockMs = lockMs)
         }
         return result
+    }
+
+    /** Removes obsolete wallpaper preference from older builds. */
+    suspend fun clearLegacyWallpaperPreference() {
+        context.dataStore.edit { it.remove(legacyWallpaper) }
     }
 
     private fun sha256(value: String): String {

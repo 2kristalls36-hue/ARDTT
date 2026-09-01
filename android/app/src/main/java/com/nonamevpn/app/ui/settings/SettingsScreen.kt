@@ -3,6 +3,7 @@ package com.nonamevpn.app.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,8 +16,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -25,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -36,6 +40,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import android.widget.Toast
@@ -65,10 +71,12 @@ import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.update.AppUpdateInfo
@@ -80,24 +88,34 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     settings: AppSettingsRepository,
+    isRecording: Boolean = false,
+    scrollToDial: Boolean = false,
+    onScrolledToDial: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val recorder = remember { TelemetryRecorder.get(context) }
-    val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
+    val recorderActive by recorder.isRecording.collectAsStateWithLifecycle()
+    val recordingActive = isRecording || recorderActive
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val notifVisible by settings.vpnNotificationVisibleFlow.collectAsStateWithLifecycle(initialValue = true)
-    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
+    val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
+    val updateBringIntoView = remember { BringIntoViewRequester() }
+    val openAppearanceSettings by PendingUiAction.openAppearanceSettings.collectAsStateWithLifecycle()
+    val appearanceBringIntoView = remember { BringIntoViewRequester() }
+    val scrollState = rememberScrollState()
+    var dialCardOffsetY by remember { mutableFloatStateOf(-1f) }
     val vpnSessionActive = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
         connUi.state == ConnState.PausedTrustedWifi ||
@@ -108,6 +126,9 @@ fun SettingsScreen(
     val updateUi by updates.ui.collectAsStateWithLifecycle()
     var adminHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
+    var showBypassMethodDialog by remember { mutableStateOf(false) }
+    var highlightBypassDialog by remember { mutableStateOf(false) }
+    var highlightAppearanceCard by remember { mutableStateOf(false) }
     val refuseLeaveTestingSession: () -> Unit = {
         adminHint = TestingSessionGuard.STOP_RECORDING_FIRST
         Toast.makeText(
@@ -142,9 +163,39 @@ fun SettingsScreen(
 
     LaunchedEffect(openCallHash) {
         if (!openCallHash) return@LaunchedEffect
-        kotlinx.coroutines.delay(120)
-        runCatching { callHashBringIntoView.bringIntoView() }
+        showBypassMethodDialog = true
         PendingUiAction.consumeCallHashSettings()
+    }
+    LaunchedEffect(showBypassMethodDialog) {
+        if (!showBypassMethodDialog) return@LaunchedEffect
+        highlightBypassDialog = true
+        kotlinx.coroutines.delay(500)
+        highlightBypassDialog = false
+    }
+    LaunchedEffect(openUpdateDownload, updateUi.visible, updateUi.downloading, updateUi.downloadedFile) {
+        if (!openUpdateDownload) return@LaunchedEffect
+        if (!updateUi.visible) {
+            updates.checkAndWait()
+        }
+        kotlinx.coroutines.delay(120)
+        runCatching { updateBringIntoView.bringIntoView() }
+        if (
+            !updateUi.downloading &&
+            updateUi.downloadedFile == null &&
+            updateUi.available?.isNewer == true
+        ) {
+            updates.download()
+        }
+        PendingUiAction.consumeOpenUpdateDownload()
+    }
+    LaunchedEffect(openAppearanceSettings) {
+        if (!openAppearanceSettings) return@LaunchedEffect
+        kotlinx.coroutines.delay(120)
+        runCatching { appearanceBringIntoView.bringIntoView() }
+        highlightAppearanceCard = true
+        kotlinx.coroutines.delay(550)
+        highlightAppearanceCard = false
+        PendingUiAction.consumeOpenAppearanceSettings()
     }
 
     LaunchedEffect(Unit) {
@@ -155,18 +206,28 @@ fun SettingsScreen(
         updates.checkAndWait()
     }
 
+    LaunchedEffect(scrollToDial, dialCardOffsetY) {
+        if (scrollToDial && dialCardOffsetY >= 0f) {
+            scrollState.animateScrollTo(dialCardOffsetY.toInt().coerceAtLeast(0))
+            onScrolledToDial()
+        }
+    }
+
     EdgeFeedColumn(
+        scrollState = scrollState,
         refreshing = pull.refreshing,
         onRefresh = pull.onRefresh,
+        header = {
+            val modeLabel = if (admin) "администратор" else "пользователь"
+            AppTabPageHeader(
+                title = "Настройки приложения",
+                subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
+            )
+        },
     ) {
-        val modeLabel = if (admin) "администратор" else "пользователь"
-        AppTabPageHeader(
-            title = "Настройки приложения",
-            subtitle = "Режим: $modeLabel · ${BuildConfig.VERSION_NAME}",
-        )
-
         if (updateUi.visible) {
             UpdateSettingsCard(
+                modifier = Modifier.bringIntoViewRequester(updateBringIntoView),
                 info = updateUi.available,
                 downloading = updateUi.downloading,
                 progress = updateUi.progress,
@@ -294,17 +355,18 @@ fun SettingsScreen(
 
         TrustedWifiSettingsCard(settings = settings)
 
-        CallHashSettingsCard(
-            modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
-        )
-
         AppSectionCard(
+            modifier = Modifier
+                .bringIntoViewRequester(callHashBringIntoView)
+                .onGloballyPositioned { coordinates ->
+                    dialCardOffsetY = coordinates.positionInParent().y
+                },
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Обход", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Метод обхода", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Источник параметров обхода. Авто — vkcalls, иначе резерв. Нужен код звонка выше.",
+                "Источник параметров обхода и код звонка. Авто — vkcalls, иначе резерв.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -322,20 +384,33 @@ fun SettingsScreen(
                 checked = silent,
                 onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
             )
+            CallHashSettingsContent(showHeader = false)
         }
 
+        val appearanceHighlightAlpha by animateFloatAsState(
+            targetValue = if (highlightAppearanceCard) 1f else 0f,
+            animationSpec = androidx.compose.animation.core.tween(durationMillis = 420),
+            label = "appearance_card_highlight",
+        )
         AppSectionCard(
+            modifier = Modifier.bringIntoViewRequester(appearanceBringIntoView),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                width = 2.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f + 0.50f * appearanceHighlightAlpha),
+            ),
         ) {
-            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
-                DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
-                DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
+            if (!recordingActive) {
+                Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
+                    DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
+                    DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
+                }
             }
             RowSetting(
                 title = "Уведомление",
@@ -394,7 +469,7 @@ fun SettingsScreen(
                     checked = testingMode,
                     onCheckedChange = { enabled ->
                         if (!enabled) {
-                            if (!TestingSessionGuard.canLeaveTestingSession(isRecording)) {
+                            if (!TestingSessionGuard.canLeaveTestingSession(recordingActive)) {
                                 refuseLeaveTestingSession()
                             } else {
                                 scope.launch { settings.setTestingMode(false) }
@@ -406,7 +481,7 @@ fun SettingsScreen(
                 )
                 OutlinedButton(
                     onClick = {
-                        if (!TestingSessionGuard.canLeaveTestingSession(isRecording)) {
+                        if (!TestingSessionGuard.canLeaveTestingSession(recordingActive)) {
                             refuseLeaveTestingSession()
                         } else {
                             scope.launch {
@@ -440,10 +515,47 @@ fun SettingsScreen(
             onDismiss = { showTestingAgreement = false },
         )
     }
+
+    if (showBypassMethodDialog) {
+        val highlightAlpha by animateFloatAsState(
+            targetValue = if (highlightBypassDialog) 1f else 0f,
+            animationSpec = androidx.compose.animation.core.tween(durationMillis = 500),
+            label = "bypass_dialog_highlight",
+        )
+        NvpnDialog(
+            title = "Метод обхода",
+            onDismissRequest = { showBypassMethodDialog = false },
+            dismissAction = NvpnDialogAction(
+                text = "Закрыть",
+                onClick = { showBypassMethodDialog = false },
+            ),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = 2.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f + 0.52f * highlightAlpha),
+                ),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Box(modifier = Modifier.padding(12.dp)) {
+                    CallHashSettingsContent(showHeader = false)
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            Text(
+                "В этом окне можно авторизоваться, создать код звонка через ВК или ввести его вручную.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 @Composable
 private fun UpdateSettingsCard(
+    modifier: Modifier = Modifier,
     info: AppUpdateInfo?,
     downloading: Boolean,
     progress: Float,
@@ -454,6 +566,7 @@ private fun UpdateSettingsCard(
     onInstall: () -> Unit,
 ) {
     AppSectionCard(
+        modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

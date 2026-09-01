@@ -23,10 +23,12 @@ import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,6 +58,8 @@ import com.nonamevpn.app.ui.admin.ServersScreen
 import com.nonamevpn.app.ui.admin.TestingScreen
 import com.nonamevpn.app.ui.components.AppBackdrop
 import com.nonamevpn.app.ui.components.NavBarItem
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
@@ -68,6 +72,7 @@ import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
 import com.nonamevpn.app.ui.tunnel.resolveTunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.tunnelWallpaperVisible
 import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
+import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -112,6 +117,9 @@ fun AppRoot(
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
     val recorder = remember { TelemetryRecorder.get(context) }
     val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
+    val updates = remember { AppUpdateController.get(context) }
+    val updateUi by updates.ui.collectAsStateWithLifecycle()
+    var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
     val tunnelWallpaperScene = remember { TunnelWallpaperSession.currentOrPick() }
     val darkTheme = when (themeMode) {
         "dark" -> true
@@ -136,8 +144,15 @@ fun AppRoot(
     val navItems = tabs.map { dest ->
         NavBarItem(route = dest.route, label = dest.navLabel, icon = dest.icon())
     }
+    val tabReselectSignal = remember { mutableStateMapOf<String, Int>() }
+    tabs.forEach { tab ->
+        if (tab.route !in tabReselectSignal) {
+            tabReselectSignal[tab.route] = 0
+        }
+    }
     val selectedNavRoute = currentRoute
     var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
+    var scrollToDialInSettings by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -195,6 +210,11 @@ fun AppRoot(
     }
 
     fun navigateTab(route: String) {
+        if (route == currentRoute) {
+            tabReselectSignal[route] = (tabReselectSignal[route] ?: 0) + 1
+            navController.popBackStack(route, inclusive = false)
+            return
+        }
         navController.navigate(route) {
             popUpTo(AppDestination.Tunnel.route) { saveState = true }
             launchSingleTop = true
@@ -215,6 +235,16 @@ fun AppRoot(
             navigateTab(AppDestination.Servers.route)
         }
     }
+    val availableUpdateVersion = updateUi.available
+        ?.takeIf { it.isNewer }
+        ?.versionName
+        ?.trim()
+        ?.ifBlank { null }
+    val showUpdatePrompt = availableUpdateVersion != null &&
+        availableUpdateVersion != dismissedUpdateVersion &&
+        !updateUi.downloading &&
+        updateUi.downloadedFile == null &&
+        currentRoute != AppDestination.Settings.route
 
     LaunchedEffect(Unit) {
         AppLog.i("App", "UI ready")
@@ -261,7 +291,6 @@ fun AppRoot(
         }
         previousRoute = currentRoute
     }
-
     TelemetryRecordingOverlay(
         isRecording = isRecording,
         currentScreen = currentRoute,
@@ -295,8 +324,8 @@ fun AppRoot(
                         settings = settings,
                         profiles = profiles,
                         onRequestConnect = { requestVpnThenConnect() },
-                        onOpenCallHashSettings = {
-                            PendingUiAction.requestCallHashSettings()
+                        onNavigateToDialSettings = {
+                            scrollToDialInSettings = true
                             navigateTab(AppDestination.Settings.route)
                         },
                     )
@@ -306,6 +335,7 @@ fun AppRoot(
                         serversRepo = serversRepo,
                         engine = deployEngine,
                         profiles = profiles,
+                        reselectSignal = tabReselectSignal[AppDestination.Servers.route] ?: 0,
                     )
                 }
                 composable(AppDestination.Profiles.route) {
@@ -322,7 +352,12 @@ fun AppRoot(
                     LogsScreen()
                 }
                 composable(AppDestination.Settings.route) {
-                    SettingsScreen(settings = settings)
+                    SettingsScreen(
+                        settings = settings,
+                        isRecording = isRecording,
+                        scrollToDial = scrollToDialInSettings,
+                        onScrolledToDial = { scrollToDialInSettings = false },
+                    )
                 }
                 composable(AppDestination.Testing.route) {
                     TestingScreen(profiles = profiles)
@@ -341,6 +376,34 @@ fun AppRoot(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.surface,
                 ) {}
+            }
+            if (showUpdatePrompt) {
+                NvpnDialog(
+                    title = "Доступно обновление",
+                    onDismissRequest = {
+                        dismissedUpdateVersion = availableUpdateVersion
+                    },
+                    confirmAction = NvpnDialogAction(
+                        text = "Загрузить",
+                        onClick = {
+                            dismissedUpdateVersion = availableUpdateVersion
+                            PendingUiAction.requestOpenUpdateDownload()
+                            navigateTab(AppDestination.Settings.route)
+                        },
+                    ),
+                    dismissAction = NvpnDialogAction(
+                        text = "Отмена",
+                        onClick = {
+                            dismissedUpdateVersion = availableUpdateVersion
+                        },
+                    ),
+                ) {
+                    Text(
+                        "Найдена версия $availableUpdateVersion. Перейти в «Настройки» и начать загрузку?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

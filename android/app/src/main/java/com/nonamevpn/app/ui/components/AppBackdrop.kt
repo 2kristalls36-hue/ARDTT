@@ -18,9 +18,11 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 
-/** Soft gradient + glow orbs behind screens (qWDTT AppBackdrop). */
+/** Soft gradient + glow orbs behind non-tunnel screens. */
 @Composable
-fun AppBackdrop(modifier: Modifier = Modifier) {
+fun AppBackdrop(
+    modifier: Modifier = Modifier,
+) {
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
     val baseBrush = remember(colors.background, colors.surface, colors.surfaceVariant) {
@@ -40,6 +42,7 @@ fun AppBackdrop(modifier: Modifier = Modifier) {
             },
         )
     }
+
     val topGlow = if (isDark) {
         colors.primary.copy(alpha = 0.04f)
     } else {

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +55,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -83,7 +85,9 @@ import com.nonamevpn.app.deploy.DeployBundle
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
+import com.nonamevpn.app.deploy.ServerOsProbe
 import com.nonamevpn.app.deploy.ServersRepository
+import com.nonamevpn.app.deploy.isRecognizedServerOsId
 import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
@@ -212,10 +216,16 @@ fun ServersScreen(
     serversRepo: ServersRepository,
     engine: DeployEngine,
     profiles: ProfileRepository,
+    reselectSignal: Int = 0,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
     var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
         mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
+    }
+    LaunchedEffect(reselectSignal) {
+        if (reselectSignal > 0) {
+            screen = ServersNavScreen.List
+        }
     }
 
     BackHandler(enabled = screen !is ServersNavScreen.List) {
@@ -302,6 +312,21 @@ private fun ServerListScreen(
                     val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
                         .getOrNull()
                     val status = healthUiOf(info)
+                    if (target.osVersion.isBlank()) {
+                        val osInfo = ServerOsProbe.probe(target).getOrNull()
+                        if (osInfo != null) {
+                            val nextId = osInfo.osId.trim()
+                            val nextVersion = osInfo.osVersionLabel.trim()
+                            if (target.osId != nextId || target.osVersion != nextVersion) {
+                                serversRepo.upsert(
+                                    target.copy(
+                                        osId = nextId,
+                                        osVersion = nextVersion,
+                                    ),
+                                )
+                            }
+                        }
+                    }
                     healthById = healthById + (target.id to status)
                 }
             }.awaitAll()
@@ -433,16 +458,8 @@ private fun ServerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (server.name.isNotBlank() && server.name != server.host) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        server.host,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Spacer(modifier = Modifier.height(2.dp))
+                ServerHostLine(server = server)
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     "SSH ${server.sshPort}",
@@ -485,6 +502,52 @@ private fun ServerCard(
 }
 
 @Composable
+private fun ServerHostLine(
+    server: DeployTarget,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodySmall,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    val osVersion = server.osVersion.trim()
+    val osRecognized = isRecognizedServerOsId(server.osId)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (osVersion.isNotBlank()) {
+            if (osRecognized) {
+                Icon(
+                    imageVector = Icons.Outlined.Terminal,
+                    contentDescription = "ОС сервера",
+                    tint = iconTint,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            Text(
+                osVersion,
+                style = style,
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "·",
+                style = style,
+                color = color.copy(alpha = 0.7f),
+                maxLines = 1,
+            )
+        }
+        Text(
+            server.host,
+            style = style,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun ServerOverviewHost(
     servers: List<DeployTarget>,
     serversRepo: ServersRepository,
@@ -521,6 +584,21 @@ private fun ServerOverviewHost(
         health = HealthUi.Checking
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
         health = healthUiOf(info)
+        if (target.osVersion.isBlank()) {
+            val osInfo = ServerOsProbe.probe(target).getOrNull()
+            if (osInfo != null) {
+                val nextId = osInfo.osId.trim()
+                val nextVersion = osInfo.osVersionLabel.trim()
+                if (target.osId != nextId || target.osVersion != nextVersion) {
+                    serversRepo.upsert(
+                        target.copy(
+                            osId = nextId,
+                            osVersion = nextVersion,
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     LaunchedEffect(busy, activeTargetId, serverId) {
@@ -554,6 +632,21 @@ private fun ServerOverviewHost(
         val target = server ?: return@rememberPullRefresh
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
         health = healthUiOf(info)
+        if (target.osVersion.isBlank()) {
+            val osInfo = ServerOsProbe.probe(target).getOrNull()
+            if (osInfo != null) {
+                val nextId = osInfo.osId.trim()
+                val nextVersion = osInfo.osVersionLabel.trim()
+                if (target.osId != nextId || target.osVersion != nextVersion) {
+                    serversRepo.upsert(
+                        target.copy(
+                            osId = nextId,
+                            osVersion = nextVersion,
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     if (server == null) {
@@ -833,10 +926,11 @@ private fun ServerOverviewScreen(
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                server.host,
+                            ServerHostLine(
+                                server = server,
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                iconTint = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
                                 "SSH ${server.sshPort}",
@@ -1027,6 +1121,13 @@ fun DeployScreen(
     var publicHost by remember { mutableStateOf(initial?.publicHost ?: "") }
     var directPort by remember { mutableStateOf((initial?.directPort ?: 51820).toString()) }
     var bypassPort by remember { mutableStateOf((initial?.bypassPort ?: 56003).toString()) }
+    var cascadeEnabled by remember { mutableStateOf(initial?.cascadeEnabled == true) }
+    var cascadeHost by remember { mutableStateOf(initial?.cascadeHost ?: "") }
+    var cascadePort by remember { mutableStateOf((initial?.cascadePort ?: 22).toString()) }
+    var cascadeUser by remember { mutableStateOf(initial?.cascadeUser ?: "") }
+    var cascadePassword by remember { mutableStateOf(initial?.cascadePassword ?: "") }
+    var osId by remember { mutableStateOf(initial?.osId ?: "") }
+    var osVersion by remember { mutableStateOf(initial?.osVersion ?: "") }
     var lastDeployedAtMs by remember { mutableStateOf(initial?.lastDeployedAtMs ?: 0L) }
     var status by remember { mutableStateOf<String?>(null) }
 
@@ -1043,6 +1144,13 @@ fun DeployScreen(
         publicHost = t.publicHost
         directPort = t.directPort.toString()
         bypassPort = t.bypassPort.toString()
+        cascadeEnabled = t.cascadeEnabled
+        cascadeHost = t.cascadeHost
+        cascadePort = t.cascadePort.toString()
+        cascadeUser = t.cascadeUser
+        cascadePassword = t.cascadePassword
+        osId = t.osId
+        osVersion = t.osVersion
         lastDeployedAtMs = t.lastDeployedAtMs
     }
 
@@ -1067,6 +1175,13 @@ fun DeployScreen(
         publicHost = publicHost.trim().ifBlank { host.trim() },
         directPort = directPort.toIntOrNull() ?: 51820,
         bypassPort = bypassPort.toIntOrNull() ?: 56003,
+        cascadeEnabled = cascadeEnabled,
+        cascadeHost = cascadeHost.trim(),
+        cascadePort = cascadePort.toIntOrNull() ?: 22,
+        cascadeUser = cascadeUser.trim(),
+        cascadePassword = cascadePassword,
+        osId = osId.trim(),
+        osVersion = osVersion.trim(),
         lastDeployedAtMs = deployedAt,
     )
 
@@ -1203,6 +1318,81 @@ fun DeployScreen(
                 enabled = !busy,
             )
         }
+        AppSectionCard(
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        "Каскадное подключение",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Использовать промежуточный узел. После включения заполните параметры каскада.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = cascadeEnabled,
+                    onCheckedChange = { cascadeEnabled = it },
+                    enabled = !busy,
+                )
+            }
+            if (cascadeEnabled) {
+                OutlinedTextField(
+                    value = cascadeHost,
+                    onValueChange = { cascadeHost = it },
+                    label = { Text("Каскад host / IP") },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedTextField(
+                        value = cascadePort,
+                        onValueChange = { cascadePort = it.filter { ch -> ch.isDigit() }.take(5) },
+                        label = { Text("Каскад порт") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = cascadeUser,
+                        onValueChange = { cascadeUser = it },
+                        label = { Text("Каскад user") },
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                OutlinedTextField(
+                    value = cascadePassword,
+                    onValueChange = { cascadePassword = it },
+                    label = { Text("Каскад пароль") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
 
         OutlinedButton(
             onClick = {
@@ -1213,6 +1403,20 @@ fun DeployScreen(
                 if (password.isBlank() && privateKey.isBlank()) {
                     status = "Нужен пароль или SSH-ключ"
                     return@OutlinedButton
+                }
+                if (cascadeEnabled) {
+                    if (cascadeHost.isBlank()) {
+                        status = "Укажите каскад host"
+                        return@OutlinedButton
+                    }
+                    if (cascadeUser.isBlank()) {
+                        status = "Укажите каскад user"
+                        return@OutlinedButton
+                    }
+                    if (cascadePassword.isBlank()) {
+                        status = "Укажите каскад пароль"
+                        return@OutlinedButton
+                    }
                 }
                 val target = buildTarget()
                 serversRepo.upsert(target)
@@ -1234,6 +1438,20 @@ fun DeployScreen(
                 if (password.isBlank() && privateKey.isBlank()) {
                     status = "Нужен пароль или SSH-ключ"
                     return@Button
+                }
+                if (cascadeEnabled) {
+                    if (cascadeHost.isBlank()) {
+                        status = "Укажите каскад host"
+                        return@Button
+                    }
+                    if (cascadeUser.isBlank()) {
+                        status = "Укажите каскад user"
+                        return@Button
+                    }
+                    if (cascadePassword.isBlank()) {
+                        status = "Укажите каскад пароль"
+                        return@Button
+                    }
                 }
                 val target = buildTarget()
                 serversRepo.upsert(target)
