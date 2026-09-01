@@ -39,6 +39,7 @@ class AppSettingsRepository(private val context: Context) {
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
+    private val illustratedWallpaper = booleanPreferencesKey("illustrated_wallpaper")
     private val alphaChallengeHex = stringPreferencesKey("alpha_challenge_hex")
     private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
     private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
@@ -91,6 +92,9 @@ class AppSettingsRepository(private val context: Context) {
     val themeModeFlow: Flow<String> = context.dataStore.data.map {
         normalizeThemeMode(it[themeMode])
     }
+    /** Default true — illustrated wallpaper on every user tab, plus Tunnel drones. */
+    val illustratedWallpaperEnabled: Flow<Boolean> =
+        context.dataStore.data.map { it[illustratedWallpaper] != false }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
 
@@ -276,6 +280,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setThemeMode(mode: String) {
         context.dataStore.edit { it[themeMode] = normalizeThemeMode(mode) }
+    }
+
+    suspend fun setIllustratedWallpaperEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[illustratedWallpaper] = enabled }
     }
 
     suspend fun alphaUnlockedSnapshot(): Boolean {

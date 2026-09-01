@@ -110,6 +110,13 @@ class TunnelWallpaperTest {
     }
 
     @Test
+    fun userCanDisableWallpaperAndDrones() {
+        assertFalse(tunnelWallpaperVisible(admin = false, enabled = false))
+        assertTrue(tunnelWallpaperVisible(admin = false, enabled = true))
+        assertFalse(tunnelWallpaperVisible(admin = true, enabled = true))
+    }
+
+    @Test
     fun randomSceneAlwaysReturnsOneOfThreeScenes() {
         repeat(30) {
             assertTrue(TunnelWallpaperScene.random() in TunnelWallpaperScene.all)
