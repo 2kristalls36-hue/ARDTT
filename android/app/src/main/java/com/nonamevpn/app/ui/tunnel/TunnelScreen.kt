@@ -115,6 +115,7 @@ import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.components.WarpIcon
 import com.nonamevpn.app.ui.settings.SettingsSheet
 import com.nonamevpn.app.ui.theme.NvpnColors
@@ -185,6 +186,8 @@ fun TunnelScreen(
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
+    val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
+    val haptics = rememberSmartHaptics(uiHapticsEnabled)
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     var showConnectionHint by rememberSaveable { mutableStateOf(true) }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
@@ -345,6 +348,7 @@ fun TunnelScreen(
                 }
             },
             onToggleTunnel = {
+                haptics.tick()
                 when (ui.state) {
                     ConnState.Connected,
                     ConnState.Connecting,
@@ -357,6 +361,7 @@ fun TunnelScreen(
             onSelectPreviousProfile = {
                 val items = catalog.items
                 if (items.size <= 1) return@UserTunnelSimpleScreen
+                haptics.tick()
                 val currentIndex = items.indexOfFirst { it.id == catalog.activeId }.let { if (it < 0) 0 else it }
                 val target = items[(currentIndex - 1 + items.size) % items.size]
                 scope.launch {
@@ -368,6 +373,7 @@ fun TunnelScreen(
             onSelectNextProfile = {
                 val items = catalog.items
                 if (items.size <= 1) return@UserTunnelSimpleScreen
+                haptics.tick()
                 val currentIndex = items.indexOfFirst { it.id == catalog.activeId }.let { if (it < 0) 0 else it }
                 val target = items[(currentIndex + 1) % items.size]
                 scope.launch {
@@ -479,6 +485,7 @@ fun TunnelScreen(
                         selected = pathMode == "auto",
                         enabled = !vpnLocked,
                         onClick = {
+                            haptics.tick()
                             scope.launch {
                                 settings.setPathMode("auto")
                                 conn.setPathMode(ConnPathMode.Auto, switchLive = true)
@@ -494,6 +501,7 @@ fun TunnelScreen(
                         enabled = !vpnLocked,
                         selectedContainer = NvpnColors.pathDirect,
                         onClick = {
+                            haptics.tick()
                             scope.launch {
                                 settings.setPathMode("direct")
                                 conn.setPathMode(ConnPathMode.Direct, switchLive = true)
@@ -510,6 +518,7 @@ fun TunnelScreen(
                         dimmed = !ui.hasCallHash,
                         selectedContainer = NvpnColors.pathBypass,
                         onClick = {
+                            haptics.tick()
                             if (!ui.hasCallHash) {
                                 onNavigateToDialSettings()
                                 return@ChoiceChipButton
@@ -535,6 +544,7 @@ fun TunnelScreen(
                         selected = !hideIp,
                         enabled = !vpnLocked,
                         onClick = {
+                            haptics.tick()
                             scope.launch {
                                 settings.setHideIp(false)
                                 conn.setHideIp(false)
@@ -549,6 +559,7 @@ fun TunnelScreen(
                         selected = hideIp,
                         enabled = !vpnLocked,
                         onClick = {
+                            haptics.tick()
                             scope.launch {
                                 settings.setHideIp(true)
                                 conn.setHideIp(true)
@@ -589,6 +600,7 @@ fun TunnelScreen(
                     Switch(
                         checked = trustedWifiEnabled,
                         onCheckedChange = { on ->
+                            haptics.tick()
                             scope.launch { settings.setTrustedWifiEnabled(on) }
                         },
                     )

@@ -69,6 +69,7 @@ import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.launch
 
@@ -140,7 +141,9 @@ fun SettingsContent(settings: AppSettingsRepository) {
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
     val connUi by conn.ui.collectAsStateWithLifecycle()
+    val haptics = rememberSmartHaptics(uiHapticsEnabled)
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
@@ -391,6 +394,19 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     },
                     checked = dynamicColors,
                     onCheckedChange = { scope.launch { settings.setDynamicColors(it) } },
+                )
+                RowSetting(
+                    title = "Виброотклик",
+                    subtitle = if (uiHapticsEnabled) {
+                        "Короткая тактильная отдача на ключевых действиях интерфейса."
+                    } else {
+                        "Виброотклик отключён."
+                    },
+                    checked = uiHapticsEnabled,
+                    onCheckedChange = {
+                        if (uiHapticsEnabled) haptics.tick()
+                        scope.launch { settings.setUiHapticsEnabled(it) }
+                    },
                 )
             }
             RowSetting(
