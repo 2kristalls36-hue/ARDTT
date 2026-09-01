@@ -290,18 +290,47 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
-            RowSetting(
-                title = "Скрыть адрес",
-                subtitle = HideIpCopy.subtitle(hideIp),
-                checked = hideIp,
-                enabled = !vpnLocked,
-                onCheckedChange = {
-                    scope.launch {
-                        settings.setHideIp(it)
-                        conn.setHideIp(it)
-                    }
-                },
+            Text(
+                "Исходящий адрес",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
             )
+            Text(
+                HideIpCopy.subtitle(hideIp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DialChip(
+                    label = HideIpCopy.SERVER_CHIP,
+                    selected = !hideIp,
+                    onClick = {
+                        if (uiHapticsEnabled) haptics.tick()
+                        scope.launch {
+                            settings.setHideIp(false)
+                            conn.setHideIp(false)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = !vpnLocked,
+                )
+                DialChip(
+                    label = HideIpCopy.HIDDEN_CHIP,
+                    selected = hideIp,
+                    onClick = {
+                        if (uiHapticsEnabled) haptics.tick()
+                        scope.launch {
+                            settings.setHideIp(true)
+                            conn.setHideIp(true)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = !vpnLocked,
+                )
+            }
             RowSetting(
                 title = "Скрыть быстрые настройки",
                 subtitle = if (hideTunnelQuickSettings) {
