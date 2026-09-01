@@ -424,28 +424,21 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     checked = dynamicColors,
                     onCheckedChange = { scope.launch { settings.setDynamicColors(it) } },
                 )
-                RowSetting(
-                    title = "Виброотклик",
-                    subtitle = if (admin) {
-                        if (uiHapticsEnabled) {
+                if (admin) {
+                    RowSetting(
+                        title = "Виброотклик",
+                        subtitle = if (uiHapticsEnabled) {
                             "Короткая тактильная отдача на ключевых действиях интерфейса."
                         } else {
                             "Виброотклик отключён."
-                        }
-                    } else {
-                        if (uiHapticsEnabled) {
-                            "Короткая тактильная отдача на ключевых действиях интерфейса. Изменение доступно только в режиме администратора."
-                        } else {
-                            "Виброотклик отключён администратором. Изменение доступно только в режиме администратора."
-                        }
-                    },
-                    checked = uiHapticsEnabled,
-                    enabled = admin,
-                    onCheckedChange = {
-                        if (uiHapticsEnabled) haptics.tick()
-                        scope.launch { settings.setUiHapticsEnabled(it) }
-                    },
-                )
+                        },
+                        checked = uiHapticsEnabled,
+                        onCheckedChange = {
+                            if (uiHapticsEnabled) haptics.tick()
+                            scope.launch { settings.setUiHapticsEnabled(it) }
+                        },
+                    )
+                }
             }
             RowSetting(
                 title = "Уведомление",
