@@ -12,13 +12,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.CloudUpload
-import androidx.compose.material.icons.outlined.FilterList
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Science
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.ListAlt
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,12 +24,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,11 +45,8 @@ import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
-import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.ui.admin.LogsScreen
-import com.nonamevpn.app.ui.admin.ServersScreen
-import com.nonamevpn.app.ui.admin.TestingScreen
-import com.nonamevpn.app.ui.components.AppBackdrop
+import com.nonamevpn.app.ui.admin.ServersHub
 import com.nonamevpn.app.ui.components.NavBarItem
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -64,8 +54,6 @@ import com.nonamevpn.app.ui.components.NvpnNavigationBar
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.profiles.ProfilesScreen
-import com.nonamevpn.app.ui.settings.SettingsScreen
-import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
@@ -115,16 +103,10 @@ fun AppRoot(
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
-    val recorder = remember { TelemetryRecorder.get(context) }
-    val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
-    val updates = remember { AppUpdateController.get(context) }
-    val updateUi by updates.ui.collectAsStateWithLifecycle()
-    var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
-    val tunnelWallpaperScene = TunnelWallpaperSession.currentOrPick()
-    val darkTheme = when (themeMode) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
+
+    val tabs = AppDestination.entries.filter { !it.adminOnly || admin }
+    val navItems = tabs.map { dest ->
+        NavBarItem(route = dest.route, label = dest.label, icon = dest.icon())
     }
     val tunnelWallpaper = TunnelWallpaper.resolve(
         scene = tunnelWallpaperScene,
@@ -309,102 +291,21 @@ fun AppRoot(
             } else {
                 AppBackdrop(modifier = Modifier.fillMaxSize())
             }
-
-            NavHost(
-                navController = navController,
-                startDestination = AppDestination.Tunnel.route,
-                modifier = Modifier.fillMaxSize(),
-                enterTransition = { EnterTransition.None },
-                exitTransition = { ExitTransition.None },
-                popEnterTransition = { EnterTransition.None },
-                popExitTransition = { ExitTransition.None },
-                sizeTransform = { null },
-            ) {
-                composable(AppDestination.Tunnel.route) {
-                    TunnelScreen(
-                        settings = settings,
-                        profiles = profiles,
-                        onRequestConnect = { requestVpnThenConnect() },
-                        onNavigateToDialSettings = {
-                            scrollToDialInSettings = true
-                            navigateTab(AppDestination.Settings.route)
-                        },
-                    )
-                }
-                composable(AppDestination.Servers.route) {
-                    ServersScreen(
-                        serversRepo = serversRepo,
-                        engine = deployEngine,
-                        profiles = profiles,
-                        reselectSignal = tabReselectSignal[AppDestination.Servers.route] ?: 0,
-                    )
-                }
-                composable(AppDestination.Profiles.route) {
-                    ProfilesScreen(
-                        settings = settings,
-                        profiles = profiles,
-                        onApplied = { navigateTab(AppDestination.Tunnel.route) },
-                    )
-                }
-                composable(AppDestination.Exceptions.route) {
-                    ExceptionsScreen(settings = settings)
-                }
-                composable(AppDestination.Logs.route) {
-                    LogsScreen()
-                }
-                composable(AppDestination.Settings.route) {
-                    SettingsScreen(
-                        settings = settings,
-                        isRecording = isRecording,
-                        scrollToDial = scrollToDialInSettings,
-                        onScrolledToDial = { scrollToDialInSettings = false },
-                    )
-                }
-                composable(AppDestination.Testing.route) {
-                    TestingScreen(profiles = profiles)
-                }
+            composable(AppDestination.Servers.route) {
+                ServersHub(
+                    serversRepo = serversRepo,
+                    deployEngine = deployEngine,
+                    profiles = profiles,
+                )
             }
-
-            NvpnNavigationBar(
-                items = navItems,
-                selectedRoute = selectedNavRoute,
-                onSelect = { route -> navigateTab(route) },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
-
-            if (vpnConsentBackgroundVisible) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.surface,
-                ) {}
+            composable(AppDestination.Profiles.route) {
+                ProfilesScreen(profiles = profiles)
             }
-            if (showUpdatePrompt) {
-                NvpnDialog(
-                    title = "Доступно обновление",
-                    onDismissRequest = {
-                        dismissedUpdateVersion = availableUpdateVersion
-                    },
-                    confirmAction = NvpnDialogAction(
-                        text = "Загрузить",
-                        onClick = {
-                            dismissedUpdateVersion = availableUpdateVersion
-                            PendingUiAction.requestOpenUpdateDownload()
-                            navigateTab(AppDestination.Settings.route)
-                        },
-                    ),
-                    dismissAction = NvpnDialogAction(
-                        text = "Отмена",
-                        onClick = {
-                            dismissedUpdateVersion = availableUpdateVersion
-                        },
-                    ),
-                ) {
-                    Text(
-                        "Найдена версия $availableUpdateVersion. Перейти в «Настройки» и начать загрузку?",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            composable(AppDestination.Exceptions.route) {
+                ExceptionsScreen(settings = settings)
+            }
+            composable(AppDestination.Logs.route) {
+                LogsScreen()
             }
         }
     }
@@ -412,11 +313,8 @@ fun AppRoot(
 
 private fun AppDestination.icon(): ImageVector = when (this) {
     AppDestination.Tunnel -> Icons.Outlined.VpnKey
-    AppDestination.Servers -> Icons.Outlined.Cloud
-    AppDestination.Profiles -> Icons.Outlined.Folder
-    AppDestination.Exceptions -> Icons.Outlined.FilterList
-    AppDestination.Logs -> Icons.Outlined.Terminal
-    AppDestination.Deploy -> Icons.Outlined.CloudUpload
-    AppDestination.Settings -> Icons.Outlined.Settings
-    AppDestination.Testing -> Icons.Outlined.Science
+    AppDestination.Servers -> Icons.Outlined.Dns
+    AppDestination.Profiles -> Icons.Outlined.Person
+    AppDestination.Exceptions -> Icons.Outlined.Block
+    AppDestination.Logs -> Icons.Outlined.ListAlt
 }

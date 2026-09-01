@@ -21,18 +21,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 179
-        versionName = "0.5.161-clear"
-        buildConfigField(
-            "String",
-            "TELEMETRY_UPLOAD_URL",
-            "\"https://45.129.2.3/api/upload-log\"",
-        )
-        buildConfigField(
-            "String",
-            "UPDATE_MANIFEST_URL",
-            "\"https://45.129.2.3/update.json\"",
-        )
+        versionCode = 21
+        versionName = "0.6.1"
     }
 
     ndkVersion = "27.0.12077973"
