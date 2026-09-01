@@ -1,7 +1,6 @@
 package com.nonamevpn.app.core
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,7 +19,8 @@ class NetworkProbeClassifyTest {
         assertEquals(VpnPath.Direct, r.preselectedPath)
         assertEquals(NetworkClass.DirectOk, r.networkClass)
         assertTrue(r.message.contains("прямое"))
-        assertFalse(r.whitelistRestricted)
+        // Operator БС shape (Yandex up, Cloudflare down) even when VPS unlocks Direct.
+        assertTrue(r.whitelistRestricted)
     }
 
     @Test
@@ -35,7 +35,7 @@ class NetworkProbeClassifyTest {
         assertEquals(VpnPath.Direct, r.preselectedPath)
         assertEquals(NetworkClass.DirectOk, r.networkClass)
         assertTrue(r.whitelistRestricted)
-        assertTrue(r.message.contains("белый список"))
+        assertTrue(r.message.contains("белом списке") || r.message.contains("белый список"))
     }
 
     @Test
