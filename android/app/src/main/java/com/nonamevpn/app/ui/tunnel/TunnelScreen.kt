@@ -110,6 +110,7 @@ import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
+import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.AppTabPageHeader
@@ -186,9 +187,15 @@ fun TunnelScreen(
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     var showConnectionHint by rememberSaveable { mutableStateOf(true) }
+    val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
     LaunchedEffect(profile?.deviceId, hideIp) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
+    }
+    LaunchedEffect(openUpdateDownload) {
+        if (!openUpdateDownload) return@LaunchedEffect
+        showSettings = true
+        PendingUiAction.consumeOpenUpdateDownload()
     }
 
     val connecting = ui.state == ConnState.Connecting

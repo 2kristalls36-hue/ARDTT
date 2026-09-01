@@ -69,6 +69,7 @@ import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.launch
 
 /** Full-screen settings (kept for compatibility). Prefer [SettingsSheet] from Tunnel gear. */
@@ -126,6 +127,8 @@ fun SettingsSheet(
 fun SettingsContent(settings: AppSettingsRepository) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
+    val updates = remember { AppUpdateController.get(context) }
+    val updateUi by updates.ui.collectAsStateWithLifecycle()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val hasPin by settings.hasAdminPin.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
@@ -188,6 +191,15 @@ fun SettingsContent(settings: AppSettingsRepository) {
             },
         )
         conn.setPathMode(ConnPathMode.fromSetting(pathMode))
+    }
+    LaunchedEffect(openUpdateDownload) {
+        if (!openUpdateDownload) return@LaunchedEffect
+        PendingUiAction.consumeOpenUpdateDownload()
+        updates.checkInBackground()
+        scope.launch {
+            kotlinx.coroutines.delay(80)
+            runCatching { updateBringIntoView.bringIntoView() }
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -403,6 +415,18 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 },
             )
         }
+
+        UpdateSettingsCard(
+            modifier = Modifier.bringIntoViewRequester(updateBringIntoView),
+            info = updateUi.available,
+            downloading = updateUi.downloading,
+            progress = updateUi.progress,
+            message = updateUi.message,
+            downloadedFile = updateUi.downloadedFile != null,
+            onDownload = { updates.download() },
+            onCancel = { updates.cancel() },
+            onInstall = { updates.install() },
+        )
 
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),

@@ -241,6 +241,12 @@ fun AppRoot(
             navigateTab(AppDestination.Settings.route)
         }
     }
+    val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
+    LaunchedEffect(openUpdateDownload) {
+        if (openUpdateDownload && currentRoute != AppDestination.Tunnel.route) {
+            navigateTab(AppDestination.Tunnel.route)
+        }
+    }
 
     val openDeploy by PendingUiAction.openDeployServerId.collectAsStateWithLifecycle()
     LaunchedEffect(openDeploy) {
