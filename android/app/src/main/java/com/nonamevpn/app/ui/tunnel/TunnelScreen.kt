@@ -496,7 +496,7 @@ fun TunnelScreen(
                         pathMode == "bypass" && ui.hasCallHash ->
                             "Только обход. Код звонка — в настройках."
                         pathMode == "bypass" ->
-                            "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку."
+                            "Код звонка не задан. Для перехода к настройке нажмите «Обход»."
                         else -> "Сначала прямое, при недоступности — обход."
                     },
                     compact = true,
@@ -610,9 +610,9 @@ fun TunnelScreen(
                         )
                         Text(
                             if (trustedWifiEnabled) {
-                                "В сохранённых сетях туннель ставится на паузу. Список сетей — в «Настройках»."
+                                "В сохранённых сетях туннель приостанавливается. Список сетей доступен в разделе «Настройки»."
                             } else {
-                                "Пауза в Wi‑Fi выключена. Список сетей — в «Настройках»."
+                                "Приостановка в Wi‑Fi отключена. Список сетей доступен в разделе «Настройки»."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -726,7 +726,7 @@ fun TunnelScreen(
         ) {
             Text("Звонок (обход)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                if (ui.hasCallHash) "Hash сохранён на этом телефоне" else "Hash не задан — нужен для Path B",
+                if (ui.hasCallHash) "Код звонка сохранён на этом устройстве" else "Код звонка не задан — он требуется для режима «Обход»",
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (ui.hasCallHash) {
                     NvpnColors.connected
@@ -750,8 +750,8 @@ fun TunnelScreen(
                             callBusy = false
                             vkLoggedIn = VkSession.hasSessionCookie()
                             callMessage = when {
-                                r.isSuccess && vkLoggedIn -> "Вход выполнен — можно создать звонок"
-                                r.isSuccess -> "Сессия не подтвердилась — попробуйте ещё раз"
+                                r.isSuccess && vkLoggedIn -> "Авторизация выполнена. Теперь можно создать код звонка."
+                                r.isSuccess -> "Сессия не подтверждена. Повторите попытку."
                                 else -> r.exceptionOrNull()?.message ?: "Вход отменён"
                             }
                             AppLog.i("VK", "Login result success=${r.isSuccess} cookie=$vkLoggedIn")
@@ -764,7 +764,7 @@ fun TunnelScreen(
                         .height(48.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("Войти в VK…", fontWeight = FontWeight.SemiBold)
+                    Text("Войти во ВКонтакте", fontWeight = FontWeight.SemiBold)
                 }
             } else {
                 OutlinedButton(
@@ -776,7 +776,7 @@ fun TunnelScreen(
                             callBusy = false
                             r.onSuccess { hash ->
                                 conn.saveCallHash(hash)
-                                callMessage = "Звонок создан, hash сохранён"
+                                callMessage = "Код звонка создан и сохранён."
                             }.onFailure { e ->
                                 callMessage = e.message ?: "Не удалось создать звонок"
                                 vkLoggedIn = VkSession.hasSessionCookie()
@@ -790,7 +790,7 @@ fun TunnelScreen(
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Text(
-                        if (ui.hasCallHash) "Создать новый звонок" else "Создать звонок",
+                        if (ui.hasCallHash) "Создать новый код звонка" else "Создать код звонка",
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -798,11 +798,11 @@ fun TunnelScreen(
                     onClick = {
                         VkSession.clear()
                         vkLoggedIn = false
-                        callMessage = "Сессия VK сброшена"
+                        callMessage = "Сессия ВКонтакте завершена."
                     },
                     enabled = !sessionUp && !callBusy,
                 ) {
-                    Text("Выйти из VK")
+                    Text("Завершить сессию ВКонтакте")
                 }
             }
             OutlinedButton(
@@ -831,11 +831,11 @@ fun TunnelScreen(
             ) {
                 WarpIcon()
                 RowSwitch(
-                    title = "Скрыть свой IP",
+                    title = "Скрытие IP-адреса",
                     subtitle = if (hideIp) {
-                        "Включено — выход через Cloudflare WARP (не IP VPS)"
+                        "Включено: исходящий трафик направляется через Cloudflare WARP (вместо IP-адреса VPS)."
                     } else {
-                        "Выход в интернет через WARP на VPS вместо адреса сервера"
+                        "Отключено: используется исходящий IP-адрес сервера."
                     },
                     checked = hideIp,
                     enabled = !connecting && ui.state != ConnState.Disconnecting,
@@ -1422,7 +1422,7 @@ private fun TunnelConnectionHintBanner(
                     .size(18.dp),
             )
             Text(
-                "Подсказка по подключению",
+                "Информация о подключении",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
@@ -1434,7 +1434,7 @@ private fun TunnelConnectionHintBanner(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Close,
-                        contentDescription = "Скрыть подсказку",
+                        contentDescription = "Закрыть информационное сообщение",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1443,15 +1443,15 @@ private fun TunnelConnectionHintBanner(
         Text(
             when {
                 missingCallHashHint ->
-                    "Добавьте код звонка для обхода: «Настройки» → «Метод обхода» → «Создать код» " +
-                        "или «Вставить hash». Пока код не сохранён, эта подсказка остаётся закреплённой."
+                    "Необходимо добавить код звонка для режима «Обход»: «Настройки» → «Метод обхода» → «Создать код» " +
+                        "или «Вставить hash». До сохранения кода это сообщение остаётся закреплённым."
                 vpnLocked ->
                     "Во время активного соединения параметры заблокированы. " +
                         "Разблокировка доступна в «Настройках» → «Подключение»."
                 sessionSwitchingEnabled ->
-                    "Маршрут можно переключать на лету: «Прямое» и «Обход» применяются без отключения туннеля."
+                    "Маршрут можно переключать без разрыва текущего соединения: «Прямое» и «Обход» применяются сразу."
                 quickSettingsHidden ->
-                    "Быстрые параметры скрыты. Включите их в «Настройках» через пункт «Скрыть быстрые настройки»."
+                    "Быстрые параметры скрыты. Для отображения откройте «Настройки» и отключите пункт «Скрыть быстрые настройки»."
                 else ->
                     "Здесь вы управляете маршрутом, исходящим адресом и доверенной Wi‑Fi. " +
                         "Код звонка для обхода настраивается на вкладке «Настройки»."
