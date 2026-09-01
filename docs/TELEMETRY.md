@@ -85,13 +85,7 @@ client_a1b2c3d4e5f6_0.4.0-phone-integrate_4_192.168.1.100_1712345678_1712345987.
 
 **POST** `multipart/form-data` на:
 
-- по умолчанию: `http://{server_ip}:9200/api/upload-log` (IP из импортированного профиля);
-- или явно через `BuildConfig.TELEMETRY_UPLOAD_URL` в `android/app/build.gradle.kts`.
-
-Тестовая сборка сейчас настроена на
-`http://159.194.225.162:9200/api/upload-log`. Cleartext HTTP разрешён
-сетевой конфигурацией Android только для этого тестового IP. Перед production
-нужно заменить адрес на HTTPS и удалить cleartext-исключение.
+- **POST** `multipart/form-data` на `https://45.129.2.3/api/upload-log` (или явно через `BuildConfig.TELEMETRY_UPLOAD_URL` в `android/app/build.gradle.kts`).
 
 Поля формы:
 
