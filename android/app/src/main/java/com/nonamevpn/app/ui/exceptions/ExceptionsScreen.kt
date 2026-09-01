@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -91,6 +92,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.ExceptionAppVisibility
+import com.nonamevpn.app.core.HostExclusion
 import com.nonamevpn.app.core.appIconDecodeSize
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.PullRefreshHost
@@ -189,6 +191,9 @@ private suspend fun loadInstalledExceptionApps(
 @Composable
 fun ExceptionsScreen(settings: AppSettingsRepository) {
     val context = LocalContext.current.applicationContext
+    val hasBrowserHandlers = remember {
+        runCatching { httpsHandlerPackages(context.packageManager).isNotEmpty() }.getOrDefault(false)
+    }
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
 
@@ -197,11 +202,14 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     val selectedPackages by settings.excludedAppsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val siteRules by settings.excludedHostsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val isWhitelist by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
+    val sitesSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val sitesEnabled = sitesSupported && hasBrowserHandlers
 
     var appsList by remember { mutableStateOf(ExceptionAppCache.cachedList ?: emptyList()) }
     var isLoading by remember { mutableStateOf(ExceptionAppCache.cachedList == null) }
     var searchQuery by remember { mutableStateOf("") }
     var showSystemApps by remember { mutableStateOf(false) }
+    var includeSubdomains by rememberSaveable { mutableStateOf(true) }
 
     val orderedSites = remember(siteRules) { siteRules.sortedBy { it.lowercase(Locale.getDefault()) } }
     var newRule by remember { mutableStateOf("") }
@@ -244,13 +252,18 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     fun addSite() {
         val rule = AppSettingsRepository.normalizeHost(newRule)
         if (rule.isBlank() || busy) return
-        if (orderedSites.any { it.equals(rule, ignoreCase = true) }) {
+        val wildcardRule = if (includeSubdomains && HostExclusion.parseLiteral(rule) == null) {
+            "*.$rule"
+        } else {
+            rule
+        }
+        if (orderedSites.any { it.equals(wildcardRule, ignoreCase = true) }) {
             hint = "Уже в списке"
             newRule = ""
             return
         }
         newRule = ""
-        persistSites(orderedSites + rule)
+        persistSites(orderedSites + wildcardRule)
     }
 
     LaunchedEffect(Unit) {
@@ -263,6 +276,11 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         appsList = loadInstalledExceptionApps(context)
         ExceptionAppCache.cachedList = appsList
         isLoading = false
+    }
+    LaunchedEffect(sitesEnabled, pane) {
+        if (!sitesEnabled && pane == ExceptionsPane.Sites) {
+            pane = ExceptionsPane.Apps
+        }
     }
 
     val pull = rememberPullRefresh {
@@ -345,7 +363,10 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     }
                     SegmentedButton(
                         selected = pane == ExceptionsPane.Sites,
-                        onClick = { pane = ExceptionsPane.Sites },
+                        onClick = {
+                            if (sitesEnabled) pane = ExceptionsPane.Sites
+                        },
+                        enabled = sitesEnabled,
                         shape = SegmentedButtonDefaults.itemShape(1, 2),
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = colors.secondaryContainer,
@@ -356,7 +377,11 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
                     ) {
                         Text(
-                            "Сайты ${orderedSites.size}",
+                            when {
+                                !sitesSupported -> "Сайты (Android 13+)"
+                                !hasBrowserHandlers -> "Сайты (нужен браузер)"
+                                else -> "Сайты ${orderedSites.size}"
+                            },
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -497,6 +522,24 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 
                 ExceptionsPane.Sites -> {
                     Column(modifier = Modifier.fillMaxSize()) {
+                        if (!sitesEnabled) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    if (!sitesSupported) {
+                                        "Раздел «Сайты» доступен только на Android 13 и выше."
+                                    } else {
+                                        "Раздел «Сайты» работает только через браузеры. Установите браузер по умолчанию."
+                                    },
+                                    textAlign = TextAlign.Center,
+                                    color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                            return@Column
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -526,13 +569,25 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 }
                             }
                         }
-
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                "Исключение сайтов по IP требует Android 13+",
-                                style = MaterialTheme.typography.labelSmall,
+                                "Добавление",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = colors.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+                                modifier = Modifier.weight(1f),
+                            )
+                            FilterChip(
+                                selected = includeSubdomains,
+                                onClick = { includeSubdomains = !includeSubdomains },
+                                label = {
+                                    Text(if (includeSubdomains) "С поддоменами" else "Точный домен")
+                                },
                             )
                         }
 
@@ -630,7 +685,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     value = newRule,
                     onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
                     keyboardVisible = keyboardVisible,
-                    placeholder = "домен или IP",
+                    placeholder = "домен / *.домен / IP/CIDR",
                     imeAction = ImeAction.Done,
                     onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
                     modifier = Modifier.weight(1f),
