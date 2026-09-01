@@ -15,34 +15,44 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 
 private val Context.profileStore: DataStore<Preferences> by preferencesDataStore("nvpn_profile")
 
 class ProfileRepository(private val context: Context) {
     private val profileJsonKey = stringPreferencesKey("profile_json")
-    private val profilesJsonKey = stringPreferencesKey("profiles_json")
-    private val activeIdKey = stringPreferencesKey("active_profile_id")
+    private val catalogJsonKey = stringPreferencesKey("profile_catalog_json")
 
-    val profiles: Flow<List<VpnProfile>> = context.profileStore.data.map { prefs ->
-        loadList(prefs)
+    val catalog: Flow<ProfileCatalog> = context.profileStore.data.map { prefs ->
+        prefs[catalogJsonKey]?.let { raw ->
+            runCatching { ProfileCatalogJson.parse(raw) }.getOrNull()
+        } ?: prefs[profileJsonKey]?.let { raw ->
+            runCatching { ProfileCatalogJson.fromLegacyProfile(raw) }.getOrNull()
+        } ?: ProfileCatalog()
     }
 
-    val activeId: Flow<String?> = context.profileStore.data.map { prefs ->
-        val list = loadList(prefs)
-        resolveActiveId(prefs[activeIdKey], list)
+    val profile: Flow<VpnProfile?> = catalog.map { it.active }
+
+    suspend fun snapshot(): ProfileCatalog = catalog.first()
+
+    suspend fun importJson(
+        raw: String,
+        folder: String = DEFAULT_PROFILE_FOLDER,
+        activate: Boolean = true,
+    ): VpnProfile {
+        val imported = importMany(raw, folder, activate)
+        return imported.last()
     }
 
-    /** Active profile — drives ConnectionManager via TunnelScreen. */
-    val profile: Flow<VpnProfile?> = context.profileStore.data.map { prefs ->
-        val list = loadList(prefs)
-        val id = resolveActiveId(prefs[activeIdKey], list) ?: return@map null
-        list.find { profileKey(it) == id }
-    }
-
-    suspend fun importJson(raw: String): VpnProfile {
-        val parsed = VpnProfileJson.parse(raw)
-        upsertAndActivate(parsed)
+    suspend fun importMany(
+        raw: String,
+        folder: String = DEFAULT_PROFILE_FOLDER,
+        activate: Boolean = true,
+    ): List<VpnProfile> {
+        val parsed = VpnProfileJson.parseMany(raw)
+        parsed.forEachIndexed { index, profile ->
+            val makeActive = activate && index == parsed.lastIndex
+            upsert(profile, folder, activate = makeActive)
+        }
         return parsed
     }
 
@@ -152,94 +162,24 @@ class ProfileRepository(private val context: Context) {
         }
     }
 
-    suspend fun setActive(id: String) {
-        context.profileStore.edit { prefs ->
-            val list = loadList(prefs)
-            if (list.any { profileKey(it) == id }) {
-                prefs[profilesJsonKey] = encodeList(list)
-                prefs[activeIdKey] = id
-                prefs.remove(profileJsonKey)
-            }
-        }
-    }
-
-    suspend fun delete(id: String) {
-        context.profileStore.edit { prefs ->
-            val list = loadList(prefs).filterNot { profileKey(it) == id }
-            prefs[profilesJsonKey] = encodeList(list)
-            prefs.remove(profileJsonKey)
-            val active = prefs[activeIdKey]
-            if (active == id || list.none { profileKey(it) == active }) {
-                if (list.isEmpty()) {
-                    prefs.remove(activeIdKey)
-                } else {
-                    prefs[activeIdKey] = profileKey(list.first())
-                }
-            }
-        }
-    }
-
-    /** Clears all profiles (legacy single-profile clear). */
     suspend fun clear() {
-        context.profileStore.edit {
-            it.remove(profileJsonKey)
-            it.remove(profilesJsonKey)
-            it.remove(activeIdKey)
-        }
+        save(ProfileCatalog())
     }
 
-    private suspend fun upsertAndActivate(parsed: VpnProfile) {
+    private suspend fun mutate(block: (ProfileCatalog) -> ProfileCatalog) {
+        save(block(snapshot()))
+    }
+
+    private suspend fun save(catalog: ProfileCatalog) {
+        val encoded = ProfileCatalogJson.encode(catalog)
+        val activeRaw = catalog.active?.let(VpnProfileJson::encode)
         context.profileStore.edit { prefs ->
-            val key = profileKey(parsed)
-            val list = loadList(prefs).toMutableList()
-            val idx = list.indexOfFirst { profileKey(it) == key }
-            if (idx >= 0) list[idx] = parsed else list.add(parsed)
-            prefs[profilesJsonKey] = encodeList(list)
-            prefs[activeIdKey] = key
-            prefs.remove(profileJsonKey)
+            prefs[catalogJsonKey] = encoded
+            if (activeRaw != null) prefs[profileJsonKey] = activeRaw else prefs.remove(profileJsonKey)
         }
-    }
-
-    private fun loadList(prefs: Preferences): List<VpnProfile> {
-        val multi = prefs[profilesJsonKey]
-        if (!multi.isNullOrBlank()) {
-            return decodeList(multi)
-        }
-        // Migrate legacy single profile_json into the list.
-        val legacy = prefs[profileJsonKey] ?: return emptyList()
-        val one = runCatching { VpnProfileJson.parse(legacy) }.getOrNull() ?: return emptyList()
-        return listOf(one)
-    }
-
-    private fun resolveActiveId(stored: String?, list: List<VpnProfile>): String? {
-        if (list.isEmpty()) return null
-        if (!stored.isNullOrBlank() && list.any { profileKey(it) == stored }) return stored
-        return profileKey(list.first())
     }
 
     companion object {
-        fun profileKey(p: VpnProfile): String =
-            p.deviceId.takeIf { it.isNotBlank() } ?: p.name
-
-        fun encodeList(list: List<VpnProfile>): String {
-            val out = JSONArray()
-            list.forEach { out.put(org.json.JSONObject(VpnProfileJson.encode(it))) }
-            return out.toString()
-        }
-
-        fun decodeList(raw: String): List<VpnProfile> = runCatching {
-            val arr = JSONArray(raw)
-            buildList {
-                for (i in 0 until arr.length()) {
-                    val item = arr.get(i)
-                    val json = when (item) {
-                        is String -> item
-                        is org.json.JSONObject -> item.toString()
-                        else -> continue
-                    }
-                    runCatching { VpnProfileJson.parse(json) }.getOrNull()?.let { add(it) }
-                }
-            }
-        }.getOrDefault(emptyList())
+        fun newLocalId(): String = "local-${UUID.randomUUID().toString().take(8)}"
     }
 }

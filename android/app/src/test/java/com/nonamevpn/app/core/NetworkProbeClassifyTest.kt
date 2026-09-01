@@ -71,7 +71,7 @@ class NetworkProbeClassifyTest {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = false,
-            bigtechOk = true,
+            bigtechOk = false,
             captive = false,
             awgUdpOk = false,
             provisionOk = false,

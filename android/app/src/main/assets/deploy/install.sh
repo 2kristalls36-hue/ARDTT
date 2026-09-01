@@ -4,8 +4,7 @@
 #
 # Product path (from the app): SSH upload of stack.tar.gz + this script, then:
 #   NVPN_PUBLIC_HOST=… bash /opt/nonamevpn/install.sh
-# Ops path (sources already on disk): same script, no archive required if
-#   $INSTALL_DIR/stack/docker-compose.yml exists (re-run after a failed build).
+# Ops path: same script; if the tarball is gone, re-run against already unpacked stack/.
 #
 # Protocol lines consumed by the Android DeployEngine:
 #   NVPN_PROGRESS|<0..1>|<step>
@@ -13,7 +12,8 @@
 #   NVPN_DONE|install_dir=…|public_host=…
 #   NVPN_WARN|<message>
 #
-# Leaves: stack/ (compose + data) and running images. Drops build cache / apt junk.
+# Critical: build new images BEFORE stopping the old stack. On low-RAM VPS a mid-build
+# SSH drop used to leave the host with compose already down and no healthy containers.
 set -euo pipefail
 
 INSTALL_DIR="${NVPN_INSTALL_DIR:-/opt/nonamevpn}"
@@ -22,6 +22,11 @@ DIRECT_PORT="${NVPN_DIRECT_PORT:-51820}"
 BYPASS_PORT="${NVPN_BYPASS_PORT:-56003}"
 PROVISION_LISTEN="${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}"
 TELEMETRY_PORT="${NVPN_TELEMETRY_PORT:-9200}"
+CASCADE_ENABLED="${NVPN_CASCADE_ENABLED:-0}"
+CASCADE_HOST="${NVPN_CASCADE_HOST:-}"
+CASCADE_PORT="${NVPN_CASCADE_PORT:-22}"
+CASCADE_USER="${NVPN_CASCADE_USER:-}"
+CASCADE_PASSWORD="${NVPN_CASCADE_PASSWORD:-}"
 KEEP_INSTALL_LOG="${NVPN_KEEP_INSTALL_LOG:-0}"
 COMPOSE_PROJECT="${NVPN_COMPOSE_PROJECT:-stack}"
 MIN_SWAP_MB="${NVPN_MIN_SWAP_MB:-2048}"
@@ -163,37 +168,23 @@ prog 0.10 "Подготовка каталога $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
+STAGING="$INSTALL_DIR/stack.staging"
 if [ -f "$INSTALL_DIR/stack.tar.gz" ]; then
-  prog 0.15 "Распаковка стека"
-  if [ -d "$INSTALL_DIR/stack/data" ]; then
-    rm -rf /tmp/nvpn-data-bak
-    cp -a "$INSTALL_DIR/stack/data" /tmp/nvpn-data-bak
-  fi
-  rm -rf "$INSTALL_DIR/stack"
-  mkdir -p "$INSTALL_DIR/stack"
-  tar -xzf "$INSTALL_DIR/stack.tar.gz" -C "$INSTALL_DIR/stack"
-  if [ -d /tmp/nvpn-data-bak ]; then
-    mkdir -p "$INSTALL_DIR/stack/data"
-    cp -a /tmp/nvpn-data-bak/. "$INSTALL_DIR/stack/data/"
-    rm -rf /tmp/nvpn-data-bak
-  fi
+  # Unpack into staging while the OLD stack (if any) keeps running.
+  prog 0.15 "Распаковка стека в staging (старый стек не останавливаем)"
+  rm -rf "$STAGING"
+  mkdir -p "$STAGING"
+  tar -xzf "$INSTALL_DIR/stack.tar.gz" -C "$STAGING"
   rm -f "$INSTALL_DIR/stack.tar.gz"
 elif [ -f "$INSTALL_DIR/stack/docker-compose.yml" ]; then
-  # Tar is deleted on every previous run (success or fail). Allow a re-run
-  # against the already unpacked tree so a failed compose build is recoverable
-  # without re-uploading the archive from the phone.
+  # Tar is deleted on every previous run. Allow a re-run against the already
+  # unpacked tree so a failed compose build is recoverable without re-upload.
   prog 0.15 "Архив не найден — используем уже распакованный стек"
+  rm -rf "$STAGING"
+  cp -a "$INSTALL_DIR/stack" "$STAGING"
 else
   die "Не найден $INSTALL_DIR/stack.tar.gz"
 fi
-
-# Unpack into staging while the OLD stack (if any) keeps running.
-STAGING="$INSTALL_DIR/stack.staging"
-prog 0.15 "Распаковка стека в staging (старый стек не останавливаем)"
-rm -rf "$STAGING"
-mkdir -p "$STAGING"
-tar -xzf "$INSTALL_DIR/stack.tar.gz" -C "$STAGING"
-rm -f "$INSTALL_DIR/stack.tar.gz"
 
 [ -f "$STAGING/docker-compose.yml" ] || die "В архиве нет docker-compose.yml"
 
@@ -209,54 +200,61 @@ if [ -n "$missing_contexts" ]; then
   die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Обновите APK или пересоберите архив scripts/pack-deploy-assets.sh"
 fi
 
-prog 0.25 "Установка Docker и Docker Compose (если нужно)"
-if ! command -v docker >/dev/null 2>&1; then
-  if command -v apt-get >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y --no-install-recommends ca-certificates curl gnupg
-    curl -fsSL https://get.docker.com | sh
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf -y install docker docker-compose-plugin || curl -fsSL https://get.docker.com | sh
-  else
-    curl -fsSL https://get.docker.com | sh
+if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
+  prog 0.25 "Установка Docker (если нужно)"
+  if ! command -v docker >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -y
+      apt-get install -y --no-install-recommends ca-certificates curl gnupg
+      curl -fsSL https://get.docker.com | sh
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf -y install docker docker-compose-plugin || curl -fsSL https://get.docker.com | sh
+    else
+      curl -fsSL https://get.docker.com | sh
+    fi
+    systemctl enable --now docker || service docker start || true
+    cleanup_host_packages
   fi
 
-if ! docker compose version >/dev/null 2>&1; then
-  prog 0.27 "Установка плагина docker compose v2"
-  if command -v apt-get >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y || true
-    apt-get install -y --no-install-recommends docker-compose-plugin || true
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf -y install docker-compose-plugin || true
-  fi
   if ! docker compose version >/dev/null 2>&1; then
-    mkdir -p /usr/local/lib/docker/cli-plugins /usr/lib/docker/cli-plugins /root/.docker/cli-plugins
-    arch="$(uname -m)"
-    case "$arch" in
-      x86_64|amd64) compose_arch="x86_64" ;;
-      aarch64|arm64) compose_arch="aarch64" ;;
-      *) compose_arch="$arch" ;;
-    esac
-    curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${compose_arch}" -o /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
-    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
-    cp -f /usr/local/lib/docker/cli-plugins/docker-compose /usr/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+    prog 0.27 "Установка плагина docker compose v2"
+    if command -v apt-get >/dev/null 2>&1; then
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -y || true
+      apt-get install -y --no-install-recommends docker-compose-plugin || true
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf -y install docker-compose-plugin || true
+    fi
+    if ! docker compose version >/dev/null 2>&1; then
+      mkdir -p /usr/local/lib/docker/cli-plugins /usr/lib/docker/cli-plugins /root/.docker/cli-plugins
+      arch="$(uname -m)"
+      case "$arch" in
+        x86_64|amd64) compose_arch="x86_64" ;;
+        aarch64|arm64) compose_arch="aarch64" ;;
+        *) compose_arch="$arch" ;;
+      esac
+      curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${compose_arch}" -o /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+      chmod +x /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+      cp -f /usr/local/lib/docker/cli-plugins/docker-compose /usr/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+    fi
+    cleanup_host_packages
   fi
-  cleanup_host_packages
-fi
 
-if ! docker compose version >/dev/null 2>&1; then
-  if docker-compose version >/dev/null 2>&1; then
-    compose() { COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose "$@"; }
+  if ! docker compose version >/dev/null 2>&1; then
+    if docker-compose version >/dev/null 2>&1; then
+      compose() { COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose "$@"; }
+    else
+      die "docker compose недоступен"
+    fi
   else
-    compose() { docker compose "$@"; }
+    compose() { COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose "$@"; }
   fi
-fi
 
-mem_mb="$(mem_total_mb)"
-if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
-  ensure_swap "$MIN_SWAP_MB"
+  mem_mb="$(mem_total_mb)"
+  if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
+    ensure_swap "$MIN_SWAP_MB"
+  fi
 fi
 
 prog 0.40 "Запись .env (staging)"
@@ -269,10 +267,8 @@ if [ -z "$DEPLOY_VERSION" ] && [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
 fi
 [ -n "$DEPLOY_VERSION" ] || DEPLOY_VERSION="unknown"
 printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
-printf '%s\n' "$DEPLOY_VERSION" > "$STACK/DEPLOY_VERSION"
-mkdir -p "$STACK/data"
-printf '%s\n' "$DEPLOY_VERSION" > "$STACK/data/DEPLOY_VERSION"
-cat > "$STACK/.env" <<EOF
+printf '%s\n' "$DEPLOY_VERSION" > "$STAGING/DEPLOY_VERSION"
+cat > "$STAGING/.env" <<EOF
 NVPN_PUBLIC_HOST=$PUBLIC_HOST
 NVPN_DIRECT_PORT=$DIRECT_PORT
 NVPN_BYPASS_PORT=$BYPASS_PORT
@@ -286,9 +282,23 @@ NVPN_CASCADE_PASSWORD=$CASCADE_PASSWORD
 NVPN_WARP_GOMEMLIMIT=400MiB
 EOF
 
-chmod 700 "$STACK/data"
+mkdir -p "$STAGING/data"
+printf '%s\n' "$DEPLOY_VERSION" > "$STAGING/data/DEPLOY_VERSION"
+chmod 700 "$STAGING/data"
 
 if [ "${NVPN_DRY_RUN:-0}" = "1" ]; then
+  STACK="$INSTALL_DIR/stack"
+  if [ -d "$STACK/data" ]; then
+    mkdir -p "$STAGING/data"
+    cp -a "$STACK/data/." "$STAGING/data/" || true
+  fi
+  rm -rf "$INSTALL_DIR/stack.old"
+  if [ -d "$STACK" ]; then
+    mv "$STACK" "$INSTALL_DIR/stack.old"
+  fi
+  mv "$STAGING" "$STACK"
+  STAGING=""
+  rm -rf "$INSTALL_DIR/stack.old"
   prog 1.00 "dry-run: стек подготовлен"
   echo "NVPN_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION"
   exit 0
@@ -312,26 +322,12 @@ fi
 
 prog 0.50 "Сборка образов (старый стек ещё работает)"
 cd "$STAGING"
-# Docker Compose v1 (python docker-compose) rejects COMPOSE_PARALLEL_LIMIT < 2
-# Docker Compose v2 (docker compose) accepts 1.
-if [ -z "${COMPOSE_PARALLEL_LIMIT:-}" ]; then
-  if docker compose version >/dev/null 2>&1; then
-    export COMPOSE_PARALLEL_LIMIT="1"
-  else
-    export COMPOSE_PARALLEL_LIMIT="2"
-  fi
-fi
+export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 export BUILDKIT_PROGRESS=plain
 export COMPOSE_ANSI=never
 # Cap parallel Go/cgo work on tiny VPS (~1 GiB RAM).
 export GOMAXPROCS="${GOMAXPROCS:-1}"
-
-# Check if buildx / buildkit actually works with this docker cli
-if docker buildx version >/dev/null 2>&1; then
-  export DOCKER_BUILDKIT=1
-else
-  export DOCKER_BUILDKIT=0
-fi
+export DOCKER_BUILDKIT=1
 
 if [ -z "${avail_mb:-}" ] || [ "$avail_mb" -ge "$MIN_DISK_MB" ] 2>/dev/null; then
   compose pull 2>/dev/null || true
@@ -354,12 +350,7 @@ for svc in $BUILD_SERVICES; do
   # Progress 0.50 → 0.72 across sequential builds
   frac="$(awk -v i="$svc_i" -v n="$svc_n" 'BEGIN { printf "%.2f", 0.50 + (0.22 * i / n) }')"
   prog "$frac" "Сборка $svc ($svc_i/$svc_n)"
-  if docker compose version >/dev/null 2>&1; then
-    build_cmd=(compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc")
-  else
-    build_cmd=(compose -f "$STAGING/docker-compose.yml" build "$svc")
-  fi
-  if ! (cd "$STAGING" && "${build_cmd[@]}" 2>&1 | tee -a "$BUILD_LOG"); then
+  if ! compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
     build_tail="$(tail -n 20 "$BUILD_LOG" | tr '\n' ' ' | cut -c1-1000)"
     rm -f "$BUILD_LOG"
     cleanup_docker_build_junk
@@ -367,7 +358,7 @@ for svc in $BUILD_SERVICES; do
   fi
   docker builder prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
-  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/{printf "%d", $2/1024}' /proc/meminfo) МБ"
+  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/{printf \"%d\", $2/1024}' /proc/meminfo) МБ"
 done
 rm -f "$BUILD_LOG"
 
@@ -416,12 +407,7 @@ done
 prog 0.78 "Запуск Compose"
 cd "$STACK"
 UP_LOG="$(mktemp /tmp/nvpn-compose-up.XXXXXX.log)"
-if docker compose version >/dev/null 2>&1; then
-  up_cmd=(compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d)
-else
-  up_cmd=(compose -f "$STACK/docker-compose.yml" up -d)
-fi
-if ! (cd "$STACK" && "${up_cmd[@]}" 2>&1 | tee "$UP_LOG"); then
+if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d 2>&1 | tee "$UP_LOG"; then
   up_tail="$(tail -n 20 "$UP_LOG" | tr '\n' ' ' | cut -c1-1000)"
   rm -f "$UP_LOG"
   die "Запуск Compose не удался: ${up_tail:-причина не определена}"
@@ -472,9 +458,10 @@ if command -v iptables >/dev/null 2>&1; then
     iptables -I INPUT -p udp --dport "$BYPASS_PORT" -j ACCEPT || true
   iptables -C INPUT -p tcp --dport 9100 -j ACCEPT 2>/dev/null || \
     iptables -I INPUT -p tcp --dport 9100 -j ACCEPT || true
+  iptables -C INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT 2>/dev/null || \
+    iptables -I INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT || true
 fi
 
 prog 1.00 "Готово"
-echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|provision=http://${PUBLIC_HOST}:9100"
-echo "Пользователи: в приложении Серверы → Пользователи (POST http://${PUBLIC_HOST}:9100/v1/users)"
-echo "Или CLI: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"
+echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION"
+echo "Создать пользователя: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"
