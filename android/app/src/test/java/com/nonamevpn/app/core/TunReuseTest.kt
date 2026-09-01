@@ -127,4 +127,34 @@ class TunReuseTest {
         assertTrue(tunUnderlayChanged("cell:3:MTS:1", "cell:2:T-Mobile:2"))
         assertTrue(tunUnderlayChanged("wifi:home:1", "cell:3:MTS:2"))
     }
+
+    @Test
+    fun rebuildsWhenSplitTunnelFingerprintChanges() {
+        assertFalse(
+            canReuseBypassTun(
+                existingValid = true,
+                lastIp = "10.9.0.5",
+                lastDns = "10.9.0.1",
+                lastMtu = 1300,
+                ip = "10.9.0.5",
+                dns = "10.9.0.1",
+                mtu = 1300,
+                lastFilterFingerprint = "wl=false;allow=;deny=self;hosts=",
+                filterFingerprint = "wl=true;allow=com.a;deny=;hosts=",
+            ),
+        )
+        assertTrue(
+            canReuseBypassTun(
+                existingValid = true,
+                lastIp = "10.9.0.5",
+                lastDns = "10.9.0.1",
+                lastMtu = 1300,
+                ip = "10.9.0.5",
+                dns = "10.9.0.1",
+                mtu = 1300,
+                lastFilterFingerprint = "wl=true;allow=com.a;deny=;hosts=",
+                filterFingerprint = "wl=true;allow=com.a;deny=;hosts=",
+            ),
+        )
+    }
 }

@@ -97,4 +97,31 @@ class SplitTunnelTest {
         assertTrue(text.contains("com.android.chrome"))
         assertTrue(text.contains("browsers=com.android.chrome"))
     }
+
+    @Test
+    fun tunFilterFingerprintChangesWithWhitelistMode() {
+        val self = "com.nonamevpn.app"
+        val black = SplitTunnel.tunFilterFingerprint(
+            whitelistMode = false,
+            selectedApps = setOf("com.a"),
+            excludedHosts = emptySet(),
+            selfPackage = self,
+        )
+        val white = SplitTunnel.tunFilterFingerprint(
+            whitelistMode = true,
+            selectedApps = setOf("com.a"),
+            excludedHosts = emptySet(),
+            selfPackage = self,
+        )
+        val whiteHost = SplitTunnel.tunFilterFingerprint(
+            whitelistMode = true,
+            selectedApps = setOf("com.a"),
+            excludedHosts = setOf("example.com"),
+            selfPackage = self,
+        )
+        assertTrue(black != white)
+        assertTrue(white != whiteHost)
+        assertTrue(white.contains("wl=true"))
+        assertTrue(white.contains("allow=com.a"))
+    }
 }
