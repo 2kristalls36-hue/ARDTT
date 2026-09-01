@@ -441,13 +441,13 @@ fun TunnelScreen(
 
             if (showConnectionParams) {
                 AppSectionCard(
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-                shape = RoundedCornerShape(28.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                shape = RoundedCornerShape(22.dp),
             ) {
                 Text(
                     "Параметры подключения",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
                 QuickSettingRow(
@@ -460,6 +460,7 @@ fun TunnelScreen(
                             "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку."
                         else -> "Сначала прямое, при недоступности — обход."
                     },
+                    compact = true,
                 ) {
                     ChoiceChipButton(
                         label = "Авто",
@@ -473,6 +474,7 @@ fun TunnelScreen(
                             }
                         },
                         modifier = Modifier.weight(1f),
+                        height = 40.dp,
                     )
                     ChoiceChipButton(
                         label = "Прямое",
@@ -487,6 +489,7 @@ fun TunnelScreen(
                             }
                         },
                         modifier = Modifier.weight(1f),
+                        height = 40.dp,
                     )
                     ChoiceChipButton(
                         label = "Обход",
@@ -506,12 +509,14 @@ fun TunnelScreen(
                             }
                         },
                         modifier = Modifier.weight(1f),
+                        height = 40.dp,
                     )
                 }
 
                 QuickSettingRow(
                     title = "Исходящий адрес",
                     subtitle = HideIpCopy.subtitle(hideIp),
+                    compact = true,
                 ) {
                     ChoiceChipButton(
                         label = HideIpCopy.SERVER_CHIP,
@@ -525,6 +530,7 @@ fun TunnelScreen(
                             }
                         },
                         modifier = Modifier.weight(1f),
+                        height = 40.dp,
                     )
                     ChoiceChipButton(
                         label = HideIpCopy.HIDDEN_CHIP,
@@ -538,6 +544,7 @@ fun TunnelScreen(
                             }
                         },
                         modifier = Modifier.weight(1f),
+                        height = 40.dp,
                     )
                 }
 
@@ -549,11 +556,12 @@ fun TunnelScreen(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 12.dp),
+                            .padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Text(
                             "Доверенная Wi‑Fi",
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
@@ -1217,9 +1225,10 @@ private fun TunnelConnectionHintBanner(
 private fun QuickSettingRow(
     title: String,
     subtitle: String?,
+    compact: Boolean = false,
     content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
         Text(
             title,
             style = MaterialTheme.typography.titleSmall,
@@ -1234,7 +1243,7 @@ private fun QuickSettingRow(
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp),
             content = content,
         )
     }
@@ -1250,6 +1259,7 @@ private fun ChoiceChipButton(
     selectedContainer: Color? = null,
     dimmed: Boolean = false,
     minWidth: Dp? = null,
+    height: Dp = 44.dp,
 ) {
     val colors = MaterialTheme.colorScheme
     val isDark = NvpnFloatingShell.isDarkTheme()
@@ -1260,9 +1270,9 @@ private fun ChoiceChipButton(
     }
     val defaultSelectedContent = colors.primary
     val widthModifier = if (minWidth != null) {
-        modifier.height(44.dp).widthIn(min = minWidth)
+        modifier.height(height).widthIn(min = minWidth)
     } else {
-        modifier.height(44.dp)
+        modifier.height(height)
     }
 
     if (selected) {
