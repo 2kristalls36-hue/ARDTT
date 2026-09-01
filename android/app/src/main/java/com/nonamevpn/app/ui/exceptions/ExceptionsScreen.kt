@@ -34,6 +34,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -68,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -456,13 +462,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.35f))
 
                         if (isLoading) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.Center,
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
-                            }
+                            AppsLoadingAnimation(modifier = Modifier.fillMaxSize())
                         } else {
                             LazyColumn(
                                 state = rememberLazyListState(),
@@ -664,6 +664,91 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val base = colors.surfaceVariant.copy(alpha = 0.55f)
+    val highlight = colors.surface.copy(alpha = 0.95f)
+    val shimmer = rememberInfiniteTransition(label = "apps_loading")
+    val shift by shimmer.animateFloat(
+        initialValue = -280f,
+        targetValue = 920f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1050, easing = LinearEasing),
+        ),
+        label = "apps_loading_shift",
+    )
+
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(
+            top = 8.dp,
+            bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp),
+        ),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        items(count = 9) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
+                shape = AppCardShape,
+                color = colors.surface,
+                border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.24f)),
+                shadowElevation = 1.dp,
+                tonalElevation = 0.dp,
+            ) {
+                val shimmerBrush = Brush.horizontalGradient(
+                    colors = listOf(base, highlight, base),
+                    startX = shift,
+                    endX = shift + 380f,
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(shimmerBrush),
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.62f)
+                                .height(13.dp)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(shimmerBrush),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.86f)
+                                .height(11.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(shimmerBrush),
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(width = 34.dp, height = 20.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(shimmerBrush),
+                    )
+                }
+            }
         }
     }
 }
