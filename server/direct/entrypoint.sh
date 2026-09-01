@@ -69,7 +69,7 @@ AWG_PID=$!
 
 # Give UAPI socket a moment
 for _ in $(seq 1 30); do
-  if [[ -S "/var/run/amneziawg/${IFACE}.sock" ]] || [[ -S "/var/run/wireguard/${IFACE}.sock" ]]; then
+  if [[ -S "/var/run/amneziawg/${IFACE}.sock" ]]; then
     break
   fi
   sleep 0.2

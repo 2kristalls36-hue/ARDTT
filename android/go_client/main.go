@@ -177,27 +177,15 @@ func main() {
 	goDNS := flag.String("go-dns", "yandex", "DNS для VK (yandex/cloudflare/google, doh-yandex/doh-cloudflare/doh-google, custom:IP или doh:URL)")
 	obfsMode := flag.String("obfs", "audio", "режим обфускации (audio/video)")
 	checkHashes := flag.Bool("check-hashes", false, "проверить VK-хеши и выйти")
-	connMode := flag.String("mode", "vpn", "режим клиента (vpn|socks|rawtun)")
-	socksAddr := flag.String("socks", "127.0.0.1:1080", "локальный SOCKS5 (только -mode socks)")
-	socksAuth := flag.Bool("socks-auth", false, "требовать логин и пароль SOCKS5")
-	socksUser := flag.String("socks-user", "", "логин SOCKS5")
-	socksPass := flag.String("socks-pass", "", "пароль SOCKS5")
+	connMode := flag.String("mode", "rawtun", "режим клиента (rawtun)")
 	noDTLS := flag.Bool("notls", false, "прямой режим: RTP-obfs AEAD без DTLS поверх TURN (нужен сервер с -listen-direct)")
 	turnTCP := flag.Bool("turn-tcp", false, "соединяться с TURN-relay по TCP вместо UDP (обход UDP-душения на некоторых сетях, напр. Ростелеком)")
 	tunFdSock := flag.String("tun-fd-sock", "", "unix-сокет для получения TUN fd от Android (только -mode rawtun)")
 
 	flag.Parse()
 	activeConnMode := strings.ToLower(strings.TrimSpace(*connMode))
-	if activeConnMode != "socks" && activeConnMode != "rawtun" {
-		activeConnMode = "vpn"
-	}
-	if activeConnMode == "socks" && *socksAuth {
-		if *socksUser == "" || *socksPass == "" {
-			log.Fatal("[SOCKS] Для авторизации нужны логин и пароль")
-		}
-		if len([]byte(*socksUser)) > 255 || len([]byte(*socksPass)) > 255 {
-			log.Fatal("[SOCKS] Логин и пароль должны быть не длиннее 255 байт")
-		}
+	if activeConnMode != "rawtun" {
+		log.Fatalf("[КЛИЕНТ] Неподдерживаемый -mode=%q, доступен только rawtun", activeConnMode)
 	}
 	setupGlobalResolver(*goDNS)
 	activeCaptchaMode := setCaptchaMode(*captchaMode)
@@ -306,18 +294,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Слушаем локально (SO_REUSEADDR — быстрый перезапуск без «address already in use»)
-	localConn, err := listenUDP(*listen)
-	if err != nil {
-		log.Fatalf("[КЛИЕНТ] Ошибка слушателя %s: %v", *listen, err)
-	}
-	if uc, ok := localConn.(*net.UDPConn); ok {
-		_ = uc.SetReadBuffer(socketBufSize)
-		_ = uc.SetWriteBuffer(socketBufSize)
-	}
-	stopLocalConn := context.AfterFunc(ctx, func() { _ = localConn.Close() })
-	defer stopLocalConn()
-
 	_, localPort, _ := net.SplitHostPort(*listen)
 	if localPort == "" {
 		localPort = "9000"
@@ -343,19 +319,13 @@ func main() {
 	log.Printf("[КЛИЕНТ] TLS: Chrome 146 fingerprint")
 	log.Printf("[КЛИЕНТ] Воркеров: %d (групп: %d, по %d)", *numW, numGroups, workersPerGroup)
 	log.Printf("[КЛИЕНТ] Хешей: %d", len(hashes))
-	log.Printf("[КЛИЕНТ] Слушаю: %s | Пир: %s", *listen, *peerAddr)
+	log.Printf("[КЛИЕНТ] Локальный порт конфигурации: %s | Пир: %s", localPort, *peerAddr)
 	if *turnTCP {
 		log.Printf("[КЛИЕНТ] TURN-транспорт: TCP")
 	} else {
 		log.Printf("[КЛИЕНТ] TURN-транспорт: UDP")
 	}
 	log.Printf("[КЛИЕНТ] Режим: %s", activeConnMode)
-	if activeConnMode == "socks" {
-		log.Printf("[КЛИЕНТ] SOCKS5: %s", *socksAddr)
-		if *socksAuth {
-			log.Printf("[КЛИЕНТ] SOCKS5: авторизация по логину и паролю включена")
-		}
-	}
 	log.Printf("[КЛИЕНТ] WRAP: %s", wrapStatus)
 	log.Printf("[WRAP] Ключ выведен из пароля, режим RTP AEAD активен")
 	log.Printf("[КЛИЕНТ] Device ID: %s", *deviceID)
@@ -370,12 +340,7 @@ func main() {
 	}()
 	go stats.RunLoop(shutdownCh)
 
-	var disp *Dispatcher
-	if activeConnMode == "rawtun" {
-		disp = NewDispatcherPendingTUN(ctx, stats)
-	} else {
-		disp = NewDispatcher(ctx, localConn, stats)
-	}
+	disp := NewDispatcherPendingTUN(ctx, stats)
 	defer disp.Shutdown()
 
 	configCh := make(chan string, 1)
@@ -431,41 +396,6 @@ func main() {
 				return
 			}
 
-			finalConf := rawConf
-			if !strings.Contains(finalConf, "MTU =") {
-				lines := strings.Split(finalConf, "\n")
-				var newLines []string
-				for _, line := range lines {
-					newLines = append(newLines, line)
-					if strings.TrimSpace(line) == "[Interface]" {
-						newLines = append(newLines, "MTU = 1280")
-					}
-				}
-				finalConf = strings.Join(newLines, "\n")
-			}
-			fmt.Println()
-			fmt.Println("╔══════════════ WireGuard Конфиг ══════════════╗")
-			for _, line := range strings.Split(finalConf, "\n") {
-				fmt.Printf("║ %-44s ║\n", line)
-			}
-			fmt.Println("╚══════════════════════════════════════════════╝")
-			if err := os.WriteFile(statePath("wg-turn.conf"), []byte(finalConf+"\n"), 0600); err != nil {
-				log.Printf("[КОНФИГ] Ошибка сохранения: %v", err)
-			} else {
-				log.Println("[КОНФИГ] Сохранён в wg-turn.conf")
-			}
-
-			if activeConnMode == "socks" {
-				dev, tnet, err := startUserspaceWireGuard(finalConf)
-				if err != nil {
-					log.Printf("[SOCKS] Ошибка userspace WG: %v", err)
-					return
-				}
-				defer dev.Close()
-				if err := runSocks5Server(ctx, *socksAddr, tnet, *socksAuth, *socksUser, *socksPass); err != nil {
-					log.Printf("[SOCKS] Сервер остановлен: %v", err)
-				}
-			}
 		case <-ctx.Done():
 		}
 	}()

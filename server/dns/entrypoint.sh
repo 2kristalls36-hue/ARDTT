@@ -2,7 +2,6 @@
 # dnsmasq on VPN gateways:
 #   Direct (awg0)  → 10.8.0.1
 #   Bypass RAW     → 10.9.0.1
-#   WDTT WG (opt)  → 10.66.66.1
 # Upstream: 1.1.1.1 / 1.0.0.1 via host main routing (not WARP).
 set -euo pipefail
 
@@ -36,11 +35,6 @@ build_conf() {
     if iface_has_addr wdttraw0 10.9.0.1; then
       echo "interface=wdttraw0"
       echo "listen-address=10.9.0.1"
-    fi
-    # Legacy/WDTT WG path if present
-    if iface_has_addr wdtt0 10.66.66.1; then
-      echo "interface=wdtt0"
-      echo "listen-address=10.66.66.1"
     fi
     local s
     for s in ${UPSTREAMS}; do
