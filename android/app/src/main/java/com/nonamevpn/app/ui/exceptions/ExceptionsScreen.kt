@@ -380,7 +380,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             when {
                                 !sitesSupported -> "Сайты (Android 13+)"
                                 !hasBrowserHandlers -> "Сайты (нужен браузер)"
-                                else -> "Сайты ${orderedSites.size}"
+                                else -> "Правила ${orderedSites.size}"
                             },
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
@@ -547,7 +547,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                if (orderedSites.isEmpty()) "Нет сайтов" else "${orderedSites.size}",
+                                "Правила: ${orderedSites.size}",
                                 style = MaterialTheme.typography.labelLarge.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     letterSpacing = 0.2.sp,
