@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Admin deploy: SSH → upload stack.tar.gz + install.sh → run Compose on VPS.
- * Long work runs inside [DeployService] so lock-screen / background does not abort SSH.
+ * Protocol and VPS layout: docs/DEPLOY.md. Canonical installer: server/install.sh.
  */
 class DeployEngine(private val appContext: Context) {
     private val running = AtomicBoolean(false)

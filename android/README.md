@@ -48,3 +48,5 @@ Release (подписанный постоянным keystore):
   скачивает APK внутри приложения, проверяет SHA-256 и запускает системный установщик.
 
 После деплоя сервера на VPS обычно остаётся `/opt/nonamevpn/stack/` (исторический путь каталога) и рабочие образы.
+
+Сборка APK перед `preBuild` упаковывает `server/` в `assets/deploy/stack.tar.gz.bin` (`packDeployAssets`). Вручную: `./scripts/pack-deploy-assets.sh`. Механика: [docs/DEPLOY.md](../docs/DEPLOY.md).

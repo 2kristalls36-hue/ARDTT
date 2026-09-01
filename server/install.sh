@@ -23,13 +23,8 @@ BYPASS_PORT="${NVPN_BYPASS_PORT:-56003}"
 PROVISION_LISTEN="${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}"
 TELEMETRY_PORT="${NVPN_TELEMETRY_PORT:-9200}"
 KEEP_INSTALL_LOG="${NVPN_KEEP_INSTALL_LOG:-0}"
-COMPOSE_PROJECT="${NVPN_COMPOSE_PROJECT:-stack}"
-MIN_SWAP_MB="${NVPN_MIN_SWAP_MB:-2048}"
-MIN_DISK_MB="${NVPN_MIN_DISK_MB:-1800}"
-MIN_DISK_UPDATE_MB="${NVPN_MIN_DISK_UPDATE_MB:-900}"
 
 LOG_FILE="$(mktemp /tmp/nvpn-install.XXXXXX.log)"
-STAGING=""
 
 cleanup_host_packages() {
   if command -v apt-get >/dev/null 2>&1; then
@@ -44,36 +39,13 @@ cleanup_host_packages() {
 cleanup_docker_build_junk() {
   docker builder prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
-  # Never prune volumes: bypass-config and other named volumes must survive redeploy.
-}
-
-reclaim_disk() {
-  cleanup_docker_build_junk
-  cleanup_host_packages
-  docker image prune -af >/dev/null 2>&1 || true
-  docker container prune -f >/dev/null 2>&1 || true
-  rm -rf /tmp/nvpn-data-bak "$INSTALL_DIR/stack.old" /var/tmp/nvpn-* 2>/dev/null || true
-  rm -f /var/log/nvpn-build*.log /var/log/*.gz /var/log/*.1 2>/dev/null || true
-  if command -v journalctl >/dev/null 2>&1; then
-    journalctl --vacuum-size=32M >/dev/null 2>&1 || true
-  fi
-}
-
-stack_images_ready() {
-  local missing=0
-  local img
-  for img in stack-provision stack-direct stack-bypass stack-dns stack-warp stack-telemetry; do
-    if ! docker image inspect "${img}:latest" >/dev/null 2>&1; then
-      missing=$((missing + 1))
-    fi
-  done
-  [ "$missing" -eq 0 ]
+  docker volume prune -f >/dev/null 2>&1 || true
 }
 
 cleanup_install_artifacts() {
   rm -f "$INSTALL_DIR/stack.tar.gz"
   rm -f /var/log/nvpn-build*.log /var/log/nvpn-install.log
-  rm -rf /tmp/nvpn-data-bak "$INSTALL_DIR/stack.staging" "$INSTALL_DIR/stack.old"
+  rm -rf /tmp/nvpn-data-bak
   if [ "$KEEP_INSTALL_LOG" = "1" ]; then
     mkdir -p "$INSTALL_DIR"
     tail -c 200000 "$LOG_FILE" >"$INSTALL_DIR/install.log" 2>/dev/null || true
@@ -86,10 +58,10 @@ on_exit() {
   # Always try to drop temp archive / bak even on failure
   rm -f "$INSTALL_DIR/stack.tar.gz" 2>/dev/null || true
   rm -rf /tmp/nvpn-data-bak 2>/dev/null || true
-  # Keep staging on failure for retry/debug; drop only on success via cleanup_install_artifacts.
   if [ "$code" -eq 0 ]; then
     cleanup_install_artifacts
   else
+    # Keep log on failure for debugging
     if [ -f "$LOG_FILE" ]; then
       mkdir -p "$INSTALL_DIR"
       cp -f "$LOG_FILE" "$INSTALL_DIR/install.log" 2>/dev/null || true
@@ -104,53 +76,6 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 prog() { echo "NVPN_PROGRESS|$1|$2"; }
 die() { echo "NVPN_ERROR|$*"; exit 1; }
-
-mem_total_mb() {
-  awk '/MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0
-}
-
-swap_total_mb() {
-  awk '/SwapTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0
-}
-
-ensure_swap() {
-  local need_mb="$1"
-  local have_mb
-  have_mb="$(swap_total_mb)"
-  # /proc reports ~2047 for a 2G file — allow a small slack so we don't recreate.
-  local min_ok=$((need_mb - 64))
-  if [ "$min_ok" -lt 1024 ]; then min_ok=1024; fi
-  if [ "${have_mb:-0}" -ge "$min_ok" ] 2>/dev/null; then
-    echo "NVPN_INFO|swap уже ${have_mb} МБ (цель ≥${need_mb})"
-    return 0
-  fi
-  prog 0.28 "Увеличение swap до ${need_mb} МБ (сейчас ${have_mb:-0})"
-  local swapfile="/swapfile"
-  if [ -f "$swapfile" ]; then
-    swapoff "$swapfile" 2>/dev/null || true
-  fi
-  rm -f "$swapfile"
-  if ! fallocate -l "${need_mb}M" "$swapfile" 2>/dev/null; then
-    dd if=/dev/zero of="$swapfile" bs=1M count="$need_mb" status=none
-  fi
-  chmod 600 "$swapfile"
-  mkswap "$swapfile" >/dev/null
-  swapon "$swapfile"
-  if ! grep -qE "^/swapfile[[:space:]]" /etc/fstab 2>/dev/null; then
-    echo '/swapfile none swap sw 0 0' >> /etc/fstab
-  fi
-  have_mb="$(swap_total_mb)"
-  echo "NVPN_INFO|swap теперь ${have_mb} МБ"
-}
-
-stop_stack() {
-  local dir="$1"
-  if [ -f "$dir/docker-compose.yml" ]; then
-    (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose down) 2>/dev/null || \
-      (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose down) 2>/dev/null || \
-      docker rm -f nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry >/dev/null 2>&1 || true
-  fi
-}
 
 prog 0.05 "Проверка прав"
 if [ "${NVPN_SKIP_ROOT_CHECK:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
@@ -187,21 +112,14 @@ else
   die "Не найден $INSTALL_DIR/stack.tar.gz"
 fi
 
-# Unpack into staging while the OLD stack (if any) keeps running.
-STAGING="$INSTALL_DIR/stack.staging"
-prog 0.15 "Распаковка стека в staging (старый стек не останавливаем)"
-rm -rf "$STAGING"
-mkdir -p "$STAGING"
-tar -xzf "$INSTALL_DIR/stack.tar.gz" -C "$STAGING"
-rm -f "$INSTALL_DIR/stack.tar.gz"
-
-[ -f "$STAGING/docker-compose.yml" ] || die "В архиве нет docker-compose.yml"
+STACK="$INSTALL_DIR/stack"
+[ -f "$STACK/docker-compose.yml" ] || die "В архиве нет docker-compose.yml"
 
 prog 0.22 "Проверка состава стека"
 missing_contexts=""
 for context in provision direct bypass dns warp telemetry-upload; do
-  if grep -Eq "build:[[:space:]]*(\\./)?${context}([[:space:]]|$)" "$STAGING/docker-compose.yml" 2>/dev/null &&
-     [ ! -d "$STAGING/$context" ]; then
+  if grep -Eq "build:[[:space:]]*(\\./)?${context}([[:space:]]|$)" "$STACK/docker-compose.yml" 2>/dev/null &&
+     [ ! -d "$STACK/$context" ]; then
     missing_contexts="$missing_contexts $context"
   fi
 done
@@ -237,20 +155,16 @@ if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
   fi
 fi
 
-mem_mb="$(mem_total_mb)"
-if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
-  ensure_swap "$MIN_SWAP_MB"
-fi
-
-prog 0.40 "Запись .env (staging)"
+prog 0.40 "Запись .env"
 DEPLOY_VERSION="${NVPN_DEPLOY_VERSION:-}"
-if [ -z "$DEPLOY_VERSION" ] && [ -f "$STAGING/DEPLOY_VERSION" ]; then
-  DEPLOY_VERSION="$(tr -d '[:space:]' < "$STAGING/DEPLOY_VERSION")"
+if [ -z "$DEPLOY_VERSION" ] && [ -f "$STACK/DEPLOY_VERSION" ]; then
+  DEPLOY_VERSION="$(tr -d '[:space:]' < "$STACK/DEPLOY_VERSION")"
 fi
 if [ -z "$DEPLOY_VERSION" ] && [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
   DEPLOY_VERSION="$(tr -d '[:space:]' < "$INSTALL_DIR/DEPLOY_VERSION")"
 fi
 [ -n "$DEPLOY_VERSION" ] || DEPLOY_VERSION="unknown"
+# Persist on host so provision can read even if env is missing after recreate.
 printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
 printf '%s\n' "$DEPLOY_VERSION" > "$STACK/DEPLOY_VERSION"
 mkdir -p "$STACK/data"
@@ -261,11 +175,6 @@ NVPN_DIRECT_PORT=$DIRECT_PORT
 NVPN_BYPASS_PORT=$BYPASS_PORT
 NVPN_PROVISION_LISTEN=$PROVISION_LISTEN
 NVPN_DEPLOY_VERSION=$DEPLOY_VERSION
-NVPN_CASCADE_ENABLED=$CASCADE_ENABLED
-NVPN_CASCADE_HOST=$CASCADE_HOST
-NVPN_CASCADE_PORT=$CASCADE_PORT
-NVPN_CASCADE_USER=$CASCADE_USER
-NVPN_CASCADE_PASSWORD=$CASCADE_PASSWORD
 NVPN_WARP_GOMEMLIMIT=400MiB
 EOF
 
@@ -278,95 +187,35 @@ if [ "${NVPN_DRY_RUN:-0}" = "1" ]; then
 fi
 
 prog 0.45 "Очистка места перед сборкой"
-reclaim_disk
+cleanup_docker_build_junk
+cleanup_host_packages
+# Drop unused images from previous deploys (keep running containers).
+docker image prune -af >/dev/null 2>&1 || true
 
 avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
-need_mb="$MIN_DISK_MB"
-if stack_images_ready; then
-  need_mb="$MIN_DISK_UPDATE_MB"
-  echo "NVPN_INFO|образы стека уже есть — порог диска ${need_mb} МБ"
-fi
-if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt "$need_mb" ] 2>/dev/null; then
-  die "Мало места на диске VPS: свободно ${avail_mb} МБ (нужно ≥${need_mb} МБ). Увеличьте диск или очистите: docker builder prune -af && apt-get clean"
-fi
-if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt "$MIN_DISK_MB" ] 2>/dev/null; then
-  echo "NVPN_WARN|на диске ${avail_mb} МБ — пропускаем compose pull, собираем поверх существующих образов"
+if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt 1800 ] 2>/dev/null; then
+  die "Мало места на диске VPS: свободно ${avail_mb} МБ (нужно ≥1800 МБ). Увеличьте диск или очистите: docker system prune -af && apt-get clean"
 fi
 
-prog 0.50 "Сборка образов (старый стек ещё работает)"
-cd "$STAGING"
+prog 0.50 "Сборка и запуск Compose (может занять несколько минут)"
+cd "$STACK"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
+# Plain progress — avoid fancy TTY banners in the app log.
 export BUILDKIT_PROGRESS=plain
 export COMPOSE_ANSI=never
-# Cap parallel Go/cgo work on tiny VPS (~1 GiB RAM).
-export GOMAXPROCS="${GOMAXPROCS:-1}"
-export DOCKER_BUILDKIT=1
-
-if [ -z "${avail_mb:-}" ] || [ "$avail_mb" -ge "$MIN_DISK_MB" ] 2>/dev/null; then
-  compose pull 2>/dev/null || true
-else
-  echo "NVPN_INFO|compose pull пропущен (мало места)"
-fi
-
-# One service at a time: after each image is tagged, drop BuildKit/Go intermediates
-# so peak disk/RAM stay near a single compile (not 6 stacked caches ~1.7G).
-# Never `docker image prune -af` here: new :latest is not used by a container yet
-# while the old stack is still up, so -af would delete the image we just built.
-export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
-
-BUILD_SERVICES="provision direct bypass dns warp telemetry"
+compose pull 2>/dev/null || true
 BUILD_LOG="$(mktemp /tmp/nvpn-compose-build.XXXXXX.log)"
-svc_i=0
-svc_n=$(echo "$BUILD_SERVICES" | wc -w | tr -d ' ')
-for svc in $BUILD_SERVICES; do
-  svc_i=$((svc_i + 1))
-  # Progress 0.50 → 0.72 across sequential builds
-  frac="$(awk -v i="$svc_i" -v n="$svc_n" 'BEGIN { printf "%.2f", 0.50 + (0.22 * i / n) }')"
-  prog "$frac" "Сборка $svc ($svc_i/$svc_n)"
-  if ! compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
-    build_tail="$(tail -n 20 "$BUILD_LOG" | tr '\n' ' ' | cut -c1-1000)"
-    rm -f "$BUILD_LOG"
-    cleanup_docker_build_junk
-    die "Сборка Docker ($svc) не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}'), RAM: $(free -h | awk '/Mem:/{print $7}') avail"
-  fi
-  docker builder prune -af >/dev/null 2>&1 || true
-  docker image prune -f >/dev/null 2>&1 || true
-  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/{printf \"%d\", $2/1024}' /proc/meminfo) МБ"
-done
+if ! compose build 2>&1 | tee "$BUILD_LOG"; then
+  build_tail="$(tail -n 20 "$BUILD_LOG" | tr '\n' ' ' | cut -c1-1000)"
+  rm -f "$BUILD_LOG"
+  cleanup_docker_build_junk
+  die "Сборка Docker не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}')"
+fi
 rm -f "$BUILD_LOG"
 
-# Switchover: only now stop the old stack and promote staging → stack.
-STACK="$INSTALL_DIR/stack"
-prog 0.74 "Остановка старого стека и переключение"
-# Bind mounts pin the data directory inode. Never rm -rf stack while containers
-# are up (hide-ip then returns 404: users.json.tmp: no such file or directory).
-if [ -d "$STACK" ]; then
-  stop_stack "$STACK"
-fi
-
-# Preserve live data from the previous stack.
-if [ -d "$STACK/data" ]; then
-  rm -rf /tmp/nvpn-data-bak
-  cp -a "$STACK/data" /tmp/nvpn-data-bak
-fi
-
-rm -rf "$INSTALL_DIR/stack.old"
-if [ -d "$STACK" ]; then
-  mv "$STACK" "$INSTALL_DIR/stack.old"
-fi
-mv "$STAGING" "$STACK"
-STAGING=""
-
-if [ -d /tmp/nvpn-data-bak ]; then
-  mkdir -p "$STACK/data"
-  cp -a /tmp/nvpn-data-bak/. "$STACK/data/"
-  rm -rf /tmp/nvpn-data-bak
-fi
-# Carry .env we wrote in staging (already inside $STACK after mv).
-chmod 700 "$STACK/data" 2>/dev/null || true
-
 # Remove only legacy/unmanaged nvpn containers. Compose-managed containers are
-# left intact and will be recreated normally.
+# left intact and will be recreated normally. This handles older manual
+# telemetry installs that used the same fixed container_name without labels.
 for managed_name in nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry; do
   if docker inspect "$managed_name" >/dev/null 2>&1; then
     compose_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$managed_name" 2>/dev/null || true)"
@@ -377,16 +226,13 @@ for managed_name in nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nv
   fi
 done
 
-prog 0.78 "Запуск Compose"
-cd "$STACK"
 UP_LOG="$(mktemp /tmp/nvpn-compose-up.XXXXXX.log)"
-if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d 2>&1 | tee "$UP_LOG"; then
+if ! compose up -d 2>&1 | tee "$UP_LOG"; then
   up_tail="$(tail -n 20 "$UP_LOG" | tr '\n' ' ' | cut -c1-1000)"
   rm -f "$UP_LOG"
   die "Запуск Compose не удался: ${up_tail:-причина не определена}"
 fi
 rm -f "$UP_LOG"
-rm -rf "$INSTALL_DIR/stack.old"
 
 prog 0.80 "Очистка build-кэша и временных файлов"
 cleanup_docker_build_junk
@@ -398,16 +244,6 @@ if curl -fsS "http://127.0.0.1:9100/health" >/dev/null 2>&1; then
   prog 0.92 "provision /health OK"
 else
   echo "NVPN_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml logs"
-fi
-if curl -fsS "http://127.0.0.1:9200/health" >/dev/null 2>&1; then
-  prog 0.93 "telemetry /health OK"
-else
-  echo "NVPN_WARN|telemetry :9200 не отвечает — логи тестирования не примут. docker compose -f $STACK/docker-compose.yml up -d --no-deps telemetry"
-fi
-if docker exec nvpn-provision test -s /data/users.json 2>/dev/null; then
-  prog 0.94 "provision видит /data/users.json"
-else
-  echo "NVPN_WARN|provision не видит /data/users.json — контейнер, скорее всего, на старом inode. Выполните: cd $STACK && docker compose up -d --force-recreate"
 fi
 
 prog 0.96 "Открытие портов (best-effort)"
