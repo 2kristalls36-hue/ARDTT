@@ -397,12 +397,21 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 )
                 RowSetting(
                     title = "Виброотклик",
-                    subtitle = if (uiHapticsEnabled) {
-                        "Короткая тактильная отдача на ключевых действиях интерфейса."
+                    subtitle = if (admin) {
+                        if (uiHapticsEnabled) {
+                            "Короткая тактильная отдача на ключевых действиях интерфейса."
+                        } else {
+                            "Виброотклик отключён."
+                        }
                     } else {
-                        "Виброотклик отключён."
+                        if (uiHapticsEnabled) {
+                            "Короткая тактильная отдача на ключевых действиях интерфейса. Изменение доступно только в режиме администратора."
+                        } else {
+                            "Виброотклик отключён администратором. Изменение доступно только в режиме администратора."
+                        }
                     },
                     checked = uiHapticsEnabled,
+                    enabled = admin,
                     onCheckedChange = {
                         if (uiHapticsEnabled) haptics.tick()
                         scope.launch { settings.setUiHapticsEnabled(it) }
