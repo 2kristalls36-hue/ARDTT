@@ -844,7 +844,8 @@ fun TunnelScreen(
                 blowAway = dronesBlowAway,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.333f)
+                    .fillMaxHeight(0.37f)
+                    .offset(y = 18.dp)
                     .align(Alignment.TopCenter),
             )
         }
@@ -1022,13 +1023,13 @@ private fun WhitelistDroneSkyAnimation(
                 resId = R.drawable.tunnel_drone_far,
                 sizeDp = 74,
                 startXFrac = 1.26f,
-                startYFrac = 0.18f,
+                startYFrac = 0.24f,
                 anchorXFrac = 0.72f,
-                anchorYFrac = 0.14f,
+                anchorYFrac = 0.20f,
                 orbitRadiusXFrac = 0.018f,
                 orbitRadiusYFrac = 0.014f,
                 orbitDurationMs = 11_200,
-                delayMs = 140L,
+                delayMs = 0L,
                 phaseRad = 2.2f,
                 windStrength = 0.86f,
                 gustFreqMul = 1.43f,
@@ -1043,13 +1044,13 @@ private fun WhitelistDroneSkyAnimation(
                 resId = R.drawable.tunnel_drone_near,
                 sizeDp = 228,
                 startXFrac = 0.40f,
-                startYFrac = -0.74f,
+                startYFrac = -0.66f,
                 anchorXFrac = 0.37f,
-                anchorYFrac = 0.18f,
+                anchorYFrac = 0.24f,
                 orbitRadiusXFrac = 0.027f,
                 orbitRadiusYFrac = 0.021f,
                 orbitDurationMs = 9_200,
-                delayMs = 80L,
+                delayMs = 0L,
                 phaseRad = 0.4f,
                 windStrength = 1.26f,
                 gustFreqMul = 0.92f,
@@ -1064,9 +1065,9 @@ private fun WhitelistDroneSkyAnimation(
                 resId = R.drawable.tunnel_drone_mid,
                 sizeDp = 114,
                 startXFrac = -0.42f,
-                startYFrac = 0.14f,
+                startYFrac = 0.20f,
                 anchorXFrac = 0.13f,
-                anchorYFrac = 0.12f,
+                anchorYFrac = 0.18f,
                 orbitRadiusXFrac = 0.023f,
                 orbitRadiusYFrac = 0.017f,
                 orbitDurationMs = 10_100,
