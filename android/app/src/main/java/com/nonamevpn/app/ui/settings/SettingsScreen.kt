@@ -710,6 +710,7 @@ private fun UpdateSettingsCard(
             UpdateFillButton(
                 text = updatePrimaryActionLabel(downloading, downloadedFile),
                 filling = downloading,
+                installReady = downloadedFile && !downloading,
                 progress = progress,
                 onClick = {
                     when {
@@ -727,6 +728,7 @@ private fun UpdateSettingsCard(
 private fun UpdateFillButton(
     text: String,
     filling: Boolean,
+    installReady: Boolean,
     progress: Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -737,8 +739,9 @@ private fun UpdateFillButton(
         targetValue = if (filling) progress.coerceIn(0f, 1f) else 1f,
         label = "update_fill_progress",
     )
-    val trackColor = lerp(colors.surface, colors.primary, 0.42f)
-    val fillColor = colors.primary
+    val fillColor = if (installReady) NvpnColors.connected else colors.primary
+    val trackColor = lerp(colors.surface, fillColor, 0.42f)
+    val textColor = if (installReady) Color.White else colors.onPrimary
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -758,7 +761,7 @@ private fun UpdateFillButton(
     ) {
         Text(
             text = text,
-            color = colors.onPrimary,
+            color = textColor,
             style = MaterialTheme.typography.titleMedium.copy(
                 background = Color.Transparent,
                 fontWeight = FontWeight.SemiBold,
