@@ -926,29 +926,8 @@ private fun WhitelistDroneSkyAnimation(
     val drones = remember {
         listOf(
             DroneFlightSpec(
-                resId = R.drawable.tunnel_drone_far,
-                sizeDp = 74,
-                startXFrac = 1.26f,
-                startYFrac = 0.18f,
-                anchorXFrac = 0.72f,
-                anchorYFrac = 0.14f,
-                orbitRadiusXFrac = 0.018f,
-                orbitRadiusYFrac = 0.014f,
-                orbitDurationMs = 11_200,
-                delayMs = 140L,
-                phaseRad = 2.2f,
-                windStrength = 0.86f,
-                gustFreqMul = 1.43f,
-                gustPhase = 2.05f,
-                compensationStrength = 0.34f,
-                dragLimitXFrac = 0.065f,
-                dragLimitYFrac = 0.05f,
-                centerBiasX = 0.000f,
-                centerBiasY = -0.008f,
-            ),
-            DroneFlightSpec(
-                resId = R.drawable.tunnel_drone_near,
-                sizeDp = 228,
+                resId = R.drawable.tunnel_drone_far, // Was near (swapped)
+                sizeDp = 152, // 228 / 1.5
                 startXFrac = 0.40f,
                 startYFrac = -0.74f,
                 anchorXFrac = 0.37f,
@@ -969,7 +948,7 @@ private fun WhitelistDroneSkyAnimation(
             ),
             DroneFlightSpec(
                 resId = R.drawable.tunnel_drone_mid,
-                sizeDp = 114,
+                sizeDp = 76, // 114 / 1.5
                 startXFrac = -0.42f,
                 startYFrac = 0.14f,
                 anchorXFrac = 0.13f,
@@ -987,6 +966,27 @@ private fun WhitelistDroneSkyAnimation(
                 dragLimitYFrac = 0.055f,
                 centerBiasX = 0.023f,
                 centerBiasY = -0.033f,
+            ),
+            DroneFlightSpec(
+                resId = R.drawable.tunnel_drone_near, // Was far (swapped)
+                sizeDp = 49, // 74 / 1.5
+                startXFrac = 1.26f,
+                startYFrac = 0.18f,
+                anchorXFrac = 0.72f,
+                anchorYFrac = 0.14f,
+                orbitRadiusXFrac = 0.018f,
+                orbitRadiusYFrac = 0.014f,
+                orbitDurationMs = 11_200,
+                delayMs = 140L,
+                phaseRad = 2.2f,
+                windStrength = 0.86f,
+                gustFreqMul = 1.43f,
+                gustPhase = 2.05f,
+                compensationStrength = 0.34f,
+                dragLimitXFrac = 0.065f,
+                dragLimitYFrac = 0.05f,
+                centerBiasX = 0.000f,
+                centerBiasY = -0.008f,
             ),
         )
     }
