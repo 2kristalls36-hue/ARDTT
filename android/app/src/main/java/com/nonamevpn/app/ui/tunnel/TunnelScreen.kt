@@ -688,7 +688,11 @@ fun TunnelScreen(
             Text(
                 if (ui.hasCallHash) "Hash сохранён на этом телефоне" else "Hash не задан — нужен для Path B",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (ui.hasCallHash) {
+                    NvpnColors.connected
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
             callMessage?.let { msg ->
                 Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
