@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -48,6 +49,7 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.admin.LogsScreen
 import com.nonamevpn.app.ui.admin.ServersHub
 import com.nonamevpn.app.ui.components.NavBarItem
+import com.nonamevpn.app.ui.components.LocalOpaqueSectionCards
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
@@ -283,34 +285,36 @@ fun AppRoot(
         isRecording = isRecording,
         currentScreen = currentRoute,
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Same cached scene on every user-mode tab. Admin keeps the gradient.
-            // Keep the Image composed so tab switches do not flash Field.
-            if (showUserWallpaper) {
-                key(tunnelWallpaper.scene) {
-                    TunnelWallpaperBackdrop(
-                        wallpaper = tunnelWallpaper,
-                        modifier = Modifier.fillMaxSize(),
+        CompositionLocalProvider(LocalOpaqueSectionCards provides showUserWallpaper) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Same cached scene on every user-mode tab. Admin keeps the gradient.
+                // Keep the Image composed so tab switches do not flash Field.
+                if (showUserWallpaper) {
+                    key(tunnelWallpaper.scene) {
+                        TunnelWallpaperBackdrop(
+                            wallpaper = tunnelWallpaper,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                } else {
+                    AppBackdrop(modifier = Modifier.fillMaxSize())
+                }
+                composable(AppDestination.Servers.route) {
+                    ServersHub(
+                        serversRepo = serversRepo,
+                        deployEngine = deployEngine,
+                        profiles = profiles,
                     )
                 }
-            } else {
-                AppBackdrop(modifier = Modifier.fillMaxSize())
-            }
-            composable(AppDestination.Servers.route) {
-                ServersHub(
-                    serversRepo = serversRepo,
-                    deployEngine = deployEngine,
-                    profiles = profiles,
-                )
-            }
-            composable(AppDestination.Profiles.route) {
-                ProfilesScreen(profiles = profiles)
-            }
-            composable(AppDestination.Exceptions.route) {
-                ExceptionsScreen(settings = settings)
-            }
-            composable(AppDestination.Logs.route) {
-                LogsScreen()
+                composable(AppDestination.Profiles.route) {
+                    ProfilesScreen(profiles = profiles)
+                }
+                composable(AppDestination.Exceptions.route) {
+                    ExceptionsScreen(settings = settings)
+                }
+                composable(AppDestination.Logs.route) {
+                    LogsScreen()
+                }
             }
         }
     }
