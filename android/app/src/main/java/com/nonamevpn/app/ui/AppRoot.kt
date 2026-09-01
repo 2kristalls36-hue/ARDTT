@@ -44,9 +44,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
+import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
-import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.ServersRepository
@@ -71,6 +71,7 @@ import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
 import com.nonamevpn.app.ui.tunnel.resolveTunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.tunnelWallpaperVisible
+import com.nonamevpn.app.ui.tunnel.wallpaperBypassActive
 import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.delay
@@ -106,12 +107,13 @@ fun AppRoot(
     val conn = remember { ConnectionManager.get(context) }
     val scope = rememberCoroutineScope()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
-    val appsWhitelistMode by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+    val connUi by conn.ui.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
@@ -126,12 +128,27 @@ fun AppRoot(
         "light" -> false
         else -> isSystemInDarkTheme()
     }
+    val bypassWallpaper = wallpaperBypassActive(
+        pathMode = ConnPathMode.fromSetting(pathModeSetting),
+        activePath = connUi.activePath,
+        networkClass = connUi.probe?.networkClass,
+    )
     val tunnelWallpaper = resolveTunnelWallpaper(
         scene = tunnelWallpaperScene,
-        whitelistMode = appsWhitelistMode,
+        bypass = bypassWallpaper,
         darkTheme = darkTheme,
     )
-    val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
+    val showUserWallpaper = tunnelWallpaperVisible(
+        admin = admin,
+        classicAppearance = classicAppearance,
+    )
+    LaunchedEffect(tunnelWallpaper, bypassWallpaper, darkTheme, showUserWallpaper) {
+        AppLog.i(
+            "TunnelWallpaper",
+            "draw scene=${tunnelWallpaper.scene} time=${tunnelWallpaper.time} " +
+                "bypass=$bypassWallpaper dark=$darkTheme visible=$showUserWallpaper",
+        )
+    }
 
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
@@ -296,7 +313,7 @@ fun AppRoot(
         currentScreen = currentRoute,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Same cached scene on every user-mode tab. Admin keeps the gradient.
+            // One scene × time-of-day for every user-mode tab, including Tunnel.
             // Keep the Image composed so tab switches do not flash Field.
             if (showUserWallpaper) {
                 key(tunnelWallpaper.scene) {

@@ -18,7 +18,7 @@ fun TunnelWallpaperScene.nightRes(): Int = when (this) {
 }
 
 @DrawableRes
-fun TunnelWallpaperScene.sunsetRes(): Int = when (this) {
+fun TunnelWallpaperScene.eveningRes(): Int = when (this) {
     TunnelWallpaperScene.Field -> R.drawable.bg_tunnel_field_sunset
     TunnelWallpaperScene.City -> R.drawable.bg_tunnel_city_sunset
     TunnelWallpaperScene.Refinery -> R.drawable.bg_tunnel_refinery_sunset
@@ -28,5 +28,5 @@ fun TunnelWallpaperScene.sunsetRes(): Int = when (this) {
 fun TunnelWallpaperId.drawableRes(): Int = when (time) {
     TunnelWallpaperTime.Day -> scene.dayRes()
     TunnelWallpaperTime.Night -> scene.nightRes()
-    TunnelWallpaperTime.Sunset -> scene.sunsetRes()
+    TunnelWallpaperTime.Evening -> scene.eveningRes()
 }

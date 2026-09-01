@@ -2,7 +2,6 @@ package com.nonamevpn.app.ui.tunnel
 
 import android.os.Build
 import android.telephony.SubscriptionManager
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -93,7 +92,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.foundation.isSystemInDarkTheme
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
 import com.nonamevpn.app.core.AppLog
@@ -106,7 +104,6 @@ import com.nonamevpn.app.core.NetcheckItem
 import com.nonamevpn.app.core.NetcheckReport
 import com.nonamevpn.app.core.NetcheckTone
 import com.nonamevpn.app.core.NetcheckUiRow
-import com.nonamevpn.app.core.NetworkClass
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
@@ -184,8 +181,8 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
-    val wallpaperVariant by settings.tunnelWallpaperVariantFlow.collectAsStateWithLifecycle(initialValue = 0)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -314,24 +311,18 @@ fun TunnelScreen(
         refreshNetcheck(force = true)
     }
 
-    val autoBypassDetected = pathMode == "auto" && (
-        ui.probe?.networkClass == NetworkClass.NeedBypass ||
-            ui.probe?.networkClass == NetworkClass.OpenNeedBypass
-        )
-    val whitelistDetected = autoBypassDetected || pathMode == "bypass"
-    val isDarkTheme = when (themeMode) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
-    }
+    val bypassActive = wallpaperBypassActive(
+        pathMode = ConnPathMode.fromSetting(pathMode),
+        activePath = ui.activePath,
+        networkClass = ui.probe?.networkClass,
+    )
     if (!admin) {
         UserTunnelSimpleScreen(
             ui = ui,
             catalogItems = catalog.items,
             activeProfileId = catalog.activeId,
-            whitelistDetected = whitelistDetected,
-            isDarkTheme = isDarkTheme,
-            wallpaperVariant = wallpaperVariant,
+            bypassActive = bypassActive,
+            showIllustratedWallpaper = !classicAppearance,
             themeMode = themeMode,
             onSwitchThemeMode = {
                 scope.launch {
@@ -692,9 +683,8 @@ private fun UserTunnelSimpleScreen(
     ui: com.nonamevpn.app.core.ConnUiState,
     catalogItems: List<StoredProfile>,
     activeProfileId: String?,
-    whitelistDetected: Boolean,
-    isDarkTheme: Boolean,
-    wallpaperVariant: Int,
+    bypassActive: Boolean,
+    showIllustratedWallpaper: Boolean,
     themeMode: String,
     onSwitchThemeMode: () -> Unit,
     onToggleTunnel: () -> Unit,
@@ -704,7 +694,7 @@ private fun UserTunnelSimpleScreen(
     val droneExitDurationMs = 980L
     val lifecycleOwner = LocalLifecycleOwner.current
     var animationRestartToken by remember { mutableStateOf(0) }
-    var showingWhitelistScene by remember { mutableStateOf(whitelistDetected) }
+    var showingBypassScene by remember { mutableStateOf(bypassActive && showIllustratedWallpaper) }
     var dronesBlowAway by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -717,25 +707,25 @@ private fun UserTunnelSimpleScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
-    LaunchedEffect(whitelistDetected) {
-        if (whitelistDetected) {
+    LaunchedEffect(bypassActive, showIllustratedWallpaper) {
+        if (!showIllustratedWallpaper) {
             dronesBlowAway = false
-            showingWhitelistScene = true
+            showingBypassScene = false
             return@LaunchedEffect
         }
-        if (showingWhitelistScene) {
+        if (bypassActive) {
+            dronesBlowAway = false
+            showingBypassScene = true
+            return@LaunchedEffect
+        }
+        if (showingBypassScene) {
             dronesBlowAway = true
             delay(droneExitDurationMs)
             dronesBlowAway = false
-            showingWhitelistScene = false
+            showingBypassScene = false
         }
     }
 
-    val bgRes = resolveUserTunnelWallpaper(
-        variant = wallpaperVariant,
-        isDark = isDarkTheme,
-        whitelistDetected = showingWhitelistScene,
-    )
     val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
     val connected = ui.state == ConnState.Connected
     val disconnecting = ui.state == ConnState.Disconnecting
@@ -747,19 +737,7 @@ private fun UserTunnelSimpleScreen(
         else -> "auto"
     }
     Box(modifier = Modifier.fillMaxSize()) {
-        Crossfade(
-            targetState = bgRes,
-            animationSpec = tween(durationMillis = 760, easing = FastOutSlowInEasing),
-            label = "tunnel_wallpaper_crossfade",
-        ) { resId ->
-            Image(
-                painter = painterResource(resId),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        }
-        if (showingWhitelistScene) {
+        if (showingBypassScene && showIllustratedWallpaper) {
             WhitelistDroneSkyAnimation(
                 restartToken = animationRestartToken,
                 blowAway = dronesBlowAway,
@@ -1188,22 +1166,6 @@ private fun AnimatedDrone(
             contentScale = ContentScale.Fit,
             modifier = Modifier.size(spec.sizeDp.dp),
         )
-    }
-}
-
-private fun resolveUserTunnelWallpaper(
-    variant: Int,
-    isDark: Boolean,
-    whitelistDetected: Boolean,
-): Int {
-    val normalized = variant.mod(2)
-    return when {
-        whitelistDetected && normalized == 0 -> R.drawable.tunnel_user_whitelist
-        whitelistDetected -> R.drawable.tunnel_user_whitelist_alt
-        isDark && normalized == 0 -> R.drawable.tunnel_user_night
-        isDark -> R.drawable.tunnel_user_night_alt
-        normalized == 0 -> R.drawable.tunnel_user_day
-        else -> R.drawable.tunnel_user_day_alt
     }
 }
 
