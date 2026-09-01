@@ -814,8 +814,9 @@ class ConnectionManager(
     }
 
     /**
-     * After Wi‑Fi↔LTE settle: re-classify underlay (whitelist / Direct) and
-     * either soft-restart the same path or switch Direct↔Bypass in Auto mode.
+     * After Wi‑Fi↔LTE / SIM settle: re-classify underlay.
+     * VPS reachable → Direct even on БС. Otherwise 77.88.8.8 → Bypass.
+     * NoNetwork → hold (do not restart into a dead SIM gap).
      *
      * [bindNetwork] must be the real underlay (NOT_VPN); probing through the
      * tunnel would falsely report Direct while on Bypass.
@@ -829,86 +830,12 @@ class ConnectionManager(
             ?: _ui.value.activePath
             ?: return NetworkHandoverDecision.SoftRestartSamePath
         val mode = pathMode
-        val bypassAllowed = hashStore.hasHash(profile?.name)
-        val pathHealthy = currentPathLooksHealthy(currentPath)
-        bindNetwork?.networkHandle?.let { lastHandoverBindHandle = it }
-        val sameDeadUnderlay = deadDirectBindHandle != null &&
-            bindNetwork?.networkHandle == deadDirectBindHandle
-        if (underlayChanged && !sameDeadUnderlay) {
-            deadDirectBindHandle = null
-            blockBypassToDirectUntilUnderlayChange = false
-        }
-        val directFailedOnCurrentUnderlay = blockBypassToDirectUntilUnderlayChange &&
-            (sameDeadUnderlay || deadDirectBindHandle == null || bindNetwork == null)
-        val kind = underlayKindOf(bindNetwork)
-        if (mode != ConnPathMode.Auto) {
-            val decision = decideNetworkHandoverAction(
-                pathMode = mode,
-                currentPath = currentPath,
-                probedPath = currentPath,
-                bypassAllowed = bypassAllowed,
-                sessionAgeMs = handoverSessionAgeMs(),
-                currentPathHealthy = pathHealthy,
-                underlayChanged = underlayChanged,
-                allowBypassToDirect = allowBypassToDirect,
-                directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
-                underlayKind = kind,
-            )
-            AppLog.v(
-                TAG,
-                "Handover: mode=$mode path=$currentPath decision=$decision " +
-                    "underlayChanged=$underlayChanged healthy=$pathHealthy (no re-probe)",
-            )
-            return decision
-        }
-
-        if (underlayChanged && kind == UnderlayKind.Wifi) {
-            AppLog.v(
-                TAG,
-                "Handover: skip VPS probe — Wi‑Fi Auto uses Direct path=$currentPath",
-            )
-            val decision = decideNetworkHandoverAction(
-                pathMode = mode,
-                currentPath = currentPath,
-                probedPath = VpnPath.Direct,
-                bypassAllowed = bypassAllowed,
-                sessionAgeMs = handoverSessionAgeMs(),
-                currentPathHealthy = pathHealthy,
-                underlayVpsReachable = true,
-                sameProbeStreak = 1,
-                underlayChanged = true,
-                allowBypassToDirect = allowBypassToDirect,
-                directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
-                underlayKind = UnderlayKind.Wifi,
-            )
-            when (decision) {
-                NetworkHandoverDecision.NoAction -> {
-                    AppLog.v(TAG, "Handover: no action (Wi‑Fi skip-probe) path=$currentPath")
-                }
-                is NetworkHandoverDecision.SwitchPath -> {
-                    AppLog.v(TAG, "Handover: switch $currentPath → ${decision.path} (Wi‑Fi)")
-                    applySessionPath(decision.path)
-                    softRestartInProgress = true
-                    _ui.value = _ui.value.copy(
-                        state = ConnState.Connecting,
-                        activePath = decision.path,
-                        statusText = "Сеть изменилась. Выполняется переход на путь ${pathLabel(decision.path)}…",
-                        lastError = null,
-                        connectEnabled = true,
-                    )
-                }
-                NetworkHandoverDecision.SoftRestartSamePath -> {
-                    AppLog.v(TAG, "Handover: keep $currentPath (Wi‑Fi skip-probe)")
-                }
-            }
-            return decision
-        }
 
         val base = resolveProvisionUrl()
         AppLog.v(
             TAG,
-            "Handover probe start path=$currentPath endpoint=$directEndpoint provision=$base " +
-                "bind=${bindNetwork?.networkHandle}",
+            "Handover probe start path=$currentPath mode=$mode endpoint=$directEndpoint " +
+                "provision=$base bind=${bindNetwork?.networkHandle}",
         )
         val fresh = NetworkProbe.probe(
             context = appContext,
@@ -920,7 +847,8 @@ class ConnectionManager(
         AppLog.v(
             TAG,
             "Handover probe done class=${fresh.networkClass} path=${fresh.preselectedPath} " +
-                "yandex=${fresh.yandexOk} vps=${fresh.provisionOk} ${fresh.elapsedMs}ms",
+                "yandexDns=${fresh.yandexOk} cloudflare=${fresh.bigtechOk} " +
+                "health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
         )
 
         // Update UI probe snapshot without leaving Connected/Connecting.
@@ -983,6 +911,17 @@ class ConnectionManager(
                 } else {
                     AppLog.v(TAG, "Handover: keep $currentPath (probe=${fresh.preselectedPath})")
                 }
+            }
+            NetworkHandoverDecision.HoldWaitForNetwork -> {
+                AppLog.v(TAG, "Handover: hold — нет устойчивой сети, ждём underlay")
+                _ui.value = _ui.value.copy(
+                    statusText = "Ожидание сети…",
+                    softInfo = fresh.message.ifBlank {
+                        "Смена SIM/Wi‑Fi — ждём рабочий underlay."
+                    },
+                    lastError = null,
+                    connectEnabled = true,
+                )
             }
         }
         return decision
@@ -1426,9 +1365,16 @@ class ConnectionManager(
         when (result.networkClass) {
             NetworkClass.NeedBypass, NetworkClass.OpenNeedBypass ->
                 if (pathMode == ConnPathMode.Auto) {
-                    parts += "Узел управления недоступен. Будет использован обход."
+                    parts += "VPS недоступен — будет обход."
                 }
-            NetworkClass.DirectOk -> Unit
+            NetworkClass.NeedBypass ->
+                if (pathMode == ConnPathMode.Auto) {
+                    parts += "Похоже на белый список, VPS не отвечает — будет обход."
+                }
+            NetworkClass.DirectOk ->
+                if (result.whitelistRestricted) {
+                    parts += "Белый список, но VPS доступен — прямое."
+                }
             NetworkClass.Captive ->
                 parts += "Обнаружена страница авторизации сети. Сначала выполните вход в Wi‑Fi."
             else -> Unit

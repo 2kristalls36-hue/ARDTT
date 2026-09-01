@@ -1,6 +1,7 @@
 package com.nonamevpn.app.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,6 +20,22 @@ class NetworkProbeClassifyTest {
         assertEquals(VpnPath.Direct, r.preselectedPath)
         assertEquals(NetworkClass.DirectOk, r.networkClass)
         assertTrue(r.message.contains("прямое"))
+        assertFalse(r.whitelistRestricted)
+    }
+
+    @Test
+    fun vpsOnWhitelistStillPicksDirect() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+        )
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertTrue(r.whitelistRestricted)
+        assertTrue(r.message.contains("белый список"))
     }
 
     @Test
@@ -64,6 +81,34 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
+    fun whitelistWithoutVpsPicksBypass() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = false,
+        )
+        assertEquals(VpnPath.Bypass, r.preselectedPath)
+        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertTrue(r.whitelistRestricted)
+        assertTrue(r.message.contains("белый список"))
+    }
+
+    @Test
+    fun vpsAloneWithoutPublicDnsStillDirect() {
+        val r = NetworkProbe.classify(
+            systemOnline = false,
+            yandexOk = false,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+        )
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+    }
+
+    @Test
     fun captiveBlocksConnect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
@@ -78,41 +123,90 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun vpsProbeTargetUsesProvisionIpAndPort() {
-        val t = NetworkProbe.vpsProbeTarget("http://159.194.225.162:9100", "10.0.0.1:51820")
-        assertEquals("159.194.225.162" to 9100, t)
-    }
-
-    @Test
-    fun vpsProbeTargetDefaultsPortAndFallsBackToDirectHost() {
-        assertEquals(
-            "159.194.225.162" to 9100,
-            NetworkProbe.vpsProbeTarget("http://159.194.225.162", null),
+    fun bothPublicIpsDeadIsNoNetwork() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = false,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = false,
         )
+        assertNull(r.preselectedPath)
+        assertEquals(NetworkClass.NoNetwork, r.networkClass)
+    }
+
+    @Test
+    fun decideProbePathVpsWinsImmediately() {
         assertEquals(
-            "203.0.113.9" to 9100,
-            NetworkProbe.vpsProbeTarget(null, "203.0.113.9:51820"),
+            ProbePathHint.Direct,
+            NetworkProbe.decideProbePath(
+                provisionOk = true,
+                yandexOk = null,
+                cloudflareOk = null,
+                captive = null,
+            ),
         )
-        assertNull(NetworkProbe.vpsProbeTarget(null, null))
     }
 
     @Test
-    fun numericIpv4SkipsDns() {
-        val addr = NetworkProbe.numericIpv4("77.88.8.8")
-        assertEquals("77.88.8.8", addr?.hostAddress)
-        assertNull(NetworkProbe.numericIpv4("yandex.ru"))
-        assertNull(NetworkProbe.numericIpv4("256.0.0.1"))
+    fun decideProbePathWaitsForVpsWhenInternetAlreadyUp() {
+        assertEquals(
+            ProbePathHint.Wait,
+            NetworkProbe.decideProbePath(
+                provisionOk = null,
+                yandexOk = true,
+                cloudflareOk = false,
+                captive = null,
+            ),
+        )
     }
 
     @Test
-    fun dnsQueryIsWellFormed() {
-        val q = NetworkProbe.buildDnsQuery("ya.ru")
-        assertTrue(q.size > 16)
-        assertEquals(0x12.toByte(), q[0])
-        assertEquals(1.toByte(), q[5])
-        val encoded = NetworkProbe.encodeDnsName("ya.ru")
-        assertEquals(1 + 2 + 1 + 2 + 1, encoded.size)
-        assertEquals(2.toByte(), encoded[0])
-        assertEquals('y'.code.toByte(), encoded[1])
+    fun decideProbePathBypassWhenVpsDeadAndYandexLives() {
+        assertEquals(
+            ProbePathHint.Bypass,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = true,
+                cloudflareOk = null,
+                captive = null,
+            ),
+        )
+    }
+
+    @Test
+    fun decideProbePathNoNetworkWhenEverythingFailed() {
+        assertEquals(
+            ProbePathHint.NoNetwork,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = false,
+                cloudflareOk = false,
+                captive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun decideProbePathCaptiveOnlyAfterExplicitCheck() {
+        assertEquals(
+            ProbePathHint.Captive,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = false,
+                cloudflareOk = false,
+                captive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun provisionUrlHostAndPort() {
+        assertEquals("10.1.2.3" to 9100, NetworkProbe.parseProvisionEndpoint("http://10.1.2.3:9100"))
+        assertEquals("10.1.2.3" to 9100, NetworkProbe.parseProvisionEndpoint("http://10.1.2.3:9100/"))
+        assertEquals("example.com" to 443, NetworkProbe.parseProvisionEndpoint("https://example.com"))
+        assertEquals(null, NetworkProbe.parseProvisionEndpoint(null))
+        assertEquals(null, NetworkProbe.parseProvisionEndpoint("   "))
+        assertTrue(!NetworkProbe.provisionReachable(null, 200, bindNetwork = null))
     }
 }
