@@ -107,6 +107,7 @@ fun SettingsScreen(
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val illustratedWallpaper by settings.illustratedWallpaperEnabled.collectAsStateWithLifecycle(initialValue = true)
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
@@ -401,8 +402,8 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f + 0.50f * appearanceHighlightAlpha),
             ),
         ) {
+            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             if (!recordingActive) {
-                Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -412,6 +413,16 @@ fun SettingsScreen(
                     DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
                 }
             }
+            RowSetting(
+                title = "Обои и дроны",
+                subtitle = if (illustratedWallpaper) {
+                    "Картинки на всех вкладках. На туннеле — дроны при обходе."
+                } else {
+                    "Выключены. Фон — градиент, без дронов."
+                },
+                checked = illustratedWallpaper,
+                onCheckedChange = { scope.launch { settings.setIllustratedWallpaperEnabled(it) } },
+            )
             RowSetting(
                 title = "Уведомление",
                 subtitle = if (notifVisible) {

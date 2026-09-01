@@ -181,6 +181,7 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val illustratedWallpaper by settings.illustratedWallpaperEnabled.collectAsStateWithLifecycle(initialValue = true)
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -321,6 +322,7 @@ fun TunnelScreen(
             catalogItems = catalog.items,
             activeProfileId = catalog.activeId,
             bypassActive = bypassActive,
+            showIllustratedWallpaper = illustratedWallpaper,
             themeMode = themeMode,
             onSwitchThemeMode = {
                 scope.launch {
@@ -682,6 +684,7 @@ private fun UserTunnelSimpleScreen(
     catalogItems: List<StoredProfile>,
     activeProfileId: String?,
     bypassActive: Boolean,
+    showIllustratedWallpaper: Boolean,
     themeMode: String,
     onSwitchThemeMode: () -> Unit,
     onToggleTunnel: () -> Unit,
@@ -691,7 +694,7 @@ private fun UserTunnelSimpleScreen(
     val droneExitDurationMs = 980L
     val lifecycleOwner = LocalLifecycleOwner.current
     var animationRestartToken by remember { mutableStateOf(0) }
-    var showingBypassScene by remember { mutableStateOf(bypassActive) }
+    var showingBypassScene by remember { mutableStateOf(bypassActive && showIllustratedWallpaper) }
     var dronesBlowAway by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -704,7 +707,12 @@ private fun UserTunnelSimpleScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
-    LaunchedEffect(bypassActive) {
+    LaunchedEffect(bypassActive, showIllustratedWallpaper) {
+        if (!showIllustratedWallpaper) {
+            dronesBlowAway = false
+            showingBypassScene = false
+            return@LaunchedEffect
+        }
         if (bypassActive) {
             dronesBlowAway = false
             showingBypassScene = true
@@ -729,7 +737,7 @@ private fun UserTunnelSimpleScreen(
         else -> "auto"
     }
     Box(modifier = Modifier.fillMaxSize()) {
-        if (showingBypassScene) {
+        if (showingBypassScene && showIllustratedWallpaper) {
             WhitelistDroneSkyAnimation(
                 restartToken = animationRestartToken,
                 blowAway = dronesBlowAway,
