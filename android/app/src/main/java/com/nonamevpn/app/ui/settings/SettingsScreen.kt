@@ -498,7 +498,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                 ) {
-                    Text(if (hasPin) "Активировать режим администратора" else "Создать PIN и активировать")
+                    Text(if (hasPin) "Разблокировать админа" else "Создать PIN и войти")
                 }
             } else {
                 RowSetting(

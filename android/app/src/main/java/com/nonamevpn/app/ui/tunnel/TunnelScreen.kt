@@ -764,7 +764,7 @@ fun TunnelScreen(
                         .height(48.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("Войти во ВКонтакте", fontWeight = FontWeight.SemiBold)
+                    Text("Войти в VK…", fontWeight = FontWeight.SemiBold)
                 }
             } else {
                 OutlinedButton(
@@ -790,7 +790,7 @@ fun TunnelScreen(
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Text(
-                        if (ui.hasCallHash) "Создать новый код звонка" else "Создать код звонка",
+                        if (ui.hasCallHash) "Создать новый звонок" else "Создать звонок",
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -802,7 +802,7 @@ fun TunnelScreen(
                     },
                     enabled = !sessionUp && !callBusy,
                 ) {
-                    Text("Завершить сессию ВКонтакте")
+                    Text("Выйти из VK")
                 }
             }
             OutlinedButton(
