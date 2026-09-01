@@ -110,10 +110,16 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun userCanDisableWallpaperAndDrones() {
-        assertFalse(tunnelWallpaperVisible(admin = false, enabled = false))
-        assertTrue(tunnelWallpaperVisible(admin = false, enabled = true))
-        assertFalse(tunnelWallpaperVisible(admin = true, enabled = true))
+    fun classicAppearanceRestoresGradientInUserMode() {
+        assertFalse(
+            tunnelWallpaperVisible(admin = false, classicAppearance = true),
+        )
+        assertTrue(
+            tunnelWallpaperVisible(admin = false, classicAppearance = false),
+        )
+        assertFalse(
+            tunnelWallpaperVisible(admin = true, classicAppearance = false),
+        )
     }
 
     @Test
