@@ -1,10 +1,19 @@
 #!/bin/bash
-# ARDTT VPS installer — run on the server after stack.tar.gz is uploaded.
-# Expects: /opt/nonamevpn/stack.tar.gz and this script.
-# Leaves only: stack/ (compose + data), running images/containers. No build cache / apt junk.
+# ARDTT VPS installer — canonical copy lives here (server/install.sh).
+# Android APK gets a copy via scripts/pack-deploy-assets.sh → assets/deploy/install.sh.
 #
-# Critical: build new images BEFORE stopping the old stack. On low-RAM VPS a mid-build
-# SSH drop used to leave the host with compose already down and no healthy containers.
+# Product path (from the app): SSH upload of stack.tar.gz + this script, then:
+#   NVPN_PUBLIC_HOST=… bash /opt/nonamevpn/install.sh
+# Ops path (sources already on disk): same script, no archive required if
+#   $INSTALL_DIR/stack/docker-compose.yml exists (re-run after a failed build).
+#
+# Protocol lines consumed by the Android DeployEngine:
+#   NVPN_PROGRESS|<0..1>|<step>
+#   NVPN_ERROR|<message>
+#   NVPN_DONE|install_dir=…|public_host=…
+#   NVPN_WARN|<message>
+#
+# Leaves: stack/ (compose + data) and running images. Drops build cache / apt junk.
 set -euo pipefail
 
 INSTALL_DIR="${NVPN_INSTALL_DIR:-/opt/nonamevpn}"
@@ -12,11 +21,7 @@ PUBLIC_HOST="${NVPN_PUBLIC_HOST:-}"
 DIRECT_PORT="${NVPN_DIRECT_PORT:-51820}"
 BYPASS_PORT="${NVPN_BYPASS_PORT:-56003}"
 PROVISION_LISTEN="${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}"
-CASCADE_ENABLED="${NVPN_CASCADE_ENABLED:-0}"
-CASCADE_HOST="${NVPN_CASCADE_HOST:-}"
-CASCADE_PORT="${NVPN_CASCADE_PORT:-22}"
-CASCADE_USER="${NVPN_CASCADE_USER:-}"
-CASCADE_PASSWORD="${NVPN_CASCADE_PASSWORD:-}"
+TELEMETRY_PORT="${NVPN_TELEMETRY_PORT:-9200}"
 KEEP_INSTALL_LOG="${NVPN_KEEP_INSTALL_LOG:-0}"
 COMPOSE_PROJECT="${NVPN_COMPOSE_PROJECT:-stack}"
 MIN_SWAP_MB="${NVPN_MIN_SWAP_MB:-2048}"
@@ -148,7 +153,7 @@ stop_stack() {
 }
 
 prog 0.05 "Проверка прав"
-if [ "$(id -u)" -ne 0 ]; then
+if [ "${NVPN_SKIP_ROOT_CHECK:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
   die "Нужен root (или запуск через sudo)"
 fi
 
@@ -158,7 +163,29 @@ prog 0.10 "Подготовка каталога $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-[ -f "$INSTALL_DIR/stack.tar.gz" ] || die "Не найден $INSTALL_DIR/stack.tar.gz"
+if [ -f "$INSTALL_DIR/stack.tar.gz" ]; then
+  prog 0.15 "Распаковка стека"
+  if [ -d "$INSTALL_DIR/stack/data" ]; then
+    rm -rf /tmp/nvpn-data-bak
+    cp -a "$INSTALL_DIR/stack/data" /tmp/nvpn-data-bak
+  fi
+  rm -rf "$INSTALL_DIR/stack"
+  mkdir -p "$INSTALL_DIR/stack"
+  tar -xzf "$INSTALL_DIR/stack.tar.gz" -C "$INSTALL_DIR/stack"
+  if [ -d /tmp/nvpn-data-bak ]; then
+    mkdir -p "$INSTALL_DIR/stack/data"
+    cp -a /tmp/nvpn-data-bak/. "$INSTALL_DIR/stack/data/"
+    rm -rf /tmp/nvpn-data-bak
+  fi
+  rm -f "$INSTALL_DIR/stack.tar.gz"
+elif [ -f "$INSTALL_DIR/stack/docker-compose.yml" ]; then
+  # Tar is deleted on every previous run (success or fail). Allow a re-run
+  # against the already unpacked tree so a failed compose build is recoverable
+  # without re-uploading the archive from the phone.
+  prog 0.15 "Архив не найден — используем уже распакованный стек"
+else
+  die "Не найден $INSTALL_DIR/stack.tar.gz"
+fi
 
 # Unpack into staging while the OLD stack (if any) keeps running.
 STAGING="$INSTALL_DIR/stack.staging"
@@ -182,30 +209,32 @@ if [ -n "$missing_contexts" ]; then
   die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Обновите APK или пересоберите архив scripts/pack-deploy-assets.sh"
 fi
 
-prog 0.25 "Установка Docker (если нужно)"
-if ! command -v docker >/dev/null 2>&1; then
-  if command -v apt-get >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y --no-install-recommends ca-certificates curl gnupg
-    curl -fsSL https://get.docker.com | sh
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf -y install docker docker-compose-plugin || curl -fsSL https://get.docker.com | sh
-  else
-    curl -fsSL https://get.docker.com | sh
+if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
+  prog 0.25 "Установка Docker (если нужно)"
+  if ! command -v docker >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -y
+      apt-get install -y --no-install-recommends ca-certificates curl gnupg
+      curl -fsSL https://get.docker.com | sh
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf -y install docker docker-compose-plugin || curl -fsSL https://get.docker.com | sh
+    else
+      curl -fsSL https://get.docker.com | sh
+    fi
+    systemctl enable --now docker || service docker start || true
+    cleanup_host_packages
   fi
-  systemctl enable --now docker || service docker start || true
-  cleanup_host_packages
-fi
 
-if ! docker compose version >/dev/null 2>&1; then
-  if docker-compose version >/dev/null 2>&1; then
-    compose() { COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose "$@"; }
+  if ! docker compose version >/dev/null 2>&1; then
+    if docker-compose version >/dev/null 2>&1; then
+      compose() { docker-compose "$@"; }
+    else
+      die "docker compose недоступен"
+    fi
   else
-    die "docker compose недоступен"
+    compose() { docker compose "$@"; }
   fi
-else
-  compose() { COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose "$@"; }
 fi
 
 mem_mb="$(mem_total_mb)"
@@ -223,8 +252,10 @@ if [ -z "$DEPLOY_VERSION" ] && [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
 fi
 [ -n "$DEPLOY_VERSION" ] || DEPLOY_VERSION="unknown"
 printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
-printf '%s\n' "$DEPLOY_VERSION" > "$STAGING/DEPLOY_VERSION"
-cat > "$STAGING/.env" <<EOF
+printf '%s\n' "$DEPLOY_VERSION" > "$STACK/DEPLOY_VERSION"
+mkdir -p "$STACK/data"
+printf '%s\n' "$DEPLOY_VERSION" > "$STACK/data/DEPLOY_VERSION"
+cat > "$STACK/.env" <<EOF
 NVPN_PUBLIC_HOST=$PUBLIC_HOST
 NVPN_DIRECT_PORT=$DIRECT_PORT
 NVPN_BYPASS_PORT=$BYPASS_PORT
@@ -238,8 +269,13 @@ NVPN_CASCADE_PASSWORD=$CASCADE_PASSWORD
 NVPN_WARP_GOMEMLIMIT=400MiB
 EOF
 
-mkdir -p "$STAGING/data"
-chmod 700 "$STAGING/data"
+chmod 700 "$STACK/data"
+
+if [ "${NVPN_DRY_RUN:-0}" = "1" ]; then
+  prog 1.00 "dry-run: стек подготовлен"
+  echo "NVPN_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION"
+  exit 0
+fi
 
 prog 0.45 "Очистка места перед сборкой"
 reclaim_disk
@@ -379,16 +415,16 @@ if command -v ufw >/dev/null 2>&1; then
   ufw allow "${DIRECT_PORT}/udp" || true
   ufw allow "${BYPASS_PORT}/udp" || true
   ufw allow 9100/tcp || true
-  ufw allow 9200/tcp || true
+  ufw allow "${TELEMETRY_PORT}/tcp" || true
 fi
 if command -v firewall-cmd >/dev/null 2>&1; then
   firewall-cmd --add-port="${DIRECT_PORT}/udp" --permanent || true
   firewall-cmd --add-port="${BYPASS_PORT}/udp" --permanent || true
   firewall-cmd --add-port=9100/tcp --permanent || true
-  firewall-cmd --add-port=9200/tcp --permanent || true
+  firewall-cmd --add-port="${TELEMETRY_PORT}/tcp" --permanent || true
   firewall-cmd --reload || true
 fi
 
 prog 1.00 "Готово"
-echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST"
+echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION"
 echo "Создать пользователя: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"
