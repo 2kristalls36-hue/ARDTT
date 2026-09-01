@@ -28,9 +28,9 @@ fun TunnelWallpaperBackdrop(
 ) {
     val colors = MaterialTheme.colorScheme
     val overlayColor = when (wallpaper.time) {
-        TunnelWallpaperTime.Night -> Color(0xFF0F0E13).copy(alpha = 0.42f)
-        TunnelWallpaperTime.Evening -> Color(0xFF1A120C).copy(alpha = 0.28f)
-        TunnelWallpaperTime.Day -> Color(0xFFF7F5F0).copy(alpha = 0.30f)
+        TunnelWallpaperTime.Night -> Color(0xFF0F0E13).copy(alpha = 0.20f)
+        TunnelWallpaperTime.Evening -> Color(0xFF1A120C).copy(alpha = 0.15f)
+        TunnelWallpaperTime.Day -> Color(0xFFF7F5F0).copy(alpha = 0.15f)
     }
     val scene = wallpaper.scene
     val dayBmp = TunnelWallpaperCache.bitmap(scene, TunnelWallpaperTime.Day)
