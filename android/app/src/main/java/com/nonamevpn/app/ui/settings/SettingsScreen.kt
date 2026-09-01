@@ -70,6 +70,7 @@ import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
+import com.nonamevpn.app.ui.theme.NvpnColors
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.launch
 
@@ -585,7 +586,12 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 }
             }
             adminHint?.let {
-                Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                val hintColor = if (it == "Режим администратора активирован") {
+                    NvpnColors.connected
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
+                Text(it, color = hintColor, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
