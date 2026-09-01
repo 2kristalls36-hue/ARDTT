@@ -3,25 +3,35 @@ package com.nonamevpn.app.ui.settings
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,50 +52,64 @@ import kotlinx.coroutines.launch
 fun CallHashSettingsCard(
     modifier: Modifier = Modifier,
 ) {
+    AppSectionCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        CallHashSettingsContent(showHeader = true)
+    }
+}
+
+@Composable
+fun CallHashSettingsContent(
+    showHeader: Boolean,
+) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val conn = remember { ConnectionManager.get(context) }
     val profiles = remember { ProfileRepository(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
     var showManual by remember { mutableStateOf(false) }
+    var manualDraft by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
+    var vkDisplayName by remember { mutableStateOf<String?>(null) }
 
     val vpnActive = ui.state == ConnState.Connecting ||
         ui.state == ConnState.Connected ||
         ui.state == ConnState.PausedTrustedWifi ||
         ui.state == ConnState.Disconnecting
     val canEdit = profile != null && !vpnActive && !busy
+    LaunchedEffect(vkLoggedIn) {
+        vkDisplayName = if (vkLoggedIn) VkSession.resolveDisplayName() else null
+    }
 
-    AppSectionCard(
-        modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
+    Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            "Код звонка",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
+        if (showHeader) {
+            Text(
+                "Код звонка",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         Text(
             "Нужен для обхода. Хранится на устройстве отдельно от профиля и не сбрасывается при обновлении.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(
-            when {
-                vpnActive -> "Недоступно во время соединения."
-                !message.isNullOrBlank() -> message.orEmpty()
-                ui.hasCallHash -> "Код сохранён на этом устройстве."
-                vkLoggedIn -> "Вход выполнен. Создайте код звонка."
-                profile == null -> "Сначала выберите профиль."
-                else -> "Код не задан."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        if (vkLoggedIn) {
+            Text(
+                "Выполнен вход под: ${vkDisplayName?.takeIf { it.isNotBlank() } ?: "аккаунт ВКонтакте"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -115,6 +139,30 @@ fun CallHashSettingsCard(
             ) {
                 Text("Авторизация")
             }
+            Button(
+                onClick = {
+                    VkSession.clear()
+                    vkLoggedIn = false
+                    vkDisplayName = null
+                    message = "Сессия ВКонтакте завершена."
+                },
+                enabled = !vpnActive && !busy && vkLoggedIn,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                ),
+            ) {
+                Text("Завершить сессию")
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             OutlinedButton(
                 onClick = {
                     scope.launch {
@@ -135,33 +183,35 @@ fun CallHashSettingsCard(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                Text("Создать")
+                Text("Создать код")
             }
-        }
-        OutlinedButton(
-            onClick = { showManual = true },
-            enabled = canEdit,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-        ) {
-            Text("Ввести вручную")
-        }
-        if (vkLoggedIn) {
-            TextButton(
-                onClick = {
-                    VkSession.clear()
-                    vkLoggedIn = false
-                    message = "Сессия ВКонтакте завершена."
-                },
-                enabled = !vpnActive && !busy,
+            OutlinedButton(
+                onClick = { showManual = true },
+                enabled = canEdit,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
             ) {
-                Text("Завершить сессию ВКонтакте")
+                Text("Ввести вручную")
             }
         }
+        Text(
+            when {
+                vpnActive -> "Недоступно во время соединения."
+                !message.isNullOrBlank() -> message.orEmpty()
+                ui.hasCallHash -> "Код сохранён на этом устройстве."
+                vkLoggedIn -> "Вход выполнен. Создайте код звонка."
+                profile == null -> "Сначала выберите профиль."
+                else -> "Код не задан."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
     }
 
     if (showManual) {
         CallHashDialog(
+            value = manualDraft,
+            onValueChange = { manualDraft = it },
             onDismiss = { showManual = false },
             onSave = { raw ->
                 val cleaned = VkUrl.strip(raw)
@@ -178,24 +228,31 @@ fun CallHashSettingsCard(
                 showManual = false
                 message = "Код звонка удалён."
             },
+            onCopy = {
+                if (manualDraft.isBlank()) return@CallHashDialog
+                clipboard.setText(AnnotatedString(manualDraft))
+                Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
+            },
         )
     }
 }
 
 @Composable
 private fun CallHashDialog(
+    value: String,
+    onValueChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     onClear: () -> Unit,
+    onCopy: () -> Unit,
 ) {
-    var text by remember { mutableStateOf("") }
     NvpnDialog(
         title = "Код звонка",
         onDismissRequest = onDismiss,
         confirmAction = NvpnDialogAction(
             text = "Сохранить",
-            onClick = { onSave(text) },
-            enabled = text.isNotBlank(),
+            onClick = { onSave(value) },
+            enabled = value.isNotBlank(),
         ),
         dismissAction = NvpnDialogAction("Отмена", onDismiss),
         secondaryAction = NvpnDialogAction(
@@ -211,12 +268,21 @@ private fun CallHashDialog(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
+                value = value,
+                onValueChange = onValueChange,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true,
             )
+            OutlinedButton(
+                onClick = onCopy,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                enabled = value.isNotBlank(),
+            ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null)
+                Text("Копировать", modifier = Modifier.padding(start = 8.dp))
+            }
         }
     }
 }

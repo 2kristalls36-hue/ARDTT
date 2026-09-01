@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 
 /**
- * Full-screen illustrated wallpaper for the Tunnel tab.
+ * Full-screen illustrated wallpaper for user-mode tabs.
  *
  * Draws process-cached bitmaps for the chosen scene only. Field is enum
  * ordinal 0 — never load it as a placeholder while another scene decodes.

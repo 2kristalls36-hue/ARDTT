@@ -9,7 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -27,19 +28,32 @@ import com.google.zxing.common.BitMatrix
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+data class QrBitmapState(
+    val loading: Boolean = false,
+    val bitmap: ImageBitmap? = null,
+)
 
 internal const val QR_QUIET_MODULES = 4
 internal const val QR_MODULE_PX = 12
 
 @Composable
-fun rememberQrBitmap(content: String): ImageBitmap? =
-    remember(content) {
+fun rememberQrBitmap(content: String, sizePx: Int = 512): QrBitmapState {
+    val state by produceState(initialValue = QrBitmapState(loading = content.isNotBlank()), content, sizePx) {
         if (content.isBlank()) {
-            null
-        } else {
-            runCatching { encodeQrBitmap(content).asImageBitmap() }.getOrNull()
+            value = QrBitmapState()
+            return@produceState
         }
+        value = QrBitmapState(loading = true)
+        val bitmap = withContext(Dispatchers.Default) {
+            runCatching { encodeQr(content, sizePx) }.getOrNull()
+        }
+        value = QrBitmapState(loading = false, bitmap = bitmap)
     }
+    return state
+}
 
 /** Full-width black-on-white QR. No rounded clip on the modules — cameras need intact finders. */
 @Composable
@@ -48,7 +62,8 @@ fun QrCodeImage(
     modifier: Modifier = Modifier,
     contentDescription: String = "QR-код профиля",
 ) {
-    val qr = rememberQrBitmap(content) ?: return
+    val qr = rememberQrBitmap(content)
+    val bitmap = qr.bitmap ?: return
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -57,7 +72,7 @@ fun QrCodeImage(
         tonalElevation = 0.dp,
     ) {
         Image(
-            bitmap = qr,
+            bitmap = bitmap,
             contentDescription = contentDescription,
             contentScale = ContentScale.Fit,
             filterQuality = FilterQuality.None,
@@ -137,4 +152,26 @@ internal fun encodeQrBitmap(content: String, modulePx: Int = QR_MODULE_PX): Bitm
         }
     }
     return bmp
+}
+
+private fun encodeQr(content: String, sizePx: Int): ImageBitmap {
+    val hints = mapOf(
+        EncodeHintType.CHARACTER_SET to "UTF-8",
+        EncodeHintType.MARGIN to 1,
+        EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L,
+    )
+    val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
+    val width = matrix.width
+    val height = matrix.height
+    require(width > 0 && height > 0) { "QR matrix is empty" }
+    val pixels = IntArray(width * height)
+    var index = 0
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            pixels[index++] = if (matrix.get(x, y)) AndroidColor.BLACK else AndroidColor.WHITE
+        }
+    }
+    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    bmp.setPixels(pixels, 0, width, 0, 0, width, height)
+    return bmp.asImageBitmap()
 }

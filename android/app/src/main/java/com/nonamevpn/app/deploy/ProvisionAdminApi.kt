@@ -319,6 +319,9 @@ object ProvisionAdminApi {
                 if (code > 0) deviceAppVersionCodes[key] = code
             }
         }
+        val downBytes = optLongAny(o, "downBytes", "down_bytes")
+        val upBytes = optLongAny(o, "upBytes", "up_bytes")
+        val trafficLimitBytes = optLongAny(o, "trafficLimitBytes", "traffic_limit_bytes")
         return UserSummary(
             name = o.optString("name"),
             hostId = o.optInt("hostId", 0),
@@ -333,9 +336,9 @@ object ProvisionAdminApi {
             lastExternalIp = o.optString("lastExternalIp"),
             online = o.optBoolean("online", false),
             offlineForSec = o.optLong("offlineForSec", 0L),
-            downBytes = o.optLong("downBytes", 0L),
-            upBytes = o.optLong("upBytes", 0L),
-            trafficLimitBytes = o.optLong("trafficLimitBytes", 0L),
+            downBytes = downBytes,
+            upBytes = upBytes,
+            trafficLimitBytes = trafficLimitBytes,
             deviceModels = deviceModels,
             appVersion = o.optString("appVersion").trim(),
             appVersionCode = o.optInt("appVersionCode", 0),
@@ -348,6 +351,15 @@ object ProvisionAdminApi {
         val message = httpErrorMessage(code, body)
         AppLog.e("Provision", "$op → $message")
         return message
+    }
+
+    private fun optLongAny(o: JSONObject, vararg keys: String): Long {
+        for (key in keys) {
+            if (o.has(key) && !o.isNull(key)) {
+                return o.optLong(key, 0L)
+            }
+        }
+        return 0L
     }
 }
 

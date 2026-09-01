@@ -56,6 +56,13 @@ class ServersRepository(context: Context) {
                     .put("publicHost", t.publicHost.ifBlank { t.host })
                     .put("directPort", t.directPort)
                     .put("bypassPort", t.bypassPort)
+                    .put("cascadeEnabled", t.cascadeEnabled)
+                    .put("cascadeHost", t.cascadeHost)
+                    .put("cascadePort", t.cascadePort)
+                    .put("cascadeUser", t.cascadeUser)
+                    .put("cascadePassword", t.cascadePassword)
+                    .put("osId", t.osId)
+                    .put("osVersion", t.osVersion)
                     .put("lastDeployedAtMs", t.lastDeployedAtMs),
             )
         }
@@ -84,6 +91,13 @@ class ServersRepository(context: Context) {
                             publicHost = o.optString("publicHost", ""),
                             directPort = o.optInt("directPort", 51820),
                             bypassPort = o.optInt("bypassPort", 56003),
+                            cascadeEnabled = o.optBoolean("cascadeEnabled", false),
+                            cascadeHost = o.optString("cascadeHost", ""),
+                            cascadePort = o.optInt("cascadePort", 22),
+                            cascadeUser = o.optString("cascadeUser", ""),
+                            cascadePassword = o.optString("cascadePassword", ""),
+                            osId = o.optString("osId", ""),
+                            osVersion = o.optString("osVersion", ""),
                             lastDeployedAtMs = o.optLong("lastDeployedAtMs", 0L),
                         ),
                     )

@@ -33,7 +33,7 @@ object ProfileLinkCodec {
     }
 
     fun buildLink(profile: VpnProfile): String {
-        val json = VpnProfileJson.encode(profile)
+        val json = VpnProfileJson.encode(profile, pretty = false)
         val encrypted = encrypt(json.toByteArray(StandardCharsets.UTF_8))
         val payload = Base64.getUrlEncoder().withoutPadding().encodeToString(encrypted)
         val name = URLEncoder.encode(profile.name, StandardCharsets.UTF_8.name())

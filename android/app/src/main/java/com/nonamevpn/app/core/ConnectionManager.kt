@@ -699,6 +699,10 @@ class ConnectionManager(
 
     fun disconnect() {
         val state = _ui.value.state
+        if (state == ConnState.Disconnecting) {
+            AppLog.v(TAG, "Disconnect ignored: already disconnecting")
+            return
+        }
         if (state == ConnState.Probing) {
             probeJob?.cancel()
             probeJob = null
@@ -733,28 +737,51 @@ class ConnectionManager(
         connectJob = null
         transportRestartJob?.cancel()
         transportRestartJob = null
+        // Flip state synchronously to avoid double-disconnect race on rapid taps.
+        _ui.value = _ui.value.copy(
+            state = ConnState.Disconnecting,
+            statusText = "Отключение…",
+            connectEnabled = false,
+            lastError = null,
+        )
         scope.launch {
-            _ui.value = _ui.value.copy(
-                state = ConnState.Disconnecting,
-                statusText = "Отключение…",
-                connectEnabled = false,
-                lastError = null,
-                callRecreatePrompt = null,
-            )
-            // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
-            // If user turned hideIp off, clear server route.
-            if (!_ui.value.hideIp) {
-                runCatching { syncHideIpToProvision(false, viaVpn = hideIpViaVpn()) }
+            try {
+                // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
+                // If user turned hideIp off, clear server route.
+                if (!_ui.value.hideIp) {
+                    runCatching { syncHideIpToProvision(false, viaVpn = hideIpViaVpn()) }
+                }
+                stopTunnel()
+                _ui.value = _ui.value.copy(
+                    state = ConnState.Ready,
+                    activePath = null,
+                    statusText = _ui.value.probe?.message ?: "Готово",
+                    softInfo = softInfoFor(_ui.value.probe),
+                    connectEnabled = connectAllowed(_ui.value.probe),
+                    lastError = null,
+                    callRecreatePrompt = null,
+                )
+            } catch (_: CancellationException) {
+                _ui.value = _ui.value.copy(
+                    state = ConnState.Ready,
+                    activePath = null,
+                    statusText = _ui.value.probe?.message ?: "Готово",
+                    softInfo = softInfoFor(_ui.value.probe),
+                    connectEnabled = connectAllowed(_ui.value.probe),
+                    lastError = null,
+                    callRecreatePrompt = null,
+                )
+            } catch (t: Throwable) {
+                val msg = t.message?.take(220) ?: t.javaClass.simpleName
+                AppLog.e(TAG, "Disconnect failed: $msg")
+                _ui.value = _ui.value.copy(
+                    state = ConnState.Error,
+                    activePath = null,
+                    statusText = "Ошибка отключения",
+                    lastError = msg,
+                    connectEnabled = connectAllowed(_ui.value.probe),
+                )
             }
-            stopTunnel()
-            _ui.value = _ui.value.copy(
-                state = ConnState.Ready,
-                activePath = null,
-                statusText = _ui.value.probe?.message ?: "Готово",
-                softInfo = softInfoFor(_ui.value.probe),
-                connectEnabled = connectAllowed(_ui.value.probe),
-                lastError = null,
-            )
         }
     }
 
