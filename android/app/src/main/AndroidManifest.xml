@@ -88,6 +88,10 @@
                 android:resource="@xml/tunnel_widget_info" />
         </receiver>
 
+        <receiver
+            android:name=".update.AppUpdateNotificationReceiver"
+            android:exported="false" />
+
         <service
             android:name=".QuickToggleTileService"
             android:label="@string/tile_label"
