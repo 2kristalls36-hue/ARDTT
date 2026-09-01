@@ -114,7 +114,7 @@ internal fun ClientSettingsSheet(
                     link.isNotBlank() -> {
                         QrCodeImage(
                             content = link,
-                            modifier = Modifier.padding(horizontal = 10.dp),
+                            modifier = Modifier.padding(horizontal = 22.dp),
                         )
                     }
                 }

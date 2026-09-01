@@ -62,11 +62,11 @@ fun QrCodeImage(
     modifier: Modifier = Modifier,
     contentDescription: String = "QR-код профиля",
 ) {
-    val qr = rememberQrBitmap(content)
+    val qr = rememberQrBitmap(content, 1024)
     val bitmap = qr.bitmap ?: return
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(16.dp),
         color = Color.White,
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
