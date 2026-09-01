@@ -473,9 +473,9 @@ fun SettingsContent(settings: AppSettingsRepository) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Система и доступ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Туннель touch&GO", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "ARDTT — управление подключением, обновлениями и служебными функциями.",
+                "ARDTT — туннель для быстрого подключения в режиме touch&GO: запустил и работаешь.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
