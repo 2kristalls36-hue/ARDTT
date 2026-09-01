@@ -73,7 +73,7 @@ class VkLoginActivity : ComponentActivity() {
         }
 
         setContent {
-            ArdttTheme {
+            ArdttTheme(wallpaperAvgColor = null) {
                 var loading by remember { mutableStateOf(true) }
                 Column(
                     modifier = Modifier
