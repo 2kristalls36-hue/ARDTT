@@ -1295,15 +1295,25 @@ private fun ProfileSwitcherBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        OutlinedButton(
-            onClick = onPrev,
-            enabled = canSwitch && !busy,
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier
-                .height(NvpnBottomChrome.ButtonHeight)
-                .width(62.dp),
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий профиль")
+        val commonButtonColors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+            disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+        )
+        if (canSwitch) {
+            Button(
+                onClick = onPrev,
+                enabled = !busy,
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .height(NvpnBottomChrome.ButtonHeight)
+                    .width(62.dp),
+                colors = commonButtonColors,
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий профиль")
+            }
         }
         Button(
             onClick = { if (canSwitch) onNext() },
@@ -1312,12 +1322,7 @@ private fun ProfileSwitcherBar(
             modifier = Modifier
                 .weight(1f)
                 .height(NvpnBottomChrome.ButtonHeight),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
-                disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
-            ),
+            colors = commonButtonColors,
         ) {
             Text(
                 activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль",
@@ -1326,15 +1331,19 @@ private fun ProfileSwitcherBar(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        OutlinedButton(
-            onClick = onNext,
-            enabled = canSwitch && !busy,
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier
-                .height(NvpnBottomChrome.ButtonHeight)
-                .width(62.dp),
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий профиль")
+        if (canSwitch) {
+            Button(
+                onClick = onNext,
+                enabled = !busy,
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .height(NvpnBottomChrome.ButtonHeight)
+                    .width(62.dp),
+                colors = commonButtonColors,
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий профиль")
+            }
         }
     }
 }
