@@ -10,7 +10,7 @@ class TunnelWallpaperTest {
     fun allScenesHaveDayNightAndSunsetVariants() {
         TunnelWallpaperScene.all.forEach { scene ->
             listOf(false to false, true to false, false to true, true to true).forEach { (bs, dark) ->
-                val wallpaper = TunnelWallpaper.resolve(scene, whitelistMode = bs, darkTheme = dark)
+                val wallpaper = resolveTunnelWallpaper(scene, whitelistMode = bs, darkTheme = dark)
                 assertEquals(scene, wallpaper.scene)
             }
         }
@@ -24,10 +24,24 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun whitelistModeForcesSunsetTime() {
+    fun lightThemeUsesDayAndDarkThemeUsesNight() {
+        assertEquals(
+            TunnelWallpaperTime.Day,
+            resolveTunnelWallpaperTime(whitelistMode = false, darkTheme = false),
+        )
+        assertEquals(
+            TunnelWallpaperTime.Night,
+            resolveTunnelWallpaperTime(whitelistMode = false, darkTheme = true),
+        )
+    }
+
+    @Test
+    fun whitelistModeForcesSunsetOverTheme() {
         TunnelWallpaperScene.all.forEach { scene ->
-            val wallpaper = TunnelWallpaper.resolve(scene, whitelistMode = true, darkTheme = false)
-            assertTrue(wallpaper.name.endsWith("Sunset"))
+            val light = resolveTunnelWallpaper(scene, whitelistMode = true, darkTheme = false)
+            val dark = resolveTunnelWallpaper(scene, whitelistMode = true, darkTheme = true)
+            assertEquals(TunnelWallpaperTime.Sunset, light.time)
+            assertEquals(TunnelWallpaperTime.Sunset, dark.time)
         }
     }
 
@@ -38,11 +52,18 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun sessionKeepsTheSameSceneAfterInit() {
+    fun fieldIsFirstEnumEntryAndMustNotBeUsedAsPlaceholder() {
+        assertEquals(TunnelWallpaperScene.Field, TunnelWallpaperScene.entries.first())
+    }
+
+    @Test
+    fun initForProcessDoesNotRerollTheScene() {
         TunnelWallpaperSession.resetForTests()
-        TunnelWallpaperSession.initForProcess(TunnelWallpaperScene.City)
-        repeat(12) {
-            assertEquals(TunnelWallpaperScene.City, TunnelWallpaperSession.currentOrPick())
+        TunnelWallpaperSession.initForProcess()
+        val first = TunnelWallpaperSession.scene
+        repeat(8) {
+            TunnelWallpaperSession.initForProcess()
+            assertEquals(first, TunnelWallpaperSession.currentOrPick())
         }
     }
 

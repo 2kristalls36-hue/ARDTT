@@ -21,7 +21,7 @@ object TunnelWallpaperCache {
             byTime.clear()
             val resources = context.resources
             for (time in TIMES) {
-                val id = TunnelWallpaper.drawableRes(scene, time)
+                val id = TunnelWallpaperId(scene, time).drawableRes()
                 val bitmap = BitmapFactory.decodeResource(resources, id)
                 if (bitmap == null) {
                     AppLog.e("TunnelWallpaper", "decode failed scene=$scene time=$time")
