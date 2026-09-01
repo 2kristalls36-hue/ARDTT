@@ -186,7 +186,12 @@ fun CallHashSettingsContent(
                 Text("Создать код")
             }
             OutlinedButton(
-                onClick = { showManual = true },
+                onClick = {
+                    // Pre-fill the dialog with the currently stored call code
+                    // so the user can edit/copy it without retyping.
+                    manualDraft = conn.callHashOrNull().orEmpty()
+                    showManual = true
+                },
                 enabled = canEdit,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
