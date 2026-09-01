@@ -254,19 +254,31 @@ class AppSettingsRepository(private val context: Context) {
         return parseLineSet(prefs[excludedHosts]).map { normalizeHost(it) }.filter { it.isNotBlank() }.toSet()
     }
 
-    suspend fun unlockAdmin() {
-        context.dataStore.edit { it[adminUnlocked] = true }
-    }
-
-    /** @deprecated PIN removed — use [unlockAdmin]. Kept for binary compat of older calls. */
-    suspend fun unlockAdmin(pin: String): Boolean {
-        unlockAdmin()
-        return true
-    }
-
     suspend fun setAdminPin(pin: String) {
-        // No-op: PIN flow removed in favour of slider unlock.
-        unlockAdmin()
+        context.dataStore.edit {
+            it[adminPinHash] = sha256(pin)
+            it[adminUnlocked] = true
+        }
+    }
+
+    /**
+     * First successful PIN creates the hash if none stored yet.
+     * Otherwise verifies against the stored SHA-256 hash.
+     */
+    suspend fun unlockAdmin(pin: String): Boolean {
+        var ok = false
+        context.dataStore.edit { prefs ->
+            val stored = prefs[adminPinHash]
+            if (stored.isNullOrBlank()) {
+                prefs[adminPinHash] = sha256(pin)
+                prefs[adminUnlocked] = true
+                ok = true
+            } else if (stored == sha256(pin)) {
+                prefs[adminUnlocked] = true
+                ok = true
+            }
+        }
+        return ok
     }
 
     suspend fun lockAdmin() {

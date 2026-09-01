@@ -1,12 +1,5 @@
 package com.nonamevpn.app.ui.admin
 
-import android.Manifest
-import android.content.Context
-import android.os.Build
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,35 +13,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -87,1011 +58,204 @@ import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.ServerOsProbe
 import com.nonamevpn.app.deploy.ServersRepository
-import com.nonamevpn.app.deploy.isRecognizedServerOsId
-import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
-import com.nonamevpn.app.profile.VpnProfile
-import com.nonamevpn.app.ui.PendingUiAction
-import com.nonamevpn.app.ui.components.AppPageHeader
-import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
-import com.nonamevpn.app.ui.components.NvpnBottomChrome
-import com.nonamevpn.app.ui.components.NvpnDialog
-import com.nonamevpn.app.ui.components.NvpnDialogAction
-import com.nonamevpn.app.ui.components.PullRefreshHost
-import com.nonamevpn.app.ui.components.StickyPrimaryButton
-import com.nonamevpn.app.ui.components.rememberPullRefresh
-import com.nonamevpn.app.ui.theme.NvpnColors
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
+private enum class ServersPane {
+    List,
+    Overview,
+    Deploy,
+    Users,
+}
+
+/** Nested Servers: List → Overview (Deploy / Users / Delete) → Deploy or Users. */
 @Composable
-private fun rememberStartDeploy(engine: DeployEngine): (DeployTarget, Boolean) -> Boolean {
-    val context = LocalContext.current
-    val pending = remember { mutableStateOf<Pair<DeployTarget, Boolean>?>(null) }
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) {
-        val job = pending.value ?: return@rememberLauncherForActivityResult
-        pending.value = null
-        engine.enqueue(job.first, job.second)
-    }
-    return { target, isUpdate ->
-        if (needsNotificationPermission(context) &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-        ) {
-            pending.value = target to isUpdate
-            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            true
-        } else {
-            engine.enqueue(target, isUpdate)
-        }
-    }
-}
-
-private sealed class ServersNavScreen {
-    data object List : ServersNavScreen()
-    data class Overview(val serverId: String) : ServersNavScreen()
-    data class Clients(val serverId: String) : ServersNavScreen()
-    data class Deploy(val serverId: String?) : ServersNavScreen()
-}
-
-/** Host of the currently applied VPN profile (direct endpoint, else bypass peer). */
-internal fun activeProfileHost(profile: VpnProfile?): String? {
-    if (profile == null) return null
-    return NetworkEndpoint.hostOf(profile.direct.endpoint)
-        ?: NetworkEndpoint.hostOf(profile.bypass.peer)
-}
-
-/**
- * Server that backs the current profile/deploy in use.
- * Prefer exact [DeployTarget.publicHost], then [DeployTarget.host]; if no profile match,
- * fall back to the most recently successfully deployed server.
- */
-internal fun findActiveDeployServerId(
-    servers: List<DeployTarget>,
-    profileHost: String?,
-): String? {
-    if (servers.isEmpty()) return null
-    val host = profileHost?.trim()?.takeIf { it.isNotEmpty() }
-    if (host != null) {
-        val byPublic = servers.filter {
-            it.publicHost.isNotBlank() && it.publicHost.equals(host, ignoreCase = true)
-        }
-        if (byPublic.isNotEmpty()) {
-            return byPublic.maxByOrNull { it.lastDeployedAtMs }?.id
-        }
-        val byHost = servers.filter { it.host.equals(host, ignoreCase = true) }
-        if (byHost.isNotEmpty()) {
-            return byHost.maxByOrNull { it.lastDeployedAtMs }?.id
-        }
-    }
-    return servers
-        .filter { it.lastDeployedAtMs > 0L }
-        .maxByOrNull { it.lastDeployedAtMs }
-        ?.id
-}
-
-private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
-    save = { state ->
-        when (state) {
-            is ServersNavScreen.List -> listOf("list")
-            is ServersNavScreen.Overview -> listOf("overview", state.serverId)
-            is ServersNavScreen.Clients -> listOf("clients", state.serverId)
-            is ServersNavScreen.Deploy -> listOf("deploy", state.serverId ?: "")
-        }
-    },
-    restore = { saved ->
-        when (saved.getOrNull(0)) {
-            "overview" -> ServersNavScreen.Overview(saved.getOrElse(1) { "" })
-            "clients" -> ServersNavScreen.Clients(saved.getOrElse(1) { "" })
-            "deploy" -> ServersNavScreen.Deploy(saved.getOrNull(1)?.ifEmpty { null })
-            else -> ServersNavScreen.List
-        }
-    },
-)
-
-private fun healthStatusLine(
-    health: HealthUi?,
-    lastDeployedAtMs: Long,
-    expectedVersion: String,
-): Pair<String, Color?> {
-    val text = healthStatusLabel(health, lastDeployedAtMs)
-    val hint = when (health) {
-        is HealthUi.Online ->
-            if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
-                NvpnColors.connected
-            } else {
-                NvpnColors.warning
-            }
-        else -> null
-    }
-    return text to hint
-}
-
-@Composable
-fun ServersScreen(
+fun ServersHub(
     serversRepo: ServersRepository,
-    engine: DeployEngine,
+    deployEngine: DeployEngine,
     profiles: ProfileRepository,
-    reselectSignal: Int = 0,
+) {
+    var pane by remember { mutableStateOf(ServersPane.List) }
+    var selected by remember { mutableStateOf<DeployTarget?>(null) }
+    var deployInitial by remember { mutableStateOf<DeployTarget?>(null) }
+
+    when (pane) {
+        ServersPane.List -> ServersListPane(
+            serversRepo = serversRepo,
+            onAdd = {
+                selected = null
+                deployInitial = null
+                pane = ServersPane.Deploy
+            },
+            onOpen = { target ->
+                selected = target
+                pane = ServersPane.Overview
+            },
+        )
+        ServersPane.Overview -> {
+            val target = selected
+            if (target == null) {
+                pane = ServersPane.List
+            } else {
+                ServerOverviewPane(
+                    target = target,
+                    onBack = {
+                        selected = null
+                        pane = ServersPane.List
+                    },
+                    onDeploy = {
+                        deployInitial = target
+                        pane = ServersPane.Deploy
+                    },
+                    onUsers = { pane = ServersPane.Users },
+                    onDelete = {
+                        serversRepo.delete(target.id)
+                        selected = null
+                        pane = ServersPane.List
+                    },
+                )
+            }
+        }
+        ServersPane.Deploy -> DeployScreen(
+            serversRepo = serversRepo,
+            engine = deployEngine,
+            initial = deployInitial,
+            onBack = {
+                pane = if (selected != null) ServersPane.Overview else ServersPane.List
+            },
+            onSaved = { saved ->
+                selected = saved
+                deployInitial = saved
+            },
+            onOpenUsers = { saved ->
+                selected = saved
+                deployInitial = saved
+                pane = ServersPane.Users
+            },
+        )
+        ServersPane.Users -> {
+            val target = selected
+            if (target == null) {
+                pane = ServersPane.List
+            } else {
+                UsersScreen(
+                    target = target,
+                    profiles = profiles,
+                    onBack = { pane = ServersPane.Overview },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServersListPane(
+    serversRepo: ServersRepository,
+    onAdd: () -> Unit,
+    onOpen: (DeployTarget) -> Unit,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
-    var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
-        mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
-    }
-    LaunchedEffect(reselectSignal) {
-        if (reselectSignal > 0) {
-            screen = ServersNavScreen.List
-        }
-    }
-
-    BackHandler(enabled = screen !is ServersNavScreen.List) {
-        screen = when (val current = screen) {
-            is ServersNavScreen.Clients -> ServersNavScreen.Overview(current.serverId)
-            is ServersNavScreen.Deploy -> current.serverId
-                ?.let { ServersNavScreen.Overview(it) }
-                ?: ServersNavScreen.List
-            is ServersNavScreen.Overview -> ServersNavScreen.List
-            is ServersNavScreen.List -> ServersNavScreen.List
-        }
-    }
-
-    val openDeployId by PendingUiAction.openDeployServerId.collectAsStateWithLifecycle()
-    LaunchedEffect(openDeployId) {
-        val id = PendingUiAction.consumeOpenDeploy() ?: return@LaunchedEffect
-        screen = ServersNavScreen.Overview(id)
-    }
-
-    Crossfade(targetState = screen, label = "servers_nav") { current ->
-        when (val s = current) {
-            is ServersNavScreen.List -> ServerListScreen(
-                servers = servers,
-                serversRepo = serversRepo,
-                onOpenServer = { id -> screen = ServersNavScreen.Overview(id) },
-                onAddServer = { screen = ServersNavScreen.Deploy(null) },
-            )
-            is ServersNavScreen.Overview -> ServerOverviewHost(
-                servers = servers,
-                serversRepo = serversRepo,
-                engine = engine,
-                serverId = s.serverId,
-                onOpenClients = { screen = ServersNavScreen.Clients(s.serverId) },
-                onOpenDeploySettings = { screen = ServersNavScreen.Deploy(s.serverId) },
-                onBack = { screen = ServersNavScreen.List },
-            )
-            is ServersNavScreen.Clients -> ClientsHost(
-                servers = servers,
-                serverId = s.serverId,
-                profiles = profiles,
-                onBack = { screen = ServersNavScreen.Overview(s.serverId) },
-            )
-            is ServersNavScreen.Deploy -> {
-                val initial = s.serverId?.let { id -> servers.find { it.id == id } }
-                DeployScreen(
-                    serversRepo = serversRepo,
-                    engine = engine,
-                    initial = initial,
-                    onSaved = { savedId ->
-                        screen = ServersNavScreen.Overview(savedId)
-                    },
-                    onBack = {
-                        screen = s.serverId
-                            ?.let { ServersNavScreen.Overview(it) }
-                            ?: ServersNavScreen.List
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ServerListScreen(
-    servers: List<DeployTarget>,
-    serversRepo: ServersRepository,
-    onOpenServer: (String) -> Unit,
-    onAddServer: () -> Unit,
-) {
-    val context = LocalContext.current
-    val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
-    var healthById by remember { mutableStateOf<Map<String, HealthUi>>(emptyMap()) }
-
-    suspend fun probeAll() {
-        val snapshot = serversRepo.snapshot()
-        if (snapshot.isEmpty()) {
-            healthById = emptyMap()
-            return
-        }
-        healthById = snapshot.associate { it.id to HealthUi.Checking }
-        coroutineScope {
-            snapshot.map { target ->
-                async {
-                    val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
-                        .getOrNull()
-                    val status = healthUiOf(info)
-                    if (target.osVersion.isBlank()) {
-                        val osInfo = ServerOsProbe.probe(target).getOrNull()
-                        if (osInfo != null) {
-                            val nextId = osInfo.osId.trim()
-                            val nextVersion = osInfo.osVersionLabel.trim()
-                            if (target.osId != nextId || target.osVersion != nextVersion) {
-                                serversRepo.upsert(
-                                    target.copy(
-                                        osId = nextId,
-                                        osVersion = nextVersion,
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                    healthById = healthById + (target.id to status)
-                }
-            }.awaitAll()
-        }
-    }
-
-    val serverIds = remember(servers) { servers.map { it.id }.joinToString(",") }
-    LaunchedEffect(serverIds) {
-        probeAll()
-    }
-
-    val pull = rememberPullRefresh {
-        if (servers.isNotEmpty()) probeAll()
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
-            refreshing = pull.refreshing,
-            onRefresh = pull.onRefresh,
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-            ) {
-                AppTabPageHeader(
-                    title = "Управление серверами",
-                )
-
-                if (servers.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .widthIn(max = 340.dp)
-                                .fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Icon(
-                                Icons.Filled.Dns,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(48.dp),
-                            )
-                            Spacer(modifier = Modifier.height(26.dp))
-                            Text(
-                                "Добавьте первый сервер, чтобы установить стек и управлять пользователями",
-                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(servers, key = { it.id }) { server ->
-                            ServerCard(
-                                server = server,
-                                health = healthById[server.id],
-                                expectedVersion = expectedVersion,
-                                onOpenServer = { onOpenServer(server.id) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        StickyPrimaryButton(
-            text = "Добавить сервер",
-            onClick = onAddServer,
-            icon = Icons.Filled.Add,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
-        )
-    }
-}
-
-@Composable
-private fun ServerCard(
-    server: DeployTarget,
-    health: HealthUi?,
-    expectedVersion: String,
-    onOpenServer: () -> Unit,
-) {
-    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
-    val statusColor = when {
-        statusColorHint != null -> statusColorHint
-        health == HealthUi.Offline -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
-
-    AppSectionCard(
-        modifier = Modifier.clickable(onClick = onOpenServer),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        shadowElevation = 0.dp,
-        shape = RoundedCornerShape(24.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                Icon(
-                    Icons.Filled.Dns,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier
-                        .padding(11.dp)
-                        .size(22.dp),
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    server.name.ifBlank { server.host },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                ServerHostLine(server = server)
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    "SSH ${server.sshPort}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    statusText,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = statusColor,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                deployFreshnessChipText(health, expectedVersion)?.let { chip ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = NvpnColors.warning.copy(alpha = 0.18f),
-                    ) {
-                        Text(
-                            chip,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = NvpnColors.warning,
-                        )
-                    }
-                }
-            }
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = "Открыть сервер",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ServerHostLine(
-    server: DeployTarget,
-    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodySmall,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-) {
-    val osVersion = server.osVersion.trim()
-    val osRecognized = isRecognizedServerOsId(server.osId)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (osVersion.isNotBlank()) {
-            if (osRecognized) {
-                Icon(
-                    imageVector = Icons.Outlined.Terminal,
-                    contentDescription = "ОС сервера",
-                    tint = iconTint,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-            Text(
-                osVersion,
-                style = style,
-                color = color,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                "·",
-                style = style,
-                color = color.copy(alpha = 0.7f),
-                maxLines = 1,
-            )
-        }
         Text(
-            server.host,
-            style = style,
-            color = color,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            "Серверы",
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 8.dp),
         )
-    }
-}
-
-@Composable
-private fun ServerOverviewHost(
-    servers: List<DeployTarget>,
-    serversRepo: ServersRepository,
-    engine: DeployEngine,
-    serverId: String,
-    onOpenClients: () -> Unit,
-    onOpenDeploySettings: () -> Unit,
-    onBack: () -> Unit,
-) {
-    val server = servers.find { it.id == serverId }
-    var showActions by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
-    var showRename by remember { mutableStateOf(false) }
-    var showRedeployConfirm by remember { mutableStateOf(false) }
-    var showRedeployProgress by remember { mutableStateOf(false) }
-    var redeployStatus by remember { mutableStateOf<String?>(null) }
-    var health by remember { mutableStateOf<HealthUi?>(HealthUi.Checking) }
-    val context = LocalContext.current
-    val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
-    val startDeploy = rememberStartDeploy(engine)
-    val busy by engine.busy.collectAsStateWithLifecycle()
-    val progress by engine.progress.collectAsStateWithLifecycle()
-    val step by engine.step.collectAsStateWithLifecycle()
-    val deployLog by engine.log.collectAsStateWithLifecycle()
-    val outcome by engine.outcome.collectAsStateWithLifecycle()
-    val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
-
-    LaunchedEffect(servers, serverId) {
-        if (servers.isNotEmpty() && server == null) onBack()
-    }
-
-    LaunchedEffect(serverId, server?.host, server?.publicHost) {
-        val target = server ?: return@LaunchedEffect
-        health = HealthUi.Checking
-        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = healthUiOf(info)
-        if (target.osVersion.isBlank()) {
-            val osInfo = ServerOsProbe.probe(target).getOrNull()
-            if (osInfo != null) {
-                val nextId = osInfo.osId.trim()
-                val nextVersion = osInfo.osVersionLabel.trim()
-                if (target.osId != nextId || target.osVersion != nextVersion) {
-                    serversRepo.upsert(
-                        target.copy(
-                            osId = nextId,
-                            osVersion = nextVersion,
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(busy, activeTargetId, serverId) {
-        if (busy && activeTargetId == serverId) {
-            showRedeployProgress = true
-            redeployStatus = null
-        }
-    }
-
-    LaunchedEffect(busy, outcome, serverId, activeTargetId) {
-        if (busy || outcome == null) return@LaunchedEffect
-        if (activeTargetId != null && activeTargetId != serverId) return@LaunchedEffect
-        if (!showRedeployProgress) return@LaunchedEffect
-        redeployStatus = outcome
-        val target = server ?: return@LaunchedEffect
-        health = HealthUi.Checking
-        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = healthUiOf(info)
-    }
-
-    fun startRedeploy(target: DeployTarget) {
-        showRedeployConfirm = false
-        showRedeployProgress = true
-        redeployStatus = null
-        if (!startDeploy(target, true)) {
-            redeployStatus = "Ошибка: деплой уже идёт"
-        }
-    }
-
-    val pull = rememberPullRefresh {
-        val target = server ?: return@rememberPullRefresh
-        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = healthUiOf(info)
-        if (target.osVersion.isBlank()) {
-            val osInfo = ServerOsProbe.probe(target).getOrNull()
-            if (osInfo != null) {
-                val nextId = osInfo.osId.trim()
-                val nextVersion = osInfo.osVersionLabel.trim()
-                if (target.osId != nextId || target.osVersion != nextVersion) {
-                    serversRepo.upsert(
-                        target.copy(
-                            osId = nextId,
-                            osVersion = nextVersion,
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
-    if (server == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-    } else {
-        ServerOverviewScreen(
-            server = server,
-            health = health,
-            expectedVersion = expectedVersion,
-            onOpenClients = onOpenClients,
-            onUpdateDeploy = { showRedeployConfirm = true },
-            onOpenDeploySettings = onOpenDeploySettings,
-            onBack = onBack,
-            showActions = showActions,
-            onShowActions = { showActions = it },
-            onRename = { showRename = true },
-            onDelete = { showDeleteConfirm = true },
-            refreshing = pull.refreshing,
-            onRefresh = pull.onRefresh,
+        Text(
+            "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (showRename) {
-            RenameServerDialog(
-                initialName = server.name.ifBlank { server.host },
-                onDismiss = { showRename = false },
-                onConfirm = { name ->
-                    serversRepo.upsert(server.copy(name = name))
-                    showRename = false
-                },
-            )
-        }
-        if (showDeleteConfirm) {
-            NvpnDialog(
-                title = "Удалить сервер?",
-                onDismissRequest = { showDeleteConfirm = false },
-                confirmAction = NvpnDialogAction(
-                    text = "Удалить",
-                    onClick = {
-                        serversRepo.delete(server.id)
-                        showDeleteConfirm = false
-                        onBack()
-                    },
-                    destructive = true,
-                ),
-                dismissAction = NvpnDialogAction("Отмена", { showDeleteConfirm = false }),
-            ) {
-                Text(
-                    "Из приложения будут удалены только данные подключения. " +
-                        "Сервер и пользователи на VPS останутся без изменений.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (showRedeployConfirm) {
-            NvpnDialog(
-                title = "Обновить деплой?",
-                onDismissRequest = { if (!busy) showRedeployConfirm = false },
-                confirmAction = NvpnDialogAction(
-                    text = "Обновить",
-                    onClick = { startRedeploy(server) },
-                    enabled = !busy,
-                ),
-                dismissAction = NvpnDialogAction(
-                    text = "Отмена",
-                    onClick = { showRedeployConfirm = false },
-                    enabled = !busy,
-                ),
-                dismissOnBackPress = !busy,
-                dismissOnClickOutside = !busy,
-            ) {
-                Text(
-                    "Стек версии $expectedVersion будет заново залит на ${server.host} " +
-                        "по сохранённым SSH-данным. Параметры подключения менять не нужно.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (showRedeployProgress) {
-            NvpnDialog(
-                title = when {
-                    busy -> "Обновление деплоя…"
-                    redeployStatus?.startsWith("Ошибка") == true -> "Ошибка"
-                    else -> "Готово"
-                },
-                onDismissRequest = {
-                    if (!busy) showRedeployProgress = false
-                },
-                confirmAction = if (busy) {
-                    NvpnDialogAction("Отменить", { engine.cancel() }, destructive = true)
-                } else {
-                    NvpnDialogAction("Закрыть", { showRedeployProgress = false })
-                },
-                dismissOnBackPress = !busy,
-                dismissOnClickOutside = !busy,
-            ) {
-                Text(
-                    step.ifBlank { "…" },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                redeployStatus?.let {
-                    Text(
-                        it,
-                        color = if (it.startsWith("Ошибка")) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            NvpnColors.connected
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                Text(
-                    "Лог",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    deployLog.takeLast(24).joinToString("\n").ifBlank { "—" },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 240.dp)
-                        .verticalScroll(rememberScrollState()),
-                )
-            }
-        }
-    }
-}
+        Button(
+            onClick = onAdd,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Добавить / деплой нового") }
 
-@Composable
-private fun ServerOverviewScreen(
-    server: DeployTarget,
-    health: HealthUi?,
-    expectedVersion: String,
-    onOpenClients: () -> Unit,
-    onUpdateDeploy: () -> Unit,
-    onOpenDeploySettings: () -> Unit,
-    onBack: () -> Unit,
-    showActions: Boolean,
-    onShowActions: (Boolean) -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-    refreshing: Boolean,
-    onRefresh: () -> Unit,
-) {
-    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
-    val statusColor = when {
-        statusColorHint != null -> statusColorHint
-        health == HealthUi.Offline -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
-    val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
-    val publicHostLine = distinctPublicHost(server.host, server.publicHost)
-    val freshnessChip = deployFreshnessChipText(health, expectedVersion)
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
-            refreshing = refreshing,
-            onRefresh = onRefresh,
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                EdgeFeedTopInset()
-                AppPageHeader(
-                    applyStatusBarsPadding = false,
-                    contentHorizontalPadding = true,
-                    title = server.name.ifBlank { server.host },
-                    subtitle = "Управление сервером",
-                    onBack = onBack,
-                    actions = {
-                        Box {
-                            IconButton(onClick = { onShowActions(true) }) {
-                                Icon(
-                                    Icons.Filled.MoreVert,
-                                    contentDescription = "Действия с сервером",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showActions,
-                                onDismissRequest = { onShowActions(false) },
-                                modifier = Modifier
-                                    .width(216.dp)
-                                    .padding(vertical = 4.dp),
-                                shape = RoundedCornerShape(22.dp),
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                tonalElevation = 2.dp,
-                                shadowElevation = 6.dp,
-                            ) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.heightIn(min = 54.dp),
-                                    contentPadding = PaddingValues(horizontal = 18.dp),
-                                    text = { Text("Обновить деплой", fontWeight = FontWeight.Medium) },
-                                    leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
-                                    onClick = {
-                                        onShowActions(false)
-                                        onUpdateDeploy()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.heightIn(min = 54.dp),
-                                    contentPadding = PaddingValues(horizontal = 18.dp),
-                                    text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
-                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                                    onClick = {
-                                        onShowActions(false)
-                                        onRename()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.heightIn(min = 54.dp),
-                                    contentPadding = PaddingValues(horizontal = 18.dp),
-                                    text = {
-                                        Text(
-                                            "Удалить",
-                                            color = MaterialTheme.colorScheme.error,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Filled.Delete,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error,
-                                        )
-                                    },
-                                    onClick = {
-                                        onShowActions(false)
-                                        onDelete()
-                                    },
-                                )
-                            }
-                        }
-                    },
-                )
-
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = if (showUpdateButton) {
-                            NvpnBottomChrome.scrollContentPadding()
-                        } else {
-                            NvpnBottomChrome.navigationReserve() + 16.dp
-                        },
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-            item {
+        if (servers.isEmpty()) {
+            Text("Пока нет сохранённых серверов.", style = MaterialTheme.typography.bodyLarge)
+        } else {
+            servers.forEach { s ->
                 AppSectionCard(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.clickable { onOpen(s) },
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                        ) {
-                            Icon(
-                                Icons.Filled.Dns,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier
-                                    .padding(10.dp)
-                                    .size(22.dp),
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            ServerHostLine(
-                                server = server,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                iconTint = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                "SSH ${server.sshPort}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    if (publicHostLine != null) {
-                        Text(
-                            "Публичный host: $publicHostLine",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(s.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}",
+                        "${s.sshUser}@${s.host}:${s.sshPort}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        statusText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = statusColor,
+                        "pub ${s.publicHost.ifBlank { s.host }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (freshnessChip != null) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = NvpnColors.warning.copy(alpha = 0.18f),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                freshnessChip,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = NvpnColors.warning,
-                            )
-                        }
-                    }
                 }
             }
-            item {
-                Text(
-                    "Действия",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
-                )
-            }
-            item {
-                ServerActionCard(
-                    icon = Icons.Filled.People,
-                    title = "Клиенты",
-                    description = "Создание профилей через provision",
-                    onClick = onOpenClients,
-                )
-            }
-            item {
-                ServerActionCard(
-                    icon = Icons.Filled.Settings,
-                    title = "Параметры сервера",
-                    description = "SSH, порты и учётные данные",
-                    onClick = onOpenDeploySettings,
-                )
-            }
-                }
-            }
-        }
-
-        if (showUpdateButton) {
-            StickyPrimaryButton(
-                text = "Обновить деплой",
-                onClick = onUpdateDeploy,
-                containerColor = NvpnColors.warning,
-                icon = Icons.Filled.CloudUpload,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
-            )
         }
     }
 }
 
 @Composable
-private fun ServerActionCard(
-    icon: ImageVector,
-    title: String,
-    description: String,
-    onClick: () -> Unit,
+private fun ServerOverviewPane(
+    target: DeployTarget,
+    onBack: () -> Unit,
+    onDeploy: () -> Unit,
+    onUsers: () -> Unit,
+    onDelete: () -> Unit,
 ) {
-    AppSectionCard(
-        modifier = Modifier.clickable(onClick = onClick),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-        shape = RoundedCornerShape(24.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier
-                        .padding(10.dp)
-                        .size(22.dp),
-                )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(
+                target.name,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.primary,
             )
         }
-    }
-}
-
-@Composable
-private fun RenameServerDialog(
-    initialName: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var name by rememberSaveable { mutableStateOf(initialName) }
-    NvpnDialog(
-        title = "Переименовать",
-        onDismissRequest = onDismiss,
-        confirmAction = NvpnDialogAction(
-            "Сохранить",
-            { onConfirm(name.trim().ifBlank { initialName }) },
-        ),
-        dismissAction = NvpnDialogAction("Отмена", onDismiss),
-    ) {
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Имя сервера") },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("${target.sshUser}@${target.host}:${target.sshPort}")
+            Text(
+                "Публичный host: ${target.publicHost.ifBlank { target.host }}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Direct ${target.directPort} · Bypass ${target.bypassPort}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Button(onClick = onDeploy, modifier = Modifier.fillMaxWidth()) { Text("Деплой") }
+        OutlinedButton(onClick = onUsers, modifier = Modifier.fillMaxWidth()) { Text("Пользователи") }
+        OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) { Text("Удалить сервер") }
     }
 }
 
@@ -1100,8 +264,9 @@ fun DeployScreen(
     serversRepo: ServersRepository,
     engine: DeployEngine,
     initial: DeployTarget? = null,
-    onSaved: (serverId: String) -> Unit = {},
-    onBack: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
+    onSaved: ((DeployTarget) -> Unit)? = null,
+    onOpenUsers: ((DeployTarget) -> Unit)? = null,
 ) {
     val startDeploy = rememberStartDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
@@ -1130,6 +295,7 @@ fun DeployScreen(
     var osVersion by remember { mutableStateOf(initial?.osVersion ?: "") }
     var lastDeployedAtMs by remember { mutableStateOf(initial?.lastDeployedAtMs ?: 0L) }
     var status by remember { mutableStateOf<String?>(null) }
+    var deployOk by remember { mutableStateOf(false) }
 
     LaunchedEffect(initial?.id) {
         val t = initial ?: return@LaunchedEffect
@@ -1192,340 +358,261 @@ fun DeployScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp)
             .verticalScroll(rememberScrollState())
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        EdgeFeedTopInset()
-        AppPageHeader(
-            applyStatusBarsPadding = false,
-            contentHorizontalPadding = true,
-            title = if (isUpdate) "Обновить деплой" else "Деплой",
-            subtitle = if (isUpdate) {
-                "Стек $expectedDeployVersion · SSH · Compose"
-            } else {
-                "SSH · установка Compose-стека ARDTT"
-            },
-            onBack = onBack,
-        )
-        Text(
-            if (isUpdate) {
-                "Кнопка «Обновить деплой» заново зальёт стек версии $expectedDeployVersion на VPS."
-            } else {
-                "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «Установить на VPS»."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 4.dp),
         ) {
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Имя сервера") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            enabled = !busy,
-            shape = RoundedCornerShape(16.dp),
-        )
-        OutlinedTextField(
-            value = host,
-            onValueChange = { host = it },
-            label = { Text("SSH host / IP") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            enabled = !busy,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = sshPort,
-                onValueChange = { sshPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("SSH порт") },
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                enabled = !busy,
-            )
-            OutlinedTextField(
-                value = sshUser,
-                onValueChange = { sshUser = it },
-                label = { Text("SSH user") },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-                enabled = !busy,
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
+                }
+            }
+            Text(
+                "Деплой",
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+                color = MaterialTheme.colorScheme.primary,
             )
         }
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Пароль (или sudo)") },
-            modifier = Modifier.fillMaxWidth(),
-            visualTransformation = PasswordVisualTransformation(),
-            singleLine = true,
-            enabled = !busy,
+        Text(
+            "SSH-установка стека на VPS (Docker: provision / direct / bypass / warp). После успеха — пользователи через provision :9100.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
-            value = privateKey,
-            onValueChange = { privateKey = it },
-            label = { Text("SSH private key PEM (опционально)") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 80.dp),
-            minLines = 3,
-            enabled = !busy,
-        )
-        if (privateKey.isNotBlank()) {
+
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("SSH", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             OutlinedTextField(
-                value = keyPass,
-                onValueChange = { keyPass = it },
-                label = { Text("Passphrase ключа") },
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Имя сервера") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled = !busy,
+            )
+            OutlinedTextField(
+                value = host,
+                onValueChange = { host = it },
+                label = { Text("SSH host / IP") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled = !busy,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = sshPort,
+                    onValueChange = { sshPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                    label = { Text("SSH порт") },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+                OutlinedTextField(
+                    value = sshUser,
+                    onValueChange = { sshUser = it },
+                    label = { Text("SSH user") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+            }
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Пароль (или sudo)") },
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 enabled = !busy,
             )
-        }
-        OutlinedTextField(
-            value = publicHost,
-            onValueChange = { publicHost = it },
-            label = { Text("Публичный host для профиля") },
-            placeholder = { Text("Как в NVPN_PUBLIC_HOST, обычно = IP") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            enabled = !busy,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedTextField(
-                value = directPort,
-                onValueChange = { directPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("Direct UDP") },
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
+                value = privateKey,
+                onValueChange = { privateKey = it },
+                label = { Text("SSH private key PEM (опционально)") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 80.dp),
+                minLines = 3,
                 enabled = !busy,
             )
-            OutlinedTextField(
-                value = bypassPort,
-                onValueChange = { bypassPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("Bypass UDP") },
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                enabled = !busy,
-            )
-        }
-        AppSectionCard(
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            shape = RoundedCornerShape(16.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        "Каскадное подключение",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Использовать промежуточный узел. После включения заполните параметры каскада.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = cascadeEnabled,
-                    onCheckedChange = { cascadeEnabled = it },
-                    enabled = !busy,
-                )
-            }
-            if (cascadeEnabled) {
+            if (privateKey.isNotBlank()) {
                 OutlinedTextField(
-                    value = cascadeHost,
-                    onValueChange = { cascadeHost = it },
-                    label = { Text("Каскад host / IP") },
-                    singleLine = true,
-                    enabled = !busy,
+                    value = keyPass,
+                    onValueChange = { keyPass = it },
+                    label = { Text("Passphrase ключа") },
                     modifier = Modifier.fillMaxWidth(),
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    OutlinedTextField(
-                        value = cascadePort,
-                        onValueChange = { cascadePort = it.filter { ch -> ch.isDigit() }.take(5) },
-                        label = { Text("Каскад порт") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedTextField(
-                        value = cascadeUser,
-                        onValueChange = { cascadeUser = it },
-                        label = { Text("Каскад user") },
-                        singleLine = true,
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                OutlinedTextField(
-                    value = cascadePassword,
-                    onValueChange = { cascadePassword = it },
-                    label = { Text("Каскад пароль") },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
 
-        OutlinedButton(
-            onClick = {
-                if (host.isBlank()) {
-                    status = "Укажите host"
-                    return@OutlinedButton
-                }
-                if (password.isBlank() && privateKey.isBlank()) {
-                    status = "Нужен пароль или SSH-ключ"
-                    return@OutlinedButton
-                }
-                if (cascadeEnabled) {
-                    if (cascadeHost.isBlank()) {
-                        status = "Укажите каскад host"
-                        return@OutlinedButton
-                    }
-                    if (cascadeUser.isBlank()) {
-                        status = "Укажите каскад user"
-                        return@OutlinedButton
-                    }
-                    if (cascadePassword.isBlank()) {
-                        status = "Укажите каскад пароль"
-                        return@OutlinedButton
-                    }
-                }
-                val target = buildTarget()
-                serversRepo.upsert(target)
-                status = "Сервер сохранён"
-                onSaved(target.id)
-            },
-            enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Сохранить сервер")
-        }
-
-        Button(
-            onClick = {
-                if (host.isBlank()) {
-                    status = "Укажите host"
-                    return@Button
-                }
-                if (password.isBlank() && privateKey.isBlank()) {
-                    status = "Нужен пароль или SSH-ключ"
-                    return@Button
-                }
-                if (cascadeEnabled) {
-                    if (cascadeHost.isBlank()) {
-                        status = "Укажите каскад host"
-                        return@Button
-                    }
-                    if (cascadeUser.isBlank()) {
-                        status = "Укажите каскад user"
-                        return@Button
-                    }
-                    if (cascadePassword.isBlank()) {
-                        status = "Укажите каскад пароль"
-                        return@Button
-                    }
-                }
-                val target = buildTarget()
-                serversRepo.upsert(target)
-                status = null
-                if (!startDeploy(target, isUpdate)) {
-                    status = "Ошибка: деплой уже идёт"
-                }
-            },
-            enabled = !busy,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(16.dp),
-        ) {
-            Icon(
-                Icons.Filled.CloudUpload,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
+            Text("Сеть / порты", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = publicHost,
+                onValueChange = { publicHost = it },
+                label = { Text("Публичный host для профиля") },
+                placeholder = { Text("Обычно = IP VPS") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled = !busy,
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = directPort,
+                    onValueChange = { directPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                    label = { Text("Direct UDP") },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+                OutlinedTextField(
+                    value = bypassPort,
+                    onValueChange = { bypassPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                    label = { Text("Bypass UDP") },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+            }
             Text(
-                when {
-                    busy && isUpdate -> "Обновление…"
-                    busy -> "Установка…"
-                    isUpdate -> "Обновить деплой ($expectedDeployVersion)"
-                    else -> "Установить на VPS"
-                },
-                fontWeight = FontWeight.SemiBold,
+                "Provision API: TCP 9100 (создание пользователей без лимитов дней/устройств).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        OutlinedButton(
-            onClick = onBack,
-            modifier = Modifier.fillMaxWidth(),
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(if (busy) "Свернуть (деплой в фоне)" else "Назад")
-        }
-
-        if (busy) {
+            Text("Действия", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             OutlinedButton(
-                onClick = { engine.cancel() },
+                onClick = {
+                    if (host.isBlank()) {
+                        status = "Укажите host"
+                        return@OutlinedButton
+                    }
+                    if (password.isBlank() && privateKey.isBlank()) {
+                        status = "Нужен пароль или SSH-ключ"
+                        return@OutlinedButton
+                    }
+                    val target = buildTarget()
+                    serversRepo.upsert(target)
+                    onSaved?.invoke(target)
+                    status = "Сервер сохранён"
+                },
+                enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Отменить SSH") }
-        }
+            ) {
+                Text("Сохранить сервер")
+            }
 
-        if (busy || progress > 0f) {
-            Text(step.ifBlank { "…" }, style = MaterialTheme.typography.bodyMedium)
-            LinearProgressIndicator(
-                progress = { progress },
+            Button(
+                onClick = {
+                    if (host.isBlank()) {
+                        status = "Укажите host"
+                        return@Button
+                    }
+                    if (password.isBlank() && privateKey.isBlank()) {
+                        status = "Нужен пароль или SSH-ключ"
+                        return@Button
+                    }
+                    val target = buildTarget()
+                    serversRepo.upsert(target)
+                    onSaved?.invoke(target)
+                    scope.launch {
+                        status = null
+                        deployOk = false
+                        val result = engine.deploy(target)
+                        status = result.fold(
+                            onSuccess = {
+                                deployOk = true
+                                "Установка завершена. Можно создавать пользователей."
+                            },
+                            onFailure = { "Ошибка: ${it.message}" },
+                        )
+                    }
+                },
+                enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
-            )
-        }
+            ) {
+                Text(if (busy) "Установка…" else "Установить на VPS")
+            }
 
-        status?.let {
-            Text(
-                it,
-                color = if (it.startsWith("Ошибка")) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.primary,
-            )
+            if (deployOk && onOpenUsers != null) {
+                Button(
+                    onClick = { onOpenUsers(buildTarget()) },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("К пользователям") }
+            }
+
+            if (busy) {
+                OutlinedButton(
+                    onClick = { engine.cancel() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Отменить SSH") }
+            }
+
+            if (busy || progress > 0f) {
+                Text(step.ifBlank { "…" }, style = MaterialTheme.typography.bodyMedium)
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            status?.let {
+                Text(
+                    it,
+                    color = if (it.startsWith("Ошибка")) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary,
+                )
+            }
         }
 
         if (log.isNotEmpty()) {
-            Text(
-                "Лог",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                log.takeLast(80).joinToString("\n"),
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            AppSectionCard(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Лог", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    log.takeLast(80).joinToString("\n"),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
-        } // form column
     }
+}
+
+/** Legacy entry kept for any external call sites — prefer [ServersHub]. */
+@Composable
+fun ServersScreen(
+    serversRepo: ServersRepository,
+    onDeploy: (DeployTarget?) -> Unit,
+) {
+    ServersListPane(
+        serversRepo = serversRepo,
+        onAdd = { onDeploy(null) },
+        onOpen = { onDeploy(it) },
+    )
 }

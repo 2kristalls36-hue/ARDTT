@@ -9,12 +9,6 @@ import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,10 +37,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.WbSunny
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -119,11 +111,8 @@ import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.NvpnBottomChrome
-import com.nonamevpn.app.ui.components.NvpnFloatingShell
-import com.nonamevpn.app.ui.components.PullRefreshHost
-import com.nonamevpn.app.ui.components.StickyPrimaryButton
-import com.nonamevpn.app.ui.components.rememberPullRefresh
+import com.nonamevpn.app.ui.components.WarpIcon
+import com.nonamevpn.app.ui.settings.SettingsSheet
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -145,11 +134,14 @@ fun TunnelScreen(
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
-    var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
-    var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
-    var providerIpError by remember { mutableStateOf(EgressIpProbe.lastUnderlayError) }
-    var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
-    var lastUnderlayId by remember { mutableStateOf("") }
+    var showImport by remember { mutableStateOf(false) }
+    var showHash by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var importError by remember { mutableStateOf<String?>(null) }
+    var importBusy by remember { mutableStateOf(false) }
+    var callBusy by remember { mutableStateOf(false) }
+    var callMessage by remember { mutableStateOf<String?>(null) }
+    var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
 
     suspend fun refreshUnderlayStats(forceProviderIp: Boolean) {
         accessLabel = readUnderlayAccessLabel(context)
@@ -302,13 +294,12 @@ fun TunnelScreen(
                 context = context,
                 viaVpn = sessionUp,
             )
-        }.getOrNull()
-        publicIp = ip ?: EgressIpProbe.current()
-        val skipProbe = connecting || connected || pausedTrusted || disconnecting
-        if (!skipProbe) {
-            conn.startInitialProbe()
-            withTimeoutOrNull(12_000) {
-                conn.ui.first { it.state != ConnState.Probing }
+            IconButton(onClick = { showSettings = true }) {
+                Icon(
+                    imageVector = Icons.Outlined.Settings,
+                    contentDescription = "Настройки",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         refreshNetcheck(force = true)
@@ -601,134 +592,214 @@ fun TunnelScreen(
                     VpnPath.Bypass -> NvpnColors.pathBypass
                     null -> null
                 },
-                publicIp = when {
-                    pausedTrusted -> "—"
-                    !publicIp.isNullOrBlank() -> publicIp!!
-                    connecting || connected -> ""
-                    else -> "—"
-                },
-                ipPending = (connecting || connected) && publicIp.isNullOrBlank(),
-                ipFailed = false,
-                onIpClick = if (connecting || connected) {
-                    { conn.requestEgressIpRefresh() }
-                } else {
-                    null
-                },
-                accessLabel = accessLabel,
-                providerIp = when {
-                    !providerIp.isNullOrBlank() -> providerIp!!
-                    !providerIpError.isNullOrBlank() -> "не удалось определить"
-                    else -> ""
-                },
-                providerIpPending = providerIp.isNullOrBlank() && providerIpError.isNullOrBlank(),
-                providerIpFailed = providerIp.isNullOrBlank() && !providerIpError.isNullOrBlank(),
-                onProviderIpClick = {
-                    scope.launch {
-                        EgressIpProbe.invalidateUnderlay()
-                        providerIp = null
-                        providerIpError = null
-                        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
-                        providerIp = ip ?: EgressIpProbe.currentUnderlay()
-                        providerIpError = EgressIpProbe.lastUnderlayError
-                        lastUnderlayId = underlayIdentity(context)
-                        accessLabel = readUnderlayAccessLabel(context)
-                    }
-                },
-                showWarpIcon = !publicIp.isNullOrBlank() && (
-                    (hideIp && sessionUp) || EgressIpProbe.isLikelyCloudflare(publicIp)
-                    ),
-                profileName = profile?.name?.takeIf { it.isNotBlank() },
-                version = BuildConfig.VERSION_NAME,
-                directEndpoint = profile?.direct?.endpoint,
-                bypassPeer = profile?.bypass?.peer,
-                provisionLine = profile?.let { p ->
-                    p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
-                },
-                netcheckRows = NetcheckClient.uiRows(netcheck, probeActive = netcheckActive),
-                softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
-                errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        }
+            ui.probe?.let { p ->
+                Text(
+                    detailLine(
+                        p.networkClass,
+                        p.yandexOk,
+                        p.bigtechOk,
+                        p.vpsUdpOk,
+                        p.provisionOk,
+                        p.elapsedMs,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                )
+            }
+            ui.softInfo?.let { info ->
+                Text(info, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+            }
+            ui.lastError?.takeIf { ui.state == ConnState.Error }?.let { err ->
+                Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
 
-        // Sticky «Подключить» / «Отменить» (same button) above tab bar
-        val cancelMode = connecting || probing
-        StickyPrimaryButton(
-            text = when {
-                cancelMode -> "Отменить"
-                sessionUp -> "Отключить"
-                else -> "Подключиться"
-            },
-            onClick = {
-                when {
-                    cancelMode || sessionUp -> conn.disconnect()
-                    else -> onRequestConnect()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(
+                    onClick = { conn.startInitialProbe() },
+                    enabled = !busy && !sessionUp,
+                    modifier = Modifier.height(56.dp),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Text("Сеть", fontWeight = FontWeight.SemiBold)
                 }
-            },
-            enabled = cancelMode || (!busy && (sessionUp || ui.connectEnabled)),
-            containerColor = when {
-                cancelMode || sessionUp -> MaterialTheme.colorScheme.error
-                else -> buttonColor
-            },
-            icon = when {
-                cancelMode -> Icons.Default.Stop
-                pausedTrusted -> Icons.Default.Pause
-                sessionUp -> Icons.Default.Stop
-                else -> Icons.Default.PowerSettingsNew
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .zIndex(2f)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
-        )
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun UserTunnelSimpleScreen(
-    ui: com.nonamevpn.app.core.ConnUiState,
-    catalogItems: List<StoredProfile>,
-    activeProfileId: String?,
-    whitelistDetected: Boolean,
-    isDarkTheme: Boolean,
-    wallpaperVariant: Int,
-    themeMode: String,
-    onSwitchThemeMode: () -> Unit,
-    onToggleTunnel: () -> Unit,
-    onSelectPreviousProfile: () -> Unit,
-    onSelectNextProfile: () -> Unit,
-) {
-    val droneExitDurationMs = 980L
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var animationRestartToken by remember { mutableStateOf(0) }
-    var showingWhitelistScene by remember { mutableStateOf(whitelistDetected) }
-    var dronesBlowAway by remember { mutableStateOf(false) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                animationRestartToken += 1
+                Button(
+                    onClick = {
+                        if (sessionUp) conn.disconnect() else onRequestConnect()
+                    },
+                    enabled = !busy && (sessionUp || ui.connectEnabled),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = buttonColor,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = when {
+                            sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
+                            sessionUp -> "Остановить"
+                            connecting -> "Подключение…"
+                            ui.state == ConnState.Probing -> "Проверка…"
+                            else -> "Подключить"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+        AppSectionCard(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Звонок (обход)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (ui.hasCallHash) "Hash сохранён на этом телефоне" else "Hash не задан — нужен для Path B",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            callMessage?.let { msg ->
+                Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+            }
+            if (!vkLoggedIn) {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            callBusy = true
+                            callMessage = "Открываем вход VK…"
+                            AppLog.i("VK", "Login button pressed")
+                            val activityCtx = context.findActivity() ?: context
+                            val r = runCatching { VkLoginActivity.login(activityCtx) }
+                                .getOrElse { Result.failure(it) }
+                            callBusy = false
+                            vkLoggedIn = VkSession.hasSessionCookie()
+                            callMessage = when {
+                                r.isSuccess && vkLoggedIn -> "Вход выполнен — можно создать звонок"
+                                r.isSuccess -> "Сессия не подтвердилась — попробуйте ещё раз"
+                                else -> r.exceptionOrNull()?.message ?: "Вход отменён"
+                            }
+                            AppLog.i("VK", "Login result success=${r.isSuccess} cookie=$vkLoggedIn")
+                        }
+                    },
+                    // Allow login even while connected (session is for hash recreate).
+                    enabled = profile != null && !callBusy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text("Войти в VK…", fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            callBusy = true
+                            callMessage = "Создаём звонок…"
+                            val r = VkCallHashGenerator.generateOne(context)
+                            callBusy = false
+                            r.onSuccess { hash ->
+                                conn.saveCallHash(hash)
+                                callMessage = "Звонок создан, hash сохранён"
+                            }.onFailure { e ->
+                                callMessage = e.message ?: "Не удалось создать звонок"
+                                vkLoggedIn = VkSession.hasSessionCookie()
+                            }
+                        }
+                    },
+                    enabled = profile != null && !sessionUp && !callBusy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text(
+                        if (ui.hasCallHash) "Создать новый звонок" else "Создать звонок",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        VkSession.clear()
+                        vkLoggedIn = false
+                        callMessage = "Сессия VK сброшена"
+                    },
+                    enabled = !sessionUp && !callBusy,
+                ) {
+                    Text("Выйти из VK")
+                }
+            }
+            OutlinedButton(
+                onClick = { showHash = true },
+                enabled = profile != null && !sessionUp && !callBusy,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text(
+                    if (ui.hasCallHash) "Вставить hash вручную…" else "Сохранить hash вручную…",
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+
+        AppSectionCard(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                WarpIcon()
+                RowSwitch(
+                    title = "Скрыть свой IP",
+                    subtitle = if (hideIp) {
+                        "Включено — выход через Cloudflare WARP (не IP VPS)"
+                    } else {
+                        "Выход в интернет через WARP на VPS вместо адреса сервера"
+                    },
+                    checked = hideIp,
+                    enabled = !connecting && ui.state != ConnState.Disconnecting,
+                    onCheckedChange = { on ->
+                        scope.launch {
+                            settings.setHideIp(on)
+                            conn.setHideIp(on)
+                            AppLog.i("HideIP", if (on) "enabled" else "disabled")
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
-    LaunchedEffect(whitelistDetected) {
-        if (whitelistDetected) {
-            dronesBlowAway = false
-            showingWhitelistScene = true
-            return@LaunchedEffect
-        }
-        if (showingWhitelistScene) {
-            dronesBlowAway = true
-            delay(droneExitDurationMs)
-            dronesBlowAway = false
-            showingWhitelistScene = false
-        }
+
+    if (showSettings) {
+        SettingsSheet(
+            settings = settings,
+            onDismiss = { showSettings = false },
+        )
     }
 
     val bgRes = resolveUserTunnelWallpaper(
@@ -1021,202 +1092,16 @@ private fun WhitelistDroneSkyAnimation(
 }
 
 @Composable
-private fun AnimatedDrone(
-    spec: DroneFlightSpec,
-    index: Int,
-    restartToken: Int,
-    blowAway: Boolean,
-    sceneWidthPx: Float,
-    sceneHeightPx: Float,
-) {
-    val density = LocalDensity.current
-    var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
-    var dragging by remember(spec.resId, restartToken) { mutableStateOf(false) }
-    var rawDragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
-    var rawDragDy by remember(spec.resId, restartToken) { mutableStateOf(0f) }
-    LaunchedEffect(spec.resId, restartToken) {
-        delay(spec.delayMs)
-        launchStarted = true
-    }
-    val arrivalProgress by animateFloatAsState(
-        targetValue = if (launchStarted) 1f else 0f,
-        animationSpec = tween(durationMillis = 4_200, easing = LinearOutSlowInEasing),
-        label = "drone_arrival_$index",
-    )
-    val orbitBlend by animateFloatAsState(
-        targetValue = if (arrivalProgress > 0.985f) 1f else 0f,
-        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-        label = "drone_orbit_blend_$index",
-    )
-    val blowAwayProgress by animateFloatAsState(
-        targetValue = if (blowAway) 1f else 0f,
-        animationSpec = tween(durationMillis = 980, easing = FastOutLinearInEasing),
-        label = "drone_blow_away_$index",
-    )
-    val dragDx by animateFloatAsState(
-        targetValue = if (dragging) rawDragDx else 0f,
-        animationSpec = if (dragging) {
-            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
-        } else {
-            tween(durationMillis = 420, easing = FastOutSlowInEasing)
-        },
-        label = "drone_drag_dx_$index",
-    )
-    val dragDy by animateFloatAsState(
-        targetValue = if (dragging) rawDragDy else 0f,
-        animationSpec = if (dragging) {
-            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
-        } else {
-            tween(durationMillis = 420, easing = FastOutSlowInEasing)
-        },
-        label = "drone_drag_dy_$index",
-    )
-    val orbit by produceState(
-        initialValue = 0f,
-        key1 = spec.orbitDurationMs,
-        key2 = restartToken,
-    ) {
-        val periodNs = spec.orbitDurationMs.toLong() * 1_000_000L
-        val startNs = withFrameNanos { it }
-        while (true) {
-            val nowNs = withFrameNanos { it }
-            val elapsedNs = (nowNs - startNs).coerceAtLeast(0L)
-            val phase = if (periodNs <= 0L) 0f else {
-                ((elapsedNs % periodNs).toDouble() / periodNs.toDouble()).toFloat()
-            }
-            value = ((Math.PI * 2.0) * phase).toFloat()
-        }
-    }
-
-    val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
-    val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
-    // Smooth hover under wind: periodic waves with integer harmonics avoid restart jumps.
-    val base = orbit + spec.phaseRad
-    val windCarrier = sin((base * spec.gustFreqMul + spec.gustPhase).toDouble()).toFloat()
-    val xPrimary = sin(base.toDouble()).toFloat()
-    val xCompensation = sin((base * 2f + 0.9f).toDouble()).toFloat()
-    val xMicro = sin((base * 3f + 1.6f).toDouble()).toFloat()
-    val yPrimary = sin((base + 1.2f).toDouble()).toFloat()
-    val yCompensation = sin((base * 2f + 0.35f).toDouble()).toFloat()
-    val yMicro = sin((base * 3f + 2.1f).toDouble()).toFloat()
-    val windAmp = ((0.78f + 0.22f * windCarrier) * spec.windStrength).coerceAtLeast(0.05f) * orbitBlend
-    val comp = spec.compensationStrength.coerceIn(0.05f, 0.45f)
-    val micro = (0.10f + comp * 0.35f).coerceAtMost(0.22f)
-    val primary = (1f - comp - micro).coerceAtLeast(0.45f)
-    val orbitX = (xPrimary * primary + xCompensation * comp + xMicro * micro) *
-        (sceneWidthPx * spec.orbitRadiusXFrac) * windAmp
-    val orbitY = (yPrimary * (primary - 0.06f).coerceAtLeast(0.38f) + yCompensation * (comp + 0.04f) + yMicro * micro) *
-        (sceneHeightPx * spec.orbitRadiusYFrac) * windAmp
-    val wobbleRotation = (
-        sin((base + 0.2f).toDouble()).toFloat() * 0.9f +
-            sin((base * 2f + 1.4f).toDouble()).toFloat() * 0.35f
-        ) * orbitBlend
-    val windKickX = -sceneWidthPx * (0.36f + 0.12f * spec.windStrength) * blowAwayProgress
-    val windKickY = -sceneHeightPx * 0.10f * blowAwayProgress
-    val alpha = ((0.22f + 0.78f * arrivalProgress) * (1f - blowAwayProgress * 0.98f)).coerceIn(0f, 1f)
-    val blowRotation = -18f * blowAwayProgress
-    val dragLimitX = sceneWidthPx * spec.dragLimitXFrac
-    val dragLimitY = sceneHeightPx * spec.dragLimitYFrac
-    val baseX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
-    val baseY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
-    val layoutX = baseX.roundToInt()
-    val layoutY = baseY.roundToInt()
-    val drawOffsetX = baseX - layoutX
-    val drawOffsetY = baseY - layoutY
-
-    val touchSizeDp = (spec.sizeDp * 1.35f).dp
-    val imageSizePx = with(density) { spec.sizeDp.dp.toPx() }
-    val spriteFixX = -spec.centerBiasX * imageSizePx
-    val spriteFixY = -spec.centerBiasY * imageSizePx
-    Box(
-        modifier = Modifier
-            .size(touchSizeDp)
-            .offset { IntOffset(layoutX, layoutY) }
-            .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
-                detectDragGestures(
-                    onDragStart = {
-                        dragging = true
-                    },
-                    onDragEnd = {
-                        dragging = false
-                        rawDragDx = 0f
-                        rawDragDy = 0f
-                    },
-                    onDragCancel = {
-                        dragging = false
-                        rawDragDx = 0f
-                        rawDragDy = 0f
-                    },
-                ) { change, dragAmount ->
-                    if (blowAway) return@detectDragGestures
-                    change.consume()
-                    rawDragDx = (rawDragDx + dragAmount.x).coerceIn(-dragLimitX, dragLimitX)
-                    rawDragDy = (rawDragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
-                }
-            }
-            .graphicsLayer {
-                translationX = drawOffsetX
-                translationY = drawOffsetY
-                this.alpha = alpha
-                rotationZ = wobbleRotation + blowRotation
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .graphicsLayer {
-                    translationX = spriteFixX
-                    translationY = spriteFixY
-                }
-                .drawBehind {
-                    val glowColor = Color(0xFF66D8FF).copy(alpha = 0.10f + 0.08f * orbitBlend)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(glowColor, Color.Transparent),
-                            center = Offset(size.width / 2f, size.height / 2f),
-                            radius = size.minDimension * 0.56f,
-                        ),
-                        radius = size.minDimension * 0.56f,
-                        center = Offset(size.width / 2f, size.height / 2f),
-                    )
-                },
-        )
-        Image(
-            painter = painterResource(spec.resId),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.size(spec.sizeDp.dp),
-        )
-    }
-}
-
-private fun resolveUserTunnelWallpaper(
-    variant: Int,
-    isDark: Boolean,
-    whitelistDetected: Boolean,
-): Int {
-    val normalized = variant.mod(2)
-    return when {
-        whitelistDetected && normalized == 0 -> R.drawable.tunnel_user_whitelist
-        whitelistDetected -> R.drawable.tunnel_user_whitelist_alt
-        isDark && normalized == 0 -> R.drawable.tunnel_user_night
-        isDark -> R.drawable.tunnel_user_night_alt
-        normalized == 0 -> R.drawable.tunnel_user_day
-        else -> R.drawable.tunnel_user_day_alt
-    }
-}
-
-@Composable
-private fun ProfileSwitcherBar(
-    activeItem: StoredProfile?,
-    canSwitch: Boolean,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    busy: Boolean,
+private fun RowSwitch(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(bottom = NvpnBottomChrome.navigationReserve() + 12.dp),
         verticalAlignment = Alignment.CenterVertically,
