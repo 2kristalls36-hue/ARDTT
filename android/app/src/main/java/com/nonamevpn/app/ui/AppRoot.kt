@@ -55,9 +55,9 @@ import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
-import com.nonamevpn.app.ui.tunnel.TunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
+import com.nonamevpn.app.ui.tunnel.resolveTunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.tunnelWallpaperVisible
 import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import com.nonamevpn.app.update.AppUpdateController
@@ -103,16 +103,23 @@ fun AppRoot(
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
-
-    val tabs = AppDestination.entries.filter { !it.adminOnly || admin }
-    val navItems = tabs.map { dest ->
-        NavBarItem(route = dest.route, label = dest.label, icon = dest.icon())
+    val recorder = remember { TelemetryRecorder.get(context) }
+    val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
+    val updates = remember { AppUpdateController.get(context) }
+    val updateUi by updates.ui.collectAsStateWithLifecycle()
+    var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
+    val tunnelWallpaperScene = remember { TunnelWallpaperSession.currentOrPick() }
+    val darkTheme = when (themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
     }
-    val tunnelWallpaper = TunnelWallpaper.resolve(
+    val tunnelWallpaper = resolveTunnelWallpaper(
         scene = tunnelWallpaperScene,
         whitelistMode = appsWhitelistMode,
         darkTheme = darkTheme,
     )
+    val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
 
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
@@ -272,8 +279,6 @@ fun AppRoot(
         }
         previousRoute = currentRoute
     }
-    val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
-
     TelemetryRecordingOverlay(
         isRecording = isRecording,
         currentScreen = currentRoute,

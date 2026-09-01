@@ -1,9 +1,8 @@
 package com.nonamevpn.app.ui.tunnel
 
-import androidx.annotation.DrawableRes
-import com.nonamevpn.app.R
 import kotlin.random.Random
 
+/** Illustrated Tunnel-tab scenes: field, cyberpunk city, refinery. */
 enum class TunnelWallpaperScene {
     Field,
     City,
@@ -17,48 +16,35 @@ enum class TunnelWallpaperScene {
     }
 }
 
+/** Day = light theme, night = dark theme, sunset = app whitelist (БС). */
 enum class TunnelWallpaperTime {
     Day,
     Night,
     Sunset,
 }
 
-/** Illustrated tunnel tab backgrounds: field, cyberpunk city, refinery × day/night/sunset. */
-enum class TunnelWallpaper(
+data class TunnelWallpaperId(
     val scene: TunnelWallpaperScene,
-    internal val time: TunnelWallpaperTime,
-    @DrawableRes val drawableRes: Int,
-) {
-    FieldDay(TunnelWallpaperScene.Field, TunnelWallpaperTime.Day, R.drawable.bg_tunnel_field_day),
-    FieldNight(TunnelWallpaperScene.Field, TunnelWallpaperTime.Night, R.drawable.bg_tunnel_field_night),
-    FieldSunset(TunnelWallpaperScene.Field, TunnelWallpaperTime.Sunset, R.drawable.bg_tunnel_field_sunset),
-    CityDay(TunnelWallpaperScene.City, TunnelWallpaperTime.Day, R.drawable.bg_tunnel_city_day),
-    CityNight(TunnelWallpaperScene.City, TunnelWallpaperTime.Night, R.drawable.bg_tunnel_city_night),
-    CitySunset(TunnelWallpaperScene.City, TunnelWallpaperTime.Sunset, R.drawable.bg_tunnel_city_sunset),
-    RefineryDay(TunnelWallpaperScene.Refinery, TunnelWallpaperTime.Day, R.drawable.bg_tunnel_refinery_day),
-    RefineryNight(TunnelWallpaperScene.Refinery, TunnelWallpaperTime.Night, R.drawable.bg_tunnel_refinery_night),
-    RefinerySunset(TunnelWallpaperScene.Refinery, TunnelWallpaperTime.Sunset, R.drawable.bg_tunnel_refinery_sunset),
-    ;
+    val time: TunnelWallpaperTime,
+)
 
-    companion object {
-        fun resolve(
-            scene: TunnelWallpaperScene,
-            whitelistMode: Boolean,
-            darkTheme: Boolean,
-        ): TunnelWallpaper {
-            val time = when {
-                whitelistMode -> TunnelWallpaperTime.Sunset
-                darkTheme -> TunnelWallpaperTime.Night
-                else -> TunnelWallpaperTime.Day
-            }
-            return entries.first { it.scene == scene && it.time == time }
-        }
-
-        @DrawableRes
-        fun drawableRes(scene: TunnelWallpaperScene, time: TunnelWallpaperTime): Int =
-            entries.first { it.scene == scene && it.time == time }.drawableRes
-    }
+fun resolveTunnelWallpaperTime(
+    whitelistMode: Boolean,
+    darkTheme: Boolean,
+): TunnelWallpaperTime = when {
+    whitelistMode -> TunnelWallpaperTime.Sunset
+    darkTheme -> TunnelWallpaperTime.Night
+    else -> TunnelWallpaperTime.Day
 }
+
+fun resolveTunnelWallpaper(
+    scene: TunnelWallpaperScene,
+    whitelistMode: Boolean,
+    darkTheme: Boolean,
+): TunnelWallpaperId = TunnelWallpaperId(
+    scene = scene,
+    time = resolveTunnelWallpaperTime(whitelistMode, darkTheme),
+)
 
 /** Wallpaper on every tab in user mode. Admin keeps the gradient backdrop. */
 fun tunnelWallpaperVisible(admin: Boolean): Boolean = !admin

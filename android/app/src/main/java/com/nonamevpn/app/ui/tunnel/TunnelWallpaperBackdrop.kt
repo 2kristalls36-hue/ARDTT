@@ -21,7 +21,7 @@ import androidx.compose.ui.layout.ContentScale
  */
 @Composable
 fun TunnelWallpaperBackdrop(
-    wallpaper: TunnelWallpaper,
+    wallpaper: TunnelWallpaperId,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
