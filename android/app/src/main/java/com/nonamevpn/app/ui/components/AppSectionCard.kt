@@ -47,6 +47,11 @@ fun AppSectionCard(
     } else {
         lerp(colors.surface, colors.surfaceVariant, 0.28f).copy(alpha = if (opaque) 1f else 0.85f)
     }
+    val contentColor = if (cardColor.luminance() > 0.56f) {
+        Color(0xFF1C1B1A)
+    } else {
+        Color(0xFFF6FAFF)
+    }
     val borderColor = if (isDark) {
         colors.outlineVariant.copy(alpha = 0.26f)
     } else {
@@ -56,7 +61,7 @@ fun AppSectionCard(
     Surface(
         shape = shape,
         color = cardColor,
-        contentColor = colors.onSurface,
+        contentColor = contentColor,
         border = border ?: if (showBorder) BorderStroke(1.dp, borderColor) else null,
         shadowElevation = shadowElevation ?: if (isDark) 2.dp else 10.dp,
         tonalElevation = tonalElevation ?: if (isDark) 0.dp else 2.dp,
