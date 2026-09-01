@@ -587,8 +587,12 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
-    fun settleDelayIsSubSecondForSimHandover() {
-        assertTrue(transportRecoveryPolicy().networkSettleDelayMs <= 500L)
+    fun unvalidatedBypassSettleIsSubSecondForSimHandover() {
+        assertTrue(BYPASS_UNVALIDATED_SETTLE_MS <= 500L)
+        assertEquals(
+            BYPASS_UNVALIDATED_SETTLE_MS,
+            extraNetworkSettleDelayMs(VpnPath.Bypass, validatedPresent = false),
+        )
     }
 
     @Test

@@ -78,6 +78,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var lastTunDns: String? = null
     @Volatile private var lastTunMtu: Int = 0
     @Volatile private var lastTunUnderlayIdentity: String? = null
+    @Volatile private var lastTunFilterFingerprint: String? = null
     /** Handover with a new Wi‑Fi/SIM: next Bypass launch must [establish] a fresh TUN. */
     @Volatile private var rebuildTunOnNextLaunch = false
     /** libclient kept in the VK call after Auto Bypass→Direct on Wi‑Fi. */
@@ -93,6 +94,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var zeroWorkersSinceMs = 0L
     @Volatile private var processDeadSinceMs = 0L
     @Volatile private var lastHandoffAtMs = 0L
+    @Volatile private var stableNetworkEvidenceSinceMs = 0L
+    @Volatile private var deadDirectHandledAtMs = 0L
     /** Bypass started before Android VALIDATED LTE — rebind once it does. */
     @Volatile private var rebindBypassWhenValidated = false
     @Volatile private var sessionStartedAtMs = 0L
@@ -134,6 +137,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 ?: "Запрошено переподключение транспорта",
                             force = true,
                             pathOverride = pathOverride,
+                            rebuildTun = intent.getBooleanExtra(EXTRA_REBUILD_TUN, false),
                         )
                     }
                 }
@@ -600,9 +604,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 }
             }
             dataSubReceiver = receiver
-            val filter = IntentFilter(
-                android.telephony.SubscriptionManager.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED,
-            )
+            val filter = IntentFilter(ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 // System implicit broadcast — must be exported or SIM switches are silent.
                 registerReceiver(receiver, filter, RECEIVER_EXPORTED)
@@ -1418,6 +1420,29 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     override fun establishTun(ip: String, dnsCsv: String, mtu: Int): ParcelFileDescriptor? {
         val ipAddr = ip.substringBefore('/')
         val wantMtu = mtu.coerceIn(576, 1500)
+        val excludedApps = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.excludedAppsSnapshot() }
+        }.getOrDefault(emptySet())
+        val whitelist = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.appsWhitelistModeSnapshot() }
+        }.getOrDefault(false)
+        val excludedHosts = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.excludedHostsSnapshot() }
+        }.getOrDefault(emptySet())
+        val plan = SplitTunnel.resolve(
+            whitelistMode = whitelist,
+            selectedApps = excludedApps,
+            selfPackage = packageName,
+        )
+        val filterFingerprint = SplitTunnel.tunFilterFingerprint(
+            whitelistMode = whitelist,
+            selectedApps = excludedApps,
+            excludedHosts = excludedHosts,
+            selfPackage = packageName,
+        )
+        if (whitelist && excludedApps.isEmpty()) {
+            AppLog.w(TAG, "empty app whitelist — full tunnel minus transport (qWDTT fail-open)")
+        }
         if (
             canReuseBypassTun(
                 existingValid = tunStillValid(),
@@ -1427,10 +1452,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 ip = ip,
                 dns = dnsCsv,
                 mtu = mtu,
+                lastFilterFingerprint = lastTunFilterFingerprint,
+                filterFingerprint = filterFingerprint,
             )
         ) {
             AppLog.i(TAG, "TUN reused fd=${tun?.fd} ip=$ip mtu=$wantMtu")
             lastTunUnderlayIdentity = underlayIdentity(this)
+            lastTunFilterFingerprint = filterFingerprint
             bindTunToUnderlay()
             return tun
         }
@@ -1438,6 +1466,73 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         tun = null
         val path = TunnelSessionHolder.config?.path
         val bypassTun = path == VpnPath.Bypass
+        var appliedFingerprint = filterFingerprint
+        var pfd = establishVpnInterface(
+            ipAddr = ipAddr,
+            wantMtu = wantMtu,
+            dnsCsv = dnsCsv,
+            bypassTun = bypassTun,
+            plan = plan,
+            excludedHosts = excludedHosts,
+        )
+        if (pfd == null && plan.whitelistMode) {
+            AppLog.w(TAG, "whitelist TUN failed — fail-open minus transport")
+            val fallback = SplitTunnel.resolve(
+                whitelistMode = false,
+                selectedApps = emptySet(),
+                selfPackage = packageName,
+            )
+            pfd = establishVpnInterface(
+                ipAddr = ipAddr,
+                wantMtu = wantMtu,
+                dnsCsv = dnsCsv,
+                bypassTun = bypassTun,
+                plan = fallback,
+                excludedHosts = excludedHosts,
+            )
+            if (pfd != null) {
+                appliedFingerprint = SplitTunnel.tunFilterFingerprint(
+                    whitelistMode = false,
+                    selectedApps = emptySet(),
+                    excludedHosts = excludedHosts,
+                    selfPackage = packageName,
+                )
+            }
+        }
+        tun = pfd
+        if (pfd != null) {
+            lastTunIp = ipAddr
+            lastTunDns = dnsCsv
+            lastTunMtu = wantMtu
+            lastTunUnderlayIdentity = underlayIdentity(this)
+            lastTunFilterFingerprint = appliedFingerprint
+            bindTunToUnderlay()
+        } else {
+            lastTunIp = null
+            lastTunDns = null
+            lastTunMtu = 0
+            lastTunUnderlayIdentity = null
+            lastTunFilterFingerprint = null
+        }
+        AppLog.i(
+            TAG,
+            "TUN established ip=$ip mtu=$wantMtu fd=${pfd?.fd} path=$path " +
+                "apps=${excludedApps.size} whitelist=$whitelist " +
+                "planWhitelist=${plan.whitelistMode} hosts=${excludedHosts.size} " +
+                "disallowed=${plan.disallowed.size} allowed=${plan.allowed.size} " +
+                SplitTunnel.logSample(excludedApps),
+        )
+        return pfd
+    }
+
+    private fun establishVpnInterface(
+        ipAddr: String,
+        wantMtu: Int,
+        dnsCsv: String,
+        bypassTun: Boolean,
+        plan: SplitTunnelPlan,
+        excludedHosts: Set<String>,
+    ): ParcelFileDescriptor? {
         val builder = Builder()
             .setSession(if (bypassTun) "ARDTT-raw" else "ARDTT")
             .setMtu(wantMtu)
@@ -1449,20 +1544,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         // qWDTT RawTunVpnService: allowBypass() is never called. On some OEMs it
         // lets browsers skip the tunnel even with 0.0.0.0/0. allowFamily() is
         // also omitted — qWDTT leaves the Builder family defaults.
-        val excludedApps = runCatching {
-            kotlinx.coroutines.runBlocking { settingsRepo.excludedAppsSnapshot() }
-        }.getOrDefault(emptySet())
-        val whitelist = runCatching {
-            kotlinx.coroutines.runBlocking { settingsRepo.appsWhitelistModeSnapshot() }
-        }.getOrDefault(false)
-        val plan = SplitTunnel.resolve(
-            whitelistMode = whitelist,
-            selectedApps = excludedApps,
-            selfPackage = packageName,
-        )
-        if (whitelist && excludedApps.isEmpty()) {
-            AppLog.w(TAG, "empty app whitelist — full tunnel minus transport (qWDTT fail-open)")
-        }
         if (plan.whitelistMode) {
             for (pkg in plan.allowed) {
                 if (!isInstalledPackage(pkg)) continue
@@ -1477,9 +1558,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
         }
         // Domain → IPv4 excludeRoute (API 33+). IPv6 /128 enables Happy Eyeballs black-holes.
-        val excludedHosts = runCatching {
-            kotlinx.coroutines.runBlocking { settingsRepo.excludedHostsSnapshot() }
-        }.getOrDefault(emptySet())
         applyExcludedHostRoutes(builder, excludedHosts)
         // Direct (AWG) keeps the previous blocking/metered flags. Bypass matches
         // qWDTT: default non-blocking TUN, no setMetered.
@@ -1489,29 +1567,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
             builder.setBlocking(true)
         }
-        val pfd = builder.establish()
-        tun = pfd
-        if (pfd != null) {
-            lastTunIp = ipAddr
-            lastTunDns = dnsCsv
-            lastTunMtu = wantMtu
-            lastTunUnderlayIdentity = underlayIdentity(this)
-            bindTunToUnderlay()
-        } else {
-            lastTunIp = null
-            lastTunDns = null
-            lastTunMtu = 0
-            lastTunUnderlayIdentity = null
-        }
-        AppLog.i(
-            TAG,
-            "TUN established ip=$ip mtu=$wantMtu fd=${pfd?.fd} path=$path " +
-                "apps=${excludedApps.size} whitelist=$whitelist " +
-                "planWhitelist=${plan.whitelistMode} hosts=${excludedHosts.size} " +
-                "disallowed=${plan.disallowed.size} allowed=${plan.allowed.size} " +
-                SplitTunnel.logSample(excludedApps),
-        )
-        return pfd
+        return runCatching { builder.establish() }
+            .onFailure { err ->
+                AppLog.e(TAG, "TUN establish threw whitelist=${plan.whitelistMode}: ${err.message}")
+            }
+            .getOrNull()
     }
 
     private fun isInstalledPackage(pkg: String): Boolean = try {
@@ -1531,6 +1591,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         lastTunDns = null
         lastTunMtu = 0
         lastTunUnderlayIdentity = null
+        lastTunFilterFingerprint = null
     }
 
     /**
@@ -1929,6 +1990,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_HIDE_IP = "hide_ip"
         const val EXTRA_TUN_ADDRESS = "tun_address"
         const val EXTRA_RESTART_REASON = "restart_reason"
+        const val EXTRA_REBUILD_TUN = "rebuild_tun"
+        private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =
+            "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42
         private const val CHANNEL_SHADE = "ardtt_vpn_shade_v6"
         private const val CHANNEL_MIN = "ardtt_vpn_min_v6"

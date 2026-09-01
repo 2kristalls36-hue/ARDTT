@@ -15,11 +15,15 @@ fun canReuseBypassTun(
     ip: String,
     dns: String,
     mtu: Int,
+    lastFilterFingerprint: String? = null,
+    filterFingerprint: String? = null,
 ): Boolean {
     if (!existingValid) return false
     val wantIp = ip.substringBefore('/')
     val wantMtu = mtu.coerceIn(576, 1500)
-    return lastIp == wantIp && lastDns == dns && lastMtu == wantMtu
+    if (lastIp != wantIp || lastDns != dns || lastMtu != wantMtu) return false
+    if (filterFingerprint != null && lastFilterFingerprint != filterFingerprint) return false
+    return true
 }
 
 /**
