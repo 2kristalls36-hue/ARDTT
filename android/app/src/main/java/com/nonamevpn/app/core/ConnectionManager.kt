@@ -1517,7 +1517,8 @@ class ConnectionManager(
                     provisionBaseUrl = resolveProvisionUrl(),
                     deviceId = profile?.deviceId,
                     context = appContext,
-                    viaVpn = false,
+                    // In Bypass/whitelist scenarios provision can be reachable only via VPN path.
+                    viaVpn = shouldProvisionViaVpn(),
                 )
                 refreshVpnNotification()
                 if (!ip.isNullOrBlank()) return@launch
