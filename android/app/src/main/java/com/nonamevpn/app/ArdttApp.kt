@@ -29,9 +29,6 @@ class ArdttApp : Application() {
         AppShortcuts.refreshAsync(this)
         appScope.launch {
             runCatching { AppSettingsRepository(this@ArdttApp).clearLegacyWallpaperPreference() }
-            AppSettingsRepository(this@ArdttApp).rotateTunnelWallpaperVariantOnAppStart(
-                variantCount = 2,
-            )
         }
         // Undo 0.5.113, which wrongly disabled the system Quick Settings tile.
         applyQuickSettingsTileHidden(this, hidden = false)

@@ -1,8 +1,16 @@
 package com.nonamevpn.app.ui.tunnel
 
+import com.nonamevpn.app.core.ConnPathMode
+import com.nonamevpn.app.core.NetworkClass
+import com.nonamevpn.app.core.VpnPath
 import kotlin.random.Random
 
-/** Illustrated Tunnel-tab scenes: field, cyberpunk city, refinery. */
+/**
+ * One illustrated scene for the whole process (cold start).
+ *
+ * Field = поле, City = киберпанк-город, Refinery = НПЗ.
+ * Every user-mode tab draws this same scene — Tunnel included.
+ */
 enum class TunnelWallpaperScene {
     Field,
     City,
@@ -16,11 +24,16 @@ enum class TunnelWallpaperScene {
     }
 }
 
-/** Day = light theme, night = dark theme, sunset = app whitelist (БС). */
+/**
+ * Time of day for the current scene.
+ *
+ * Day = light theme, Night = dark theme, Evening = bypass («Обход»),
+ * which wins over the theme.
+ */
 enum class TunnelWallpaperTime {
     Day,
     Night,
-    Sunset,
+    Evening,
 }
 
 data class TunnelWallpaperId(
@@ -28,25 +41,42 @@ data class TunnelWallpaperId(
     val time: TunnelWallpaperTime,
 )
 
+/**
+ * Evening when the tunnel is on (or will use) Path B / RAW обход.
+ * Direct-only mode never uses evening, even if a probe later looks like БС.
+ */
+fun wallpaperBypassActive(
+    pathMode: ConnPathMode,
+    activePath: VpnPath? = null,
+    networkClass: NetworkClass? = null,
+): Boolean = when (pathMode) {
+    ConnPathMode.Bypass -> true
+    ConnPathMode.Direct -> false
+    ConnPathMode.Auto ->
+        activePath == VpnPath.Bypass ||
+            networkClass == NetworkClass.NeedBypass ||
+            networkClass == NetworkClass.OpenNeedBypass
+}
+
 fun resolveTunnelWallpaperTime(
-    whitelistMode: Boolean,
+    bypass: Boolean,
     darkTheme: Boolean,
 ): TunnelWallpaperTime = when {
-    whitelistMode -> TunnelWallpaperTime.Sunset
+    bypass -> TunnelWallpaperTime.Evening
     darkTheme -> TunnelWallpaperTime.Night
     else -> TunnelWallpaperTime.Day
 }
 
 fun resolveTunnelWallpaper(
     scene: TunnelWallpaperScene,
-    whitelistMode: Boolean,
+    bypass: Boolean,
     darkTheme: Boolean,
 ): TunnelWallpaperId = TunnelWallpaperId(
     scene = scene,
-    time = resolveTunnelWallpaperTime(whitelistMode, darkTheme),
+    time = resolveTunnelWallpaperTime(bypass, darkTheme),
 )
 
-/** Wallpaper on every tab in user mode. Admin keeps the gradient backdrop. */
+/** Illustrated wallpaper on every tab in user mode. Admin keeps the gradient. */
 fun tunnelWallpaperVisible(admin: Boolean): Boolean = !admin
 
 /**
