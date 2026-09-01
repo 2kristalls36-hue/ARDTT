@@ -64,10 +64,6 @@ func main() {
 		for s := range sig {
 			if s == syscall.SIGHUP {
 				log.Println("[SYS] Получен сигнал SIGHUP. Перезагрузка базы паролей...")
-				if wgDev == nil {
-					log.Println("[ERR] WireGuard еще не запущен, пропуск SIGHUP")
-					continue
-				}
 				if err := reloadDB(wgDev); err != nil {
 					log.Printf("[ERR] Ошибка перезагрузки базы паролей: %v", err)
 				} else {
@@ -104,7 +100,9 @@ func main() {
 	}
 	syncPersistedPeersToWG(wgDev)
 	defer func() {
-		wgDev.Close()
+		if wgDev != nil {
+			wgDev.Close()
+		}
 		runCmdSilent("ip", "link", "del", wgIfaceName)
 	}()
 
