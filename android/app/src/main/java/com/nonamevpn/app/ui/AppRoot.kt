@@ -101,6 +101,7 @@ fun AppRoot(
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val appsWhitelistMode by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -126,15 +127,15 @@ fun AppRoot(
     )
     val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
     val baseColorScheme = MaterialTheme.colorScheme
-    val wallpaperAccent = remember(showUserWallpaper, tunnelWallpaper) {
-        if (!showUserWallpaper) return@remember null
+    val wallpaperAccent = remember(showUserWallpaper, dynamicColors, tunnelWallpaper) {
+        if (!showUserWallpaper || !dynamicColors) return@remember null
         TunnelWallpaperCache.accentArgb(
             scene = tunnelWallpaper.scene,
             time = tunnelWallpaper.time,
         )?.let { Color(it) }
     }
-    val adaptedColorScheme = remember(baseColorScheme, wallpaperAccent, darkTheme, showUserWallpaper) {
-        if (!showUserWallpaper || wallpaperAccent == null) {
+    val adaptedColorScheme = remember(baseColorScheme, wallpaperAccent, darkTheme, showUserWallpaper, dynamicColors) {
+        if (!showUserWallpaper || !dynamicColors || wallpaperAccent == null) {
             baseColorScheme
         } else {
             wallpaperAdaptedColorScheme(

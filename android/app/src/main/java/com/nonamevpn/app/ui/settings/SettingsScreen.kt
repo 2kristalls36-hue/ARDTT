@@ -136,6 +136,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
@@ -368,6 +369,16 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
                     DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
                 }
+                RowSetting(
+                    title = "Динамические цвета",
+                    subtitle = if (dynamicColors) {
+                        "Цвета кнопок и акцентов подстраиваются под текущие обои."
+                    } else {
+                        "Используется базовая палитра темы без адаптации к обоям."
+                    },
+                    checked = dynamicColors,
+                    onCheckedChange = { scope.launch { settings.setDynamicColors(it) } },
+                )
             }
             RowSetting(
                 title = "Уведомление",
