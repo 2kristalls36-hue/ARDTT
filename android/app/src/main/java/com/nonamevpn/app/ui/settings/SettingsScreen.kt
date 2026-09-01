@@ -107,7 +107,7 @@ fun SettingsScreen(
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-    val illustratedWallpaper by settings.illustratedWallpaperEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
@@ -413,16 +413,18 @@ fun SettingsScreen(
                     DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
                 }
             }
-            RowSetting(
-                title = "Обои и дроны",
-                subtitle = if (illustratedWallpaper) {
-                    "Картинки на всех вкладках. На туннеле — дроны при обходе."
-                } else {
-                    "Выключены. Фон — градиент, без дронов."
-                },
-                checked = illustratedWallpaper,
-                onCheckedChange = { scope.launch { settings.setIllustratedWallpaperEnabled(it) } },
-            )
+            if (!admin) {
+                RowSetting(
+                    title = "Классический вид",
+                    subtitle = if (classicAppearance) {
+                        "Стандартный градиент, без обоев и дронов."
+                    } else {
+                        "Выключен. На вкладках — иллюстрации, на туннеле — дроны при обходе."
+                    },
+                    checked = classicAppearance,
+                    onCheckedChange = { scope.launch { settings.setClassicAppearanceEnabled(it) } },
+                )
+            }
             RowSetting(
                 title = "Уведомление",
                 subtitle = if (notifVisible) {

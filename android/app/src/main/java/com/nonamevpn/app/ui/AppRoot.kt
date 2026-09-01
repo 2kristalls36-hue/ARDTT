@@ -108,7 +108,7 @@ fun AppRoot(
     val scope = rememberCoroutineScope()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-    val illustratedWallpaper by settings.illustratedWallpaperEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -140,7 +140,7 @@ fun AppRoot(
     )
     val showUserWallpaper = tunnelWallpaperVisible(
         admin = admin,
-        enabled = illustratedWallpaper,
+        classicAppearance = classicAppearance,
     )
     LaunchedEffect(tunnelWallpaper, bypassWallpaper, darkTheme, showUserWallpaper) {
         AppLog.i(

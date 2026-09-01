@@ -77,11 +77,11 @@ fun resolveTunnelWallpaper(
 )
 
 /**
- * Illustrated wallpaper on every tab in user mode. Admin keeps the gradient.
- * [enabled] is the user toggle (обои + дроны); off uses the same gradient.
+ * Illustrated wallpaper on every tab in user mode.
+ * Admin, and user-mode classic appearance, keep the gradient chrome.
  */
-fun tunnelWallpaperVisible(admin: Boolean, enabled: Boolean = true): Boolean =
-    !admin && enabled
+fun tunnelWallpaperVisible(admin: Boolean, classicAppearance: Boolean = false): Boolean =
+    !admin && !classicAppearance
 
 /**
  * Walk through Field, City, and Refinery before repeating.

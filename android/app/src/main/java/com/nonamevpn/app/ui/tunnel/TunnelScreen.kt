@@ -181,7 +181,7 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-    val illustratedWallpaper by settings.illustratedWallpaperEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -322,7 +322,7 @@ fun TunnelScreen(
             catalogItems = catalog.items,
             activeProfileId = catalog.activeId,
             bypassActive = bypassActive,
-            showIllustratedWallpaper = illustratedWallpaper,
+            showIllustratedWallpaper = !classicAppearance,
             themeMode = themeMode,
             onSwitchThemeMode = {
                 scope.launch {
