@@ -473,9 +473,9 @@ fun SettingsContent(settings: AppSettingsRepository) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Назначение и доступ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Описание и доступ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "ARDTT представляет собой туннельный клиент с упрощённым сценарием touch&GO для оперативного запуска защищённого подключения.",
+                "ARDTT представляет собой простой туннельный клиент для постоянного защищённого соединения (всегда работает) с упрощённым сценарием touch&GO.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
