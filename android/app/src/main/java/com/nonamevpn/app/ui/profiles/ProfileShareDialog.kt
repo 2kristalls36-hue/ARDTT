@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -102,7 +103,8 @@ fun ProfileShareDialog(
                                 bitmap = qr.bitmap,
                                 contentDescription = "QR-код профиля",
                                 modifier = Modifier
-                                    .size(220.dp)
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
                                     .padding(12.dp)
                                     .clip(RoundedCornerShape(12.dp)),
                             )
