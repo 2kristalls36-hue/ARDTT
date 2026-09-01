@@ -96,8 +96,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     /** Bypass started before Android VALIDATED LTE — rebind once it does. */
     @Volatile private var rebindBypassWhenValidated = false
     @Volatile private var sessionStartedAtMs = 0L
-    @Volatile private var stableNetworkEvidenceSinceMs = 0L
-    @Volatile private var deadDirectHandledAtMs = 0L
+    @Volatile private var handoverProbeInProgress = false
+    @Volatile private var pendingHandoverReason: String? = null
+    @Volatile private var lastDataSubId: Int = android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
+    private var dataSubReceiver: BroadcastReceiver? = null
+    private var telephonyCallback: android.telephony.TelephonyCallback? = null
     private var notifLiveJob: Job? = null
     private var trustedWifiSettingsJob: Job? = null
 
@@ -178,6 +181,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
         tunnelSessionActive = true
         softRestartInProgress = false
+        handoverProbeInProgress = false
+        pendingHandoverReason = null
         sessionStartedAtMs = System.currentTimeMillis()
         lastHandoffAtMs = sessionStartedAtMs
         TransportHealth.reset()
@@ -185,6 +190,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         setupNetworkCallback()
         setupTrustedWifiMonitoring()
         registerScreenReceiver()
+        registerDataSubscriptionMonitor()
         startWatchdog()
         startNotifLiveUpdates()
         startTrustedWifiSettingsObserver()
@@ -342,6 +348,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                     ?: getString(R.string.notif_running),
                             )
                             scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
+                            drainPendingHandover()
                         }
                         is TunnelBackendState.Failed -> {
                             if (userStopRequested || trustedWifiWaiting) {
@@ -394,25 +401,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     /**
      * Auto: re-classify underlay and soft-restart (possibly switching Direct↔Bypass).
-     * Forced Direct/Bypass: soft-restart same path.
+     * Forced Direct/Bypass: soft-restart same path unless there is no usable network.
      */
     private suspend fun runHandoverProbeAndRestart(
         reason: String,
         underlayChanged: Boolean = false,
     ) {
         if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) return
-        if (softRestartInProgress) {
-            AppLog.v(TAG, "handover probe skipped — soft restart already in progress ($reason)")
+        if (shouldDeferHandoverProbe(handoverProbeInProgress, softRestartInProgress)) {
+            pendingHandoverReason = reason
+            AppLog.v(TAG, "handover queued ($reason) — probe/restart busy")
             return
         }
-        if (
-            !underlayChanged &&
-            ConnectionManager.getOrNull()?.bypassWarming() == true
-        ) {
-            AppLog.v(TAG, "handover probe skipped — Bypass still waiting for workers ($reason)")
-            return
-        }
-        softRestartInProgress = true
+        handoverProbeInProgress = true
         try {
             val underlay = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
             val decision = ConnectionManager.getOrNull()
@@ -442,11 +443,27 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         rebuildTun = underlayChanged,
                     )
                 }
+                NetworkHandoverDecision.HoldWaitForNetwork -> {
+                    AppLog.v(TAG, "handover hold — wait for underlay ($reason)")
+                    val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
+                    updateNotification(path, "Ожидание сети…")
+                }
             }
         } catch (t: Throwable) {
             softRestartInProgress = false
             AppLog.e(TAG, "handover probe failed: ${t.message}")
+        } finally {
+            handoverProbeInProgress = false
         }
+    }
+
+    private fun drainPendingHandover() {
+        if (userStopRequested || trustedWifiWaiting || !tunnelSessionActive) return
+        val pending = pendingHandoverReason ?: return
+        if (shouldDeferHandoverProbe(handoverProbeInProgress, softRestartInProgress)) return
+        pendingHandoverReason = null
+        AppLog.v(TAG, "drain queued handover: $pending")
+        scheduleUnderlyingNetworkReconnect(pending)
     }
 
     private fun requestSoftRestart(
@@ -567,6 +584,70 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         screenReceiver = null
         wakeRescueJob?.cancel()
         wakeRescueJob = null
+    }
+
+    private fun readDefaultDataSubscriptionId(): Int = runCatching {
+        android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
+    }.getOrDefault(android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+
+    private fun registerDataSubscriptionMonitor() {
+        lastDataSubId = readDefaultDataSubscriptionId()
+        if (dataSubReceiver == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    val subId = readDefaultDataSubscriptionId()
+                    onDataSubscriptionChanged(subId, "default data SIM broadcast")
+                }
+            }
+            dataSubReceiver = receiver
+            val filter = IntentFilter(
+                android.telephony.SubscriptionManager.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED,
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // System implicit broadcast — must be exported or SIM switches are silent.
+                registerReceiver(receiver, filter, RECEIVER_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(receiver, filter)
+            }
+        }
+        if (telephonyCallback == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val tm = getSystemService(TELEPHONY_SERVICE) as? android.telephony.TelephonyManager
+            if (tm != null) {
+                val cb = object :
+                    android.telephony.TelephonyCallback(),
+                    android.telephony.TelephonyCallback.ActiveDataSubscriptionIdListener {
+                    override fun onActiveDataSubscriptionIdChanged(subId: Int) {
+                        onDataSubscriptionChanged(subId, "active data SIM changed")
+                    }
+                }
+                runCatching { tm.registerTelephonyCallback(mainExecutor, cb) }
+                    .onSuccess { telephonyCallback = cb }
+                    .onFailure { AppLog.w(TAG, "TelephonyCallback failed: ${it.message}") }
+            }
+        }
+        AppLog.v(TAG, "data subscription monitor lastSubId=$lastDataSubId")
+    }
+
+    private fun unregisterDataSubscriptionMonitor() {
+        dataSubReceiver?.let { runCatching { unregisterReceiver(it) } }
+        dataSubReceiver = null
+        val cb = telephonyCallback
+        telephonyCallback = null
+        if (cb != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val tm = getSystemService(TELEPHONY_SERVICE) as? android.telephony.TelephonyManager
+            runCatching { tm?.unregisterTelephonyCallback(cb) }
+        }
+    }
+
+    private fun onDataSubscriptionChanged(subId: Int, reason: String) {
+        if (subId == android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) return
+        if (subId == lastDataSubId) return
+        val previous = lastDataSubId
+        lastDataSubId = subId
+        if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) return
+        AppLog.v(TAG, "$reason $previous → $subId")
+        scheduleUnderlyingNetworkReconnect("$reason $previous→$subId")
     }
 
     private fun isDeviceInteractive(): Boolean {
@@ -829,6 +910,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         trustedWifiPausedAtMs = System.currentTimeMillis()
         tunnelSessionActive = false
         softRestartInProgress = false
+        handoverProbeInProgress = false
+        pendingHandoverReason = null
         ++backendEpoch
         sessionJob?.cancel()
         sessionJob = null
@@ -991,10 +1074,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 activeNetworks.add(network)
                 val id = network.networkHandle
                 val previous = lastValidatedNetworkId
+                val subId = readDefaultDataSubscriptionId()
+                val subChanged =
+                    subId != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID &&
+                        lastDataSubId != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID &&
+                        subId != lastDataSubId
+                if (subId != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    lastDataSubId = subId
+                }
                 val transition = classifyValidatedNetworkTransition(
                     previousNetworkId = previous,
                     currentNetworkId = id,
                     previousNetworkWasLost = stableNetworkWasLost,
+                    dataSubscriptionChanged = subChanged,
                 )
                 lastValidatedNetworkId = id
                 if (
@@ -1093,10 +1185,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             if (handoverPreviousNetworkId == null && previousNetworkId != null) {
                 handoverPreviousNetworkId = previousNetworkId
             }
-            AppLog.v(
-                TAG,
-                "$reason; handover check already pending underlayChanged=$pendingHandoverUnderlayChanged",
-            )
+            pendingHandoverReason = reason
+            AppLog.v(TAG, "$reason; handover check already pending — queued")
             return
         }
         pendingHandoverUnderlayChanged = underlayChanged
@@ -1237,6 +1327,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         realNetworkAvailable = activeNetworks.isNotEmpty(),
                     )
                 ) {
+                    if (softRestartInProgress && !userStopRequested && !trustedWifiWaiting) {
+                        pendingHandoverReason = reason
+                    }
                     AppLog.v(TAG, "skip reconnect: session state changed")
                     return@launch
                 }
@@ -1272,6 +1365,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             } finally {
                 stableNetworkReconnectPending = false
                 handoverPreviousNetworkId = null
+                // Yield so this job is no longer "active" and a queued SIM/Wi‑Fi
+                // switch can start instead of being stuck until the next event.
+                scope.launch {
+                    delay(50L)
+                    drainPendingHandover()
+                }
             }
         }
     }
@@ -1291,11 +1390,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         rebindBypassWhenValidated = false
         rebuildTunOnNextLaunch = false
         softRestartInProgress = false
+        handoverProbeInProgress = false
+        pendingHandoverReason = null
         trustedWifiEvalJob?.cancel()
         watchdogJob?.cancel()
         watchdogJob = null
         discardParkedCall("recovery cancelled")
         unregisterScreenReceiver()
+        unregisterDataSubscriptionMonitor()
         teardownNetworkCallback()
     }
 

@@ -17,9 +17,9 @@ data class ProbeResult(
     val networkClass: NetworkClass,
     val preselectedPath: VpnPath?,
     val systemOnline: Boolean,
-    /** UDP/TCP to 77.88.8.8:53 — underlay alive, including operator whitelist. */
+    /** 77.88.8.8 — Yandex DNS, reaches even on operator whitelist (БС). */
     val yandexOk: Boolean,
-    /** Unused in Auto (kept for older UI/tests). Path uses [provisionOk] as VPS IP. */
+    /** 1.1.1.1 — Cloudflare, typically blocked on БС. */
     val bigtechOk: Boolean,
     val captive: Boolean,
     /** AWG UDP handshake response from direct.endpoint (not used in live probe). */
@@ -28,4 +28,7 @@ data class ProbeResult(
     val provisionOk: Boolean,
     val message: String,
     val elapsedMs: Long,
-)
+) {
+    /** Operator whitelist: Yandex DNS lives, Cloudflare does not. */
+    val whitelistRestricted: Boolean get() = yandexOk && !bigtechOk
+}
