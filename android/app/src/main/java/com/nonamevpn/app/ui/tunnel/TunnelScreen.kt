@@ -907,6 +907,7 @@ fun TunnelScreen(
                 connected = connected,
                 paused = ui.state == ConnState.PausedTrustedWifi,
                 busy = connectingLike || disconnecting,
+                showBusyGlow = ui.state != ConnState.Probing,
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
@@ -931,12 +932,17 @@ private fun TunnelPowerToggle(
     connected: Boolean,
     paused: Boolean,
     busy: Boolean,
+    showBusyGlow: Boolean = true,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val activeGlow = connected || paused || busy
+    val activeGlow = connected || paused || (busy && showBusyGlow)
     val shellColor = NvpnFloatingShell.shellColor()
-    val accentColor = if (connected || paused || busy) Color(0xFF35C759) else Color.White.copy(alpha = 0.75f)
+    val accentColor = if (connected || paused || (busy && showBusyGlow)) {
+        Color(0xFF35C759)
+    } else {
+        Color.White.copy(alpha = 0.75f)
+    }
     val pulseScale by animateFloatAsState(
         targetValue = if (activeGlow) 1.08f else 1f,
         animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
