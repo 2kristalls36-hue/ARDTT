@@ -318,74 +318,80 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
-            RowSetting(
-                title = "Скрыть адрес",
-                subtitle = HideIpCopy.subtitle(hideIp),
-                checked = hideIp,
-                enabled = !vpnLocked,
-                onCheckedChange = {
-                    scope.launch {
-                        settings.setHideIp(it)
-                        conn.setHideIp(it)
-                    }
-                },
-            )
-            RowSetting(
-                title = "Скрыть быстрые настройки",
-                subtitle = if (hideTunnelQuickSettings) {
-                    "Раздел «Параметры подключения» на вкладке «Туннель» скрыт."
-                } else {
-                    "На вкладке «Туннель» показаны маршрут, адрес и доверенная Wi‑Fi."
-                },
-                checked = hideTunnelQuickSettings,
-                onCheckedChange = { hidden ->
-                    scope.launch { settings.setHideTunnelQuickSettings(hidden) }
-                },
-            )
-            RowSetting(
-                title = "Кнопки во время соединения",
-                subtitle = if (unlockConnControls) {
-                    "Маршрут и исходящий адрес можно менять на лету, пока туннель включён."
-                } else {
-                    "Пока туннель включён, маршрут и адрес заблокированы."
-                },
-                checked = unlockConnControls,
-                onCheckedChange = { scope.launch { settings.setUnlockConnControls(it) } },
-            )
+            if (admin) {
+                RowSetting(
+                    title = "Скрыть адрес",
+                    subtitle = HideIpCopy.subtitle(hideIp),
+                    checked = hideIp,
+                    enabled = !vpnLocked,
+                    onCheckedChange = {
+                        scope.launch {
+                            settings.setHideIp(it)
+                            conn.setHideIp(it)
+                        }
+                    },
+                )
+                RowSetting(
+                    title = "Скрыть быстрые настройки",
+                    subtitle = if (hideTunnelQuickSettings) {
+                        "Раздел «Параметры подключения» на вкладке «Туннель» скрыт."
+                    } else {
+                        "На вкладке «Туннель» показаны маршрут, адрес и доверенная Wi‑Fi."
+                    },
+                    checked = hideTunnelQuickSettings,
+                    onCheckedChange = { hidden ->
+                        scope.launch { settings.setHideTunnelQuickSettings(hidden) }
+                    },
+                )
+                RowSetting(
+                    title = "Кнопки во время соединения",
+                    subtitle = if (unlockConnControls) {
+                        "Маршрут и исходящий адрес можно менять на лету, пока туннель включён."
+                    } else {
+                        "Пока туннель включён, маршрут и адрес заблокированы."
+                    },
+                    checked = unlockConnControls,
+                    onCheckedChange = { scope.launch { settings.setUnlockConnControls(it) } },
+                )
+            }
         }
 
-        TrustedWifiSettingsCard(settings = settings)
+        if (admin) {
+            TrustedWifiSettingsCard(settings = settings)
+        }
 
-        AppSectionCard(
-            modifier = Modifier
-                .bringIntoViewRequester(callHashBringIntoView)
-                .onGloballyPositioned { coordinates ->
-                    dialCardOffsetY = coordinates.positionInParent().y
-                },
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text("Метод обхода", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Источник параметров обхода и код звонка. Авто — vkcalls, иначе резерв.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+        if (admin) {
+            AppSectionCard(
+                modifier = Modifier
+                    .bringIntoViewRequester(callHashBringIntoView)
+                    .onGloballyPositioned { coordinates ->
+                        dialCardOffsetY = coordinates.positionInParent().y
+                    },
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                DialChip("Авто", dial == "auto", { scope.launch { settings.setDialPath("auto") } }, Modifier.weight(1f))
-                DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
-                DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
+                Text("Метод обхода", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Источник параметров обхода и код звонка. Авто — vkcalls, иначе резерв.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DialChip("Авто", dial == "auto", { scope.launch { settings.setDialPath("auto") } }, Modifier.weight(1f))
+                    DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
+                    DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
+                }
+                RowSetting(
+                    title = "Обновлять звонок автоматически",
+                    subtitle = "Новый звонок без подтверждения. Нужна сессия ВКонтакте.",
+                    checked = silent,
+                    onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
+                )
+                CallHashSettingsContent(showHeader = false)
             }
-            RowSetting(
-                title = "Обновлять звонок автоматически",
-                subtitle = "Новый звонок без подтверждения. Нужна сессия ВКонтакте.",
-                checked = silent,
-                onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
-            )
-            CallHashSettingsContent(showHeader = false)
         }
 
         val appearanceHighlightAlpha by animateFloatAsState(
