@@ -311,6 +311,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
             )
         }
 
+        // User-facing WiFi pause controls should always be available in Settings.
         TrustedWifiSettingsCard(settings = settings)
 
         AppSectionCard(
@@ -802,7 +803,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Доверенная Wi‑Fi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("Доверенная WiFi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
             "В этих сетях туннель приостанавливается. При выходе подключение восстанавливается. Добавляется только текущая сеть.",
             style = MaterialTheme.typography.bodySmall,
