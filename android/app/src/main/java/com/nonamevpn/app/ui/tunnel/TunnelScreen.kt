@@ -837,14 +837,22 @@ private fun TunnelPowerToggle(
         label = "awg_pulse_alpha",
     )
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier
-                .size(198.dp * pulseScale)
-                .background(
-                    color = accentColor.copy(alpha = pulseAlpha),
-                    shape = CircleShape,
-                ),
-        )
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(198.dp),
+                color = accentColor,
+                strokeWidth = 4.dp,
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(198.dp * pulseScale)
+                    .background(
+                        color = accentColor.copy(alpha = pulseAlpha),
+                        shape = CircleShape,
+                    ),
+            )
+        }
         Surface(
             modifier = Modifier
                 .size(180.dp)
