@@ -107,6 +107,7 @@ fun SettingsScreen(
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
@@ -401,8 +402,8 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f + 0.50f * appearanceHighlightAlpha),
             ),
         ) {
+            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             if (!recordingActive) {
-                Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -411,6 +412,18 @@ fun SettingsScreen(
                     DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
                     DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
                 }
+            }
+            if (!admin) {
+                RowSetting(
+                    title = "Классический вид",
+                    subtitle = if (classicAppearance) {
+                        "Стандартный градиент, без обоев и дронов."
+                    } else {
+                        "Выключен. На вкладках — иллюстрации, на туннеле — дроны при обходе."
+                    },
+                    checked = classicAppearance,
+                    onCheckedChange = { scope.launch { settings.setClassicAppearanceEnabled(it) } },
+                )
             }
             RowSetting(
                 title = "Уведомление",

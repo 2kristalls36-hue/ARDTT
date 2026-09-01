@@ -1,5 +1,8 @@
 package com.nonamevpn.app.ui.tunnel
 
+import com.nonamevpn.app.core.ConnPathMode
+import com.nonamevpn.app.core.NetworkClass
+import com.nonamevpn.app.core.VpnPath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,13 +10,116 @@ import org.junit.Test
 
 class TunnelWallpaperTest {
     @Test
-    fun allScenesHaveDayNightAndSunsetVariants() {
+    fun lightThemeUsesDayAndDarkThemeUsesNight() {
+        assertEquals(
+            TunnelWallpaperTime.Day,
+            resolveTunnelWallpaperTime(bypass = false, darkTheme = false),
+        )
+        assertEquals(
+            TunnelWallpaperTime.Night,
+            resolveTunnelWallpaperTime(bypass = false, darkTheme = true),
+        )
+    }
+
+    @Test
+    fun bypassUsesEveningRegardlessOfTheme() {
         TunnelWallpaperScene.all.forEach { scene ->
-            listOf(false to false, true to false, false to true, true to true).forEach { (bs, dark) ->
-                val wallpaper = resolveTunnelWallpaper(scene, whitelistMode = bs, darkTheme = dark)
+            val light = resolveTunnelWallpaper(scene, bypass = true, darkTheme = false)
+            val dark = resolveTunnelWallpaper(scene, bypass = true, darkTheme = true)
+            assertEquals(scene, light.scene)
+            assertEquals(scene, dark.scene)
+            assertEquals(TunnelWallpaperTime.Evening, light.time)
+            assertEquals(TunnelWallpaperTime.Evening, dark.time)
+        }
+    }
+
+    @Test
+    fun everySceneHasDayNightAndEvening() {
+        TunnelWallpaperScene.all.forEach { scene ->
+            listOf(false to false, false to true, true to false, true to true).forEach { (bypass, dark) ->
+                val wallpaper = resolveTunnelWallpaper(scene, bypass = bypass, darkTheme = dark)
                 assertEquals(scene, wallpaper.scene)
+                val expected = when {
+                    bypass -> TunnelWallpaperTime.Evening
+                    dark -> TunnelWallpaperTime.Night
+                    else -> TunnelWallpaperTime.Day
+                }
+                assertEquals(expected, wallpaper.time)
             }
         }
+    }
+
+    @Test
+    fun forcedBypassModeAlwaysEvening() {
+        assertTrue(
+            wallpaperBypassActive(pathMode = ConnPathMode.Bypass, networkClass = NetworkClass.DirectOk),
+        )
+        assertTrue(
+            wallpaperBypassActive(pathMode = ConnPathMode.Bypass, activePath = VpnPath.Direct),
+        )
+    }
+
+    @Test
+    fun forcedDirectModeNeverEvening() {
+        assertFalse(
+            wallpaperBypassActive(
+                pathMode = ConnPathMode.Direct,
+                activePath = VpnPath.Bypass,
+                networkClass = NetworkClass.NeedBypass,
+            ),
+        )
+    }
+
+    @Test
+    fun autoModeEveningWhenProbeNeedsBypass() {
+        assertTrue(
+            wallpaperBypassActive(
+                pathMode = ConnPathMode.Auto,
+                networkClass = NetworkClass.NeedBypass,
+            ),
+        )
+        assertTrue(
+            wallpaperBypassActive(
+                pathMode = ConnPathMode.Auto,
+                networkClass = NetworkClass.OpenNeedBypass,
+            ),
+        )
+        assertTrue(
+            wallpaperBypassActive(
+                pathMode = ConnPathMode.Auto,
+                activePath = VpnPath.Bypass,
+                networkClass = NetworkClass.DirectOk,
+            ),
+        )
+        assertFalse(
+            wallpaperBypassActive(
+                pathMode = ConnPathMode.Auto,
+                activePath = VpnPath.Direct,
+                networkClass = NetworkClass.DirectOk,
+            ),
+        )
+        assertFalse(
+            wallpaperBypassActive(pathMode = ConnPathMode.Auto),
+        )
+    }
+
+    @Test
+    fun visibleOnEveryTabInUserModeOnly() {
+        assertTrue(tunnelWallpaperVisible(admin = false))
+        assertFalse(tunnelWallpaperVisible(admin = true))
+    }
+
+    @Test
+    fun classicAppearanceRestoresGradientInUserMode() {
+        assertFalse(
+            tunnelWallpaperVisible(admin = false, classicAppearance = true),
+        )
+        assertTrue(
+            tunnelWallpaperVisible(admin = false, classicAppearance = false),
+        )
+        assertFalse(
+            tunnelWallpaperVisible(admin = true, classicAppearance = false),
+        )
     }
 
     @Test
@@ -21,34 +127,6 @@ class TunnelWallpaperTest {
         repeat(30) {
             assertTrue(TunnelWallpaperScene.random() in TunnelWallpaperScene.all)
         }
-    }
-
-    @Test
-    fun lightThemeUsesDayAndDarkThemeUsesNight() {
-        assertEquals(
-            TunnelWallpaperTime.Day,
-            resolveTunnelWallpaperTime(whitelistMode = false, darkTheme = false),
-        )
-        assertEquals(
-            TunnelWallpaperTime.Night,
-            resolveTunnelWallpaperTime(whitelistMode = false, darkTheme = true),
-        )
-    }
-
-    @Test
-    fun whitelistModeForcesSunsetOverTheme() {
-        TunnelWallpaperScene.all.forEach { scene ->
-            val light = resolveTunnelWallpaper(scene, whitelistMode = true, darkTheme = false)
-            val dark = resolveTunnelWallpaper(scene, whitelistMode = true, darkTheme = true)
-            assertEquals(TunnelWallpaperTime.Sunset, light.time)
-            assertEquals(TunnelWallpaperTime.Sunset, dark.time)
-        }
-    }
-
-    @Test
-    fun visibleOnEveryTabInUserModeOnly() {
-        assertTrue(tunnelWallpaperVisible(admin = false))
-        assertFalse(tunnelWallpaperVisible(admin = true))
     }
 
     @Test

@@ -19,6 +19,6 @@ fun loadNextTunnelWallpaperScene(context: Context): TunnelWallpaperScene {
     prefs.edit()
         .putString(KEY_LAST, picked.name)
         .putString(KEY_SEEN, nextSeen.joinToString(","))
-        .apply()
+        .commit()
     return picked
 }
