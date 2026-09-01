@@ -658,7 +658,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 modifier = floatingBarModifier,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (sitesEnabled) {
+                if (sitesEnabled && keyboardVisible) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (keyboardVisible) colors.surface else NvpnFloatingShell.shellColor(),
