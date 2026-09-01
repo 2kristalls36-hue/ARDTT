@@ -196,11 +196,21 @@ private fun ServersListPane(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
-                        "pub ${s.publicHost.ifBlank { s.host }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "pub ${s.publicHost.ifBlank { s.host }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        ServerOsBadge(
+                            osId = s.osId,
+                            osVersion = s.osVersion,
+                        )
+                    }
                 }
             }
         }
@@ -242,11 +252,21 @@ private fun ServerOverviewPane(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text("${target.sshUser}@${target.host}:${target.sshPort}")
-            Text(
-                "Публичный host: ${target.publicHost.ifBlank { target.host }}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Публичный host: ${target.publicHost.ifBlank { target.host }}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ServerOsBadge(
+                    osId = target.osId,
+                    osVersion = target.osVersion,
+                )
+            }
             Text(
                 "Direct ${target.directPort} · Bypass ${target.bypassPort}",
                 style = MaterialTheme.typography.bodySmall,
@@ -615,4 +635,44 @@ fun ServersScreen(
         onAdd = { onDeploy(null) },
         onOpen = { onDeploy(it) },
     )
+}
+
+@Composable
+private fun ServerOsBadge(
+    osId: String,
+    osVersion: String,
+) {
+    val normalized = osId.trim().lowercase()
+    val symbol = when {
+        normalized.contains("ubuntu") -> "🟠"
+        normalized.contains("debian") -> "🔴"
+        normalized.contains("alpine") -> "🔷"
+        normalized.contains("arch") -> "⚫"
+        normalized.contains("centos") ||
+            normalized.contains("rhel") ||
+            normalized.contains("rocky") ||
+            normalized.contains("alma") ||
+            normalized.contains("fedora") ||
+            normalized.contains("suse") ||
+            normalized.contains("linux") -> "🐧"
+        normalized.contains("windows") -> "🪟"
+        normalized.contains("darwin") || normalized.contains("mac") -> "🍎"
+        osVersion.isNotBlank() -> "🖥️"
+        else -> "🖥️"
+    }
+    val label = osId.ifBlank { "OS" }.uppercase()
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        Text(
+            "$symbol $label",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
