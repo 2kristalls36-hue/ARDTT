@@ -9,7 +9,9 @@ import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1029,7 +1032,7 @@ private fun WhitelistDroneSkyAnimation(
                 orbitRadiusXFrac = 0.018f,
                 orbitRadiusYFrac = 0.014f,
                 orbitDurationMs = 11_200,
-                delayMs = 0L,
+                delayMs = 140L,
                 phaseRad = 2.2f,
                 windStrength = 0.86f,
                 gustFreqMul = 1.43f,
@@ -1050,7 +1053,7 @@ private fun WhitelistDroneSkyAnimation(
                 orbitRadiusXFrac = 0.027f,
                 orbitRadiusYFrac = 0.021f,
                 orbitDurationMs = 9_200,
-                delayMs = 0L,
+                delayMs = 80L,
                 phaseRad = 0.4f,
                 windStrength = 1.26f,
                 gustFreqMul = 0.92f,
@@ -1101,16 +1104,186 @@ private fun WhitelistDroneSkyAnimation(
 }
 
 @Composable
-private fun RowSwitch(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier,
+private fun AnimatedDrone(
+    spec: DroneFlightSpec,
+    index: Int,
+    restartToken: Int,
+    blowAway: Boolean,
+    sceneWidthPx: Float,
+    sceneHeightPx: Float,
+) {
+    val density = LocalDensity.current
+    var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
+    var dragging by remember(spec.resId, restartToken) { mutableStateOf(false) }
+    var rawDragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
+    var rawDragDy by remember(spec.resId, restartToken) { mutableStateOf(0f) }
+    LaunchedEffect(spec.resId, restartToken) {
+        delay(spec.delayMs)
+        launchStarted = true
+    }
+    val arrivalProgress by animateFloatAsState(
+        targetValue = if (launchStarted) 1f else 0f,
+        animationSpec = tween(durationMillis = 4_200, easing = LinearOutSlowInEasing),
+        label = "drone_arrival_$index",
+    )
+    val orbitBlend by animateFloatAsState(
+        targetValue = if (arrivalProgress > 0.985f) 1f else 0f,
+        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+        label = "drone_orbit_blend_$index",
+    )
+    val blowAwayProgress by animateFloatAsState(
+        targetValue = if (blowAway) 1f else 0f,
+        animationSpec = tween(durationMillis = 980, easing = FastOutLinearInEasing),
+        label = "drone_blow_away_$index",
+    )
+    val dragDx by animateFloatAsState(
+        targetValue = if (dragging) rawDragDx else 0f,
+        animationSpec = if (dragging) {
+            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
+        } else {
+            tween(durationMillis = 420, easing = FastOutSlowInEasing)
+        },
+        label = "drone_drag_dx_$index",
+    )
+    val dragDy by animateFloatAsState(
+        targetValue = if (dragging) rawDragDy else 0f,
+        animationSpec = if (dragging) {
+            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
+        } else {
+            tween(durationMillis = 420, easing = FastOutSlowInEasing)
+        },
+        label = "drone_drag_dy_$index",
+    )
+    val orbit by produceState(
+        initialValue = 0f,
+        key1 = spec.orbitDurationMs,
+        key2 = restartToken,
+    ) {
+        val periodNs = spec.orbitDurationMs.toLong() * 1_000_000L
+        val startNs = withFrameNanos { it }
+        while (true) {
+            val nowNs = withFrameNanos { it }
+            val elapsedNs = (nowNs - startNs).coerceAtLeast(0L)
+            val phase = if (periodNs <= 0L) 0f else {
+                ((elapsedNs % periodNs).toDouble() / periodNs.toDouble()).toFloat()
+            }
+            value = ((Math.PI * 2.0) * phase).toFloat()
+        }
+    }
+
+    val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
+    val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
+    val base = orbit + spec.phaseRad
+    val windCarrier = sin((base * spec.gustFreqMul + spec.gustPhase).toDouble()).toFloat()
+    val xPrimary = sin(base.toDouble()).toFloat()
+    val xCompensation = sin((base * 2f + 0.9f).toDouble()).toFloat()
+    val xMicro = sin((base * 3f + 1.6f).toDouble()).toFloat()
+    val yPrimary = sin((base + 1.2f).toDouble()).toFloat()
+    val yCompensation = sin((base * 2f + 0.35f).toDouble()).toFloat()
+    val yMicro = sin((base * 3f + 2.1f).toDouble()).toFloat()
+    val windAmp = ((0.78f + 0.22f * windCarrier) * spec.windStrength).coerceAtLeast(0.05f) * orbitBlend
+    val comp = spec.compensationStrength.coerceIn(0.05f, 0.45f)
+    val micro = (0.10f + comp * 0.35f).coerceAtMost(0.22f)
+    val primary = (1f - comp - micro).coerceAtLeast(0.45f)
+    val orbitX = (xPrimary * primary + xCompensation * comp + xMicro * micro) *
+        (sceneWidthPx * spec.orbitRadiusXFrac) * windAmp
+    val orbitY = (yPrimary * (primary - 0.06f).coerceAtLeast(0.38f) + yCompensation * (comp + 0.04f) + yMicro * micro) *
+        (sceneHeightPx * spec.orbitRadiusYFrac) * windAmp
+    val wobbleRotation = (
+        sin((base + 0.2f).toDouble()).toFloat() * 0.9f +
+            sin((base * 2f + 1.4f).toDouble()).toFloat() * 0.35f
+        ) * orbitBlend
+    val windKickX = -sceneWidthPx * (0.36f + 0.12f * spec.windStrength) * blowAwayProgress
+    val windKickY = -sceneHeightPx * 0.10f * blowAwayProgress
+    val alpha = ((0.22f + 0.78f * arrivalProgress) * (1f - blowAwayProgress * 0.98f)).coerceIn(0f, 1f)
+    val blowRotation = -18f * blowAwayProgress
+    val dragLimitX = sceneWidthPx * spec.dragLimitXFrac
+    val dragLimitY = sceneHeightPx * spec.dragLimitYFrac
+    val baseX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
+    val baseY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
+    val layoutX = baseX.roundToInt()
+    val layoutY = baseY.roundToInt()
+    val drawOffsetX = baseX - layoutX
+    val drawOffsetY = baseY - layoutY
+
+    val touchSizeDp = (spec.sizeDp * 1.35f).dp
+    val imageSizePx = with(density) { spec.sizeDp.dp.toPx() }
+    val spriteFixX = -spec.centerBiasX * imageSizePx
+    val spriteFixY = -spec.centerBiasY * imageSizePx
+    Box(
+        modifier = Modifier
+            .size(touchSizeDp)
+            .offset { IntOffset(layoutX, layoutY) }
+            .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
+                detectDragGestures(
+                    onDragStart = {
+                        dragging = true
+                    },
+                    onDragEnd = {
+                        dragging = false
+                        rawDragDx = 0f
+                        rawDragDy = 0f
+                    },
+                    onDragCancel = {
+                        dragging = false
+                        rawDragDx = 0f
+                        rawDragDy = 0f
+                    },
+                ) { change, dragAmount ->
+                    if (blowAway) return@detectDragGestures
+                    change.consume()
+                    rawDragDx = (rawDragDx + dragAmount.x).coerceIn(-dragLimitX, dragLimitX)
+                    rawDragDy = (rawDragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
+                }
+            }
+            .graphicsLayer {
+                translationX = drawOffsetX
+                translationY = drawOffsetY
+                this.alpha = alpha
+                rotationZ = wobbleRotation + blowRotation
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    translationX = spriteFixX
+                    translationY = spriteFixY
+                }
+                .drawBehind {
+                    val flightBlend = arrivalProgress.coerceIn(0f, 1f)
+                    val glowColor = Color(0xFF66D8FF).copy(alpha = 0.10f + 0.08f * flightBlend)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(glowColor, Color.Transparent),
+                            center = Offset(size.width / 2f, size.height / 2f),
+                            radius = size.minDimension * 0.56f,
+                        ),
+                        radius = size.minDimension * 0.56f,
+                        center = Offset(size.width / 2f, size.height / 2f),
+                    )
+                },
+        )
+        Image(
+            painter = painterResource(spec.resId),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(spec.sizeDp.dp),
+        )
+    }
+}
+
+@Composable
+private fun ProfileSwitcherBar(
+    activeItem: StoredProfile?,
+    canSwitch: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    busy: Boolean,
 ) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = NvpnBottomChrome.navigationReserve() + 12.dp),
         verticalAlignment = Alignment.CenterVertically,
