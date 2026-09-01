@@ -94,6 +94,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var zeroWorkersSinceMs = 0L
     @Volatile private var processDeadSinceMs = 0L
     @Volatile private var lastHandoffAtMs = 0L
+    @Volatile private var stableNetworkEvidenceSinceMs = 0L
+    @Volatile private var deadDirectHandledAtMs = 0L
     /** Bypass started before Android VALIDATED LTE — rebind once it does. */
     @Volatile private var rebindBypassWhenValidated = false
     @Volatile private var sessionStartedAtMs = 0L
@@ -602,9 +604,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 }
             }
             dataSubReceiver = receiver
-            val filter = IntentFilter(
-                android.telephony.SubscriptionManager.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED,
-            )
+            val filter = IntentFilter(ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 // System implicit broadcast — must be exported or SIM switches are silent.
                 registerReceiver(receiver, filter, RECEIVER_EXPORTED)
@@ -1991,6 +1991,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_TUN_ADDRESS = "tun_address"
         const val EXTRA_RESTART_REASON = "restart_reason"
         const val EXTRA_REBUILD_TUN = "rebuild_tun"
+        private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =
+            "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42
         private const val CHANNEL_SHADE = "ardtt_vpn_shade_v6"
         private const val CHANNEL_MIN = "ardtt_vpn_min_v6"

@@ -36,6 +36,7 @@ object NetworkProbe {
 
     const val YANDEX_DNS_IP = "77.88.8.8"
     const val CLOUDFLARE_IP = "1.1.1.1"
+    const val DEFAULT_VPS_PROBE_PORT = 9100
 
     suspend fun probe(
         context: Context,
