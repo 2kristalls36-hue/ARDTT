@@ -689,6 +689,8 @@ private fun ClientCard(
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
         .ifBlank { "" }
+    val usedDevices = user.deviceIds.size
+    val availableDevices = (user.maxDevices - usedDevices).coerceAtLeast(0)
     val presence = when {
         user.deactivated -> "отключён"
         !subActive -> "истекла"
@@ -770,13 +772,6 @@ private fun ClientCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(
-                        "${user.deviceIds.size}/${user.maxDevices}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                     val appVer = clientAppVersionView(user, latestVersionCode)
                     val appVerColor = when (appVer.tone) {
                         ClientAppVersionTone.Current -> NvpnColors.connected
@@ -812,6 +807,13 @@ private fun ClientCard(
                     }
                 }
             }
+            Text(
+                "Устройства: занято $usedDevices · доступно $availableDevices",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             if (limit > 0L) {
                 LinearProgressIndicator(
                     progress = { progress },
