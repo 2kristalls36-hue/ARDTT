@@ -131,6 +131,9 @@ object NvpnColors {
 private fun onColorFor(background: Color): Color =
     if (background.luminance() > 0.56f) Color(0xFF1C1B1A) else Color.White
 
+private fun mutedOnColorFor(background: Color): Color =
+    if (background.luminance() > 0.56f) Color(0xFF3A4A5F) else Color(0xFFD6E2F0)
+
 fun wallpaperAdaptedColorScheme(
     base: ColorScheme,
     accent: Color,
@@ -142,6 +145,12 @@ fun wallpaperAdaptedColorScheme(
     val primaryContainer = lerp(base.primaryContainer, accent, if (darkTheme) 0.30f else 0.26f)
     val secondaryContainer = lerp(base.secondaryContainer, accent, if (darkTheme) 0.22f else 0.24f)
     val tertiaryContainer = lerp(base.tertiaryContainer, accent, if (darkTheme) 0.20f else 0.22f)
+    val surfaceTint = lerp(primary, accent, 0.45f)
+    val surface = lerp(base.surface, surfaceTint, if (darkTheme) 0.22f else 0.18f)
+    val surfaceVariant = lerp(base.surfaceVariant, surfaceTint, if (darkTheme) 0.30f else 0.26f)
+    val background = lerp(base.background, surfaceTint, if (darkTheme) 0.18f else 0.14f)
+    val outline = lerp(base.outline, surfaceTint, if (darkTheme) 0.16f else 0.14f)
+    val outlineVariant = lerp(base.outlineVariant, surfaceTint, if (darkTheme) 0.22f else 0.18f)
     return base.copy(
         primary = primary,
         onPrimary = onColorFor(primary),
@@ -155,7 +164,15 @@ fun wallpaperAdaptedColorScheme(
         onTertiary = onColorFor(tertiary),
         tertiaryContainer = tertiaryContainer,
         onTertiaryContainer = onColorFor(tertiaryContainer),
-        surfaceTint = primary,
+        surface = surface,
+        onSurface = onColorFor(surface),
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = mutedOnColorFor(surfaceVariant),
+        background = background,
+        onBackground = onColorFor(background),
+        outline = outline,
+        outlineVariant = outlineVariant,
+        surfaceTint = surfaceTint,
     )
 }
 
