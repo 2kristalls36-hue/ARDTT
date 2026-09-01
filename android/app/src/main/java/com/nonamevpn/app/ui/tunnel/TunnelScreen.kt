@@ -389,8 +389,10 @@ fun TunnelScreen(
             AppTabPageHeader(
                 title = "Подключение",
             )
-            if (showConnectionHint) {
+            val missingCallHashHint = !ui.hasCallHash
+            if (missingCallHashHint || showConnectionHint) {
                 TunnelConnectionHintBanner(
+                    missingCallHashHint = missingCallHashHint,
                     vpnLocked = vpnLocked,
                     sessionSwitchingEnabled = (connected || connecting || pausedTrusted) && unlockConnControls,
                     quickSettingsHidden = hideTunnelQuickSettings,
@@ -1335,6 +1337,7 @@ private fun ProfileSwitcherBar(
 
 @Composable
 private fun TunnelConnectionHintBanner(
+    missingCallHashHint: Boolean,
     vpnLocked: Boolean,
     sessionSwitchingEnabled: Boolean,
     quickSettingsHidden: Boolean,
@@ -1365,19 +1368,24 @@ private fun TunnelConnectionHintBanner(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.size(28.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Close,
-                    contentDescription = "Скрыть подсказку",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (!missingCallHashHint) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Скрыть подсказку",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         Text(
             when {
+                missingCallHashHint ->
+                    "Добавьте код звонка для обхода: «Настройки» → «Метод обхода» → «Создать код» " +
+                        "или «Вставить hash». Пока код не сохранён, эта подсказка остаётся закреплённой."
                 vpnLocked ->
                     "Во время активного соединения параметры заблокированы. " +
                         "Разблокировка доступна в «Настройках» → «Подключение»."
