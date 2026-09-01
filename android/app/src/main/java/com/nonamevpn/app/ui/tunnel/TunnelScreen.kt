@@ -563,7 +563,7 @@ fun TunnelScreen(
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Text(
-                            "Доверенная Wi‑Fi",
+                            "Доверенная WiFi",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
