@@ -206,12 +206,6 @@ fun SettingsContent(settings: AppSettingsRepository) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text(
-            "Режим: ${if (admin) "администратор" else "пользователь"} · ${BuildConfig.VERSION_NAME}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -479,7 +473,17 @@ fun SettingsContent(settings: AppSettingsRepository) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Администратор", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Система и доступ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "ARDTT — управление подключением, обновлениями и служебными функциями.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Версия ${BuildConfig.VERSION_NAME} · режим: ${if (admin) "администратор" else "пользователь"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text(
                 if (admin) {
                     "Открыты Серверы и Логи."
