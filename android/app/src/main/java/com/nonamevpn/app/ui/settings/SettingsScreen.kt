@@ -221,8 +221,8 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 when {
                     vpnLocked -> "Недоступно во время соединения."
                     vpnSessionActive && unlockConnControls ->
-                        "Соединение установлено. Смена маршрута применяется сразу, без отключения."
-                    else -> "Авто: прямое подключение, иначе обход. Маршрут можно задать вручную."
+                        "Соединение активно. Изменение маршрута применяется сразу, без отключения."
+                    else -> "Автоматический режим: приоритет прямого подключения, резервный маршрут — обход. Доступно ручное переключение."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -317,9 +317,9 @@ fun SettingsContent(settings: AppSettingsRepository) {
             RowSetting(
                 title = "Кнопки во время соединения",
                 subtitle = if (unlockConnControls) {
-                    "Маршрут и исходящий адрес можно менять на лету, пока туннель включён."
+                    "Маршрут и исходящий адрес можно изменять без отключения туннеля."
                 } else {
-                    "Пока туннель включён, маршрут и адрес заблокированы."
+                    "Пока туннель активен, изменение маршрута и исходящего адреса недоступно."
                 },
                 checked = unlockConnControls,
                 onCheckedChange = { scope.launch { settings.setUnlockConnControls(it) } },
@@ -354,7 +354,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
             }
             RowSetting(
                 title = "Обновлять звонок автоматически",
-                subtitle = "Новый звонок без подтверждения. Нужна сессия ВКонтакте.",
+                subtitle = "Новый код звонка создаётся без подтверждения. Требуется активная сессия ВКонтакте.",
                 checked = silent,
                 onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
             )
@@ -462,9 +462,9 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 if (admin) {
                     "Открыты Серверы и Логи."
                 } else if (hasPin) {
-                    "Введите PIN, чтобы открыть Серверы и Логи."
+                    "Введите PIN для доступа к разделам «Серверы» и «Логи»."
                 } else {
-                    "Задайте PIN администратора (первый ввод создаёт его)."
+                    "Установите PIN администратора (при первом вводе PIN будет создан)."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -488,7 +488,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
                                 return@launch
                             }
                             val ok = settings.unlockAdmin(pin)
-                            adminHint = if (ok) "Режим админа включён" else "Неверный PIN"
+                            adminHint = if (ok) "Режим администратора активирован" else "Неверный PIN"
                             if (ok) {
                                 pin = ""
                                 AppLog.i("Admin", "Unlocked via PIN")
@@ -498,7 +498,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                 ) {
-                    Text(if (hasPin) "Разблокировать админа" else "Создать PIN и войти")
+                    Text(if (hasPin) "Активировать режим администратора" else "Создать PIN и активировать")
                 }
             } else {
                 RowSetting(
@@ -607,7 +607,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
             Text(
-                "В этом окне можно авторизоваться, создать код звонка через ВК или ввести его вручную.",
+                "В этом окне можно выполнить авторизацию, создать код звонка через ВКонтакте или ввести его вручную.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -790,7 +790,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         hint = if (granted) {
             "Фоновый доступ к геолокации разрешён"
         } else {
-            "Без фоновой геолокации туннель может не увидеть сеть в фоне. Для добавления текущей сети достаточно обычной геолокации."
+            "Без фонового доступа к геолокации туннель может не распознавать сеть в фоновом режиме. Для добавления текущей сети достаточно стандартного доступа к геолокации."
         }
     }
     val locationLauncher = rememberLauncherForActivityResult(
@@ -800,7 +800,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
-            hint = "Разрешение геолокации получено. Можно добавить текущую сеть."
+            hint = "Разрешение геолокации предоставлено. Теперь можно добавить текущую сеть."
             if (pendingAddAfterLocation) {
                 pendingAddAfterLocation = false
                 tryAddCurrentSsid()
