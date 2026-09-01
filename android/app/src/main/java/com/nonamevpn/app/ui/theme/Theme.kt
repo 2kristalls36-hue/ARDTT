@@ -3,6 +3,7 @@ package com.nonamevpn.app.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -125,6 +126,37 @@ object NvpnColors {
     val terminalBlue = Color(0xFF42A5F5)
     val terminalRed = Color(0xFFEF5350)
     val terminalCounter = Color(0xFF1E88E5)
+}
+
+private fun onColorFor(background: Color): Color =
+    if (background.luminance() > 0.56f) Color(0xFF1C1B1A) else Color.White
+
+fun wallpaperAdaptedColorScheme(
+    base: ColorScheme,
+    accent: Color,
+    darkTheme: Boolean,
+): ColorScheme {
+    val primary = lerp(base.primary, accent, if (darkTheme) 0.62f else 0.68f)
+    val secondary = lerp(base.secondary, accent, if (darkTheme) 0.35f else 0.40f)
+    val tertiary = lerp(base.tertiary, accent, if (darkTheme) 0.30f else 0.36f)
+    val primaryContainer = lerp(base.primaryContainer, accent, if (darkTheme) 0.30f else 0.26f)
+    val secondaryContainer = lerp(base.secondaryContainer, accent, if (darkTheme) 0.22f else 0.24f)
+    val tertiaryContainer = lerp(base.tertiaryContainer, accent, if (darkTheme) 0.20f else 0.22f)
+    return base.copy(
+        primary = primary,
+        onPrimary = onColorFor(primary),
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onColorFor(primaryContainer),
+        secondary = secondary,
+        onSecondary = onColorFor(secondary),
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onColorFor(secondaryContainer),
+        tertiary = tertiary,
+        onTertiary = onColorFor(tertiary),
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onColorFor(tertiaryContainer),
+        surfaceTint = primary,
+    )
 }
 
 @Composable

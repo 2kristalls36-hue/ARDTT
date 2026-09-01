@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -58,10 +59,12 @@ import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.profiles.ProfilesScreen
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
+import com.nonamevpn.app.ui.tunnel.TunnelWallpaperCache
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
 import com.nonamevpn.app.ui.tunnel.resolveTunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.tunnelWallpaperVisible
 import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
+import com.nonamevpn.app.ui.theme.wallpaperAdaptedColorScheme
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -122,6 +125,25 @@ fun AppRoot(
         darkTheme = darkTheme,
     )
     val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
+    val baseColorScheme = MaterialTheme.colorScheme
+    val wallpaperAccent = remember(showUserWallpaper, tunnelWallpaper) {
+        if (!showUserWallpaper) return@remember null
+        TunnelWallpaperCache.accentArgb(
+            scene = tunnelWallpaper.scene,
+            time = tunnelWallpaper.time,
+        )?.let { Color(it) }
+    }
+    val adaptedColorScheme = remember(baseColorScheme, wallpaperAccent, darkTheme, showUserWallpaper) {
+        if (!showUserWallpaper || wallpaperAccent == null) {
+            baseColorScheme
+        } else {
+            wallpaperAdaptedColorScheme(
+                base = baseColorScheme,
+                accent = wallpaperAccent,
+                darkTheme = darkTheme,
+            )
+        }
+    }
 
     val tabs = AppDestination.entries.filter { dest ->
         if (!dest.inBottomNav) return@filter false
@@ -285,35 +307,40 @@ fun AppRoot(
         isRecording = isRecording,
         currentScreen = currentRoute,
     ) {
-        CompositionLocalProvider(LocalOpaqueSectionCards provides showUserWallpaper) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                // Same cached scene on every user-mode tab. Admin keeps the gradient.
-                // Keep the Image composed so tab switches do not flash Field.
-                if (showUserWallpaper) {
-                    key(tunnelWallpaper.scene) {
-                        TunnelWallpaperBackdrop(
-                            wallpaper = tunnelWallpaper,
-                            modifier = Modifier.fillMaxSize(),
+        MaterialTheme(
+            colorScheme = adaptedColorScheme,
+            typography = MaterialTheme.typography,
+        ) {
+            CompositionLocalProvider(LocalOpaqueSectionCards provides showUserWallpaper) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // Same cached scene on every user-mode tab. Admin keeps the gradient.
+                    // Keep the Image composed so tab switches do not flash Field.
+                    if (showUserWallpaper) {
+                        key(tunnelWallpaper.scene) {
+                            TunnelWallpaperBackdrop(
+                                wallpaper = tunnelWallpaper,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    } else {
+                        AppBackdrop(modifier = Modifier.fillMaxSize())
+                    }
+                    composable(AppDestination.Servers.route) {
+                        ServersHub(
+                            serversRepo = serversRepo,
+                            deployEngine = deployEngine,
+                            profiles = profiles,
                         )
                     }
-                } else {
-                    AppBackdrop(modifier = Modifier.fillMaxSize())
-                }
-                composable(AppDestination.Servers.route) {
-                    ServersHub(
-                        serversRepo = serversRepo,
-                        deployEngine = deployEngine,
-                        profiles = profiles,
-                    )
-                }
-                composable(AppDestination.Profiles.route) {
-                    ProfilesScreen(profiles = profiles)
-                }
-                composable(AppDestination.Exceptions.route) {
-                    ExceptionsScreen(settings = settings)
-                }
-                composable(AppDestination.Logs.route) {
-                    LogsScreen()
+                    composable(AppDestination.Profiles.route) {
+                        ProfilesScreen(profiles = profiles)
+                    }
+                    composable(AppDestination.Exceptions.route) {
+                        ExceptionsScreen(settings = settings)
+                    }
+                    composable(AppDestination.Logs.route) {
+                        LogsScreen()
+                    }
                 }
             }
         }
