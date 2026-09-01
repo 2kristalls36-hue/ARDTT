@@ -130,6 +130,7 @@ object NvpnColors {
 @Composable
 fun ArdttTheme(
     themeMode: String = "system",
+    wallpaperAvgColor: Color? = null,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
@@ -137,7 +138,22 @@ fun ArdttTheme(
         "light" -> false
         else -> isSystemInDarkTheme()
     }
-    val colorScheme = if (darkTheme) EspressoDark else EspressoLight
+    val baseScheme = if (darkTheme) EspressoDark else EspressoLight
+    
+    val colorScheme = if (wallpaperAvgColor != null) {
+        val blendFactor = 0.4f
+        baseScheme.copy(
+            primary = lerp(baseScheme.primary, wallpaperAvgColor, blendFactor),
+            primaryContainer = lerp(baseScheme.primaryContainer, wallpaperAvgColor, blendFactor),
+            secondary = lerp(baseScheme.secondary, wallpaperAvgColor, blendFactor * 0.8f),
+            secondaryContainer = lerp(baseScheme.secondaryContainer, wallpaperAvgColor, blendFactor * 0.8f),
+            tertiary = lerp(baseScheme.tertiary, wallpaperAvgColor, blendFactor * 0.6f),
+            tertiaryContainer = lerp(baseScheme.tertiaryContainer, wallpaperAvgColor, blendFactor * 0.6f),
+            surfaceTint = lerp(baseScheme.surfaceTint, wallpaperAvgColor, blendFactor)
+        )
+    } else {
+        baseScheme
+    }
 
     val view = LocalView.current
     if (!view.isInEditMode) {
