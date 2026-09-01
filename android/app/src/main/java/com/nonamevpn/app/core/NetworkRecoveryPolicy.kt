@@ -23,13 +23,84 @@ data class TransportRecoveryPolicy(
     val processRestartDelayMs: Long,
 )
 
-fun transportRecoveryPolicy(): TransportRecoveryPolicy =
-    TransportRecoveryPolicy(
-        // Underlay is already VALIDATED; keep this short for WIFI↔LTE↔LTE.
-        networkSettleDelayMs = 400L,
-        reconnectMinIntervalMs = 12_000L,
-        processRestartDelayMs = 250L,
-    )
+/**
+ * WDTT-Plus waits ~15s / 2min because it has one VK TURN path.
+ * We keep RAW + Amnezia Direct: Bypass still must not join VK on a half-up
+ * underlay, Direct must rebind AWG sooner than that.
+ */
+fun transportRecoveryPolicy(path: VpnPath = VpnPath.Bypass): TransportRecoveryPolicy =
+    when (path) {
+        VpnPath.Bypass -> TransportRecoveryPolicy(
+            networkSettleDelayMs = BYPASS_NETWORK_SETTLE_MS,
+            reconnectMinIntervalMs = BYPASS_RECONNECT_MIN_INTERVAL_MS,
+            processRestartDelayMs = 150L,
+        )
+        VpnPath.Direct -> TransportRecoveryPolicy(
+            networkSettleDelayMs = DIRECT_NETWORK_SETTLE_MS,
+            reconnectMinIntervalMs = DIRECT_RECONNECT_MIN_INTERVAL_MS,
+            processRestartDelayMs = 150L,
+        )
+    }
+
+/** Bypass: settle after Android marks the new underlay VALIDATED. */
+const val BYPASS_NETWORK_SETTLE_MS = 3_000L
+
+/**
+ * After VALIDATED wait timed out, sockets are already broken-pipe (SIM swap).
+ * Do not add another 3s — join VK on the replacement underlay immediately.
+ */
+const val BYPASS_UNVALIDATED_SETTLE_MS = 400L
+
+fun extraNetworkSettleDelayMs(
+    path: VpnPath,
+    validatedPresent: Boolean,
+    skipValidatedWait: Boolean = false,
+): Long {
+    if (skipValidatedWait || (path == VpnPath.Bypass && !validatedPresent)) {
+        return BYPASS_UNVALIDATED_SETTLE_MS
+    }
+    return transportRecoveryPolicy(path).networkSettleDelayMs
+}
+
+/** Bypass: VK join cooldown — Wi‑Fi↔LTE must not enqueue a second anonym chain. */
+const val BYPASS_RECONNECT_MIN_INTERVAL_MS = 20_000L
+
+/** Direct: AWG UDP sockets need a quicker rebind than Path B. */
+const val DIRECT_NETWORK_SETTLE_MS = 1_200L
+
+const val DIRECT_RECONNECT_MIN_INTERVAL_MS = 6_000L
+
+/** Give LTE/Wi‑Fi this long to become VALIDATED before probing / joining VK. */
+const val VALIDATED_WAIT_TIMEOUT_MS = 12_000L
+
+/**
+ * When the replacement underlay is already tracked (Wi‑Fi→LTE, SIM swap)
+ * do not sit the full [VALIDATED_WAIT_TIMEOUT_MS] — Android often never
+ * marks LTE VALIDATED while the VPN is up.
+ */
+const val VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS = 2_500L
+
+const val VALIDATED_WAIT_POLL_MS = 300L
+
+fun validatedWaitTimeoutMs(
+    replacementUnderlayPresent: Boolean,
+    skipWait: Boolean = false,
+): Long = when {
+    skipWait -> 0L
+    replacementUnderlayPresent -> VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS
+    else -> VALIDATED_WAIT_TIMEOUT_MS
+}
+
+/**
+ * qWDTT reconnects RAW without a VPS probe. On this phone LTE often never
+ * becomes VALIDATED while the VPN is up — waiting 2.5s+ only extends the
+ * blackhole. Skip that wait on cellular. Do **not** skip on Wi‑Fi: Bypass
+ * still has traffic on LTE while home Wi‑Fi validates, and we need Direct.
+ */
+fun shouldSkipValidatedWait(
+    path: VpnPath,
+    underlayKind: UnderlayKind,
+): Boolean = underlayKind == UnderlayKind.Cellular
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,
@@ -202,6 +273,7 @@ sealed class NetworkHandoverDecision {
     /** Spurious underlay event (VPN bind / grace) — do not restart. */
     data object NoAction : NetworkHandoverDecision()
     data object SoftRestartSamePath : NetworkHandoverDecision()
+    /** Probe found no usable underlay — keep the current path until a real network is back. */
     data object HoldWaitForNetwork : NetworkHandoverDecision()
     data class SwitchPath(val path: VpnPath) : NetworkHandoverDecision()
 }
@@ -285,6 +357,10 @@ fun decideNetworkHandoverAction(
     directFailedOnCurrentUnderlay: Boolean = false,
     underlayKind: UnderlayKind = UnderlayKind.Other,
 ): NetworkHandoverDecision {
+    val inGrace = sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS
+    if (inGrace && !underlayChanged) {
+        return NetworkHandoverDecision.NoAction
+    }
     if (probedPath == null) {
         return NetworkHandoverDecision.HoldWaitForNetwork
     }
@@ -324,13 +400,9 @@ fun decideNetworkHandoverAction(
     if (underlayChanged) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
-    if (probedPath == currentPath) {
-        return NetworkHandoverDecision.SoftRestartSamePath
-    }
-    if (probedPath == VpnPath.Bypass && !bypassAllowed) {
-        return NetworkHandoverDecision.SoftRestartSamePath
-    }
-    return NetworkHandoverDecision.SwitchPath(probedPath)
+    // Stable operator-whitelist Bypass: keep the VK/TURN call. A same-path
+    // probe or a ghost DirectOk without an underlay change must not rejoin.
+    return NetworkHandoverDecision.NoAction
 }
 
 /** Keep libclient/TURN (the VK call) after Bypass→Direct so LTE return can redial the same hash. */

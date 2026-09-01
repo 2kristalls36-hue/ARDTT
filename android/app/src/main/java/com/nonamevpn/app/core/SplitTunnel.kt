@@ -68,6 +68,24 @@ object SplitTunnel {
         return "$samplePart $browserPart"
     }
 
+    /** Stable TUN key so a БС/ЧС toggle cannot reuse a filter built for another plan. */
+    fun tunFilterFingerprint(
+        whitelistMode: Boolean,
+        selectedApps: Set<String>,
+        excludedHosts: Set<String>,
+        selfPackage: String,
+    ): String {
+        val plan = resolve(whitelistMode, selectedApps, selfPackage)
+        val allowed = plan.allowed.sorted().joinToString(",")
+        val disallowed = plan.disallowed.sorted().joinToString(",")
+        val hosts = excludedHosts
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .sorted()
+            .joinToString(",")
+        return "wl=${plan.whitelistMode};allow=$allowed;deny=$disallowed;hosts=$hosts"
+    }
+
     internal fun isLikelyBrowser(pkg: String): Boolean {
         val p = pkg.lowercase()
         return p.contains("chrome") ||

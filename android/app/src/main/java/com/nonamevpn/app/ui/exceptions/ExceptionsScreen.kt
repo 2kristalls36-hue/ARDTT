@@ -209,7 +209,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     var showClearConfirm by remember { mutableStateOf(false) }
 
     fun applyTransport(reason: String) {
-        ConnectionManager.getOrNull()?.requestTransportRestart(reason)
+        ConnectionManager.getOrNull()?.requestTransportRestart(reason, rebuildTun = true)
     }
 
     fun persistSites(rules: List<String>, note: String? = null) {
