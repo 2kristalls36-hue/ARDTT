@@ -43,8 +43,37 @@ class MainActivity : ComponentActivity() {
             val recorder = androidx.compose.runtime.remember { TelemetryRecorder.get(applicationContext) }
             val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
             val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+            val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
+            val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+            val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+            val conn = androidx.compose.runtime.remember { com.nonamevpn.app.core.ConnectionManager.get(applicationContext) }
+            val connUi by conn.ui.collectAsStateWithLifecycle()
+            val darkTheme = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+            val tunnelWallpaperScene = androidx.compose.runtime.remember { com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession.currentOrPick() }
+            val bypassWallpaper = com.nonamevpn.app.ui.tunnel.wallpaperBypassActive(
+                pathMode = com.nonamevpn.app.core.ConnPathMode.fromSetting(pathModeSetting),
+                activePath = connUi.activePath,
+                networkClass = connUi.probe?.networkClass,
+            )
+            val tunnelWallpaper = com.nonamevpn.app.ui.tunnel.resolveTunnelWallpaper(
+                scene = tunnelWallpaperScene,
+                bypass = bypassWallpaper,
+                darkTheme = darkTheme,
+            )
+            val showUserWallpaper = com.nonamevpn.app.ui.tunnel.tunnelWallpaperVisible(
+                admin = admin,
+                classicAppearance = classicAppearance,
+            )
+            val avgColor = if (showUserWallpaper) {
+                com.nonamevpn.app.ui.tunnel.TunnelWallpaperCache.averageColor(tunnelWallpaper.scene, tunnelWallpaper.time)
+            } else null
+
             androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
-                ArdttTheme(themeMode = themeMode) {
+                ArdttTheme(themeMode = themeMode, wallpaperAvgColor = avgColor) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background,
