@@ -22,7 +22,7 @@
     <string name="shortcut_stop_short">Отключить</string>
     <string name="shortcut_stop_long">Отключить ARDTT</string>
     <!-- Ссылка на страницу доната (Спасибо Мир: Профиль → QR-код / Ссылка). Пусто — скрыть блок в настройках. -->
-    <string name="donate_url" translatable="false"></string>
+    <string name="donate_url" translatable="false">https://spasibomir.ru/pay/34807</string>
     <string name="donate_section_title">Поддержать проект</string>
     <string name="donate_section_subtitle">Добровольный донат на разработку ARDTT. Функции приложения не зависят от перевода.</string>
     <string name="donate_open_button">Перейти к донату</string>
