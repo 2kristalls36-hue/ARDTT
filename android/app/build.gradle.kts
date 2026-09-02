@@ -21,8 +21,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 211
-        versionName = "0.5.193-main-verify"
+        versionCode = 212
+        versionName = "0.5.194-github"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -32,6 +32,16 @@ android {
             "String",
             "UPDATE_MANIFEST_URL",
             "\"https://45.129.2.3/update.json\"",
+        )
+        buildConfigField(
+            "String",
+            "GITHUB_REPO_OWNER",
+            "\"2kristalls36-hue\"",
+        )
+        buildConfigField(
+            "String",
+            "GITHUB_REPO_NAME",
+            "\"nonameVPN\"",
         )
     }
 
