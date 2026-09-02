@@ -14,11 +14,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -84,6 +86,7 @@ fun CallHashSettingsContent(
         ui.state == ConnState.PausedTrustedWifi ||
         ui.state == ConnState.Disconnecting
     val canEdit = profile != null && !vpnActive && !busy
+    val colors = MaterialTheme.colorScheme
     LaunchedEffect(vkLoggedIn) {
         vkDisplayName = if (vkLoggedIn) VkSession.resolveDisplayName() else null
     }
@@ -118,55 +121,6 @@ fun CallHashSettingsContent(
                 onClick = {
                     scope.launch {
                         busy = true
-                        message = "Открывается авторизация ВКонтакте…"
-                        AppLog.i("VK", "Settings login")
-                        val activityCtx = context.findActivity() ?: context
-                        val r = runCatching { VkLoginActivity.login(activityCtx) }
-                            .getOrElse { Result.failure(it) }
-                        busy = false
-                        vkLoggedIn = VkSession.hasSessionCookie()
-                        message = when {
-                            r.isSuccess && vkLoggedIn ->
-                                "Вход выполнен. Создайте код звонка."
-                            r.isSuccess -> "Сессия не подтверждена. Повторите вход."
-                            else -> r.exceptionOrNull()?.message ?: "Авторизация отменена."
-                        }
-                    }
-                },
-                enabled = canEdit,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text("Авторизация")
-            }
-            Button(
-                onClick = {
-                    VkSession.clear()
-                    vkLoggedIn = false
-                    vkDisplayName = null
-                    message = "Сессия ВКонтакте завершена."
-                },
-                enabled = !vpnActive && !busy && vkLoggedIn,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.84f),
-                ),
-            ) {
-                Text("Завершить")
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        busy = true
                         message = "Выполняется создание кода…"
                         val r = VkCallHashGenerator.generateOne(context)
                         busy = false
@@ -187,8 +141,6 @@ fun CallHashSettingsContent(
             }
             OutlinedButton(
                 onClick = {
-                    // Pre-fill the dialog with the currently stored call code
-                    // so the user can edit/copy it without retyping.
                     manualDraft = conn.callHashOrNull().orEmpty()
                     showManual = true
                 },
@@ -197,6 +149,76 @@ fun CallHashSettingsContent(
                 shape = RoundedCornerShape(16.dp),
             ) {
                 Text("Ввести вручную")
+            }
+        }
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            SegmentedButton(
+                selected = !vkLoggedIn,
+                onClick = {
+                    if (vkLoggedIn || !canEdit) return@SegmentedButton
+                    scope.launch {
+                        busy = true
+                        message = "Открывается авторизация ВКонтакте…"
+                        AppLog.i("VK", "Settings login")
+                        val activityCtx = context.findActivity() ?: context
+                        val r = runCatching { VkLoginActivity.login(activityCtx) }
+                            .getOrElse { Result.failure(it) }
+                        busy = false
+                        vkLoggedIn = VkSession.hasSessionCookie()
+                        message = when {
+                            r.isSuccess && vkLoggedIn ->
+                                "Вход выполнен. Создайте код звонка."
+                            r.isSuccess -> "Сессия не подтверждена. Повторите вход."
+                            else -> r.exceptionOrNull()?.message ?: "Авторизация отменена."
+                        }
+                    }
+                },
+                enabled = canEdit,
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = colors.primary,
+                    activeContentColor = colors.onPrimary,
+                    inactiveContainerColor = Color.Transparent,
+                    inactiveContentColor = colors.onSurfaceVariant,
+                    disabledActiveContainerColor = colors.primary.copy(alpha = 0.38f),
+                    disabledActiveContentColor = colors.onPrimary.copy(alpha = 0.72f),
+                    disabledInactiveContainerColor = Color.Transparent,
+                    disabledInactiveContentColor = colors.onSurfaceVariant.copy(alpha = 0.45f),
+                ),
+            ) {
+                Text(
+                    "Авторизация",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+            SegmentedButton(
+                selected = vkLoggedIn,
+                onClick = {
+                    if (!vkLoggedIn || vpnActive || busy) return@SegmentedButton
+                    VkSession.clear()
+                    vkLoggedIn = false
+                    vkDisplayName = null
+                    message = "Сессия ВКонтакте завершена."
+                },
+                enabled = !vpnActive && !busy,
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = colors.error,
+                    activeContentColor = colors.onError,
+                    inactiveContainerColor = Color.Transparent,
+                    inactiveContentColor = colors.onSurfaceVariant,
+                    disabledActiveContainerColor = colors.error.copy(alpha = 0.38f),
+                    disabledActiveContentColor = colors.onError.copy(alpha = 0.72f),
+                    disabledInactiveContainerColor = Color.Transparent,
+                    disabledInactiveContentColor = colors.onSurfaceVariant.copy(alpha = 0.45f),
+                ),
+            ) {
+                Text(
+                    "Завершить сессию",
+                    style = MaterialTheme.typography.labelLarge,
+                )
             }
         }
         Text(
