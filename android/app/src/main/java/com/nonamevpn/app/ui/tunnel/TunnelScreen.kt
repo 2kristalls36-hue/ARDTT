@@ -740,7 +740,6 @@ private fun UserTunnelSimpleScreen(
                 connected = connected,
                 paused = ui.state == ConnState.PausedTrustedWifi,
                 busy = connectingLike || disconnecting,
-                showBusyGlow = ui.state != ConnState.Probing,
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
@@ -838,24 +837,23 @@ private fun TunnelPowerToggle(
     connected: Boolean,
     paused: Boolean,
     busy: Boolean,
-    showBusyGlow: Boolean = true,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val activeGlow = connected || paused || (busy && showBusyGlow)
+    val sessionLit = connected || paused || busy
     val shellColor = NvpnFloatingShell.shellColor()
-    val accentColor = if (connected || paused || (busy && showBusyGlow)) {
+    val accentColor = if (sessionLit) {
         Color(0xFF35C759)
     } else {
         Color.White.copy(alpha = 0.75f)
     }
     val pulseScale by animateFloatAsState(
-        targetValue = if (activeGlow) 1.08f else 1f,
+        targetValue = if (sessionLit) 1.08f else 1f,
         animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
         label = "awg_pulse_scale",
     )
     val pulseAlpha by animateFloatAsState(
-        targetValue = if (activeGlow) 0.28f else 0.12f,
+        targetValue = if (sessionLit) 0.28f else 0.12f,
         animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
         label = "awg_pulse_alpha",
     )
