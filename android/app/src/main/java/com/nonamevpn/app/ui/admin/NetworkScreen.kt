@@ -100,21 +100,19 @@ fun NetworkScreen(settings: AppSettingsRepository) {
                 emptyHint = "Не удалось определить IP",
             )
 
-            when {
-                !sessionUp -> IpPlaceholderCard(
-                    title = "IP туннеля",
-                    message = "Подключите туннель",
-                )
-                hideIp -> IpPlaceholderCard(
-                    title = "IP туннеля",
-                    message = HideIpCopy.STATUS_HIDDEN,
-                )
-                else -> IpInfoCard(
-                    title = "IP туннеля",
-                    info = tunnel,
-                    loading = tunnelLoading,
-                    emptyHint = "Не удалось определить IP",
-                )
+            if (sessionUp) {
+                when {
+                    hideIp -> IpPlaceholderCard(
+                        title = "IP туннеля",
+                        message = HideIpCopy.STATUS_HIDDEN,
+                    )
+                    else -> IpInfoCard(
+                        title = "IP туннеля",
+                        info = tunnel,
+                        loading = tunnelLoading,
+                        emptyHint = "Не удалось определить IP",
+                    )
+                }
             }
         }
     }
