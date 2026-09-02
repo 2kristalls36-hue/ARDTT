@@ -2,7 +2,7 @@
 # WARP egress: wgcf → warp0 (Table=off) + per-user ip rules from users.json hideIp.
 #
 # DNS must NOT go through WARP (breaks resolvers / looks like tun2socks DNS loops):
-#   priority 100: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → main
+#   priority 100: iif awg0|wdttraw0 udp/tcp dport 53 → main
 #   priority 300+: from <client>/32 → table 51820 (WARP)
 # Existing MASQUERADE on VPN subnets → eth0 covers DNS upstream on main.
 set -euo pipefail
@@ -20,7 +20,7 @@ DNS_RULE_PRIO="${NVPN_WARP_DNS_PRIO:-100}"
 WARP_RULE_PRIO_BASE="${NVPN_WARP_RULE_PRIO:-300}"
 
 # VPN ingress ifaces whose client DNS must stay on main.
-DNS_IIFACES="${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0 wdtt0}"
+DNS_IIFACES="${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0}"
 
 mkdir -p "${STATE_DIR}"
 cd "${STATE_DIR}"
@@ -129,7 +129,7 @@ ensure_dns_masquerade() {
   local wan
   wan="$(ip route show default 0.0.0.0/0 2>/dev/null | awk '{print $5; exit}')"
   [[ -z "${wan}" ]] && wan="eth0"
-  local nets=("10.8.0.0/24" "10.9.0.0/24" "10.66.0.0/16")
+  local nets=("10.8.0.0/24" "10.9.0.0/24")
   local net proto
   for net in "${nets[@]}"; do
     for proto in udp tcp; do
@@ -260,7 +260,7 @@ install_local_exempt_rules() {
   for clear_p in $(seq "${LOCAL_EXEMPT_PRIO}" $((LOCAL_EXEMPT_PRIO + 16))); do
     ip rule del pref "${clear_p}" 2>/dev/null || true
   done
-  for net in 10.8.0.0/24 10.9.0.0/24 10.66.0.0/16 127.0.0.0/8; do
+  for net in 10.8.0.0/24 10.9.0.0/24 127.0.0.0/8; do
     if ip rule add to "${net}" lookup main priority "${p}" 2>/dev/null; then
       echo "[warp] local exempt to ${net} → main prio=${p}"
     fi

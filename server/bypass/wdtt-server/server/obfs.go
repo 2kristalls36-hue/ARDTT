@@ -14,8 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
-	pionudp "github.com/pion/transport/v4/udp"
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
@@ -279,23 +277,22 @@ func obfsIsRTPPacket(wire []byte) bool {
 // молчаливых ENOBUFS-дропов под всплеском нагрузки.
 const socketBufSize = 8 * 1024 * 1024
 
-func listenWrapped(addr *net.UDPAddr, keys *wrapKeyStore) (dtlsnet.PacketListener, error) {
+func listenWrapped(addr *net.UDPAddr, keys *wrapKeyStore) (packetListener, error) {
 	if keys == nil || keys.Count() == 0 {
 		return nil, errors.New("wrap: no active keys")
 	}
-	lc := pionudp.ListenConfig{ReadBufferSize: socketBufSize, WriteBufferSize: socketBufSize}
-	inner, err := lc.Listen("udp", addr)
+	inner, err := listenUDPDemux(addr)
 	if err != nil {
 		return nil, fmt.Errorf("wrap: udp listen: %w", err)
 	}
 	return &wrapPacketListener{
-		inner: dtlsnet.PacketListenerFromListener(inner),
+		inner: inner,
 		keys:  keys,
 	}, nil
 }
 
 type wrapPacketListener struct {
-	inner dtlsnet.PacketListener
+	inner packetListener
 	keys  *wrapKeyStore
 }
 

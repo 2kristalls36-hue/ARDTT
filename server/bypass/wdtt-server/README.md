@@ -1,17 +1,18 @@
 # Bypass server (Path B, RAW)
 
-Vendored sources used to build `wdtt-server` for the bypass container
-(`-listen-raw` RAW/WRAP path — **not** classic WireGuard-over-TURN).
+Vendored **RAW-only** listener used by the `bypass` container
+(`wdtt-server -listen-raw`). Classic WDTT (WireGuard / DTLS / Telegram bot /
+admin HTTP) is not compiled into this binary.
 
 ## Provenance
 
 | Line | Repo | Role for ARDTT |
 |------|------|----------------|
-| Classic WDTT | https://github.com/amurcanov/proxy-turn-vk-android | WG over TURN/DTLS — **not** our Path B mode |
-| **qWDTT / SpaceNeuroX** | https://github.com/SpaceNeuroX/proxy-turn-vk-android | **RAW** (`-listen-raw`, `raw.go`) — source of this tree |
+| Classic WDTT | https://github.com/amurcanov/proxy-turn-vk-android | WG over TURN/DTLS — **not** Path B |
+| **qWDTT / SpaceNeuroX** | https://github.com/SpaceNeuroX/proxy-turn-vk-android | RAW (`-listen-raw`, WRAP) — origin of this tree |
 
-Directory name `wdtt-server` is historical; the product is **ARDTT**
-(Amnezia + RAW Dial via TURN). License: GPL-3.0 (see root NOTICE / LICENSE).
+Directory name `wdtt-server` is historical; the product is **ARDTT**.
+License: GPL-3.0 (see root NOTICE / LICENSE).
 
-The ARDTT image applies `../patches/raw-subnet.patch` so the RAW TUN uses
-`10.9.0.0/24` (gateway `10.9.0.1`), matching provision/`users.json`.
+RAW TUN: `wdttraw0` on `10.9.0.0/24` (gateway `10.9.0.1`), matching
+provision/`users.json`. `SIGHUP` reloads `passwords.json` and WRAP keys.

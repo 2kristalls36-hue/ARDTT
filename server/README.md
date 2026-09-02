@@ -9,7 +9,7 @@ Compose-стек из шести сервисов (см. [архитектуру
 | **provision** | рабочий | `/health`, пользователи, `host_id`, AWG-ключи, JSON-профиль |
 | **direct** | **AmneziaWG 2.0** | `amneziawg-go` + `awg`, conf из `users.json` |
 | **bypass** | **RAW `-listen-raw`** | `wdtt-server` из **qWDTT / SpaceNeuroX** (не classic WDTT), пароли из `users.json`, подсеть `10.9.0.0/24`, DNS клиентам `10.9.0.1` |
-| **dns** | **dnsmasq** | шлюзы `10.8.0.1` / `10.9.0.1` (/ `10.66.66.1`); upstream `1.1.1.1`/`1.0.0.1` через main |
+| **dns** | **dnsmasq** | шлюзы `10.8.0.1` / `10.9.0.1`; upstream `1.1.1.1`/`1.0.0.1` через main |
 | **warp** | **WARP egress** | `wgcf` → `warp0`; hideIp → table `51820` (prio 300+). DNS к шлюзу локально; `:53` наружу — main (prio 100) |
 | **telemetry** | рабочий | приём debug-логов с Android (`POST /api/upload-log`, порт 9200) |
 
