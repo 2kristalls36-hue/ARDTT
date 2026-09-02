@@ -60,11 +60,12 @@ import com.nonamevpn.app.telemetry.TelemetryLogEntry
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.telemetry.TelemetryUploadClient
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
-import com.nonamevpn.app.ui.components.TabFeedShell
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -195,14 +196,22 @@ fun TestingScreen(profiles: ProfileRepository) {
     val pull = rememberPullRefresh { refreshLogs() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        TabFeedShell(
-            title = "Режим тестирования",
-            subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
+        PullRefreshHost(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
-            bottomPadding = NvpnBottomChrome.scrollContentPadding(extra = 8.dp),
-            modifier = Modifier.fillMaxSize(),
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp)),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                AppTabPageHeader(
+                    title = "Режим тестирования",
+                    subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
+                )
+
             AppSectionCard(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -292,6 +301,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     }
                 }
             }
+        }
         }
 
         Box(

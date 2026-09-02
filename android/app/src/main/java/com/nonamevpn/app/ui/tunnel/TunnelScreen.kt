@@ -112,11 +112,12 @@ import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.ChoiceChipButton
+import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
-import com.nonamevpn.app.ui.components.TabFeedColumn
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.settings.BypassMethodDialog
@@ -317,12 +318,14 @@ fun TunnelScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        TabFeedColumn(
-            title = "Подключение",
+        EdgeFeedColumn(
             scrollBottomPadding = NvpnBottomChrome.scrollContentPadding(),
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
             modifier = Modifier.fillMaxSize(),
+            header = {
+                AppPageHeader(title = "Подключение")
+            },
         ) {
             val missingCallHashHint = !ui.hasCallHash
             if (missingCallHashHint || showConnectionHint) {

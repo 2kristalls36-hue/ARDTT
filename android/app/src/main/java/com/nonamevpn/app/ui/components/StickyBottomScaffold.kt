@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -67,8 +66,7 @@ object NvpnBottomChrome {
  * Full-screen shell: sticky page header + scrollable feed + sticky bottom bar
  * pinned above the floating tab bar.
  *
- * Pass [header] with [AppTabPageHeader] (owns status-bar inset) so titles align
- * with Exceptions / Tunnel / Logs and do not scroll away.
+ * Pass [header] inside the scroll feed so titles scroll away with the content.
  */
 @Composable
 fun StickyBottomScaffold(
@@ -84,18 +82,14 @@ fun StickyBottomScaffold(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                EdgeFeedTopInset()
                 header()
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    content()
-                }
+                content()
             }
         }
         if (onRefresh != null) {
@@ -132,11 +126,9 @@ fun EdgeFeedTopInset(extra: Dp = 8.dp) {
 }
 
 /**
- * Edge-to-edge column without a sticky CTA (Settings / Logs style).
- * Still reserves space above the floating tab bar.
- *
- * Pass [header] with [AppTabPageHeader] to pin titles below the status bar
- * outside the scroll area (matches Exceptions / Tunnel).
+ * Edge-to-edge scrollable feed (Settings / Logs / nested admin style).
+ * Header and content scroll together; [EdgeFeedTopInset] keeps the first line
+ * below the status bar.
  */
 @Composable
 fun EdgeFeedColumn(
@@ -152,22 +144,18 @@ fun EdgeFeedColumn(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val bottomPad = scrollBottomPadding ?: (NvpnBottomChrome.navigationReserve() + bottomExtra)
-    val feed: @Composable (Modifier: Modifier) -> Unit = { columnModifier ->
+    val feed: @Composable (Modifier) -> Unit = { columnModifier ->
         Column(
             modifier = columnModifier
                 .fillMaxSize()
-                .padding(horizontal = horizontalPadding),
+                .verticalScroll(scrollState)
+                .padding(horizontal = horizontalPadding)
+                .padding(bottom = bottomPad),
+            verticalArrangement = verticalArrangement,
         ) {
+            EdgeFeedTopInset()
             header()
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(scrollState)
-                    .padding(bottom = bottomPad),
-                verticalArrangement = verticalArrangement,
-            ) {
-                content()
-            }
+            content()
         }
     }
     if (onRefresh != null) {
@@ -180,89 +168,6 @@ fun EdgeFeedColumn(
         }
     } else {
         feed(modifier)
-    }
-}
-
-/**
- * Bottom-tab feed with a pinned [AppTabPageHeader] and scrollable cards.
- * Use on tabs where only the body scrolls (Profiles, Network, Tunnel admin, …).
- */
-@Composable
-fun TabFeedColumn(
-    title: String,
-    subtitle: String? = null,
-    actions: (@Composable RowScope.() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-    scrollState: ScrollState = rememberScrollState(),
-    bottomExtra: Dp = 24.dp,
-    scrollBottomPadding: Dp? = null,
-    verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
-    refreshing: Boolean = false,
-    onRefresh: (() -> Unit)? = null,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    EdgeFeedColumn(
-        modifier = modifier,
-        scrollState = scrollState,
-        bottomExtra = bottomExtra,
-        scrollBottomPadding = scrollBottomPadding,
-        verticalArrangement = verticalArrangement,
-        refreshing = refreshing,
-        onRefresh = onRefresh,
-        header = {
-            AppTabPageHeader(
-                title = title,
-                subtitle = subtitle,
-                actions = actions,
-            )
-        },
-        content = content,
-    )
-}
-
-/**
- * Bottom-tab shell with a pinned [AppTabPageHeader] and a fixed body below it.
- * Use when the body owns its own scroll (LazyColumn) or needs [Modifier.weight].
- */
-@Composable
-fun TabFeedShell(
-    title: String,
-    subtitle: String? = null,
-    actions: (@Composable RowScope.() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-    bottomPadding: Dp? = null,
-    refreshing: Boolean = false,
-    onRefresh: (() -> Unit)? = null,
-    belowHeader: @Composable ColumnScope.() -> Unit = {},
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val bottomPad = bottomPadding ?: (NvpnBottomChrome.navigationReserve() + 24.dp)
-    val shell: @Composable () -> Unit = {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(horizontal = TabHeaderMetrics.HorizontalPadding)
-                .padding(bottom = bottomPad),
-        ) {
-            AppTabPageHeader(
-                title = title,
-                subtitle = subtitle,
-                actions = actions,
-            )
-            belowHeader()
-            content()
-        }
-    }
-    if (onRefresh != null) {
-        PullRefreshHost(
-            refreshing = refreshing,
-            onRefresh = onRefresh,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            shell()
-        }
-    } else {
-        shell()
     }
 }
 
