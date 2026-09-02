@@ -955,7 +955,17 @@ fun TunnelScreen(
                     .size(198.dp),
             )
 
-            Spacer(modifier = Modifier.height(26.dp))
+            UserConnectStatusBlock(
+                state = ui.state,
+                statusText = ui.statusText,
+                softInfo = ui.softInfo,
+                probe = ui.probe,
+                activePath = ui.activePath,
+                lastError = ui.lastError,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             ProfileSwitcherBar(
                 activeItem = activeItem,
@@ -963,6 +973,92 @@ fun TunnelScreen(
                 onPrev = onSelectPreviousProfile,
                 onNext = onSelectNextProfile,
                 busy = connectingLike,
+            )
+        }
+    }
+}
+
+@Composable
+private fun UserConnectStatusBlock(
+    state: ConnState,
+    statusText: String,
+    softInfo: String?,
+    probe: ProbeResult?,
+    activePath: VpnPath?,
+    lastError: String?,
+    modifier: Modifier = Modifier,
+) {
+    val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
+    val connectingLike = state == ConnState.Connecting || state == ConnState.Probing
+    val primaryLine = when {
+        connectedLike -> "Подключено/пауза"
+        state == ConnState.Error -> "Ошибка подключения"
+        else -> statusText.ifBlank { sessionCardStatusText(state, publicIp = null, lastError = lastError) }
+    }
+    val details = when {
+        connectedLike -> null
+        connectingLike -> buildString {
+            activePath?.let { path ->
+                append("Маршрут: ")
+                append(if (path == VpnPath.Bypass) "обход" else "прямой")
+            }
+            probe?.let { p ->
+                if (isNotEmpty()) append(" · ")
+                append("Сеть: ")
+                append(
+                    when (p.networkClass) {
+                        NetworkClass.NoNetwork -> "нет доступа"
+                        NetworkClass.Captive -> "captive-портал"
+                        NetworkClass.DirectOk -> "прямой доступ"
+                        NetworkClass.NeedBypass -> "нужен обход"
+                        NetworkClass.OpenNeedBypass -> "рекомендуется обход"
+                    },
+                )
+                append(" · Y:")
+                append(if (p.yandexOk) "OK" else "—")
+                append(" · CF:")
+                append(if (p.bigtechOk) "OK" else "—")
+                append(" · VPS:")
+                append(if (p.provisionOk) "OK" else "—")
+            }
+            val hint = softInfo?.trim().orEmpty()
+            if (hint.isNotEmpty()) {
+                if (isNotEmpty()) append('\n')
+                append(hint)
+            }
+        }.ifBlank { "Подготавливаем параметры подключения…" }
+        state == ConnState.Error -> lastError?.trim().orEmpty().takeIf { it.isNotEmpty() }
+        else -> softInfo?.trim().orEmpty().takeIf { it.isNotEmpty() }
+    }
+    val primaryColor = when {
+        connectedLike -> NvpnColors.connected
+        state == ConnState.Error -> MaterialTheme.colorScheme.error
+        connectingLike -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    Column(
+        modifier = modifier
+            .widthIn(max = 320.dp)
+            .padding(horizontal = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = primaryLine,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = primaryColor,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        details?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                textAlign = TextAlign.Center,
             )
         }
     }
