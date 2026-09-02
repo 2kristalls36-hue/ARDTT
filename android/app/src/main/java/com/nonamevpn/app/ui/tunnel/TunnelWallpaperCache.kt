@@ -9,9 +9,9 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * Decodes the process-chosen scene once. Tab switches must not call
- * [androidx.compose.ui.res.painterResource] — that re-decodes and briefly
- * paints Field (enum ordinal 0) before the real scene appears.
+ * Decodes the process-chosen scene once (day, night, evening).
+ * Tab switches must not call [androidx.compose.ui.res.painterResource] —
+ * that re-decodes and can flash Field (enum ordinal 0).
  */
 object TunnelWallpaperCache {
     private val lock = Any()
@@ -109,6 +109,6 @@ object TunnelWallpaperCache {
     private val TIMES = listOf(
         TunnelWallpaperTime.Day,
         TunnelWallpaperTime.Night,
-        TunnelWallpaperTime.Sunset,
+        TunnelWallpaperTime.Evening,
     )
 }
