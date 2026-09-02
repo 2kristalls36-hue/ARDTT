@@ -17,6 +17,13 @@ val targetAbis = providers.gradleProperty("targetAbis")
     .map { value -> value.split(',').map(String::trim).filter { it.isNotEmpty() } }
     .orElse(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
 
+val githubReleaseToken = providers.gradleProperty("githubReleaseToken")
+    .orElse(providers.environmentVariable("GITHUB_RELEASE_READ_TOKEN"))
+    .orElse("")
+    .get()
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+
 android {
     namespace = "com.nonamevpn.app"
     compileSdk = 35
@@ -25,8 +32,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 213
-        versionName = "0.5.195"
+        versionCode = 214
+        versionName = "0.5.196"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -46,6 +53,11 @@ android {
             "String",
             "GITHUB_REPO_NAME",
             "\"nonameVPN\"",
+        )
+        buildConfigField(
+            "String",
+            "GITHUB_API_TOKEN",
+            "\"$githubReleaseToken\"",
         )
     }
 

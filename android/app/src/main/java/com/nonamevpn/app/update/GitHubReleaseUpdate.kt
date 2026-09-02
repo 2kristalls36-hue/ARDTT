@@ -52,8 +52,25 @@ object GitHubReleaseUpdate {
         )
     }
 
-    fun parseManifest(raw: String): AppUpdateInfo =
-        AppUpdateInfo.parse(raw).copy(manifestKind = AppUpdateManifestKind.LegacyVps)
+    fun parseManifest(raw: String, supportedAbis: Array<String>): AppUpdateInfo {
+        val parsed = AppUpdateInfo.parse(raw)
+        return parsed.copy(
+            apkUrl = resolveApkUrlForDevice(parsed.apkUrl, supportedAbis),
+            manifestKind = AppUpdateManifestKind.DirectApk,
+        )
+    }
+
+    /** Map manifest APK URL (often arm64) to the best ABI available on this device. */
+    fun resolveApkUrlForDevice(apkUrl: String, supportedAbis: Array<String>): String {
+        val match = Regex("-(arm64-v8a|armeabi-v7a|x86_64|universal)(?=\\.apk$)", RegexOption.IGNORE_CASE)
+            .find(apkUrl)
+            ?: return apkUrl
+        val preferred = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "universal")
+        val deviceAbi = preferred.firstOrNull { candidate ->
+            supportedAbis.any { it.equals(candidate, ignoreCase = true) }
+        } ?: "universal"
+        return apkUrl.replace(match.value, "-$deviceAbi")
+    }
 
     private fun assetUrl(json: JSONObject, fileName: String): String? {
         val assets = json.optJSONArray("assets") ?: return null

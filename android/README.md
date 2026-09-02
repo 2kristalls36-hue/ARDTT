@@ -47,9 +47,10 @@ Release (подписанный постоянным keystore):
 | `ANDROID_KEYSTORE_PASSWORD` | из `keystore.properties` |
 | `ANDROID_KEY_ALIAS` | `ardtt` |
 | `ANDROID_KEY_PASSWORD` | из `keystore.properties` |
+| `GITHUB_RELEASE_READ_TOKEN` | read-only PAT с `Contents: Read` для приватного репозитория (вшивается в release APK) |
 
 Приложение проверяет обновления через **GitHub Releases API** (как qWDTT),
-с fallback на старый `update.json` на VPS.
+с fallback на старый `update.json` на VPS. Для **приватного** репозитория без токена GitHub API недоступен — нужен `GITHUB_RELEASE_READ_TOKEN` в CI или публичный репозиторий.
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`
