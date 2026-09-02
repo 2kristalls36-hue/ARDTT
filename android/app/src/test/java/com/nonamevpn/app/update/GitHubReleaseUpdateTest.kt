@@ -65,6 +65,7 @@ class GitHubReleaseUpdateTest {
                 """
                 [
                   {"name":"ardtt-0.5.1-x86_64.apk","browser_download_url":"https://example/x86.apk"},
+                  {"name":"ardtt-0.5.1-universal.apk","browser_download_url":"https://example/universal.apk"},
                   {"name":"ardtt-0.5.1-arm64-v8a.apk","browser_download_url":"https://example/arm64.apk"}
                 ]
                 """.trimIndent(),

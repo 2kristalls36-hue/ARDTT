@@ -11,7 +11,7 @@ NDK_DIR="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
 if [[ -n "${1:-}" ]]; then
   ABIS=("$1")
 else
-  ABIS=(arm64-v8a x86_64)
+  ABIS=(arm64-v8a armeabi-v7a x86_64)
 fi
 
 if [[ -z "$NDK_DIR" || ! -d "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64" ]]; then
