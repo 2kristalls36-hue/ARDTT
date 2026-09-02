@@ -29,6 +29,8 @@ data class AppUpdateInfo(
     val sha256: String,
     val sizeBytes: Long,
     val notes: String,
+    /** Optional donation page URL; overrides the in-app default when set. */
+    val donateUrl: String? = null,
 ) {
     val isNewer: Boolean get() = versionCode > BuildConfig.VERSION_CODE
 
@@ -42,6 +44,7 @@ data class AppUpdateInfo(
                 sha256 = json.optString("sha256").lowercase(Locale.US),
                 sizeBytes = json.optLong("sizeBytes", 0L),
                 notes = json.optString("notes"),
+                donateUrl = json.optString("donateUrl").trim().takeIf { it.isNotEmpty() },
             )
         }
     }

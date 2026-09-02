@@ -27,4 +27,20 @@ class AppUpdateInfoTest {
         assertEquals(123456, info.sizeBytes)
         assertTrue(info.notes.contains("test"))
     }
+
+    @Test
+    fun parsesOptionalDonateUrl() {
+        val info = AppUpdateInfo.parse(
+            """
+            {
+              "versionCode": 78,
+              "versionName": "0.5.60",
+              "apkUrl": "https://example.com/app.apk",
+              "donateUrl": "https://spasibomir.ru/example"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("https://spasibomir.ru/example", info.donateUrl)
+    }
 }

@@ -21,4 +21,10 @@
     <string name="shortcut_start_long">Подключить ARDTT</string>
     <string name="shortcut_stop_short">Отключить</string>
     <string name="shortcut_stop_long">Отключить ARDTT</string>
+    <!-- Ссылка на страницу доната (Спасибо Мир: Профиль → QR-код / Ссылка). Пусто — скрыть блок в настройках. -->
+    <string name="donate_url" translatable="false"></string>
+    <string name="donate_section_title">Поддержать проект</string>
+    <string name="donate_section_subtitle">Добровольный донат на разработку ARDTT. Функции приложения не зависят от перевода.</string>
+    <string name="donate_open_button">Перейти к донату</string>
+    <string name="donate_vpn_hint">Для оплаты через СБП или карту рекомендуем временно отключить VPN — иначе банк может отклонить платёж.</string>
 </resources>

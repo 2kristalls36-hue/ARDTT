@@ -454,6 +454,10 @@ fun SettingsScreen(
             )
         }
 
+        resolveDonateUrl(context, updateUi.donateUrl)?.let { donateUrl ->
+            SupportProjectCard(donateUrl = donateUrl)
+        }
+
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

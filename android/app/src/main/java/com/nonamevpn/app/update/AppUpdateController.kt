@@ -27,6 +27,7 @@ class AppUpdateController private constructor(context: Context) {
         val progress: Float = 0f,
         val downloadedFile: File? = null,
         val message: String? = null,
+        val donateUrl: String? = null,
     ) {
         val visible: Boolean
             get() = shouldShowUpdateCard(
@@ -46,11 +47,13 @@ class AppUpdateController private constructor(context: Context) {
             _ui.update { it.copy(checking = true) }
             val result = manager.check()
             result.onSuccess { info ->
+                val donateUrl = info.donateUrl?.takeIf { it.isNotBlank() }
                 _ui.update { cur ->
+                    val withDonate = if (donateUrl != null) cur.copy(donateUrl = donateUrl) else cur
                     if (info.isNewer) {
-                        cur.copy(checking = false, available = info)
+                        withDonate.copy(checking = false, available = info)
                     } else {
-                        cur.copy(
+                        withDonate.copy(
                             checking = false,
                             available = null,
                             downloadedFile = null,
