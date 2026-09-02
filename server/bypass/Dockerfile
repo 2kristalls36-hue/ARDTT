@@ -1,15 +1,9 @@
-# Builds wdtt-server with -listen-raw for Path B (RAW over VK TURN).
-# Upstream origin: WDTT — https://github.com/amurcanov/proxy-turn-vk-android (GPL-3.0).
-# Sources are vendored under ./wdtt-server (WDTT Server v2 + Path B RAW listener).
+# Builds RAW/WRAP Path B listener (`-listen-raw`) for ARDTT.
+# Sources are a slim RAW-only fork of qWDTT / SpaceNeuroX (GPL-3.0).
 FROM golang:1.25-bookworm AS build
-RUN apt-get update && apt-get install -y --no-install-recommends patch ca-certificates \
- && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY wdtt-server/ /src/wdtt/
 WORKDIR /src/wdtt/server
-# Align RAW subnet with nonameVPN provision (10.9.0.0/24, .1 = gateway).
-COPY patches/raw-subnet.patch /tmp/raw-subnet.patch
-RUN patch -p1 < /tmp/raw-subnet.patch
 RUN go build -o /out/wdtt-server .
 
 COPY sync/ /src/bypass-sync/

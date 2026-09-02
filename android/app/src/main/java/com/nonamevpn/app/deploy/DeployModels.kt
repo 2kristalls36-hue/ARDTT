@@ -16,12 +16,6 @@ data class DeployTarget(
     val publicHost: String = "",
     val directPort: Int = 51820,
     val bypassPort: Int = 56003,
-    /** Enable chained SSH access via an intermediate jump host. */
-    val cascadeEnabled: Boolean = false,
-    val cascadeHost: String = "",
-    val cascadePort: Int = 22,
-    val cascadeUser: String = "",
-    val cascadePassword: String = "",
     /** Lowercase linux distro id (e.g. ubuntu/debian), empty when unknown. */
     val osId: String = "",
     /** Human-friendly OS version label (usually PRETTY_NAME). */

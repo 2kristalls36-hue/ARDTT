@@ -310,9 +310,8 @@ type TurnParams struct {
 	Hashes   []string
 	WrapKey  []byte // Password-derived WRAP key (32 bytes), nil = disabled
 	ObfsMode string // "audio" or "video" — RTP masking mode
-	// NoDTLS: пропустить DTLS и идти RTP-obfs AEAD напрямую поверх TURN relay.
-	// Требует сервер, который умеет принимать прямые (без DTLS) сессии на
-	// отдельном порту/слушателе — см. server/main.go -listen-direct.
+	// NoDTLS: RTP-obfs AEAD напрямую поверх TURN (без DTLS).
+	// ARDTT Path B: сервер -listen-raw.
 	NoDTLS bool
 	// RawMode: raw-IP без WireGuard (см. server/main.go -listen-raw, handleConnRaw).
 	// Подразумевает NoDTLS — сервер на -listen-raw DTLS не понимает.

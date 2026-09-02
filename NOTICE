@@ -43,11 +43,10 @@ lineage (fork/continuation of the WDTT idea), GPL-3.0:
   https://github.com/SpaceNeuroX/proxy-turn-vk-android
 
 Vendored server sources under `server/bypass/wdtt-server/` (built as
-`wdtt-server`) and the Android Path B client under `android/go_client/`
+`wdtt-server -listen-raw`) and the Android Path B client under `android/go_client/`
 (`libclient.so` via `scripts/build-bypass-client.sh`) follow that RAW-capable
-tree. A small subnet patch (`server/bypass/patches/raw-subnet.patch`) aligns
-the RAW TUN with ARDTT `10.9.0.0/24`. A small client patch allows `-n`
-workers of 1–9 without forcing multiples of 9.
+tree. The RAW TUN uses ARDTT `10.9.0.0/24` (gateway `10.9.0.1`). A small client
+patch allows `-n` workers of 1–9 without forcing multiples of 9.
 
 Directory names may still say `wdtt-*` for historical/vendor reasons; the
 **product** name is ARDTT (Amnezia + RAW Dial via TURN), not WDTT.
