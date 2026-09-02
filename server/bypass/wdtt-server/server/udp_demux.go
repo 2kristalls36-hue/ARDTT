@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"sync"
 	"time"
@@ -75,10 +76,16 @@ func (d *udpDemux) readLoop() {
 			case <-d.closed:
 				return
 			default:
-				return
 			}
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Temporary() {
+				time.Sleep(5 * time.Millisecond)
+				continue
+			}
+			return
 		}
-		key := addr.String()
+		remote := cloneUDPAddr(addr)
+		key := remote.String()
 		pkt := append([]byte(nil), buf[:n]...)
 
 		d.mu.Lock()
@@ -92,7 +99,7 @@ func (d *udpDemux) readLoop() {
 			}
 			sess = &udpSession{
 				demux:   d,
-				remote:  addr,
+				remote:  remote,
 				packets: make(chan []byte, 256),
 				done:    make(chan struct{}),
 			}
@@ -122,7 +129,7 @@ func (d *udpDemux) readLoop() {
 func (d *udpDemux) Accept() (net.PacketConn, net.Addr, error) {
 	select {
 	case <-d.closed:
-		return nil, nil, net.ErrClosed
+		return nil, nil, sessionClosedError(d.Addr())
 	case sess := <-d.accept:
 		return sess, sess.remote, nil
 	}
@@ -145,6 +152,19 @@ func (d *udpDemux) Close() error {
 
 func (d *udpDemux) Addr() net.Addr {
 	return d.conn.LocalAddr()
+}
+
+func cloneUDPAddr(addr *net.UDPAddr) *net.UDPAddr {
+	if addr == nil {
+		return nil
+	}
+	ip := make(net.IP, len(addr.IP))
+	copy(ip, addr.IP)
+	return &net.UDPAddr{IP: ip, Port: addr.Port, Zone: addr.Zone}
+}
+
+func sessionClosedError(addr net.Addr) error {
+	return &net.OpError{Op: "read", Net: "udp", Addr: addr, Err: net.ErrClosed}
 }
 
 func (s *udpSession) Close() error {
@@ -171,7 +191,7 @@ func (s *udpSession) ReadFrom(p []byte) (int, net.Addr, error) {
 		defer timer.Stop()
 		select {
 		case <-s.done:
-			return 0, nil, net.ErrClosed
+			return 0, nil, sessionClosedError(s.remote)
 		case pkt := <-s.packets:
 			return copy(p, pkt), s.remote, nil
 		case <-timer.C:
@@ -180,7 +200,7 @@ func (s *udpSession) ReadFrom(p []byte) (int, net.Addr, error) {
 	}
 	select {
 	case <-s.done:
-		return 0, nil, net.ErrClosed
+		return 0, nil, sessionClosedError(s.remote)
 	case pkt := <-s.packets:
 		return copy(p, pkt), s.remote, nil
 	}

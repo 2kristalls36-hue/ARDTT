@@ -67,6 +67,12 @@ func (c *directConn) Read(b []byte) (int, error) {
 	for {
 		n, _, err := c.pc.ReadFrom(b)
 		if err != nil {
+			// WRAP auth/replay failures are not fatal; a closed or timed-out
+			// socket must stop the session. net.ErrClosed is not a net.Error,
+			// so the old type-assert busy-looped at 100% CPU after Close.
+			if errors.Is(err, net.ErrClosed) {
+				return 0, err
+			}
 			var netErr net.Error
 			if errors.As(err, &netErr) {
 				return 0, err

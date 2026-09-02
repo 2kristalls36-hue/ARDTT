@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"net"
@@ -33,6 +34,9 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.Println("ARDTT RAW bypass (WRAP + TUN, no DTLS/WireGuard)")
 
+	initDB(*configDir, mainPasswordValue)
+	enableBBR()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -59,8 +63,6 @@ func main() {
 		}
 	}()
 
-	initDB(*configDir, mainPasswordValue)
-	enableBBR()
 	go statsLoop(ctx, *configDir)
 	go expiredPasswordJanitor(ctx)
 
@@ -90,10 +92,13 @@ func main() {
 		for {
 			pc, remoteAddr, acceptErr := rawWrapListener.Accept()
 			if acceptErr != nil {
+				if errors.Is(acceptErr, net.ErrClosed) {
+					return
+				}
 				select {
 				case <-ctx.Done():
 					return
-				default:
+				case <-time.After(50 * time.Millisecond):
 				}
 				continue
 			}

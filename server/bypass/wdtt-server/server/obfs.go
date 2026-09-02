@@ -310,6 +310,7 @@ func (l *wrapPacketListener) Addr() net.Addr { return l.inner.Addr() }
 type wrapPacketConn struct {
 	inner     net.PacketConn
 	keys      *wrapKeyStore
+	keyMu     sync.Mutex
 	key       []byte
 	keyID     string
 	bindingID string
@@ -373,25 +374,16 @@ func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 		}
 		cfg, cfgErr := NewObfsConfig("audio")
 		if cfgErr != nil {
+			zeroBytes(key)
 			return 0, addr, fmt.Errorf("wrap: random config: %w", cfgErr)
 		}
 		writeState, stateErr := NewObfsState()
 		if stateErr != nil {
+			zeroBytes(key)
 			return 0, addr, fmt.Errorf("wrap: random state: %w", stateErr)
 		}
-		c.key = append([]byte(nil), key...) // Клонируем ключ в независимую память!
-		c.keyID = keyID
-		c.bindingID = wrapConnectionBindingID(c.LocalAddr(), addr)
-		wrapCredentialBindings.Store(c.bindingID, keyID)
-		c.obfsCfg = cfg
-		if len(raw) > 1 {
-			c.obfsCfg.PayloadType = raw[1] & 0x7F
-			if c.obfsCfg.PayloadType == 96 {
-				c.obfsCfg.PaddingMax = 60
-			}
-		}
-		c.obfsWrite = writeState
-		atomic.StoreInt32(&c.selected, 1)
+		c.selectSessionKey(key, keyID, cfg, writeState, raw, addr)
+		zeroBytes(key)
 		if !c.replay.accept(raw) {
 			return 0, addr, errors.New("wrap: replay")
 		}
@@ -401,38 +393,36 @@ func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 		return m, addr, nil
 	}
 
+	c.keyMu.Lock()
 	m, uErr := obfsUnwrapPacket(c.key, raw, p)
+	c.keyMu.Unlock()
 	if uErr != nil {
 		// Если расшифровка старым ключом провалилась — возможно, пароль обновился!
 		// Пробуем пере-верифицировать пакет по всем активным ключам
 		key, keyID, m2, uErr2 := c.keys.Unwrap(raw, p)
 		if uErr2 == nil {
-			if !bytes.Equal(key, c.key) {
+			c.keyMu.Lock()
+			rotated := !bytes.Equal(key, c.key)
+			c.keyMu.Unlock()
+			if rotated {
 				c.replay = replayWindow{}
 			}
 			if !c.replay.accept(raw) {
+				zeroBytes(key)
 				return 0, addr, errors.New("wrap: replay")
 			}
 			cfg, cfgErr := NewObfsConfig("audio")
 			if cfgErr != nil {
+				zeroBytes(key)
 				return 0, addr, fmt.Errorf("wrap: random config: %w", cfgErr)
 			}
 			writeState, stateErr := NewObfsState()
 			if stateErr != nil {
+				zeroBytes(key)
 				return 0, addr, fmt.Errorf("wrap: random state: %w", stateErr)
 			}
-			c.key = append([]byte(nil), key...) // На лету обновляем ключ сессии!
-			c.keyID = keyID
-			c.bindingID = wrapConnectionBindingID(c.LocalAddr(), addr)
-			wrapCredentialBindings.Store(c.bindingID, keyID)
-			c.obfsCfg = cfg
-			if len(raw) > 1 {
-				c.obfsCfg.PayloadType = raw[1] & 0x7F
-				if c.obfsCfg.PayloadType == 96 {
-					c.obfsCfg.PaddingMax = 60
-				}
-			}
-			c.obfsWrite = writeState
+			c.selectSessionKey(key, keyID, cfg, writeState, raw, addr)
+			zeroBytes(key)
 			log.Printf("[WRAP] Обновлен ключ на лету для %s (пароль изменился/обновился)", addr.String())
 			return m2, addr, nil
 		}
@@ -444,25 +434,50 @@ func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	return m, addr, nil
 }
 
+func (c *wrapPacketConn) selectSessionKey(key []byte, keyID string, cfg *ObfsConfig, writeState *ObfsState, raw []byte, addr net.Addr) {
+	c.keyMu.Lock()
+	c.key = append([]byte(nil), key...)
+	c.keyID = keyID
+	c.bindingID = wrapConnectionBindingID(c.LocalAddr(), addr)
+	bindingID := c.bindingID
+	c.obfsCfg = cfg
+	if len(raw) > 1 && c.obfsCfg != nil {
+		c.obfsCfg.PayloadType = raw[1] & 0x7F
+		if c.obfsCfg.PayloadType == 96 {
+			c.obfsCfg.PaddingMax = 60
+		}
+	}
+	c.obfsWrite = writeState
+	c.keyMu.Unlock()
+	wrapCredentialBindings.Store(bindingID, keyID)
+	atomic.StoreInt32(&c.selected, 1)
+}
+
 func (c *wrapPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	bufPtr := wrapReadBufPool.Get().(*[]byte)
+	defer wrapReadBufPool.Put(bufPtr)
+
+	c.keyMu.Lock()
 	if atomic.LoadInt32(&c.selected) == 0 || len(c.key) != wrapKeyLen {
+		c.keyMu.Unlock()
 		return 0, errors.New("wrap: key not selected")
 	}
 	if c.obfsCfg == nil || c.obfsWrite == nil {
 		cfg, cfgErr := NewObfsConfig("audio")
 		if cfgErr != nil {
+			c.keyMu.Unlock()
 			return 0, fmt.Errorf("wrap: random config: %w", cfgErr)
 		}
 		writeState, stateErr := NewObfsState()
 		if stateErr != nil {
+			c.keyMu.Unlock()
 			return 0, fmt.Errorf("wrap: random state: %w", stateErr)
 		}
 		c.obfsCfg = cfg
 		c.obfsWrite = writeState
 	}
-	bufPtr := wrapReadBufPool.Get().(*[]byte)
-	defer wrapReadBufPool.Put(bufPtr)
 	wrapped, wErr := obfsWrapPacket(c.key, p, c.obfsCfg, c.obfsWrite, *bufPtr)
+	c.keyMu.Unlock()
 	if wErr != nil {
 		return 0, fmt.Errorf("obfs wrap: %w", wErr)
 	}
@@ -473,11 +488,15 @@ func (c *wrapPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 }
 
 func (c *wrapPacketConn) Close() error {
-	if c.bindingID != "" {
-		wrapCredentialBindings.Delete(c.bindingID)
-	}
+	c.keyMu.Lock()
+	bindingID := c.bindingID
+	c.bindingID = ""
 	evikey := c.key
 	c.key = nil
+	c.keyMu.Unlock()
+	if bindingID != "" {
+		wrapCredentialBindings.Delete(bindingID)
+	}
 	zeroBytes(evikey)
 	return c.inner.Close()
 }

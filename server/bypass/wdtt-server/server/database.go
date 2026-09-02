@@ -54,7 +54,7 @@ type Database struct {
 }
 
 var (
-	db     *Database
+	db      *Database
 	dbMutex sync.Mutex
 	dbFile  string
 )
@@ -354,25 +354,6 @@ func (s *wrapKeyStore) SetPasswords(mainPassword string, generated []string) err
 	return nil
 }
 
-func (s *wrapKeyStore) AddPassword(password string) error {
-	key, err := deriveWrapKey(password)
-	if err != nil {
-		return err
-	}
-	id := "pass:" + wrapKeyID(password)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, entry := range s.entries {
-		if entry.id == id {
-			zeroBytes(key)
-			return nil
-		}
-	}
-	s.entries = append(s.entries, wrapKeyEntry{id: id, key: key})
-	return nil
-}
-
 func (s *wrapKeyStore) RemovePassword(password string) {
 	id := "pass:" + wrapKeyID(password)
 
@@ -430,6 +411,12 @@ func reloadDB() error {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
+	if db == nil || dbFile == "" {
+		return errors.New("database is not initialized")
+	}
+
+	flushRawDeviceTrafficLocked()
+
 	data, err := os.ReadFile(dbFile)
 	if err != nil {
 		return fmt.Errorf("read db file: %w", err)
@@ -444,10 +431,51 @@ func reloadDB() error {
 		return fmt.Errorf("parse db json: %w", err)
 	}
 	newDB.MainPassword = oldDB.MainPassword
+	if newDB.Passwords == nil {
+		newDB.Passwords = make(map[string]*PasswordEntry)
+	}
+	if newDB.Devices == nil {
+		newDB.Devices = make(map[string]*ClientDevice)
+	}
+
+	// bypass-sync rewrites passwords.json from users.json and can clobber
+	// traffic counters we have already flushed in memory but not yet saved.
+	for id, oldDev := range oldDB.Devices {
+		newDev, ok := newDB.Devices[id]
+		if !ok {
+			continue
+		}
+		if newDev.UpBytes < oldDev.UpBytes {
+			newDev.UpBytes = oldDev.UpBytes
+		}
+		if newDev.DownBytes < oldDev.DownBytes {
+			newDev.DownBytes = oldDev.DownBytes
+		}
+	}
+	for pass, oldEntry := range oldDB.Passwords {
+		newEntry, ok := newDB.Passwords[pass]
+		if !ok {
+			continue
+		}
+		if newEntry.UpBytes < oldEntry.UpBytes {
+			newEntry.UpBytes = oldEntry.UpBytes
+		}
+		if newEntry.DownBytes < oldEntry.DownBytes {
+			newEntry.DownBytes = oldEntry.DownBytes
+		}
+	}
+
 	db = newDB
 	cleanupExpiredPasswordsLocked()
 	if err := refreshWrapKeysFromDBLocked(); err != nil {
 		return fmt.Errorf("refresh wrap keys: %w", err)
+	}
+
+	for pass := range oldDB.Passwords {
+		newEntry, still := db.Passwords[pass]
+		if !still || (newEntry != nil && newEntry.IsDeactivated) {
+			disconnectCredentialConnections(pass)
+		}
 	}
 	return nil
 }
