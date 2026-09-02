@@ -214,6 +214,10 @@ fun SettingsContent(settings: AppSettingsRepository) {
             Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 when {
+                    !admin && vpnLocked ->
+                        "Во время соединения настройки подключения недоступны."
+                    !admin ->
+                        "Выберите режим подключения. Рекомендуется «Авто»."
                     vpnLocked -> "Недоступно во время соединения."
                     vpnSessionActive && unlockConnControls ->
                         "Соединение активно. Изменение маршрута применяется сразу, без отключения."
@@ -326,28 +330,30 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     enabled = !vpnLocked,
                 )
             }
-            RowSetting(
-                title = "Скрыть быстрые настройки",
-                subtitle = if (hideTunnelQuickSettings) {
-                    "Раздел «Параметры подключения» на вкладке «Туннель» скрыт."
-                } else {
-                    "На вкладке «Туннель» показаны маршрут, адрес и доверенная Wi‑Fi."
-                },
-                checked = hideTunnelQuickSettings,
-                onCheckedChange = { hidden ->
-                    scope.launch { settings.setHideTunnelQuickSettings(hidden) }
-                },
-            )
-            RowSetting(
-                title = "Кнопки во время соединения",
-                subtitle = if (unlockConnControls) {
-                    "Маршрут и исходящий адрес можно изменять без отключения туннеля."
-                } else {
-                    "Пока туннель активен, изменение маршрута и исходящего адреса недоступно."
-                },
-                checked = unlockConnControls,
-                onCheckedChange = { scope.launch { settings.setUnlockConnControls(it) } },
-            )
+            if (admin) {
+                RowSetting(
+                    title = "Скрыть быстрые настройки",
+                    subtitle = if (hideTunnelQuickSettings) {
+                        "Раздел «Параметры подключения» на вкладке «Туннель» скрыт."
+                    } else {
+                        "На вкладке «Туннель» показаны маршрут, адрес и доверенная Wi‑Fi."
+                    },
+                    checked = hideTunnelQuickSettings,
+                    onCheckedChange = { hidden ->
+                        scope.launch { settings.setHideTunnelQuickSettings(hidden) }
+                    },
+                )
+                RowSetting(
+                    title = "Кнопки во время соединения",
+                    subtitle = if (unlockConnControls) {
+                        "Маршрут и исходящий адрес можно изменять без отключения туннеля."
+                    } else {
+                        "Пока туннель активен, изменение маршрута и исходящего адреса недоступно."
+                    },
+                    checked = unlockConnControls,
+                    onCheckedChange = { scope.launch { settings.setUnlockConnControls(it) } },
+                )
+            }
         }
 
         // User-facing WiFi pause controls should always be available in Settings.
@@ -362,26 +368,36 @@ fun SettingsContent(settings: AppSettingsRepository) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Метод обхода", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Источник параметров обхода и код звонка. Авто — vkcalls, иначе резерв.",
+                if (admin) "Метод обхода" else "Код звонка",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                if (admin) {
+                    "Источник параметров обхода и код звонка. Авто — vkcalls, иначе резерв."
+                } else {
+                    "Код звонка требуется для режима «Обход». Создайте его через ВКонтакте или введите вручную."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DialChip("Авто", dial == "auto", { scope.launch { settings.setDialPath("auto") } }, Modifier.weight(1f))
-                DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
-                DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
+            if (admin) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DialChip("Авто", dial == "auto", { scope.launch { settings.setDialPath("auto") } }, Modifier.weight(1f))
+                    DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
+                    DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
+                }
+                RowSetting(
+                    title = "Обновлять звонок автоматически",
+                    subtitle = "Новый код звонка создаётся без подтверждения. Требуется активная сессия ВКонтакте.",
+                    checked = silent,
+                    onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
+                )
             }
-            RowSetting(
-                title = "Обновлять звонок автоматически",
-                subtitle = "Новый код звонка создаётся без подтверждения. Требуется активная сессия ВКонтакте.",
-                checked = silent,
-                onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
-            )
             CallHashSettingsContent(showHeader = false)
         }
 
@@ -481,7 +497,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Версия ${BuildConfig.VERSION_NAME} · режим: ${if (admin) "администратор" else "пользователь"}",
+                "Версия ${BuildConfig.VERSION_NAME}${if (admin) " · режим: администратор" else ""}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -489,9 +505,9 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 if (admin) {
                     "Открыты Серверы и Логи."
                 } else if (hasPin) {
-                    "Введите PIN для доступа к разделам «Серверы» и «Логи»."
+                    "Расширенные разделы доступны по PIN администратора."
                 } else {
-                    "Установите PIN администратора (при первом вводе PIN будет создан)."
+                    "Для доступа к расширенным разделам установите PIN администратора."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
