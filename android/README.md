@@ -30,6 +30,27 @@ Release (подписанный постоянным keystore):
 # или: cd android && ./gradlew :app:assembleRelease :app:bundleRelease
 ```
 
+### GitHub Releases (автоматически из `main`)
+
+Каждый push в `main` (и тег `v*`) запускает workflow
+[`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml):
+
+1. Собирает подписанный `ardtt-<versionName>.apk`
+2. Публикует GitHub Release с тегом `v<versionName>`
+3. Кладёт рядом `ardtt-update.json` и `SHA256SUMS.txt`
+
+**Секреты репозитория** (Settings → Secrets → Actions):
+
+| Secret | Значение |
+|--------|----------|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 android/keystore/ardtt-release.keystore` |
+| `ANDROID_KEYSTORE_PASSWORD` | из `keystore.properties` |
+| `ANDROID_KEY_ALIAS` | `ardtt` |
+| `ANDROID_KEY_PASSWORD` | из `keystore.properties` |
+
+Приложение проверяет обновления через **GitHub Releases API** (как qWDTT),
+с fallback на старый `update.json` на VPS.
+
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`
 - Секреты (не в git): `android/keystore.properties` + `android/keystore/ardtt-release.keystore`
@@ -44,7 +65,7 @@ Release (подписанный постоянным keystore):
 - `tunnel` — AmneziaWG userspace (`libwg-go`)
 - `go_client` — Path B RAW (qWDTT / SpaceNeuroX) → `libclient.so`
 - **Режим тестирования:** полная телеметрия, JSONL, upload на VPS — [../docs/TELEMETRY.md](../docs/TELEMETRY.md)
-- **Обновления:** Настройки → «Обновления» читает `https://45.129.2.3/update.json`,
+- **Обновления:** сначала GitHub Releases (`2kristalls36-hue/nonameVPN`), fallback — `https://45.129.2.3/update.json`.
   скачивает APK внутри приложения, проверяет SHA-256 и запускает системный установщик.
 
 После деплоя сервера на VPS обычно остаётся `/opt/nonamevpn/stack/` (исторический путь каталога) и рабочие образы.
