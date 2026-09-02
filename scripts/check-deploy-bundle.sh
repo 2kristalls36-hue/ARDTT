@@ -27,6 +27,7 @@ if [ -f "$INSTALLER" ]; then
   grep -q 'NVPN_DONE|' "$INSTALLER" || err "installer missing NVPN_DONE protocol"
   grep -q 'уже распакованный стек' "$INSTALLER" || err "installer missing re-run-without-tar path"
   grep -q 'NVPN_TELEMETRY_PORT' "$INSTALLER" || err "installer missing telemetry port"
+  grep -q 'TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing TELEMETRY_LISTEN in .env"
 fi
 
 if [ -f "$INSTALLER" ] && [ -f "$ASSET_INSTALLER" ]; then

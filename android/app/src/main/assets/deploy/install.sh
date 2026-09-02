@@ -124,18 +124,38 @@ ensure_swap() {
     echo "NVPN_INFO|swap уже ${have_mb} МБ (цель ≥${need_mb})"
     return 0
   fi
-  prog 0.28 "Увеличение swap до ${need_mb} МБ (сейчас ${have_mb:-0})"
+  local avail_mb
+  avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
+  # Leave room for Docker images; never fill the rootfs with a swapfile.
+  local reserve_mb="${MIN_DISK_UPDATE_MB:-900}"
+  local max_swap=$(( ${avail_mb:-0} - reserve_mb ))
+  if [ "$max_swap" -lt 512 ]; then
+    echo "NVPN_WARN|мало места для swap (свободно ${avail_mb:-0} МБ, нужно оставить ≥${reserve_mb}) — без увеличения"
+    return 0
+  fi
+  if [ "$need_mb" -gt "$max_swap" ]; then
+    echo "NVPN_WARN|swap цель ${need_mb} МБ урезана до ${max_swap} МБ (диск ${avail_mb} МБ)"
+    need_mb="$max_swap"
+  fi
+  prog 0.32 "Увеличение swap до ${need_mb} МБ (сейчас ${have_mb:-0})"
   local swapfile="/swapfile"
   if [ -f "$swapfile" ]; then
     swapoff "$swapfile" 2>/dev/null || true
   fi
   rm -f "$swapfile"
   if ! fallocate -l "${need_mb}M" "$swapfile" 2>/dev/null; then
-    dd if=/dev/zero of="$swapfile" bs=1M count="$need_mb" status=none
+    if ! dd if=/dev/zero of="$swapfile" bs=1M count="$need_mb" status=none; then
+      echo "NVPN_WARN|не удалось создать swapfile — продолжаем без swap"
+      rm -f "$swapfile"
+      return 0
+    fi
   fi
   chmod 600 "$swapfile"
-  mkswap "$swapfile" >/dev/null
-  swapon "$swapfile"
+  if ! mkswap "$swapfile" >/dev/null 2>&1 || ! swapon "$swapfile" 2>/dev/null; then
+    echo "NVPN_WARN|не удалось включить swap — продолжаем без него"
+    rm -f "$swapfile"
+    return 0
+  fi
   if ! grep -qE "^/swapfile[[:space:]]" /etc/fstab 2>/dev/null; then
     echo '/swapfile none swap sw 0 0' >> /etc/fstab
   fi
@@ -246,6 +266,8 @@ if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
     compose() { COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose "$@"; }
   fi
 
+  prog 0.28 "Очистка места перед swap и сборкой"
+  reclaim_disk
   mem_mb="$(mem_total_mb)"
   if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
     ensure_swap "$MIN_SWAP_MB"
@@ -270,6 +292,8 @@ NVPN_BYPASS_PORT=$BYPASS_PORT
 NVPN_PROVISION_LISTEN=$PROVISION_LISTEN
 NVPN_DEPLOY_VERSION=$DEPLOY_VERSION
 NVPN_WARP_GOMEMLIMIT=400MiB
+TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
+NVPN_TELEMETRY_PORT=${TELEMETRY_PORT}
 EOF
 
 mkdir -p "$STAGING/data"
