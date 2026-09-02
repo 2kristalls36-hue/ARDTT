@@ -369,7 +369,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                if (admin) "Метод обхода" else "Код звонка",
+                "Метод обхода",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -377,7 +377,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 if (admin) {
                     "Источник параметров обхода и код звонка. Авто — vkcalls, иначе резерв."
                 } else {
-                    "Код звонка требуется для режима «Обход». Создайте его через ВКонтакте или введите вручную."
+                    "Код звонка для режима «Обход». Создайте его через ВКонтакте или введите вручную."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -391,13 +391,13 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
                     DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
                 }
-                RowSetting(
-                    title = "Обновлять звонок автоматически",
-                    subtitle = "Новый код звонка создаётся без подтверждения. Требуется активная сессия ВКонтакте.",
-                    checked = silent,
-                    onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
-                )
             }
+            RowSetting(
+                title = "Обновлять звонок автоматически",
+                subtitle = "Новый код звонка создаётся без подтверждения. Требуется активная сессия ВКонтакте.",
+                checked = silent,
+                onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
+            )
             CallHashSettingsContent(showHeader = false)
         }
 
