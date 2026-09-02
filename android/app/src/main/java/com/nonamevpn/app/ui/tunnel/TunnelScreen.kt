@@ -828,17 +828,19 @@ private fun UserConnectStatusBlock(
             style = statusTextStyle,
             color = Color.White,
             textAlign = TextAlign.Center,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        details?.let {
-            Text(
-                text = it,
-                style = detailsTextStyle,
-                color = Color.White.copy(alpha = 0.92f),
-                textAlign = TextAlign.Center,
-            )
-        }
+        Text(
+            text = details.orEmpty(),
+            style = detailsTextStyle,
+            color = Color.White.copy(alpha = if (details != null) 0.92f else 0f),
+            textAlign = TextAlign.Center,
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
