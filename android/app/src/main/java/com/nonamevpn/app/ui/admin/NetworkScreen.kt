@@ -16,10 +16,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnState
@@ -36,6 +36,7 @@ import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.rememberPullRefresh
+import kotlin.coroutines.cancellation.CancellationException
 
 @Composable
 fun NetworkScreen(
@@ -58,38 +59,46 @@ fun NetworkScreen(
         ui.probe?.networkClass == NetworkClass.NeedBypass ||
         ui.probe?.networkClass == NetworkClass.OpenNeedBypass
 
-    suspend fun refreshAll() {
-        providerLoading = true
-        provider = runCatching { IpApiLookup.fetchUnderlay(context) }
-            .getOrElse { IpApiInfo.Empty.copy(error = it.message ?: "ошибка") }
-        providerLoading = false
+    val refreshInputs = rememberUpdatedState(
+        NetworkRefreshInputs(
+            sessionUp = sessionUp,
+            hideIp = hideIp,
+            provisionBaseUrl = profile?.provisionBaseUrl,
+            deviceId = profile?.deviceId,
+            viaVpn = viaVpn,
+        ),
+    )
 
-        if (!sessionUp) {
-            tunnel = IpApiInfo.Empty
+    suspend fun refreshAll() {
+        val inputs = refreshInputs.value
+        providerLoading = true
+        tunnelLoading = inputs.sessionUp && !inputs.hideIp
+        try {
+            provider = loadProvider(context)
+            tunnel = when {
+                !inputs.sessionUp -> IpApiInfo.Empty
+                inputs.hideIp -> IpApiInfo.Empty
+                else -> loadTunnel(
+                    context = context,
+                    hideIp = inputs.hideIp,
+                    provisionBaseUrl = inputs.provisionBaseUrl,
+                    deviceId = inputs.deviceId,
+                    viaVpn = inputs.viaVpn,
+                )
+            }
+        } finally {
+            providerLoading = false
             tunnelLoading = false
-            return
         }
-        if (hideIp) {
-            tunnel = IpApiInfo.Empty
-            tunnelLoading = false
-            return
-        }
-        tunnelLoading = true
-        tunnel = runCatching {
-            IpApiLookup.fetchTunnelEgress(
-                context = context,
-                hideIp = hideIp,
-                provisionBaseUrl = profile?.provisionBaseUrl,
-                deviceId = profile?.deviceId,
-                viaVpn = viaVpn,
-            )
-        }.getOrElse {
-            IpApiInfo.Empty.copy(error = it.message ?: "ошибка")
-        }
-        tunnelLoading = false
     }
 
-    LaunchedEffect(sessionUp, hideIp, profile?.provisionBaseUrl, profile?.deviceId, viaVpn) {
+    LaunchedEffect(
+        sessionUp,
+        hideIp,
+        profile?.provisionBaseUrl,
+        profile?.deviceId,
+        viaVpn,
+    ) {
         refreshAll()
     }
 
@@ -136,6 +145,44 @@ fun NetworkScreen(
         }
     }
 }
+
+private data class NetworkRefreshInputs(
+    val sessionUp: Boolean,
+    val hideIp: Boolean,
+    val provisionBaseUrl: String?,
+    val deviceId: String?,
+    val viaVpn: Boolean,
+)
+
+private suspend fun loadProvider(context: android.content.Context): IpApiInfo =
+    try {
+        IpApiLookup.fetchUnderlay(context)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        IpApiInfo.Empty.copy(error = IpApiLookup.friendlyError(e.message))
+    }
+
+private suspend fun loadTunnel(
+    context: android.content.Context,
+    hideIp: Boolean,
+    provisionBaseUrl: String?,
+    deviceId: String?,
+    viaVpn: Boolean,
+): IpApiInfo =
+    try {
+        IpApiLookup.fetchTunnelEgress(
+            context = context,
+            hideIp = hideIp,
+            provisionBaseUrl = provisionBaseUrl,
+            deviceId = deviceId,
+            viaVpn = viaVpn,
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        IpApiInfo.Empty.copy(error = IpApiLookup.friendlyError(e.message))
+    }
 
 @Composable
 private fun IpInfoCard(

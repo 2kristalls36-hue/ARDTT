@@ -1,7 +1,7 @@
 package com.nonamevpn.app.ui
 
 /**
- * Bottom tabs: Tunnel → Servers → Profiles → Exceptions → Network (admin) → Logs (admin) → Testing (admin, conditional).
+ * Bottom tabs: Tunnel → Network (admin) → Servers → Profiles → Exceptions → Logs (admin) → Testing (admin, conditional).
  * Deploy is reached from Servers (not a bottom tab). Settings open from the tunnel gear sheet.
  */
 enum class AppDestination(
@@ -12,10 +12,10 @@ enum class AppDestination(
     val inBottomNav: Boolean = true,
 ) {
     Tunnel("tunnel", "Туннель", adminOnly = false),
+    Network("network", "Сеть", adminOnly = true),
     Servers("servers", "Серверы", navLabel = "Сервера", adminOnly = true),
     Profiles("profiles", "Профили", adminOnly = false),
     Exceptions("exceptions", "Обход", adminOnly = false),
-    Network("network", "Сеть", adminOnly = true),
     Logs("logs", "Логи", adminOnly = true),
     Testing("testing", "Тестирование", navLabel = "Тест", adminOnly = true),
     /** Nested from Servers — not in bottom bar. */
