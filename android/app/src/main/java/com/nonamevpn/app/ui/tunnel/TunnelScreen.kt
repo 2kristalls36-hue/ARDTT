@@ -1,19 +1,20 @@
 package com.nonamevpn.app.ui.tunnel
 
 import android.os.Build
-import androidx.compose.animation.Crossfade
+import android.telephony.SubscriptionManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,7 +32,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,9 +43,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WbSunny
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,8 +55,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,9 +71,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -93,23 +91,26 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.foundation.isSystemInDarkTheme
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
-import com.nonamevpn.app.core.ConnUiState
 import com.nonamevpn.app.core.ConnectionManager
-import com.nonamevpn.app.core.NetworkClass
+import com.nonamevpn.app.core.EgressIpProbe
+import com.nonamevpn.app.core.NetcheckClient
+import com.nonamevpn.app.core.NetcheckItem
+import com.nonamevpn.app.core.NetcheckReport
+import com.nonamevpn.app.core.NetcheckTone
+import com.nonamevpn.app.core.NetcheckUiRow
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
+import com.nonamevpn.app.core.underlayIdentity
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
-import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.TabPageHeader
@@ -118,13 +119,15 @@ import com.nonamevpn.app.ui.components.ChoiceChipButton
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
+import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.settings.BypassMethodDialog
-import com.nonamevpn.app.ui.settings.SettingsSheet
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -140,10 +143,33 @@ fun TunnelScreen(
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
-    var showSettings by remember { mutableStateOf(false) }
+    var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
+    var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
+    var providerIpError by remember { mutableStateOf(EgressIpProbe.lastUnderlayError) }
     var showBypassMethodDialog by remember { mutableStateOf(false) }
     var highlightBypassDialog by remember { mutableStateOf(false) }
     var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
+    var lastUnderlayId by remember { mutableStateOf("") }
+
+    suspend fun refreshUnderlayStats(forceProviderIp: Boolean) {
+        accessLabel = readUnderlayAccessLabel(context)
+        val id = underlayIdentity(context)
+        if (!forceProviderIp && id == lastUnderlayId) {
+            providerIp = EgressIpProbe.currentUnderlay() ?: providerIp
+            providerIpError = EgressIpProbe.lastUnderlayError
+            return
+        }
+        if (id != lastUnderlayId) {
+            AppLog.v("Tunnel", "underlay identity $lastUnderlayId → $id")
+            EgressIpProbe.invalidateUnderlay()
+            providerIp = null
+            providerIpError = null
+        }
+        lastUnderlayId = id
+        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
+        providerIp = ip ?: EgressIpProbe.currentUnderlay()
+        providerIpError = EgressIpProbe.lastUnderlayError
+    }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
@@ -158,8 +184,8 @@ fun TunnelScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
-    val wallpaperVariant by settings.tunnelWallpaperVariantFlow.collectAsStateWithLifecycle(initialValue = 0)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -171,26 +197,9 @@ fun TunnelScreen(
     var callHashInitialized by remember { mutableStateOf(false) }
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     var showConnectionHint by rememberSaveable { mutableStateOf(true) }
-    val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
-    val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     LaunchedEffect(profile?.deviceId, hideIp) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
-    }
-    LaunchedEffect(openUpdateDownload) {
-        if (!openUpdateDownload) return@LaunchedEffect
-        showSettings = true
-        PendingUiAction.consumeOpenUpdateDownload()
-    }
-    LaunchedEffect(openCallHash) {
-        if (!openCallHash) return@LaunchedEffect
-        if (admin) {
-            showBypassMethodDialog = true
-            highlightBypassDialog = true
-        } else {
-            showSettings = true
-        }
-        PendingUiAction.consumeCallHashSettings()
     }
     LaunchedEffect(ui.state) {
         if (connStateInitialized &&
@@ -221,12 +230,80 @@ fun TunnelScreen(
         sessionActive = connecting || connected || pausedTrusted || disconnecting,
         unlockWhileConnected = unlockConnControls,
     )
+    var netcheck by remember { mutableStateOf<NetcheckReport?>(null) }
+    /** Service probes only while the tunnel is up — not on pause / idle. */
+    val netcheckActive = connected
+
+    suspend fun refreshNetcheck(force: Boolean) {
+        if (!netcheckActive) {
+            netcheck = null
+            return
+        }
+        val report = NetcheckClient.fetch(
+            context = context,
+            provisionBaseUrl = profile?.provisionBaseUrl,
+            deviceId = profile?.deviceId,
+            hideIp = hideIp,
+            refresh = force,
+        )
+        netcheck = report ?: NetcheckReport(
+            ok = false,
+            viaWarp = hideIp,
+            cached = false,
+            items = NetcheckClient.slots.map { (id, label) ->
+                NetcheckItem(id, label, "error", "не удалось проверить")
+            },
+        )
+    }
+
+    LaunchedEffect(ui.state, hideIp) {
+        val watchEgress =
+            ui.state == ConnState.Connecting ||
+                ui.state == ConnState.Connected ||
+                ui.state == ConnState.PausedTrustedWifi
+        if (!watchEgress) {
+            publicIp = EgressIpProbe.current()
+            return@LaunchedEffect
+        }
+        while (true) {
+            publicIp = EgressIpProbe.current()
+            delay(500)
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
-            accessLabel = readUnderlayAccessLabel(context)
-            delay(3_000)
+            refreshUnderlayStats(forceProviderIp = false)
+            delay(1_500)
         }
+    }
+
+    DisposableEffect(Unit) {
+        val sm = context.getSystemService(SubscriptionManager::class.java)
+        val listener = object : SubscriptionManager.OnSubscriptionsChangedListener() {
+            override fun onSubscriptionsChanged() {
+                scope.launch { refreshUnderlayStats(forceProviderIp = true) }
+            }
+        }
+        if (sm != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                sm.addOnSubscriptionsChangedListener(context.mainExecutor, listener)
+            } else {
+                @Suppress("DEPRECATION")
+                sm.addOnSubscriptionsChangedListener(listener)
+            }
+        }
+        onDispose {
+            runCatching { sm?.removeOnSubscriptionsChangedListener(listener) }
+        }
+    }
+
+    LaunchedEffect(sessionUp, ui.probe?.networkClass, ui.probe?.elapsedMs) {
+        refreshUnderlayStats(forceProviderIp = true)
+    }
+
+    LaunchedEffect(netcheckActive, hideIp, profile?.provisionBaseUrl, profile?.deviceId) {
+        refreshNetcheck(force = false)
     }
 
     val buttonColor by animateColorAsState(
@@ -239,28 +316,39 @@ fun TunnelScreen(
     )
 
     val pull = rememberPullRefresh {
-        accessLabel = readUnderlayAccessLabel(context)
-        conn.startInitialProbe()
+        refreshUnderlayStats(forceProviderIp = true)
+        val ip = runCatching {
+            EgressIpProbe.refresh(
+                hideIp = hideIp,
+                provisionBaseUrl = profile?.provisionBaseUrl,
+                deviceId = profile?.deviceId,
+                context = context,
+                viaVpn = sessionUp,
+            )
+        }.getOrNull()
+        publicIp = ip ?: EgressIpProbe.current()
+        val skipProbe = connecting || connected || pausedTrusted || disconnecting
+        if (!skipProbe) {
+            conn.startInitialProbe()
+            withTimeoutOrNull(12_000) {
+                conn.ui.first { it.state != ConnState.Probing }
+            }
+        }
+        refreshNetcheck(force = true)
     }
 
-    val autoBypassDetected = pathMode == "auto" && (
-        ui.probe?.networkClass == NetworkClass.NeedBypass ||
-            ui.probe?.networkClass == NetworkClass.OpenNeedBypass
-        )
-    val whitelistDetected = autoBypassDetected || pathMode == "bypass"
-    val isDarkTheme = when (themeMode) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
-    }
-    if (!admin) {
+    val bypassActive = wallpaperBypassActive(
+        pathMode = ConnPathMode.fromSetting(pathMode),
+        activePath = ui.activePath,
+        networkClass = ui.probe?.networkClass,
+    )
+    if (!admin && !classicAppearance) {
         UserTunnelSimpleScreen(
             ui = ui,
             catalogItems = catalog.items,
             activeProfileId = catalog.activeId,
-            whitelistDetected = whitelistDetected,
-            isDarkTheme = isDarkTheme,
-            wallpaperVariant = wallpaperVariant,
+            bypassActive = bypassActive,
+            showIllustratedWallpaper = true,
             themeMode = themeMode,
             onSwitchThemeMode = {
                 scope.launch {
@@ -308,12 +396,6 @@ fun TunnelScreen(
                 }
             },
         )
-        if (showSettings) {
-            SettingsSheet(
-                settings = settings,
-                onDismiss = { showSettings = false },
-            )
-        }
         return
     }
 
@@ -536,7 +618,7 @@ fun TunnelScreen(
 
             // ═══ Статус сессии — структурированная панель ═══
             TunnelStatusPanel(
-                statusText = sessionCardStatusText(ui.state, null, ui.lastError),
+                statusText = sessionCardStatusText(ui.state, publicIp, ui.lastError),
                 statusColor = when {
                     pausedTrusted -> NvpnColors.warning
                     connected -> NvpnColors.connected
@@ -550,7 +632,42 @@ fun TunnelScreen(
                     VpnPath.Bypass -> NvpnColors.pathBypass
                     null -> null
                 },
+                publicIp = when {
+                    pausedTrusted -> "—"
+                    !publicIp.isNullOrBlank() -> publicIp!!
+                    connecting || connected -> ""
+                    else -> "—"
+                },
+                ipPending = (connecting || connected) && publicIp.isNullOrBlank(),
+                ipFailed = false,
+                onIpClick = if (connecting || connected) {
+                    { conn.requestEgressIpRefresh() }
+                } else {
+                    null
+                },
                 accessLabel = accessLabel,
+                providerIp = when {
+                    !providerIp.isNullOrBlank() -> providerIp!!
+                    !providerIpError.isNullOrBlank() -> "не удалось определить"
+                    else -> ""
+                },
+                providerIpPending = providerIp.isNullOrBlank() && providerIpError.isNullOrBlank(),
+                providerIpFailed = providerIp.isNullOrBlank() && !providerIpError.isNullOrBlank(),
+                onProviderIpClick = {
+                    scope.launch {
+                        EgressIpProbe.invalidateUnderlay()
+                        providerIp = null
+                        providerIpError = null
+                        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
+                        providerIp = ip ?: EgressIpProbe.currentUnderlay()
+                        providerIpError = EgressIpProbe.lastUnderlayError
+                        lastUnderlayId = underlayIdentity(context)
+                        accessLabel = readUnderlayAccessLabel(context)
+                    }
+                },
+                showWarpIcon = !publicIp.isNullOrBlank() && (
+                    (hideIp && sessionUp) || EgressIpProbe.isLikelyCloudflare(publicIp)
+                    ),
                 profileName = profile?.name?.takeIf { it.isNotBlank() },
                 version = BuildConfig.VERSION_NAME,
                 directEndpoint = profile?.direct?.endpoint,
@@ -558,57 +675,44 @@ fun TunnelScreen(
                 provisionLine = profile?.let { p ->
                     p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
                 },
+                netcheckRows = NetcheckClient.uiRows(netcheck, probeActive = netcheckActive),
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    onClick = {
-                        haptics.tick()
-                        if (sessionUp) conn.disconnect() else onRequestConnect()
-                    },
-                    enabled = !busy && (sessionUp || ui.connectEnabled),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = buttonColor,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                ) {
-                    Icon(
-                        imageVector = if (sessionUp) Icons.Default.Stop else Icons.Default.PowerSettingsNew,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = when {
-                            sessionUp && pausedTrusted -> "Остановить (пауза Wi‑Fi)"
-                            sessionUp -> "Остановить"
-                            connecting -> "Подключение…"
-                            ui.state == ConnState.Probing -> "Проверка…"
-                            else -> "Подключить"
-                        },
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                    )
-                }
-            }
         }
-    }
 
-    if (showSettings) {
-        SettingsSheet(
-            settings = settings,
-            onDismiss = { showSettings = false },
+        // Sticky «Подключить» / «Отменить» (same button) above tab bar
+        val cancelMode = connecting || probing
+        StickyPrimaryButton(
+            text = when {
+                cancelMode -> "Отменить"
+                sessionUp -> "Отключить"
+                else -> "Подключиться"
+            },
+            onClick = {
+                haptics.tick()
+                when {
+                    cancelMode || sessionUp -> conn.disconnect()
+                    else -> onRequestConnect()
+                }
+            },
+            enabled = cancelMode || (!busy && (sessionUp || ui.connectEnabled)),
+            containerColor = when {
+                cancelMode || sessionUp -> MaterialTheme.colorScheme.error
+                else -> buttonColor
+            },
+            icon = when {
+                cancelMode -> Icons.Default.Stop
+                pausedTrusted -> Icons.Default.Pause
+                sessionUp -> Icons.Default.Stop
+                else -> Icons.Default.PowerSettingsNew
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .zIndex(2f)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.stickyBottomPadding()),
         )
     }
     BypassMethodDialog(
@@ -621,48 +725,55 @@ fun TunnelScreen(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UserTunnelSimpleScreen(
-    ui: ConnUiState,
+    ui: com.nonamevpn.app.core.ConnUiState,
     catalogItems: List<StoredProfile>,
     activeProfileId: String?,
-    whitelistDetected: Boolean,
-    isDarkTheme: Boolean,
-    wallpaperVariant: Int,
+    bypassActive: Boolean,
+    showIllustratedWallpaper: Boolean,
     themeMode: String,
     onSwitchThemeMode: () -> Unit,
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
 ) {
+    val droneExitDurationMs = 980L
+    val lifecycleOwner = LocalLifecycleOwner.current
     var animationRestartToken by remember { mutableStateOf(0) }
-    var blowAwayAnimation by remember { mutableStateOf(false) }
-    val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
-    val showingWhitelistScene = whitelistDetected && (
-        sessionUp ||
-            ui.state == ConnState.Connecting ||
-            ui.state == ConnState.Probing
-        )
-
-    LaunchedEffect(whitelistDetected) {
-        animationRestartToken++
-        blowAwayAnimation = false
+    var showingBypassScene by remember { mutableStateOf(bypassActive && showIllustratedWallpaper) }
+    var dronesBlowAway by remember { mutableStateOf(false) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                animationRestartToken += 1
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
-    LaunchedEffect(ui.state) {
-        when (ui.state) {
-            ConnState.Disconnecting, ConnState.Idle, ConnState.Ready, ConnState.Error ->
-                blowAwayAnimation = true
-            ConnState.Connected, ConnState.Connecting, ConnState.Probing ->
-                blowAwayAnimation = false
-            else -> Unit
+    LaunchedEffect(bypassActive, showIllustratedWallpaper) {
+        if (!showIllustratedWallpaper) {
+            dronesBlowAway = false
+            showingBypassScene = false
+            return@LaunchedEffect
+        }
+        if (bypassActive) {
+            dronesBlowAway = false
+            showingBypassScene = true
+            return@LaunchedEffect
+        }
+        if (showingBypassScene) {
+            dronesBlowAway = true
+            delay(droneExitDurationMs)
+            dronesBlowAway = false
+            showingBypassScene = false
         }
     }
 
-    val bgRes = resolveUserTunnelWallpaper(
-        variant = wallpaperVariant,
-        isDark = isDarkTheme,
-        whitelistDetected = showingWhitelistScene,
-    )
     val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
     val connected = ui.state == ConnState.Connected
     val disconnecting = ui.state == ConnState.Disconnecting
@@ -674,22 +785,10 @@ private fun UserTunnelSimpleScreen(
         else -> "auto"
     }
     Box(modifier = Modifier.fillMaxSize()) {
-        Crossfade(
-            targetState = bgRes,
-            animationSpec = tween(durationMillis = 760, easing = FastOutSlowInEasing),
-            label = "tunnel_wallpaper_crossfade",
-        ) { resId ->
-            Image(
-                painter = painterResource(resId),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        }
-        if (showingWhitelistScene) {
+        if (showingBypassScene && showIllustratedWallpaper) {
             WhitelistSkyAnimation(
                 restartToken = animationRestartToken,
-                blowAway = blowAwayAnimation,
+                blowAway = dronesBlowAway,
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(0.37f)
@@ -703,7 +802,9 @@ private fun UserTunnelSimpleScreen(
                 .statusBarsPadding()
                 .padding(top = 8.dp, end = 12.dp)
                 .size(38.dp)
-                .combinedClickable(onClick = onSwitchThemeMode),
+                .combinedClickable(
+                    onClick = onSwitchThemeMode,
+                ),
             shape = RoundedCornerShape(19.dp),
             color = NvpnFloatingShell.shellColor(),
             border = NvpnFloatingShell.shellBorder(),
@@ -862,14 +963,22 @@ private fun TunnelPowerToggle(
         label = "awg_pulse_alpha",
     )
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier
-                .size(198.dp * pulseScale)
-                .background(
-                    color = accentColor.copy(alpha = pulseAlpha),
-                    shape = CircleShape,
-                ),
-        )
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(198.dp),
+                color = accentColor,
+                strokeWidth = 4.dp,
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(198.dp * pulseScale)
+                    .background(
+                        color = accentColor.copy(alpha = pulseAlpha),
+                        shape = CircleShape,
+                    ),
+            )
+        }
         Surface(
             modifier = Modifier
                 .size(180.dp)
@@ -943,29 +1052,8 @@ private fun WhitelistSkyAnimation(
     val assets = remember {
         listOf(
             FlightAssetSpec(
-                resId = R.drawable.tunnel_drone_far,
-                sizeDp = 74,
-                startXFrac = 1.26f,
-                startYFrac = 0.24f,
-                anchorXFrac = 0.72f,
-                anchorYFrac = 0.20f,
-                orbitRadiusXFrac = 0.018f,
-                orbitRadiusYFrac = 0.014f,
-                orbitDurationMs = 11_200,
-                delayMs = 140L,
-                phaseRad = 2.2f,
-                windStrength = 0.86f,
-                gustFreqMul = 1.43f,
-                gustPhase = 2.05f,
-                compensationStrength = 0.34f,
-                dragLimitXFrac = 0.065f,
-                dragLimitYFrac = 0.05f,
-                centerBiasX = 0.000f,
-                centerBiasY = -0.008f,
-            ),
-            FlightAssetSpec(
-                resId = R.drawable.tunnel_drone_near,
-                sizeDp = 228,
+                resId = R.drawable.tunnel_drone_far, // Was near (swapped)
+                sizeDp = 152, // 228 / 1.5
                 startXFrac = 0.40f,
                 startYFrac = -0.66f,
                 anchorXFrac = 0.37f,
@@ -986,7 +1074,7 @@ private fun WhitelistSkyAnimation(
             ),
             FlightAssetSpec(
                 resId = R.drawable.tunnel_drone_mid,
-                sizeDp = 114,
+                sizeDp = 76, // 114 / 1.5
                 startXFrac = -0.42f,
                 startYFrac = 0.20f,
                 anchorXFrac = 0.13f,
@@ -1004,6 +1092,27 @@ private fun WhitelistSkyAnimation(
                 dragLimitYFrac = 0.055f,
                 centerBiasX = 0.023f,
                 centerBiasY = -0.033f,
+            ),
+            FlightAssetSpec(
+                resId = R.drawable.tunnel_drone_near, // Was far (swapped)
+                sizeDp = 49, // 74 / 1.5
+                startXFrac = 1.26f,
+                startYFrac = 0.24f,
+                anchorXFrac = 0.72f,
+                anchorYFrac = 0.20f,
+                orbitRadiusXFrac = 0.018f,
+                orbitRadiusYFrac = 0.014f,
+                orbitDurationMs = 11_200,
+                delayMs = 140L,
+                phaseRad = 2.2f,
+                windStrength = 0.86f,
+                gustFreqMul = 1.43f,
+                gustPhase = 2.05f,
+                compensationStrength = 0.34f,
+                dragLimitXFrac = 0.065f,
+                dragLimitYFrac = 0.05f,
+                centerBiasX = 0.000f,
+                centerBiasY = -0.008f,
             ),
         )
     }
@@ -1093,6 +1202,7 @@ private fun AnimatedFlightAsset(
 
     val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
     val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
+    // Smooth hover under wind: periodic waves with integer harmonics avoid restart jumps.
     val base = orbit + spec.phaseRad
     val windCarrier = sin((base * spec.gustFreqMul + spec.gustPhase).toDouble()).toFloat()
     val xPrimary = sin(base.toDouble()).toFloat()
@@ -1365,12 +1475,22 @@ private fun TunnelStatusPanel(
     selectedModeLabel: String,
     currentModeLabel: String,
     currentModeColor: Color?,
+    publicIp: String,
+    ipPending: Boolean = false,
+    ipFailed: Boolean = false,
+    onIpClick: (() -> Unit)? = null,
     accessLabel: String,
+    providerIp: String,
+    providerIpPending: Boolean = false,
+    providerIpFailed: Boolean = false,
+    onProviderIpClick: (() -> Unit)? = null,
+    showWarpIcon: Boolean = false,
     profileName: String?,
     version: String,
     directEndpoint: String?,
     bypassPeer: String?,
     provisionLine: String?,
+    netcheckRows: List<NetcheckUiRow>,
     softInfo: String?,
     errorText: String?,
 ) {
@@ -1400,6 +1520,22 @@ private fun TunnelStatusPanel(
                 valueColor = if (currentModeLabel == "—") muted else currentModeColor,
             )
             StatusFactRow(label = "Оператор", value = accessLabel)
+            StatusFactRow(
+                label = "IP провайдера",
+                value = providerIp,
+                pending = providerIpPending,
+                valueColor = if (providerIpFailed) MaterialTheme.colorScheme.error else null,
+                onClick = onProviderIpClick,
+            )
+            StatusFactRow(
+                label = "IP туннеля",
+                value = publicIp,
+                pending = ipPending,
+                valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
+                onClick = onIpClick,
+                valueLeadingIcon = if (showWarpIcon) R.drawable.ic_cloudflare else null,
+                valueLeadingContentDescription = if (showWarpIcon) HideIpCopy.STATUS_HIDDEN else null,
+            )
             profileName?.let { StatusFactRow(label = "Профиль", value = it) }
             StatusFactRow(label = "Версия", value = "v$version")
         }
@@ -1425,6 +1561,29 @@ private fun TunnelStatusPanel(
                 provisionLine?.takeIf { it.isNotBlank() }?.let {
                     StatusFactRow(label = "Управление", value = it)
                 }
+            }
+        }
+
+        HorizontalDivider(color = dividerColor)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "Проверка сети",
+                style = MaterialTheme.typography.labelLarge,
+                color = muted,
+                fontWeight = FontWeight.Medium,
+            )
+            netcheckRows.forEach { row ->
+                StatusFactRow(
+                    label = row.label,
+                    value = row.value,
+                    pending = row.pending,
+                    valueColor = when (row.tone) {
+                        NetcheckTone.Ok -> NvpnColors.connected
+                        NetcheckTone.Warn -> NvpnColors.warning
+                        NetcheckTone.Error -> MaterialTheme.colorScheme.error
+                        NetcheckTone.Neutral -> null
+                    },
+                )
             }
         }
 
