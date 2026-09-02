@@ -58,7 +58,7 @@ Release (подписанный постоянным keystore):
   "versionCode": 182,
   "versionName": "0.5.164-ui",
   "apkUrl": "https://45.129.2.3/ardtt-latest.apk",
-  "donateUrl": "https://spasibomir.ru/ВАША_ССЫЛКА"
+  "donateUrl": "https://spasibomir.ru/pay/34807"
 }
 ```
 
