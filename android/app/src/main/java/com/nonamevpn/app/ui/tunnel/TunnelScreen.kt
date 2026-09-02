@@ -11,6 +11,7 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,7 +41,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -94,6 +97,7 @@ import com.nonamevpn.app.R
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
+import com.nonamevpn.app.core.ConnUiState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.NetcheckClient
@@ -115,6 +119,9 @@ import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.NvpnFloatingShell
+import com.nonamevpn.app.ui.components.backdropMutedTextColor
+import com.nonamevpn.app.ui.components.backdropTitleColor
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.components.WarpIcon
 import com.nonamevpn.app.ui.settings.SettingsSheet
@@ -404,6 +411,12 @@ fun TunnelScreen(
                 }
             },
         )
+        if (showSettings) {
+            SettingsSheet(
+                settings = settings,
+                onDismiss = { showSettings = false },
+            )
+        }
         return
     }
 
@@ -851,6 +864,7 @@ fun TunnelScreen(
                 )
             }
         }
+        }
     }
 
     if (showSettings) {
@@ -858,6 +872,44 @@ fun TunnelScreen(
             settings = settings,
             onDismiss = { showSettings = false },
         )
+    }
+}
+
+@Composable
+private fun UserTunnelSimpleScreen(
+    ui: ConnUiState,
+    catalogItems: List<StoredProfile>,
+    activeProfileId: String?,
+    whitelistDetected: Boolean,
+    isDarkTheme: Boolean,
+    wallpaperVariant: Int,
+    themeMode: String,
+    onSwitchThemeMode: () -> Unit,
+    onToggleTunnel: () -> Unit,
+    onSelectPreviousProfile: () -> Unit,
+    onSelectNextProfile: () -> Unit,
+) {
+    var animationRestartToken by remember { mutableStateOf(0) }
+    var blowAwayAnimation by remember { mutableStateOf(false) }
+    val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
+    val showingWhitelistScene = whitelistDetected && (
+        sessionUp ||
+            ui.state == ConnState.Connecting ||
+            ui.state == ConnState.Probing
+        )
+
+    LaunchedEffect(whitelistDetected) {
+        animationRestartToken++
+        blowAwayAnimation = false
+    }
+    LaunchedEffect(ui.state) {
+        when (ui.state) {
+            ConnState.Disconnecting, ConnState.Idle, ConnState.Ready, ConnState.Error ->
+                blowAwayAnimation = true
+            ConnState.Connected, ConnState.Connecting, ConnState.Probing ->
+                blowAwayAnimation = false
+            else -> Unit
+        }
     }
 
     val bgRes = resolveUserTunnelWallpaper(
@@ -891,7 +943,7 @@ fun TunnelScreen(
         if (showingWhitelistScene) {
             WhitelistSkyAnimation(
                 restartToken = animationRestartToken,
-                blowAway = dronesBlowAway,
+                blowAway = blowAwayAnimation,
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(0.37f)
@@ -905,9 +957,7 @@ fun TunnelScreen(
                 .statusBarsPadding()
                 .padding(top = 8.dp, end = 12.dp)
                 .size(38.dp)
-                .combinedClickable(
-                    onClick = onSwitchThemeMode,
-                ),
+                .combinedClickable(onClick = onSwitchThemeMode),
             shape = RoundedCornerShape(19.dp),
             color = NvpnFloatingShell.shellColor(),
             border = NvpnFloatingShell.shellBorder(),
@@ -957,11 +1007,10 @@ fun TunnelScreen(
 
             UserConnectStatusBlock(
                 state = ui.state,
-                statusText = ui.statusText,
                 softInfo = ui.softInfo,
-                probe = ui.probe,
                 activePath = ui.activePath,
                 lastError = ui.lastError,
+                hasCallHash = ui.hasCallHash,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
 
@@ -981,61 +1030,33 @@ fun TunnelScreen(
 @Composable
 private fun UserConnectStatusBlock(
     state: ConnState,
-    statusText: String,
     softInfo: String?,
-    probe: ProbeResult?,
     activePath: VpnPath?,
     lastError: String?,
+    hasCallHash: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
     val connectingLike = state == ConnState.Connecting || state == ConnState.Probing
-    val primaryLine = when {
-        connectedLike -> "Подключено/пауза"
-        state == ConnState.Error -> "Ошибка подключения"
-        else -> statusText.ifBlank { sessionCardStatusText(state, publicIp = null, lastError = lastError) }
-    }
+    val primaryLine = userModeStatusPrimary(state, activePath)
     val details = when {
         connectedLike -> null
-        connectingLike -> buildString {
-            activePath?.let { path ->
-                append("Маршрут: ")
-                append(if (path == VpnPath.Bypass) "обход" else "прямой")
-            }
-            probe?.let { p ->
-                if (isNotEmpty()) append(" · ")
-                append("Сеть: ")
-                append(
-                    when (p.networkClass) {
-                        NetworkClass.NoNetwork -> "нет доступа"
-                        NetworkClass.Captive -> "captive-портал"
-                        NetworkClass.DirectOk -> "прямой доступ"
-                        NetworkClass.NeedBypass -> "нужен обход"
-                        NetworkClass.OpenNeedBypass -> "рекомендуется обход"
-                    },
-                )
-                append(" · Y:")
-                append(if (p.yandexOk) "OK" else "—")
-                append(" · CF:")
-                append(if (p.bigtechOk) "OK" else "—")
-                append(" · VPS:")
-                append(if (p.provisionOk) "OK" else "—")
-            }
-            val hint = softInfo?.trim().orEmpty()
-            if (hint.isNotEmpty()) {
-                if (isNotEmpty()) append('\n')
-                append(hint)
-            }
-        }.ifBlank { "Подготавливаем параметры подключения…" }
-        state == ConnState.Error -> lastError?.trim().orEmpty().takeIf { it.isNotEmpty() }
-        else -> softInfo?.trim().orEmpty().takeIf { it.isNotEmpty() }
+        !hasCallHash && (
+            activePath == VpnPath.Bypass ||
+                softInfo?.contains("обход", ignoreCase = true) == true ||
+                softInfo?.contains("звонка", ignoreCase = true) == true ||
+                softInfo?.contains("hash", ignoreCase = true) == true
+            ) ->
+            "Для режима «Обход» добавьте код звонка в настройках."
+        else -> userModeStatusDetails(state, softInfo, lastError)
     }
     val primaryColor = when {
         connectedLike -> NvpnColors.connected
         state == ConnState.Error -> MaterialTheme.colorScheme.error
-        connectingLike -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurface
+        connectingLike -> backdropTitleColor()
+        else -> backdropMutedTextColor()
     }
+    val detailsColor = backdropMutedTextColor().copy(alpha = 0.92f)
 
     Column(
         modifier = modifier
@@ -1057,7 +1078,7 @@ private fun UserConnectStatusBlock(
             Text(
                 text = it,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                color = detailsColor,
                 textAlign = TextAlign.Center,
             )
         }

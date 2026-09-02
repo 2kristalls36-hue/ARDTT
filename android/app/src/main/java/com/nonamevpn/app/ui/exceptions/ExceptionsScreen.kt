@@ -199,6 +199,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     }
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val segmentInactiveContainer = backdropSegmentInactiveContainer()
     val segmentInactiveContent = backdropSegmentInactiveContent()
 
@@ -419,9 +420,17 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 )
                                 Text(
                                     if (isWhitelist) {
-                                        "БС: только выбранные через туннель"
+                                        if (admin) {
+                                            "БС: только выбранные через туннель"
+                                        } else {
+                                            "Только выбранные приложения идут через туннель"
+                                        }
                                     } else {
-                                        "ЧС: выбранные мимо туннеля"
+                                        if (admin) {
+                                            "ЧС: выбранные мимо туннеля"
+                                        } else {
+                                            "Выбранные приложения работают вне туннеля"
+                                        }
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = colors.onSurfaceVariant,

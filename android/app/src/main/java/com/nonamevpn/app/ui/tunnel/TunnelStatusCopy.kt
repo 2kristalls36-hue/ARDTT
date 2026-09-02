@@ -3,6 +3,67 @@ package com.nonamevpn.app.ui.tunnel
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.VpnPath
 
+/** Primary status line under the connect button in user mode. */
+fun userModeStatusPrimary(
+    state: ConnState,
+    activePath: VpnPath?,
+): String = when (state) {
+    ConnState.Connected, ConnState.PausedTrustedWifi -> "Подключено/пауза"
+    ConnState.Probing -> "Проверка сети…"
+    ConnState.Connecting -> when (activePath) {
+        VpnPath.Bypass -> "Подключение через обход…"
+        VpnPath.Direct -> "Подключение…"
+        null -> "Подключение…"
+    }
+    ConnState.Disconnecting -> "Отключение…"
+    ConnState.Error -> "Ошибка подключения"
+    ConnState.Idle, ConnState.Ready -> "Отключено"
+}
+
+/** Secondary hint under the connect button in user mode. */
+fun userModeStatusDetails(
+    state: ConnState,
+    softInfo: String?,
+    lastError: String?,
+): String? = when (state) {
+    ConnState.Connected, ConnState.PausedTrustedWifi, ConnState.Disconnecting -> null
+    ConnState.Probing -> "Подготавливаем соединение…"
+    ConnState.Connecting -> userModeSoftInfo(softInfo) ?: "Устанавливаем защищённое соединение…"
+    ConnState.Error -> lastError?.trim()?.take(140)?.takeIf { it.isNotEmpty() }
+    ConnState.Idle, ConnState.Ready -> userModeSoftInfo(softInfo)
+}
+
+private fun userModeSoftInfo(softInfo: String?): String? {
+    val raw = softInfo?.trim().orEmpty()
+    if (raw.isBlank()) return null
+    return when {
+        raw.contains("код звонка", ignoreCase = true) ||
+            raw.contains("hash", ignoreCase = true) ->
+            "Для обхода добавьте код звонка в настройках."
+        raw.contains("ВКонтакте", ignoreCase = true) ||
+            raw.contains("VK", ignoreCase = true) ->
+            "Требуется вход в ВКонтакте для создания кода звонка."
+        raw.contains("captive", ignoreCase = true) ||
+            raw.contains("авторизац", ignoreCase = true) ->
+            "Сеть требует входа через браузер. Выполните авторизацию Wi‑Fi."
+        raw.contains("документационн", ignoreCase = true) ||
+            raw.contains("VPS", ignoreCase = true) ||
+            raw.contains("белый список", ignoreCase = true) ->
+            "Прямое подключение недоступно. Подключаем обход."
+        raw.contains("Исходящий адрес скрыт", ignoreCase = true) ->
+            "Используется режим «Инкогнито»."
+        raw.contains("доверенн", ignoreCase = true) ||
+            raw.contains("восстанов", ignoreCase = true) ||
+            raw.contains("приостанов", ignoreCase = true) ||
+            raw.contains("Wi‑Fi", ignoreCase = true) ||
+            raw.contains("Wi-Fi", ignoreCase = true) ->
+            raw
+        raw.contains("обход", ignoreCase = true) ->
+            "Сеть с ограничениями. Подключаем обход."
+        else -> null
+    }
+}
+
 fun sessionCardStatusText(
     state: ConnState,
     publicIp: String?,
