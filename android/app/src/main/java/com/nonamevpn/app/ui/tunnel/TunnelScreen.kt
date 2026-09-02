@@ -1,7 +1,6 @@
 package com.nonamevpn.app.ui.tunnel
 
 import android.os.Build
-import android.telephony.SubscriptionManager
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -9,7 +8,9 @@ import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -41,7 +42,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.AlertDialog
@@ -56,8 +59,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -99,16 +102,9 @@ import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnUiState
 import com.nonamevpn.app.core.ConnectionManager
-import com.nonamevpn.app.core.EgressIpProbe
-import com.nonamevpn.app.core.NetcheckClient
-import com.nonamevpn.app.core.NetcheckItem
-import com.nonamevpn.app.core.NetcheckReport
-import com.nonamevpn.app.core.NetcheckTone
-import com.nonamevpn.app.core.NetcheckUiRow
 import com.nonamevpn.app.core.NetworkClass
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
-import com.nonamevpn.app.core.underlayIdentity
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.StoredProfile
@@ -119,17 +115,17 @@ import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
+import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.components.backdropMutedTextColor
 import com.nonamevpn.app.ui.components.backdropTitleColor
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
-import com.nonamevpn.app.ui.components.WarpIcon
 import com.nonamevpn.app.ui.settings.SettingsSheet
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -146,34 +142,8 @@ fun TunnelScreen(
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
-    var showImport by remember { mutableStateOf(false) }
-    var showHash by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var importError by remember { mutableStateOf<String?>(null) }
-    var importBusy by remember { mutableStateOf(false) }
-    var callBusy by remember { mutableStateOf(false) }
-    var callMessage by remember { mutableStateOf<String?>(null) }
-    var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
-
-    suspend fun refreshUnderlayStats(forceProviderIp: Boolean) {
-        accessLabel = readUnderlayAccessLabel(context)
-        val id = underlayIdentity(context)
-        if (!forceProviderIp && id == lastUnderlayId) {
-            providerIp = EgressIpProbe.currentUnderlay() ?: providerIp
-            providerIpError = EgressIpProbe.lastUnderlayError
-            return
-        }
-        if (id != lastUnderlayId) {
-            AppLog.v("Tunnel", "underlay identity $lastUnderlayId → $id")
-            EgressIpProbe.invalidateUnderlay()
-            providerIp = null
-            providerIpError = null
-        }
-        lastUnderlayId = id
-        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
-        providerIp = ip ?: EgressIpProbe.currentUnderlay()
-        providerIpError = EgressIpProbe.lastUnderlayError
-    }
+    var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
@@ -202,6 +172,7 @@ fun TunnelScreen(
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     var showConnectionHint by rememberSaveable { mutableStateOf(true) }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
+    val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     LaunchedEffect(profile?.deviceId, hideIp) {
         if (profile == null) return@LaunchedEffect
         conn.setHideIp(hideIp)
@@ -210,6 +181,11 @@ fun TunnelScreen(
         if (!openUpdateDownload) return@LaunchedEffect
         showSettings = true
         PendingUiAction.consumeOpenUpdateDownload()
+    }
+    LaunchedEffect(openCallHash) {
+        if (!openCallHash) return@LaunchedEffect
+        showSettings = true
+        PendingUiAction.consumeCallHashSettings()
     }
     LaunchedEffect(ui.state) {
         if (connStateInitialized &&
@@ -240,80 +216,12 @@ fun TunnelScreen(
         sessionActive = connecting || connected || pausedTrusted || disconnecting,
         unlockWhileConnected = unlockConnControls,
     )
-    var netcheck by remember { mutableStateOf<NetcheckReport?>(null) }
-    /** Service probes only while the tunnel is up — not on pause / idle. */
-    val netcheckActive = connected
-
-    suspend fun refreshNetcheck(force: Boolean) {
-        if (!netcheckActive) {
-            netcheck = null
-            return
-        }
-        val report = NetcheckClient.fetch(
-            context = context,
-            provisionBaseUrl = profile?.provisionBaseUrl,
-            deviceId = profile?.deviceId,
-            hideIp = hideIp,
-            refresh = force,
-        )
-        netcheck = report ?: NetcheckReport(
-            ok = false,
-            viaWarp = hideIp,
-            cached = false,
-            items = NetcheckClient.slots.map { (id, label) ->
-                NetcheckItem(id, label, "error", "не удалось проверить")
-            },
-        )
-    }
-
-    LaunchedEffect(ui.state, hideIp) {
-        val watchEgress =
-            ui.state == ConnState.Connecting ||
-                ui.state == ConnState.Connected ||
-                ui.state == ConnState.PausedTrustedWifi
-        if (!watchEgress) {
-            publicIp = EgressIpProbe.current()
-            return@LaunchedEffect
-        }
-        while (true) {
-            publicIp = EgressIpProbe.current()
-            delay(500)
-        }
-    }
 
     LaunchedEffect(Unit) {
         while (true) {
-            refreshUnderlayStats(forceProviderIp = false)
-            delay(1_500)
+            accessLabel = readUnderlayAccessLabel(context)
+            delay(3_000)
         }
-    }
-
-    DisposableEffect(Unit) {
-        val sm = context.getSystemService(SubscriptionManager::class.java)
-        val listener = object : SubscriptionManager.OnSubscriptionsChangedListener() {
-            override fun onSubscriptionsChanged() {
-                scope.launch { refreshUnderlayStats(forceProviderIp = true) }
-            }
-        }
-        if (sm != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                sm.addOnSubscriptionsChangedListener(context.mainExecutor, listener)
-            } else {
-                @Suppress("DEPRECATION")
-                sm.addOnSubscriptionsChangedListener(listener)
-            }
-        }
-        onDispose {
-            runCatching { sm?.removeOnSubscriptionsChangedListener(listener) }
-        }
-    }
-
-    LaunchedEffect(sessionUp, ui.probe?.networkClass, ui.probe?.elapsedMs) {
-        refreshUnderlayStats(forceProviderIp = true)
-    }
-
-    LaunchedEffect(netcheckActive, hideIp, profile?.provisionBaseUrl, profile?.deviceId) {
-        refreshNetcheck(force = false)
     }
 
     val buttonColor by animateColorAsState(
@@ -326,24 +234,8 @@ fun TunnelScreen(
     )
 
     val pull = rememberPullRefresh {
-        refreshUnderlayStats(forceProviderIp = true)
-        val ip = runCatching {
-            EgressIpProbe.refresh(
-                hideIp = hideIp,
-                provisionBaseUrl = profile?.provisionBaseUrl,
-                deviceId = profile?.deviceId,
-                context = context,
-                viaVpn = sessionUp,
-            )
-            IconButton(onClick = { showSettings = true }) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = "Настройки",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        refreshNetcheck(force = true)
+        accessLabel = readUnderlayAccessLabel(context)
+        conn.startInitialProbe()
     }
 
     val autoBypassDetected = pathMode == "auto" && (
@@ -644,7 +536,7 @@ fun TunnelScreen(
 
             // ═══ Статус сессии — структурированная панель ═══
             TunnelStatusPanel(
-                statusText = sessionCardStatusText(ui.state, publicIp, ui.lastError),
+                statusText = sessionCardStatusText(ui.state, null, ui.lastError),
                 statusColor = when {
                     pausedTrusted -> NvpnColors.warning
                     connected -> NvpnColors.connected
@@ -658,43 +550,23 @@ fun TunnelScreen(
                     VpnPath.Bypass -> NvpnColors.pathBypass
                     null -> null
                 },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                accessLabel = accessLabel,
+                profileName = profile?.name?.takeIf { it.isNotBlank() },
+                version = BuildConfig.VERSION_NAME,
+                directEndpoint = profile?.direct?.endpoint,
+                bypassPeer = profile?.bypass?.peer,
+                provisionLine = profile?.let { p ->
+                    p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
+                },
+                softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
+                errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
-            ui.probe?.let { p ->
-                Text(
-                    detailLine(
-                        p.networkClass,
-                        p.yandexOk,
-                        p.bigtechOk,
-                        p.vpsUdpOk,
-                        p.provisionOk,
-                        p.elapsedMs,
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                )
-            }
-            ui.softInfo?.let { info ->
-                Text(info, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
-            }
-            ui.lastError?.takeIf { ui.state == ConnState.Error }?.let { err ->
-                Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedButton(
-                    onClick = { conn.startInitialProbe() },
-                    enabled = !busy && !sessionUp,
-                    modifier = Modifier.height(56.dp),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text("Сеть", fontWeight = FontWeight.SemiBold)
-                }
                 Button(
                     onClick = {
                         haptics.tick()
@@ -702,7 +574,7 @@ fun TunnelScreen(
                     },
                     enabled = !busy && (sessionUp || ui.connectEnabled),
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -729,139 +601,6 @@ fun TunnelScreen(
                         maxLines = 1,
                     )
                 }
-            }
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-        AppSectionCard(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text("Звонок (обход)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                if (ui.hasCallHash) "Код звонка сохранён на этом устройстве" else "Код звонка не задан — он требуется для режима «Обход»",
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (ui.hasCallHash) {
-                    NvpnColors.connected
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-            callMessage?.let { msg ->
-                Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
-            }
-            if (!vkLoggedIn) {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            callBusy = true
-                            callMessage = "Открываем вход VK…"
-                            AppLog.i("VK", "Login button pressed")
-                            val activityCtx = context.findActivity() ?: context
-                            val r = runCatching { VkLoginActivity.login(activityCtx) }
-                                .getOrElse { Result.failure(it) }
-                            callBusy = false
-                            vkLoggedIn = VkSession.hasSessionCookie()
-                            callMessage = when {
-                                r.isSuccess && vkLoggedIn -> "Авторизация выполнена. Теперь можно создать код звонка."
-                                r.isSuccess -> "Сессия не подтверждена. Повторите попытку."
-                                else -> r.exceptionOrNull()?.message ?: "Вход отменён"
-                            }
-                            AppLog.i("VK", "Login result success=${r.isSuccess} cookie=$vkLoggedIn")
-                        }
-                    },
-                    // Allow login even while connected (session is for hash recreate).
-                    enabled = profile != null && !callBusy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Text("Войти в VK…", fontWeight = FontWeight.SemiBold)
-                }
-            } else {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            callBusy = true
-                            callMessage = "Создаём звонок…"
-                            val r = VkCallHashGenerator.generateOne(context)
-                            callBusy = false
-                            r.onSuccess { hash ->
-                                conn.saveCallHash(hash)
-                                callMessage = "Код звонка создан и сохранён."
-                            }.onFailure { e ->
-                                callMessage = e.message ?: "Не удалось создать звонок"
-                                vkLoggedIn = VkSession.hasSessionCookie()
-                            }
-                        }
-                    },
-                    enabled = profile != null && !sessionUp && !callBusy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Text(
-                        if (ui.hasCallHash) "Создать новый звонок" else "Создать звонок",
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        VkSession.clear()
-                        vkLoggedIn = false
-                        callMessage = "Сессия ВКонтакте завершена."
-                    },
-                    enabled = !sessionUp && !callBusy,
-                ) {
-                    Text("Выйти из VK")
-                }
-            }
-            OutlinedButton(
-                onClick = { showHash = true },
-                enabled = profile != null && !sessionUp && !callBusy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text(
-                    if (ui.hasCallHash) "Вставить hash вручную…" else "Сохранить hash вручную…",
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-
-        AppSectionCard(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                WarpIcon()
-                RowSwitch(
-                    title = "Скрытие IP-адреса",
-                    subtitle = if (hideIp) {
-                        "Включено: исходящий трафик направляется через Cloudflare WARP (вместо IP-адреса VPS)."
-                    } else {
-                        "Отключено: используется исходящий IP-адрес сервера."
-                    },
-                    checked = hideIp,
-                    enabled = !connecting && ui.state != ConnState.Disconnecting,
-                    onCheckedChange = { on ->
-                        scope.launch {
-                            settings.setHideIp(on)
-                            conn.setHideIp(on)
-                            AppLog.i("HideIP", if (on) "enabled" else "disabled")
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
             }
         }
         }
@@ -1701,22 +1440,12 @@ private fun TunnelStatusPanel(
     selectedModeLabel: String,
     currentModeLabel: String,
     currentModeColor: Color?,
-    publicIp: String,
-    ipPending: Boolean = false,
-    ipFailed: Boolean = false,
-    onIpClick: (() -> Unit)? = null,
     accessLabel: String,
-    providerIp: String,
-    providerIpPending: Boolean = false,
-    providerIpFailed: Boolean = false,
-    onProviderIpClick: (() -> Unit)? = null,
-    showWarpIcon: Boolean = false,
     profileName: String?,
     version: String,
     directEndpoint: String?,
     bypassPeer: String?,
     provisionLine: String?,
-    netcheckRows: List<NetcheckUiRow>,
     softInfo: String?,
     errorText: String?,
 ) {
@@ -1746,22 +1475,6 @@ private fun TunnelStatusPanel(
                 valueColor = if (currentModeLabel == "—") muted else currentModeColor,
             )
             StatusFactRow(label = "Оператор", value = accessLabel)
-            StatusFactRow(
-                label = "IP провайдера",
-                value = providerIp,
-                pending = providerIpPending,
-                valueColor = if (providerIpFailed) MaterialTheme.colorScheme.error else null,
-                onClick = onProviderIpClick,
-            )
-            StatusFactRow(
-                label = "IP туннеля",
-                value = publicIp,
-                pending = ipPending,
-                valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
-                onClick = onIpClick,
-                valueLeadingIcon = if (showWarpIcon) R.drawable.ic_cloudflare else null,
-                valueLeadingContentDescription = if (showWarpIcon) HideIpCopy.STATUS_HIDDEN else null,
-            )
             profileName?.let { StatusFactRow(label = "Профиль", value = it) }
             StatusFactRow(label = "Версия", value = "v$version")
         }
@@ -1786,42 +1499,6 @@ private fun TunnelStatusPanel(
                 }
                 provisionLine?.takeIf { it.isNotBlank() }?.let {
                     StatusFactRow(label = "Управление", value = it)
-                }
-            }
-        }
-
-        HorizontalDivider(color = dividerColor)
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                "Проверка сети",
-                style = MaterialTheme.typography.labelLarge,
-                color = muted,
-                fontWeight = FontWeight.Medium,
-            )
-            netcheckRows.forEach { row ->
-                StatusFactRow(
-                    label = row.label,
-                    value = row.value,
-                    pending = row.pending,
-                    valueColor = when (row.tone) {
-                        NetcheckTone.Ok -> NvpnColors.connected
-                        NetcheckTone.Warn -> NvpnColors.warning
-                        NetcheckTone.Error -> MaterialTheme.colorScheme.error
-                        NetcheckTone.Neutral -> null
-                    },
-                )
-                StatusFactRow(label = "Сеть", value = p.networkClass.name)
-                StatusFactRow(
-                    label = "77.88.8.8",
-                    value = if (p.yandexOk) "ok" else "—",
-                )
-                StatusFactRow(
-                    label = "1.1.1.1",
-                    value = if (p.bigtechOk) "ok" else "—",
-                )
-                StatusFactRow(label = "VPS", value = if (p.provisionOk) "ok" else "—")
-                if (p.elapsedMs > 0) {
-                    StatusFactRow(label = "Время", value = "${p.elapsedMs} мс")
                 }
             }
         }
