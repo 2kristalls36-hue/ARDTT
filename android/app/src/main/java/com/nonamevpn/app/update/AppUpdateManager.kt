@@ -80,10 +80,13 @@ class AppUpdateManager(private val context: Context) {
             else -> Result.success(info)
         }.getOrElse { return@withContext Result.failure(it) }
 
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(resolved.apkUrl)
             .get()
-            .build()
+        if (resolved.apkUrl.contains("github.com", ignoreCase = true)) {
+            applyGitHubAuthorization(requestBuilder, enabled = true)
+        }
+        val request = requestBuilder.build()
         val updatesDir = File(appContext.cacheDir, "updates").also { it.mkdirs() }
         val target = File(updatesDir, "ardtt-${resolved.versionName}.apk")
         val fallbackClient = vpnBoundClientOrNull()
@@ -162,9 +165,9 @@ class AppUpdateManager(private val context: Context) {
     }
 
     private suspend fun resolveManifestAsset(info: AppUpdateInfo): Result<AppUpdateInfo> = runCatching {
-        val body = fetchText(info.apkUrl, githubApi = false)
+        val body = fetchText(info.apkUrl, githubApi = false, githubDownload = true)
             ?: error("Не удалось загрузить ardtt-update.json")
-        GitHubReleaseUpdate.parseManifest(body)
+        GitHubReleaseUpdate.parseManifest(body, supportedAbis())
     }
 
     private suspend fun checkGitHubRelease(): AppUpdateInfo? {
@@ -224,7 +227,7 @@ class AppUpdateManager(private val context: Context) {
         throw (lastError ?: IllegalStateException("Проверка обновлений недоступна"))
     }
 
-    private fun fetchText(url: String, githubApi: Boolean): String? {
+    private fun fetchText(url: String, githubApi: Boolean, githubDownload: Boolean = false): String? {
         val requestBuilder = Request.Builder()
             .url(url)
             .get()
@@ -234,6 +237,7 @@ class AppUpdateManager(private val context: Context) {
             requestBuilder.header("Accept", "application/vnd.github+json")
             requestBuilder.header("X-GitHub-Api-Version", GitHubReleaseUpdate.API_VERSION)
         }
+        applyGitHubAuthorization(requestBuilder, githubApi || githubDownload)
         val request = requestBuilder.build()
         val fallbackClient = vpnBoundClientOrNull()
         val clients = buildList {
@@ -255,6 +259,21 @@ class AppUpdateManager(private val context: Context) {
         lastError?.let { /* logged by caller */ }
         return null
     }
+
+    private fun applyGitHubAuthorization(builder: Request.Builder, enabled: Boolean) {
+        if (!enabled) return
+        val token = BuildConfig.GITHUB_API_TOKEN.trim()
+        if (token.isNotEmpty()) {
+            builder.header("Authorization", "Bearer $token")
+        }
+    }
+
+    private fun supportedAbis(): Array<String> =
+        if (Build.SUPPORTED_ABIS.isNotEmpty()) {
+            Build.SUPPORTED_ABIS
+        } else {
+            arrayOf(Build.CPU_ABI ?: "arm64-v8a")
+        }
 
     private fun vpnBoundClientOrNull(): OkHttpClient? {
         val vpn = pickVpnNetwork() ?: return null

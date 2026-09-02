@@ -73,4 +73,16 @@ class GitHubReleaseUpdateTest {
         )
         assertEquals("https://example/arm64.apk", url)
     }
+
+    @Test
+    fun resolveApkUrlPrefersDeviceAbi() {
+        val url = GitHubReleaseUpdate.resolveApkUrlForDevice(
+            "https://github.com/example/releases/download/v0.5.1/ardtt-0.5.1-arm64-v8a.apk",
+            arrayOf("armeabi-v7a"),
+        )
+        assertEquals(
+            "https://github.com/example/releases/download/v0.5.1/ardtt-0.5.1-armeabi-v7a.apk",
+            url,
+        )
+    }
 }

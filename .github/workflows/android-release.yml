@@ -105,11 +105,16 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
+          GITHUB_RELEASE_READ_TOKEN: ${{ secrets.GITHUB_RELEASE_READ_TOKEN }}
         run: |
           bash scripts/build-bypass-client.sh
           cd android
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
-          ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a,armeabi-v7a,x86_64 --no-daemon
+          token_arg=""
+          if [ -n "$GITHUB_RELEASE_READ_TOKEN" ]; then
+            token_arg="-PgithubReleaseToken=$GITHUB_RELEASE_READ_TOKEN"
+          fi
+          ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a,armeabi-v7a,x86_64 $token_arg --no-daemon
 
       - name: Package release assets
         shell: bash
