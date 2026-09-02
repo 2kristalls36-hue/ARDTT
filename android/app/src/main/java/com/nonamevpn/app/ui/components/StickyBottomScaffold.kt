@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 
 /**
@@ -65,8 +66,7 @@ object NvpnBottomChrome {
  * Full-screen shell: sticky page header + scrollable feed + sticky bottom bar
  * pinned above the floating tab bar.
  *
- * Pass [header] with [AppTabPageHeader] (owns status-bar inset) so titles align
- * with Exceptions / Tunnel / Logs and do not scroll away.
+ * Pass [header] inside the scroll feed so titles scroll away with the content.
  */
 @Composable
 fun StickyBottomScaffold(
@@ -80,19 +80,16 @@ fun StickyBottomScaffold(
     Box(modifier = modifier.fillMaxSize()) {
         val feed: @Composable () -> Unit = {
             Column(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                EdgeFeedTopInset()
                 header()
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    content()
-                }
+                content()
             }
         }
         if (onRefresh != null) {
@@ -118,9 +115,9 @@ fun StickyBottomScaffold(
     }
 }
 
-/** Scrollable spacer so the feed continues under the status bar. */
+/** Scrollable spacer: status bar only. Title top pad lives in [TabPageHeader]. */
 @Composable
-fun EdgeFeedTopInset(extra: Dp = 8.dp) {
+fun EdgeFeedTopInset(extra: Dp = 0.dp) {
     Spacer(
         Modifier.height(
             WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + extra,
@@ -129,38 +126,36 @@ fun EdgeFeedTopInset(extra: Dp = 8.dp) {
 }
 
 /**
- * Edge-to-edge column without a sticky CTA (Settings / Logs style).
- * Still reserves space above the floating tab bar.
- *
- * Pass [header] with [AppTabPageHeader] to pin titles below the status bar
- * outside the scroll area (matches Exceptions / Tunnel).
+ * Edge-to-edge scrollable feed (Settings / Logs / nested admin style).
+ * Header and content scroll together; [EdgeFeedTopInset] is applied once before [header].
+ * Pass [TabPageHeader] in [header] (not [TabFeedHeader]).
  */
 @Composable
 fun EdgeFeedColumn(
     modifier: Modifier = Modifier,
     scrollState: ScrollState = rememberScrollState(),
     bottomExtra: Dp = 24.dp,
+    scrollBottomPadding: Dp? = null,
+    horizontalPadding: Dp = TabHeaderMetrics.HorizontalPadding,
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
     header: @Composable ColumnScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val feed: @Composable (Modifier: Modifier) -> Unit = { columnModifier ->
+    val bottomPad = scrollBottomPadding ?: (NvpnBottomChrome.navigationReserve() + bottomExtra)
+    val feed: @Composable (Modifier) -> Unit = { columnModifier ->
         Column(
-            modifier = columnModifier.fillMaxSize()
+            modifier = columnModifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(horizontal = horizontalPadding)
+                .padding(bottom = bottomPad),
+            verticalArrangement = verticalArrangement,
         ) {
+            EdgeFeedTopInset()
             header()
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
-                verticalArrangement = verticalArrangement,
-            ) {
-                content()
-            }
+            content()
         }
     }
     if (onRefresh != null) {
@@ -199,7 +194,7 @@ fun StickyPrimaryButton(
             containerColor = containerColor,
             contentColor = contentColor,
             disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            disabledContentColor = contentColor.copy(alpha = 0.55f),
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
         ),
         elevation = ButtonDefaults.buttonElevation(
             defaultElevation = 6.dp,
@@ -220,7 +215,7 @@ fun StickyPrimaryButton(
             }
             Text(
                 text,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall.copy(letterSpacing = 0.2.sp),
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

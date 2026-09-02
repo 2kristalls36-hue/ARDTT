@@ -7,10 +7,23 @@ import java.net.InetAddress
  * Site exceptions on Android VpnService are destination routes, not hostnames.
  * Browsers resolve DNS themselves (often via tunnel DNS / DoH), so we:
  *  - keep www/apex aliases,
- *  - exclude both IPv4 /32 and IPv6 /128,
+ *  - support wildcard domains (*.example.com) via common subdomain variants,
+ *  - support explicit IPv4 CIDR entries (e.g. 203.0.113.0/24),
  *  - union every resolver the caller can reach (underlay, VPN, system).
  */
 object HostExclusion {
+    private const val WILDCARD_PREFIX = "*."
+    private val commonSubdomainPrefixes = listOf(
+        "www",
+        "m",
+        "api",
+        "cdn",
+        "static",
+        "img",
+        "assets",
+        "mobile",
+    )
+
     data class IpRoute(val address: InetAddress, val prefixLength: Int) {
         val key: String
             get() = "${numericHost(address)}/$prefixLength"
@@ -18,6 +31,11 @@ object HostExclusion {
 
     fun normalize(value: String): String {
         var h = value.trim().lowercase()
+        val wildcard = h.startsWith(WILDCARD_PREFIX)
+        if (wildcard) h = h.removePrefix(WILDCARD_PREFIX)
+        parseIpv4Cidr(h)?.let { cidr ->
+            return cidr.key
+        }
         if (h.startsWith("http://")) h = h.removePrefix("http://")
         if (h.startsWith("https://")) h = h.removePrefix("https://")
         if (h.startsWith("[")) {
@@ -34,12 +52,26 @@ object HostExclusion {
         ) {
             h = h.substring(0, firstColon)
         }
-        return h.trim().trim('.')
+        val normalized = h.trim().trim('.')
+        return if (wildcard && normalized.isNotBlank() && parseLiteral(normalized) == null) {
+            "$WILDCARD_PREFIX$normalized"
+        } else {
+            normalized
+        }
     }
 
     fun expandNames(host: String): Set<String> {
         val clean = normalize(host)
         if (clean.isBlank()) return emptySet()
+        if (clean.startsWith(WILDCARD_PREFIX)) {
+            val root = clean.removePrefix(WILDCARD_PREFIX)
+            if (root.isBlank()) return emptySet()
+            val names = linkedSetOf(root)
+            commonSubdomainPrefixes.forEach { prefix ->
+                names.add("$prefix.$root")
+            }
+            return names
+        }
         if (parseLiteral(clean) != null) return setOf(clean)
         val names = linkedSetOf(clean)
         if (clean.startsWith("www.")) {
@@ -65,6 +97,10 @@ object HostExclusion {
     ): List<IpRoute> {
         val out = LinkedHashMap<String, IpRoute>()
         for (raw in hosts) {
+            parseIpv4Cidr(raw)?.let { cidr ->
+                out[cidr.key] = cidr
+                continue
+            }
             for (name in expandNames(raw)) {
                 val literal = parseLiteral(name)
                 val addrs = if (literal != null) listOf(literal) else resolve(name)
@@ -78,15 +114,11 @@ object HostExclusion {
         return out.values.toList()
     }
 
-    /**
-     * VpnService `excludeRoute` of IPv6 /128 enables IPv6 on the TUN.
-     * Happy Eyeballs then black-holes HTTPS while IPv4 keepalives still look
-     * “connected”. 0.5.83 only excluded IPv4 /32.
-     */
+    /** Keep only IPv4 routes; includes literal CIDR and resolved host addresses. */
     fun ipv4RoutesFor(
         hosts: Set<String>,
         resolve: (String) -> List<InetAddress>,
-    ): List<IpRoute> = routesFor(hosts, resolve).filter { it.prefixLength == 32 }
+    ): List<IpRoute> = routesFor(hosts, resolve).filter { it.address !is Inet6Address }
 
     fun isExcludable(address: InetAddress): Boolean =
         !address.isAnyLocalAddress &&
@@ -113,5 +145,17 @@ object HostExclusion {
         return parts.all { p ->
             p.toIntOrNull()?.let { it in 0..255 } == true
         }
+    }
+
+    private fun parseIpv4Cidr(value: String): IpRoute? {
+        val clean = value.trim()
+        val slash = clean.indexOf('/')
+        if (slash <= 0 || slash == clean.lastIndex) return null
+        val ip = clean.substring(0, slash)
+        val prefix = clean.substring(slash + 1).toIntOrNull() ?: return null
+        if (prefix !in 0..32) return null
+        val addr = parseLiteral(ip) ?: return null
+        if (addr is Inet6Address) return null
+        return IpRoute(addr, prefix)
     }
 }

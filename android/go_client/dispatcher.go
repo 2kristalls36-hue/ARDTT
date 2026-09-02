@@ -87,21 +87,21 @@ type WorkerSlot struct {
 }
 
 type Dispatcher struct {
-	localConn    net.PacketConn
-	tunFile      *os.File // не nil в -mode rawtun: сырые IP-пакеты вместо локального WG-loopback
-	ready        chan struct{}
-	clientAddr   atomic.Pointer[net.Addr]
-	mu           sync.Mutex
-	workers      []*WorkerSlot
-	rrIndex      int
-	rrCount      int   // сколько пакетов отправлено в текущий worker в рамках текущего chunk'а
-	lastPktTime  int64 // unix millis последнего пакета — для сброса chunk'а после паузы
-	chunkStartTs int64 // unix millis начала текущего chunk'а — для maxDwellMS
-	ReturnCh     chan []byte
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	stats        *Stats
+	localConn     net.PacketConn
+	tunFile       *os.File // не nil в -mode rawtun: сырые IP-пакеты вместо локального WG-loopback
+	ready         chan struct{}
+	clientAddr    atomic.Pointer[net.Addr]
+	mu            sync.Mutex
+	workers       []*WorkerSlot
+	rrIndex       int
+	rrCount       int   // сколько пакетов отправлено в текущий worker в рамках текущего chunk'а
+	lastPktTime   int64 // unix millis последнего пакета — для сброса chunk'а после паузы
+	chunkStartTs  int64 // unix millis начала текущего chunk'а — для maxDwellMS
+	ReturnCh      chan []byte
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	stats         *Stats
 	firstPktUp    uint32
 	firstPktDown  uint32
 	firstReadErr  uint32
@@ -196,7 +196,7 @@ func (d *Dispatcher) Unregister(slot *WorkerSlot) {
 	log.Printf("[ДИСП] Воркер #%d отключён (осталось: %d)", slot.ID, remaining)
 }
 
-// readLoop читает пакеты (из локального WG-loopback или TUN) и распределяет
+// readLoop читает пакеты (из локального UDP-loopback или TUN) и распределяет
 // по workers адаптивными chunk'ами.
 //
 // Логика: отправляем chunkSizeFor(размер) подряд пакетов в один worker, потом
@@ -268,7 +268,7 @@ func (d *Dispatcher) readLoop() {
 			if d.tunFile != nil {
 				log.Printf("[ДИСП] [ДЕБАГ] Получен ПЕРВЫЙ пакет от TUN (%d байт)", n)
 			} else {
-				log.Printf("[ДИСП] [ДЕБАГ] Получен ПЕРВЫЙ пакет от локального WireGuard (%d байт) с адреса %s", n, addr.String())
+				log.Printf("[ДИСП] [ДЕБАГ] Получен ПЕРВЫЙ пакет от локального loopback (%d байт) с адреса %s", n, addr.String())
 			}
 		}
 
@@ -430,7 +430,7 @@ func (d *Dispatcher) writeLoop() {
 			}
 			addr := *addrPtr
 			if atomic.CompareAndSwapUint32(&d.firstPktDown, 0, 1) {
-				log.Printf("[ДИСП] [ДЕБАГ] Отправляем ПЕРВЫЙ пакет обратно локальному WireGuard (%d байт) на адрес %s", len(pkt), addr.String())
+				log.Printf("[ДИСП] [ДЕБАГ] Отправляем ПЕРВЫЙ пакет обратно локальному loopback (%d байт) на адрес %s", len(pkt), addr.String())
 			}
 			if _, err := d.localConn.WriteTo(pkt, addr); err != nil {
 				if d.ctx.Err() != nil {

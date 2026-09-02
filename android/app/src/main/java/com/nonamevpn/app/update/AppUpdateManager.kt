@@ -2,6 +2,9 @@ package com.nonamevpn.app.update
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -10,6 +13,7 @@ import com.nonamevpn.app.BuildConfig
 import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -61,12 +65,26 @@ class AppUpdateManager(private val context: Context) {
                 .url(BuildConfig.UPDATE_MANIFEST_URL)
                 .get()
                 .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    error("Сервер обновлений вернул ${response.code}")
-                }
-                AppUpdateInfo.parse(response.body?.string().orEmpty())
+            val fallbackClient = vpnBoundClientOrNull()
+            val clients = buildList {
+                add(client)
+                if (fallbackClient != null) add(fallbackClient)
             }
+            var lastError: Throwable? = null
+            for (candidate in clients) {
+                val parsed = runCatching {
+                    candidate.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            error("Сервер обновлений вернул ${response.code}")
+                        }
+                        AppUpdateInfo.parse(response.body?.string().orEmpty())
+                    }
+                }.onFailure { lastError = it }.getOrNull()
+                if (parsed != null) {
+                    return@runCatching parsed
+                }
+            }
+            throw (lastError ?: IllegalStateException("Проверка обновлений недоступна"))
         }
     }
 
@@ -80,36 +98,59 @@ class AppUpdateManager(private val context: Context) {
             .build()
         val updatesDir = File(appContext.cacheDir, "updates").also { it.mkdirs() }
         val target = File(updatesDir, "ardtt-${info.versionName}.apk")
-        val call = client.newCall(request)
+        val fallbackClient = vpnBoundClientOrNull()
+        val activeCall = AtomicReference<okhttp3.Call?>(null)
         currentCoroutineContext().job.invokeOnCompletion { cause ->
             if (cause is CancellationException) {
-                call.cancel()
+                activeCall.getAndSet(null)?.cancel()
                 runCatching { if (target.exists()) target.delete() }
             }
         }
         try {
-            call.execute().use { response ->
-                if (!response.isSuccessful) {
-                    error("APK недоступен: HTTP ${response.code}")
-                }
-                val body = response.body ?: error("Пустой ответ сервера")
-                val total = body.contentLength().takeIf { it > 0 } ?: info.sizeBytes
-                body.byteStream().use { input ->
-                    target.outputStream().use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var copied = 0L
-                        while (true) {
-                            ensureActive()
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            output.write(buffer, 0, read)
-                            copied += read
-                            if (total > 0) {
-                                onProgress((copied.toFloat() / total.toFloat()).coerceIn(0f, 0.99f))
+            val clients = buildList {
+                add(client)
+                if (fallbackClient != null) add(fallbackClient)
+            }
+            var lastError: Throwable? = null
+            var downloaded = false
+
+            for (candidate in clients) {
+                ensureActive()
+                runCatching {
+                    val call = candidate.newCall(request)
+                    activeCall.set(call)
+                    call.execute().use { response ->
+                        if (!response.isSuccessful) {
+                            error("APK недоступен: HTTP ${response.code}")
+                        }
+                        val body = response.body ?: error("Пустой ответ сервера")
+                        val total = body.contentLength().takeIf { it > 0 } ?: info.sizeBytes
+                        body.byteStream().use { input ->
+                            target.outputStream().use { output ->
+                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                var copied = 0L
+                                while (true) {
+                                    ensureActive()
+                                    val read = input.read(buffer)
+                                    if (read < 0) break
+                                    output.write(buffer, 0, read)
+                                    copied += read
+                                    if (total > 0) {
+                                        onProgress((copied.toFloat() / total.toFloat()).coerceIn(0f, 0.99f))
+                                    }
+                                }
                             }
                         }
                     }
+                    downloaded = true
+                }.onFailure { error ->
+                    lastError = error
+                    runCatching { if (target.exists()) target.delete() }
                 }
+                if (downloaded) break
+            }
+            if (!downloaded) {
+                throw (lastError ?: IllegalStateException("Не удалось загрузить APK"))
             }
             if (info.sha256.isNotBlank()) {
                 val actual = target.sha256()
@@ -125,10 +166,28 @@ class AppUpdateManager(private val context: Context) {
             throw e
         } catch (e: Exception) {
             runCatching { if (target.exists()) target.delete() }
-            if (!currentCoroutineContext().isActive || call.isCanceled()) {
+            if (!currentCoroutineContext().isActive || (activeCall.get()?.isCanceled() == true)) {
                 throw CancellationException("Загрузка отменена", e)
             }
             Result.failure(e)
+        }
+    }
+
+    private fun vpnBoundClientOrNull(): OkHttpClient? {
+        val vpn = pickVpnNetwork() ?: return null
+        return client.newBuilder()
+            .socketFactory(vpn.socketFactory)
+            .dns { hostname -> vpn.getAllByName(hostname).toList() }
+            .build()
+    }
+
+    private fun pickVpnNetwork(): Network? {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return null
+        return cm.allNetworks.firstOrNull { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@firstOrNull false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         }
     }
 

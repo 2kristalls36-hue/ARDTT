@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +16,9 @@ import kotlinx.coroutines.launch
 
 /** Process-wide update check/download so leaving Settings does not abort an APK fetch. */
 class AppUpdateController private constructor(context: Context) {
-    private val manager = AppUpdateManager(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val manager = AppUpdateManager(appContext)
+    private val notifications = AppUpdateNotifications(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var checkJob: Job? = null
     private var downloadJob: Job? = null
@@ -38,6 +41,14 @@ class AppUpdateController private constructor(context: Context) {
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui.asStateFlow()
+
+    init {
+        scope.launch {
+            ui.collectLatest { state ->
+                notifications.render(state)
+            }
+        }
+    }
 
     fun checkInBackground() {
         if (downloadJob?.isActive == true) return

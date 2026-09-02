@@ -6,8 +6,10 @@ import com.nonamevpn.app.core.AppLog
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -39,6 +41,7 @@ class BypassGoProcess(
     private val context: Context,
 ) {
     private val processRef = AtomicReference<Process?>(null)
+    private val stopping = AtomicBoolean(false)
     private var logJob: Job? = null
     @Volatile var lastError: String? = null
         private set
@@ -56,6 +59,7 @@ class BypassGoProcess(
         onFatal: (String) -> Unit = {},
     ) = withContext(Dispatchers.IO) {
         stop()
+        stopping.set(false)
         lastError = null
         val bin = binaryPath()
         if (!File(bin).isFile) {
@@ -100,57 +104,66 @@ class BypassGoProcess(
         val rawBox = StringBuilder()
         var rawDelivered = false
 
-        logJob = CoroutineScope(Dispatchers.IO).launch {
-            BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
-                while (isActive) {
-                    val line = reader.readLine() ?: break
-                    onLog(line)
-                    Log.d(TAG, line)
+        logJob = scope.launch(Dispatchers.IO) {
+            try {
+                BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
+                    while (isActive) {
+                        val line = reader.readLine() ?: break
+                        onLog(line)
+                        Log.d(TAG, line)
 
-                    if (line.contains("╔") && line.contains("RAW Конфиг")) {
-                        collectingRaw = true
-                        rawBox.clear()
-                        continue
-                    }
-                    if (collectingRaw) {
-                        if (line.contains("╚")) {
-                            collectingRaw = false
-                            val conf = parseRawBox(rawBox.toString())
-                            if (conf != null && !rawDelivered) {
-                                rawDelivered = true
-                                onRawConf(conf)
+                        if (line.contains("╔") && line.contains("RAW Конфиг")) {
+                            collectingRaw = true
+                            rawBox.clear()
+                            continue
+                        }
+                        if (collectingRaw) {
+                            if (line.contains("╚")) {
+                                collectingRaw = false
+                                val conf = parseRawBox(rawBox.toString())
+                                if (conf != null && !rawDelivered) {
+                                    rawDelivered = true
+                                    onRawConf(conf)
+                                }
+                            } else if (line.contains("║")) {
+                                rawBox.appendLine(line.replace("║", "").trim())
                             }
-                        } else if (line.contains("║")) {
-                            rawBox.appendLine(line.replace("║", "").trim())
+                            continue
                         }
-                        continue
-                    }
 
-                    // Direct RAWCONF line (if ever printed)
-                    if (!rawDelivered && line.startsWith("RAWCONF:")) {
-                        parseRawConfLine(line)?.let {
-                            rawDelivered = true
-                            onRawConf(it)
+                        // Direct RAWCONF line (if ever printed)
+                        if (!rawDelivered && line.startsWith("RAWCONF:")) {
+                            parseRawConfLine(line)?.let {
+                                rawDelivered = true
+                                onRawConf(it)
+                            }
                         }
-                    }
 
-                    val fatal = classifyFatal(line)
-                    if (fatal != null) {
-                        lastError = fatal
-                        onFatal(fatal)
+                        val fatal = classifyFatal(line)
+                        if (fatal != null && !stopping.get()) {
+                            lastError = fatal
+                            onFatal(fatal)
+                        }
                     }
                 }
-            }
-            val code = runCatching { proc.waitFor() }.getOrDefault(-1)
-            if (!rawDelivered) {
-                val msg = lastError ?: "Модуль обхода завершился (код $code) без конфигурации. Проверьте код звонка."
-                lastError = msg
-                onFatal(msg)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                if (!stopping.get()) {
+                    AppLog.w(TAG, "log reader stopped: ${t.message ?: t.javaClass.simpleName}")
+                }
+            } finally {
+                val code = runCatching { proc.waitFor() }.getOrDefault(-1)
+                if (!rawDelivered && !stopping.get()) {
+                    val msg = lastError ?: "Модуль обхода завершился (код $code) без конфигурации. Проверьте код звонка."
+                    lastError = msg
+                    onFatal(msg)
+                }
             }
         }
     }
 
     fun stop() {
+        stopping.set(true)
         logJob?.cancel()
         logJob = null
         val p = processRef.getAndSet(null) ?: return

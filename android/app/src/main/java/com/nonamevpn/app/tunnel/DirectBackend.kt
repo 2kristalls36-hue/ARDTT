@@ -5,6 +5,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.nonamevpn.app.core.VpnLiveStats
 import com.nonamevpn.app.core.VpnPath
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.coroutineScope
@@ -18,7 +19,7 @@ import org.amnezia.awg.util.SharedLibraryLoader
 class DirectBackend : TunnelBackend {
     override val path: VpnPath = VpnPath.Direct
     @Volatile private var stopped = false
-    @Volatile private var handle: Int = -1
+    private val handle = AtomicInteger(-1)
 
     override suspend fun start(
         service: VpnService,
@@ -78,7 +79,7 @@ class DirectBackend : TunnelBackend {
             onState(TunnelBackendState.Failed("AmneziaWG не поднялся (код $h)"))
             return
         }
-        handle = h
+        handle.set(h)
         VpnLiveStats.setAwgHandle(h)
 
         val sock4 = GoBackend.awgGetSocketV4(h)
@@ -106,9 +107,9 @@ class DirectBackend : TunnelBackend {
     }
 
     private fun turnOff() {
-        val h = handle
+        // awgTurnOff must run once per handle; stop() and coroutine finally may race.
+        val h = handle.getAndSet(-1)
         if (h < 0) return
-        handle = -1
         VpnLiveStats.clearAwgHandle(h)
         runCatching { GoBackend.awgTurnOff(h) }
             .onFailure { Log.w(TAG, "awgTurnOff", it) }

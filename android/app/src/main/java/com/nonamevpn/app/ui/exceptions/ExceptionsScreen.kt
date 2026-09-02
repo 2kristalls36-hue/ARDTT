@@ -34,6 +34,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -43,6 +48,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -85,9 +92,13 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.ExceptionAppVisibility
+import com.nonamevpn.app.core.HostExclusion
 import com.nonamevpn.app.core.appIconDecodeSize
-import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.TabFeedHeader
+import com.nonamevpn.app.ui.components.backdropSegmentInactiveContainer
+import com.nonamevpn.app.ui.components.backdropSegmentInactiveContent
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.settings.AppSettingsRepository
 import java.util.Locale
@@ -183,19 +194,28 @@ private suspend fun loadInstalledExceptionApps(
 @Composable
 fun ExceptionsScreen(settings: AppSettingsRepository) {
     val context = LocalContext.current.applicationContext
+    val hasBrowserHandlers = remember {
+        runCatching { httpsHandlerPackages(context.packageManager).isNotEmpty() }.getOrDefault(false)
+    }
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val segmentInactiveContainer = backdropSegmentInactiveContainer()
+    val segmentInactiveContent = backdropSegmentInactiveContent()
 
     var pane by rememberSaveable { mutableStateOf(ExceptionsPane.Apps) }
 
     val selectedPackages by settings.excludedAppsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val siteRules by settings.excludedHostsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val isWhitelist by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
+    val sitesSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val sitesEnabled = sitesSupported && hasBrowserHandlers
 
     var appsList by remember { mutableStateOf(ExceptionAppCache.cachedList ?: emptyList()) }
     var isLoading by remember { mutableStateOf(ExceptionAppCache.cachedList == null) }
     var searchQuery by remember { mutableStateOf("") }
     var showSystemApps by remember { mutableStateOf(false) }
+    var includeSubdomains by rememberSaveable { mutableStateOf(true) }
 
     val orderedSites = remember(siteRules) { siteRules.sortedBy { it.lowercase(Locale.getDefault()) } }
     var newRule by remember { mutableStateOf("") }
@@ -238,13 +258,18 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     fun addSite() {
         val rule = AppSettingsRepository.normalizeHost(newRule)
         if (rule.isBlank() || busy) return
-        if (orderedSites.any { it.equals(rule, ignoreCase = true) }) {
+        val wildcardRule = if (includeSubdomains && HostExclusion.parseLiteral(rule) == null) {
+            "*.$rule"
+        } else {
+            rule
+        }
+        if (orderedSites.any { it.equals(wildcardRule, ignoreCase = true) }) {
             hint = "Уже в списке"
             newRule = ""
             return
         }
         newRule = ""
-        persistSites(orderedSites + rule)
+        persistSites(orderedSites + wildcardRule)
     }
 
     LaunchedEffect(Unit) {
@@ -257,6 +282,11 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
         appsList = loadInstalledExceptionApps(context)
         ExceptionAppCache.cachedList = appsList
         isLoading = false
+    }
+    LaunchedEffect(sitesEnabled, pane) {
+        if (!sitesEnabled && pane == ExceptionsPane.Sites) {
+            pane = ExceptionsPane.Apps
+        }
     }
 
     val pull = rememberPullRefresh {
@@ -297,7 +327,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
             ) {
-                AppTabPageHeader(
+                TabFeedHeader(
                     title = "Исключения",
                     subtitle = "Приложения и сайты вне туннеля",
                 )
@@ -313,7 +343,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     )
                 }
 
-                // Приложения слева, сайты справа (в отличие от qWDTT).
                 SingleChoiceSegmentedButtonRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -326,8 +355,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = colors.secondaryContainer,
                             activeContentColor = colors.onSecondaryContainer,
-                            inactiveContainerColor = Color.Transparent,
-                            inactiveContentColor = colors.onSurfaceVariant,
+                            inactiveContainerColor = segmentInactiveContainer,
+                            inactiveContentColor = segmentInactiveContent,
                         ),
                         border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
                     ) {
@@ -339,33 +368,39 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     }
                     SegmentedButton(
                         selected = pane == ExceptionsPane.Sites,
-                        onClick = { pane = ExceptionsPane.Sites },
+                        onClick = {
+                            if (sitesEnabled) pane = ExceptionsPane.Sites
+                        },
+                        enabled = sitesEnabled,
                         shape = SegmentedButtonDefaults.itemShape(1, 2),
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = colors.secondaryContainer,
                             activeContentColor = colors.onSecondaryContainer,
-                            inactiveContainerColor = Color.Transparent,
-                            inactiveContentColor = colors.onSurfaceVariant,
+                            inactiveContainerColor = segmentInactiveContainer,
+                            inactiveContentColor = segmentInactiveContent,
                         ),
                         border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
                     ) {
                         Text(
-                            "Сайты ${orderedSites.size}",
+                            when {
+                                !sitesSupported -> "Сайты (Android 13+)"
+                                !hasBrowserHandlers -> "Сайты (нужен браузер)"
+                                else -> "Правила ${orderedSites.size}"
+                            },
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
 
-                Surface(
+                AppSectionCard(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
+                    contentPadding = PaddingValues(0.dp),
+                    verticalArrangement = Arrangement.Top,
                     shape = CardShape,
-                    color = colors.surfaceVariant.copy(alpha = 0.35f),
-                    border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
+                    fillHeight = true,
                 ) {
             when (pane) {
                 ExceptionsPane.Apps -> {
@@ -384,9 +419,17 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 )
                                 Text(
                                     if (isWhitelist) {
-                                        "БС: только выбранные через туннель"
+                                        if (admin) {
+                                            "БС: только выбранные через туннель"
+                                        } else {
+                                            "Только выбранные приложения идут через туннель"
+                                        }
                                     } else {
-                                        "ЧС: выбранные мимо туннеля"
+                                        if (admin) {
+                                            "ЧС: выбранные мимо туннеля"
+                                        } else {
+                                            "Выбранные приложения работают вне туннеля"
+                                        }
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = colors.onSurfaceVariant,
@@ -456,13 +499,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.35f))
 
                         if (isLoading) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.Center,
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
-                            }
+                            AppsLoadingAnimation(modifier = Modifier.fillMaxSize())
                         } else {
                             LazyColumn(
                                 state = rememberLazyListState(),
@@ -497,6 +534,24 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 
                 ExceptionsPane.Sites -> {
                     Column(modifier = Modifier.fillMaxSize()) {
+                        if (!sitesEnabled) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    if (!sitesSupported) {
+                                        "Раздел «Сайты» доступен только на Android 13 и выше."
+                                    } else {
+                                        "Раздел «Сайты» работает только через браузеры. Установите браузер по умолчанию."
+                                    },
+                                    textAlign = TextAlign.Center,
+                                    color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                            return@Column
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -504,7 +559,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                if (orderedSites.isEmpty()) "Нет сайтов" else "${orderedSites.size}",
+                                "Правила: ${orderedSites.size}",
                                 style = MaterialTheme.typography.labelLarge.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     letterSpacing = 0.2.sp,
@@ -526,16 +581,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 }
                             }
                         }
-
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                            Text(
-                                "Исключение сайтов по IP требует Android 13+",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = colors.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-                            )
-                        }
-
                         hint?.let {
                             Text(
                                 it,
@@ -599,9 +644,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         }
                     }
                 }
-                }
             }
-            }
+        }
         }
 
         val chromePad = NvpnBottomChrome.stickyBottomPadding()
@@ -621,26 +665,50 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 modifier = floatingBarModifier,
             )
         } else {
-            Row(
+            Column(
                 modifier = floatingBarModifier,
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                BypassSearchBar(
-                    value = newRule,
-                    onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
-                    keyboardVisible = keyboardVisible,
-                    placeholder = "домен или IP",
-                    imeAction = ImeAction.Done,
-                    onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
-                    modifier = Modifier.weight(1f),
-                )
-                BypassAddButton(
-                    enabled = !busy && newRule.isNotBlank(),
-                    busy = busy,
-                    keyboardVisible = keyboardVisible,
-                    onClick = { addSite() },
-                )
+                if (sitesEnabled && keyboardVisible) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (keyboardVisible) colors.surface else NvpnFloatingShell.shellColor(),
+                        border = if (keyboardVisible) null else NvpnFloatingShell.shellBorder(),
+                        shadowElevation = NvpnFloatingShell.shadowElevation,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.align(Alignment.Start),
+                    ) {
+                        FilterChip(
+                            selected = includeSubdomains,
+                            onClick = { includeSubdomains = !includeSubdomains },
+                            label = {
+                                Text(if (includeSubdomains) "С поддоменами" else "Точный домен")
+                            },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    BypassSearchBar(
+                        value = newRule,
+                        onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
+                        keyboardVisible = keyboardVisible,
+                        placeholder = "домен / *.домен / IP/CIDR",
+                        imeAction = ImeAction.Done,
+                        onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
+                        modifier = Modifier.weight(1f),
+                    )
+                    BypassAddButton(
+                        enabled = !busy && newRule.isNotBlank(),
+                        busy = busy,
+                        keyboardVisible = keyboardVisible,
+                        onClick = { addSite() },
+                    )
+                }
             }
         }
     }
@@ -664,6 +732,91 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val base = colors.surfaceVariant.copy(alpha = 0.55f)
+    val highlight = colors.surface.copy(alpha = 0.95f)
+    val shimmer = rememberInfiniteTransition(label = "apps_loading")
+    val shift by shimmer.animateFloat(
+        initialValue = -280f,
+        targetValue = 920f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1050, easing = LinearEasing),
+        ),
+        label = "apps_loading_shift",
+    )
+
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(
+            top = 8.dp,
+            bottom = NvpnBottomChrome.scrollContentPadding(extra = 8.dp),
+        ),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        items(count = 9) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
+                shape = AppCardShape,
+                color = colors.surface,
+                border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.24f)),
+                shadowElevation = 1.dp,
+                tonalElevation = 0.dp,
+            ) {
+                val shimmerBrush = Brush.horizontalGradient(
+                    colors = listOf(base, highlight, base),
+                    startX = shift,
+                    endX = shift + 380f,
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(shimmerBrush),
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.62f)
+                                .height(13.dp)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(shimmerBrush),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.86f)
+                                .height(11.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(shimmerBrush),
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(width = 34.dp, height = 20.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(shimmerBrush),
+                    )
+                }
+            }
         }
     }
 }

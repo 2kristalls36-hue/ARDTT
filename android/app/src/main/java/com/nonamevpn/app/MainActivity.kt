@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         when (intent?.action) {
             ACTION_OPEN_CALL_HASH -> PendingUiAction.requestCallHashSettings()
+            ACTION_OPEN_UPDATE_SETTINGS -> PendingUiAction.requestOpenUpdateDownload()
             com.nonamevpn.app.deploy.DeployService.ACTION_OPEN -> {
                 val id = intent.getStringExtra(com.nonamevpn.app.deploy.DeployService.EXTRA_SERVER_ID)
                 if (!id.isNullOrBlank()) PendingUiAction.requestOpenDeploy(id)
@@ -155,5 +156,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_OPEN_CALL_HASH = "com.nonamevpn.app.OPEN_CALL_HASH"
+        const val ACTION_OPEN_UPDATE_SETTINGS = "com.nonamevpn.app.OPEN_UPDATE_SETTINGS"
     }
 }

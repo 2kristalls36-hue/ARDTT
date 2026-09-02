@@ -178,19 +178,30 @@ object EgressIpProbe {
             params += if (viaWarp) "viaWarp=1" else "viaWarp=0"
             append(params.joinToString("&"))
         }
-        // Prefer underlay when tunnel is up but app is excluded from TUN —
-        // provision :9100 is on the VPS public host, reachable without VPN.
+        // Route selection depends on connection mode:
+        // - viaVpn=true: Bypass/whitelist may require VPN route to reach provision.
+        // - viaVpn=false: prefer direct underlay route.
         val underlay = context?.let { pickBestUnderlayNetwork(it) }
+        val vpn = context?.let { pickVpnNetwork(it) }
         val firstBind = when {
-            !viaVpn -> underlay
-            underlay != null -> underlay
-            else -> null
+            viaVpn -> vpn
+            else -> underlay
+        }
+        val secondBind = when {
+            viaVpn -> underlay
+            else -> vpn
         }
         val first = runCatching { getProvisionIp(q, firstBind) }
         if (first.isSuccess) return first.getOrThrow()
         if (firstBind != null) {
             AppLog.i(TAG, "provision egress bind failed (${first.exceptionOrNull()?.message}) — retry default")
-            return getProvisionIp(q, bindNetwork = null)
+            val second = runCatching { getProvisionIp(q, bindNetwork = null) }
+            if (second.isSuccess) return second.getOrThrow()
+            if (secondBind != null && secondBind != firstBind) {
+                AppLog.i(TAG, "provision egress default failed (${second.exceptionOrNull()?.message}) — retry alt bind")
+                return getProvisionIp(q, bindNetwork = secondBind)
+            }
+            throw second.exceptionOrNull() ?: IllegalStateException("provision egress failed")
         }
         throw first.exceptionOrNull() ?: IllegalStateException("provision egress failed")
     }

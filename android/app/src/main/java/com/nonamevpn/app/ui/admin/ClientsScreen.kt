@@ -54,14 +54,14 @@ import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.profile.VpnProfileJson
 import com.nonamevpn.app.ui.latestAppVersionCode
 import com.nonamevpn.app.update.AppUpdateController
-import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.TabFeedHeader
+import com.nonamevpn.app.ui.components.TabHeaderMetrics
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.launch
@@ -213,11 +213,12 @@ private fun ClientsScreen(
             refreshing = pull.refreshing,
             onRefresh = { if (!loading) pull.onRefresh() },
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                EdgeFeedTopInset()
-                AppPageHeader(
-                    applyStatusBarsPadding = false,
-                    contentHorizontalPadding = true,
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = TabHeaderMetrics.HorizontalPadding),
+            ) {
+                TabFeedHeader(
                     title = "Клиенты",
                     subtitle = when {
                         loading -> "Загрузка…"
@@ -689,6 +690,8 @@ private fun ClientCard(
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
         .ifBlank { "" }
+    val usedDevices = user.deviceIds.size
+    val availableDevices = (user.maxDevices - usedDevices).coerceAtLeast(0)
     val presence = when {
         user.deactivated -> "отключён"
         !subActive -> "истекла"
@@ -770,13 +773,6 @@ private fun ClientCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(
-                        "${user.deviceIds.size}/${user.maxDevices}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                     val appVer = clientAppVersionView(user, latestVersionCode)
                     val appVerColor = when (appVer.tone) {
                         ClientAppVersionTone.Current -> NvpnColors.connected
@@ -812,6 +808,13 @@ private fun ClientCard(
                     }
                 }
             }
+            Text(
+                "Устройства: занято $usedDevices · доступно $availableDevices",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             if (limit > 0L) {
                 LinearProgressIndicator(
                     progress = { progress },

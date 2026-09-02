@@ -3,6 +3,7 @@ package com.nonamevpn.app.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -47,68 +48,68 @@ val NvpnTypography = Typography(
     labelSmall = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 0.5.sp),
 )
 
-/** Light «Раф на кокосовом молоке» */
+/** Light — soft sky-blue defaults. */
 private val EspressoLight = lightColorScheme(
-    primary = Color(0xFF6D4C41),
+    primary = Color(0xFF4A90E2),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD7CCC8),
-    onPrimaryContainer = Color(0xFF3E2723),
-    secondary = Color(0xFF8D6E63),
+    primaryContainer = Color(0xFFDCEBFF),
+    onPrimaryContainer = Color(0xFF0D3B66),
+    secondary = Color(0xFF5E7FA6),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFEFEBE9),
-    onSecondaryContainer = Color(0xFF4E342E),
-    tertiary = Color(0xFF795548),
+    secondaryContainer = Color(0xFFE7F1FF),
+    onSecondaryContainer = Color(0xFF1A3654),
+    tertiary = Color(0xFF5CA9E6),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFBCAAA4),
-    onTertiaryContainer = Color(0xFF3E2723),
-    background = Color(0xFFF2F0EC),
+    tertiaryContainer = Color(0xFFD9EEFF),
+    onTertiaryContainer = Color(0xFF123956),
+    background = Color(0xFFF3F8FF),
     onBackground = Color(0xFF1C1B1A),
-    surface = Color(0xFFFAF8F4),
+    surface = Color(0xFFFAFCFF),
     onSurface = Color(0xFF1C1B1A),
-    surfaceVariant = Color(0xFFEFEBE9),
-    onSurfaceVariant = Color(0xFF5D4037),
-    outline = Color(0xFFBCAAA4),
-    outlineVariant = Color(0xFFD7CCC8),
+    surfaceVariant = Color(0xFFE8EFF8),
+    onSurfaceVariant = Color(0xFF4C5E74),
+    outline = Color(0xFFB2C2D7),
+    outlineVariant = Color(0xFFD2DDEC),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF410002),
-    inverseSurface = Color(0xFF322F2D),
-    inverseOnSurface = Color(0xFFF5F0EB),
-    inversePrimary = Color(0xFFD7CCC8),
-    surfaceTint = Color(0xFF6D4C41),
+    inverseSurface = Color(0xFF232A33),
+    inverseOnSurface = Color(0xFFE9F1FB),
+    inversePrimary = Color(0xFFA8D0FF),
+    surfaceTint = Color(0xFF4A90E2),
 )
 
-/** Dark «Эспрессо» */
+/** Dark — blue-toned contrast palette. */
 private val EspressoDark = darkColorScheme(
-    primary = Color(0xFFD7CCC8),
-    onPrimary = Color(0xFF3E2723),
-    primaryContainer = Color(0xFF5D4037),
-    onPrimaryContainer = Color(0xFFEFEBE9),
-    secondary = Color(0xFFBCAAA4),
-    onSecondary = Color(0xFF3E2723),
-    secondaryContainer = Color(0xFF4E342E),
-    onSecondaryContainer = Color(0xFFEFEBE9),
-    tertiary = Color(0xFFA1887F),
-    onTertiary = Color(0xFF3E2723),
-    tertiaryContainer = Color(0xFF5D4037),
-    onTertiaryContainer = Color(0xFFEFEBE9),
-    background = Color(0xFF1A1614),
-    onBackground = Color(0xFFEDE0D4),
-    surface = Color(0xFF211D1B),
-    onSurface = Color(0xFFEDE0D4),
-    surfaceVariant = Color(0xFF2C2624),
-    onSurfaceVariant = Color(0xFFD7CCC8),
-    outline = Color(0xFF8D6E63),
-    outlineVariant = Color(0xFF4E342E),
+    primary = Color(0xFFA8D0FF),
+    onPrimary = Color(0xFF0B355D),
+    primaryContainer = Color(0xFF1B4A75),
+    onPrimaryContainer = Color(0xFFD9EBFF),
+    secondary = Color(0xFFB5CBE6),
+    onSecondary = Color(0xFF223955),
+    secondaryContainer = Color(0xFF334A67),
+    onSecondaryContainer = Color(0xFFE2EDFB),
+    tertiary = Color(0xFFA8DFFF),
+    onTertiary = Color(0xFF153450),
+    tertiaryContainer = Color(0xFF24506E),
+    onTertiaryContainer = Color(0xFFD8F0FF),
+    background = Color(0xFF0F1722),
+    onBackground = Color(0xFFE5EDF8),
+    surface = Color(0xFF16202C),
+    onSurface = Color(0xFFE5EDF8),
+    surfaceVariant = Color(0xFF233141),
+    onSurfaceVariant = Color(0xFFB9C9DB),
+    outline = Color(0xFF7F95AF),
+    outlineVariant = Color(0xFF374B63),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    inverseSurface = Color(0xFFEDE0D4),
-    inverseOnSurface = Color(0xFF322F2D),
-    inversePrimary = Color(0xFF6D4C41),
-    surfaceTint = Color(0xFFD7CCC8),
+    inverseSurface = Color(0xFFE5EDF8),
+    inverseOnSurface = Color(0xFF1A2431),
+    inversePrimary = Color(0xFF4A90E2),
+    surfaceTint = Color(0xFFA8D0FF),
 )
 
 object NvpnColors {
@@ -125,6 +126,54 @@ object NvpnColors {
     val terminalBlue = Color(0xFF42A5F5)
     val terminalRed = Color(0xFFEF5350)
     val terminalCounter = Color(0xFF1E88E5)
+}
+
+private fun onColorFor(background: Color): Color =
+    if (background.luminance() > 0.56f) Color(0xFF1C1B1A) else Color.White
+
+private fun mutedOnColorFor(background: Color): Color =
+    if (background.luminance() > 0.56f) Color(0xFF3A4A5F) else Color(0xFFD6E2F0)
+
+fun wallpaperAdaptedColorScheme(
+    base: ColorScheme,
+    accent: Color,
+    darkTheme: Boolean,
+): ColorScheme {
+    val primary = lerp(base.primary, accent, if (darkTheme) 0.62f else 0.68f)
+    val secondary = lerp(base.secondary, accent, if (darkTheme) 0.35f else 0.40f)
+    val tertiary = lerp(base.tertiary, accent, if (darkTheme) 0.30f else 0.36f)
+    val primaryContainer = lerp(base.primaryContainer, accent, if (darkTheme) 0.30f else 0.26f)
+    val secondaryContainer = lerp(base.secondaryContainer, accent, if (darkTheme) 0.22f else 0.24f)
+    val tertiaryContainer = lerp(base.tertiaryContainer, accent, if (darkTheme) 0.20f else 0.22f)
+    val surfaceTint = lerp(primary, accent, 0.45f)
+    val surface = lerp(base.surface, surfaceTint, if (darkTheme) 0.22f else 0.18f)
+    val surfaceVariant = lerp(base.surfaceVariant, surfaceTint, if (darkTheme) 0.30f else 0.26f)
+    val background = lerp(base.background, surfaceTint, if (darkTheme) 0.18f else 0.14f)
+    val outline = lerp(base.outline, surfaceTint, if (darkTheme) 0.16f else 0.14f)
+    val outlineVariant = lerp(base.outlineVariant, surfaceTint, if (darkTheme) 0.22f else 0.18f)
+    return base.copy(
+        primary = primary,
+        onPrimary = onColorFor(primary),
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onColorFor(primaryContainer),
+        secondary = secondary,
+        onSecondary = onColorFor(secondary),
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onColorFor(secondaryContainer),
+        tertiary = tertiary,
+        onTertiary = onColorFor(tertiary),
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onColorFor(tertiaryContainer),
+        surface = surface,
+        onSurface = onColorFor(surface),
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = mutedOnColorFor(surfaceVariant),
+        background = background,
+        onBackground = onColorFor(background),
+        outline = outline,
+        outlineVariant = outlineVariant,
+        surfaceTint = surfaceTint,
+    )
 }
 
 @Composable
