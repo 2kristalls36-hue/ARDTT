@@ -57,12 +57,14 @@ import com.nonamevpn.app.core.trustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiAccessProblem
 import com.nonamevpn.app.core.TrustedWifiPermissionAsk
 import com.nonamevpn.app.ui.HideIpCopy
+import com.nonamevpn.app.ui.PathModeCopy
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.TestingSessionGuard
 import com.nonamevpn.app.ui.connectionControlsLocked
-import com.nonamevpn.app.ui.persistDialPath
 import com.nonamevpn.app.ui.commitHideIp
 import com.nonamevpn.app.ui.commitPathMode
+import com.nonamevpn.app.ui.persistDialPath
+import com.nonamevpn.app.ui.persistSilentRecreate
 import com.nonamevpn.app.ui.persistThemeMode
 import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
@@ -239,11 +241,11 @@ fun SettingsScreen(
                 hasCallHash = connUi.hasCallHash,
                 enabled = !vpnLocked,
                 onSelect = { mode ->
-                    if (uiHapticsEnabled) haptics.tick()
+                    haptics.tick()
                     scope.launch { commitPathMode(settings, conn, mode) }
                 },
                 onNeedCallHash = {
-                    if (uiHapticsEnabled) haptics.tick()
+                    haptics.tick()
                     scope.launch {
                         kotlinx.coroutines.delay(80)
                         runCatching { callHashBringIntoView.bringIntoView() }
@@ -251,15 +253,7 @@ fun SettingsScreen(
                 },
             )
             Text(
-                when (pathMode) {
-                    "direct" -> "Используется только прямое подключение."
-                    "bypass" -> if (connUi.hasCallHash) {
-                        "Используется только обход. Требуется код звонка."
-                    } else {
-                        "Код звонка не задан. Нажмите «Обход», чтобы перейти к карточке метода обхода."
-                    }
-                    else -> "Приоритет прямого подключения, резерв — обход."
-                },
+                PathModeCopy.help(pathMode, connUi.hasCallHash, compact = false),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -277,7 +271,7 @@ fun SettingsScreen(
                 hideIp = hideIp,
                 enabled = !vpnLocked,
                 onSelect = { enabled ->
-                    if (uiHapticsEnabled) haptics.tick()
+                    haptics.tick()
                     scope.launch { commitHideIp(settings, conn, enabled) }
                 },
             )
@@ -339,7 +333,7 @@ fun SettingsScreen(
                 title = "Обновлять звонок автоматически",
                 subtitle = "Новый код звонка создаётся без подтверждения. Требуется активная сессия ВКонтакте.",
                 checked = silent,
-                onCheckedChange = { scope.launch { settings.setSilentRecreate(it) } },
+                onCheckedChange = { scope.launch { persistSilentRecreate(settings, it) } },
             )
             CallHashSettingsContent(showHeader = false)
         }

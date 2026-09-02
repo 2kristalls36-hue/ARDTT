@@ -31,7 +31,7 @@ internal fun applySessionConnectionPrefs(
     conn.setHideIp(hideIp)
 }
 
-internal suspend fun persistPathMode(settings: AppSettingsRepository, mode: ConnPathMode) {
+private suspend fun persistPathMode(settings: AppSettingsRepository, mode: ConnPathMode) {
     val name = ConnPathMode.toSetting(mode)
     settings.setPathMode(name)
     AppLog.i("PathMode", name)
@@ -47,7 +47,7 @@ internal suspend fun commitPathMode(
     conn.setPathMode(mode, switchLive = true)
 }
 
-internal suspend fun persistHideIp(settings: AppSettingsRepository, enabled: Boolean) {
+private suspend fun persistHideIp(settings: AppSettingsRepository, enabled: Boolean) {
     settings.setHideIp(enabled)
     AppLog.i("HideIP", if (enabled) "enabled (hidden address)" else "disabled (server address)")
 }
@@ -66,9 +66,20 @@ internal suspend fun persistDialPath(settings: AppSettingsRepository, path: Dial
     settings.setDialPath(path.toSetting())
 }
 
+internal suspend fun persistSilentRecreate(settings: AppSettingsRepository, enabled: Boolean) {
+    settings.setSilentRecreate(enabled)
+}
+
 internal suspend fun persistThemeMode(settings: AppSettingsRepository, mode: String) {
     settings.setThemeMode(mode)
 }
+
+internal fun themeModeIsDark(themeMode: String, systemDark: Boolean): Boolean =
+    when (AppSettingsRepository.normalizeThemeMode(themeMode)) {
+        "dark" -> true
+        "light" -> false
+        else -> systemDark
+    }
 
 internal fun nextThemeMode(current: String): String =
     when (AppSettingsRepository.normalizeThemeMode(current)) {

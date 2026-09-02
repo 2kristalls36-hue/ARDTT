@@ -47,5 +47,42 @@ class ConnectionControlsTest {
         assertEquals("auto", themeModeVisualKey("system"))
         assertEquals("light", themeModeVisualKey("light"))
         assertEquals("dark", themeModeVisualKey("dark"))
+        assertTrue(themeModeIsDark("dark", systemDark = false))
+        assertFalse(themeModeIsDark("light", systemDark = true))
+        assertTrue(themeModeIsDark("system", systemDark = true))
+        assertFalse(themeModeIsDark("SYSTEM", systemDark = false))
+        assertTrue(themeModeIsDark("unknown", systemDark = true))
+    }
+
+    @Test
+    fun pathModeHelpUsesConnPathModeNotRawAliases() {
+        assertEquals(
+            "Используется только прямое подключение.",
+            PathModeCopy.help("direct", hasCallHash = true, compact = false),
+        )
+        assertEquals(
+            "Только прямое подключение.",
+            PathModeCopy.help("awg", hasCallHash = false, compact = true),
+        )
+        assertEquals(
+            "Приоритет прямого подключения, резерв — обход.",
+            PathModeCopy.help("auto", hasCallHash = false, compact = false),
+        )
+        assertEquals(
+            "Сначала прямое, при недоступности — обход.",
+            PathModeCopy.help("auto", hasCallHash = true, compact = true),
+        )
+        assertEquals(
+            "Используется только обход. Требуется код звонка.",
+            PathModeCopy.help("bypass", hasCallHash = true, compact = false),
+        )
+        assertEquals(
+            "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку.",
+            PathModeCopy.help("wdtt", hasCallHash = false, compact = true),
+        )
+        assertEquals(
+            "Код звонка не задан. Нажмите «Обход», чтобы перейти к карточке метода обхода.",
+            PathModeCopy.help("bypass", hasCallHash = false, compact = false),
+        )
     }
 }

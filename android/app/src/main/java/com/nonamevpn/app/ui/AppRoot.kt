@@ -141,11 +141,7 @@ fun AppRoot(
     val updateUi by updates.ui.collectAsStateWithLifecycle()
     var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
     val tunnelWallpaperScene = remember { TunnelWallpaperSession.currentOrPick() }
-    val darkTheme = when (themeMode) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
-    }
+    val darkTheme = themeModeIsDark(themeMode, isSystemInDarkTheme())
     val tunnelWallpaper = resolveTunnelWallpaper(
         scene = tunnelWallpaperScene,
         bypass = bypassWallpaper,
