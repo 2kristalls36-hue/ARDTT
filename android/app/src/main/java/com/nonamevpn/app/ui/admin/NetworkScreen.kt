@@ -3,7 +3,8 @@ package com.nonamevpn.app.ui.admin
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -112,7 +113,7 @@ fun NetworkScreen(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
@@ -197,6 +198,8 @@ private fun IpInfoCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         shape = RoundedCornerShape(24.dp),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
     ) {
         Text(
             title,
@@ -206,7 +209,9 @@ private fun IpInfoCard(
         when {
             loading -> {
                 CircularProgressIndicator(
-                    modifier = Modifier.padding(vertical = 4.dp),
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 40.dp)
+                        .padding(vertical = 4.dp),
                     strokeWidth = 2.dp,
                 )
             }
@@ -251,6 +256,8 @@ private fun IpPlaceholderCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         shape = RoundedCornerShape(24.dp),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
     ) {
         Text(
             title,

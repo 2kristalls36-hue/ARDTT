@@ -75,9 +75,9 @@ fun AppSectionCard(
     val isDark = colors.background.luminance() < 0.22f
     val opaque = LocalOpaqueSectionCards.current
     val cardColor = color ?: if (isDark) {
-        lerp(colors.surface, colors.surfaceVariant, 0.10f).copy(alpha = if (opaque) 1f else 0.82f)
+        lerp(colors.surface, colors.surfaceVariant, 0.10f)
     } else {
-        lerp(colors.surface, colors.surfaceVariant, 0.28f).copy(alpha = if (opaque) 1f else 0.85f)
+        lerp(colors.surface, colors.surfaceVariant, 0.28f)
     }
     val contentColor = if (cardColor.luminance() > 0.56f) {
         Color(0xFF1C1B1A)
@@ -95,8 +95,8 @@ fun AppSectionCard(
         color = cardColor,
         contentColor = contentColor,
         border = border ?: if (showBorder) BorderStroke(1.dp, borderColor) else null,
-        shadowElevation = shadowElevation ?: if (isDark) 2.dp else 10.dp,
-        tonalElevation = tonalElevation ?: if (isDark) 0.dp else 2.dp,
+        shadowElevation = shadowElevation ?: if (isDark) 2.dp else 4.dp,
+        tonalElevation = tonalElevation ?: 0.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(
