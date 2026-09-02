@@ -2,13 +2,19 @@ package com.nonamevpn.app.ui.tunnel
 
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.VpnPath
+import com.nonamevpn.app.ui.HideIpCopy
 
 /** Primary status line under the connect button in user mode. */
 fun userModeStatusPrimary(
     state: ConnState,
     activePath: VpnPath?,
 ): String = when (state) {
-    ConnState.Connected, ConnState.PausedTrustedWifi -> "Подключено/пауза"
+    ConnState.Connected -> when (activePath) {
+        VpnPath.Direct -> "Прямое подключение"
+        VpnPath.Bypass -> "Обход"
+        null -> "Подключено"
+    }
+    ConnState.PausedTrustedWifi -> "Пауза"
     ConnState.Probing -> "Проверка сети…"
     ConnState.Connecting -> when (activePath) {
         VpnPath.Bypass -> "Подключение через обход…"
@@ -25,12 +31,31 @@ fun userModeStatusDetails(
     state: ConnState,
     softInfo: String?,
     lastError: String?,
+    activePath: VpnPath? = null,
+    hideIp: Boolean = false,
 ): String? = when (state) {
-    ConnState.Connected, ConnState.PausedTrustedWifi, ConnState.Disconnecting -> null
+    ConnState.Connected -> if (hideIp) HideIpCopy.STATUS_HIDDEN else null
+    ConnState.PausedTrustedWifi -> userModePausedDetails(activePath, softInfo)
+    ConnState.Disconnecting -> null
     ConnState.Probing -> "Подготавливаем соединение…"
     ConnState.Connecting -> userModeSoftInfo(softInfo) ?: "Устанавливаем защищённое соединение…"
     ConnState.Error -> lastError?.trim()?.take(140)?.takeIf { it.isNotEmpty() }
     ConnState.Idle, ConnState.Ready -> userModeSoftInfo(softInfo)
+}
+
+private fun userModePausedDetails(activePath: VpnPath?, softInfo: String?): String? {
+    val pathLabel = when (activePath) {
+        VpnPath.Direct -> "Прямое"
+        VpnPath.Bypass -> "Обход"
+        null -> null
+    }
+    val hint = softInfo?.trim()?.takeIf { it.isNotBlank() }
+    return when {
+        pathLabel != null && hint != null -> "$pathLabel · $hint"
+        hint != null -> hint
+        pathLabel != null -> "Доверенная сеть Wi‑Fi · $pathLabel"
+        else -> "Доверенная сеть Wi‑Fi"
+    }
 }
 
 private fun userModeSoftInfo(softInfo: String?): String? {
