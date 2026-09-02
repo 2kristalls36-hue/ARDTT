@@ -113,6 +113,30 @@ swap_total_mb() {
   awk '/SwapTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0
 }
 
+# True if something is already listening on TCP $1 (IPv4/IPv6).
+tcp_listen_port() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -lnt 2>/dev/null | awk -v p=":${port}" '
+      $4 == p || $4 ~ (p "$") { found=1 }
+      END { exit !found }
+    '
+  elif command -v netstat >/dev/null 2>&1; then
+    netstat -lnt 2>/dev/null | grep -Eq "[.:]${port}[[:space:]]"
+  else
+    return 1
+  fi
+}
+
+load_stack_env() {
+  local envf="$1"
+  [ -f "$envf" ] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  . "$envf"
+  set +a
+}
+
 ensure_swap() {
   local need_mb="$1"
   local have_mb
@@ -258,12 +282,20 @@ if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
 
   if ! docker compose version >/dev/null 2>&1; then
     if docker-compose version >/dev/null 2>&1; then
-      compose() { COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose "$@"; }
+      compose() {
+        local extra=()
+        [ -f .env ] && extra+=(--env-file .env)
+        COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose "${extra[@]}" "$@"
+      }
     else
       die "docker compose недоступен"
     fi
   else
-    compose() { COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose "$@"; }
+    compose() {
+      local extra=()
+      [ -f .env ] && extra+=(--env-file .env)
+      COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose "${extra[@]}" "$@"
+    }
   fi
 
   prog 0.28 "Очистка места перед swap и сборкой"
@@ -293,8 +325,10 @@ NVPN_PROVISION_LISTEN=$PROVISION_LISTEN
 NVPN_DEPLOY_VERSION=$DEPLOY_VERSION
 NVPN_WARP_GOMEMLIMIT=400MiB
 TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
+NVPN_TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
 NVPN_TELEMETRY_PORT=${TELEMETRY_PORT}
 EOF
+load_stack_env "$STAGING/.env"
 
 mkdir -p "$STAGING/data"
 printf '%s\n' "$DEPLOY_VERSION" > "$STAGING/data/DEPLOY_VERSION"
@@ -420,8 +454,14 @@ done
 
 prog 0.78 "Запуск Compose"
 cd "$STACK"
+load_stack_env "$STACK/.env"
+UP_SERVICES="provision direct bypass dns warp telemetry"
+if tcp_listen_port "$TELEMETRY_PORT"; then
+  echo "NVPN_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — nvpn-telemetry не запускаем. Освободите порт или задайте NVPN_TELEMETRY_PORT"
+  UP_SERVICES="provision direct bypass dns warp"
+fi
 UP_LOG="$(mktemp /tmp/nvpn-compose-up.XXXXXX.log)"
-if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d 2>&1 | tee "$UP_LOG"; then
+if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d $UP_SERVICES 2>&1 | tee "$UP_LOG"; then
   up_tail="$(tail -n 20 "$UP_LOG" | tr '\n' ' ' | cut -c1-1000)"
   rm -f "$UP_LOG"
   die "Запуск Compose не удался: ${up_tail:-причина не определена}"
@@ -440,10 +480,12 @@ if curl -fsS "http://127.0.0.1:9100/health" >/dev/null 2>&1; then
 else
   echo "NVPN_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml logs"
 fi
-if curl -fsS "http://127.0.0.1:9200/health" >/dev/null 2>&1; then
-  prog 0.93 "telemetry /health OK"
-else
-  echo "NVPN_WARN|telemetry :9200 не отвечает — логи тестирования не примут. docker compose -f $STACK/docker-compose.yml up -d --no-deps telemetry"
+if echo "$UP_SERVICES" | grep -qw telemetry; then
+  if curl -fsS --max-time 3 "http://127.0.0.1:${TELEMETRY_PORT}/health" >/dev/null 2>&1; then
+    prog 0.93 "telemetry /health OK"
+  else
+    echo "NVPN_WARN|telemetry :${TELEMETRY_PORT} не отвечает — логи тестирования не примут. cd $STACK && docker compose --env-file .env up -d --no-deps telemetry"
+  fi
 fi
 if docker exec nvpn-provision test -s /data/users.json 2>/dev/null; then
   prog 0.94 "provision видит /data/users.json"
@@ -477,5 +519,5 @@ if command -v iptables >/dev/null 2>&1; then
 fi
 
 prog 1.00 "Готово"
-echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION"
+echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT"
 echo "Создать пользователя: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"

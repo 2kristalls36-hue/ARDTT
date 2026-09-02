@@ -28,6 +28,11 @@ if [ -f "$INSTALLER" ]; then
   grep -q 'уже распакованный стек' "$INSTALLER" || err "installer missing re-run-without-tar path"
   grep -q 'NVPN_TELEMETRY_PORT' "$INSTALLER" || err "installer missing telemetry port"
   grep -q 'TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing TELEMETRY_LISTEN in .env"
+  grep -q 'NVPN_TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing NVPN_TELEMETRY_LISTEN alias in .env"
+  grep -q '127.0.0.1:\${TELEMETRY_PORT}/health' "$INSTALLER" || err "installer telemetry health must use TELEMETRY_PORT"
+  if grep -q '127.0.0.1:9200/health' "$INSTALLER"; then
+    err "installer hardcodes telemetry :9200 health check"
+  fi
 fi
 
 if [ -f "$INSTALLER" ] && [ -f "$ASSET_INSTALLER" ]; then
@@ -55,6 +60,13 @@ if [ -f "$BUNDLE_KT" ]; then
   [ -n "$FALLBACK" ] || err "could not parse DeployBundle.FALLBACK_VERSION"
   if [ -n "$VER" ] && [ -n "$FALLBACK" ] && [ "$FALLBACK" != "$VER" ]; then
     err "DeployBundle.FALLBACK_VERSION=$FALLBACK but server/DEPLOY_VERSION=$VER"
+  fi
+fi
+
+if [ -f "$COMPOSE" ]; then
+  grep -q 'TELEMETRY_LISTEN: \${TELEMETRY_LISTEN' "$COMPOSE" || err "compose must interpolate TELEMETRY_LISTEN from .env"
+  if grep -q 'NVPN_TELEMETRY_LISTEN:-0.0.0.0:9200' "$COMPOSE"; then
+    err "compose still defaults telemetry from NVPN_TELEMETRY_LISTEN (install.sh writes TELEMETRY_LISTEN)"
   fi
 fi
 
