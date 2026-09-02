@@ -40,7 +40,7 @@ android/.gradle/
 android/**/build/
 server/data/
 .env
-'@ | Set-Content -Path (Join-Path $Out ".gitignore") -Encoding utf8NoBOM
+'@ | Set-Content -Path (Join-Path $Out ".gitignore") -Encoding UTF8
 
 Push-Location $Out
 try {

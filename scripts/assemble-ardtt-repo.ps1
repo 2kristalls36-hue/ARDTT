@@ -53,7 +53,7 @@ if (Test-Path $GhSrc) {
     @{ Path = "android\README.md"; Text = "# Android`n`nСм. [docs/android.md](../docs/android.md) и [README.md](../README.md).`n" }
     @{ Path = "server\README.md"; Text = "# Server`n`nСм. [docs/server.md](../docs/server.md) и [docs/deploy.md](../docs/deploy.md).`n" }
 ) | ForEach-Object {
-    Set-Content -Path (Join-Path $OutputDir $_.Path) -Value $_.Text -Encoding utf8NoBOM
+    Set-Content -Path (Join-Path $OutputDir $_.Path) -Value $_.Text -Encoding UTF8
 }
 
 Write-Host ""
