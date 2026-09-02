@@ -13,6 +13,10 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+val targetAbis = providers.gradleProperty("targetAbis")
+    .map { value -> value.split(',').map(String::trim).filter { it.isNotEmpty() } }
+    .orElse(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
+
 android {
     namespace = "com.nonamevpn.app"
     compileSdk = 35
@@ -21,8 +25,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 212
-        versionName = "0.5.194-github"
+        versionCode = 213
+        versionName = "0.5.195"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -46,6 +50,15 @@ android {
     }
 
     ndkVersion = "27.0.12077973"
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include(*targetAbis.get().toTypedArray())
+            isUniversalApk = targetAbis.get().size > 1
+        }
+    }
 
     signingConfigs {
         create("release") {

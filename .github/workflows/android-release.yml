@@ -26,7 +26,7 @@ jobs:
   build-release:
     name: Build signed release APK
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Check out source
@@ -100,7 +100,7 @@ jobs:
           keyPassword=$KEY_PASSWORD
           EOF
 
-      - name: Build release APK
+      - name: Build release APKs
         shell: bash
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
@@ -109,7 +109,7 @@ jobs:
           bash scripts/build-bypass-client.sh
           cd android
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
-          ./gradlew :app:assembleRelease --no-daemon
+          ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a,armeabi-v7a,x86_64 --no-daemon
 
       - name: Package release assets
         shell: bash
@@ -118,14 +118,20 @@ jobs:
           VERSION_CODE: ${{ steps.version.outputs.version_code }}
           RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
         run: |
-          apk_in="android/app/build/outputs/apk/release/app-release.apk"
-          test -f "$apk_in"
           mkdir -p dist
-          apk_out="dist/ardtt-${VERSION_NAME}.apk"
-          cp "$apk_in" "$apk_out"
-          "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --verbose "$apk_out"
-          export SHA256="$(sha256sum "$apk_out" | awk '{print $1}')"
-          export SIZE_BYTES="$(stat -c%s "$apk_out")"
+          found=0
+          for apk in android/app/build/outputs/apk/release/*.apk; do
+            test -f "$apk" || continue
+            "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+            base="$(basename "$apk")"
+            arch="${base#app-}"
+            arch="${arch%-release.apk}"
+            cp "$apk" "dist/ardtt-${VERSION_NAME}-${arch}.apk"
+            found=1
+          done
+          test "$found" = 1
+          export SHA256="$(sha256sum "dist/ardtt-${VERSION_NAME}-arm64-v8a.apk" | awk '{print $1}')"
+          export SIZE_BYTES="$(stat -c%s "dist/ardtt-${VERSION_NAME}-arm64-v8a.apk")"
           export NOTES="$(git log -1 --pretty=format:%s)"
           python3 - <<'PY'
           import json, os, pathlib
@@ -140,7 +146,7 @@ jobs:
                   {
                       "versionCode": version_code,
                       "versionName": version_name,
-                      "apkUrl": f"https://github.com/{repo}/releases/download/{release_tag}/ardtt-{version_name}.apk",
+                      "apkUrl": f"https://github.com/{repo}/releases/download/{release_tag}/ardtt-{version_name}-arm64-v8a.apk",
                       "sha256": sha256,
                       "sizeBytes": size_bytes,
                       "notes": os.environ.get("NOTES", ""),
@@ -164,7 +170,7 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/* --clobber
           else
-            args=(--title "ARDTT ${tag}" --generate-notes)
+            args=(--title "ARDTT ${tag}" --generate-notes --latest)
             case "$tag" in
               *-alpha*|*-beta*|*-rc*|*-verify*|*-github*) args+=(--prerelease) ;;
             esac

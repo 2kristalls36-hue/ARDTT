@@ -112,8 +112,10 @@ object GitHubReleaseUpdate {
             }
         }
         if (apks.isEmpty()) return null
-        return apks.firstOrNull { it.name.contains("universal", ignoreCase = true) }?.url
-            ?: apks.firstOrNull { it.name.contains("arm64", ignoreCase = true) }?.url
+        return apks.firstOrNull { it.name.contains("arm64", ignoreCase = true) }?.url
+            ?: apks.firstOrNull { it.name.contains("armeabi", ignoreCase = true) }?.url
+            ?: apks.firstOrNull { it.name.contains("universal", ignoreCase = true) }?.url
+            ?: apks.firstOrNull { it.name.contains("x86_64", ignoreCase = true) }?.url
             ?: apks.firstOrNull { it.name.startsWith("ardtt-", ignoreCase = true) }?.url
             ?: apks.first().url
     }
