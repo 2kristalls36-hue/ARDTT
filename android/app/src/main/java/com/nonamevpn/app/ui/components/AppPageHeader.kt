@@ -43,8 +43,8 @@ private val TabHeaderTopAfterStatusBar = TabHeaderMetrics.TopPaddingAfterStatusB
  * Subtitle: bodyMedium onSurfaceVariant.
  * Actions sit on the row below the title so long titles are not clipped.
  *
- * Bottom tabs must use [AppTabPageHeader]: it owns the status-bar inset so
- * titles do not jump when a screen also uses [Arrangement.spacedBy].
+ * Bottom tabs: use [AppPageHeader] inside a scrolling feed ([EdgeFeedColumn] or
+ * [verticalScroll]) so titles scroll away with the content.
  */
 @Composable
 fun AppPageHeader(

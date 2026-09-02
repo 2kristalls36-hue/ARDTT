@@ -7,12 +7,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.AlertDialog
@@ -38,7 +41,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.TabFeedColumn
+import com.nonamevpn.app.ui.components.EdgeFeedTopInset
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import kotlinx.coroutines.launch
 
 @Composable
@@ -80,10 +84,27 @@ fun ProfilesScreen(profiles: ProfileRepository) {
         }
     }
 
-    TabFeedColumn(
-        title = "Профили",
-        subtitle = "Активный профиль используется на вкладке «Туннель»",
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = NvpnBottomChrome.navigationReserve() + 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        EdgeFeedTopInset()
+        Text(
+            "Профили",
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            "Активный профиль используется на вкладке Туннель.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         Button(
             onClick = {
                 pickProfileFile.launch(

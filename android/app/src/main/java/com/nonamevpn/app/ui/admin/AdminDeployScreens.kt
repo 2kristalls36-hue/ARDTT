@@ -8,9 +8,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -57,7 +60,8 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
-import com.nonamevpn.app.ui.components.TabFeedColumn
+import com.nonamevpn.app.ui.components.EdgeFeedTopInset
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import kotlinx.coroutines.launch
 
 private enum class ServersPane {
@@ -154,10 +158,26 @@ private fun ServersListPane(
     onOpen: (DeployTarget) -> Unit,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
-    TabFeedColumn(
-        title = "Серверы",
-        subtitle = "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = NvpnBottomChrome.navigationReserve() + 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        EdgeFeedTopInset()
+        Text(
+            "Серверы",
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Button(
             onClick = onAdd,
             modifier = Modifier.fillMaxWidth(),
@@ -213,7 +233,7 @@ private fun ServerOverviewPane(
                 title = target.name,
                 subtitle = "${target.sshUser}@${target.host}:${target.sshPort}",
                 onBack = onBack,
-                pinBelowStatusBar = true,
+                pinBelowStatusBar = false,
             )
         },
     ) {
@@ -351,7 +371,7 @@ fun DeployScreen(
                 title = "Деплой",
                 subtitle = "SSH-установка стека на VPS (Docker: provision / direct / bypass / warp). После успеха — пользователи через provision :9100.",
                 onBack = onBack,
-                pinBelowStatusBar = true,
+                pinBelowStatusBar = false,
             )
         },
     ) {
