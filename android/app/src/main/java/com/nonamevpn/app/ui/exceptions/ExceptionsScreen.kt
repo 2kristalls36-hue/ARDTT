@@ -94,7 +94,10 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.ExceptionAppVisibility
 import com.nonamevpn.app.core.HostExclusion
 import com.nonamevpn.app.core.appIconDecodeSize
+import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.backdropSegmentInactiveContainer
+import com.nonamevpn.app.ui.components.backdropSegmentInactiveContent
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.settings.AppSettingsRepository
@@ -196,6 +199,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     }
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    val segmentInactiveContainer = backdropSegmentInactiveContainer()
+    val segmentInactiveContent = backdropSegmentInactiveContent()
 
     var pane by rememberSaveable { mutableStateOf(ExceptionsPane.Apps) }
 
@@ -350,8 +355,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = colors.secondaryContainer,
                             activeContentColor = colors.onSecondaryContainer,
-                            inactiveContainerColor = Color.Transparent,
-                            inactiveContentColor = colors.onSurfaceVariant,
+                            inactiveContainerColor = segmentInactiveContainer,
+                            inactiveContentColor = segmentInactiveContent,
                         ),
                         border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
                     ) {
@@ -371,8 +376,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = colors.secondaryContainer,
                             activeContentColor = colors.onSecondaryContainer,
-                            inactiveContainerColor = Color.Transparent,
-                            inactiveContentColor = colors.onSurfaceVariant,
+                            inactiveContainerColor = segmentInactiveContainer,
+                            inactiveContentColor = segmentInactiveContent,
                         ),
                         border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
                     ) {
@@ -388,15 +393,14 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     }
                 }
 
-                Surface(
+                AppSectionCard(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
+                    contentPadding = PaddingValues(0.dp),
+                    verticalArrangement = Arrangement.Top,
                     shape = CardShape,
-                    color = colors.surfaceVariant.copy(alpha = 0.35f),
-                    border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
+                    fillHeight = true,
                 ) {
             when (pane) {
                 ExceptionsPane.Apps -> {

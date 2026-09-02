@@ -18,6 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +49,18 @@ fun AppPageHeader(
     pinBelowStatusBar: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
+    val onWallpaper = illustratedBackdropActive()
+    val titleColor = backdropTitleColor()
+    val subtitleColor = backdropMutedTextColor()
+    val titleShadow = if (onWallpaper) {
+        Shadow(
+            color = Color.Black.copy(alpha = 0.42f),
+            offset = Offset(0f, 1f),
+            blurRadius = 8f,
+        )
+    } else {
+        null
+    }
     val startPad = when {
         onBack != null -> 4.dp
         contentHorizontalPadding -> 16.dp
@@ -87,8 +102,11 @@ fun AppPageHeader(
             Text(
                 title,
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    shadow = titleShadow,
+                ),
+                color = titleColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -104,8 +122,10 @@ fun AppPageHeader(
                     Text(
                         subtitle,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            shadow = titleShadow,
+                        ),
+                        color = subtitleColor,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )

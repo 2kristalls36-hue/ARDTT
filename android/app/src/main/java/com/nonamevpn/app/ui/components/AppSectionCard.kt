@@ -24,6 +24,38 @@ import androidx.compose.ui.unit.dp
 /** Soft section card. */
 val LocalOpaqueSectionCards = staticCompositionLocalOf { false }
 
+/** User-mode illustrated wallpaper is visible behind tab content. */
+@Composable
+fun illustratedBackdropActive(): Boolean = LocalOpaqueSectionCards.current
+
+/** Title / primary label over illustrated wallpaper. */
+@Composable
+fun backdropTitleColor(): Color =
+    if (illustratedBackdropActive()) Color(0xFFF6FAFF) else MaterialTheme.colorScheme.primary
+
+/** Secondary label over illustrated wallpaper. */
+@Composable
+fun backdropMutedTextColor(): Color =
+    if (illustratedBackdropActive()) Color(0xFFD6E2F0) else MaterialTheme.colorScheme.onSurfaceVariant
+
+/** Inactive segmented-chip background when tabs sit on wallpaper. */
+@Composable
+fun backdropSegmentInactiveContainer(): Color {
+    if (!illustratedBackdropActive()) return Color.Transparent
+    val colors = MaterialTheme.colorScheme
+    val isDark = colors.background.luminance() < 0.22f
+    return if (isDark) {
+        lerp(colors.surface, colors.surfaceVariant, 0.10f)
+    } else {
+        lerp(colors.surface, colors.surfaceVariant, 0.28f)
+    }
+}
+
+/** Inactive segmented-chip label when tabs sit on wallpaper. */
+@Composable
+fun backdropSegmentInactiveContent(): Color =
+    if (illustratedBackdropActive()) Color(0xFFE5EDF8) else MaterialTheme.colorScheme.onSurfaceVariant
+
 /** Soft section card. */
 @Composable
 fun AppSectionCard(
