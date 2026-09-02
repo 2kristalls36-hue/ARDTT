@@ -46,9 +46,9 @@ import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.VpnLiveStats
-import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.TabFeedShell
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -106,47 +106,41 @@ fun LogsScreen() {
         append(AppLog.dumpText())
     }.trim()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = NvpnBottomChrome.navigationReserve() + 12.dp),
+    TabFeedShell(
+        title = "Журнал событий",
+        subtitle = if (AppLog.isDetailedEnabled()) {
+            "Подробные события (админ)"
+        } else {
+            "Краткие события туннеля"
+        },
+        bottomPadding = NvpnBottomChrome.navigationReserve() + 12.dp,
+        actions = {
+            IconButton(onClick = { AppLog.clear() }) {
+                Icon(Icons.Default.Delete, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.primary)
+            }
+            IconButton(
+                onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("ARDTT logs", dumpBody()))
+                    Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                },
+            ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = "Копировать", tint = MaterialTheme.colorScheme.primary)
+            }
+            IconButton(
+                onClick = {
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "ARDTT logs")
+                        putExtra(Intent.EXTRA_TEXT, dumpBody())
+                    }
+                    context.startActivity(Intent.createChooser(share, "Экспорт логов"))
+                },
+            ) {
+                Icon(Icons.Default.Share, contentDescription = "Поделиться", tint = MaterialTheme.colorScheme.primary)
+            }
+        },
     ) {
-        AppTabPageHeader(
-            title = "Журнал событий",
-            subtitle = if (AppLog.isDetailedEnabled()) {
-                "Подробные события (админ)"
-            } else {
-                "Краткие события туннеля"
-            },
-            actions = {
-                IconButton(onClick = { AppLog.clear() }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.primary)
-                }
-                IconButton(
-                    onClick = {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("ARDTT logs", dumpBody()))
-                        Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-                    },
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = "Копировать", tint = MaterialTheme.colorScheme.primary)
-                }
-                IconButton(
-                    onClick = {
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "ARDTT logs")
-                            putExtra(Intent.EXTRA_TEXT, dumpBody())
-                        }
-                        context.startActivity(Intent.createChooser(share, "Экспорт логов"))
-                    },
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = "Поделиться", tint = MaterialTheme.colorScheme.primary)
-                }
-            },
-        )
-
         ui.lastError?.takeIf { it.isNotBlank() }?.let { fatal ->
             Surface(
                 modifier = Modifier

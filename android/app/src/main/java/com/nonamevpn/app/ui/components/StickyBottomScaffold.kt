@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -142,24 +143,27 @@ fun EdgeFeedColumn(
     modifier: Modifier = Modifier,
     scrollState: ScrollState = rememberScrollState(),
     bottomExtra: Dp = 24.dp,
+    scrollBottomPadding: Dp? = null,
+    horizontalPadding: Dp = TabHeaderMetrics.HorizontalPadding,
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
     header: @Composable ColumnScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val bottomPad = scrollBottomPadding ?: (NvpnBottomChrome.navigationReserve() + bottomExtra)
     val feed: @Composable (Modifier: Modifier) -> Unit = { columnModifier ->
         Column(
             modifier = columnModifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = horizontalPadding),
         ) {
             header()
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .verticalScroll(scrollState)
-                    .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
+                    .padding(bottom = bottomPad),
                 verticalArrangement = verticalArrangement,
             ) {
                 content()
@@ -176,6 +180,89 @@ fun EdgeFeedColumn(
         }
     } else {
         feed(modifier)
+    }
+}
+
+/**
+ * Bottom-tab feed with a pinned [AppTabPageHeader] and scrollable cards.
+ * Use on tabs where only the body scrolls (Profiles, Network, Tunnel admin, …).
+ */
+@Composable
+fun TabFeedColumn(
+    title: String,
+    subtitle: String? = null,
+    actions: (@Composable RowScope.() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState(),
+    bottomExtra: Dp = 24.dp,
+    scrollBottomPadding: Dp? = null,
+    verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(14.dp),
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    EdgeFeedColumn(
+        modifier = modifier,
+        scrollState = scrollState,
+        bottomExtra = bottomExtra,
+        scrollBottomPadding = scrollBottomPadding,
+        verticalArrangement = verticalArrangement,
+        refreshing = refreshing,
+        onRefresh = onRefresh,
+        header = {
+            AppTabPageHeader(
+                title = title,
+                subtitle = subtitle,
+                actions = actions,
+            )
+        },
+        content = content,
+    )
+}
+
+/**
+ * Bottom-tab shell with a pinned [AppTabPageHeader] and a fixed body below it.
+ * Use when the body owns its own scroll (LazyColumn) or needs [Modifier.weight].
+ */
+@Composable
+fun TabFeedShell(
+    title: String,
+    subtitle: String? = null,
+    actions: (@Composable RowScope.() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    bottomPadding: Dp? = null,
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
+    belowHeader: @Composable ColumnScope.() -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val bottomPad = bottomPadding ?: (NvpnBottomChrome.navigationReserve() + 24.dp)
+    val shell: @Composable () -> Unit = {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = TabHeaderMetrics.HorizontalPadding)
+                .padding(bottom = bottomPad),
+        ) {
+            AppTabPageHeader(
+                title = title,
+                subtitle = subtitle,
+                actions = actions,
+            )
+            belowHeader()
+            content()
+        }
+    }
+    if (onRefresh != null) {
+        PullRefreshHost(
+            refreshing = refreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            shell()
+        }
+    } else {
+        shell()
     }
 }
 

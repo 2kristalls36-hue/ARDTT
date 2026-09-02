@@ -38,8 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.AppTabPageHeader
-import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.ui.components.TabFeedColumn
 import kotlinx.coroutines.launch
 
 @Composable
@@ -81,13 +80,9 @@ fun ProfilesScreen(profiles: ProfileRepository) {
         }
     }
 
-    EdgeFeedColumn(
-        header = {
-            AppTabPageHeader(
-                title = "Профили",
-                subtitle = "Активный профиль используется на вкладке «Туннель»",
-            )
-        },
+    TabFeedColumn(
+        title = "Профили",
+        subtitle = "Активный профиль используется на вкладке «Туннель»",
     ) {
         Button(
             onClick = {
