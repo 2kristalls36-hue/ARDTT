@@ -1,0 +1,200 @@
+package com.nonamevpn.app.ui.admin
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.core.ConnState
+import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.IpApiInfo
+import com.nonamevpn.app.core.IpApiLookup
+import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.ui.HideIpCopy
+import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.rememberPullRefresh
+
+@Composable
+fun NetworkScreen(settings: AppSettingsRepository) {
+    val context = LocalContext.current
+    val conn = remember { ConnectionManager.get(context) }
+    val ui by conn.ui.collectAsStateWithLifecycle()
+    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
+
+    var provider by remember { mutableStateOf(IpApiInfo.Empty) }
+    var tunnel by remember { mutableStateOf(IpApiInfo.Empty) }
+    var providerLoading by remember { mutableStateOf(false) }
+    var tunnelLoading by remember { mutableStateOf(false) }
+
+    val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
+
+    suspend fun refreshAll() {
+        providerLoading = true
+        provider = runCatching { IpApiLookup.fetchUnderlay(context) }
+            .getOrElse { IpApiInfo.Empty.copy(error = it.message ?: "ошибка") }
+        providerLoading = false
+
+        if (!sessionUp) {
+            tunnel = IpApiInfo.Empty
+            tunnelLoading = false
+            return
+        }
+        if (hideIp) {
+            tunnel = IpApiInfo.Empty
+            tunnelLoading = false
+            return
+        }
+        tunnelLoading = true
+        tunnel = runCatching { IpApiLookup.fetchViaVpn(context) }
+            .getOrElse { IpApiInfo.Empty.copy(error = it.message ?: "ошибка") }
+        tunnelLoading = false
+    }
+
+    LaunchedEffect(sessionUp, hideIp) {
+        refreshAll()
+    }
+
+    val pull = rememberPullRefresh { refreshAll() }
+
+    PullRefreshHost(
+        refreshing = pull.refreshing,
+        onRefresh = pull.onRefresh,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            AppTabPageHeader(
+                title = "Сеть",
+                subtitle = "Публичный IP провайдера и туннеля",
+            )
+
+            IpInfoCard(
+                title = "IP провайдера",
+                info = provider,
+                loading = providerLoading,
+                emptyHint = "Не удалось определить IP",
+            )
+
+            when {
+                !sessionUp -> IpPlaceholderCard(
+                    title = "IP туннеля",
+                    message = "Подключите туннель",
+                )
+                hideIp -> IpPlaceholderCard(
+                    title = "IP туннеля",
+                    message = HideIpCopy.STATUS_HIDDEN,
+                )
+                else -> IpInfoCard(
+                    title = "IP туннеля",
+                    info = tunnel,
+                    loading = tunnelLoading,
+                    emptyHint = "Не удалось определить IP",
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IpInfoCard(
+    title: String,
+    info: IpApiInfo,
+    loading: Boolean,
+    emptyHint: String,
+) {
+    AppSectionCard(
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        shape = RoundedCornerShape(24.dp),
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        when {
+            loading -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
+            info.error != null -> {
+                Text(
+                    info.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            info.ip.isBlank() -> {
+                Text(
+                    emptyHint,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            else -> {
+                Text(
+                    info.ip,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (info.subtitle.isNotBlank()) {
+                    Text(
+                        info.subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IpPlaceholderCard(
+    title: String,
+    message: String,
+) {
+    AppSectionCard(
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        shape = RoundedCornerShape(24.dp),
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
