@@ -326,14 +326,18 @@ fun TunnelScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 16.dp),
         ) {
             AppTabPageHeader(
                 title = "Подключение",
             )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
             val missingCallHashHint = !ui.hasCallHash
             if (missingCallHashHint || showConnectionHint) {
                 TunnelConnectionHintBanner(
@@ -609,6 +613,7 @@ fun TunnelScreen(
                     )
                 }
             }
+        }
         }
         }
     }

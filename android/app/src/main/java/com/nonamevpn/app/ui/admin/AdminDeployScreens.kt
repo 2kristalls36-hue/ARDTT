@@ -8,13 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -59,7 +53,10 @@ import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.ServerOsProbe
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
+import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import kotlinx.coroutines.launch
 
 private enum class ServersPane {
@@ -156,26 +153,14 @@ private fun ServersListPane(
     onOpen: (DeployTarget) -> Unit,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    EdgeFeedColumn(
+        header = {
+            AppTabPageHeader(
+                title = "Серверы",
+                subtitle = "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
+            )
+        },
     ) {
-        Text(
-            "Серверы",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         Button(
             onClick = onAdd,
             modifier = Modifier.fillMaxWidth(),
@@ -225,28 +210,16 @@ private fun ServerOverviewPane(
     onUsers: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
-            }
-            Text(
-                target.name,
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.primary,
+    EdgeFeedColumn(
+        header = {
+            AppPageHeader(
+                title = target.name,
+                subtitle = "${target.sshUser}@${target.host}:${target.sshPort}",
+                onBack = onBack,
+                pinBelowStatusBar = true,
             )
-        }
+        },
+    ) {
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -375,36 +348,16 @@ fun DeployScreen(
     val expectedDeployVersion = remember(context) { DeployBundle.expectedVersion(context) }
     val isUpdate = initial != null && lastDeployedAtMs > 0L
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            if (onBack != null) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад")
-                }
-            }
-            Text(
-                "Деплой",
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                color = MaterialTheme.colorScheme.primary,
+    EdgeFeedColumn(
+        header = {
+            AppPageHeader(
+                title = "Деплой",
+                subtitle = "SSH-установка стека на VPS (Docker: provision / direct / bypass / warp). После успеха — пользователи через provision :9100.",
+                onBack = onBack,
+                pinBelowStatusBar = true,
             )
-        }
-        Text(
-            "SSH-установка стека на VPS (Docker: provision / direct / bypass / warp). После успеха — пользователи через provision :9100.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
+        },
+    ) {
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

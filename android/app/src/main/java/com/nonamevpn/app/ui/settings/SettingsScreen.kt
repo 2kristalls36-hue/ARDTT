@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -69,6 +71,8 @@ import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.theme.NvpnColors
 import com.nonamevpn.app.update.AppUpdateController
@@ -77,11 +81,13 @@ import kotlinx.coroutines.launch
 /** Full-screen settings (kept for compatibility). Prefer [SettingsSheet] from Tunnel gear. */
 @Composable
 fun SettingsScreen(settings: AppSettingsRepository) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+    EdgeFeedColumn(
+        header = {
+            AppTabPageHeader(
+                title = "Настройки",
+                subtitle = "Параметры подключения и приложения",
+            )
+        },
     ) {
         SettingsContent(settings = settings)
     }
@@ -93,20 +99,17 @@ fun SettingsSheet(
     settings: AppSettingsRepository,
     onDismiss: () -> Unit,
 ) {
+    val scrollState = rememberScrollState()
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.92f),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -119,7 +122,14 @@ fun SettingsSheet(
                     )
                     TextButton(onClick = onDismiss) { Text("Закрыть") }
                 }
-                SettingsContent(settings = settings)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SettingsContent(settings = settings)
+                }
             }
         }
     }
@@ -151,7 +161,6 @@ fun SettingsContent(settings: AppSettingsRepository) {
     val updateBringIntoView = remember { BringIntoViewRequester() }
     val openAppearanceSettings by PendingUiAction.openAppearanceSettings.collectAsStateWithLifecycle()
     val appearanceBringIntoView = remember { BringIntoViewRequester() }
-    val scrollState = rememberScrollState()
     var dialCardOffsetY by remember { mutableFloatStateOf(-1f) }
     val vpnSessionActive = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||

@@ -3,6 +3,7 @@ package com.nonamevpn.app.ui.admin
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
@@ -113,17 +114,20 @@ fun NetworkScreen(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
         ) {
             AppTabPageHeader(
                 title = "Сеть",
                 subtitle = "Публичный IP провайдера и туннеля",
             )
-
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = NvpnBottomChrome.navigationReserve() + 24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
             IpInfoCard(
                 title = "IP провайдера",
                 info = provider,
@@ -144,6 +148,7 @@ fun NetworkScreen(
                         emptyHint = "Не удалось определить IP",
                     )
                 }
+            }
             }
         }
     }
