@@ -46,6 +46,7 @@ echo "$out" | grep -q 'Распаковка стека' || err "first run did no
 [ -f "$INSTALL/stack/.env" ] || err "missing .env"
 grep -q 'NVPN_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env public host"
 grep -q 'NVPN_DEPLOY_VERSION=1.0.6-test' "$INSTALL/stack/.env" || err ".env version"
+grep -q 'TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env telemetry listen"
 [ -f "$INSTALL/DEPLOY_VERSION" ] || err "missing host DEPLOY_VERSION"
 [ -f "$INSTALL/stack/data/DEPLOY_VERSION" ] || err "missing data/DEPLOY_VERSION"
 [ ! -f "$INSTALL/stack.tar.gz" ] || err "tar should be deleted after run"
