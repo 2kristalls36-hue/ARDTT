@@ -20,6 +20,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import android.content.Context
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.ConnState
@@ -154,7 +156,7 @@ private data class NetworkRefreshInputs(
     val viaVpn: Boolean,
 )
 
-private suspend fun loadProvider(context: android.content.Context): IpApiInfo =
+private suspend fun loadProvider(context: Context): IpApiInfo =
     try {
         IpApiLookup.fetchUnderlay(context)
     } catch (e: CancellationException) {
@@ -164,7 +166,7 @@ private suspend fun loadProvider(context: android.content.Context): IpApiInfo =
     }
 
 private suspend fun loadTunnel(
-    context: android.content.Context,
+    context: Context,
     hideIp: Boolean,
     provisionBaseUrl: String?,
     deviceId: String?,
