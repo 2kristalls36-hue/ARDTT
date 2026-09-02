@@ -22,18 +22,51 @@ data class IpApiInfo(
 
 /**
  * Public IP + ISP/location via ip-api.com.
- * Binds HTTP to underlay (provider) or VPN (tunnel egress) as requested.
+ * Provider path binds to underlay; tunnel path uses [EgressIpProbe] then geo lookup by IP.
  */
 object IpApiLookup {
-    private const val ENDPOINT = "http://ip-api.com/json/?fields=status,message,query,isp,city,country,countryCode"
+    private const val FIELDS = "status,message,query,isp,city,country,countryCode"
+    private const val LOOKUP_ENDPOINT = "http://ip-api.com/json/?fields=$FIELDS"
 
     suspend fun fetchUnderlay(context: Context): IpApiInfo = withContext(Dispatchers.IO) {
-        fetch(context, bindNetwork = pickBestUnderlayNetwork(context))
+        fetchJson(LOOKUP_ENDPOINT, pickBestUnderlayNetwork(context))
     }
 
-    suspend fun fetchViaVpn(context: Context): IpApiInfo = withContext(Dispatchers.IO) {
-        fetch(context, bindNetwork = pickVpnNetwork(context))
+    /**
+     * Tunnel egress IP from provision (works when the app process is excluded from TUN),
+     * then ISP/location via ip-api for that address.
+     */
+    suspend fun fetchTunnelEgress(
+        context: Context,
+        hideIp: Boolean,
+        provisionBaseUrl: String?,
+        deviceId: String?,
+        viaVpn: Boolean,
+    ): IpApiInfo = withContext(Dispatchers.IO) {
+        val ip = EgressIpProbe.refresh(
+            hideIp = hideIp,
+            provisionBaseUrl = provisionBaseUrl,
+            deviceId = deviceId,
+            context = context,
+            viaVpn = viaVpn,
+        )
+        if (ip.isNullOrBlank()) {
+            return@withContext IpApiInfo(
+                ip = "",
+                subtitle = "",
+                error = friendlyError(EgressIpProbe.lastError),
+            )
+        }
+        val geo = fetchJson(lookupEndpoint(ip), pickBestUnderlayNetwork(context))
+        IpApiInfo(
+            ip = ip,
+            subtitle = geo.subtitle,
+            error = null,
+        )
     }
+
+    internal fun lookupEndpoint(ip: String): String =
+        "http://ip-api.com/json/${ip.trim()}?fields=$FIELDS"
 
     internal fun parseResponse(body: String): IpApiInfo {
         val json = JSONObject(body)
@@ -59,8 +92,26 @@ object IpApiLookup {
         return IpApiInfo(ip = ip, subtitle = subtitle)
     }
 
-    private fun fetch(context: Context, bindNetwork: Network?): IpApiInfo {
-        val conn = openHttp(URL(ENDPOINT), bindNetwork).apply {
+    internal fun friendlyError(raw: String?): String {
+        val msg = raw?.trim().orEmpty()
+        if (msg.isBlank()) return "Не удалось определить IP"
+        return when {
+            msg.contains("EPERM", ignoreCase = true) ||
+                msg.contains("Binding socket", ignoreCase = true) ||
+                msg.contains("Operation not permitted", ignoreCase = true) ->
+                "Не удалось определить IP"
+            msg.contains("timeout", ignoreCase = true) ||
+                msg.contains("timed out", ignoreCase = true) ->
+                "Превышено время ожидания"
+            msg.contains("Unable to resolve host", ignoreCase = true) ||
+                msg.contains("UnknownHost", ignoreCase = true) ->
+                "Нет доступа к сети"
+            else -> msg.take(80)
+        }
+    }
+
+    private fun fetchJson(url: String, bindNetwork: Network?): IpApiInfo {
+        val conn = openHttp(URL(url), bindNetwork).apply {
             connectTimeout = 6_000
             readTimeout = 8_000
             requestMethod = "GET"
@@ -73,11 +124,11 @@ object IpApiLookup {
                 ?.use { it.readText() }
                 .orEmpty()
             if (code !in 200..299) {
-                return IpApiInfo(ip = "", subtitle = "", error = "HTTP $code")
+                return IpApiInfo(ip = "", subtitle = "", error = friendlyError("HTTP $code"))
             }
             parseResponse(body)
         } catch (t: Throwable) {
-            IpApiInfo(ip = "", subtitle = "", error = t.message?.take(80) ?: "ошибка запроса")
+            IpApiInfo(ip = "", subtitle = "", error = friendlyError(t.message))
         } finally {
             conn.disconnect()
         }

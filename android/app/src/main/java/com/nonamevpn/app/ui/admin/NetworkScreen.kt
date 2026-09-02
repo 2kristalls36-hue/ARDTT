@@ -26,6 +26,9 @@ import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.IpApiInfo
 import com.nonamevpn.app.core.IpApiLookup
+import com.nonamevpn.app.core.NetworkClass
+import com.nonamevpn.app.core.VpnPath
+import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.components.AppSectionCard
@@ -35,10 +38,14 @@ import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 
 @Composable
-fun NetworkScreen(settings: AppSettingsRepository) {
+fun NetworkScreen(
+    settings: AppSettingsRepository,
+    profiles: ProfileRepository,
+) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
+    val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
 
     var provider by remember { mutableStateOf(IpApiInfo.Empty) }
@@ -47,6 +54,9 @@ fun NetworkScreen(settings: AppSettingsRepository) {
     var tunnelLoading by remember { mutableStateOf(false) }
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
+    val viaVpn = ui.activePath == VpnPath.Bypass ||
+        ui.probe?.networkClass == NetworkClass.NeedBypass ||
+        ui.probe?.networkClass == NetworkClass.OpenNeedBypass
 
     suspend fun refreshAll() {
         providerLoading = true
@@ -65,12 +75,21 @@ fun NetworkScreen(settings: AppSettingsRepository) {
             return
         }
         tunnelLoading = true
-        tunnel = runCatching { IpApiLookup.fetchViaVpn(context) }
-            .getOrElse { IpApiInfo.Empty.copy(error = it.message ?: "ошибка") }
+        tunnel = runCatching {
+            IpApiLookup.fetchTunnelEgress(
+                context = context,
+                hideIp = hideIp,
+                provisionBaseUrl = profile?.provisionBaseUrl,
+                deviceId = profile?.deviceId,
+                viaVpn = viaVpn,
+            )
+        }.getOrElse {
+            IpApiInfo.Empty.copy(error = it.message ?: "ошибка")
+        }
         tunnelLoading = false
     }
 
-    LaunchedEffect(sessionUp, hideIp) {
+    LaunchedEffect(sessionUp, hideIp, profile?.provisionBaseUrl, profile?.deviceId, viaVpn) {
         refreshAll()
     }
 

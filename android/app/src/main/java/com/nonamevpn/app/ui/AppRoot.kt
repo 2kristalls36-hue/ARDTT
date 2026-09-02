@@ -377,7 +377,7 @@ fun AppRoot(
                             ExceptionsScreen(settings = settings)
                         }
                         composable(AppDestination.Network.route) {
-                            NetworkScreen(settings = settings)
+                            NetworkScreen(settings = settings, profiles = profiles)
                         }
                         composable(AppDestination.Logs.route) {
                             LogsScreen()
