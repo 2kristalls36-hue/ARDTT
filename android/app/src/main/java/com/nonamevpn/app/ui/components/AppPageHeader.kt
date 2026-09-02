@@ -43,8 +43,7 @@ private val TabHeaderTopAfterStatusBar = TabHeaderMetrics.TopPaddingAfterStatusB
  * Subtitle: bodyMedium onSurfaceVariant.
  * Actions sit on the row below the title so long titles are not clipped.
  *
- * Bottom tabs: use [AppPageHeader] inside a scrolling feed ([EdgeFeedColumn] or
- * [verticalScroll]) so titles scroll away with the content.
+ * Bottom tabs: pair [EdgeFeedTopInset] with [AppTabPageHeader], or use [TabFeedHeader].
  */
 @Composable
 fun AppPageHeader(
@@ -54,6 +53,7 @@ fun AppPageHeader(
     applyStatusBarsPadding: Boolean = false,
     contentHorizontalPadding: Boolean = false,
     pinBelowStatusBar: Boolean = false,
+    alignTabTitle: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val onWallpaper = illustratedBackdropActive()
@@ -77,7 +77,8 @@ fun AppPageHeader(
         contentHorizontalPadding || onBack != null -> 8.dp
         else -> 0.dp
     }
-    val topPad = if (pinBelowStatusBar) TabHeaderTopAfterStatusBar else 8.dp
+    val topPad = if (alignTabTitle || pinBelowStatusBar) TabHeaderTopAfterStatusBar else 8.dp
+    val anchorTitleRow = alignTabTitle || pinBelowStatusBar
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -94,7 +95,7 @@ fun AppPageHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (pinBelowStatusBar) Modifier.height(TabTitleRowHeight) else Modifier),
+                .then(if (anchorTitleRow) Modifier.height(TabTitleRowHeight) else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
@@ -150,7 +151,7 @@ fun AppPageHeader(
     }
 }
 
-/** Main bottom-tab chrome: status inset + title on a fixed row. */
+/** Main bottom-tab title row — use after [EdgeFeedTopInset] inside a scrolling feed. */
 @Composable
 fun AppTabPageHeader(
     title: String,
@@ -161,6 +162,21 @@ fun AppTabPageHeader(
         title = title,
         subtitle = subtitle,
         actions = actions,
-        pinBelowStatusBar = true,
+        alignTabTitle = true,
+    )
+}
+
+/** Status-bar inset + anchored tab title for manual scroll feeds. */
+@Composable
+fun TabFeedHeader(
+    title: String,
+    subtitle: String? = null,
+    actions: (@Composable RowScope.() -> Unit)? = null,
+) {
+    EdgeFeedTopInset()
+    AppTabPageHeader(
+        title = title,
+        subtitle = subtitle,
+        actions = actions,
     )
 }

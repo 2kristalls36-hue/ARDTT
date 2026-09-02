@@ -35,11 +35,10 @@ import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
-import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.PullRefreshHost
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
+import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -121,8 +120,7 @@ fun NetworkScreen(
                 .padding(bottom = NvpnBottomChrome.navigationReserve() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            EdgeFeedTopInset()
-            AppPageHeader(
+            TabFeedHeader(
                 title = "Сеть",
                 subtitle = "Публичный IP провайдера и туннеля",
             )

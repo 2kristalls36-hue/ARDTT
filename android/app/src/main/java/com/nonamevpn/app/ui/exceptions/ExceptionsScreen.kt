@@ -95,8 +95,8 @@ import com.nonamevpn.app.core.ExceptionAppVisibility
 import com.nonamevpn.app.core.HostExclusion
 import com.nonamevpn.app.core.appIconDecodeSize
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.backdropSegmentInactiveContainer
 import com.nonamevpn.app.ui.components.backdropSegmentInactiveContent
 import com.nonamevpn.app.ui.components.rememberPullRefresh
@@ -327,7 +327,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
             ) {
-                AppTabPageHeader(
+                TabFeedHeader(
                     title = "Исключения",
                     subtitle = "Приложения и сайты вне туннеля",
                 )

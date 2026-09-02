@@ -60,8 +60,8 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.TabFeedHeader
 import kotlinx.coroutines.launch
 
 private enum class ServersPane {
@@ -166,17 +166,9 @@ private fun ServersListPane(
             .padding(bottom = NvpnBottomChrome.navigationReserve() + 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        EdgeFeedTopInset()
-        Text(
-            "Серверы",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        TabFeedHeader(
+            title = "Серверы",
+            subtitle = "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
         )
         Button(
             onClick = onAdd,
@@ -233,7 +225,7 @@ private fun ServerOverviewPane(
                 title = target.name,
                 subtitle = "${target.sshUser}@${target.host}:${target.sshPort}",
                 onBack = onBack,
-                pinBelowStatusBar = false,
+                alignTabTitle = true,
             )
         },
     ) {
@@ -371,7 +363,7 @@ fun DeployScreen(
                 title = "Деплой",
                 subtitle = "SSH-установка стека на VPS (Docker: provision / direct / bypass / warp). После успеха — пользователи через provision :9100.",
                 onBack = onBack,
-                pinBelowStatusBar = false,
+                alignTabTitle = true,
             )
         },
     ) {

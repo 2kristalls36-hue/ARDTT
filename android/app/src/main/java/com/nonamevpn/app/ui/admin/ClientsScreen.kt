@@ -225,6 +225,7 @@ private fun ClientsScreen(
                         else -> "${users.size} · ${server.name.ifBlank { server.host }}"
                     },
                     onBack = onBack,
+                    alignTabTitle = true,
                 )
 
                 when {

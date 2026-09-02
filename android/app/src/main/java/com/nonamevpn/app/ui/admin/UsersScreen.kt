@@ -81,7 +81,7 @@ fun UsersScreen(
                 title = "Пользователи",
                 subtitle = "provision http://$publicHost:9100 — создание по имени (бесплатно).",
                 onBack = onBack,
-                pinBelowStatusBar = false,
+                alignTabTitle = true,
             )
         },
     ) {

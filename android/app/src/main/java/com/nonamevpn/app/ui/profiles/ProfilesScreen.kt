@@ -41,8 +41,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.EdgeFeedTopInset
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.TabFeedHeader
 import kotlinx.coroutines.launch
 
 @Composable
@@ -92,17 +92,9 @@ fun ProfilesScreen(profiles: ProfileRepository) {
             .padding(bottom = NvpnBottomChrome.navigationReserve() + 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        EdgeFeedTopInset()
-        Text(
-            "Профили",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            "Активный профиль используется на вкладке Туннель.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        TabFeedHeader(
+            title = "Профили",
+            subtitle = "Активный профиль используется на вкладке «Туннель»",
         )
 
         Button(
