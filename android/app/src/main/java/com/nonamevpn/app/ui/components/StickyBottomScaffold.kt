@@ -115,7 +115,7 @@ fun StickyBottomScaffold(
     }
 }
 
-/** Scrollable spacer: status bar only. Title top pad lives in [AppTabPageHeader]. */
+/** Scrollable spacer: status bar only. Title top pad lives in [TabPageHeader]. */
 @Composable
 fun EdgeFeedTopInset(extra: Dp = 0.dp) {
     Spacer(
@@ -127,8 +127,8 @@ fun EdgeFeedTopInset(extra: Dp = 0.dp) {
 
 /**
  * Edge-to-edge scrollable feed (Settings / Logs / nested admin style).
- * Header and content scroll together; [EdgeFeedTopInset] keeps the first line
- * below the status bar.
+ * Header and content scroll together; [EdgeFeedTopInset] is applied once before [header].
+ * Pass [TabPageHeader] in [header] (not [TabFeedHeader]).
  */
 @Composable
 fun EdgeFeedColumn(

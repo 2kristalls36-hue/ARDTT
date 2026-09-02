@@ -33,7 +33,7 @@ import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionApi
 import com.nonamevpn.app.profile.ProfileRepository
-import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import kotlinx.coroutines.launch
@@ -77,11 +77,10 @@ fun UsersScreen(
 
     EdgeFeedColumn(
         header = {
-            AppPageHeader(
+            TabPageHeader(
                 title = "Пользователи",
                 subtitle = "provision http://$publicHost:9100 — создание по имени (бесплатно).",
                 onBack = onBack,
-                alignTabTitle = true,
             )
         },
     ) {
