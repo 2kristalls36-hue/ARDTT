@@ -75,8 +75,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -119,8 +120,6 @@ import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.rememberPullRefresh
-import com.nonamevpn.app.ui.components.backdropMutedTextColor
-import com.nonamevpn.app.ui.components.backdropTitleColor
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.settings.SettingsSheet
 import com.nonamevpn.app.ui.theme.NvpnColors
@@ -776,7 +775,6 @@ private fun UserConnectStatusBlock(
     modifier: Modifier = Modifier,
 ) {
     val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
-    val connectingLike = state == ConnState.Connecting || state == ConnState.Probing
     val primaryLine = userModeStatusPrimary(state, activePath)
     val details = when {
         connectedLike -> null
@@ -789,26 +787,30 @@ private fun UserConnectStatusBlock(
             "Для режима «Обход» добавьте код звонка в настройках."
         else -> userModeStatusDetails(state, softInfo, lastError)
     }
-    val primaryColor = when {
-        connectedLike -> NvpnColors.connected
-        state == ConnState.Error -> MaterialTheme.colorScheme.error
-        connectingLike -> backdropTitleColor()
-        else -> backdropMutedTextColor()
-    }
-    val detailsColor = backdropMutedTextColor().copy(alpha = 0.92f)
+    val statusShadow = Shadow(
+        color = Color.Black.copy(alpha = 0.45f),
+        offset = Offset(0f, 1f),
+        blurRadius = 6f,
+    )
+    val statusTextStyle = MaterialTheme.typography.titleMedium.copy(
+        fontWeight = FontWeight.SemiBold,
+        shadow = statusShadow,
+    )
+    val detailsTextStyle = MaterialTheme.typography.bodyMedium.copy(
+        shadow = statusShadow,
+    )
 
     Column(
         modifier = modifier
             .widthIn(max = 320.dp)
             .padding(horizontal = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             text = primaryLine,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = primaryColor,
+            style = statusTextStyle,
+            color = Color.White,
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -816,8 +818,8 @@ private fun UserConnectStatusBlock(
         details?.let {
             Text(
                 text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = detailsColor,
+                style = detailsTextStyle,
+                color = Color.White.copy(alpha = 0.92f),
                 textAlign = TextAlign.Center,
             )
         }
