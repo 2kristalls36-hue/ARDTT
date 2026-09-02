@@ -358,9 +358,6 @@ fun AppRoot(
                                 settings = settings,
                                 profiles = profiles,
                                 onRequestConnect = { requestVpnThenConnect() },
-                                onNavigateToDialSettings = {
-                                    PendingUiAction.requestCallHashSettings()
-                                },
                             )
                         }
                         composable(AppDestination.Servers.route) {

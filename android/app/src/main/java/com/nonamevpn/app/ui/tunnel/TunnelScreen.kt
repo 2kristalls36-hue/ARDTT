@@ -121,6 +121,7 @@ import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
+import com.nonamevpn.app.ui.settings.BypassMethodDialog
 import com.nonamevpn.app.ui.settings.SettingsSheet
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.delay
@@ -133,7 +134,6 @@ fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     onRequestConnect: () -> Unit,
-    onNavigateToDialSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -142,6 +142,8 @@ fun TunnelScreen(
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
     var showSettings by remember { mutableStateOf(false) }
+    var showBypassMethodDialog by remember { mutableStateOf(false) }
+    var highlightBypassDialog by remember { mutableStateOf(false) }
     var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
 
     LaunchedEffect(profile) {
@@ -183,7 +185,12 @@ fun TunnelScreen(
     }
     LaunchedEffect(openCallHash) {
         if (!openCallHash) return@LaunchedEffect
-        showSettings = true
+        if (admin) {
+            showBypassMethodDialog = true
+            highlightBypassDialog = true
+        } else {
+            showSettings = true
+        }
         PendingUiAction.consumeCallHashSettings()
     }
     LaunchedEffect(ui.state) {
@@ -400,7 +407,7 @@ fun TunnelScreen(
                         pathMode == "bypass" && ui.hasCallHash ->
                             "Только обход. Код звонка — в настройках."
                         pathMode == "bypass" ->
-                            "Код звонка не задан. Для перехода к настройке нажмите «Обход»."
+                            "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку."
                         else -> "Сначала прямое, при недоступности — обход."
                     },
                     compact = true,
@@ -445,7 +452,8 @@ fun TunnelScreen(
                         onClick = {
                             haptics.tick()
                             if (!ui.hasCallHash) {
-                                onNavigateToDialSettings()
+                                showBypassMethodDialog = true
+                                highlightBypassDialog = true
                                 return@ChoiceChipButton
                             }
                             scope.launch {
@@ -611,6 +619,14 @@ fun TunnelScreen(
             onDismiss = { showSettings = false },
         )
     }
+    BypassMethodDialog(
+        visible = showBypassMethodDialog,
+        highlight = highlightBypassDialog,
+        onDismiss = {
+            showBypassMethodDialog = false
+            highlightBypassDialog = false
+        },
+    )
 }
 
 @Composable
@@ -1302,8 +1318,8 @@ private fun TunnelConnectionHintBanner(
         Text(
             when {
                 missingCallHashHint ->
-                    "Необходимо добавить код звонка для режима «Обход»: «Настройки» → «Метод обхода» → «Создать код» " +
-                        "или «Вставить hash». До сохранения кода это сообщение остаётся закреплённым."
+                    "Необходимо добавить код звонка для режима «Обход»: нажмите «Обход» в параметрах подключения " +
+                        "или откройте «Настройки» → «Метод обхода». До сохранения кода это сообщение остаётся закреплённым."
                 vpnLocked ->
                     "Во время активного соединения параметры заблокированы. " +
                         "Разблокировка доступна в «Настройках» → «Подключение»."

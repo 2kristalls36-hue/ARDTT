@@ -162,8 +162,6 @@ fun SettingsContent(settings: AppSettingsRepository) {
     var pin by remember { mutableStateOf("") }
     var adminHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
-    var showBypassMethodDialog by remember { mutableStateOf(false) }
-    var highlightBypassDialog by remember { mutableStateOf(false) }
     var highlightAppearanceCard by remember { mutableStateOf(false) }
     val refuseLeaveTestingSession: () -> Unit = {
         adminHint = TestingSessionGuard.STOP_RECORDING_FIRST
@@ -203,6 +201,14 @@ fun SettingsContent(settings: AppSettingsRepository) {
         scope.launch {
             kotlinx.coroutines.delay(80)
             runCatching { updateBringIntoView.bringIntoView() }
+        }
+    }
+    LaunchedEffect(openCallHash) {
+        if (!openCallHash) return@LaunchedEffect
+        PendingUiAction.consumeCallHashSettings()
+        scope.launch {
+            kotlinx.coroutines.delay(80)
+            runCatching { callHashBringIntoView.bringIntoView() }
         }
     }
 
@@ -259,7 +265,6 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     pathMode == "bypass",
                     {
                         if (!connUi.hasCallHash) {
-                            PendingUiAction.requestCallHashSettings()
                             scope.launch {
                                 kotlinx.coroutines.delay(80)
                                 runCatching { callHashBringIntoView.bringIntoView() }
@@ -282,7 +287,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     "bypass" -> if (connUi.hasCallHash) {
                         "Используется только обход. Требуется код звонка."
                     } else {
-                        "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку."
+                        "Код звонка не задан. Нажмите «Обход», чтобы перейти к карточке метода обхода."
                     }
                     else -> "Приоритет прямого подключения, резерв — обход."
                 },
@@ -624,42 +629,6 @@ fun SettingsContent(settings: AppSettingsRepository) {
             },
             onDismiss = { showTestingAgreement = false },
         )
-    }
-
-    if (showBypassMethodDialog) {
-        val highlightAlpha by animateFloatAsState(
-            targetValue = if (highlightBypassDialog) 1f else 0f,
-            animationSpec = androidx.compose.animation.core.tween(durationMillis = 500),
-            label = "bypass_dialog_highlight",
-        )
-        NvpnDialog(
-            title = "Метод обхода",
-            onDismissRequest = { showBypassMethodDialog = false },
-            dismissAction = NvpnDialogAction(
-                text = "Закрыть",
-                onClick = { showBypassMethodDialog = false },
-            ),
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                border = androidx.compose.foundation.BorderStroke(
-                    width = 2.dp,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f + 0.52f * highlightAlpha),
-                ),
-                color = MaterialTheme.colorScheme.surface,
-            ) {
-                Box(modifier = Modifier.padding(12.dp)) {
-                    CallHashSettingsContent(showHeader = false)
-                }
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-            Text(
-                "В этом окне можно выполнить авторизацию, создать код звонка через ВКонтакте или ввести его вручную.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 
