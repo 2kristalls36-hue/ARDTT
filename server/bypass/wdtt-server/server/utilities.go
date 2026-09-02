@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -41,8 +42,8 @@ func commandExists(name string) bool {
 }
 
 func isNetTimeout(err error) bool {
-	ne, ok := err.(net.Error)
-	return ok && ne.Timeout()
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 func getDefaultInterface() string {
