@@ -70,8 +70,20 @@ class AppUpdateController private constructor(context: Context) {
                         )
                     }
                 }
-            }.onFailure {
-                _ui.update { it.copy(checking = false) }
+            }.onFailure { error ->
+                _ui.update {
+                    if (error is NoUpdateAvailableException) {
+                        it.copy(
+                            checking = false,
+                            available = null,
+                            downloadedFile = null,
+                            progress = 0f,
+                            message = null,
+                        )
+                    } else {
+                        it.copy(checking = false)
+                    }
+                }
             }
         }
     }

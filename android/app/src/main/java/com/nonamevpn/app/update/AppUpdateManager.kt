@@ -35,6 +35,7 @@ data class AppUpdateInfo(
     val sha256: String,
     val sizeBytes: Long,
     val notes: String,
+    val manifestKind: AppUpdateManifestKind = AppUpdateManifestKind.LegacyVps,
 ) {
     val isNewer: Boolean get() = versionCode > BuildConfig.VERSION_CODE
 
@@ -48,6 +49,7 @@ data class AppUpdateInfo(
                 sha256 = json.optString("sha256").lowercase(Locale.US),
                 sizeBytes = json.optLong("sizeBytes", 0L),
                 notes = json.optString("notes"),
+                manifestKind = AppUpdateManifestKind.LegacyVps,
             )
         }
     }
@@ -63,30 +65,9 @@ class AppUpdateManager(private val context: Context) {
 
     suspend fun check(): Result<AppUpdateInfo> = withContext(Dispatchers.IO) {
         runCatching {
-            val request = Request.Builder()
-                .url(BuildConfig.UPDATE_MANIFEST_URL)
-                .get()
-                .build()
-            val fallbackClient = vpnBoundClientOrNull()
-            val clients = buildList {
-                add(client)
-                if (fallbackClient != null) add(fallbackClient)
-            }
-            var lastError: Throwable? = null
-            for (candidate in clients) {
-                val parsed = runCatching {
-                    candidate.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            error("Сервер обновлений вернул ${response.code}")
-                        }
-                        AppUpdateInfo.parse(response.body?.string().orEmpty())
-                    }
-                }.onFailure { lastError = it }.getOrNull()
-                if (parsed != null) {
-                    return@runCatching parsed
-                }
-            }
-            throw (lastError ?: IllegalStateException("Проверка обновлений недоступна"))
+            checkGitHubRelease()?.takeIf { it.isNewer }
+                ?: checkLegacyManifest().getOrThrow().takeIf { it.isNewer }
+                ?: throw NoUpdateAvailableException()
         }
     }
 
@@ -94,12 +75,17 @@ class AppUpdateManager(private val context: Context) {
         info: AppUpdateInfo,
         onProgress: (Float) -> Unit,
     ): Result<File> = withContext(Dispatchers.IO) {
+        val resolved = when (info.manifestKind) {
+            AppUpdateManifestKind.GitHubJsonAsset -> resolveManifestAsset(info)
+            else -> Result.success(info)
+        }.getOrElse { return@withContext Result.failure(it) }
+
         val request = Request.Builder()
-            .url(info.apkUrl)
+            .url(resolved.apkUrl)
             .get()
             .build()
         val updatesDir = File(appContext.cacheDir, "updates").also { it.mkdirs() }
-        val target = File(updatesDir, "ardtt-${info.versionName}.apk")
+        val target = File(updatesDir, "ardtt-${resolved.versionName}.apk")
         val fallbackClient = vpnBoundClientOrNull()
         val activeCall = AtomicReference<okhttp3.Call?>(null)
         currentCoroutineContext().job.invokeOnCompletion { cause ->
@@ -126,7 +112,7 @@ class AppUpdateManager(private val context: Context) {
                             error("APK недоступен: HTTP ${response.code}")
                         }
                         val body = response.body ?: error("Пустой ответ сервера")
-                        val total = body.contentLength().takeIf { it > 0 } ?: info.sizeBytes
+                        val total = body.contentLength().takeIf { it > 0 } ?: resolved.sizeBytes
                         body.byteStream().use { input ->
                             target.outputStream().use { output ->
                                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -154,9 +140,9 @@ class AppUpdateManager(private val context: Context) {
             if (!downloaded) {
                 throw (lastError ?: IllegalStateException("Не удалось загрузить APK"))
             }
-            if (info.sha256.isNotBlank()) {
+            if (resolved.sha256.isNotBlank()) {
                 val actual = target.sha256()
-                if (!actual.equals(info.sha256, ignoreCase = true)) {
+                if (!actual.equals(resolved.sha256, ignoreCase = true)) {
                     target.delete()
                     error("SHA-256 не совпал: $actual")
                 }
@@ -173,6 +159,101 @@ class AppUpdateManager(private val context: Context) {
             }
             Result.failure(e)
         }
+    }
+
+    private suspend fun resolveManifestAsset(info: AppUpdateInfo): Result<AppUpdateInfo> = runCatching {
+        val body = fetchText(info.apkUrl, githubApi = false)
+            ?: error("Не удалось загрузить ardtt-update.json")
+        GitHubReleaseUpdate.parseManifest(body)
+    }
+
+    private suspend fun checkGitHubRelease(): AppUpdateInfo? {
+        val latest = fetchText(GitHubReleaseUpdate.latestReleaseApiUrl(), githubApi = true)
+            ?.let(GitHubReleaseUpdate::parseRelease)
+        if (latest != null) {
+            if (latest.manifestKind == AppUpdateManifestKind.GitHubJsonAsset) {
+                return resolveManifestAsset(latest).getOrNull()
+            }
+            return latest
+        }
+        return fetchText(GitHubReleaseUpdate.releasesListApiUrl(), githubApi = true)
+            ?.let { raw ->
+                val releases = org.json.JSONArray(raw)
+                var best: AppUpdateInfo? = null
+                for (i in 0 until releases.length()) {
+                    val releaseJson = releases.optJSONObject(i) ?: continue
+                    val release = GitHubReleaseUpdate.parseRelease(releaseJson.toString())
+                        ?: continue
+                    val resolved = if (release.manifestKind == AppUpdateManifestKind.GitHubJsonAsset) {
+                        resolveManifestAsset(release).getOrNull()
+                    } else {
+                        release
+                    } ?: continue
+                    if (best == null || resolved.versionCode > best.versionCode) {
+                        best = resolved
+                    }
+                }
+                best
+            }
+    }
+
+    private suspend fun checkLegacyManifest(): Result<AppUpdateInfo> = runCatching {
+        val request = Request.Builder()
+            .url(BuildConfig.UPDATE_MANIFEST_URL)
+            .get()
+            .build()
+        val fallbackClient = vpnBoundClientOrNull()
+        val clients = buildList {
+            add(client)
+            if (fallbackClient != null) add(fallbackClient)
+        }
+        var lastError: Throwable? = null
+        for (candidate in clients) {
+            val parsed = runCatching {
+                candidate.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        error("Сервер обновлений вернул ${response.code}")
+                    }
+                    AppUpdateInfo.parse(response.body?.string().orEmpty())
+                }
+            }.onFailure { lastError = it }.getOrNull()
+            if (parsed != null) {
+                return@runCatching parsed
+            }
+        }
+        throw (lastError ?: IllegalStateException("Проверка обновлений недоступна"))
+    }
+
+    private fun fetchText(url: String, githubApi: Boolean): String? {
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .get()
+            .header("User-Agent", GitHubReleaseUpdate.userAgent())
+            .header("Cache-Control", "no-cache")
+        if (githubApi) {
+            requestBuilder.header("Accept", "application/vnd.github+json")
+            requestBuilder.header("X-GitHub-Api-Version", GitHubReleaseUpdate.API_VERSION)
+        }
+        val request = requestBuilder.build()
+        val fallbackClient = vpnBoundClientOrNull()
+        val clients = buildList {
+            add(client)
+            if (fallbackClient != null) add(fallbackClient)
+        }
+        var lastError: Throwable? = null
+        for (candidate in clients) {
+            val body = runCatching {
+                candidate.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        error("HTTP ${response.code}")
+                    }
+                    response.body?.string().orEmpty()
+                }
+            }.onFailure { lastError = it }.getOrNull()
+            if (!body.isNullOrBlank()) return body
+        }
+        lastError?.let { /* logged by caller */ }
+        return null
     }
 
     private fun vpnBoundClientOrNull(): OkHttpClient? {
@@ -222,6 +303,8 @@ class AppUpdateManager(private val context: Context) {
         appContext.startActivity(intent)
     }
 }
+
+class NoUpdateAvailableException : Exception("Обновлений нет")
 
 private fun File.sha256(): String {
     val digest = MessageDigest.getInstance("SHA-256")
