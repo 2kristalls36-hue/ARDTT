@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # One-shot: assemble clean ARDTT tree and force-push to GitHub (replaces existing content).
+#
+# Linux/macOS/Git Bash:
+#   ./scripts/push-ardtt-initial.sh
+#
+# Windows PowerShell (НЕ запускайте .sh напрямую — он не выполнится):
+#   .\scripts\push-ardtt-initial.ps1
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
