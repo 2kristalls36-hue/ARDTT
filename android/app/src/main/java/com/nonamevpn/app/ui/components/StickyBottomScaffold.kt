@@ -80,15 +80,14 @@ fun StickyBottomScaffold(
     Box(modifier = modifier.fillMaxSize()) {
         val feed: @Composable () -> Unit = {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 header()
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
                         .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
@@ -149,15 +148,14 @@ fun EdgeFeedColumn(
 ) {
     val feed: @Composable (Modifier: Modifier) -> Unit = { columnModifier ->
         Column(
-            modifier = columnModifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
+            modifier = columnModifier.fillMaxSize()
         ) {
             header()
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp)
                     .padding(bottom = NvpnBottomChrome.navigationReserve() + bottomExtra),
                 verticalArrangement = verticalArrangement,
             ) {
