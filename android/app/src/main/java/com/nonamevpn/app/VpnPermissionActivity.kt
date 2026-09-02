@@ -6,6 +6,7 @@ import android.net.VpnService
 import android.os.Bundle
 import android.widget.Toast
 import com.nonamevpn.app.core.ConnectionManager
+import com.nonamevpn.app.core.vpnPermissionDeniedHint
 
 /**
  * Lightweight activity for widget / shortcuts when system VPN consent is required.
@@ -29,7 +30,7 @@ class VpnPermissionActivity : Activity() {
             if (resultCode == RESULT_OK) {
                 ConnectionManager.get(applicationContext).connect()
             } else {
-                Toast.makeText(this, "Подключение не разрешено", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, vpnPermissionDeniedHint(this), Toast.LENGTH_LONG).show()
             }
         }
         finish()

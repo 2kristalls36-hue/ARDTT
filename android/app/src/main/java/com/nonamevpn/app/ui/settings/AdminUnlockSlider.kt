@@ -32,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -95,7 +97,16 @@ fun AdminUnlockSlider(
                 .align(Alignment.CenterStart)
                 .fillMaxHeight()
                 .width(with(density) { fillPx.toDp() })
-                .background(colors.primary.copy(alpha = 0.20f)),
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            colors.primary.copy(alpha = 0.22f),
+                            colors.primary.copy(alpha = 0.14f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
         )
         Text(
             "Перетащите вправо",

@@ -39,11 +39,13 @@ class AppSettingsRepository(private val context: Context) {
     private val excludedHosts = stringPreferencesKey("excluded_hosts")
     private val appsWhitelistMode = booleanPreferencesKey("apps_whitelist_mode")
     private val themeMode = stringPreferencesKey("theme_mode")
-    private val classicAppearance = booleanPreferencesKey("classic_appearance")
+    private val dynamicColors = booleanPreferencesKey("dynamic_colors")
+    private val uiHapticsEnabled = booleanPreferencesKey("ui_haptics_enabled")
     private val alphaChallengeHex = stringPreferencesKey("alpha_challenge_hex")
     private val alphaUnlocked = booleanPreferencesKey("alpha_unlocked")
     private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
     private val alphaUnlockLockUntil = longPreferencesKey("alpha_unlock_lock_until")
+    private val tunnelWallpaperVariant = intPreferencesKey("tunnel_wallpaper_variant")
     private val legacyWallpaper = stringPreferencesKey("app_wallpaper")
 
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
@@ -92,11 +94,20 @@ class AppSettingsRepository(private val context: Context) {
     val themeModeFlow: Flow<String> = context.dataStore.data.map {
         normalizeThemeMode(it[themeMode])
     }
-    /** Default false — user-mode illustrated wallpaper. True restores the gradient chrome. */
-    val classicAppearanceEnabled: Flow<Boolean> =
-        context.dataStore.data.map { it[classicAppearance] == true }
+    /** Default true — adapt accents to the active user wallpaper. */
+    val dynamicColorsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[dynamicColors] != false }
+    /** Default true — short haptic feedback for key UI actions. */
+    val uiHapticsEnabledFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[uiHapticsEnabled] != false }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
+    /** User tunnel gallery variant, rotates between app launches. */
+    val tunnelWallpaperVariantFlow: Flow<Int> =
+        context.dataStore.data.map { prefs ->
+            val raw = prefs[tunnelWallpaperVariant] ?: 0
+            raw.coerceAtLeast(0)
+        }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -251,19 +262,31 @@ class AppSettingsRepository(private val context: Context) {
         return parseLineSet(prefs[excludedHosts]).map { normalizeHost(it) }.filter { it.isNotBlank() }.toSet()
     }
 
-    suspend fun unlockAdmin() {
-        context.dataStore.edit { it[adminUnlocked] = true }
-    }
-
-    /** @deprecated PIN removed — use [unlockAdmin]. Kept for binary compat of older calls. */
-    suspend fun unlockAdmin(pin: String): Boolean {
-        unlockAdmin()
-        return true
-    }
-
     suspend fun setAdminPin(pin: String) {
-        // No-op: PIN flow removed in favour of slider unlock.
-        unlockAdmin()
+        context.dataStore.edit {
+            it[adminPinHash] = sha256(pin)
+            it[adminUnlocked] = true
+        }
+    }
+
+    /**
+     * First successful PIN creates the hash if none stored yet.
+     * Otherwise verifies against the stored SHA-256 hash.
+     */
+    suspend fun unlockAdmin(pin: String): Boolean {
+        var ok = false
+        context.dataStore.edit { prefs ->
+            val stored = prefs[adminPinHash]
+            if (stored.isNullOrBlank()) {
+                prefs[adminPinHash] = sha256(pin)
+                prefs[adminUnlocked] = true
+                ok = true
+            } else if (stored == sha256(pin)) {
+                prefs[adminUnlocked] = true
+                ok = true
+            }
+        }
+        return ok
     }
 
     suspend fun lockAdmin() {
@@ -282,13 +305,39 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[themeMode] = normalizeThemeMode(mode) }
     }
 
-    suspend fun setClassicAppearanceEnabled(enabled: Boolean) {
-        context.dataStore.edit { it[classicAppearance] = enabled }
+    suspend fun setDynamicColors(enabled: Boolean) {
+        context.dataStore.edit { it[dynamicColors] = enabled }
+    }
+
+    suspend fun setUiHapticsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[uiHapticsEnabled] = enabled }
     }
 
     suspend fun alphaUnlockedSnapshot(): Boolean {
         val prefs = context.dataStore.data.first()
         return prefs[alphaUnlocked] == true
+    }
+
+    /**
+     * On first launch keeps variant 0, then advances one step on each next
+     * process start (full close/open cycle).
+     */
+    suspend fun rotateTunnelWallpaperVariantOnAppStart(variantCount: Int) {
+        if (variantCount <= 1) return
+        context.dataStore.edit { prefs ->
+            val current = prefs[tunnelWallpaperVariant]
+            prefs[tunnelWallpaperVariant] = if (current == null) {
+                0
+            } else {
+                (current + 1).mod(variantCount)
+            }
+        }
+    }
+
+    suspend fun setTunnelWallpaperVariant(variant: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[tunnelWallpaperVariant] = variant.coerceAtLeast(0)
+        }
     }
 
     /**
@@ -343,13 +392,9 @@ class AppSettingsRepository(private val context: Context) {
         return result
     }
 
-    /** Removes obsolete wallpaper preferences from older builds. */
+    /** Removes obsolete wallpaper preference from older builds. */
     suspend fun clearLegacyWallpaperPreference() {
-        context.dataStore.edit {
-            it.remove(legacyWallpaper)
-            it.remove(intPreferencesKey("tunnel_wallpaper_variant"))
-            it.remove(booleanPreferencesKey("illustrated_wallpaper"))
-        }
+        context.dataStore.edit { it.remove(legacyWallpaper) }
     }
 
     private fun sha256(value: String): String {

@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -19,6 +20,41 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+
+/** Soft section card. */
+val LocalOpaqueSectionCards = staticCompositionLocalOf { false }
+
+/** User-mode illustrated wallpaper is visible behind tab content. */
+@Composable
+fun illustratedBackdropActive(): Boolean = LocalOpaqueSectionCards.current
+
+/** Title / primary label over illustrated wallpaper. */
+@Composable
+fun backdropTitleColor(): Color =
+    if (illustratedBackdropActive()) Color(0xFFF6FAFF) else MaterialTheme.colorScheme.primary
+
+/** Secondary label over illustrated wallpaper. */
+@Composable
+fun backdropMutedTextColor(): Color =
+    if (illustratedBackdropActive()) Color(0xFFD6E2F0) else MaterialTheme.colorScheme.onSurfaceVariant
+
+/** Inactive segmented-chip background when tabs sit on wallpaper. */
+@Composable
+fun backdropSegmentInactiveContainer(): Color {
+    if (!illustratedBackdropActive()) return Color.Transparent
+    val colors = MaterialTheme.colorScheme
+    val isDark = colors.background.luminance() < 0.22f
+    return if (isDark) {
+        lerp(colors.surface, colors.surfaceVariant, 0.10f)
+    } else {
+        lerp(colors.surface, colors.surfaceVariant, 0.28f)
+    }
+}
+
+/** Inactive segmented-chip label when tabs sit on wallpaper. */
+@Composable
+fun backdropSegmentInactiveContent(): Color =
+    if (illustratedBackdropActive()) Color(0xFFE5EDF8) else MaterialTheme.colorScheme.onSurfaceVariant
 
 /** Soft section card. */
 @Composable
@@ -38,9 +74,14 @@ fun AppSectionCard(
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
     val cardColor = color ?: if (isDark) {
-        lerp(colors.surface, colors.surfaceVariant, 0.10f).copy(alpha = 0.82f)
+        lerp(colors.surface, colors.surfaceVariant, 0.10f)
     } else {
-        lerp(colors.surface, colors.surfaceVariant, 0.28f).copy(alpha = 0.85f)
+        lerp(colors.surface, colors.surfaceVariant, 0.28f)
+    }
+    val contentColor = if (cardColor.luminance() > 0.56f) {
+        Color(0xFF1C1B1A)
+    } else {
+        Color(0xFFF6FAFF)
     }
     val borderColor = if (isDark) {
         colors.outlineVariant.copy(alpha = 0.26f)
@@ -51,10 +92,10 @@ fun AppSectionCard(
     Surface(
         shape = shape,
         color = cardColor,
-        contentColor = colors.onSurface,
+        contentColor = contentColor,
         border = border ?: if (showBorder) BorderStroke(1.dp, borderColor) else null,
-        shadowElevation = shadowElevation ?: if (isDark) 2.dp else 10.dp,
-        tonalElevation = tonalElevation ?: if (isDark) 0.dp else 2.dp,
+        shadowElevation = shadowElevation ?: if (isDark) 2.dp else 4.dp,
+        tonalElevation = tonalElevation ?: 0.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(

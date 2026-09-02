@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// RequestConfig запрашивает WireGuard конфиг через DTLS-соединение.
+// RequestConfig запрашивает legacy-конфиг через GETCONF.
 func RequestConfig(conn net.Conn, localPort, deviceID, password string) (string, error) {
 	payload := fmt.Sprintf("GETCONF:%s|%s|%s", localPort, deviceID, password)
 	if _, err := conn.Write([]byte(payload)); err != nil {
@@ -58,7 +58,7 @@ func SendAuth(conn net.Conn, deviceID, password string) error {
 }
 
 // RequestRawConfig запрашивает у сервера конфигурацию для raw-IP режима
-// (без WireGuard) — сервер отвечает "RAWCONF:ip|dns|mtu" (см. server/raw.go
+// (raw-IP) — сервер отвечает "RAWCONF:ip|dns|mtu" (см. server/raw.go
 // handleConnRaw). ip пусто на первый вызов, если сервер ещё не назначил его.
 func RequestRawConfig(conn net.Conn, deviceID, password string) (ip, dnsCSV string, mtu int, err error) {
 	payload := fmt.Sprintf("GETCONF_RAW:%s|%s", deviceID, password)

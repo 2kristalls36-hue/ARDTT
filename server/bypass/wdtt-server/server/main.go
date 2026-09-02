@@ -23,7 +23,7 @@ import (
 // ==================== Main ====================
 
 func main() {
-	listen := flag.String("listen", "0.0.0.0:56000", "DTLS адрес")
+	listen := flag.String("listen", "", "DTLS адрес (пусто = выключено)")
 	listenDirect := flag.String("listen-direct", "", "адрес для клиентов без DTLS (RTP-obfs AEAD напрямую); пусто = выключено")
 	listenRaw := flag.String("listen-raw", "", "адрес для raw-IP клиентов без WireGuard (свой TUN/NAT); пусто = выключено")
 	adminListen := flag.String("admin-listen", "", "HTTPS адрес admin API; пусто = выключено")
@@ -39,6 +39,9 @@ func main() {
 	botTokenFile := flag.String("bot-token-file", "", "файл Telegram Bot Token")
 	dnsFlag := flag.String("dns", "8.8.8.8", "DNS серверы для клиентов")
 	flag.Parse()
+	rawOnly := strings.TrimSpace(*listenRaw) != "" &&
+		strings.TrimSpace(*listen) == "" &&
+		strings.TrimSpace(*listenDirect) == ""
 	dns = *dnsFlag
 	mainPasswordValue, err := loadOptionalSecret(*mainPass, *mainPassFile)
 	if err != nil {
@@ -64,6 +67,10 @@ func main() {
 		for s := range sig {
 			if s == syscall.SIGHUP {
 				log.Println("[SYS] Получен сигнал SIGHUP. Перезагрузка базы паролей...")
+				if wgDev == nil {
+					log.Println("[ERR] WireGuard еще не запущен, пропуск SIGHUP")
+					continue
+				}
 				if err := reloadDB(wgDev); err != nil {
 					log.Printf("[ERR] Ошибка перезагрузки базы паролей: %v", err)
 				} else {
@@ -83,53 +90,60 @@ func main() {
 
 	initDB(*configDir, mainPasswordValue, *adminID, botTokenValue)
 
-	keys, err := loadOrGenerateKeys(*configDir)
-	if err != nil {
-		log.Fatalf("[WG] Ключи: %v", err)
-	}
-
 	enableBBR()
 
-	wgDev, err = startUserspaceWG(keys, *wgPort)
-	if err != nil {
-		log.Fatalf("[WG] Запуск: %v", err)
-	}
-	globalWgDev = wgDev
-	if removed := cleanupExpiredPasswords(wgDev); removed > 0 {
-		log.Printf("[DB] Удалено истёкших паролей при старте: %d", removed)
-	}
-	syncPersistedPeersToWG(wgDev)
-	defer func() {
-		if wgDev != nil {
-			wgDev.Close()
+	var keys *wgKeys
+	if !rawOnly {
+		keys, err = loadOrGenerateKeys(*configDir)
+		if err != nil {
+			log.Fatalf("[WG] Ключи: %v", err)
 		}
-		runCmdSilent("ip", "link", "del", wgIfaceName)
-	}()
+
+		wgDev, err = startUserspaceWG(keys, *wgPort)
+		if err != nil {
+			log.Fatalf("[WG] Запуск: %v", err)
+		}
+		globalWgDev = wgDev
+		if removed := cleanupExpiredPasswords(wgDev); removed > 0 {
+			log.Printf("[DB] Удалено истёкших паролей при старте: %d", removed)
+		}
+		syncPersistedPeersToWG(wgDev)
+		defer func() {
+			wgDev.Close()
+			runCmdSilent("ip", "link", "del", wgIfaceName)
+		}()
+	} else {
+		log.Println("[RAW] raw-only mode: DTLS/WireGuard path disabled")
+	}
 
 	go statsLoop(ctx, *configDir)
-	go expiredPasswordJanitor(ctx, wgDev)
-	go botLoop(botTokenValue, *adminID, wgDev)
+	if wgDev != nil {
+		go expiredPasswordJanitor(ctx, wgDev)
+		go botLoop(botTokenValue, *adminID, wgDev)
+	}
 
-	go func() {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/profile/challenge", handleAPIProfileChallenge)
-		mux.HandleFunc("/api/profile/status", handleAPIProfileStatus)
-		mux.HandleFunc("/api/profile/unbind", handleAPIProfileUnbind)
+	if *listen != "" {
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/api/profile/challenge", handleAPIProfileChallenge)
+			mux.HandleFunc("/api/profile/status", handleAPIProfileStatus)
+			mux.HandleFunc("/api/profile/unbind", handleAPIProfileUnbind)
 
-		log.Printf("[API] Запуск HTTP API на %s (TCP)...", *listen)
-		server := &http.Server{
-			Addr:              *listen,
-			Handler:           http.MaxBytesHandler(mux, 64<<10),
-			ReadHeaderTimeout: 5 * time.Second,
-			ReadTimeout:       10 * time.Second,
-			WriteTimeout:      10 * time.Second,
-			IdleTimeout:       30 * time.Second,
-			MaxHeaderBytes:    16 << 10,
-		}
-		if err := server.ListenAndServe(); err != nil {
-			log.Printf("[API] [ERR] Ошибка запуска HTTP API: %v", err)
-		}
-	}()
+			log.Printf("[API] Запуск HTTP API на %s (TCP)...", *listen)
+			server := &http.Server{
+				Addr:              *listen,
+				Handler:           http.MaxBytesHandler(mux, 64<<10),
+				ReadHeaderTimeout: 5 * time.Second,
+				ReadTimeout:       10 * time.Second,
+				WriteTimeout:      10 * time.Second,
+				IdleTimeout:       30 * time.Second,
+				MaxHeaderBytes:    16 << 10,
+			}
+			if err := server.ListenAndServe(); err != nil {
+				log.Printf("[API] [ERR] Ошибка запуска HTTP API: %v", err)
+			}
+		}()
+	}
 
 	if *adminListen != "" {
 		tokenBytes, tokenErr := os.ReadFile(*adminTokenFile)
@@ -162,29 +176,39 @@ func main() {
 		}()
 	}
 
-	addr, _ := net.ResolveUDPAddr("udp", *listen)
-	cert, certErr := selfsign.GenerateSelfSigned()
-	if certErr != nil {
-		log.Fatalf("[DTLS] Не удалось создать сертификат: %v", certErr)
-	}
 	if serverWrapKeys.Count() == 0 {
 		log.Fatalf("[WRAP] нет активных паролей для WRAP")
 	}
+	var listener net.Listener
+	wgEndpoint := ""
+	if !rawOnly {
+		addr, _ := net.ResolveUDPAddr("udp", *listen)
+		cert, certErr := selfsign.GenerateSelfSigned()
+		if certErr != nil {
+			log.Fatalf("[DTLS] Не удалось создать сертификат: %v", certErr)
+		}
 
-	wrapListener, err := listenWrapped(addr, serverWrapKeys)
-	if err != nil {
-		log.Fatalf("[WRAP] %v", err)
+		wrapListener, err := listenWrapped(addr, serverWrapKeys)
+		if err != nil {
+			log.Fatalf("[WRAP] %v", err)
+		}
+
+		listener, err = dtls.NewListenerWithOptions(
+			wrapListener,
+			dtls.WithCertificates(cert),
+			dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+			dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+			dtls.WithConnectionIDGenerator(dtls.RandomCIDGenerator(8)),
+			dtls.WithMTU(1100),
+		)
+		if err != nil {
+			log.Fatalf("[DTLS] %v", err)
+		}
+		context.AfterFunc(ctx, func() { listener.Close() })
+
+		wgEndpoint = fmt.Sprintf("127.0.0.1:%d", *wgPort)
+		log.Printf("   DTLS: %s | WG: %s | NAT: %s", *listen, wgEndpoint, natType)
 	}
-
-	listener, err := dtls.NewListenerWithOptions(wrapListener, dtls.WithCertificates(cert), dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret), dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), dtls.WithConnectionIDGenerator(dtls.RandomCIDGenerator(8)), dtls.WithMTU(1100))
-	if err != nil {
-		log.Fatalf("[DTLS] %v", err)
-	}
-	context.AfterFunc(ctx, func() { listener.Close() })
-
-	wgEndpoint := fmt.Sprintf("127.0.0.1:%d", *wgPort)
-
-	log.Printf("   DTLS: %s | WG: %s | NAT: %s", *listen, wgEndpoint, natType)
 	log.Printf("   WRAP: password HKDF + RTP AEAD | keys: %d", serverWrapKeys.Count())
 
 	var wg sync.WaitGroup
@@ -193,7 +217,7 @@ func main() {
 	// слоя шифрования и без DTLS-хендшейка. Отдельный порт ради обратной
 	// совместимости: старые клиенты продолжают ходить через -listen/DTLS,
 	// новые — сюда через -notls в go_client. Включается явно оператором.
-	if *listenDirect != "" {
+	if *listenDirect != "" && !rawOnly {
 		directAddr, err := net.ResolveUDPAddr("udp", *listenDirect)
 		if err != nil {
 			log.Fatalf("[DIRECT] адрес: %v", err)
@@ -270,6 +294,11 @@ func main() {
 	}
 
 	log.Println("[SERVER] Готов")
+	if rawOnly {
+		<-ctx.Done()
+		wg.Wait()
+		return
+	}
 
 	for {
 		dtlsConn, err := listener.Accept()

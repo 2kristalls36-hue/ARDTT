@@ -500,7 +500,7 @@ func RunSession(
 				log.Printf("[ВОРКЕР #%d] Конфиг уже был доставлен другим воркером", sessionID)
 			}
 		} else {
-			log.Printf("[ВОРКЕР #%d] Сервер ещё не выдал WireGuard-конфиг, повторим позже", sessionID)
+			log.Printf("[ВОРКЕР #%d] Сервер ещё не выдал legacy-конфиг, повторим позже", sessionID)
 		}
 	} else {
 		if authErr := SendAuth(activeConn, deviceID, password); authErr != nil {

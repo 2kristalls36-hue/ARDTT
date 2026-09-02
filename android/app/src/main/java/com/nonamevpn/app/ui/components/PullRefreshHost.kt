@@ -3,11 +3,14 @@ package com.nonamevpn.app.ui.components
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,7 +44,7 @@ fun pullRefreshHoldMs(elapsedMs: Long, minMs: Long = PULL_REFRESH_MIN_MS): Long 
 /**
  * Full-screen pull-down refresh.
  *
- * Host must wrap the whole tab feed (including [AppTabPageHeader]) so the spinner
+ * Host must wrap the whole tab feed (including [TabFeedHeader]) so the spinner
  * sits at [PULL_REFRESH_INDICATOR_TOP] and the feed slides by the same Material
  * threshold everywhere. Sticky CTA / search / tab bar stay outside.
  */
@@ -60,16 +63,33 @@ fun PullRefreshHost(
         modifier = modifier.fillMaxSize(),
         state = state,
         indicator = {
-            PullToRefreshDefaults.Indicator(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = PULL_REFRESH_INDICATOR_TOP),
-                isRefreshing = refreshing,
-                state = state,
-                containerColor = MaterialTheme.colorScheme.surface,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            // Use a fixed circular shell while refreshing to avoid partial clipping
+            // seen with the default indicator on some vendor builds.
+            if (refreshing) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = PULL_REFRESH_INDICATOR_TOP)
+                        .size(40.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    shadowElevation = 2.dp,
+                    tonalElevation = 0.dp,
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.5.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
         },
         content = content,
     )
