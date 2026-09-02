@@ -54,7 +54,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
 import com.nonamevpn.app.core.AppLog
-import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
@@ -70,10 +69,13 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.connectionControlsLocked
+import com.nonamevpn.app.ui.commitHideIp
+import com.nonamevpn.app.ui.commitPathMode
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
 import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.ChoiceChipButton
+import com.nonamevpn.app.ui.components.HideIpChipRow
+import com.nonamevpn.app.ui.components.PathModeChipRow
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
@@ -159,10 +161,6 @@ fun TunnelScreen(
     var callHashInitialized by remember { mutableStateOf(false) }
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     var showConnectionHint by rememberSaveable { mutableStateOf(true) }
-    LaunchedEffect(profile?.deviceId, hideIp) {
-        if (profile == null) return@LaunchedEffect
-        conn.setHideIp(hideIp)
-    }
     LaunchedEffect(ui.state) {
         if (connStateInitialized &&
             previousConnState != ConnState.Connected &&
@@ -387,58 +385,21 @@ fun TunnelScreen(
                     },
                     compact = true,
                 ) {
-                    ChoiceChipButton(
-                        label = "Авто",
-                        selected = pathMode == "auto",
+                    PathModeChipRow(
+                        pathMode = pathMode,
+                        hasCallHash = ui.hasCallHash,
                         enabled = !vpnLocked,
-                        onClick = {
+                        chipHeight = 40.dp,
+                        coloredSelection = true,
+                        onSelect = { mode ->
                             haptics.tick()
-                            scope.launch {
-                                settings.setPathMode("auto")
-                                conn.setPathMode(ConnPathMode.Auto, switchLive = true)
-                                AppLog.i("PathMode", "auto")
-                            }
+                            scope.launch { commitPathMode(settings, conn, mode) }
                         },
-                        modifier = Modifier.weight(1f),
-                        height = 40.dp,
-                    )
-                    ChoiceChipButton(
-                        label = "Прямое",
-                        selected = pathMode == "direct",
-                        enabled = !vpnLocked,
-                        selectedContainer = NvpnColors.pathDirect,
-                        onClick = {
+                        onNeedCallHash = {
                             haptics.tick()
-                            scope.launch {
-                                settings.setPathMode("direct")
-                                conn.setPathMode(ConnPathMode.Direct, switchLive = true)
-                                AppLog.i("PathMode", "direct")
-                            }
+                            showBypassMethodDialog = true
+                            highlightBypassDialog = true
                         },
-                        modifier = Modifier.weight(1f),
-                        height = 40.dp,
-                    )
-                    ChoiceChipButton(
-                        label = "Обход",
-                        selected = pathMode == "bypass",
-                        enabled = !vpnLocked,
-                        dimmed = !ui.hasCallHash,
-                        selectedContainer = NvpnColors.pathBypass,
-                        onClick = {
-                            haptics.tick()
-                            if (!ui.hasCallHash) {
-                                showBypassMethodDialog = true
-                                highlightBypassDialog = true
-                                return@ChoiceChipButton
-                            }
-                            scope.launch {
-                                settings.setPathMode("bypass")
-                                conn.setPathMode(ConnPathMode.Bypass, switchLive = true)
-                                AppLog.i("PathMode", "bypass")
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        height = 40.dp,
                     )
                 }
 
@@ -447,35 +408,14 @@ fun TunnelScreen(
                     subtitle = HideIpCopy.subtitle(hideIp),
                     compact = true,
                 ) {
-                    ChoiceChipButton(
-                        label = HideIpCopy.SERVER_CHIP,
-                        selected = !hideIp,
+                    HideIpChipRow(
+                        hideIp = hideIp,
                         enabled = !vpnLocked,
-                        onClick = {
+                        chipHeight = 40.dp,
+                        onSelect = { enabled ->
                             haptics.tick()
-                            scope.launch {
-                                settings.setHideIp(false)
-                                conn.setHideIp(false)
-                                AppLog.i("HideIP", "disabled (server address)")
-                            }
+                            scope.launch { commitHideIp(settings, conn, enabled) }
                         },
-                        modifier = Modifier.weight(1f),
-                        height = 40.dp,
-                    )
-                    ChoiceChipButton(
-                        label = HideIpCopy.HIDDEN_CHIP,
-                        selected = hideIp,
-                        enabled = !vpnLocked,
-                        onClick = {
-                            haptics.tick()
-                            scope.launch {
-                                settings.setHideIp(true)
-                                conn.setHideIp(true)
-                                AppLog.i("HideIP", "enabled (hidden address)")
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        height = 40.dp,
                     )
                 }
 
@@ -699,7 +639,7 @@ private fun QuickSettingRow(
     title: String,
     subtitle: String?,
     compact: Boolean = false,
-    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
         Text(
@@ -714,11 +654,7 @@ private fun QuickSettingRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp),
-            content = content,
-        )
+        content()
     }
 }
 

@@ -18,7 +18,6 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -48,7 +47,6 @@ import android.os.Build
 import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.core.AppLog
-import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.hasTrustedWifiBackgroundPermission
@@ -62,11 +60,19 @@ import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.TestingSessionGuard
 import com.nonamevpn.app.ui.connectionControlsLocked
+import com.nonamevpn.app.ui.persistDialPath
+import com.nonamevpn.app.ui.commitHideIp
+import com.nonamevpn.app.ui.commitPathMode
+import com.nonamevpn.app.ui.persistThemeMode
 import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.DialPathChipRow
+import com.nonamevpn.app.ui.components.HideIpChipRow
+import com.nonamevpn.app.ui.components.PathModeChipRow
 import com.nonamevpn.app.ui.components.TabPageHeader
+import com.nonamevpn.app.ui.components.ThemeModeChipRow
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.rememberPullRefresh
@@ -228,55 +234,22 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DialChip(
-                    "Авто",
-                    pathMode == "auto",
-                    {
-                        scope.launch {
-                            settings.setPathMode("auto")
-                            conn.setPathMode(ConnPathMode.Auto, switchLive = true)
-                        }
-                    },
-                    Modifier.weight(1f),
-                    enabled = !vpnLocked,
-                )
-                DialChip(
-                    "Прямое",
-                    pathMode == "direct",
-                    {
-                        scope.launch {
-                            settings.setPathMode("direct")
-                            conn.setPathMode(ConnPathMode.Direct, switchLive = true)
-                        }
-                    },
-                    Modifier.weight(1f),
-                    enabled = !vpnLocked,
-                )
-                DialChip(
-                    "Обход",
-                    pathMode == "bypass",
-                    {
-                        if (!connUi.hasCallHash) {
-                            scope.launch {
-                                kotlinx.coroutines.delay(80)
-                                runCatching { callHashBringIntoView.bringIntoView() }
-                            }
-                        } else {
-                            scope.launch {
-                                settings.setPathMode("bypass")
-                                conn.setPathMode(ConnPathMode.Bypass, switchLive = true)
-                            }
-                        }
-                    },
-                    Modifier.weight(1f),
-                    enabled = !vpnLocked,
-                    dimmed = !connUi.hasCallHash,
-                )
-            }
+            PathModeChipRow(
+                pathMode = pathMode,
+                hasCallHash = connUi.hasCallHash,
+                enabled = !vpnLocked,
+                onSelect = { mode ->
+                    if (uiHapticsEnabled) haptics.tick()
+                    scope.launch { commitPathMode(settings, conn, mode) }
+                },
+                onNeedCallHash = {
+                    if (uiHapticsEnabled) haptics.tick()
+                    scope.launch {
+                        kotlinx.coroutines.delay(80)
+                        runCatching { callHashBringIntoView.bringIntoView() }
+                    }
+                },
+            )
             Text(
                 when (pathMode) {
                     "direct" -> "Используется только прямое подключение."
@@ -300,37 +273,14 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DialChip(
-                    label = HideIpCopy.SERVER_CHIP,
-                    selected = !hideIp,
-                    onClick = {
-                        if (uiHapticsEnabled) haptics.tick()
-                        scope.launch {
-                            settings.setHideIp(false)
-                            conn.setHideIp(false)
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    enabled = !vpnLocked,
-                )
-                DialChip(
-                    label = HideIpCopy.HIDDEN_CHIP,
-                    selected = hideIp,
-                    onClick = {
-                        if (uiHapticsEnabled) haptics.tick()
-                        scope.launch {
-                            settings.setHideIp(true)
-                            conn.setHideIp(true)
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    enabled = !vpnLocked,
-                )
-            }
+            HideIpChipRow(
+                hideIp = hideIp,
+                enabled = !vpnLocked,
+                onSelect = { enabled ->
+                    if (uiHapticsEnabled) haptics.tick()
+                    scope.launch { commitHideIp(settings, conn, enabled) }
+                },
+            )
             if (admin) {
                 RowSetting(
                     title = "Скрыть быстрые настройки",
@@ -380,14 +330,10 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (admin) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    DialChip("Авто", dial == "auto", { scope.launch { settings.setDialPath("auto") } }, Modifier.weight(1f))
-                    DialChip("vkcalls", dial == "vkcalls", { scope.launch { settings.setDialPath("vkcalls") } }, Modifier.weight(1f))
-                    DialChip("Капча", dial == "legacy", { scope.launch { settings.setDialPath("legacy") } }, Modifier.weight(1f))
-                }
+                DialPathChipRow(
+                    dial = dial,
+                    onSelect = { path -> scope.launch { persistDialPath(settings, path) } },
+                )
             }
             RowSetting(
                 title = "Обновлять звонок автоматически",
@@ -414,14 +360,10 @@ fun SettingsScreen(
         ) {
             Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             if (!recordingActive) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    DialChip("Система", themeMode == "system", { scope.launch { settings.setThemeMode("system") } }, Modifier.weight(1f))
-                    DialChip("Светлая", themeMode == "light", { scope.launch { settings.setThemeMode("light") } }, Modifier.weight(1f))
-                    DialChip("Тёмная", themeMode == "dark", { scope.launch { settings.setThemeMode("dark") } }, Modifier.weight(1f))
-                }
+                ThemeModeChipRow(
+                    themeMode = themeMode,
+                    onSelect = { mode -> scope.launch { persistThemeMode(settings, mode) } },
+                )
                 RowSetting(
                     title = "Динамические цвета",
                     subtitle = if (dynamicColors) {
@@ -896,32 +838,6 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
             Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
         }
     }
-}
-
-@Composable
-private fun DialChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    dimmed: Boolean = false,
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        enabled = enabled,
-        label = { Text(label) },
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-            labelColor = if (dimmed) {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-        ),
-    )
 }
 
 @Composable
