@@ -55,13 +55,12 @@ import com.nonamevpn.app.profile.VpnProfileJson
 import com.nonamevpn.app.ui.latestAppVersionCode
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
-import com.nonamevpn.app.ui.components.TabFeedHeader
-import com.nonamevpn.app.ui.components.TabHeaderMetrics
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.launch
@@ -213,11 +212,7 @@ private fun ClientsScreen(
             refreshing = pull.refreshing,
             onRefresh = { if (!loading) pull.onRefresh() },
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = TabHeaderMetrics.HorizontalPadding),
-            ) {
+            Column(modifier = Modifier.fillMaxSize()) {
                 TabFeedHeader(
                     title = "Клиенты",
                     subtitle = when {

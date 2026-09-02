@@ -647,6 +647,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             }
         }
         }
+    }
 
         val chromePad = NvpnBottomChrome.stickyBottomPadding()
         val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()

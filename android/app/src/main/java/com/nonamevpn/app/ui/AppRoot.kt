@@ -12,12 +12,13 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.ListAlt
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,17 +59,19 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.ui.admin.LogsScreen
 import com.nonamevpn.app.ui.admin.NetworkScreen
-import com.nonamevpn.app.ui.admin.ServersHub
+import com.nonamevpn.app.ui.admin.ServersScreen
 import com.nonamevpn.app.ui.admin.TestingScreen
 import com.nonamevpn.app.ui.components.AppBackdrop
-import com.nonamevpn.app.ui.components.LocalOpaqueSectionCards
 import com.nonamevpn.app.ui.components.NavBarItem
+import com.nonamevpn.app.ui.components.LocalOpaqueSectionCards
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.NvpnNavigationBar
+import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.exceptions.ExceptionsScreen
 import com.nonamevpn.app.ui.profiles.ProfilesScreen
+import com.nonamevpn.app.ui.settings.SettingsScreen
 import com.nonamevpn.app.ui.telemetry.TelemetryRecordingOverlay
 import com.nonamevpn.app.ui.tunnel.TunnelScreen
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperBackdrop
@@ -76,8 +79,9 @@ import com.nonamevpn.app.ui.tunnel.TunnelWallpaperCache
 import com.nonamevpn.app.ui.tunnel.TunnelWallpaperSession
 import com.nonamevpn.app.ui.tunnel.resolveTunnelWallpaper
 import com.nonamevpn.app.ui.tunnel.tunnelWallpaperVisible
-import com.nonamevpn.app.ui.theme.wallpaperAdaptedColorScheme
+import com.nonamevpn.app.ui.tunnel.wallpaperBypassActive
 import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
+import com.nonamevpn.app.ui.theme.wallpaperAdaptedColorScheme
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -112,8 +116,8 @@ fun AppRoot(
     val conn = remember { ConnectionManager.get(context) }
     val scope = rememberCoroutineScope()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
-    val appsWhitelistMode by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
     val haptics = rememberSmartHaptics(uiHapticsEnabled)
@@ -121,6 +125,7 @@ fun AppRoot(
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+    val connUi by conn.ui.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
@@ -135,12 +140,27 @@ fun AppRoot(
         "light" -> false
         else -> isSystemInDarkTheme()
     }
+    val bypassWallpaper = wallpaperBypassActive(
+        pathMode = ConnPathMode.fromSetting(pathModeSetting),
+        activePath = connUi.activePath,
+        networkClass = connUi.probe?.networkClass,
+    )
     val tunnelWallpaper = resolveTunnelWallpaper(
         scene = tunnelWallpaperScene,
-        whitelistMode = appsWhitelistMode,
+        bypass = bypassWallpaper,
         darkTheme = darkTheme,
     )
-    val showUserWallpaper = tunnelWallpaperVisible(admin = admin)
+    val showUserWallpaper = tunnelWallpaperVisible(
+        admin = admin,
+        classicAppearance = classicAppearance,
+    )
+    LaunchedEffect(tunnelWallpaper, bypassWallpaper, darkTheme, showUserWallpaper) {
+        AppLog.i(
+            "TunnelWallpaper",
+            "draw scene=${tunnelWallpaper.scene} time=${tunnelWallpaper.time} " +
+                "bypass=$bypassWallpaper dark=$darkTheme visible=$showUserWallpaper",
+        )
+    }
     val baseColorScheme = MaterialTheme.colorScheme
     val wallpaperAccent = remember(showUserWallpaper, dynamicColors, tunnelWallpaper) {
         if (!showUserWallpaper || !dynamicColors) return@remember null
@@ -180,6 +200,7 @@ fun AppRoot(
     }
     val selectedNavRoute = currentRoute
     var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
+    var scrollToDialInSettings by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -198,6 +219,9 @@ fun AppRoot(
             val prep = runCatching { VpnService.prepare(activity ?: context) }.getOrNull()
             if (prep != null) {
                 AppLog.i("TunnelPrep", "Launching system tunnel consent")
+                // Some vendor Android builds render the system VPN consent
+                // surface translucent. Paint an opaque app surface first so
+                // system text never overlaps the busy tunnel screen.
                 vpnConsentBackgroundVisible = true
                 delay(100)
                 runCatching { vpnPermission.launch(prep) }
@@ -249,14 +273,14 @@ fun AppRoot(
 
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     LaunchedEffect(openCallHash) {
-        if (openCallHash && currentRoute != AppDestination.Tunnel.route) {
-            navigateTab(AppDestination.Tunnel.route)
+        if (openCallHash && currentRoute != AppDestination.Settings.route) {
+            navigateTab(AppDestination.Settings.route)
         }
     }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
     LaunchedEffect(openUpdateDownload) {
-        if (openUpdateDownload && currentRoute != AppDestination.Tunnel.route) {
-            navigateTab(AppDestination.Tunnel.route)
+        if (openUpdateDownload && currentRoute != AppDestination.Settings.route) {
+            navigateTab(AppDestination.Settings.route)
         }
     }
 
@@ -275,7 +299,7 @@ fun AppRoot(
         availableUpdateVersion != dismissedUpdateVersion &&
         !updateUi.downloading &&
         updateUi.downloadedFile == null &&
-        currentRoute != AppDestination.Tunnel.route
+        currentRoute != AppDestination.Settings.route
 
     LaunchedEffect(Unit) {
         AppLog.i("App", "UI ready")
@@ -332,6 +356,8 @@ fun AppRoot(
         ) {
             CompositionLocalProvider(LocalOpaqueSectionCards provides showUserWallpaper) {
                 Box(modifier = Modifier.fillMaxSize()) {
+                    // One scene × time-of-day for every user-mode tab, including Tunnel.
+                    // Keep the Image composed so tab switches do not flash Field.
                     if (showUserWallpaper) {
                         key(tunnelWallpaper.scene) {
                             TunnelWallpaperBackdrop(
@@ -361,14 +387,19 @@ fun AppRoot(
                             )
                         }
                         composable(AppDestination.Servers.route) {
-                            ServersHub(
+                            ServersScreen(
                                 serversRepo = serversRepo,
-                                deployEngine = deployEngine,
+                                engine = deployEngine,
                                 profiles = profiles,
+                                reselectSignal = tabReselectSignal[AppDestination.Servers.route] ?: 0,
                             )
                         }
                         composable(AppDestination.Profiles.route) {
-                            ProfilesScreen(profiles = profiles)
+                            ProfilesScreen(
+                                settings = settings,
+                                profiles = profiles,
+                                onApplied = { navigateTab(AppDestination.Tunnel.route) },
+                            )
                         }
                         composable(AppDestination.Exceptions.route) {
                             ExceptionsScreen(settings = settings)
@@ -378,6 +409,14 @@ fun AppRoot(
                         }
                         composable(AppDestination.Logs.route) {
                             LogsScreen()
+                        }
+                        composable(AppDestination.Settings.route) {
+                            SettingsScreen(
+                                settings = settings,
+                                isRecording = isRecording,
+                                scrollToDial = scrollToDialInSettings,
+                                onScrolledToDial = { scrollToDialInSettings = false },
+                            )
                         }
                         composable(AppDestination.Testing.route) {
                             TestingScreen(profiles = profiles)
@@ -408,7 +447,7 @@ fun AppRoot(
                                 onClick = {
                                     dismissedUpdateVersion = availableUpdateVersion
                                     PendingUiAction.requestOpenUpdateDownload()
-                                    navigateTab(AppDestination.Tunnel.route)
+                                    navigateTab(AppDestination.Settings.route)
                                 },
                             ),
                             dismissAction = NvpnDialogAction(
@@ -419,7 +458,7 @@ fun AppRoot(
                             ),
                         ) {
                             Text(
-                                "Найдена версия $availableUpdateVersion. Открыть настройки и начать загрузку?",
+                                "Найдена версия $availableUpdateVersion. Перейти в «Настройки» и начать загрузку?",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -433,11 +472,12 @@ fun AppRoot(
 
 private fun AppDestination.icon(): ImageVector = when (this) {
     AppDestination.Tunnel -> Icons.Outlined.VpnKey
-    AppDestination.Servers -> Icons.Outlined.Dns
+    AppDestination.Servers -> Icons.Outlined.Cloud
     AppDestination.Profiles -> Icons.Outlined.Folder
     AppDestination.Exceptions -> Icons.Outlined.FilterList
     AppDestination.Network -> Icons.Outlined.Wifi
-    AppDestination.Logs -> Icons.Outlined.ListAlt
-    AppDestination.Deploy -> Icons.Outlined.Dns
+    AppDestination.Logs -> Icons.Outlined.Terminal
+    AppDestination.Deploy -> Icons.Outlined.CloudUpload
+    AppDestination.Settings -> Icons.Outlined.Settings
     AppDestination.Testing -> Icons.Outlined.Science
 }
