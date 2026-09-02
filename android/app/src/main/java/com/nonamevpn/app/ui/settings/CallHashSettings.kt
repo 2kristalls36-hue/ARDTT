@@ -17,9 +17,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +43,7 @@ import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.ChoiceChipButton
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import kotlinx.coroutines.launch
@@ -151,13 +149,16 @@ fun CallHashSettingsContent(
                 Text("Ввести вручную")
             }
         }
-        SingleChoiceSegmentedButtonRow(
+        Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SegmentedButton(
+            ChoiceChipButton(
+                label = "Авторизация",
                 selected = !vkLoggedIn,
+                enabled = canEdit,
                 onClick = {
-                    if (vkLoggedIn || !canEdit) return@SegmentedButton
+                    if (vkLoggedIn || !canEdit) return@ChoiceChipButton
                     scope.launch {
                         busy = true
                         message = "Открывается авторизация ВКонтакте…"
@@ -175,51 +176,22 @@ fun CallHashSettingsContent(
                         }
                     }
                 },
-                enabled = canEdit,
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.primary,
-                    activeContentColor = colors.onPrimary,
-                    inactiveContainerColor = Color.Transparent,
-                    inactiveContentColor = colors.onSurfaceVariant,
-                    disabledActiveContainerColor = colors.primary.copy(alpha = 0.38f),
-                    disabledActiveContentColor = colors.onPrimary.copy(alpha = 0.72f),
-                    disabledInactiveContainerColor = Color.Transparent,
-                    disabledInactiveContentColor = colors.onSurfaceVariant.copy(alpha = 0.45f),
-                ),
-            ) {
-                Text(
-                    "Авторизация",
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
-            SegmentedButton(
+                modifier = Modifier.weight(1f),
+            )
+            ChoiceChipButton(
+                label = "Завершить сессию",
                 selected = vkLoggedIn,
+                enabled = !vpnActive && !busy,
+                selectedContainer = colors.error,
                 onClick = {
-                    if (!vkLoggedIn || vpnActive || busy) return@SegmentedButton
+                    if (!vkLoggedIn || vpnActive || busy) return@ChoiceChipButton
                     VkSession.clear()
                     vkLoggedIn = false
                     vkDisplayName = null
                     message = "Сессия ВКонтакте завершена."
                 },
-                enabled = !vpnActive && !busy,
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.error,
-                    activeContentColor = colors.onError,
-                    inactiveContainerColor = Color.Transparent,
-                    inactiveContentColor = colors.onSurfaceVariant,
-                    disabledActiveContainerColor = colors.error.copy(alpha = 0.38f),
-                    disabledActiveContentColor = colors.onError.copy(alpha = 0.72f),
-                    disabledInactiveContainerColor = Color.Transparent,
-                    disabledInactiveContentColor = colors.onSurfaceVariant.copy(alpha = 0.45f),
-                ),
-            ) {
-                Text(
-                    "Завершить сессию",
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+                modifier = Modifier.weight(1f),
+            )
         }
         Text(
             when {
