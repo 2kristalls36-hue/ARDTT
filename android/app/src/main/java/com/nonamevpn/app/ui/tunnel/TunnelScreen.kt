@@ -763,6 +763,7 @@ private fun UserTunnelSimpleScreen(
                 state = ui.state,
                 softInfo = ui.softInfo,
                 activePath = ui.activePath,
+                hideIp = ui.hideIp,
                 lastError = ui.lastError,
                 hasCallHash = ui.hasCallHash,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -786,6 +787,7 @@ private fun UserConnectStatusBlock(
     state: ConnState,
     softInfo: String?,
     activePath: VpnPath?,
+    hideIp: Boolean,
     lastError: String?,
     hasCallHash: Boolean,
     modifier: Modifier = Modifier,
@@ -793,15 +795,14 @@ private fun UserConnectStatusBlock(
     val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
     val primaryLine = userModeStatusPrimary(state, activePath)
     val details = when {
-        connectedLike -> null
-        !hasCallHash && (
+        !hasCallHash && !connectedLike && (
             activePath == VpnPath.Bypass ||
                 softInfo?.contains("обход", ignoreCase = true) == true ||
                 softInfo?.contains("звонка", ignoreCase = true) == true ||
                 softInfo?.contains("hash", ignoreCase = true) == true
             ) ->
             "Для режима «Обход» добавьте код звонка в настройках."
-        else -> userModeStatusDetails(state, softInfo, lastError)
+        else -> userModeStatusDetails(state, softInfo, lastError, activePath, hideIp)
     }
     val statusShadow = Shadow(
         color = Color.Black.copy(alpha = 0.45f),

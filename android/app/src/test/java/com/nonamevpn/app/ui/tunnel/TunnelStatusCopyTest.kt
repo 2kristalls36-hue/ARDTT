@@ -49,4 +49,70 @@ class TunnelStatusCopyTest {
             currentModeLabel(ConnState.Connecting, activePath = VpnPath.Bypass),
         )
     }
+
+    @Test
+    fun userModePrimaryReflectsStateAndPath() {
+        assertEquals(
+            "Прямое подключение",
+            userModeStatusPrimary(ConnState.Connected, VpnPath.Direct),
+        )
+        assertEquals(
+            "Обход",
+            userModeStatusPrimary(ConnState.Connected, VpnPath.Bypass),
+        )
+        assertEquals(
+            "Подключено",
+            userModeStatusPrimary(ConnState.Connected, activePath = null),
+        )
+        assertEquals(
+            "Пауза",
+            userModeStatusPrimary(ConnState.PausedTrustedWifi, VpnPath.Direct),
+        )
+        assertEquals(
+            "Отключено",
+            userModeStatusPrimary(ConnState.Ready, activePath = null),
+        )
+    }
+
+    @Test
+    fun userModeDetailsForConnectedAndPaused() {
+        assertEquals(
+            "Инкогнито",
+            userModeStatusDetails(
+                ConnState.Connected,
+                softInfo = null,
+                lastError = null,
+                activePath = VpnPath.Direct,
+                hideIp = true,
+            ),
+        )
+        assertEquals(
+            null,
+            userModeStatusDetails(
+                ConnState.Connected,
+                softInfo = null,
+                lastError = null,
+                activePath = VpnPath.Bypass,
+                hideIp = false,
+            ),
+        )
+        assertEquals(
+            "Прямое · При выходе из сети подключение восстановится.",
+            userModeStatusDetails(
+                ConnState.PausedTrustedWifi,
+                softInfo = "При выходе из сети подключение восстановится.",
+                lastError = null,
+                activePath = VpnPath.Direct,
+            ),
+        )
+        assertEquals(
+            "Доверенная сеть Wi‑Fi · Обход",
+            userModeStatusDetails(
+                ConnState.PausedTrustedWifi,
+                softInfo = null,
+                lastError = null,
+                activePath = VpnPath.Bypass,
+            ),
+        )
+    }
 }
