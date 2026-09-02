@@ -3,56 +3,32 @@ package com.nonamevpn.app.ui.tunnel
 import android.os.Build
 import android.telephony.SubscriptionManager
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.WbSunny
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,37 +36,21 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nonamevpn.app.BuildConfig
 import com.nonamevpn.app.R
 import com.nonamevpn.app.core.AppLog
@@ -107,8 +67,6 @@ import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
 import com.nonamevpn.app.profile.ProfileRepository
-import com.nonamevpn.app.profile.ProfileCatalog
-import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.connectionControlsLocked
@@ -118,7 +76,6 @@ import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.ChoiceChipButton
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
-import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
@@ -128,8 +85,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.roundToInt
-import kotlin.math.sin
 
 @Composable
 fun TunnelScreen(
@@ -137,11 +92,21 @@ fun TunnelScreen(
     profiles: ProfileRepository,
     onRequestConnect: () -> Unit,
 ) {
+    val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
+    if (!admin && !classicAppearance) {
+        UserTunnelScreen(
+            settings = settings,
+            profiles = profiles,
+            onRequestConnect = onRequestConnect,
+        )
+        return
+    }
+
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
-    val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
     var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
@@ -183,9 +148,6 @@ fun TunnelScreen(
 
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
-    val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
-    val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
@@ -335,68 +297,6 @@ fun TunnelScreen(
             }
         }
         refreshNetcheck(force = true)
-    }
-
-    val bypassActive = wallpaperBypassActive(
-        pathMode = ConnPathMode.fromSetting(pathMode),
-        activePath = ui.activePath,
-        networkClass = ui.probe?.networkClass,
-    )
-    if (!admin && !classicAppearance) {
-        UserTunnelSimpleScreen(
-            ui = ui,
-            catalogItems = catalog.items,
-            activeProfileId = catalog.activeId,
-            bypassActive = bypassActive,
-            showIllustratedWallpaper = true,
-            themeMode = themeMode,
-            onSwitchThemeMode = {
-                scope.launch {
-                    val nextThemeMode = when (themeMode) {
-                        "system" -> "light"
-                        "light" -> "dark"
-                        else -> "system"
-                    }
-                    settings.setThemeMode(nextThemeMode)
-                }
-            },
-            onToggleTunnel = {
-                haptics.tick()
-                when (ui.state) {
-                    ConnState.Connected,
-                    ConnState.Connecting,
-                    ConnState.Probing,
-                    ConnState.Disconnecting,
-                    ConnState.PausedTrustedWifi -> conn.disconnect()
-                    else -> onRequestConnect()
-                }
-            },
-            onSelectPreviousProfile = {
-                val items = catalog.items
-                if (items.size <= 1) return@UserTunnelSimpleScreen
-                haptics.tick()
-                val currentIndex = items.indexOfFirst { it.id == catalog.activeId }.let { if (it < 0) 0 else it }
-                val target = items[(currentIndex - 1 + items.size) % items.size]
-                scope.launch {
-                    profiles.setActive(target.id)
-                    settings.setProfileName(target.profile.name)
-                    conn.updateProfile(target.profile)
-                }
-            },
-            onSelectNextProfile = {
-                val items = catalog.items
-                if (items.size <= 1) return@UserTunnelSimpleScreen
-                haptics.tick()
-                val currentIndex = items.indexOfFirst { it.id == catalog.activeId }.let { if (it < 0) 0 else it }
-                val target = items[(currentIndex + 1) % items.size]
-                scope.launch {
-                    profiles.setActive(target.id)
-                    settings.setProfileName(target.profile.name)
-                    conn.updateProfile(target.profile)
-                }
-            },
-        )
-        return
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -725,652 +625,6 @@ fun TunnelScreen(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun UserTunnelSimpleScreen(
-    ui: com.nonamevpn.app.core.ConnUiState,
-    catalogItems: List<StoredProfile>,
-    activeProfileId: String?,
-    bypassActive: Boolean,
-    showIllustratedWallpaper: Boolean,
-    themeMode: String,
-    onSwitchThemeMode: () -> Unit,
-    onToggleTunnel: () -> Unit,
-    onSelectPreviousProfile: () -> Unit,
-    onSelectNextProfile: () -> Unit,
-) {
-    val droneExitDurationMs = 980L
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var animationRestartToken by remember { mutableStateOf(0) }
-    var showingBypassScene by remember { mutableStateOf(bypassActive && showIllustratedWallpaper) }
-    var dronesBlowAway by remember { mutableStateOf(false) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                animationRestartToken += 1
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-    LaunchedEffect(bypassActive, showIllustratedWallpaper) {
-        if (!showIllustratedWallpaper) {
-            dronesBlowAway = false
-            showingBypassScene = false
-            return@LaunchedEffect
-        }
-        if (bypassActive) {
-            dronesBlowAway = false
-            showingBypassScene = true
-            return@LaunchedEffect
-        }
-        if (showingBypassScene) {
-            dronesBlowAway = true
-            delay(droneExitDurationMs)
-            dronesBlowAway = false
-            showingBypassScene = false
-        }
-    }
-
-    val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
-    val connected = ui.state == ConnState.Connected
-    val disconnecting = ui.state == ConnState.Disconnecting
-    val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
-
-    val modeBadge = when (themeMode) {
-        "light" -> "light"
-        "dark" -> "dark"
-        else -> "auto"
-    }
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (showingBypassScene && showIllustratedWallpaper) {
-            WhitelistSkyAnimation(
-                restartToken = animationRestartToken,
-                blowAway = dronesBlowAway,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.37f)
-                    .offset(y = 18.dp)
-                    .align(Alignment.TopCenter),
-            )
-        }
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 8.dp, end = 12.dp)
-                .size(38.dp)
-                .combinedClickable(
-                    onClick = onSwitchThemeMode,
-                ),
-            shape = RoundedCornerShape(19.dp),
-            color = NvpnFloatingShell.shellColor(),
-            border = NvpnFloatingShell.shellBorder(),
-            shadowElevation = NvpnFloatingShell.shadowElevation,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                when (modeBadge) {
-                    "light" -> Icon(
-                        imageVector = Icons.Outlined.WbSunny,
-                        contentDescription = "Светлая тема",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    "dark" -> Icon(
-                        imageVector = Icons.Outlined.DarkMode,
-                        contentDescription = "Тёмная тема",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    else -> Text(
-                        "A",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                    )
-                }
-            }
-        }
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Spacer(modifier = Modifier.weight(1f))
-
-            TunnelPowerToggle(
-                connected = connected,
-                paused = ui.state == ConnState.PausedTrustedWifi,
-                busy = connectingLike || disconnecting,
-                onClick = onToggleTunnel,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .size(198.dp),
-            )
-
-            UserConnectStatusBlock(
-                state = ui.state,
-                softInfo = ui.softInfo,
-                activePath = ui.activePath,
-                hideIp = ui.hideIp,
-                lastError = ui.lastError,
-                hasCallHash = ui.hasCallHash,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            ProfileSwitcherBar(
-                activeItem = activeItem,
-                canSwitch = catalogItems.size > 1,
-                onPrev = onSelectPreviousProfile,
-                onNext = onSelectNextProfile,
-                busy = connectingLike,
-            )
-        }
-    }
-}
-
-@Composable
-private fun UserConnectStatusBlock(
-    state: ConnState,
-    softInfo: String?,
-    activePath: VpnPath?,
-    hideIp: Boolean,
-    lastError: String?,
-    hasCallHash: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
-    val primaryLine = userModeStatusPrimary(state, activePath)
-    val details = when {
-        !hasCallHash && !connectedLike && (
-            activePath == VpnPath.Bypass ||
-                softInfo?.contains("обход", ignoreCase = true) == true ||
-                softInfo?.contains("звонка", ignoreCase = true) == true ||
-                softInfo?.contains("hash", ignoreCase = true) == true
-            ) ->
-            "Для режима «Обход» добавьте код звонка в настройках."
-        else -> userModeStatusDetails(state, softInfo, lastError, activePath, hideIp)
-    }
-    val statusShadow = Shadow(
-        color = Color.Black.copy(alpha = 0.45f),
-        offset = Offset(0f, 1f),
-        blurRadius = 6f,
-    )
-    val statusTextStyle = MaterialTheme.typography.titleMedium.copy(
-        fontWeight = FontWeight.SemiBold,
-        shadow = statusShadow,
-    )
-    val detailsTextStyle = MaterialTheme.typography.bodyMedium.copy(
-        shadow = statusShadow,
-    )
-
-    Column(
-        modifier = modifier
-            .widthIn(max = 320.dp)
-            .padding(horizontal = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text = primaryLine,
-            style = statusTextStyle,
-            color = Color.White,
-            textAlign = TextAlign.Center,
-            minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = details.orEmpty(),
-            style = detailsTextStyle,
-            color = Color.White.copy(alpha = if (details != null) 0.92f else 0f),
-            textAlign = TextAlign.Center,
-            minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun TunnelPowerToggle(
-    connected: Boolean,
-    paused: Boolean,
-    busy: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val sessionLit = connected || paused || busy
-    val shellColor = NvpnFloatingShell.shellColor()
-    val accentColor = if (sessionLit) {
-        Color(0xFF35C759)
-    } else {
-        Color.White.copy(alpha = 0.75f)
-    }
-    val pulseScale by animateFloatAsState(
-        targetValue = if (sessionLit) 1.08f else 1f,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-        label = "awg_pulse_scale",
-    )
-    val pulseAlpha by animateFloatAsState(
-        targetValue = if (sessionLit) 0.28f else 0.12f,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-        label = "awg_pulse_alpha",
-    )
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        if (busy) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(198.dp),
-                color = accentColor,
-                strokeWidth = 4.dp,
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(198.dp * pulseScale)
-                    .background(
-                        color = accentColor.copy(alpha = pulseAlpha),
-                        shape = CircleShape,
-                    ),
-            )
-        }
-        Surface(
-            modifier = Modifier
-                .size(180.dp)
-                .clickable(enabled = !busy) {
-                    runCatching { onClick() }
-                        .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
-                },
-            color = shellColor,
-            border = NvpnFloatingShell.shellBorder(),
-            shape = CircleShape,
-            shadowElevation = NvpnFloatingShell.shadowElevation,
-        ) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                if (paused) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .width(16.dp)
-                                .height(62.dp)
-                                .background(accentColor, shape = RoundedCornerShape(10.dp)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .width(16.dp)
-                                .height(62.dp)
-                                .background(accentColor, shape = RoundedCornerShape(10.dp)),
-                        )
-                    }
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.PowerSettingsNew,
-                        contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
-                        tint = accentColor,
-                        modifier = Modifier.size(72.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-private data class FlightAssetSpec(
-    val resId: Int,
-    val sizeDp: Int,
-    val startXFrac: Float,
-    val startYFrac: Float,
-    val anchorXFrac: Float,
-    val anchorYFrac: Float,
-    val orbitRadiusXFrac: Float,
-    val orbitRadiusYFrac: Float,
-    val orbitDurationMs: Int,
-    val delayMs: Long,
-    val phaseRad: Float,
-    val windStrength: Float,
-    val gustFreqMul: Float,
-    val gustPhase: Float,
-    val compensationStrength: Float,
-    val dragLimitXFrac: Float,
-    val dragLimitYFrac: Float,
-    /** Sprite alpha-center offset from geometric center in normalized square size units. */
-    val centerBiasX: Float = 0f,
-    val centerBiasY: Float = 0f,
-)
-
-@Composable
-private fun WhitelistSkyAnimation(
-    restartToken: Int,
-    blowAway: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val assets = remember {
-        listOf(
-            FlightAssetSpec(
-                resId = R.drawable.tunnel_drone_far, // Was near (swapped)
-                sizeDp = 152, // 228 / 1.5
-                startXFrac = 0.40f,
-                startYFrac = -0.66f,
-                anchorXFrac = 0.37f,
-                anchorYFrac = 0.24f,
-                orbitRadiusXFrac = 0.027f,
-                orbitRadiusYFrac = 0.021f,
-                orbitDurationMs = 9_200,
-                delayMs = 80L,
-                phaseRad = 0.4f,
-                windStrength = 1.26f,
-                gustFreqMul = 0.92f,
-                gustPhase = 0.25f,
-                compensationStrength = 0.18f,
-                dragLimitXFrac = 0.09f,
-                dragLimitYFrac = 0.06f,
-                centerBiasX = 0.009f,
-                centerBiasY = 0.028f,
-            ),
-            FlightAssetSpec(
-                resId = R.drawable.tunnel_drone_mid,
-                sizeDp = 76, // 114 / 1.5
-                startXFrac = -0.42f,
-                startYFrac = 0.20f,
-                anchorXFrac = 0.13f,
-                anchorYFrac = 0.18f,
-                orbitRadiusXFrac = 0.023f,
-                orbitRadiusYFrac = 0.017f,
-                orbitDurationMs = 10_100,
-                delayMs = 0L,
-                phaseRad = 1.3f,
-                windStrength = 1.02f,
-                gustFreqMul = 1.18f,
-                gustPhase = 1.1f,
-                compensationStrength = 0.26f,
-                dragLimitXFrac = 0.08f,
-                dragLimitYFrac = 0.055f,
-                centerBiasX = 0.023f,
-                centerBiasY = -0.033f,
-            ),
-            FlightAssetSpec(
-                resId = R.drawable.tunnel_drone_near, // Was far (swapped)
-                sizeDp = 49, // 74 / 1.5
-                startXFrac = 1.26f,
-                startYFrac = 0.24f,
-                anchorXFrac = 0.72f,
-                anchorYFrac = 0.20f,
-                orbitRadiusXFrac = 0.018f,
-                orbitRadiusYFrac = 0.014f,
-                orbitDurationMs = 11_200,
-                delayMs = 140L,
-                phaseRad = 2.2f,
-                windStrength = 0.86f,
-                gustFreqMul = 1.43f,
-                gustPhase = 2.05f,
-                compensationStrength = 0.34f,
-                dragLimitXFrac = 0.065f,
-                dragLimitYFrac = 0.05f,
-                centerBiasX = 0.000f,
-                centerBiasY = -0.008f,
-            ),
-        )
-    }
-    BoxWithConstraints(modifier = modifier) {
-        val sceneWidthPx = constraints.maxWidth.toFloat()
-        val sceneHeightPx = constraints.maxHeight.toFloat()
-        assets.forEachIndexed { index, spec ->
-            AnimatedFlightAsset(
-                spec = spec,
-                index = index,
-                restartToken = restartToken,
-                blowAway = blowAway,
-                sceneWidthPx = sceneWidthPx,
-                sceneHeightPx = sceneHeightPx,
-            )
-        }
-    }
-}
-
-@Composable
-private fun AnimatedFlightAsset(
-    spec: FlightAssetSpec,
-    index: Int,
-    restartToken: Int,
-    blowAway: Boolean,
-    sceneWidthPx: Float,
-    sceneHeightPx: Float,
-) {
-    val density = LocalDensity.current
-    var launchStarted by remember(spec.resId, restartToken) { mutableStateOf(false) }
-    var dragging by remember(spec.resId, restartToken) { mutableStateOf(false) }
-    var rawDragDx by remember(spec.resId, restartToken) { mutableStateOf(0f) }
-    var rawDragDy by remember(spec.resId, restartToken) { mutableStateOf(0f) }
-    LaunchedEffect(spec.resId, restartToken) {
-        delay(spec.delayMs)
-        launchStarted = true
-    }
-    val arrivalProgress by animateFloatAsState(
-        targetValue = if (launchStarted) 1f else 0f,
-        animationSpec = tween(durationMillis = 4_200, easing = LinearOutSlowInEasing),
-        label = "flight_arrival_$index",
-    )
-    val orbitBlend by animateFloatAsState(
-        targetValue = if (arrivalProgress > 0.985f) 1f else 0f,
-        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-        label = "flight_orbit_blend_$index",
-    )
-    val blowAwayProgress by animateFloatAsState(
-        targetValue = if (blowAway) 1f else 0f,
-        animationSpec = tween(durationMillis = 980, easing = FastOutLinearInEasing),
-        label = "flight_blow_away_$index",
-    )
-    val dragDx by animateFloatAsState(
-        targetValue = if (dragging) rawDragDx else 0f,
-        animationSpec = if (dragging) {
-            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
-        } else {
-            tween(durationMillis = 420, easing = FastOutSlowInEasing)
-        },
-        label = "flight_drag_dx_$index",
-    )
-    val dragDy by animateFloatAsState(
-        targetValue = if (dragging) rawDragDy else 0f,
-        animationSpec = if (dragging) {
-            tween(durationMillis = 45, easing = LinearOutSlowInEasing)
-        } else {
-            tween(durationMillis = 420, easing = FastOutSlowInEasing)
-        },
-        label = "flight_drag_dy_$index",
-    )
-    val orbit by produceState(
-        initialValue = 0f,
-        key1 = spec.orbitDurationMs,
-        key2 = restartToken,
-    ) {
-        val periodNs = spec.orbitDurationMs.toLong() * 1_000_000L
-        val startNs = withFrameNanos { it }
-        while (true) {
-            val nowNs = withFrameNanos { it }
-            val elapsedNs = (nowNs - startNs).coerceAtLeast(0L)
-            val phase = if (periodNs <= 0L) 0f else {
-                ((elapsedNs % periodNs).toDouble() / periodNs.toDouble()).toFloat()
-            }
-            value = ((Math.PI * 2.0) * phase).toFloat()
-        }
-    }
-
-    val xFrac = spec.startXFrac + (spec.anchorXFrac - spec.startXFrac) * arrivalProgress
-    val yFrac = spec.startYFrac + (spec.anchorYFrac - spec.startYFrac) * arrivalProgress
-    // Smooth hover under wind: periodic waves with integer harmonics avoid restart jumps.
-    val base = orbit + spec.phaseRad
-    val windCarrier = sin((base * spec.gustFreqMul + spec.gustPhase).toDouble()).toFloat()
-    val xPrimary = sin(base.toDouble()).toFloat()
-    val xCompensation = sin((base * 2f + 0.9f).toDouble()).toFloat()
-    val xMicro = sin((base * 3f + 1.6f).toDouble()).toFloat()
-    val yPrimary = sin((base + 1.2f).toDouble()).toFloat()
-    val yCompensation = sin((base * 2f + 0.35f).toDouble()).toFloat()
-    val yMicro = sin((base * 3f + 2.1f).toDouble()).toFloat()
-    val windAmp = ((0.78f + 0.22f * windCarrier) * spec.windStrength).coerceAtLeast(0.05f) * orbitBlend
-    val comp = spec.compensationStrength.coerceIn(0.05f, 0.45f)
-    val micro = (0.10f + comp * 0.35f).coerceAtMost(0.22f)
-    val primary = (1f - comp - micro).coerceAtLeast(0.45f)
-    val orbitX = (xPrimary * primary + xCompensation * comp + xMicro * micro) *
-        (sceneWidthPx * spec.orbitRadiusXFrac) * windAmp
-    val orbitY = (yPrimary * (primary - 0.06f).coerceAtLeast(0.38f) + yCompensation * (comp + 0.04f) + yMicro * micro) *
-        (sceneHeightPx * spec.orbitRadiusYFrac) * windAmp
-    val wobbleRotation = (
-        sin((base + 0.2f).toDouble()).toFloat() * 0.9f +
-            sin((base * 2f + 1.4f).toDouble()).toFloat() * 0.35f
-        ) * orbitBlend
-    val windKickX = -sceneWidthPx * (0.36f + 0.12f * spec.windStrength) * blowAwayProgress
-    val windKickY = -sceneHeightPx * 0.10f * blowAwayProgress
-    val alpha = ((0.22f + 0.78f * arrivalProgress) * (1f - blowAwayProgress * 0.98f)).coerceIn(0f, 1f)
-    val blowRotation = -18f * blowAwayProgress
-    val dragLimitX = sceneWidthPx * spec.dragLimitXFrac
-    val dragLimitY = sceneHeightPx * spec.dragLimitYFrac
-    val baseX = xFrac * sceneWidthPx + orbitX + windKickX + dragDx
-    val baseY = yFrac * sceneHeightPx + orbitY + windKickY + dragDy
-    val layoutX = baseX.roundToInt()
-    val layoutY = baseY.roundToInt()
-    val drawOffsetX = baseX - layoutX
-    val drawOffsetY = baseY - layoutY
-
-    val touchSizeDp = (spec.sizeDp * 1.35f).dp
-    val imageSizePx = with(density) { spec.sizeDp.dp.toPx() }
-    val spriteFixX = -spec.centerBiasX * imageSizePx
-    val spriteFixY = -spec.centerBiasY * imageSizePx
-    Box(
-        modifier = Modifier
-            .size(touchSizeDp)
-            .offset { IntOffset(layoutX, layoutY) }
-            .pointerInput(spec.resId, restartToken, blowAway, dragLimitX, dragLimitY) {
-                detectDragGestures(
-                    onDragStart = {
-                        dragging = true
-                    },
-                    onDragEnd = {
-                        dragging = false
-                        rawDragDx = 0f
-                        rawDragDy = 0f
-                    },
-                    onDragCancel = {
-                        dragging = false
-                        rawDragDx = 0f
-                        rawDragDy = 0f
-                    },
-                ) { change, dragAmount ->
-                    if (blowAway) return@detectDragGestures
-                    change.consume()
-                    rawDragDx = (rawDragDx + dragAmount.x).coerceIn(-dragLimitX, dragLimitX)
-                    rawDragDy = (rawDragDy + dragAmount.y).coerceIn(-dragLimitY, dragLimitY)
-                }
-            }
-            .graphicsLayer {
-                translationX = drawOffsetX
-                translationY = drawOffsetY
-                this.alpha = alpha
-                rotationZ = wobbleRotation + blowRotation
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .graphicsLayer {
-                    translationX = spriteFixX
-                    translationY = spriteFixY
-                }
-                .drawBehind {
-                    val flightBlend = arrivalProgress.coerceIn(0f, 1f)
-                    val glowColor = Color(0xFF66D8FF).copy(alpha = 0.10f + 0.08f * flightBlend)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(glowColor, Color.Transparent),
-                            center = Offset(size.width / 2f, size.height / 2f),
-                            radius = size.minDimension * 0.56f,
-                        ),
-                        radius = size.minDimension * 0.56f,
-                        center = Offset(size.width / 2f, size.height / 2f),
-                    )
-                },
-        )
-        Image(
-            painter = painterResource(spec.resId),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.size(spec.sizeDp.dp),
-        )
-    }
-}
-
-@Composable
-private fun ProfileSwitcherBar(
-    activeItem: StoredProfile?,
-    canSwitch: Boolean,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    busy: Boolean,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = NvpnBottomChrome.navigationReserve() + 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        val commonButtonColors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
-            disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
-        )
-        if (canSwitch) {
-            Button(
-                onClick = onPrev,
-                enabled = !busy,
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier
-                    .height(NvpnBottomChrome.ButtonHeight)
-                    .width(62.dp),
-                colors = commonButtonColors,
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий профиль")
-            }
-        }
-        Button(
-            onClick = { if (canSwitch) onNext() },
-            enabled = activeItem != null && !busy,
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier
-                .weight(1f)
-                .height(NvpnBottomChrome.ButtonHeight),
-            colors = commonButtonColors,
-        ) {
-            Text(
-                activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль",
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (canSwitch) {
-            Button(
-                onClick = onNext,
-                enabled = !busy,
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier
-                    .height(NvpnBottomChrome.ButtonHeight)
-                    .width(62.dp),
-                colors = commonButtonColors,
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий профиль")
-            }
-        }
-    }
-}
 
 @Composable
 private fun TunnelConnectionHintBanner(

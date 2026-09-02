@@ -19,7 +19,6 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -28,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,8 +38,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import android.widget.Toast
@@ -51,12 +47,10 @@ import android.Manifest
 import android.os.Build
 import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.BuildConfig
-import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
-import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.hasTrustedWifiBackgroundPermission
 import com.nonamevpn.app.core.hasTrustedWifiLocationPermission
 import com.nonamevpn.app.core.nextTrustedWifiPermissionAsk
@@ -75,8 +69,6 @@ import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
-import com.nonamevpn.app.ui.components.NvpnDialog
-import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.theme.NvpnColors
@@ -91,8 +83,6 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     settings: AppSettingsRepository,
     isRecording: Boolean = false,
-    scrollToDial: Boolean = false,
-    onScrolledToDial: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -123,7 +113,6 @@ fun SettingsScreen(
     val openAppearanceSettings by PendingUiAction.openAppearanceSettings.collectAsStateWithLifecycle()
     val appearanceBringIntoView = remember { BringIntoViewRequester() }
     val scrollState = rememberScrollState()
-    var dialCardOffsetY by remember { mutableFloatStateOf(-1f) }
     val vpnSessionActive = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
         connUi.state == ConnState.PausedTrustedWifi ||
@@ -152,18 +141,6 @@ fun SettingsScreen(
         }
     }
 
-    LaunchedEffect(silent, dial, pathMode) {
-        conn.setSilentRecreate(silent)
-        conn.setWorkers(BypassWorkers.DEFAULT)
-        conn.setDialPath(
-            when (dial) {
-                "vkcalls" -> DialPath.VkCalls
-                "legacy" -> DialPath.Legacy
-                else -> DialPath.Auto
-            },
-        )
-        conn.setPathMode(ConnPathMode.fromSetting(pathMode))
-    }
     LaunchedEffect(openUpdateDownload, updateUi.visible, updateUi.downloading, updateUi.downloadedFile) {
         if (!openUpdateDownload) return@LaunchedEffect
         if (!updateUi.visible) {
@@ -198,12 +175,6 @@ fun SettingsScreen(
         updates.checkAndWait()
     }
 
-    LaunchedEffect(scrollToDial, dialCardOffsetY) {
-        if (scrollToDial && dialCardOffsetY >= 0f) {
-            scrollState.animateScrollTo(dialCardOffsetY.toInt().coerceAtLeast(0))
-            onScrolledToDial()
-        }
-    }
     LaunchedEffect(openCallHash) {
         if (!openCallHash) return@LaunchedEffect
         PendingUiAction.consumeCallHashSettings()
@@ -390,11 +361,7 @@ fun SettingsScreen(
         TrustedWifiSettingsCard(settings = settings)
 
         AppSectionCard(
-            modifier = Modifier
-                .bringIntoViewRequester(callHashBringIntoView)
-                .onGloballyPositioned { coordinates ->
-                    dialCardOffsetY = coordinates.positionInParent().y
-                },
+            modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
