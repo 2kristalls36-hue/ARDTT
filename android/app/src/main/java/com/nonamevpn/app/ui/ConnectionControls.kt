@@ -1,10 +1,28 @@
 package com.nonamevpn.app.ui
 
+import com.nonamevpn.app.bypass.DialPath
+import com.nonamevpn.app.core.BypassWorkers
+import com.nonamevpn.app.core.ConnPathMode
+import com.nonamevpn.app.core.ConnectionManager
+
 /** Path / Hide-IP chips stay locked during a session unless the user unlocked them. */
 internal fun connectionControlsLocked(
     sessionActive: Boolean,
     unlockWhileConnected: Boolean,
 ): Boolean = sessionActive && !unlockWhileConnected
+
+/** Push Settings → ConnectionManager without duplicating the mapping in every screen. */
+internal fun applySessionConnectionPrefs(
+    conn: ConnectionManager,
+    silentRecreate: Boolean,
+    dialSetting: String,
+    pathModeSetting: String,
+) {
+    conn.setSilentRecreate(silentRecreate)
+    conn.setWorkers(BypassWorkers.DEFAULT)
+    conn.setDialPath(DialPath.fromSetting(dialSetting))
+    conn.setPathMode(ConnPathMode.fromSetting(pathModeSetting))
+}
 
 /** Tunnel «Параметры подключения» card — hidden when the Settings toggle is on. */
 internal fun tunnelConnectionParamsVisible(hideQuickSettings: Boolean): Boolean = !hideQuickSettings
