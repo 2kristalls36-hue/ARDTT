@@ -4,7 +4,7 @@
 Клиентская сторона деплоя — вкладка **Серверы** в режиме администратора Android.  
 Состав сервисов и смысл Path A/B: [ARCHITECTURE.md](ARCHITECTURE.md), [LEGEND.md](LEGEND.md).
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.16**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.17**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -86,7 +86,7 @@ WARP — не третий путь подключения, а **egress** выб
 
 ```bash
 NVPN_PUBLIC_HOST='…' NVPN_DIRECT_PORT=51820 NVPN_BYPASS_PORT=56003 \
-NVPN_DEPLOY_VERSION='1.0.16' bash /opt/nonamevpn/install.sh
+NVPN_DEPLOY_VERSION='1.0.17' bash /opt/nonamevpn/install.sh
 ```
 
 6. Разбор stdout построчно (UTF-8, без ANSI):
@@ -151,7 +151,7 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 ```bash
 cd server
 cp .env.example .env          # NVPN_PUBLIC_HOST=IP_VPS
-echo 1.0.16 > DEPLOY_VERSION   # или оставить как в репо
+echo 1.0.17 > DEPLOY_VERSION   # или оставить как в репо
 docker compose up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh alice   # JSON профиля в stdout
@@ -162,7 +162,7 @@ curl -s http://127.0.0.1:9100/health
 Тот же `server/install.sh` можно прогнать вручную, если положить дерево в `/opt/nonamevpn/stack` (или залить tar) и вызвать от root:
 
 ```bash
-export NVPN_PUBLIC_HOST=1.2.3.4 NVPN_DEPLOY_VERSION=1.0.16
+export NVPN_PUBLIC_HOST=1.2.3.4 NVPN_DEPLOY_VERSION=1.0.17
 bash /opt/nonamevpn/install.sh
 ```
 
@@ -325,13 +325,13 @@ docker compose down          # контейнеры; data/ остаётся
 ```bash
 docker compose -f /opt/nonamevpn/stack/docker-compose.yml ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.16"
+# ожидается: "ok": true, "deployVersion": "1.0.17"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'
 ```
 
-С телефона: карточка VPS «Онлайн · деплой 1.0.16 · актуален», создание клиента, импорт профиля, Connect.
+С телефона: карточка VPS «Онлайн · деплой 1.0.17 · актуален», создание клиента, импорт профиля, Connect.
 
 ---
 

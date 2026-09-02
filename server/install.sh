@@ -372,7 +372,7 @@ for svc in $BUILD_SERVICES; do
   fi
   docker builder prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
-  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/{printf \"%d\", $2/1024}' /proc/meminfo) МБ"
+  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo) МБ"
 done
 rm -f "$BUILD_LOG"
 
