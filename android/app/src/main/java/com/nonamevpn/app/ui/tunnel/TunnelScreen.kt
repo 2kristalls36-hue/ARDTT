@@ -32,10 +32,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.matchParentSize
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -114,11 +112,10 @@ import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
-import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
-import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.TabFeedColumn
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.settings.BypassMethodDialog
@@ -319,25 +316,13 @@ fun TunnelScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        TabFeedColumn(
+            title = "Подключение",
+            scrollBottomPadding = NvpnBottomChrome.scrollContentPadding(),
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
+            modifier = Modifier.fillMaxSize(),
         ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-        ) {
-            AppTabPageHeader(
-                title = "Подключение",
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
             val missingCallHashHint = !ui.hasCallHash
             if (missingCallHashHint || showConnectionHint) {
                 TunnelConnectionHintBanner(
@@ -613,8 +598,6 @@ fun TunnelScreen(
                     )
                 }
             }
-        }
-        }
         }
     }
 

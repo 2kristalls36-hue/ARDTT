@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -55,8 +56,8 @@ import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.ui.components.AppPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.AppTabPageHeader
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.ui.components.TabFeedColumn
 import kotlinx.coroutines.launch
 
 private enum class ServersPane {
@@ -153,13 +154,9 @@ private fun ServersListPane(
     onOpen: (DeployTarget) -> Unit,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
-    EdgeFeedColumn(
-        header = {
-            AppTabPageHeader(
-                title = "Серверы",
-                subtitle = "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
-            )
-        },
+    TabFeedColumn(
+        title = "Серверы",
+        subtitle = "VPS для деплоя и пользователей. Откройте сервер для деплоя или списка users.",
     ) {
         Button(
             onClick = onAdd,

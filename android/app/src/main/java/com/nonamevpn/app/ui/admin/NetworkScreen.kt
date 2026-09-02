@@ -7,9 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,9 +34,7 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.AppTabPageHeader
-import com.nonamevpn.app.ui.components.NvpnBottomChrome
-import com.nonamevpn.app.ui.components.PullRefreshHost
+import com.nonamevpn.app.ui.components.TabFeedColumn
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -108,26 +104,12 @@ fun NetworkScreen(
 
     val pull = rememberPullRefresh { refreshAll() }
 
-    PullRefreshHost(
+    TabFeedColumn(
+        title = "Сеть",
+        subtitle = "Публичный IP провайдера и туннеля",
         refreshing = pull.refreshing,
         onRefresh = pull.onRefresh,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-        ) {
-            AppTabPageHeader(
-                title = "Сеть",
-                subtitle = "Публичный IP провайдера и туннеля",
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = NvpnBottomChrome.navigationReserve() + 24.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
             IpInfoCard(
                 title = "IP провайдера",
                 info = provider,
@@ -149,8 +131,6 @@ fun NetworkScreen(
                     )
                 }
             }
-            }
-        }
     }
 }
 

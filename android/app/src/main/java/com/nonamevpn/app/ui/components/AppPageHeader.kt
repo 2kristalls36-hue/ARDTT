@@ -26,8 +26,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** Shared metrics so every bottom-tab title sits on the same Y. */
-private val TabTitleRowHeight = 44.dp
-private val TabHeaderTopAfterStatusBar = 8.dp
+object TabHeaderMetrics {
+    val TitleRowHeight = 44.dp
+    val TopPaddingAfterStatusBar = 8.dp
+    val HorizontalPadding = 16.dp
+    val BottomPaddingBelowTitle = 12.dp
+}
+
+private val TabTitleRowHeight = TabHeaderMetrics.TitleRowHeight
+private val TabHeaderTopAfterStatusBar = TabHeaderMetrics.TopPaddingAfterStatusBar
 
 /**
  * Shared page chrome for tabs and nested admin screens.
@@ -81,7 +88,7 @@ fun AppPageHeader(
                     Modifier
                 },
             )
-            .padding(start = startPad, end = endPad, top = topPad, bottom = 12.dp),
+            .padding(start = startPad, end = endPad, top = topPad, bottom = TabHeaderMetrics.BottomPaddingBelowTitle),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(

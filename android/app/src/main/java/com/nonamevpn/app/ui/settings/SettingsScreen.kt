@@ -71,8 +71,7 @@ import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.AppTabPageHeader
-import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.ui.components.TabFeedColumn
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.theme.NvpnColors
 import com.nonamevpn.app.update.AppUpdateController
@@ -81,13 +80,9 @@ import kotlinx.coroutines.launch
 /** Full-screen settings (kept for compatibility). Prefer [SettingsSheet] from Tunnel gear. */
 @Composable
 fun SettingsScreen(settings: AppSettingsRepository) {
-    EdgeFeedColumn(
-        header = {
-            AppTabPageHeader(
-                title = "Настройки",
-                subtitle = "Параметры подключения и приложения",
-            )
-        },
+    TabFeedColumn(
+        title = "Настройки",
+        subtitle = "Параметры подключения и приложения",
     ) {
         SettingsContent(settings = settings)
     }

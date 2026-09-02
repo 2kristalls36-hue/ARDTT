@@ -95,10 +95,9 @@ import com.nonamevpn.app.core.ExceptionAppVisibility
 import com.nonamevpn.app.core.HostExclusion
 import com.nonamevpn.app.core.appIconDecodeSize
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.TabFeedShell
 import com.nonamevpn.app.ui.components.backdropSegmentInactiveContainer
 import com.nonamevpn.app.ui.components.backdropSegmentInactiveContent
-import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.settings.AppSettingsRepository
 import java.util.Locale
@@ -318,20 +317,13 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        TabFeedShell(
+            title = "Исключения",
+            subtitle = "Приложения и сайты вне туннеля",
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-            ) {
-                AppTabPageHeader(
-                    title = "Исключения",
-                    subtitle = "Приложения и сайты вне туннеля",
-                )
-
+            modifier = Modifier.fillMaxSize(),
+            belowHeader = {
                 if (busy) {
                     androidx.compose.material3.LinearProgressIndicator(
                         modifier = Modifier
@@ -343,7 +335,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     )
                 }
 
-                // Приложения слева, сайты справа (в отличие от qWDTT).
                 SingleChoiceSegmentedButtonRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -393,7 +384,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         )
                     }
                 }
-
+            },
+        ) {
                 AppSectionCard(
                     modifier = Modifier
                         .weight(1f)
@@ -645,8 +637,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         }
                     }
                 }
-                }
-            }
             }
         }
 
