@@ -114,6 +114,7 @@ fun AppRoot(
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
+    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val bypassWallpaper by remember(conn, pathModeSetting) {
         conn.ui
             .map { ui ->
@@ -309,12 +310,13 @@ fun AppRoot(
         AppLog.i("App", if (admin) "Подробные логи (админ)" else "Минимальные логи")
     }
 
-    LaunchedEffect(silent, dial, pathModeSetting) {
+    LaunchedEffect(silent, dial, pathModeSetting, hideIp) {
         applySessionConnectionPrefs(
             conn = conn,
             silentRecreate = silent,
             dialSetting = dial,
             pathModeSetting = pathModeSetting,
+            hideIp = hideIp,
         )
     }
 

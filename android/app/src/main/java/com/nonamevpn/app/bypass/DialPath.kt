@@ -7,6 +7,12 @@ enum class DialPath {
     Legacy,
     ;
 
+    fun toSetting(): String = when (this) {
+        Auto -> "auto"
+        VkCalls -> "vkcalls"
+        Legacy -> "legacy"
+    }
+
     companion object {
         fun fromSetting(raw: String?): DialPath = when (raw?.lowercase()?.trim()) {
             "vkcalls" -> VkCalls

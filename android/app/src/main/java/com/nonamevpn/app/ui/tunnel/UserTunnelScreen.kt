@@ -69,6 +69,9 @@ import com.nonamevpn.app.profile.ProfileCatalog
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.StoredProfile
 import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.ui.nextThemeMode
+import com.nonamevpn.app.ui.persistThemeMode
+import com.nonamevpn.app.ui.themeModeVisualKey
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
@@ -88,7 +91,6 @@ fun UserTunnelScreen(
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val scope = rememberCoroutineScope()
-    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
@@ -102,10 +104,6 @@ fun UserTunnelScreen(
         conn.updateProfile(profile)
         settings.setProfileName(profile?.name.orEmpty())
         conn.startInitialProbe()
-    }
-    LaunchedEffect(profile?.deviceId, hideIp) {
-        if (profile == null) return@LaunchedEffect
-        conn.setHideIp(hideIp)
     }
     LaunchedEffect(ui.state) {
         if (connStateInitialized &&
@@ -139,14 +137,7 @@ fun UserTunnelScreen(
         showIllustratedWallpaper = true,
         themeMode = themeMode,
         onSwitchThemeMode = {
-            scope.launch {
-                val nextThemeMode = when (themeMode) {
-                    "system" -> "light"
-                    "light" -> "dark"
-                    else -> "system"
-                }
-                settings.setThemeMode(nextThemeMode)
-            }
+            scope.launch { persistThemeMode(settings, nextThemeMode(themeMode)) }
         },
         onToggleTunnel = {
             haptics.tick()
@@ -239,11 +230,7 @@ private fun UserTunnelSimpleScreen(
     val connected = ui.state == ConnState.Connected
     val disconnecting = ui.state == ConnState.Disconnecting
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
-    val modeBadge = when (themeMode) {
-        "light" -> "light"
-        "dark" -> "dark"
-        else -> "auto"
-    }
+    val modeBadge = themeModeVisualKey(themeMode)
     Box(modifier = Modifier.fillMaxSize()) {
         if (showingBypassScene && showIllustratedWallpaper) {
             WhitelistSkyAnimation(
