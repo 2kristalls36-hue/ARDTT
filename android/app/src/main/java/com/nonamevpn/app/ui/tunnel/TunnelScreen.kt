@@ -68,6 +68,7 @@ import com.nonamevpn.app.core.underlayIdentity
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
+import com.nonamevpn.app.ui.PathModeCopy
 import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.commitHideIp
 import com.nonamevpn.app.ui.commitPathMode
@@ -375,14 +376,7 @@ fun TunnelScreen(
                 )
                 QuickSettingRow(
                     title = "Маршрут",
-                    subtitle = when {
-                        pathMode == "direct" -> "Только прямое подключение."
-                        pathMode == "bypass" && ui.hasCallHash ->
-                            "Только обход. Код звонка — в настройках."
-                        pathMode == "bypass" ->
-                            "Код звонка не задан. Нажмите «Обход», чтобы открыть карточку."
-                        else -> "Сначала прямое, при недоступности — обход."
-                    },
+                    subtitle = PathModeCopy.help(pathMode, ui.hasCallHash, compact = true),
                     compact = true,
                 ) {
                     PathModeChipRow(

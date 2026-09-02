@@ -13,6 +13,7 @@ import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
+import com.nonamevpn.app.ui.PathModeCopy
 import com.nonamevpn.app.ui.pathModeNeedsCallHash
 import com.nonamevpn.app.ui.theme.NvpnColors
 
@@ -30,14 +31,14 @@ fun PathModeChipRow(
     val selected = ConnPathMode.fromSetting(pathMode)
     SettingChipRow(modifier) {
         SettingChoiceChip(
-            label = "Авто",
+            label = PathModeCopy.AUTO,
             selected = selected == ConnPathMode.Auto,
             enabled = enabled,
             height = chipHeight,
             onClick = { onSelect(ConnPathMode.Auto) },
         )
         SettingChoiceChip(
-            label = "Прямое",
+            label = PathModeCopy.DIRECT,
             selected = selected == ConnPathMode.Direct,
             enabled = enabled,
             height = chipHeight,
@@ -45,7 +46,7 @@ fun PathModeChipRow(
             onClick = { onSelect(ConnPathMode.Direct) },
         )
         SettingChoiceChip(
-            label = "Обход",
+            label = PathModeCopy.BYPASS,
             selected = selected == ConnPathMode.Bypass,
             enabled = enabled,
             dimmed = !hasCallHash,
