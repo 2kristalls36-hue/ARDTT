@@ -44,7 +44,7 @@ fun pullRefreshHoldMs(elapsedMs: Long, minMs: Long = PULL_REFRESH_MIN_MS): Long 
 /**
  * Full-screen pull-down refresh.
  *
- * Host must wrap the whole tab feed (including [AppTabPageHeader]) so the spinner
+ * Host must wrap the whole tab feed (including [TabFeedHeader]) so the spinner
  * sits at [PULL_REFRESH_INDICATOR_TOP] and the feed slides by the same Material
  * threshold everywhere. Sticky CTA / search / tab bar stay outside.
  */

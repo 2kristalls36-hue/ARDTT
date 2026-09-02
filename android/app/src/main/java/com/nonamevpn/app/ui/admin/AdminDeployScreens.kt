@@ -57,7 +57,7 @@ import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.ServerOsProbe
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
-import com.nonamevpn.app.ui.components.AppPageHeader
+import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
@@ -221,11 +221,10 @@ private fun ServerOverviewPane(
 ) {
     EdgeFeedColumn(
         header = {
-            AppPageHeader(
+            TabPageHeader(
                 title = target.name,
                 subtitle = "${target.sshUser}@${target.host}:${target.sshPort}",
                 onBack = onBack,
-                alignTabTitle = true,
             )
         },
     ) {
@@ -359,11 +358,10 @@ fun DeployScreen(
 
     EdgeFeedColumn(
         header = {
-            AppPageHeader(
+            TabPageHeader(
                 title = "Деплой",
                 subtitle = "SSH-установка стека на VPS (Docker: provision / direct / bypass / warp). После успеха — пользователи через provision :9100.",
                 onBack = onBack,
-                alignTabTitle = true,
             )
         },
     ) {

@@ -112,7 +112,7 @@ import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
-import com.nonamevpn.app.ui.components.AppTabPageHeader
+import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.ChoiceChipButton
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
@@ -324,7 +324,7 @@ fun TunnelScreen(
             onRefresh = pull.onRefresh,
             modifier = Modifier.fillMaxSize(),
             header = {
-                AppTabPageHeader(title = "Подключение")
+                TabPageHeader(title = "Подключение")
             },
         ) {
             val missingCallHashHint = !ui.hasCallHash
