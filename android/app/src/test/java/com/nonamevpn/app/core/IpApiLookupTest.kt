@@ -30,4 +30,20 @@ class IpApiLookupTest {
         assertEquals("", info.ip)
         assertEquals("private range", info.error)
     }
+
+    @Test
+    fun lookupEndpointUsesIpPath() {
+        assertEquals(
+            "http://ip-api.com/json/1.2.3.4?fields=status,message,query,isp,city,country,countryCode",
+            IpApiLookup.lookupEndpoint("1.2.3.4"),
+        )
+    }
+
+    @Test
+    fun friendlyErrorHidesBindFailures() {
+        assertEquals(
+            "Не удалось определить IP",
+            IpApiLookup.friendlyError("Binding socket to network 634 failed: EPERM (Operation not permitted)"),
+        )
+    }
 }
