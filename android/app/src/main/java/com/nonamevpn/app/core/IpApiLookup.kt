@@ -1,9 +1,7 @@
 package com.nonamevpn.app.core
 
 import android.content.Context
-import android.net.ConnectivityManager
 import android.net.Network
-import android.net.NetworkCapabilities
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
@@ -137,14 +135,5 @@ object IpApiLookup {
     private fun openHttp(url: URL, bindNetwork: Network?): HttpURLConnection {
         val raw = if (bindNetwork != null) bindNetwork.openConnection(url) else url.openConnection()
         return raw as HttpURLConnection
-    }
-
-    private fun pickVpnNetwork(context: Context): Network? {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        return cm.allNetworks.firstOrNull { n ->
-            val caps = cm.getNetworkCapabilities(n) ?: return@firstOrNull false
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        }
     }
 }
