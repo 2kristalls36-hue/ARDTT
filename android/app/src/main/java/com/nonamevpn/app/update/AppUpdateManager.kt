@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.nonamevpn.app.BuildConfig
 import java.io.File
+import java.net.InetAddress
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
@@ -22,6 +23,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -177,7 +179,12 @@ class AppUpdateManager(private val context: Context) {
         val vpn = pickVpnNetwork() ?: return null
         return client.newBuilder()
             .socketFactory(vpn.socketFactory)
-            .dns { hostname -> vpn.getAllByName(hostname).toList() }
+            .dns(
+                object : Dns {
+                    override fun lookup(hostname: String): List<InetAddress> =
+                        vpn.getAllByName(hostname).toList()
+                },
+            )
             .build()
     }
 

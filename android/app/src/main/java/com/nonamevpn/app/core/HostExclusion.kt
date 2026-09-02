@@ -97,7 +97,8 @@ object HostExclusion {
     ): List<IpRoute> {
         val out = LinkedHashMap<String, IpRoute>()
         for (raw in hosts) {
-            parseIpv4Cidr(raw)?.let { cidr ->
+            val cidr = parseIpv4Cidr(raw)
+            if (cidr != null) {
                 out[cidr.key] = cidr
                 continue
             }

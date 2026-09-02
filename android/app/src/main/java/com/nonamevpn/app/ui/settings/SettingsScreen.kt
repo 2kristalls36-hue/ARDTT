@@ -11,24 +11,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,12 +35,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import android.widget.Toast
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.os.Build
@@ -71,74 +72,37 @@ import com.nonamevpn.app.legal.TestingModeAgreement
 import com.nonamevpn.app.telemetry.TelemetryRecorder
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.TabPageHeader
+import com.nonamevpn.app.ui.components.EdgeFeedColumn
+import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.NvpnDialog
+import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.theme.NvpnColors
 import com.nonamevpn.app.update.AppUpdateController
+import com.nonamevpn.app.update.AppUpdateInfo
+import com.nonamevpn.app.update.updateCardCopy
+import com.nonamevpn.app.update.updatePrimaryActionLabel
 import kotlinx.coroutines.launch
 
-/** Full-screen settings (kept for compatibility). Prefer [SettingsSheet] from Tunnel gear. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SettingsScreen(settings: AppSettingsRepository) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        SettingsContent(settings = settings)
-    }
-}
-
-/** Dialog host for settings opened from Tunnel gear. */
-@Composable
-fun SettingsSheet(
+fun SettingsScreen(
     settings: AppSettingsRepository,
-    onDismiss: () -> Unit,
+    isRecording: Boolean = false,
+    scrollToDial: Boolean = false,
+    onScrolledToDial: () -> Unit = {},
 ) {
-    val scrollState = rememberScrollState()
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.92f),
-        ) {
-            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Настройки",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    TextButton(onClick = onDismiss) { Text("Закрыть") }
-                }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(scrollState),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    SettingsContent(settings = settings)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun SettingsContent(settings: AppSettingsRepository) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val updates = remember { AppUpdateController.get(context) }
     val updateUi by updates.ui.collectAsStateWithLifecycle()
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
-    val hasPin by settings.hasAdminPin.collectAsStateWithLifecycle(initialValue = false)
+    val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val recorder = remember { TelemetryRecorder.get(context) }
+    val recorderActive by recorder.isRecording.collectAsStateWithLifecycle()
+    val recordingActive = isRecording || recorderActive
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -147,6 +111,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val unlockConnControls by settings.unlockConnControlsFlow.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
     val connUi by conn.ui.collectAsStateWithLifecycle()
@@ -157,6 +122,7 @@ fun SettingsContent(settings: AppSettingsRepository) {
     val updateBringIntoView = remember { BringIntoViewRequester() }
     val openAppearanceSettings by PendingUiAction.openAppearanceSettings.collectAsStateWithLifecycle()
     val appearanceBringIntoView = remember { BringIntoViewRequester() }
+    val scrollState = rememberScrollState()
     var dialCardOffsetY by remember { mutableFloatStateOf(-1f) }
     val vpnSessionActive = connUi.state == ConnState.Connecting ||
         connUi.state == ConnState.Connected ||
@@ -164,7 +130,6 @@ fun SettingsContent(settings: AppSettingsRepository) {
         connUi.state == ConnState.Disconnecting
     val vpnLocked = connectionControlsLocked(vpnSessionActive, unlockConnControls)
     val scope = rememberCoroutineScope()
-    var pin by remember { mutableStateOf("") }
     var adminHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
     var highlightAppearanceCard by remember { mutableStateOf(false) }
@@ -199,13 +164,44 @@ fun SettingsContent(settings: AppSettingsRepository) {
         )
         conn.setPathMode(ConnPathMode.fromSetting(pathMode))
     }
-    LaunchedEffect(openUpdateDownload) {
+    LaunchedEffect(openUpdateDownload, updateUi.visible, updateUi.downloading, updateUi.downloadedFile) {
         if (!openUpdateDownload) return@LaunchedEffect
+        if (!updateUi.visible) {
+            updates.checkAndWait()
+        }
+        kotlinx.coroutines.delay(120)
+        runCatching { updateBringIntoView.bringIntoView() }
+        if (
+            !updateUi.downloading &&
+            updateUi.downloadedFile == null &&
+            updateUi.available?.isNewer == true
+        ) {
+            updates.download()
+        }
         PendingUiAction.consumeOpenUpdateDownload()
+    }
+    LaunchedEffect(openAppearanceSettings) {
+        if (!openAppearanceSettings) return@LaunchedEffect
+        kotlinx.coroutines.delay(120)
+        runCatching { appearanceBringIntoView.bringIntoView() }
+        highlightAppearanceCard = true
+        kotlinx.coroutines.delay(550)
+        highlightAppearanceCard = false
+        PendingUiAction.consumeOpenAppearanceSettings()
+    }
+
+    LaunchedEffect(Unit) {
         updates.checkInBackground()
-        scope.launch {
-            kotlinx.coroutines.delay(80)
-            runCatching { updateBringIntoView.bringIntoView() }
+    }
+
+    val pull = rememberPullRefresh {
+        updates.checkAndWait()
+    }
+
+    LaunchedEffect(scrollToDial, dialCardOffsetY) {
+        if (scrollToDial && dialCardOffsetY >= 0f) {
+            scrollState.animateScrollTo(dialCardOffsetY.toInt().coerceAtLeast(0))
+            onScrolledToDial()
         }
     }
     LaunchedEffect(openCallHash) {
@@ -217,7 +213,31 @@ fun SettingsContent(settings: AppSettingsRepository) {
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    EdgeFeedColumn(
+        scrollState = scrollState,
+        refreshing = pull.refreshing,
+        onRefresh = pull.onRefresh,
+        header = {
+            TabPageHeader(
+                title = "Настройки приложения",
+                subtitle = "Режим: ${if (admin) "администратор" else "пользователь"}",
+            )
+        },
+    ) {
+        if (updateUi.visible) {
+            UpdateSettingsCard(
+                modifier = Modifier.bringIntoViewRequester(updateBringIntoView),
+                info = updateUi.available,
+                downloading = updateUi.downloading,
+                progress = updateUi.progress,
+                message = updateUi.message,
+                downloadedFile = updateUi.downloadedFile != null,
+                onDownload = { updates.download() },
+                onCancel = { updates.cancel() },
+                onInstall = { updates.install() },
+            )
+        }
+
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -425,8 +445,8 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f + 0.50f * appearanceHighlightAlpha),
             ),
         ) {
+            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             if (!recordingActive) {
-                Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -461,6 +481,18 @@ fun SettingsContent(settings: AppSettingsRepository) {
                     )
                 }
             }
+            if (!admin) {
+                RowSetting(
+                    title = "Классический вид",
+                    subtitle = if (classicAppearance) {
+                        "Стандартный градиент, без обоев и дронов."
+                    } else {
+                        "Выключен. На вкладках — иллюстрации, на туннеле — дроны при обходе."
+                    },
+                    checked = classicAppearance,
+                    onCheckedChange = { scope.launch { settings.setClassicAppearanceEnabled(it) } },
+                )
+            }
             RowSetting(
                 title = "Уведомление",
                 subtitle = if (notifVisible) {
@@ -484,18 +516,6 @@ fun SettingsContent(settings: AppSettingsRepository) {
             )
         }
 
-        UpdateSettingsCard(
-            modifier = Modifier.bringIntoViewRequester(updateBringIntoView),
-            info = updateUi.available,
-            downloading = updateUi.downloading,
-            progress = updateUi.progress,
-            message = updateUi.message,
-            downloadedFile = updateUi.downloadedFile != null,
-            onDownload = { updates.download() },
-            onCancel = { updates.cancel() },
-            onInstall = { updates.install() },
-        )
-
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -513,46 +533,26 @@ fun SettingsContent(settings: AppSettingsRepository) {
             )
             Text(
                 if (admin) {
-                    "Открыты Серверы и Логи."
-                } else if (hasPin) {
-                    "Расширенные разделы доступны по PIN администратора."
+                    "Открыты «Сервера», «Деплой» и «Журналы». Телеметрия — после включения тестирования."
                 } else {
-                    "Для доступа к расширенным разделам установите PIN администратора."
+                    "Переместите ползунок вправо до конца."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!admin) {
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(8) },
-                    label = { Text("PIN") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                )
-                OutlinedButton(
-                    onClick = {
+                AdminUnlockSlider(
+                    onUnlocked = {
                         scope.launch {
-                            if (pin.length < 4) {
-                                adminHint = "PIN не короче 4 цифр"
-                                return@launch
-                            }
-                            val ok = settings.unlockAdmin(pin)
-                            adminHint = if (ok) "Режим администратора активирован" else "Неверный PIN"
-                            if (ok) {
-                                pin = ""
-                                AppLog.i("Admin", "Unlocked via PIN")
-                            }
+                            settings.unlockAdmin()
+                            adminHint = "Режим администратора активирован."
+                            AppLog.i("Admin", "Unlocked via slider")
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text(if (hasPin) "Разблокировать админа" else "Создать PIN и войти")
-                }
+                    onIncomplete = {
+                        adminHint = "Доведите ползунок до конца."
+                    },
+                )
             } else {
                 RowSetting(
                     title = "Тестирование",
@@ -572,43 +572,19 @@ fun SettingsContent(settings: AppSettingsRepository) {
                 )
                 OutlinedButton(
                     onClick = {
-                        scope.launch {
-                            settings.lockAdmin()
-                            adminHint = "Снова режим пользователя"
-                            pin = ""
+                        if (!TestingSessionGuard.canLeaveTestingSession(recordingActive)) {
+                            refuseLeaveTestingSession()
+                        } else {
+                            scope.launch {
+                                settings.lockAdmin()
+                                adminHint = null
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                 ) {
                     Text("Завершить сессию администратора")
-                }
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(8) },
-                    label = { Text("Новый PIN") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                )
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            if (pin.length < 4) {
-                                adminHint = "Новый PIN не короче 4 цифр"
-                                return@launch
-                            }
-                            settings.setAdminPin(pin)
-                            pin = ""
-                            adminHint = "PIN обновлён"
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Text("Сменить PIN")
                 }
             }
             adminHint?.let {
