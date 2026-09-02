@@ -1,17 +1,27 @@
-# ARDTT
+# ARDTT — Amnezia & RAW Dial over TURN Tunnel
+
+<p align="center">
+  <img src="docs/assets/ardtt-icon.png" alt="ARDTT icon" width="128" height="128" />
+</p>
+
+**ARDTT** — Android-клиент и self-hosted сервер для защищённого туннеля до **вашего VPS**: прямой путь на **AmneziaWG 2.0** или резервный **RAW Dial via TURN** — сырые IP-пакеты через медиарелей ВК TURN-серверов; снаружи резервный путь похож на зашифрованный медиатрафик звонка (без WireGuard поверх TURN).
+
+> [!WARNING]
+> ## Назначение проекта
+> ARDTT — технический инструмент для туннелирования трафика через **ваш** сервер (VPS). Проект распространяется в ознакомительных и исследовательских целях, в том числе для изучения сетевых протоколов и self-hosted VPN.
+>
+> Авторы **не призывают** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Неофициальный продукт: Amnezia, VK, Cloudflare.
 
 **ARDTT** = **A**mnezia + **R**AW **D**ial via **T**URN / **T**elephony-style path.
-
-Клиент под Android и self-hosted сервер на вашем VPS: быстрый прямой VPN на AmneziaWG 2.0 и автоматический обход **RAW через TURN**, если до сервера нет прямой видимости.
 
 > Имя **не** WDTT/AWDTT: историческая **W** в WDTT — от WireGuard. Path B у нас — **RAW** из **qWDTT / SpaceNeuroX**, не WG-поверх-TURN.
 
 Полная легенда: [docs/LEGEND.md](docs/LEGEND.md).  
 Техническая схема: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-<p align="center">
-  <img src="docs/assets/ardtt-icon.png" alt="ARDTT icon" width="128" height="128" />
-</p>
+## Лицензия
+
+Проект распространяется под **GNU General Public License v3.0** — [LICENSE](LICENSE), атрибуции — [NOTICE](NOTICE).
 
 ---
 
@@ -125,7 +135,7 @@ ARDTT/
 
 ## Лицензия
 
-**GNU GPL v3** — [LICENSE](LICENSE), атрибуции — [NOTICE](NOTICE).
+**GNU GPL v3** — см. также блок в начале README.
 
 Не официальный продукт Amnezia, VK или Cloudflare.
 
