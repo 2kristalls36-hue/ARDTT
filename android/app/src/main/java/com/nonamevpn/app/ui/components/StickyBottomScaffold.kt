@@ -115,9 +115,9 @@ fun StickyBottomScaffold(
     }
 }
 
-/** Scrollable spacer so the feed continues under the status bar. */
+/** Scrollable spacer: status bar only. Title top pad lives in [AppTabPageHeader]. */
 @Composable
-fun EdgeFeedTopInset(extra: Dp = 8.dp) {
+fun EdgeFeedTopInset(extra: Dp = 0.dp) {
     Spacer(
         Modifier.height(
             WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + extra,

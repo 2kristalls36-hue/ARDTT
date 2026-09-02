@@ -73,7 +73,6 @@ fun AppSectionCard(
 ) {
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.22f
-    val opaque = LocalOpaqueSectionCards.current
     val cardColor = color ?: if (isDark) {
         lerp(colors.surface, colors.surfaceVariant, 0.10f)
     } else {
