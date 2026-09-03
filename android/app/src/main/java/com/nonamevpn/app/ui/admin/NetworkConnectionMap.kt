@@ -55,6 +55,7 @@ internal fun buildNetworkMapLayout(
     hideIp: Boolean,
     sessionUp: Boolean,
     observedLastHop: String? = null,
+    liveCascadeHost: String? = null,
 ): NetworkMapLayout {
     val hops = buildList {
         add(NetworkMapHop(NetworkMapHopKind.Provider, NetworkMapCopy.PROVIDER))
@@ -62,7 +63,7 @@ internal fun buildNetworkMapLayout(
         val vps1 = hopHost(profileHost)
             ?: hopHost(server?.publicHost)
             ?: hopHost(server?.host)
-        val vps2 = resolveCascadeExitHost(server, vps1, observedLastHop)
+        val vps2 = resolveCascadeExitHost(server, vps1, observedLastHop, liveCascadeHost)
         if (!vps1.isNullOrBlank()) {
             if (vps2 != null) {
                 add(NetworkMapHop(NetworkMapHopKind.Vps1, NetworkMapCopy.VPS1, vps1))
@@ -78,19 +79,19 @@ internal fun buildNetworkMapLayout(
     return NetworkMapLayout(hops)
 }
 
-/** Deploy cascade host, else a live last-hop IP that is not the entry VPS or CloudFlare. */
+/** Deploy cascade host, else live entry health, else a last-hop WAN that is not VPS1 or CloudFlare. */
 internal fun resolveCascadeExitHost(
     server: DeployTarget?,
     vps1: String?,
     observedLastHop: String?,
+    liveCascadeHost: String? = null,
 ): String? {
-    val fromDeploy = if (server?.cascadeEnabled == true) hopHost(server.cascadeHost) else null
-    if (!fromDeploy.isNullOrBlank() && lastHopCanBeVps2(vps1, fromDeploy)) {
-        return fromDeploy
-    }
-    val last = hopHost(observedLastHop)
-    if (lastHopCanBeVps2(vps1, last)) return last
-    return null
+    val candidates = listOf(
+        if (server?.cascadeEnabled == true) hopHost(server.cascadeHost) else null,
+        hopHost(liveCascadeHost),
+        hopHost(observedLastHop),
+    )
+    return candidates.firstOrNull { lastHopCanBeVps2(vps1, it) }
 }
 
 internal fun lastHopCanBeVps2(vps1: String?, lastHop: String?): Boolean {
