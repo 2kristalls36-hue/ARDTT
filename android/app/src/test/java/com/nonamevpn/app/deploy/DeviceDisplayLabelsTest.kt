@@ -68,4 +68,27 @@ class ProvisionUserSummaryParseTest {
         assertEquals("203.0.113.10", users[0].lastExternalIp)
         assertFalse(users[0].online)
     }
+
+    @Test
+    fun readsVersionCodeWhenJsonNumberIsString() {
+        val users = ProvisionAdminApi.parseUsers(
+            """
+            [{
+              "name": "alice",
+              "hostId": 2,
+              "deviceId": "dev-abc12345",
+              "deviceIds": ["dev-abc12345"],
+              "hideIp": false,
+              "createdAt": "2026-01-01T00:00:00Z",
+              "appVersion": "0.5.201",
+              "appVersionCode": "219",
+              "deviceAppVersions": {"dev-abc12345": "0.5.201"},
+              "deviceAppVersionCodes": {"dev-abc12345": "219"}
+            }]
+            """.trimIndent(),
+        )
+        assertEquals("0.5.201", users[0].appVersion)
+        assertEquals(219, users[0].appVersionCode)
+        assertEquals(219, users[0].deviceAppVersionCodes["dev-abc12345"])
+    }
 }

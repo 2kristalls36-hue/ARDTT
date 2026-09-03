@@ -110,6 +110,21 @@ internal data class ClientAppVersionView(
     val tone: ClientAppVersionTone,
 )
 
+internal fun clientDeviceAppVersion(
+    user: ProvisionAdminApi.UserSummary,
+    deviceId: String,
+): String? {
+    val id = deviceId.trim()
+    if (id.isEmpty()) return null
+    val name = user.deviceAppVersions[id]?.trim().orEmpty()
+    val code = user.deviceAppVersionCodes[id] ?: 0
+    return when {
+        name.isNotEmpty() -> name
+        code > 0 -> "сборка $code"
+        else -> null
+    }
+}
+
 internal fun clientAppVersionView(
     user: ProvisionAdminApi.UserSummary,
     latestCode: Int,
