@@ -423,7 +423,7 @@ func runServer(store *Store, listen string) error {
 		case "0", "false", "no":
 			viaWarp = false
 		}
-		ip, err := probeEgressIP(viaWarp)
+		ip, err := probeServiceEgressIP(viaWarp)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadGateway)
 			return
@@ -999,6 +999,72 @@ func probeEgressIP(viaWarp bool) (string, error) {
 		last = errors.New("empty")
 	}
 	return "", last
+}
+
+func cascadeRole() string {
+	return strings.TrimSpace(envOr("NVPN_ROLE", "entry"))
+}
+
+func cascadeEnabled() bool {
+	return envOr("NVPN_CASCADE_ENABLED", "0") == "1"
+}
+
+func cascadePeerHost() string {
+	return cascadeHostFromPeer(os.Getenv("NVPN_CASCADE_PEER_ENDPOINT"))
+}
+
+// On the cascade entry, hideIp-off traffic leaves the exit VPS WAN.
+// Probing this host's WAN would report the entry IP (45.x) while the phone
+// actually egresses via the exit (2.x). Ask the exit provision instead.
+func shouldProxyEgressToExit(role string, cascade, viaWarp bool, cascadeHost string) bool {
+	return role == "entry" && cascade && !viaWarp && strings.TrimSpace(cascadeHost) != ""
+}
+
+func provisionPeerBaseURL(host string) string {
+	listen := strings.TrimSpace(envOr("NVPN_PROVISION_LISTEN", "0.0.0.0:9100"))
+	port := "9100"
+	if _, p, err := net.SplitHostPort(listen); err == nil && strings.TrimSpace(p) != "" {
+		port = p
+	}
+	return fmt.Sprintf("http://%s:%s", host, port)
+}
+
+func probePeerEgressIP(host string, viaWarp bool) (string, error) {
+	flag := "0"
+	if viaWarp {
+		flag = "1"
+	}
+	url := provisionPeerBaseURL(host) + "/v1/egress-ip?viaWarp=" + flag
+	out, err := exec.Command("curl", "-sS", "--max-time", "5", url).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w (%s)", url, err, strings.TrimSpace(string(out)))
+	}
+	var parsed struct {
+		OK  bool   `json:"ok"`
+		IP  string `json:"ip"`
+		Err string `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(out, &parsed); jsonErr != nil {
+		return "", fmt.Errorf("%s: bad json %q", url, strings.TrimSpace(string(out)))
+	}
+	if !parsed.OK || !looksLikeIP(parsed.IP) {
+		if parsed.Err != "" {
+			return "", fmt.Errorf("%s: %s", url, parsed.Err)
+		}
+		return "", fmt.Errorf("%s: not an ip %q", url, parsed.IP)
+	}
+	return parsed.IP, nil
+}
+
+func probeServiceEgressIP(viaWarp bool) (string, error) {
+	if shouldProxyEgressToExit(cascadeRole(), cascadeEnabled(), viaWarp, cascadePeerHost()) {
+		ip, err := probePeerEgressIP(cascadePeerHost(), false)
+		if err == nil {
+			return ip, nil
+		}
+		log.Printf("cascade egress-ip via exit failed: %v — fallback local WAN", err)
+	}
+	return probeEgressIP(viaWarp)
 }
 
 func cascadeHostFromPeer(peer string) string {

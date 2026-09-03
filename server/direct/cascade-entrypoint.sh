@@ -1,11 +1,12 @@
 #!/bin/bash
 # Inter-VPS AmneziaWG hop (cascade0).
 #
-# entry: VPS1 — phone clients stay on awg0/wdttraw0; all their traffic is
-#        policy-routed into cascade0 toward the exit. No WAN MASQ fallback.
+# entry: VPS1 — phone clients stay on awg0/wdttraw0; traffic without hideIp is
+#        policy-routed into cascade0 toward the exit. hideIp /32 on the entry
+#        warp table (prio 300) beats this hop (prio 320). No WAN MASQ fallback.
 #        If the hop handshake dies, awg0/wdttraw0 are taken down so the
 #        phone tunnel falls.
-# exit:  VPS2 — listens for the entry peer; DNS + WARP live on this host.
+# exit:  VPS2 — listens for the entry peer; DNS + WAN MASQ live on this host.
 set -euo pipefail
 
 DATA="${NVPN_DATA:-/data}"
@@ -169,6 +170,22 @@ strip_stale_wan_masq() {
   done
 }
 
+# Exit hop: internet for non-hideIp clients leaves this VPS WAN, not warp0.
+ensure_exit_wan_masq() {
+  [ "${ROLE}" = "exit" ] || return 0
+  command -v iptables >/dev/null 2>&1 || return 0
+  local wan net
+  wan="$(wan_iface)"
+  [[ -z "${wan}" ]] && wan="eth0"
+  for net in ${CLIENT_NETS} 10.10.0.0/30; do
+    if iptables -t nat -C POSTROUTING -s "${net}" -o "${wan}" -m comment --comment NVPN_CASCADE_WAN_MASQ -j MASQUERADE 2>/dev/null; then
+      continue
+    fi
+    iptables -t nat -A POSTROUTING -s "${net}" -o "${wan}" -m comment --comment NVPN_CASCADE_WAN_MASQ -j MASQUERADE || true
+    echo "[cascade] WAN MASQ ${net} via ${wan}"
+  done
+}
+
 # Entry must not NAT client subnets out of its own WAN — that would leak
 # the first VPS IP instead of forwarding through the hop.
 strip_entry_wan_masq() {
@@ -185,12 +202,8 @@ strip_entry_wan_masq() {
         -m comment --comment NVPN_WARP_DNS_MAIN -j MASQUERADE 2>/dev/null || true
     fi
   done
-  # Standalone warp left iif awg0/wdttraw0 :53 → main. Drop so client DNS
-  # follows the hop policy table (DNAT still rewrites dest to 10.10.0.2).
-  local prio
-  for prio in $(seq 100 110); do
-    ip rule del pref "${prio}" 2>/dev/null || true
-  done
+  # Keep warp DNS exceptions (prio 100+) so hideIp /32 does not suck :53 into warp0.
+  # Dest 10.10.0.2 is on-link via cascade0 on main (see setup_entry_policy).
 }
 
 setup_entry_policy() {
@@ -253,6 +266,7 @@ setup_forwarding() {
   else
     strip_stale_wan_masq
     setup_exit_client_routes
+    ensure_exit_wan_masq
   fi
 }
 

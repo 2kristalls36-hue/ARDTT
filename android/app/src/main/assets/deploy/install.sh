@@ -89,7 +89,7 @@ role_build_services() {
   if [ "$ROLE" = "exit" ]; then
     echo "provision direct dns warp telemetry"
   elif [ "$CASCADE_ENABLED" = "1" ]; then
-    echo "provision direct bypass telemetry"
+    echo "provision direct bypass warp telemetry"
   else
     echo "provision direct bypass dns warp telemetry"
   fi
@@ -99,7 +99,7 @@ role_up_services() {
   if [ "$ROLE" = "exit" ]; then
     echo "provision cascade dns warp telemetry"
   elif [ "$CASCADE_ENABLED" = "1" ]; then
-    echo "provision direct bypass cascade telemetry"
+    echo "provision direct bypass warp cascade telemetry"
   else
     echo "provision direct bypass dns warp telemetry"
   fi
@@ -109,7 +109,7 @@ role_image_names() {
   if [ "$ROLE" = "exit" ]; then
     echo "stack-provision stack-direct stack-dns stack-warp stack-telemetry"
   elif [ "$CASCADE_ENABLED" = "1" ]; then
-    echo "stack-provision stack-direct stack-bypass stack-telemetry"
+    echo "stack-provision stack-direct stack-bypass stack-warp stack-telemetry"
   else
     echo "stack-provision stack-direct stack-bypass stack-dns stack-warp stack-telemetry"
   fi
