@@ -47,8 +47,6 @@ class AppSettingsRepository(private val context: Context) {
     private val alphaUnlockFails = intPreferencesKey("alpha_unlock_fails")
     private val alphaUnlockLockUntil = longPreferencesKey("alpha_unlock_lock_until")
     private val legacyWallpaper = stringPreferencesKey("app_wallpaper")
-    private val donateBannerDismissed = booleanPreferencesKey("donate_banner_dismissed")
-
     val isAdminUnlocked: Flow<Boolean> = context.dataStore.data.map { it[adminUnlocked] == true }
     val testingModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[testingMode] == true }
     val testingAgreementVersionFlow: Flow<Int> =
@@ -106,9 +104,6 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.data.map { it[uiHapticsEnabled] != false }
     val alphaUnlockedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[alphaUnlocked] == true }
-    /** Default false — Tunnel donate banner stays until the user closes it. */
-    val donateBannerDismissedFlow: Flow<Boolean> =
-        context.dataStore.data.map { it[donateBannerDismissed] == true }
 
     suspend fun setHideIp(enabled: Boolean) {
         context.dataStore.edit { it[hideIp] = enabled }
@@ -304,10 +299,6 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setUiHapticsEnabled(enabled: Boolean) {
         context.dataStore.edit { it[uiHapticsEnabled] = enabled }
-    }
-
-    suspend fun setDonateBannerDismissed(dismissed: Boolean) {
-        context.dataStore.edit { it[donateBannerDismissed] = dismissed }
     }
 
     suspend fun alphaUnlockedSnapshot(): Boolean {

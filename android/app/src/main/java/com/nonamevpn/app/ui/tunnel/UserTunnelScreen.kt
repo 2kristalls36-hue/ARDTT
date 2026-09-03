@@ -99,7 +99,7 @@ fun UserTunnelScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
-    val donateBannerDismissed by settings.donateBannerDismissedFlow.collectAsStateWithLifecycle(
+    val donateBannerDismissed by DonateSupport.dismissedThisLaunch.collectAsStateWithLifecycle(
         initialValue = false,
     )
     val haptics = rememberSmartHaptics(uiHapticsEnabled)
@@ -182,7 +182,7 @@ fun UserTunnelScreen(
             }
         },
         showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state),
-        onDismissDonate = { scope.launch { settings.setDonateBannerDismissed(true) } },
+        onDismissDonate = { DonateSupport.dismissThisLaunch() },
     )
 }
 

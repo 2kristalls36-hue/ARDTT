@@ -1,12 +1,24 @@
 package com.nonamevpn.app.ui.tunnel
 
 import com.nonamevpn.app.core.ConnState
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class DonateSupportTest {
+    @Before
+    fun resetDismiss() {
+        DonateSupport.resetDismissForTests()
+    }
+
+    @After
+    fun clearDismiss() {
+        DonateSupport.resetDismissForTests()
+    }
+
     @Test
     fun copyAndPayUrl() {
         assertEquals("Поддержка автора", DonateSupport.TITLE)
@@ -24,5 +36,32 @@ class DonateSupportTest {
         assertFalse(DonateSupport.bannerVisible(dismissed = false, state = ConnState.Ready))
         assertFalse(DonateSupport.bannerVisible(dismissed = false, state = ConnState.Connecting))
         assertFalse(DonateSupport.bannerVisible(dismissed = false, state = ConnState.PausedTrustedWifi))
+    }
+
+    @Test
+    fun closeHidesUntilNextLaunch() {
+        assertFalse(DonateSupport.dismissedThisLaunch.value)
+        assertTrue(
+            DonateSupport.bannerVisible(
+                dismissed = DonateSupport.dismissedThisLaunch.value,
+                state = ConnState.Connected,
+            ),
+        )
+        DonateSupport.dismissThisLaunch()
+        assertTrue(DonateSupport.dismissedThisLaunch.value)
+        assertFalse(
+            DonateSupport.bannerVisible(
+                dismissed = DonateSupport.dismissedThisLaunch.value,
+                state = ConnState.Connected,
+            ),
+        )
+        DonateSupport.resetDismissForTests()
+        assertFalse(DonateSupport.dismissedThisLaunch.value)
+        assertTrue(
+            DonateSupport.bannerVisible(
+                dismissed = DonateSupport.dismissedThisLaunch.value,
+                state = ConnState.Connected,
+            ),
+        )
     }
 }

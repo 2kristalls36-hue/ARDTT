@@ -174,7 +174,7 @@ fun TunnelScreen(
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
-    val donateBannerDismissed by settings.donateBannerDismissedFlow.collectAsStateWithLifecycle(
+    val donateBannerDismissed by DonateSupport.dismissedThisLaunch.collectAsStateWithLifecycle(
         initialValue = false,
     )
     val haptics = rememberSmartHaptics(uiHapticsEnabled)
@@ -342,7 +342,7 @@ fun TunnelScreen(
             }
             if (showDonateBanner) {
                 DonateSupportBanner(
-                    onDismiss = { scope.launch { settings.setDonateBannerDismissed(true) } },
+                    onDismiss = { DonateSupport.dismissThisLaunch() },
                 )
             }
 
