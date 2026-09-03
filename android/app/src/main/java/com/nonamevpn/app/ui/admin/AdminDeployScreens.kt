@@ -98,6 +98,7 @@ import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.PingFlashDot
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.rememberPullRefresh
@@ -487,13 +488,20 @@ private fun ServerCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    statusText,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = statusColor,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    val pingMs = (health as? HealthUi.Online)?.pingMs ?: -1L
+                    PingFlashDot(pingKey = if (pingMs > 0L) pingMs else null)
+                    Text(
+                        statusText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = statusColor,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 deployFreshnessChipText(health, expectedVersion)?.let { chip ->
                     Spacer(modifier = Modifier.height(8.dp))
                     Surface(
@@ -987,12 +995,19 @@ private fun ServerOverviewScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
-                        statusText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = statusColor,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        val pingMs = (health as? HealthUi.Online)?.pingMs ?: -1L
+                        PingFlashDot(pingKey = if (pingMs > 0L) pingMs else null)
+                        Text(
+                            statusText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = statusColor,
+                        )
+                    }
                     if (freshnessChip != null) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
