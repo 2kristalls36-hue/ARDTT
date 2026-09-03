@@ -391,6 +391,7 @@ fun AppRoot(
                             TunnelScreen(
                                 settings = settings,
                                 profiles = profiles,
+                                serversRepo = serversRepo,
                                 onRequestConnect = { requestVpnThenConnect() },
                                 isAdmin = admin,
                                 classicAppearance = classicAppearance,
@@ -415,7 +416,11 @@ fun AppRoot(
                             ExceptionsScreen(settings = settings)
                         }
                         composable(AppDestination.Network.route) {
-                            NetworkScreen(settings = settings, profiles = profiles)
+                            NetworkScreen(
+                                settings = settings,
+                                profiles = profiles,
+                                serversRepo = serversRepo,
+                            )
                         }
                         composable(AppDestination.Logs.route) {
                             LogsScreen()

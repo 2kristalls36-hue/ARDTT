@@ -65,7 +65,10 @@ import com.nonamevpn.app.core.NetcheckUiRow
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.core.readUnderlayAccessLabel
 import com.nonamevpn.app.core.underlayIdentity
+import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
+import com.nonamevpn.app.deploy.DeployHop
+import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.HideIpCopy
 import com.nonamevpn.app.ui.PathModeCopy
@@ -93,6 +96,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
+    serversRepo: ServersRepository,
     onRequestConnect: () -> Unit,
     isAdmin: Boolean,
     classicAppearance: Boolean,
@@ -113,6 +117,15 @@ fun TunnelScreen(
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
+    val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = serversRepo.snapshot())
+    val profileHost = remember(profile) {
+        profile?.let {
+            NetworkEndpoint.hostOf(it.direct.endpoint) ?: NetworkEndpoint.hostOf(it.bypass.peer)
+        }
+    }
+    val exitProvisionUrl = remember(servers, profileHost) {
+        DeployHop.exitProvisionUrl(DeployHop.matchingServer(servers, profileHost))
+    }
     val scope = rememberCoroutineScope()
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
     var providerIp by remember { mutableStateOf(EgressIpProbe.currentUnderlay()) }
@@ -285,6 +298,7 @@ fun TunnelScreen(
             EgressIpProbe.refresh(
                 hideIp = hideIp,
                 provisionBaseUrl = profile?.provisionBaseUrl,
+                exitProvisionBaseUrl = exitProvisionUrl,
                 deviceId = profile?.deviceId,
                 context = context,
                 viaVpn = sessionUp,

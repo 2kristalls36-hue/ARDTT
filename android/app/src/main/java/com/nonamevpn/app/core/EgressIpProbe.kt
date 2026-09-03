@@ -10,14 +10,14 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import com.nonamevpn.app.deploy.DeployHop
 
 /**
- * Public egress IP for traffic leaving the VPS (and Cloudflare when Hide-IP/WARP is on).
+ * Public last-hop egress IP (VPS WAN, cascade exit, or Cloudflare when Hide-IP is on).
  *
- * The VPN app process is usually excluded from the TUN (Bypass TURN dial), so a
- * plain HttpURLConnection from the phone often never sees tunnel/WARP SNAT.
- * Primary source is therefore provision `/v1/egress-ip` on the VPS; local
- * ifconfig endpoints are only a last-resort fallback.
+ * The VPN app process is usually excluded from the TUN, so unbound ipify would
+ * show the provider address. This probe talks to provision on the last hop
+ * (`exit` then entry) and only falls back to ipify bound to the VPN network.
  */
 object EgressIpProbe {
     internal const val PRIMARY_ENDPOINT = "https://api.ipify.org/"
@@ -71,7 +71,8 @@ object EgressIpProbe {
 
     /**
      * @param hideIp When true, provision probes via warp0 (Cloudflare).
-     * @param provisionBaseUrl Profile provision base (e.g. http://vps:9100).
+     * @param provisionBaseUrl Profile provision base (e.g. http://vps:9100) — entry.
+     * @param exitProvisionBaseUrl Cascade exit provision, if any. Tried first (last hop).
      * @param deviceId Profile device id for per-user hideIp lookup on VPS.
      * @param context Used to bind sockets to underlay / VPN when needed.
      * @param viaVpn Prefer default/VPN route when talking to provision (tunnel up).
@@ -82,55 +83,84 @@ object EgressIpProbe {
         deviceId: String? = null,
         context: Context? = null,
         viaVpn: Boolean = false,
+        exitProvisionBaseUrl: String? = null,
     ): String? = withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
+        val bases = DeployHop.lastHopProvisionUrls(provisionBaseUrl, exitProvisionBaseUrl)
 
-        // 1) Provision on VPS — source of truth for client tunnel egress / WARP.
-        if (!provisionBaseUrl.isNullOrBlank()) {
-            val fromProvision = runCatching {
-                fetchProvisionEgressIp(
-                    provisionBaseUrl = provisionBaseUrl,
-                    deviceId = deviceId,
-                    context = context,
-                    viaVpn = viaVpn,
-                    viaWarp = hideIp,
-                )
-            }.getOrElse {
-                val msg = it.message ?: "provision failed"
-                errors += msg
-                AppLog.w(TAG, "provision egress failed viaWarp=$hideIp: $msg")
-                null
-            }
+        // Last-hop provision: cascade exit (then entry). Not the phone's underlay IP.
+        for (base in bases) {
+            val fromProvision = probeProvision(
+                viaWarp = hideIp,
+                provisionBaseUrl = base,
+                deviceId = deviceId,
+                context = context,
+                viaVpn = viaVpn,
+            )
             if (!fromProvision.isNullOrBlank()) {
-                cached.set(fromProvision)
-                lastError = null
-                lastVia = if (hideIp) "provision/warp" else "provision"
-                AppLog.v(TAG, "egress ip=$fromProvision via=$lastVia")
+                remember(
+                    fromProvision,
+                    if (hideIp) "provision/warp/$base" else "provision/$base",
+                )
                 return@withContext fromProvision
             }
-        } else {
+            errors += "provision viaWarp=$hideIp $base failed"
+        }
+        if (bases.isEmpty()) {
             errors += "нет provision URL"
         }
 
-        // 2) Local ifconfig — last resort (often wrong while app is excluded from TUN).
+        // VPN-bound ifconfig only — unbound sockets see the provider IP, not last-hop SNAT.
         val vpnNet = context?.let { pickVpnNetwork(it) }
-        for (url in endpoints) {
-            val ip = runCatching { fetchIp(url, vpnNet) }.getOrElse {
-                errors += "${hostOf(url)}: ${it.message}"
-                null
-            }
-            if (!ip.isNullOrBlank()) {
-                cached.set(ip)
-                lastError = null
-                lastVia = if (vpnNet != null) "vpn+$url" else url
-                AppLog.v(TAG, "egress ip=$ip via=$lastVia")
-                return@withContext ip
+        if (vpnNet != null) {
+            for (url in endpoints) {
+                val ip = runCatching { fetchIp(url, vpnNet) }.getOrElse {
+                    errors += "${hostOf(url)}: ${it.message}"
+                    null
+                }
+                if (!ip.isNullOrBlank()) {
+                    remember(ip, "vpn+$url")
+                    return@withContext ip
+                }
             }
         }
 
         lastError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
         AppLog.w(TAG, "egress ip failed: $lastError")
         null
+    }
+
+    /**
+     * Provision `/v1/egress-ip` without touching the cached tunnel egress.
+     * Used by the Network tab map so VPS / CloudFlare hops stay distinct.
+     */
+    suspend fun probeProvision(
+        viaWarp: Boolean,
+        provisionBaseUrl: String?,
+        deviceId: String?,
+        context: Context?,
+        viaVpn: Boolean = false,
+    ): String? = withContext(Dispatchers.IO) {
+        if (provisionBaseUrl.isNullOrBlank()) return@withContext null
+        runCatching {
+            fetchProvisionEgressIp(
+                provisionBaseUrl = provisionBaseUrl,
+                deviceId = deviceId,
+                context = context,
+                viaVpn = viaVpn,
+                viaWarp = viaWarp,
+            )
+        }.onFailure {
+            AppLog.w(TAG, "provision probe failed viaWarp=$viaWarp: ${it.message}")
+        }.getOrNull()
+    }
+
+    fun remember(ip: String, via: String) {
+        if (!looksLikeIp(ip)) return
+        cached.set(ip)
+        lastError = null
+        lastVia = via
+        AppLog.v(TAG, "egress ip=$ip via=$via")
     }
 
     /**

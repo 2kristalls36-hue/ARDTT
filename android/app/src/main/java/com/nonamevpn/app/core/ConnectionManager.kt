@@ -18,6 +18,9 @@ import com.nonamevpn.app.bypass.VkSession
 import com.nonamevpn.app.bypass.decideDeadCallAction
 import com.nonamevpn.app.bypass.isDeadCallMessage
 import com.nonamevpn.app.profile.VpnProfile
+import com.nonamevpn.app.profile.NetworkEndpoint
+import com.nonamevpn.app.deploy.DeployHop
+import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.unlock.DeviceUnlockCopy
 import com.nonamevpn.app.tunnel.TunnelSessionConfig
@@ -267,6 +270,15 @@ class ConnectionManager(
             return fromProfile
         }
         return provisionUrl?.takeIf { it.isNotBlank() }
+    }
+
+    /** Cascade exit provision (:9100), if this profile's server has a second hop. */
+    private fun resolveExitProvisionUrl(): String? {
+        val host = profile?.let {
+            NetworkEndpoint.hostOf(it.direct.endpoint) ?: NetworkEndpoint.hostOf(it.bypass.peer)
+        } ?: return null
+        val servers = runCatching { ServersRepository.get(appContext).snapshot() }.getOrDefault(emptyList())
+        return DeployHop.exitProvisionUrl(DeployHop.matchingServer(servers, host))
     }
 
     /** Soft-restart transport if a session is up (exclusions / network / manual). */
@@ -1602,6 +1614,7 @@ class ConnectionManager(
                 val ip = EgressIpProbe.refresh(
                     hideIp = _ui.value.hideIp,
                     provisionBaseUrl = resolveProvisionUrl(),
+                    exitProvisionBaseUrl = resolveExitProvisionUrl(),
                     deviceId = profile?.deviceId,
                     context = appContext,
                     // In Bypass/whitelist scenarios provision can be reachable only via VPN path.
