@@ -33,9 +33,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +55,8 @@ import com.nonamevpn.app.profile.VpnProfileJson
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.nonamevpn.app.settings.AppSettingsRepository
+import com.nonamevpn.app.ui.PROFILE_SWITCH_LOCKED_MESSAGE
+import com.nonamevpn.app.ui.vpnSessionBlocksProfileSwitch
 import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnDialog
@@ -71,7 +75,10 @@ fun ProfilesScreen(
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
+    val connUi by conn.ui.collectAsStateWithLifecycle()
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
+    val profileSwitchLocked = vpnSessionBlocksProfileSwitch(connUi.state)
+    val switchLocked = rememberUpdatedState(profileSwitchLocked)
     val scope = rememberCoroutineScope()
     var showAddSheet by remember { mutableStateOf(false) }
     var showSubscription by remember { mutableStateOf(false) }
@@ -95,6 +102,14 @@ fun ProfilesScreen(
     }
 
     fun applyProfile(item: StoredProfile, openTunnel: Boolean = false) {
+        if (switchLocked.value && item.id != catalog.activeId) {
+            Toast.makeText(context, PROFILE_SWITCH_LOCKED_MESSAGE, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (switchLocked.value && item.id == catalog.activeId) {
+            if (openTunnel) onApplied()
+            return
+        }
         scope.launch {
             profiles.setActive(item.id)
             settings.setProfileName(item.profile.name)
@@ -109,16 +124,24 @@ fun ProfilesScreen(
         scope.launch {
             busy = true
             error = null
+            val activate = !switchLocked.value
             runCatching {
                 val imported = ProfileImportResolver.resolve(raw)
                 imported.forEachIndexed { index, profile ->
-                    profiles.upsert(profile, activate = index == imported.lastIndex)
+                    profiles.upsert(profile, activate = activate && index == imported.lastIndex)
                 }
-                val last = imported.last()
-                settings.setProfileName(last.name)
-                conn.updateProfile(last)
-                AppLog.i("Profiles", "imported ${imported.size} via link/url/json")
-                afterChange(message ?: "Импортировано: ${imported.size}")
+                if (activate) {
+                    val last = imported.last()
+                    settings.setProfileName(last.name)
+                    conn.updateProfile(last)
+                }
+                AppLog.i("Profiles", "imported ${imported.size} via link/url/json activate=$activate")
+                afterChange(
+                    when {
+                        !activate -> "Импортировано без смены активного профиля: ${imported.size}"
+                        else -> message ?: "Импортировано: ${imported.size}"
+                    },
+                )
             }.onFailure { t ->
                 busy = false
                 error = t.message ?: "Ошибка импорта"
@@ -149,11 +172,19 @@ fun ProfilesScreen(
                         android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     )
                 }
-                val imported = profiles.importUri(uri)
-                settings.setProfileName(imported.name)
-                conn.updateProfile(imported)
+                val imported = profiles.importUri(uri, activate = !switchLocked.value)
+                if (!switchLocked.value) {
+                    settings.setProfileName(imported.name)
+                    conn.updateProfile(imported)
+                }
                 AppLog.i("Profiles", "imported ${imported.name}")
-                afterChange("Импортировано: ${imported.name}")
+                afterChange(
+                    if (switchLocked.value) {
+                        "Импортировано без смены активного профиля: ${imported.name}"
+                    } else {
+                        "Импортировано: ${imported.name}"
+                    },
+                )
             }.onFailure { t ->
                 busy = false
                 error = t.message ?: "Ошибка импорта"
@@ -174,10 +205,12 @@ fun ProfilesScreen(
         header = {
             TabPageHeader(
                 title = "Профили",
-                subtitle = if (catalog.items.isEmpty()) {
-                    "Импортируйте JSON с сервера"
-                } else {
-                    "${catalog.items.size} профилей · активен: ${catalog.active?.name ?: "—"}"
+                subtitle = when {
+                    catalog.items.isEmpty() -> "Импортируйте JSON с сервера"
+                    profileSwitchLocked ->
+                        "Соединение активно · смена профиля недоступна"
+                    else ->
+                        "${catalog.items.size} профилей · активен: ${catalog.active?.name ?: "—"}"
                 },
             )
         },
@@ -206,6 +239,7 @@ fun ProfilesScreen(
                 ProfileCard(
                     item = item,
                     active = item.id == catalog.activeId,
+                    selectionLocked = profileSwitchLocked,
                     onSelect = { applyProfile(item) },
                     onOpen = { applyProfile(item, openTunnel = true) },
                     onCopy = {
@@ -225,6 +259,14 @@ fun ProfilesScreen(
                         renameText = item.profile.name
                     },
                     onDelete = {
+                        if (profileSwitchLocked && item.id == catalog.activeId) {
+                            Toast.makeText(
+                                context,
+                                PROFILE_SWITCH_LOCKED_MESSAGE,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            return@ProfileCard
+                        }
                         scope.launch {
                             val wasActive = item.id == catalog.activeId
                             profiles.delete(item.id)
@@ -374,6 +416,7 @@ fun ProfilesScreen(
 private fun ProfileCard(
     item: StoredProfile,
     active: Boolean,
+    selectionLocked: Boolean,
     onSelect: () -> Unit,
     onOpen: () -> Unit,
     onCopy: () -> Unit,
@@ -383,7 +426,9 @@ private fun ProfileCard(
 ) {
     var menu by remember { mutableStateOf(false) }
     AppSectionCard(
-        modifier = Modifier.clickable(onClick = onSelect),
+        modifier = Modifier
+            .alpha(if (selectionLocked && !active) 0.72f else 1f)
+            .clickable(enabled = !selectionLocked, onClick = onSelect),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         border = if (active) BorderStroke(2.dp, NvpnColors.connected) else null,
@@ -413,11 +458,19 @@ private fun ProfileCard(
                 onDismissRequest = { menu = false },
                 shape = RoundedCornerShape(18.dp),
             ) {
-                DropdownMenuItem(text = { Text("Подключить") }, onClick = { menu = false; onOpen() })
+                DropdownMenuItem(
+                    text = { Text("Подключить") },
+                    onClick = { menu = false; onOpen() },
+                    enabled = !selectionLocked || active,
+                )
                 DropdownMenuItem(text = { Text("Копировать JSON") }, onClick = { menu = false; onCopy() })
                 DropdownMenuItem(text = { Text("Ссылка / QR") }, onClick = { menu = false; onShare() })
                 DropdownMenuItem(text = { Text("Переименовать") }, onClick = { menu = false; onRename() })
-                DropdownMenuItem(text = { Text("Удалить") }, onClick = { menu = false; onDelete() })
+                DropdownMenuItem(
+                    text = { Text("Удалить") },
+                    onClick = { menu = false; onDelete() },
+                    enabled = !selectionLocked || !active,
+                )
             }
         }
         Text(

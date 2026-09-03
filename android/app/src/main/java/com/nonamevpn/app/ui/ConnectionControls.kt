@@ -4,6 +4,7 @@ import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.ConnPathMode
+import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.settings.AppSettingsRepository
 
@@ -12,6 +13,18 @@ internal fun connectionControlsLocked(
     sessionActive: Boolean,
     unlockWhileConnected: Boolean,
 ): Boolean = sessionActive && !unlockWhileConnected
+
+/** Live VPN session — do not switch the active profile / user. */
+internal fun vpnSessionBlocksProfileSwitch(state: ConnState): Boolean = when (state) {
+    ConnState.Connecting,
+    ConnState.Connected,
+    ConnState.PausedTrustedWifi,
+    ConnState.Disconnecting -> true
+    else -> false
+}
+
+internal const val PROFILE_SWITCH_LOCKED_MESSAGE =
+    "Отключите туннель, чтобы сменить профиль."
 
 internal fun pathModeNeedsCallHash(mode: ConnPathMode, hasCallHash: Boolean): Boolean =
     mode == ConnPathMode.Bypass && !hasCallHash

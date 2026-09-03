@@ -72,6 +72,7 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.nextThemeMode
 import com.nonamevpn.app.ui.persistThemeMode
 import com.nonamevpn.app.ui.themeModeVisualKey
+import com.nonamevpn.app.ui.vpnSessionBlocksProfileSwitch
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
@@ -151,6 +152,7 @@ fun UserTunnelScreen(
             }
         },
         onSelectPreviousProfile = {
+            if (vpnSessionBlocksProfileSwitch(ui.state)) return@UserTunnelSimpleScreen
             val items = catalog.items
             if (items.size <= 1) return@UserTunnelSimpleScreen
             haptics.tick()
@@ -163,6 +165,7 @@ fun UserTunnelScreen(
             }
         },
         onSelectNextProfile = {
+            if (vpnSessionBlocksProfileSwitch(ui.state)) return@UserTunnelSimpleScreen
             val items = catalog.items
             if (items.size <= 1) return@UserTunnelSimpleScreen
             haptics.tick()
@@ -307,9 +310,9 @@ private fun UserTunnelSimpleScreen(
             ProfileSwitcherBar(
                 activeItem = activeItem,
                 canSwitch = catalogItems.size > 1,
+                switchEnabled = catalogItems.size > 1 && !vpnSessionBlocksProfileSwitch(ui.state),
                 onPrev = onSelectPreviousProfile,
                 onNext = onSelectNextProfile,
-                busy = connectingLike,
             )
         }
     }
@@ -467,9 +470,9 @@ private fun TunnelPowerToggle(
 private fun ProfileSwitcherBar(
     activeItem: StoredProfile?,
     canSwitch: Boolean,
+    switchEnabled: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
-    busy: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -487,7 +490,7 @@ private fun ProfileSwitcherBar(
         if (canSwitch) {
             Button(
                 onClick = onPrev,
-                enabled = !busy,
+                enabled = switchEnabled,
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier
                     .height(NvpnBottomChrome.ButtonHeight)
@@ -499,8 +502,8 @@ private fun ProfileSwitcherBar(
             }
         }
         Button(
-            onClick = { if (canSwitch) onNext() },
-            enabled = activeItem != null && !busy,
+            onClick = { if (switchEnabled) onNext() },
+            enabled = activeItem != null && (!canSwitch || switchEnabled),
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier
                 .weight(1f)
@@ -517,7 +520,7 @@ private fun ProfileSwitcherBar(
         if (canSwitch) {
             Button(
                 onClick = onNext,
-                enabled = !busy,
+                enabled = switchEnabled,
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier
                     .height(NvpnBottomChrome.ButtonHeight)
