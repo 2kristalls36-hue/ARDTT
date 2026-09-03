@@ -128,10 +128,11 @@ fun SettingsScreen(
     val vpnLocked = connectionControlsLocked(vpnSessionActive, unlockConnControls)
     val scope = rememberCoroutineScope()
     var adminHint by remember { mutableStateOf<String?>(null) }
+    var testingHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
     var highlightAppearanceCard by remember { mutableStateOf(false) }
     val refuseLeaveTestingSession: () -> Unit = {
-        adminHint = TestingSessionGuard.STOP_RECORDING_FIRST
+        testingHint = TestingSessionGuard.STOP_RECORDING_FIRST
         Toast.makeText(
             context,
             TestingSessionGuard.STOP_RECORDING_FIRST,
@@ -423,6 +424,43 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Text("Тестирование", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Вкладка «Тест» и запись журналов — после принятия соглашения. Доступно в любом режиме.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            RowSetting(
+                title = "Режим тестирования",
+                subtitle = if (testingMode) {
+                    "Вкладка «Тест» открыта."
+                } else {
+                    "Выключен. Журналы телеметрии скрыты."
+                },
+                checked = testingMode,
+                onCheckedChange = { enabled ->
+                    if (!enabled) {
+                        if (!TestingSessionGuard.canLeaveTestingSession(recordingActive)) {
+                            refuseLeaveTestingSession()
+                        } else {
+                            testingHint = null
+                            scope.launch { settings.setTestingMode(false) }
+                        }
+                    } else {
+                        testingHint = null
+                        showTestingAgreement = true
+                    }
+                },
+            )
+            testingHint?.let {
+                Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        AppSectionCard(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Text("Описание и доступ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 "ARDTT представляет собой простой туннельный клиент для постоянного защищённого соединения с упрощённым сценарием touch&GO.",
@@ -436,7 +474,7 @@ fun SettingsScreen(
             )
             Text(
                 if (admin) {
-                    "Открыты «Сервера», «Деплой» и «Журналы». Телеметрия — после включения тестирования."
+                    "Открыты «Сервера», «Деплой» и «Журналы»."
                 } else {
                     "Переместите ползунок вправо до конца."
                 },
@@ -457,31 +495,11 @@ fun SettingsScreen(
                     },
                 )
             } else {
-                RowSetting(
-                    title = "Тестирование",
-                    subtitle = "Журналы — после принятия соглашения.",
-                    checked = testingMode,
-                    onCheckedChange = { enabled ->
-                        if (!enabled) {
-                            if (!TestingSessionGuard.canLeaveTestingSession(recordingActive)) {
-                                refuseLeaveTestingSession()
-                            } else {
-                                scope.launch { settings.setTestingMode(false) }
-                            }
-                        } else {
-                            showTestingAgreement = true
-                        }
-                    },
-                )
                 OutlinedButton(
                     onClick = {
-                        if (!TestingSessionGuard.canLeaveTestingSession(recordingActive)) {
-                            refuseLeaveTestingSession()
-                        } else {
-                            scope.launch {
-                                settings.lockAdmin()
-                                adminHint = null
-                            }
+                        scope.launch {
+                            settings.lockAdmin()
+                            adminHint = null
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
