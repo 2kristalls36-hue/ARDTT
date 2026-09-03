@@ -271,11 +271,12 @@ object EgressIpProbe {
     fun usableUnderlayIp(
         ip: String?,
         rejectIps: Collection<String> = emptyList(),
+        tunnelIp: String? = cached.get(),
     ): String? {
         val trimmed = ip?.trim().orEmpty()
         if (!looksLikeIp(trimmed)) return null
         if (isLikelyCloudflare(trimmed)) return null
-        val tunnel = cached.get()?.trim().orEmpty()
+        val tunnel = tunnelIp?.trim().orEmpty()
         if (tunnel.isNotBlank() && tunnel.equals(trimmed, ignoreCase = true)) return null
         val rejected = rejectIps.map { it.trim() }.filter { it.isNotBlank() }
         if (rejected.any { it.equals(trimmed, ignoreCase = true) }) return null
