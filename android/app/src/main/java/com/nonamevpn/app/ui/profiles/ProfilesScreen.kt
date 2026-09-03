@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,14 +20,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -41,10 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.R
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.profile.ProfileCatalog
@@ -62,8 +67,11 @@ import com.nonamevpn.app.ui.vpnSessionBlocksProfileSwitch
 import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.CompactListCard
+import com.nonamevpn.app.ui.components.CompactListLeadingIcon
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
+import com.nonamevpn.app.ui.components.OverflowMenu
+import com.nonamevpn.app.ui.components.OverflowMenuItem
 import com.nonamevpn.app.ui.components.StickyBottomScaffold
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.theme.NvpnColors
@@ -443,6 +451,12 @@ private fun ProfileCard(
     val colors = MaterialTheme.colorScheme
     val connectEnabled = !selectionLocked || active
     val deleteEnabled = !selectionLocked || !active
+    val muted = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f)
+    val titleColor = when {
+        active -> NvpnColors.connected
+        selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
+        else -> colors.onSurface
+    }
     AppSectionCard(
         modifier = Modifier.clickable(enabled = !selectionLocked, onClick = onSelect),
         contentPadding = CompactListCard.ContentPadding,
@@ -457,125 +471,122 @@ private fun ProfileCard(
             BorderStroke(1.dp, colors.outlineVariant)
         },
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                item.profile.name,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = when {
-                    active -> NvpnColors.connected
-                    selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
-                    else -> colors.onSurface
-                },
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CompactListLeadingIcon(
+                painter = painterResource(R.drawable.ic_profile),
+                contentDescription = "Профиль",
+            )
+            Column(
                 modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (selectionLocked) {
-                Icon(
-                    Icons.Filled.Lock,
-                    contentDescription = "Смена профиля недоступна",
-                    tint = colors.onSurface.copy(alpha = 0.45f),
-                    modifier = Modifier
-                        .padding(end = 6.dp)
-                        .size(16.dp),
-                )
-            }
-            if (active) {
-                Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = "Активен",
-                    tint = NvpnColors.connected,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            IconButton(
-                onClick = { menu = true },
-                modifier = Modifier.size(32.dp),
+                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
             ) {
-                Icon(
-                    Icons.Filled.MoreVert,
-                    contentDescription = "Действия",
-                    tint = if (selectionLocked) {
-                        colors.onSurface.copy(alpha = 0.45f)
-                    } else {
-                        colors.onSurfaceVariant
-                    },
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            DropdownMenu(
-                expanded = menu,
-                onDismissRequest = { menu = false },
-                shape = CompactListCard.Shape,
-            ) {
-                ProfileActionMenuItem(
-                    text = "Подключить",
-                    enabled = connectEnabled,
-                    onClick = { menu = false; onOpen() },
-                )
-                ProfileActionMenuItem(
-                    text = "Копировать JSON",
-                    onClick = { menu = false; onCopy() },
-                )
-                ProfileActionMenuItem(
-                    text = "Ссылка / QR",
-                    onClick = { menu = false; onShare() },
-                )
-                ProfileActionMenuItem(
-                    text = "Переименовать",
-                    onClick = { menu = false; onRename() },
-                )
-                ProfileActionMenuItem(
-                    text = "Удалить",
-                    enabled = deleteEnabled,
-                    onClick = { menu = false; onDelete() },
-                )
-            }
-        }
-        Text(
-            item.profile.direct.endpoint.ifBlank { item.profile.bypass.peer },
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (item.profile.hostId > 0 || active) {
-            Text(
-                buildString {
-                    if (item.profile.hostId > 0) append("host ${item.profile.hostId}")
-                    if (active) {
-                        if (item.profile.hostId > 0) append(" · ")
-                        append("выбран")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        item.profile.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = titleColor,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (selectionLocked) {
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = "Смена профиля недоступна",
+                            tint = colors.onSurface.copy(alpha = 0.45f),
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f),
-            )
+                    if (active) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = "Активен",
+                            tint = NvpnColors.connected,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                Text(
+                    item.profile.direct.endpoint.ifBlank { item.profile.bypass.peer },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (item.profile.hostId > 0 || active) {
+                    Text(
+                        buildString {
+                            if (item.profile.hostId > 0) append("host ${item.profile.hostId}")
+                            if (active) {
+                                if (item.profile.hostId > 0) append(" · ")
+                                append("выбран")
+                            }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Box {
+                IconButton(
+                    onClick = { menu = true },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "Действия",
+                        tint = if (selectionLocked) {
+                            colors.onSurface.copy(alpha = 0.45f)
+                        } else {
+                            colors.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                OverflowMenu(
+                    expanded = menu,
+                    onDismissRequest = { menu = false },
+                ) {
+                    OverflowMenuItem(
+                        text = "Подключить",
+                        enabled = connectEnabled,
+                        leadingIcon = Icons.Filled.VpnKey,
+                        onClick = { menu = false; onOpen() },
+                    )
+                    OverflowMenuItem(
+                        text = "Копировать JSON",
+                        leadingIcon = Icons.Filled.ContentCopy,
+                        onClick = { menu = false; onCopy() },
+                    )
+                    OverflowMenuItem(
+                        text = "Ссылка / QR",
+                        leadingIcon = Icons.Filled.QrCode,
+                        onClick = { menu = false; onShare() },
+                    )
+                    OverflowMenuItem(
+                        text = "Переименовать",
+                        leadingIcon = Icons.Filled.Edit,
+                        onClick = { menu = false; onRename() },
+                    )
+                    OverflowMenuItem(
+                        text = "Удалить",
+                        enabled = deleteEnabled,
+                        destructive = true,
+                        leadingIcon = Icons.Filled.Delete,
+                        onClick = { menu = false; onDelete() },
+                    )
+                }
+            }
         }
     }
-}
-
-@Composable
-private fun ProfileActionMenuItem(
-    text: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-) {
-    val colors = MaterialTheme.colorScheme
-    val disabledColor = colors.onSurface.copy(alpha = 0.42f)
-    DropdownMenuItem(
-        text = {
-            Text(
-                text,
-                color = if (enabled) colors.onSurface else disabledColor,
-            )
-        },
-        onClick = onClick,
-        enabled = enabled,
-        colors = MenuDefaults.itemColors(
-            textColor = colors.onSurface,
-            disabledTextColor = disabledColor,
-        ),
-    )
 }
