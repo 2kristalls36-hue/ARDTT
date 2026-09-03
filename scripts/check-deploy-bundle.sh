@@ -27,6 +27,17 @@ if [ -f "$INSTALLER" ]; then
   grep -q 'NVPN_DONE|' "$INSTALLER" || err "installer missing NVPN_DONE protocol"
   grep -q 'уже распакованный стек' "$INSTALLER" || err "installer missing re-run-without-tar path"
   grep -q 'NVPN_TELEMETRY_PORT' "$INSTALLER" || err "installer missing telemetry port"
+  grep -q 'TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing TELEMETRY_LISTEN in .env"
+  grep -q 'NVPN_TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing NVPN_TELEMETRY_LISTEN alias in .env"
+  grep -q '127.0.0.1:\${TELEMETRY_PORT}/health' "$INSTALLER" || err "installer telemetry health must use TELEMETRY_PORT"
+  if grep -q '127.0.0.1:9200/health' "$INSTALLER"; then
+    err "installer hardcodes telemetry :9200 health check"
+  fi
+  grep -q 'NVPN_ROLE' "$INSTALLER" || err "installer missing NVPN_ROLE"
+  grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
+  if grep -q 'NVPN_CASCADE_PASSWORD' "$INSTALLER"; then
+    err "installer must not write cascade SSH password into .env"
+  fi
 fi
 
 if [ -f "$INSTALLER" ] && [ -f "$ASSET_INSTALLER" ]; then
@@ -57,12 +68,24 @@ if [ -f "$BUNDLE_KT" ]; then
   fi
 fi
 
+if [ -f "$COMPOSE" ]; then
+  grep -q 'TELEMETRY_LISTEN: \${TELEMETRY_LISTEN' "$COMPOSE" || err "compose must interpolate TELEMETRY_LISTEN from .env"
+  if grep -q 'NVPN_TELEMETRY_LISTEN:-0.0.0.0:9200' "$COMPOSE"; then
+    err "compose still defaults telemetry from NVPN_TELEMETRY_LISTEN (install.sh writes TELEMETRY_LISTEN)"
+  fi
+fi
+
 for context in provision direct bypass dns warp telemetry-upload; do
   [ -d "$ROOT/server/$context" ] || err "missing server/$context (needed in the deploy tar)"
   if [ -f "$COMPOSE" ] && ! grep -Eq "build:[[:space:]]*(\\./)?${context}([[:space:]]|$)" "$COMPOSE"; then
     err "docker-compose.yml has no build context for $context"
   fi
 done
+[ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
+if [ -f "$COMPOSE" ]; then
+  grep -q 'container_name: nvpn-cascade' "$COMPOSE" || err "compose missing nvpn-cascade"
+fi
+bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n failed for cascade-entrypoint.sh"
 
 if [ "$fail" -ne 0 ]; then
   msg "deploy bundle check failed"

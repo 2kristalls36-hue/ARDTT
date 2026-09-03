@@ -4,7 +4,7 @@
 Клиентская сторона деплоя — вкладка **Серверы** в режиме администратора Android.  
 Состав сервисов и смысл Path A/B: [ARCHITECTURE.md](ARCHITECTURE.md), [LEGEND.md](LEGEND.md).
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.12**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.20**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -86,7 +86,25 @@ WARP — не третий путь подключения, а **egress** выб
 
 ```bash
 NVPN_PUBLIC_HOST='…' NVPN_DIRECT_PORT=51820 NVPN_BYPASS_PORT=56003 \
-NVPN_DEPLOY_VERSION='1.0.12' bash /opt/nonamevpn/install.sh
+NVPN_DEPLOY_VERSION='1.0.20' bash /opt/nonamevpn/install.sh
+```
+
+Каскад (два VPS): телефон **отдельно** SSH на выход, потом на вход. Пароль второго сервера в `.env` входа не пишется.
+
+```bash
+# 1) выход (DNS + WARP)
+NVPN_ROLE=exit NVPN_PUBLIC_HOST='2.26.125.160' NVPN_DEPLOY_VERSION='1.0.20' \
+  bash /opt/nonamevpn/install.sh
+# stdout: NVPN_CASCADE_PUBLIC_KEY|<base64>
+
+# 2) вход (клиенты), пир = ключ выхода
+NVPN_ROLE=entry NVPN_CASCADE_ENABLED=1 \
+  NVPN_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
+  NVPN_CASCADE_PEER_PUBLIC_KEY='…' \
+  NVPN_PUBLIC_HOST='45.129.2.3' NVPN_DEPLOY_VERSION='1.0.20' \
+  bash /opt/nonamevpn/install.sh
+
+# 3) ключ входа → /opt/nonamevpn/stack/data/cascade.peer.pub на выходе
 ```
 
 6. Разбор stdout построчно (UTF-8, без ANSI):
@@ -151,7 +169,7 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 ```bash
 cd server
 cp .env.example .env          # NVPN_PUBLIC_HOST=IP_VPS
-echo 1.0.12 > DEPLOY_VERSION   # или оставить как в репо
+echo 1.0.20 > DEPLOY_VERSION   # или оставить как в репо
 docker compose up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh alice   # JSON профиля в stdout
@@ -162,7 +180,7 @@ curl -s http://127.0.0.1:9100/health
 Тот же `server/install.sh` можно прогнать вручную, если положить дерево в `/opt/nonamevpn/stack` (или залить tar) и вызвать от root:
 
 ```bash
-export NVPN_PUBLIC_HOST=1.2.3.4 NVPN_DEPLOY_VERSION=1.0.12
+export NVPN_PUBLIC_HOST=1.2.3.4 NVPN_DEPLOY_VERSION=1.0.20
 bash /opt/nonamevpn/install.sh
 ```
 
@@ -183,8 +201,8 @@ bash /opt/nonamevpn/install.sh
 | 0.45 | prune + проверка места |
 | 0.50 | `compose build` (parallel limit 1, plain logs) → `compose up -d` |
 | 0.80 | снос build-cache и apt-архивов |
-| 0.85 | `curl http://127.0.0.1:9100/health` |
-| 0.96 | ufw / firewalld: Direct UDP, Bypass UDP, 9100/tcp, 9200/tcp |
+| 0.85 | `curl` provision `:9100` и telemetry на `NVPN_TELEMETRY_PORT` (по умолчанию 9200) |
+| 0.96 | ufw / firewalld: Direct UDP, Bypass UDP, 9100/tcp, telemetry TCP |
 | 1.00 | `NVPN_DONE` |
 
 Лог при ошибке: `/opt/nonamevpn/install.log`. При успехе временный лог и tar удаляются.
@@ -289,6 +307,8 @@ Hash звонка на сервер **не** кладётся.
 | 9100 | TCP | provision | да, health / профили / hide-ip |
 | 9200 | TCP | telemetry | если нужен приём логов с телефонов |
 
+Если `:9200` на хосте уже занят (nginx и т.п.), задайте другой порт: `NVPN_TELEMETRY_PORT=9210`. Установщик пишет его в `TELEMETRY_LISTEN` / `NVPN_TELEMETRY_LISTEN` и не стартует `nvpn-telemetry`, пока порт занят.
+
 TURN VK — на стороне **клиента**, на VPS отдельного TURN нет.
 
 ---
@@ -325,13 +345,13 @@ docker compose down          # контейнеры; data/ остаётся
 ```bash
 docker compose -f /opt/nonamevpn/stack/docker-compose.yml ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.12"
+# ожидается: "ok": true, "deployVersion": "1.0.20"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'
 ```
 
-С телефона: карточка VPS «Онлайн · деплой 1.0.12 · актуален», создание клиента, импорт профиля, Connect.
+С телефона: карточка VPS «Онлайн · деплой 1.0.20 · актуален», создание клиента, импорт профиля, Connect.
 
 ---
 
@@ -343,6 +363,7 @@ ss -tlnp | grep -E '9100|9200'
 | `install.sh exit=…` + «Мало места» | Диск VPS < 1.8 ГБ; `docker system prune -af` |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
 | `/health` не отвечает после DONE | `docker compose logs provision`; `NVPN_PUBLIC_HOST` и слушатель `:9100` |
+| `nvpn-telemetry` Restarting, «Connection in use :9200» | Порт занят другим процессом. `NVPN_TELEMETRY_PORT=9210` или освободите 9200 |
 | Карточка «нужно обновить» | APK новее стека — «Обновить деплой»; или рассинхрон `DEPLOY_VERSION` |
 | Hide IP: ping есть, HTTPS нет | MSS clamp на warp0 (уже в entrypoint); DNS не через WARP |
 | Повторный деплой «нет tar» | С 1.0.12 установщик продолжает с уже распакованного `stack/` |

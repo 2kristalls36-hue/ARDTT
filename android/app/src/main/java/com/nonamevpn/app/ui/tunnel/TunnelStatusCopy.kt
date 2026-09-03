@@ -1,5 +1,6 @@
 package com.nonamevpn.app.ui.tunnel
 
+import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.ui.HideIpCopy
@@ -109,10 +110,10 @@ fun sessionCardStatusText(
     }
 }
 
-fun selectedModeLabel(pathMode: String): String = when (pathMode) {
-    "direct" -> "Прямой"
-    "bypass" -> "Обход"
-    else -> "Авто"
+fun selectedModeLabel(pathMode: String): String = when (ConnPathMode.fromSetting(pathMode)) {
+    ConnPathMode.Direct -> "Прямой"
+    ConnPathMode.Bypass -> "Обход"
+    ConnPathMode.Auto -> "Авто"
 }
 
 fun currentModeLabel(

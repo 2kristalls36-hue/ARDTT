@@ -119,11 +119,61 @@ class DeployEngine(private val appContext: Context) {
                     .put("ssh_user", target.sshUser.trim().ifBlank { "root" })
                     .put("auth_type", if (target.privateKeyPem.isNotBlank()) "key" else "password")
                     .put("is_update", _isUpdate.value)
-                    .put("cascade_enabled", target.cascadeEnabled)
-                    .put("public_host", target.publicHost.ifBlank { target.host }.trim()),
+                    .put("public_host", target.publicHost.ifBlank { target.host }.trim())
+                    .put("cascade_enabled", target.cascadeEnabled),
             )
             append("Старт деплоя ${target.name.ifBlank { target.host }}")
-            emit(0.02f, "Подключение SSH…")
+            val stackBytes = loadStackArchiveBytes()
+            val installBytes = appContext.assets.open("deploy/install.sh").use { it.readBytes() }
+            val deployVersion = DeployBundle.expectedVersion(appContext)
+            val publicHost = target.publicHost.ifBlank { target.host }.trim()
+
+            var exitPub = ""
+            if (target.cascadeEnabled) {
+                emit(0.02f, "Каскад: установка выхода ${target.cascadeHost.trim()}…")
+                val exitHost = target.cascadeHost.trim()
+                if (exitHost.isBlank()) error("Не указан host второго сервера")
+                append("Выход (WARP/DNS): $exitHost")
+                val exitSession = SshClient.connect(
+                    host = exitHost,
+                    user = target.cascadeSshUser(),
+                    port = target.cascadePort,
+                    auth = target.cascadeAuth(),
+                )
+                activeSession = exitSession
+                val exitSsh = SshClient(exitSession, target.cascadePassword)
+                client = exitSsh
+                try {
+                    val installed = uploadAndInstall(
+                        ssh = exitSsh,
+                        hostLabel = exitHost,
+                        publicHost = exitHost,
+                        stackBytes = stackBytes,
+                        installBytes = installBytes,
+                        deployVersion = deployVersion,
+                        command = DeployInstallEnv.command(
+                            publicHost = exitHost,
+                            directPort = target.directPort,
+                            bypassPort = target.bypassPort,
+                            deployVersion = deployVersion,
+                            role = "exit",
+                            cascadeEnabled = true,
+                        ),
+                        progressStart = 0.04f,
+                        progressEnd = 0.48f,
+                    )
+                    exitPub = installed
+                    if (exitPub.isBlank()) {
+                        error("Выходной VPS не отдал ключ каскада (NVPN_CASCADE_PUBLIC_KEY)")
+                    }
+                    append("Ключ выхода получен")
+                } finally {
+                    runCatching { exitSession.disconnect() }
+                    if (activeSession === exitSession) activeSession = null
+                }
+            }
+
+            emit(0.50f, "Подключение SSH к ${target.host.trim()}…")
             session = SshClient.connect(
                 host = target.host.trim(),
                 user = target.sshUser.trim().ifBlank { "root" },
@@ -133,101 +183,63 @@ class DeployEngine(private val appContext: Context) {
             activeSession = session
             val ssh = SshClient(session, target.sudoPassword.ifBlank { target.password })
             client = ssh
-            append("SSH подключено")
+            append("SSH подключено (${target.host.trim()})")
             TelemetryBridge.deploy("ssh_connected", activeHost)
 
-            emit(0.08f, "Подготовка каталога на VPS…")
-            ssh.exec("mkdir -p /opt/nonamevpn && chmod 755 /opt/nonamevpn")
-
-            emit(0.12f, "Загрузка stack.tar.gz…")
-            val stackBytes = loadStackArchiveBytes()
-            ssh.uploadBytes(stackBytes, "/opt/nonamevpn/stack.tar.gz")
-            append("Загружен stack.tar.gz (${stackBytes.size / 1024} КБ)")
-
-            emit(0.20f, "Загрузка install.sh…")
-            val installBytes = appContext.assets.open("deploy/install.sh").use { it.readBytes() }
-            ssh.uploadBytes(installBytes, "/opt/nonamevpn/install.sh")
-            ssh.exec("chmod +x /opt/nonamevpn/install.sh")
-
-            val deployVersion = DeployBundle.expectedVersion(appContext)
-            runCatching {
-                ssh.uploadBytes(
-                    (deployVersion + "\n").toByteArray(Charsets.UTF_8),
-                    "/opt/nonamevpn/DEPLOY_VERSION",
-                )
-            }
-            append("Версия деплоя $deployVersion")
-            TelemetryBridge.deploy(
-                "bundle_uploaded",
-                activeHost,
-                JSONObject()
-                    .put("deploy_version", deployVersion)
-                    .put("archive_bytes", stackBytes.size),
+            val entryCmd = DeployInstallEnv.command(
+                publicHost = publicHost,
+                directPort = target.directPort,
+                bypassPort = target.bypassPort,
+                deployVersion = deployVersion,
+                role = "entry",
+                cascadeEnabled = target.cascadeEnabled,
+                cascadePeerEndpoint = if (target.cascadeEnabled) {
+                    DeployInstallEnv.peerEndpoint(target.cascadeHost)
+                } else {
+                    ""
+                },
+                cascadePeerPublicKey = exitPub,
+            )
+            val entryPub = uploadAndInstall(
+                ssh = ssh,
+                hostLabel = target.host.trim(),
+                publicHost = publicHost,
+                stackBytes = stackBytes,
+                installBytes = installBytes,
+                deployVersion = deployVersion,
+                command = entryCmd,
+                progressStart = if (target.cascadeEnabled) 0.50f else 0.08f,
+                progressEnd = if (target.cascadeEnabled) 0.92f else 0.96f,
             )
 
-            val publicHost = target.publicHost.ifBlank { target.host }.trim()
             if (target.cascadeEnabled) {
-                append(
-                    "Каскад: ${target.cascadeHost.trim().ifBlank { "—" }}:" +
-                        "${target.cascadePort} · user ${target.cascadeUser.trim().ifBlank { "—" }}",
+                emit(0.94f, "Связка ключей на выходном VPS…")
+                val exitHost = target.cascadeHost.trim()
+                val exitSession = SshClient.connect(
+                    host = exitHost,
+                    user = target.cascadeSshUser(),
+                    port = target.cascadePort,
+                    auth = target.cascadeAuth(),
                 )
-            }
-            emit(0.25f, "Запуск установщика…")
-            val env = buildString {
-                append("NVPN_PUBLIC_HOST="); append(SshClient.shellQuote(publicHost)); append(' ')
-                append("NVPN_DIRECT_PORT="); append(target.directPort); append(' ')
-                append("NVPN_BYPASS_PORT="); append(target.bypassPort); append(' ')
-                append("NVPN_DEPLOY_VERSION="); append(SshClient.shellQuote(deployVersion)); append(' ')
-                append("NVPN_CASCADE_ENABLED="); append(if (target.cascadeEnabled) "1" else "0"); append(' ')
-                append("NVPN_CASCADE_HOST="); append(SshClient.shellQuote(target.cascadeHost.trim())); append(' ')
-                append("NVPN_CASCADE_PORT="); append(target.cascadePort); append(' ')
-                append("NVPN_CASCADE_USER="); append(SshClient.shellQuote(target.cascadeUser.trim())); append(' ')
-                append("NVPN_CASCADE_PASSWORD="); append(SshClient.shellQuote(target.cascadePassword)); append(' ')
-                append("bash /opt/nonamevpn/install.sh")
-            }
-            var failed: String? = null
-            val code = ssh.execStreaming(env, timeoutMs = 45 * 60_000L) { line ->
-                append(line)
-                when {
-                    line.startsWith("NVPN_PROGRESS|") -> {
-                        val parts = line.split('|', limit = 3)
-                        val frac = parts.getOrNull(1)?.toFloatOrNull() ?: _progress.value
-                        val step = parts.getOrNull(2)?.take(160).orEmpty()
-                        if (step.isNotBlank()) emit(frac.coerceIn(0f, 1f), step)
+                activeSession = exitSession
+                val exitSsh = SshClient(exitSession, target.cascadePassword)
+                try {
+                    if (entryPub.isBlank()) {
+                        error("Входной VPS не отдал ключ каскада")
                     }
-                    line.startsWith("NVPN_ERROR|") -> failed = line.removePrefix("NVPN_ERROR|")
-                    line.startsWith("NVPN_DONE|") -> emit(1f, "Готово")
+                    exitSsh.exec(
+                        "install -d -m 700 /opt/nonamevpn/stack/data && " +
+                            "printf '%s\\n' ${SshClient.shellQuote(entryPub)} " +
+                            "> /opt/nonamevpn/stack/data/cascade.peer.pub && " +
+                            "chmod 644 /opt/nonamevpn/stack/data/cascade.peer.pub",
+                    )
+                    append("Пир входа записан на $exitHost")
+                } finally {
+                    runCatching { exitSession.disconnect() }
+                    activeSession = session
                 }
             }
-            if (failed != null) {
-                TelemetryBridge.deploy(
-                    "installer_error",
-                    activeHost,
-                    JSONObject().put("message", failed),
-                )
-                error(failed!!)
-            }
-            if (code != 0) {
-                val hint = _log.value.takeLast(8).joinToString(" ")
-                val detail = when {
-                    code == -1 ->
-                        " — SSH-сессия оборвалась во время установки (Wi‑Fi/фон). " +
-                            "Повторите деплой: образы собираются до остановки старого стека"
-                    hint.contains("no space", ignoreCase = true) ||
-                        hint.contains("write /") ||
-                        hint.contains("Мало места") ->
-                        " — на VPS закончилось место на диске"
-                    else -> ""
-                }
-                TelemetryBridge.deploy(
-                    "installer_exit",
-                    activeHost,
-                    JSONObject()
-                        .put("exit_code", code)
-                        .put("log_tail", hint),
-                )
-                error("install.sh exit=$code$detail")
-            }
+
             runCatching {
                 ssh.exec(
                     "rm -f /opt/nonamevpn/stack.tar.gz /var/log/nvpn-build*.log /var/log/nvpn-install.log; " +
@@ -236,7 +248,11 @@ class DeployEngine(private val appContext: Context) {
                 )
             }
 
-            val msg = "Стек установлен на $publicHost (/opt/nonamevpn)"
+            val msg = if (target.cascadeEnabled) {
+                "Каскад установлен: вход $publicHost → выход ${target.cascadeHost.trim()}"
+            } else {
+                "Стек установлен на $publicHost (/opt/nonamevpn)"
+            }
             append(msg)
             emit(1f, msg)
             val deployedAt = System.currentTimeMillis()
@@ -297,6 +313,102 @@ class DeployEngine(private val appContext: Context) {
         TelemetryBridge.deploy("deploy_cancelled", activeHost)
         runCatching { activeSession?.disconnect() }
         activeSession = null
+    }
+
+    private fun uploadAndInstall(
+        ssh: SshClient,
+        hostLabel: String,
+        publicHost: String,
+        stackBytes: ByteArray,
+        installBytes: ByteArray,
+        deployVersion: String,
+        command: String,
+        progressStart: Float,
+        progressEnd: Float,
+    ): String {
+        activeHost = hostLabel
+        emit(progressStart, "Подготовка каталога на $hostLabel…")
+        ssh.exec("mkdir -p /opt/nonamevpn && chmod 755 /opt/nonamevpn")
+
+        val span = (progressEnd - progressStart).coerceAtLeast(0.05f)
+        emit(progressStart + span * 0.08f, "Загрузка stack.tar.gz ($hostLabel)…")
+        ssh.uploadBytes(stackBytes, "/opt/nonamevpn/stack.tar.gz")
+        append("Загружен stack.tar.gz на $hostLabel (${stackBytes.size / 1024} КБ)")
+
+        emit(progressStart + span * 0.16f, "Загрузка install.sh…")
+        ssh.uploadBytes(installBytes, "/opt/nonamevpn/install.sh")
+        ssh.exec("chmod +x /opt/nonamevpn/install.sh")
+        runCatching {
+            ssh.uploadBytes(
+                (deployVersion + "\n").toByteArray(Charsets.UTF_8),
+                "/opt/nonamevpn/DEPLOY_VERSION",
+            )
+        }
+        append("Версия деплоя $deployVersion · $publicHost")
+        TelemetryBridge.deploy(
+            "bundle_uploaded",
+            hostLabel,
+            JSONObject()
+                .put("deploy_version", deployVersion)
+                .put("archive_bytes", stackBytes.size)
+                .put("public_host", publicHost),
+        )
+
+        emit(progressStart + span * 0.22f, "Запуск установщика на $hostLabel…")
+        var failed: String? = null
+        var cascadePub = ""
+        val code = ssh.execStreaming(command, timeoutMs = 45 * 60_000L) { line ->
+            append(line)
+            DeployInstallEnv.publicKeyFromLine(line)?.let { cascadePub = it }
+            when {
+                line.startsWith("NVPN_PROGRESS|") -> {
+                    val parts = line.split('|', limit = 3)
+                    val frac = parts.getOrNull(1)?.toFloatOrNull() ?: 0f
+                    val step = parts.getOrNull(2)?.take(160).orEmpty()
+                    val mapped = (progressStart + span * frac.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+                    if (step.isNotBlank()) emit(mapped, "$hostLabel · $step")
+                }
+                line.startsWith("NVPN_ERROR|") -> failed = line.removePrefix("NVPN_ERROR|")
+                line.startsWith("NVPN_DONE|") -> emit(progressEnd, "Готово · $hostLabel")
+            }
+        }
+        if (failed != null) {
+            TelemetryBridge.deploy(
+                "installer_error",
+                hostLabel,
+                JSONObject().put("message", failed),
+            )
+            error("$hostLabel: $failed")
+        }
+        if (code != 0) {
+            val hint = _log.value.takeLast(8).joinToString(" ")
+            val detail = when {
+                code == -1 ->
+                    " — SSH-сессия оборвалась во время установки (Wi‑Fi/фон). " +
+                        "Повторите деплой: образы собираются до остановки старого стека"
+                hint.contains("no space", ignoreCase = true) ||
+                    hint.contains("write /") ||
+                    hint.contains("Мало места") ->
+                    " — на VPS закончилось место на диске"
+                else -> ""
+            }
+            TelemetryBridge.deploy(
+                "installer_exit",
+                hostLabel,
+                JSONObject()
+                    .put("exit_code", code)
+                    .put("log_tail", hint),
+            )
+            error("install.sh exit=$code на $hostLabel$detail")
+        }
+        runCatching {
+            ssh.exec(
+                "rm -f /opt/nonamevpn/stack.tar.gz /var/log/nvpn-build*.log /var/log/nvpn-install.log; " +
+                    "docker builder prune -af >/dev/null 2>&1 || true; " +
+                    "docker image prune -f >/dev/null 2>&1 || true",
+            )
+        }
+        return cascadePub
     }
 
     /**

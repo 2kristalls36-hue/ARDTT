@@ -11,16 +11,6 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.CloudUpload
-import androidx.compose.material.icons.outlined.FilterList
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Science
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material.icons.outlined.VpnKey
-import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,16 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.nonamevpn.app.bypass.DialPath
 import com.nonamevpn.app.core.AppLog
-import com.nonamevpn.app.core.BypassWorkers
 import com.nonamevpn.app.core.ConnPathMode
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.needsNotificationPermission
@@ -84,6 +71,8 @@ import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import com.nonamevpn.app.ui.theme.wallpaperAdaptedColorScheme
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @Composable
@@ -125,7 +114,24 @@ fun AppRoot(
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
     val pathModeSetting by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
-    val connUi by conn.ui.collectAsStateWithLifecycle()
+    val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val bypassWallpaper by remember(conn, pathModeSetting) {
+        conn.ui
+            .map { ui ->
+                wallpaperBypassActive(
+                    pathMode = ConnPathMode.fromSetting(pathModeSetting),
+                    activePath = ui.activePath,
+                    networkClass = ui.probe?.networkClass,
+                )
+            }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(
+        initialValue = wallpaperBypassActive(
+            pathMode = ConnPathMode.fromSetting(pathModeSetting),
+            activePath = conn.ui.value.activePath,
+            networkClass = conn.ui.value.probe?.networkClass,
+        ),
+    )
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: AppDestination.Tunnel.route
@@ -135,16 +141,7 @@ fun AppRoot(
     val updateUi by updates.ui.collectAsStateWithLifecycle()
     var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
     val tunnelWallpaperScene = remember { TunnelWallpaperSession.currentOrPick() }
-    val darkTheme = when (themeMode) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
-    }
-    val bypassWallpaper = wallpaperBypassActive(
-        pathMode = ConnPathMode.fromSetting(pathModeSetting),
-        activePath = connUi.activePath,
-        networkClass = connUi.probe?.networkClass,
-    )
+    val darkTheme = themeModeIsDark(themeMode, isSystemInDarkTheme())
     val tunnelWallpaper = resolveTunnelWallpaper(
         scene = tunnelWallpaperScene,
         bypass = bypassWallpaper,
@@ -190,7 +187,7 @@ fun AppRoot(
         }
     }
     val navItems = tabs.map { dest ->
-        NavBarItem(route = dest.route, label = dest.navLabel, icon = dest.icon())
+        NavBarItem(route = dest.route, label = dest.navLabel, icon = dest.navIcon())
     }
     val tabReselectSignal = remember { mutableStateMapOf<String, Int>() }
     tabs.forEach { tab ->
@@ -200,7 +197,6 @@ fun AppRoot(
     }
     val selectedNavRoute = currentRoute
     var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
-    var scrollToDialInSettings by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -310,17 +306,14 @@ fun AppRoot(
         AppLog.i("App", if (admin) "Подробные логи (админ)" else "Минимальные логи")
     }
 
-    LaunchedEffect(silent, dial, pathModeSetting) {
-        conn.setSilentRecreate(silent)
-        conn.setWorkers(BypassWorkers.DEFAULT)
-        conn.setDialPath(
-            when (dial) {
-                "vkcalls" -> DialPath.VkCalls
-                "legacy" -> DialPath.Legacy
-                else -> DialPath.Auto
-            },
+    LaunchedEffect(silent, dial, pathModeSetting, hideIp) {
+        applySessionConnectionPrefs(
+            conn = conn,
+            silentRecreate = silent,
+            dialSetting = dial,
+            pathModeSetting = pathModeSetting,
+            hideIp = hideIp,
         )
-        conn.setPathMode(ConnPathMode.fromSetting(pathModeSetting))
     }
 
     LaunchedEffect(admin, testingMode, isRecording, currentRoute) {
@@ -414,8 +407,6 @@ fun AppRoot(
                             SettingsScreen(
                                 settings = settings,
                                 isRecording = isRecording,
-                                scrollToDial = scrollToDialInSettings,
-                                onScrolledToDial = { scrollToDialInSettings = false },
                             )
                         }
                         composable(AppDestination.Testing.route) {
@@ -468,16 +459,4 @@ fun AppRoot(
             }
         }
     }
-}
-
-private fun AppDestination.icon(): ImageVector = when (this) {
-    AppDestination.Tunnel -> Icons.Outlined.VpnKey
-    AppDestination.Servers -> Icons.Outlined.Cloud
-    AppDestination.Profiles -> Icons.Outlined.Folder
-    AppDestination.Exceptions -> Icons.Outlined.FilterList
-    AppDestination.Network -> Icons.Outlined.Wifi
-    AppDestination.Logs -> Icons.Outlined.Terminal
-    AppDestination.Deploy -> Icons.Outlined.CloudUpload
-    AppDestination.Settings -> Icons.Outlined.Settings
-    AppDestination.Testing -> Icons.Outlined.Science
 }

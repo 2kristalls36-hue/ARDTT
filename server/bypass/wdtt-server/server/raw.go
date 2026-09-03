@@ -394,7 +394,7 @@ func handleConnRaw(ctx context.Context, clientConn net.Conn, router *rawRouter) 
 
 		dev, exists := db.Devices[deviceID]
 		if !exists {
-			dev = &ClientDevice{DeviceID: deviceID, IP: getNextIP(), RawIP: getNextRawIP(), RawOwnerID: ownerID}
+			dev = &ClientDevice{DeviceID: deviceID, RawIP: getNextRawIP(), RawOwnerID: ownerID}
 			setDeviceOwner(dev, password)
 			db.Devices[deviceID] = dev
 			saveDB()

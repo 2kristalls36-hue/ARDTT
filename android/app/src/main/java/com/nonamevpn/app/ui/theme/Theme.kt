@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.nonamevpn.app.R
+import com.nonamevpn.app.ui.themeModeIsDark
 
 /** Inter (SIL OFL). */
 val InterFontFamily = FontFamily(
@@ -183,11 +184,7 @@ fun ArdttTheme(
     wallpaperAvgColor: Color? = null,
     content: @Composable () -> Unit,
 ) {
-    val darkTheme = when (themeMode) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
-    }
+    val darkTheme = themeModeIsDark(themeMode, isSystemInDarkTheme())
     val baseScheme = if (darkTheme) EspressoDark else EspressoLight
     
     val colorScheme = if (wallpaperAvgColor != null) {

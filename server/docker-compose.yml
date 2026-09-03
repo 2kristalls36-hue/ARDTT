@@ -8,8 +8,9 @@
 # - provision exposes TCP :9100 /health and generates AWG keypairs.
 # - direct: amneziawg-go + awg (AmneziaWG 2.0 userspace).
 # - bypass: wdtt-server -listen-raw (qWDTT / SpaceNeuroX RAW, GPL-3).
-# - dns: dnsmasq on 10.8.0.1 / 10.9.0.1 (client DNS; upstream 1.1.1.1 via main).
-# - warp: hideIp → table 51820; DNS :53 stays on main (prio 100) or hits local dnsmasq.
+# - dns: dnsmasq on 10.8.0.1 / 10.9.0.1 (standalone) or cascade0 10.10.0.2 (exit hop).
+# - warp: hideIp on standalone entry; cascade mode on exit (all hop traffic except DNS).
+# - cascade: AmneziaWG hop between entry (VPS1) and exit (VPS2). Same image as direct.
 
 services:
   provision:
@@ -21,6 +22,9 @@ services:
       NVPN_PROVISION_LISTEN: ${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}
       NVPN_DATA: /data
       NVPN_DEPLOY_VERSION: ${NVPN_DEPLOY_VERSION:-}
+      NVPN_ROLE: ${NVPN_ROLE:-entry}
+      NVPN_CASCADE_ENABLED: ${NVPN_CASCADE_ENABLED:-0}
+      NVPN_CASCADE_DNS: ${NVPN_CASCADE_DNS:-}
     volumes:
       - ./data:/data
     restart: unless-stopped
@@ -36,6 +40,7 @@ services:
     environment:
       NVPN_DIRECT_PORT: ${NVPN_DIRECT_PORT:-51820}
       NVPN_DATA: /data
+      NVPN_CASCADE_ENABLED: ${NVPN_CASCADE_ENABLED:-0}
     volumes:
       - ./data:/data:ro
     depends_on:
@@ -54,6 +59,7 @@ services:
       NVPN_BYPASS_PORT: ${NVPN_BYPASS_PORT:-56003}
       NVPN_DATA: /data
       NVPN_BYPASS_DNS: ${NVPN_BYPASS_DNS:-10.9.0.1}
+      NVPN_CASCADE_ENABLED: ${NVPN_CASCADE_ENABLED:-0}
     volumes:
       - ./data:/data
       - bypass-config:/etc/wdtt
@@ -65,9 +71,6 @@ services:
     build: ./dns
     container_name: nvpn-dns
     network_mode: host
-    depends_on:
-      - direct
-      - bypass
     restart: unless-stopped
 
   warp:
@@ -82,6 +85,8 @@ services:
       GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-400MiB}
       NVPN_DATA: /data
       NVPN_WARP_STATE: /var/lib/nvpn-warp
+      NVPN_WARP_MODE: ${NVPN_WARP_MODE:-hideip}
+      NVPN_WARP_DNS_IIFACES: ${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0}
     volumes:
       - ./data:/data:ro
       - ./data/warp:/var/lib/nvpn-warp
@@ -90,13 +95,38 @@ services:
       - dns
     restart: unless-stopped
 
+  # Same image as `direct` (install.sh builds `direct` first).
+  # entry: policy-route 10.8/10.9 into the hop. exit: AWG listen; DNS+WARP on this host.
+  cascade:
+    image: ${COMPOSE_PROJECT_NAME:-stack}-direct
+    pull_policy: never
+    container_name: nvpn-cascade
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      NVPN_CASCADE_ROLE: ${NVPN_ROLE:-entry}
+      NVPN_CASCADE_LISTEN_PORT: ${NVPN_CASCADE_LISTEN_PORT:-51820}
+      NVPN_CASCADE_PEER_ENDPOINT: ${NVPN_CASCADE_PEER_ENDPOINT:-}
+      NVPN_CASCADE_PEER_PUBLIC_KEY: ${NVPN_CASCADE_PEER_PUBLIC_KEY:-}
+      NVPN_CASCADE_DNS: ${NVPN_CASCADE_DNS:-10.10.0.2}
+      NVPN_DATA: /data
+    volumes:
+      - ./data:/data
+      - ./direct/cascade-entrypoint.sh:/cascade-entrypoint.sh:ro
+    entrypoint: ["/cascade-entrypoint.sh"]
+    restart: unless-stopped
+
   telemetry:
     build: ./telemetry-upload
     container_name: nvpn-telemetry
     network_mode: host
     environment:
       TELEMETRY_LOG_ROOT: /var/logs/app
-      TELEMETRY_LISTEN: ${NVPN_TELEMETRY_LISTEN:-0.0.0.0:9200}
+      # Installer writes TELEMETRY_LISTEN into stack/.env (and the alias NVPN_TELEMETRY_LISTEN).
+      TELEMETRY_LISTEN: ${TELEMETRY_LISTEN:-0.0.0.0:9200}
       # Optional: when set, review/list/mark-read APIs require Bearer auth.
       TELEMETRY_REVIEW_TOKEN: ${TELEMETRY_REVIEW_TOKEN:-}
     volumes:

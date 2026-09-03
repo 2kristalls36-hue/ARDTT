@@ -186,6 +186,8 @@ func runServer(store *Store, listen string) error {
 			"ok":            true,
 			"service":       "provision",
 			"deployVersion": resolveDeployVersion(),
+			"role":          strings.TrimSpace(envOr("NVPN_ROLE", "entry")),
+			"cascade":       envOr("NVPN_CASCADE_ENABLED", "0") == "1",
 		})
 	})
 	mux.HandleFunc("/v1/users", func(w http.ResponseWriter, r *http.Request) {
@@ -1032,6 +1034,16 @@ func (s *Store) nextHostIDLocked() (int, error) {
 	return 0, errors.New("host_id pool exhausted")
 }
 
+func profileDNS(directBase string) []string {
+	if v := strings.TrimSpace(os.Getenv("NVPN_CASCADE_DNS")); v != "" {
+		return []string{v}
+	}
+	if envOr("NVPN_CASCADE_ENABLED", "0") == "1" {
+		return []string{"10.10.0.2"}
+	}
+	return []string{fmt.Sprintf("%s.1", directBase)}
+}
+
 func (s *Store) BuildProfile(u User) Profile {
 	cfg := s.Config
 	host := cfg.PublicHost
@@ -1054,7 +1066,7 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.Direct.PrivateKey = u.DirectPrivateKey
 	p.Direct.PeerPublicKey = cfg.ServerPublicKey
 	p.Direct.Address = fmt.Sprintf("%s.%d/32", directBase, u.HostID)
-	p.Direct.DNS = []string{fmt.Sprintf("%s.1", directBase)}
+	p.Direct.DNS = profileDNS(directBase)
 	p.Direct.MTU = 1280
 	p.Direct.AWG = map[string]any{
 		"Jc": 4, "Jmin": 40, "Jmax": 70,

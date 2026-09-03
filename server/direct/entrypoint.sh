@@ -48,6 +48,11 @@ setup_forwarding() {
   iptables -C FORWARD -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT || true
 
+  if [ "${NVPN_CASCADE_ENABLED:-0}" = "1" ]; then
+    echo "[direct] cascade on — skip WAN MASQ for 10.8.0.0/24 (hop owns egress)"
+    return 0
+  fi
+
   # Prefer WAN-scoped MASQ so we do not NAT into warp0 by accident.
   iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null \
     || iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE || true
