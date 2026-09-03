@@ -1,5 +1,6 @@
 package com.nonamevpn.app.ui.admin
 
+import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.deploy.DeployHop
 import com.nonamevpn.app.deploy.DeployTarget
 import org.junit.Assert.assertEquals
@@ -26,40 +27,84 @@ class NetworkConnectionMapTest {
         lastDeployedAtMs = lastDeployedAtMs,
     )
 
+    private fun layout(
+        profileHost: String?,
+        server: DeployTarget?,
+        hideIp: Boolean,
+        sessionUp: Boolean = true,
+        observedLastHop: String? = null,
+    ) = buildNetworkMapLayout(
+        profileHost = profileHost,
+        server = server,
+        hideIp = hideIp,
+        sessionUp = sessionUp,
+        observedLastHop = observedLastHop,
+    )
+
+    @Test
+    fun disconnectedHidesVpsEvenWhenProfileHasHost() {
+        val built = layout(
+            profileHost = "45.129.2.3",
+            server = server(
+                host = "45.129.2.3",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+            hideIp = true,
+            sessionUp = false,
+        )
+        assertEquals(listOf(NetworkMapCopy.PROVIDER), built.titles)
+        assertNull(built.vps1Host)
+        assertNull(built.vps2Host)
+        assertFalse(built.showCloudflare)
+    }
+
+    @Test
+    fun pausedOrIdleDoesNotShowVpnHops() {
+        assertFalse(networkMapShowsVpnHops(ConnState.Idle))
+        assertFalse(networkMapShowsVpnHops(ConnState.Ready))
+        assertFalse(networkMapShowsVpnHops(ConnState.Probing))
+        assertFalse(networkMapShowsVpnHops(ConnState.Connecting))
+        assertFalse(networkMapShowsVpnHops(ConnState.Disconnecting))
+        assertFalse(networkMapShowsVpnHops(ConnState.PausedTrustedWifi))
+        assertFalse(networkMapShowsVpnHops(ConnState.Error))
+        assertTrue(networkMapShowsVpnHops(ConnState.Connected))
+    }
+
     @Test
     fun singleVpsShowsProviderAndVps() {
-        val layout = buildNetworkMapLayout(
+        val built = layout(
             profileHost = "45.129.2.3",
             server = server("45.129.2.3"),
             hideIp = false,
         )
         assertEquals(
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS),
-            layout.titles,
+            built.titles,
         )
-        assertFalse(layout.showCloudflare)
-        assertEquals("45.129.2.3", layout.hops[1].knownHost)
+        assertFalse(built.showCloudflare)
+        assertEquals("45.129.2.3", built.hops[1].knownHost)
     }
 
     @Test
     fun incognitoAddsCloudflareAndKeepsVpsAddress() {
-        val layout = buildNetworkMapLayout(
+        val built = layout(
             profileHost = "45.129.2.3",
             server = server("45.129.2.3"),
             hideIp = true,
         )
         assertEquals(
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS, NetworkMapCopy.CLOUDFLARE),
-            layout.titles,
+            built.titles,
         )
-        assertTrue(layout.showCloudflare)
-        assertEquals("45.129.2.3", layout.hops[1].knownHost)
-        assertNull(layout.hops.last().knownHost)
+        assertTrue(built.showCloudflare)
+        assertEquals("45.129.2.3", built.hops[1].knownHost)
+        assertNull(built.hops.last().knownHost)
     }
 
     @Test
     fun cascadeShowsTwoVpsHops() {
-        val layout = buildNetworkMapLayout(
+        val built = layout(
             profileHost = "45.129.2.3",
             server = server(
                 host = "45.129.2.3",
@@ -70,16 +115,62 @@ class NetworkConnectionMapTest {
         )
         assertEquals(
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
-            layout.titles,
+            built.titles,
         )
-        assertEquals("45.129.2.3", layout.hops[1].knownHost)
-        assertEquals("2.26.125.160", layout.hops[2].knownHost)
-        assertEquals("2.26.125.160", layout.vps2Host)
+        assertEquals("45.129.2.3", built.hops[1].knownHost)
+        assertEquals("2.26.125.160", built.hops[2].knownHost)
+        assertEquals("2.26.125.160", built.vps2Host)
+    }
+
+    @Test
+    fun cascadeFromLiveLastHopWhenDeployHasNoFlag() {
+        val built = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = false,
+            observedLastHop = "2.26.125.160",
+        )
+        assertEquals(
+            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
+            built.titles,
+        )
+        assertEquals("2.26.125.160", built.vps2Host)
+    }
+
+    @Test
+    fun liveLastHopSameAsEntryStaysSingleVps() {
+        val built = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = false,
+            observedLastHop = "45.129.2.3",
+        )
+        assertEquals(
+            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS),
+            built.titles,
+        )
+        assertNull(built.vps2Host)
+    }
+
+    @Test
+    fun cloudflareLastHopIsNotVps2() {
+        assertFalse(lastHopCanBeVps2("45.129.2.3", "104.16.132.229"))
+        val built = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = true,
+            observedLastHop = "104.16.132.229",
+        )
+        assertEquals(
+            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS, NetworkMapCopy.CLOUDFLARE),
+            built.titles,
+        )
+        assertNull(built.vps2Host)
     }
 
     @Test
     fun cascadeIncognitoAddsCloudflareHop() {
-        val layout = buildNetworkMapLayout(
+        val built = layout(
             profileHost = "45.129.2.3",
             server = server(
                 host = "45.129.2.3",
@@ -95,13 +186,13 @@ class NetworkConnectionMapTest {
                 NetworkMapCopy.VPS2,
                 NetworkMapCopy.CLOUDFLARE,
             ),
-            layout.titles,
+            built.titles,
         )
     }
 
     @Test
     fun duplicateCascadeHostCollapsesToSingleVps() {
-        val layout = buildNetworkMapLayout(
+        val built = layout(
             profileHost = "45.129.2.3",
             server = server(
                 host = "45.129.2.3",
@@ -112,22 +203,22 @@ class NetworkConnectionMapTest {
         )
         assertEquals(
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS),
-            layout.titles,
+            built.titles,
         )
     }
 
     @Test
     fun noHostIsProviderOnly() {
-        val layout = buildNetworkMapLayout(profileHost = null, server = null, hideIp = false)
-        assertEquals(listOf(NetworkMapCopy.PROVIDER), layout.titles)
+        val built = layout(profileHost = null, server = null, hideIp = false)
+        assertEquals(listOf(NetworkMapCopy.PROVIDER), built.titles)
     }
 
     @Test
-    fun incognitoWithoutHostStillAddsCloudflare() {
-        val layout = buildNetworkMapLayout(profileHost = null, server = null, hideIp = true)
+    fun incognitoWithoutHostStillAddsCloudflareWhenConnected() {
+        val built = layout(profileHost = null, server = null, hideIp = true)
         assertEquals(
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.CLOUDFLARE),
-            layout.titles,
+            built.titles,
         )
     }
 
@@ -151,8 +242,36 @@ class NetworkConnectionMapTest {
         )
         val match = findMatchingDeployServer(servers, "45.129.2.3")
         assertEquals("entry", match?.id)
-        val layout = buildNetworkMapLayout("45.129.2.3", match, hideIp = false)
-        assertEquals("2.26.125.160", layout.vps2Host)
+        val built = layout("45.129.2.3", match, hideIp = false)
+        assertEquals("2.26.125.160", built.vps2Host)
+    }
+
+    @Test
+    fun matchingServerUnionsPublicHostAndSshHost() {
+        val servers = listOf(
+            server(
+                host = "10.0.0.1",
+                publicHost = "45.129.2.3",
+                cascadeEnabled = false,
+                lastDeployedAtMs = 1L,
+                id = "old-public",
+            ),
+            server(
+                host = "45.129.2.3",
+                publicHost = "",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+                lastDeployedAtMs = 99L,
+                id = "cascade-entry",
+            ),
+        )
+        val match = findMatchingDeployServer(servers, "45.129.2.3")
+        assertEquals("cascade-entry", match?.id)
+        val built = layout("45.129.2.3", match, hideIp = false)
+        assertEquals(
+            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
+            built.titles,
+        )
     }
 
     @Test
@@ -166,9 +285,9 @@ class NetworkConnectionMapTest {
             ),
         )
         assertNull(findMatchingDeployServer(servers, "45.129.2.3"))
-        val layout = buildNetworkMapLayout("45.129.2.3", null, hideIp = false)
-        assertEquals(listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS), layout.titles)
-        assertNull(layout.vps2Host)
+        val built = layout("45.129.2.3", null, hideIp = false)
+        assertEquals(listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS), built.titles)
+        assertNull(built.vps2Host)
     }
 
     @Test

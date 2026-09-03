@@ -18,17 +18,17 @@ object DeployHop {
     /**
      * Exact profile-host match only — do not fall back to the latest deploy,
      * or a cascade hop from another server would leak into the map / last-IP probe.
+     *
+     * Public host and SSH host are considered together. An older card that only
+     * matches [DeployTarget.publicHost] must not hide a newer cascade card that
+     * matches [DeployTarget.host] for the same profile endpoint.
      */
     fun matchingServer(servers: List<DeployTarget>, profileHost: String?): DeployTarget? {
         val host = host(profileHost) ?: return null
-        val byPublic = servers.filter {
-            host(it.publicHost)?.let { pub -> same(pub, host) } == true
+        val matches = servers.filter { server ->
+            same(server.publicHost, host) || same(server.host, host)
         }
-        if (byPublic.isNotEmpty()) {
-            return byPublic.maxByOrNull { it.lastDeployedAtMs }
-        }
-        val byHost = servers.filter { host(it.host)?.let { h -> same(h, host) } == true }
-        return byHost.maxByOrNull { it.lastDeployedAtMs }
+        return matches.maxByOrNull { it.lastDeployedAtMs }
     }
 
     fun provisionUrl(host: String?): String? {

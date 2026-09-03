@@ -1,5 +1,7 @@
 package com.nonamevpn.app.ui.admin
 
+import com.nonamevpn.app.core.ConnState
+import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.deploy.DeployHop
 import com.nonamevpn.app.deploy.DeployTarget
 
@@ -33,31 +35,38 @@ internal data class NetworkMapLayout(
 ) {
     val titles: List<String> get() = hops.map { it.title }
     val showCloudflare: Boolean get() = hops.any { it.kind == NetworkMapHopKind.Cloudflare }
+    val vps1Host: String? get() = hops.firstOrNull {
+        it.kind == NetworkMapHopKind.Vps || it.kind == NetworkMapHopKind.Vps1
+    }?.knownHost
     val vps2Host: String? get() = hops.firstOrNull { it.kind == NetworkMapHopKind.Vps2 }?.knownHost
 }
 
+/** VPN hops (VPS / CloudFlare) only exist while the tunnel is actually up. */
+internal fun networkMapShowsVpnHops(state: ConnState): Boolean = state == ConnState.Connected
+
 /**
- * Connection map: provider → VPS (or VPS 1 → VPS 2) → CloudFlare when Hide-IP is on.
- * Incognito never hides addresses; it adds the CloudFlare hop.
+ * Connection map of the *live* path.
+ * Disconnected → provider only. Connected → provider → VPS (or VPS 1 → VPS 2)
+ * → CloudFlare when Hide-IP is on. Incognito never hides addresses.
  */
 internal fun buildNetworkMapLayout(
     profileHost: String?,
     server: DeployTarget?,
     hideIp: Boolean,
+    sessionUp: Boolean,
+    observedLastHop: String? = null,
 ): NetworkMapLayout {
-    val vps1 = hopHost(profileHost)
-        ?: hopHost(server?.publicHost)
-        ?: hopHost(server?.host)
-    val cascadeHost = if (server?.cascadeEnabled == true) hopHost(server.cascadeHost) else null
-    val twoVps = !vps1.isNullOrBlank() &&
-        !cascadeHost.isNullOrBlank() &&
-        !sameHopHost(vps1, cascadeHost)
     val hops = buildList {
         add(NetworkMapHop(NetworkMapHopKind.Provider, NetworkMapCopy.PROVIDER))
+        if (!sessionUp) return@buildList
+        val vps1 = hopHost(profileHost)
+            ?: hopHost(server?.publicHost)
+            ?: hopHost(server?.host)
+        val vps2 = resolveCascadeExitHost(server, vps1, observedLastHop)
         if (!vps1.isNullOrBlank()) {
-            if (twoVps) {
+            if (vps2 != null) {
                 add(NetworkMapHop(NetworkMapHopKind.Vps1, NetworkMapCopy.VPS1, vps1))
-                add(NetworkMapHop(NetworkMapHopKind.Vps2, NetworkMapCopy.VPS2, cascadeHost))
+                add(NetworkMapHop(NetworkMapHopKind.Vps2, NetworkMapCopy.VPS2, vps2))
             } else {
                 add(NetworkMapHop(NetworkMapHopKind.Vps, NetworkMapCopy.VPS, vps1))
             }
@@ -67,6 +76,28 @@ internal fun buildNetworkMapLayout(
         }
     }
     return NetworkMapLayout(hops)
+}
+
+/** Deploy cascade host, else a live last-hop IP that is not the entry VPS or CloudFlare. */
+internal fun resolveCascadeExitHost(
+    server: DeployTarget?,
+    vps1: String?,
+    observedLastHop: String?,
+): String? {
+    val fromDeploy = if (server?.cascadeEnabled == true) hopHost(server.cascadeHost) else null
+    if (!fromDeploy.isNullOrBlank() && lastHopCanBeVps2(vps1, fromDeploy)) {
+        return fromDeploy
+    }
+    val last = hopHost(observedLastHop)
+    if (lastHopCanBeVps2(vps1, last)) return last
+    return null
+}
+
+internal fun lastHopCanBeVps2(vps1: String?, lastHop: String?): Boolean {
+    val last = hopHost(lastHop) ?: return false
+    if (sameHopHost(vps1, last)) return false
+    if (EgressIpProbe.isLikelyCloudflare(last)) return false
+    return true
 }
 
 internal fun findMatchingDeployServer(

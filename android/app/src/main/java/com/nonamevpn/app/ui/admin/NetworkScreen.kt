@@ -23,13 +23,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.IpApiInfo
 import com.nonamevpn.app.core.IpApiLookup
 import com.nonamevpn.app.core.NetworkClass
 import com.nonamevpn.app.core.VpnPath
+import com.nonamevpn.app.deploy.DeployHop
+import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
@@ -65,14 +66,21 @@ fun NetworkScreen(
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = serversRepo.snapshot())
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
 
-    val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
+    val sessionUp = networkMapShowsVpnHops(ui.state)
     val viaVpn = ui.activePath == VpnPath.Bypass ||
         ui.probe?.networkClass == NetworkClass.NeedBypass ||
         ui.probe?.networkClass == NetworkClass.OpenNeedBypass
     val profileHost = activeProfileHost(profile)
     val server = remember(servers, profileHost) { findMatchingDeployServer(servers, profileHost) }
-    val layout = remember(profileHost, server, hideIp) {
-        buildNetworkMapLayout(profileHost, server, hideIp)
+    var observedLastHop by remember { mutableStateOf<String?>(null) }
+    val layout = remember(profileHost, server, hideIp, sessionUp, observedLastHop) {
+        buildNetworkMapLayout(
+            profileHost = profileHost,
+            server = server,
+            hideIp = hideIp,
+            sessionUp = sessionUp,
+            observedLastHop = observedLastHop,
+        )
     }
 
     var loaded by remember { mutableStateOf<List<HopView>>(emptyList()) }
@@ -92,10 +100,12 @@ fun NetworkScreen(
 
     val refreshInputs = rememberUpdatedState(
         NetworkRefreshInputs(
-            layout = layout,
+            profileHost = profileHost,
+            server = server,
             hideIp = hideIp,
+            sessionUp = sessionUp,
+            observedLastHop = observedLastHop,
             entryProvision = profile?.provisionBaseUrl,
-            exitProvision = provisionUrlForHost(layout.vps2Host),
             deviceId = profile?.deviceId,
             viaVpn = viaVpn,
         ),
@@ -103,13 +113,44 @@ fun NetworkScreen(
 
     suspend fun refreshAll() {
         val inputs = refreshInputs.value
-        loaded = loadHopViews(context, inputs, hopsLatest.value)
+        val lastHop = if (inputs.sessionUp) {
+            EgressIpProbe.probeLastHopWan(
+                context = context,
+                exitProvisionBaseUrl = DeployHop.exitProvisionUrl(inputs.server)
+                    ?: provisionUrlForHost(
+                        resolveCascadeExitHost(inputs.server, hopHost(inputs.profileHost), null),
+                    ),
+                deviceId = inputs.deviceId,
+                viaVpn = inputs.viaVpn,
+                bindVpnIfNoExit = !inputs.hideIp,
+            )
+        } else {
+            null
+        }
+        if (lastHop != observedLastHop) {
+            observedLastHop = lastHop
+        }
+        val resolved = buildNetworkMapLayout(
+            profileHost = inputs.profileHost,
+            server = inputs.server,
+            hideIp = inputs.hideIp,
+            sessionUp = inputs.sessionUp,
+            observedLastHop = lastHop,
+        )
+        loaded = loadHopViews(
+            context,
+            inputs.copy(layout = resolved),
+            hopsLatest.value,
+        )
     }
 
     LaunchedEffect(
-        layout,
         sessionUp,
         hideIp,
+        profileHost,
+        server?.id,
+        server?.cascadeEnabled,
+        server?.cascadeHost,
         profile?.provisionBaseUrl,
         profile?.deviceId,
         viaVpn,
@@ -152,13 +193,25 @@ fun NetworkScreen(
 }
 
 private data class NetworkRefreshInputs(
-    val layout: NetworkMapLayout,
+    val profileHost: String?,
+    val server: DeployTarget?,
     val hideIp: Boolean,
+    val sessionUp: Boolean,
+    val observedLastHop: String?,
     val entryProvision: String?,
-    val exitProvision: String?,
     val deviceId: String?,
     val viaVpn: Boolean,
-)
+    val layout: NetworkMapLayout = buildNetworkMapLayout(
+        profileHost = profileHost,
+        server = server,
+        hideIp = hideIp,
+        sessionUp = sessionUp,
+        observedLastHop = observedLastHop,
+    ),
+) {
+    val exitProvision: String?
+        get() = DeployHop.exitProvisionUrl(server) ?: provisionUrlForHost(layout.vps2Host)
+}
 
 private fun syncHopViews(layout: NetworkMapLayout, previous: List<HopView>): List<HopView> {
     return layout.hops.map { hop ->
