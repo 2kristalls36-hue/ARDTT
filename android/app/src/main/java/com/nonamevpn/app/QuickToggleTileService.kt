@@ -15,16 +15,28 @@ import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.qsTileOpensCallHashSettings
+import com.nonamevpn.app.ui.qsToggleTileSubtitle
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Quick Settings tile — qWDTT-parity toggle wired to [ConnectionManager].
  * Without a call hash the tile stays inactive and opens «Код звонка».
  */
 class QuickToggleTileService : TileService() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onStartListening() {
         super.onStartListening()
         updateTile()
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     override fun onClick() {
@@ -68,26 +80,30 @@ class QuickToggleTileService : TileService() {
     }
 
     private fun updateTile() {
-        val tile = qsTile ?: return
         val hasHash = ConnectionManager.getOrNull()?.ui?.value?.hasCallHash == true
         val running = isRunning()
+        val tile = qsTile ?: return
         tile.label = "ARDTT"
         tile.icon = Icon.createWithResource(this, R.drawable.ic_tile_custom)
-        when {
-            running -> {
-                tile.state = Tile.STATE_ACTIVE
-                if (Build.VERSION.SDK_INT >= 29) tile.subtitle = "Подключено"
-            }
-            !hasHash -> {
-                tile.state = Tile.STATE_INACTIVE
-                if (Build.VERSION.SDK_INT >= 29) tile.subtitle = "Код звонка"
-            }
-            else -> {
-                tile.state = Tile.STATE_INACTIVE
-                if (Build.VERSION.SDK_INT >= 29) tile.subtitle = "Отключено"
-            }
+        tile.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        if (Build.VERSION.SDK_INT >= 29) {
+            tile.subtitle = qsToggleTileSubtitle(hasHash, running, profileName = null)
         }
         tile.updateTile()
+        scope.launch {
+            val profileName = runCatching {
+                QsProfileSwitch.snapshot(applicationContext).active?.name
+            }.getOrNull()
+            val latest = qsTile ?: return@launch
+            latest.label = "ARDTT"
+            latest.icon = Icon.createWithResource(this@QuickToggleTileService, R.drawable.ic_tile_custom)
+            latest.state = if (isRunning()) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            val hash = ConnectionManager.getOrNull()?.ui?.value?.hasCallHash == true
+            if (Build.VERSION.SDK_INT >= 29) {
+                latest.subtitle = qsToggleTileSubtitle(hash, isRunning(), profileName)
+            }
+            latest.updateTile()
+        }
     }
 
     private fun openCallHashSettings() {
@@ -126,7 +142,7 @@ class QuickToggleTileService : TileService() {
     companion object {
         private const val TAG = "QuickToggleTile"
 
-        fun requestTileUpdate(context: Context) {
+        fun requestListening(context: Context) {
             if (Build.VERSION.SDK_INT >= 24) {
                 try {
                     requestListeningState(
@@ -137,6 +153,10 @@ class QuickToggleTileService : TileService() {
                     Log.w(TAG, "requestListeningState failed", e)
                 }
             }
+        }
+
+        fun requestTileUpdate(context: Context) {
+            requestQuickSettingsTilesUpdate(context)
         }
     }
 }
