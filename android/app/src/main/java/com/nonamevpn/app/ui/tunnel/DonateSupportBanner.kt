@@ -19,10 +19,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nonamevpn.app.ui.components.AppSectionCard
+
+private val DonateCardLight = Color(0xFFFFFBE6)
+private val DonateCardDark  = Color(0xFF2A2510)
+private val DonateAccent    = Color(0xFFB8860B)
 
 @Composable
 fun DonateSupportBanner(
@@ -30,12 +36,16 @@ fun DonateSupportBanner(
     onDismiss: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.22f
+    val cardColor  = if (isDark) DonateCardDark else DonateCardLight
+    val accentColor = DonateAccent
     AppSectionCard(
         modifier = modifier,
+        color = cardColor,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
         shadowElevation = 0.dp,
     ) {
         Row(
@@ -64,7 +74,7 @@ fun DonateSupportBanner(
                     Icon(
                         imageVector = Icons.Outlined.Close,
                         contentDescription = "Закрыть предложение поддержать автора",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = accentColor.copy(alpha = 0.72f),
                     )
                 }
             }
@@ -72,13 +82,13 @@ fun DonateSupportBanner(
         Text(
             DonateSupport.BODY,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = accentColor.copy(alpha = 0.80f),
         )
         TextButton(
             onClick = { DonateSupport.openPage(context) },
             contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
         ) {
-            Text(DonateSupport.ACTION, fontWeight = FontWeight.SemiBold)
+            Text(DonateSupport.ACTION, color = accentColor, fontWeight = FontWeight.SemiBold)
         }
     }
 }
