@@ -131,6 +131,44 @@ object EgressIpProbe {
     }
 
     /**
+     * Last-hop WAN (cascade exit or single VPS), never CloudFlare.
+     * Does not use entry provision — that reports VPS1 even when the path SNAT is VPS2.
+     * Does not update the cached tunnel egress (Hide-IP on the Tunnel tab stays intact).
+     */
+    suspend fun probeLastHopWan(
+        context: Context,
+        exitProvisionBaseUrl: String?,
+        deviceId: String?,
+        viaVpn: Boolean,
+        bindVpnIfNoExit: Boolean,
+    ): String? = withContext(Dispatchers.IO) {
+        val fromExit = probeProvision(
+            viaWarp = false,
+            provisionBaseUrl = exitProvisionBaseUrl,
+            deviceId = deviceId,
+            context = context,
+            viaVpn = viaVpn,
+        )
+        if (!fromExit.isNullOrBlank() && !isLikelyCloudflare(fromExit)) {
+            return@withContext fromExit
+        }
+        if (!bindVpnIfNoExit) return@withContext null
+        probeVpnBoundIp(context)
+    }
+
+    /** Public IP as seen through the VPN TUN. Null when the VPN network is down. */
+    suspend fun probeVpnBoundIp(context: Context): String? = withContext(Dispatchers.IO) {
+        val vpnNet = pickVpnNetwork(context) ?: return@withContext null
+        for (url in endpoints) {
+            val ip = runCatching { fetchIp(url, vpnNet) }.getOrNull()
+            if (!ip.isNullOrBlank() && !isLikelyCloudflare(ip)) {
+                return@withContext ip
+            }
+        }
+        null
+    }
+
+    /**
      * Provision `/v1/egress-ip` without touching the cached tunnel egress.
      * Used by the Network tab map so VPS / CloudFlare hops stay distinct.
      */
