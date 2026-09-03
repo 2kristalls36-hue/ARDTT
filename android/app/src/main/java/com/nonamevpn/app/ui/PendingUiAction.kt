@@ -21,6 +21,9 @@ object PendingUiAction {
     private val _openAppearanceSettings = MutableStateFlow(false)
     val openAppearanceSettings: StateFlow<Boolean> = _openAppearanceSettings.asStateFlow()
 
+    private val _openProfiles = MutableStateFlow(false)
+    val openProfiles: StateFlow<Boolean> = _openProfiles.asStateFlow()
+
     fun requestCallHashSettings() {
         _openCallHashSettings.value = true
     }
@@ -60,6 +63,16 @@ object PendingUiAction {
     fun consumeOpenAppearanceSettings(): Boolean {
         if (!_openAppearanceSettings.value) return false
         _openAppearanceSettings.value = false
+        return true
+    }
+
+    fun requestOpenProfiles() {
+        _openProfiles.value = true
+    }
+
+    fun consumeOpenProfiles(): Boolean {
+        if (!_openProfiles.value) return false
+        _openProfiles.value = false
         return true
     }
 }

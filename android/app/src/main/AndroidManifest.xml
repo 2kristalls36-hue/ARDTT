@@ -103,6 +103,28 @@
         </service>
 
         <service
+            android:name=".QsProfileTileService"
+            android:label="@string/tile_profile_label"
+            android:icon="@drawable/ic_profile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <activity
+            android:name=".QsProfilePickerActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Ardtt.QsDialog">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <service
             android:name=".deploy.DeployService"
             android:exported="false"
             android:foregroundServiceType="dataSync"
