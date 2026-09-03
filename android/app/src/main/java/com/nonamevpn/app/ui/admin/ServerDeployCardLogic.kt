@@ -2,6 +2,7 @@ package com.nonamevpn.app.ui.admin
 
 import com.nonamevpn.app.deploy.DeployBundle
 import com.nonamevpn.app.deploy.ProvisionAdminApi
+import com.nonamevpn.app.deploy.serverOsBadgeLabel
 
 internal sealed class HealthUi {
     data object Checking : HealthUi()
@@ -30,6 +31,36 @@ internal fun distinctPublicHost(sshHost: String, publicHost: String): String? {
     val pub = publicHost.trim()
     if (pub.isEmpty()) return null
     return pub.takeUnless { it.equals(ssh, ignoreCase = true) }
+}
+
+internal fun serverCardTitle(name: String, host: String): String =
+    name.trim().ifBlank { host.trim() }
+
+/** SSH / pub facts under the title — never repeats the title IP. */
+internal fun serverCardMetaLine(
+    name: String,
+    host: String,
+    sshPort: Int,
+    publicHost: String,
+): String {
+    val title = serverCardTitle(name, host)
+    val ssh = host.trim()
+    val parts = mutableListOf<String>()
+    if (ssh.isNotEmpty() && !ssh.equals(title, ignoreCase = true)) {
+        parts.add(ssh)
+    }
+    parts.add("SSH $sshPort")
+    distinctPublicHost(ssh, publicHost)?.let { parts.add("pub $it") }
+    return parts.joinToString(" · ")
+}
+
+/** Pretty OS name, omitted when it would just repeat the badge. */
+internal fun serverOsDetailLine(osId: String, osVersion: String): String? {
+    val ver = osVersion.trim()
+    if (ver.isEmpty()) return null
+    val label = serverOsBadgeLabel(osId)
+    if (ver.equals(label, ignoreCase = true)) return null
+    return ver
 }
 
 /**

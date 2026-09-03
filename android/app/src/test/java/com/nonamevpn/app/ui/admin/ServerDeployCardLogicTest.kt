@@ -30,6 +30,40 @@ class ServerDeployCardLogicTest {
     }
 
     @Test
+    fun cardTitlePrefersNameThenHost() {
+        assertEquals("Edge", serverCardTitle("Edge", "10.0.0.1"))
+        assertEquals("10.0.0.1", serverCardTitle("  ", "10.0.0.1"))
+        assertEquals("10.0.0.1", serverCardTitle("10.0.0.1", "10.0.0.1"))
+    }
+
+    @Test
+    fun cardMetaOmitsHostWhenTitleIsTheHost() {
+        assertEquals(
+            "SSH 22",
+            serverCardMetaLine("159.194.225.162", "159.194.225.162", 22, "159.194.225.162"),
+        )
+        assertEquals(
+            "10.0.0.1 · SSH 22",
+            serverCardMetaLine("Edge", "10.0.0.1", 22, "10.0.0.1"),
+        )
+        assertEquals(
+            "10.0.0.1 · SSH 22 · pub 203.0.113.10",
+            serverCardMetaLine("Edge", "10.0.0.1", 22, "203.0.113.10"),
+        )
+        assertEquals(
+            "SSH 2200 · pub 203.0.113.10",
+            serverCardMetaLine("10.0.0.1", "10.0.0.1", 2200, "203.0.113.10"),
+        )
+    }
+
+    @Test
+    fun osDetailOmitsRedundantBadgeLabel() {
+        assertNull(serverOsDetailLine("ubuntu", ""))
+        assertNull(serverOsDetailLine("ubuntu", "Ubuntu"))
+        assertEquals("Ubuntu 24.04.1 LTS", serverOsDetailLine("ubuntu", "Ubuntu 24.04.1 LTS"))
+    }
+
+    @Test
     fun updateButtonHiddenWhenOnlineAndCurrent() {
         val health = HealthUi.Online("1.0.6")
         assertFalse(isDeployOutdated(health, "1.0.6"))
