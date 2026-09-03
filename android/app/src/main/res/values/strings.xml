@@ -17,6 +17,7 @@
     <string name="widget_connected">ARDTT: подключено</string>
     <string name="widget_tap_to_connect">Нажмите для подключения</string>
     <string name="tile_label">ARDTT</string>
+    <string name="tile_profile_label">Профиль</string>
     <string name="shortcut_start_short">Подключить</string>
     <string name="shortcut_start_long">Подключить ARDTT</string>
     <string name="shortcut_stop_short">Отключить</string>

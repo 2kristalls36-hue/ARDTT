@@ -301,6 +301,13 @@ fun AppRoot(
             navigateTab(AppDestination.Servers.route)
         }
     }
+    val openProfiles by PendingUiAction.openProfiles.collectAsStateWithLifecycle()
+    LaunchedEffect(openProfiles) {
+        if (!PendingUiAction.consumeOpenProfiles()) return@LaunchedEffect
+        if (currentRoute != AppDestination.Profiles.route) {
+            navigateTab(AppDestination.Profiles.route)
+        }
+    }
     val availableUpdateVersion = updateUi.available
         ?.takeIf { it.isNewer }
         ?.versionName
