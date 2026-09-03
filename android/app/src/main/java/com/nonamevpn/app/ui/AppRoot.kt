@@ -391,6 +391,7 @@ fun AppRoot(
                             TunnelScreen(
                                 settings = settings,
                                 profiles = profiles,
+                                serversRepo = serversRepo,
                                 onRequestConnect = { requestVpnThenConnect() },
                                 isAdmin = admin,
                                 classicAppearance = classicAppearance,

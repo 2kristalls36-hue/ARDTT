@@ -1,5 +1,6 @@
 package com.nonamevpn.app.ui.admin
 
+import com.nonamevpn.app.deploy.DeployHop
 import com.nonamevpn.app.deploy.DeployTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -174,5 +175,67 @@ class NetworkConnectionMapTest {
     fun hopHostStripsPort() {
         assertEquals("45.129.2.3", hopHost("45.129.2.3:51820"))
         assertEquals("http://2.26.125.160:9100", provisionUrlForHost("2.26.125.160:22"))
+    }
+
+    @Test
+    fun lastHopProvisionPrefersExit() {
+        assertEquals(
+            listOf("http://2.26.125.160:9100", "http://45.129.2.3:9100"),
+            lastHopProvisionUrls("http://45.129.2.3:9100", "http://2.26.125.160:9100"),
+        )
+        assertEquals(
+            listOf("http://45.129.2.3:9100"),
+            lastHopProvisionUrls("http://45.129.2.3:9100", null),
+        )
+        assertEquals(
+            "http://2.26.125.160:9100",
+            DeployHop.exitProvisionUrl(
+                server(
+                    host = "45.129.2.3",
+                    cascadeEnabled = true,
+                    cascadeHost = "2.26.125.160",
+                ),
+            ),
+        )
+        assertNull(
+            DeployHop.exitProvisionUrl(
+                server(
+                    host = "45.129.2.3",
+                    cascadeEnabled = true,
+                    cascadeHost = "45.129.2.3",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun emptyOrDuplicateHopsAreNotShown() {
+        assertFalse(
+            shouldShowFilledHop(NetworkMapHopKind.Provider, ip = "", earlierIps = emptyList()),
+        )
+        assertFalse(
+            shouldShowFilledHop(NetworkMapHopKind.Cloudflare, ip = "", earlierIps = emptyList()),
+        )
+        assertTrue(
+            shouldShowFilledHop(
+                NetworkMapHopKind.Vps,
+                ip = "45.129.2.3",
+                earlierIps = listOf("1.2.3.4"),
+            ),
+        )
+        assertFalse(
+            shouldShowFilledHop(
+                NetworkMapHopKind.Cloudflare,
+                ip = "45.129.2.3",
+                earlierIps = listOf("45.129.2.3"),
+            ),
+        )
+        assertTrue(
+            shouldShowFilledHop(
+                NetworkMapHopKind.Cloudflare,
+                ip = "104.28.1.1",
+                earlierIps = listOf("45.129.2.3"),
+            ),
+        )
     }
 }

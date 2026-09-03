@@ -5,12 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,6 +78,17 @@ fun NetworkScreen(
     var loaded by remember { mutableStateOf<List<HopView>>(emptyList()) }
     val hops = remember(layout, loaded) { syncHopViews(layout, loaded) }
     val hopsLatest = rememberUpdatedState(hops)
+    val visibleHops = remember(hops) {
+        val earlier = mutableListOf<String>()
+        hops.mapNotNull { view ->
+            if (!shouldShowFilledHop(view.hop.kind, view.info.ip, earlier)) {
+                null
+            } else {
+                earlier += view.info.ip
+                view
+            }
+        }
+    }
 
     val refreshInputs = rememberUpdatedState(
         NetworkRefreshInputs(
@@ -132,12 +141,10 @@ fun NetworkScreen(
                 title = "Сеть",
                 subtitle = NetworkMapCopy.SUBTITLE,
             )
-            hops.forEach { view ->
+            visibleHops.forEach { view ->
                 IpInfoCard(
                     title = view.hop.title,
                     info = view.info,
-                    loading = view.loading,
-                    emptyHint = "Не удалось определить IP",
                 )
             }
         }
@@ -286,8 +293,6 @@ private suspend fun loadCloudflare(
 private fun IpInfoCard(
     title: String,
     info: IpApiInfo,
-    loading: Boolean,
-    emptyHint: String,
 ) {
     AppSectionCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
@@ -301,44 +306,17 @@ private fun IpInfoCard(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
-        val showIp = info.ip.isNotBlank()
-        when {
-            loading && !showIp -> {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .defaultMinSize(minHeight = 40.dp)
-                        .padding(vertical = 4.dp),
-                    strokeWidth = 2.dp,
-                )
-            }
-            showIp -> {
-                Text(
-                    info.ip,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (info.subtitle.isNotBlank()) {
-                    Text(
-                        info.subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            info.error != null -> {
-                Text(
-                    info.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            else -> {
-                Text(
-                    emptyHint,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        Text(
+            info.ip,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (info.subtitle.isNotBlank()) {
+            Text(
+                info.subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
