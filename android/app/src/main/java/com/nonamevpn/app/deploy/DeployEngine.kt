@@ -256,8 +256,20 @@ class DeployEngine(private val appContext: Context) {
             append(msg)
             emit(1f, msg)
             val deployedAt = System.currentTimeMillis()
+            val osInfo = runCatching {
+                ServerOsProbe.parse(ssh.exec("cat /etc/os-release", timeoutMs = 12_000L))
+            }.getOrNull()
             runCatching {
-                ServersRepository.get(appContext).upsert(target.copy(lastDeployedAtMs = deployedAt))
+                val repo = ServersRepository.get(appContext)
+                val stored = repo.snapshot().find { it.id == target.id } ?: target
+                repo.upsert(
+                    stored.copy(
+                        lastDeployedAtMs = deployedAt,
+                        osId = osInfo?.osId?.trim()?.ifBlank { stored.osId } ?: stored.osId,
+                        osVersion = osInfo?.osVersionLabel?.trim()?.ifBlank { stored.osVersion }
+                            ?: stored.osVersion,
+                    ),
+                )
             }
             TelemetryBridge.deploy(
                 "deploy_succeeded",
