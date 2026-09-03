@@ -85,4 +85,22 @@ class GitHubReleaseUpdateTest {
             url,
         )
     }
+
+    @Test
+    fun repoApiBasesPrefersPrimaryThenAliases() {
+        assertEquals(
+            listOf(
+                "https://api.github.com/repos/2kristalls36-hue/ARDTT",
+                "https://api.github.com/repos/2kristalls36-hue/nonameVPN",
+            ),
+            GitHubReleaseUpdate.repoApiBases("2kristalls36-hue", "ARDTT"),
+        )
+        assertEquals(
+            listOf(
+                "https://api.github.com/repos/2kristalls36-hue/nonameVPN",
+                "https://api.github.com/repos/2kristalls36-hue/ARDTT",
+            ),
+            GitHubReleaseUpdate.repoApiBases("2kristalls36-hue", "nonameVPN"),
+        )
+    }
 }

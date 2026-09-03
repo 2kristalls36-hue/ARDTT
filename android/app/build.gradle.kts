@@ -32,8 +32,8 @@ android {
         applicationId = "com.nonamevpn.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 219
-        versionName = "0.5.201"
+        versionCode = 220
+        versionName = "0.5.202"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -52,7 +52,7 @@ android {
         buildConfigField(
             "String",
             "GITHUB_REPO_NAME",
-            "\"nonameVPN\"",
+            "\"ARDTT\"",
         )
         buildConfigField(
             "String",

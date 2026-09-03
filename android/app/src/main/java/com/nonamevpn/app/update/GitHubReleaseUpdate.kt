@@ -9,14 +9,28 @@ import org.json.JSONObject
 object GitHubReleaseUpdate {
     const val API_VERSION = "2022-11-28"
 
-    fun latestReleaseApiUrl(): String =
-        "https://api.github.com/repos/${BuildConfig.GITHUB_REPO_OWNER}/${BuildConfig.GITHUB_REPO_NAME}/releases/latest"
+    fun repoApiBases(
+        owner: String,
+        primaryRepo: String,
+        extraRepos: List<String> = listOf("ARDTT", "nonameVPN"),
+    ): List<String> {
+        val names = (listOf(primaryRepo) + extraRepos)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase(Locale.US) }
+        return names.map { "https://api.github.com/repos/$owner/$it" }
+    }
 
-    fun releaseByTagApiUrl(tag: String): String =
-        "https://api.github.com/repos/${BuildConfig.GITHUB_REPO_OWNER}/${BuildConfig.GITHUB_REPO_NAME}/releases/tags/$tag"
+    fun latestReleaseApiUrl(base: String = defaultRepoApiBase()): String = "$base/releases/latest"
 
-    fun releasesListApiUrl(): String =
-        "https://api.github.com/repos/${BuildConfig.GITHUB_REPO_OWNER}/${BuildConfig.GITHUB_REPO_NAME}/releases?per_page=30"
+    fun releaseByTagApiUrl(tag: String, base: String = defaultRepoApiBase()): String =
+        "$base/releases/tags/$tag"
+
+    fun releasesListApiUrl(base: String = defaultRepoApiBase()): String =
+        "$base/releases?per_page=30"
+
+    private fun defaultRepoApiBase(): String =
+        "https://api.github.com/repos/${BuildConfig.GITHUB_REPO_OWNER}/${BuildConfig.GITHUB_REPO_NAME}"
 
     fun userAgent(): String = "ARDTTAndroid/${BuildConfig.VERSION_NAME}"
 

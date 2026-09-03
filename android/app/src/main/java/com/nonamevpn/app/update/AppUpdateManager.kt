@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.nonamevpn.app.BuildConfig
+import com.nonamevpn.app.core.AppLog
 import java.io.File
 import java.net.InetAddress
 import java.security.MessageDigest
@@ -65,9 +66,17 @@ class AppUpdateManager(private val context: Context) {
 
     suspend fun check(): Result<AppUpdateInfo> = withContext(Dispatchers.IO) {
         runCatching {
-            checkGitHubRelease()?.takeIf { it.isNewer }
-                ?: checkLegacyManifest().getOrThrow().takeIf { it.isNewer }
-                ?: throw NoUpdateAvailableException()
+            val github = checkGitHubRelease()
+            val vpsResult = checkLegacyManifest()
+            val vps = vpsResult.getOrNull()
+            val chosen = preferredAppUpdate(github, vps, BuildConfig.VERSION_CODE)
+            AppLog.i(
+                "Update",
+                "github=${github?.versionName}:${github?.versionCode} " +
+                    "vps=${vps?.versionName}:${vps?.versionCode} " +
+                    "chosen=${chosen?.versionName}:${chosen?.versionCode}",
+            )
+            chosen ?: throw appUpdateCheckFailure(github, vps, vpsResult.exceptionOrNull())
         }
     }
 
@@ -171,33 +180,45 @@ class AppUpdateManager(private val context: Context) {
     }
 
     private suspend fun checkGitHubRelease(): AppUpdateInfo? {
-        val latest = fetchText(GitHubReleaseUpdate.latestReleaseApiUrl(), githubApi = true)
-            ?.let(GitHubReleaseUpdate::parseRelease)
-        if (latest != null) {
-            if (latest.manifestKind == AppUpdateManifestKind.GitHubJsonAsset) {
-                return resolveManifestAsset(latest).getOrNull()
-            }
-            return latest
+        val bases = GitHubReleaseUpdate.repoApiBases(
+            owner = BuildConfig.GITHUB_REPO_OWNER,
+            primaryRepo = BuildConfig.GITHUB_REPO_NAME,
+        )
+        for (base in bases) {
+            resolveGitHubLatest(base)?.let { return it }
+            resolveGitHubList(base)?.let { return it }
         }
-        return fetchText(GitHubReleaseUpdate.releasesListApiUrl(), githubApi = true)
-            ?.let { raw ->
-                val releases = org.json.JSONArray(raw)
-                var best: AppUpdateInfo? = null
-                for (i in 0 until releases.length()) {
-                    val releaseJson = releases.optJSONObject(i) ?: continue
-                    val release = GitHubReleaseUpdate.parseRelease(releaseJson.toString())
-                        ?: continue
-                    val resolved = if (release.manifestKind == AppUpdateManifestKind.GitHubJsonAsset) {
-                        resolveManifestAsset(release).getOrNull()
-                    } else {
-                        release
-                    } ?: continue
-                    if (best == null || resolved.versionCode > best.versionCode) {
-                        best = resolved
-                    }
-                }
-                best
+        return null
+    }
+
+    private suspend fun resolveGitHubLatest(base: String): AppUpdateInfo? {
+        val latest = fetchText(GitHubReleaseUpdate.latestReleaseApiUrl(base), githubApi = true)
+            ?.let(GitHubReleaseUpdate::parseRelease)
+            ?: return null
+        return resolveGitHubRelease(latest)
+    }
+
+    private suspend fun resolveGitHubList(base: String): AppUpdateInfo? {
+        val raw = fetchText(GitHubReleaseUpdate.releasesListApiUrl(base), githubApi = true) ?: return null
+        val releases = org.json.JSONArray(raw)
+        var best: AppUpdateInfo? = null
+        for (i in 0 until releases.length()) {
+            val releaseJson = releases.optJSONObject(i) ?: continue
+            val release = GitHubReleaseUpdate.parseRelease(releaseJson.toString()) ?: continue
+            val resolved = resolveGitHubRelease(release) ?: continue
+            if (best == null || resolved.versionCode > best.versionCode) {
+                best = resolved
             }
+        }
+        return best
+    }
+
+    private suspend fun resolveGitHubRelease(release: AppUpdateInfo): AppUpdateInfo? {
+        return if (release.manifestKind == AppUpdateManifestKind.GitHubJsonAsset) {
+            resolveManifestAsset(release).getOrNull()
+        } else {
+            release
+        }
     }
 
     private suspend fun checkLegacyManifest(): Result<AppUpdateInfo> = runCatching {
