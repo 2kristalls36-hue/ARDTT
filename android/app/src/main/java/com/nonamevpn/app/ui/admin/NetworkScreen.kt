@@ -36,10 +36,9 @@ import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.IpApiInfo
 import com.nonamevpn.app.core.IpApiLookup
-import com.nonamevpn.app.core.NetworkClass
-import com.nonamevpn.app.core.VpnPath
 import com.nonamevpn.app.deploy.DeployHop
 import com.nonamevpn.app.deploy.DeployTarget
+import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
@@ -77,19 +76,19 @@ fun NetworkScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
 
     val sessionUp = networkMapShowsVpnHops(ui.state)
-    val viaVpn = ui.activePath == VpnPath.Bypass ||
-        ui.probe?.networkClass == NetworkClass.NeedBypass ||
-        ui.probe?.networkClass == NetworkClass.OpenNeedBypass
+    val viaVpn = sessionUp
     val profileHost = activeProfileHost(profile)
     val server = remember(servers, profileHost) { findMatchingDeployServer(servers, profileHost) }
     var observedLastHop by remember { mutableStateOf<String?>(null) }
-    val layout = remember(profileHost, server, hideIp, sessionUp, observedLastHop) {
+    var liveCascadeHost by remember { mutableStateOf<String?>(null) }
+    val layout = remember(profileHost, server, hideIp, sessionUp, observedLastHop, liveCascadeHost) {
         buildNetworkMapLayout(
             profileHost = profileHost,
             server = server,
             hideIp = hideIp,
             sessionUp = sessionUp,
             observedLastHop = observedLastHop,
+            liveCascadeHost = liveCascadeHost,
         )
     }
 
@@ -115,6 +114,7 @@ fun NetworkScreen(
             hideIp = hideIp,
             sessionUp = sessionUp,
             observedLastHop = observedLastHop,
+            liveCascadeHost = liveCascadeHost,
             entryProvision = profile?.provisionBaseUrl,
             deviceId = profile?.deviceId,
             viaVpn = viaVpn,
@@ -123,15 +123,32 @@ fun NetworkScreen(
 
     suspend fun refreshAll() {
         val inputs = refreshInputs.value
+        if (!inputs.sessionUp) {
+            if (observedLastHop != null) observedLastHop = null
+            if (liveCascadeHost != null) liveCascadeHost = null
+        }
+        val healthCascade = if (inputs.sessionUp) {
+            fetchLiveCascadeHost(inputs.entryProvision)
+        } else {
+            null
+        }
+        if (healthCascade != liveCascadeHost) {
+            liveCascadeHost = healthCascade
+        }
         val lastHop = if (inputs.sessionUp) {
             EgressIpProbe.probeLastHopWan(
                 context = context,
                 exitProvisionBaseUrl = DeployHop.exitProvisionUrl(inputs.server)
                     ?: provisionUrlForHost(
-                        resolveCascadeExitHost(inputs.server, hopHost(inputs.profileHost), null),
+                        resolveCascadeExitHost(
+                            inputs.server,
+                            hopHost(inputs.profileHost),
+                            null,
+                            healthCascade,
+                        ),
                     ),
                 deviceId = inputs.deviceId,
-                viaVpn = inputs.viaVpn,
+                viaVpn = true,
                 bindVpnIfNoExit = !inputs.hideIp,
             )
         } else {
@@ -146,10 +163,11 @@ fun NetworkScreen(
             hideIp = inputs.hideIp,
             sessionUp = inputs.sessionUp,
             observedLastHop = lastHop,
+            liveCascadeHost = healthCascade,
         )
         loaded = loadHopViews(
             context,
-            inputs.copy(layout = resolved),
+            inputs.copy(layout = resolved, liveCascadeHost = healthCascade),
             hopsLatest.value,
         )
     }
@@ -213,6 +231,7 @@ private data class NetworkRefreshInputs(
     val hideIp: Boolean,
     val sessionUp: Boolean,
     val observedLastHop: String?,
+    val liveCascadeHost: String?,
     val entryProvision: String?,
     val deviceId: String?,
     val viaVpn: Boolean,
@@ -222,10 +241,17 @@ private data class NetworkRefreshInputs(
         hideIp = hideIp,
         sessionUp = sessionUp,
         observedLastHop = observedLastHop,
+        liveCascadeHost = liveCascadeHost,
     ),
 ) {
     val exitProvision: String?
         get() = DeployHop.exitProvisionUrl(server) ?: provisionUrlForHost(layout.vps2Host)
+}
+
+private suspend fun fetchLiveCascadeHost(entryProvision: String?): String? {
+    val base = entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return null
+    val health = ProvisionAdminApi.health(base).getOrNull() ?: return null
+    return ProvisionAdminApi.liveCascadeHost(health)
 }
 
 private fun syncHopViews(layout: NetworkMapLayout, previous: List<HopView>): List<HopView> {
@@ -332,8 +358,8 @@ private suspend fun loadCloudflare(
     hideIp: Boolean,
 ): IpApiInfo {
     val urls = linkedSetOf<String>()
-    entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
     exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
+    entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
     var lastIp: String? = null
     for (base in urls) {
         val ip = EgressIpProbe.probeProvision(

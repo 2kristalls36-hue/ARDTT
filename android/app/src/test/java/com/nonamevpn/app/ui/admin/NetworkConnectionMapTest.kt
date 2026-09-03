@@ -33,12 +33,14 @@ class NetworkConnectionMapTest {
         hideIp: Boolean,
         sessionUp: Boolean = true,
         observedLastHop: String? = null,
+        liveCascadeHost: String? = null,
     ) = buildNetworkMapLayout(
         profileHost = profileHost,
         server = server,
         hideIp = hideIp,
         sessionUp = sessionUp,
         observedLastHop = observedLastHop,
+        liveCascadeHost = liveCascadeHost,
     )
 
     @Test
@@ -272,6 +274,49 @@ class NetworkConnectionMapTest {
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
             built.titles,
         )
+    }
+
+    @Test
+    fun matchingPrefersCascadeEvenIfOlderPlainCardWasDeployedLater() {
+        val servers = listOf(
+            server(
+                host = "10.0.0.1",
+                publicHost = "45.129.2.3",
+                cascadeEnabled = false,
+                lastDeployedAtMs = 99L,
+                id = "plain-newer",
+            ),
+            server(
+                host = "45.129.2.3",
+                publicHost = "",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+                lastDeployedAtMs = 1L,
+                id = "cascade-older",
+            ),
+        )
+        val match = findMatchingDeployServer(servers, "45.129.2.3")
+        assertEquals("cascade-older", match?.id)
+        val built = layout("45.129.2.3", match, hideIp = false)
+        assertEquals(
+            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
+            built.titles,
+        )
+    }
+
+    @Test
+    fun liveCascadeHostAddsVps2WithoutDeployFlag() {
+        val built = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = false,
+            liveCascadeHost = "2.26.125.160",
+        )
+        assertEquals(
+            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
+            built.titles,
+        )
+        assertEquals("2.26.125.160", built.vps2Host)
     }
 
     @Test

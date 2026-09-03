@@ -182,12 +182,20 @@ func main() {
 func runServer(store *Store, listen string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		cascade := envOr("NVPN_CASCADE_ENABLED", "0") == "1"
+		peer := strings.TrimSpace(os.Getenv("NVPN_CASCADE_PEER_ENDPOINT"))
+		cascadeHost := ""
+		if cascade {
+			cascadeHost = cascadeHostFromPeer(peer)
+		}
 		writeJSON(w, map[string]any{
 			"ok":            true,
 			"service":       "provision",
 			"deployVersion": resolveDeployVersion(),
 			"role":          strings.TrimSpace(envOr("NVPN_ROLE", "entry")),
-			"cascade":       envOr("NVPN_CASCADE_ENABLED", "0") == "1",
+			"cascade":       cascade,
+			"cascadePeer":   peer,
+			"cascadeHost":   cascadeHost,
 		})
 	})
 	mux.HandleFunc("/v1/users", func(w http.ResponseWriter, r *http.Request) {
@@ -991,6 +999,18 @@ func probeEgressIP(viaWarp bool) (string, error) {
 		last = errors.New("empty")
 	}
 	return "", last
+}
+
+func cascadeHostFromPeer(peer string) string {
+	peer = strings.TrimSpace(peer)
+	if peer == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(peer)
+	if err == nil && strings.TrimSpace(host) != "" {
+		return host
+	}
+	return peer
 }
 
 func looksLikeIP(value string) bool {

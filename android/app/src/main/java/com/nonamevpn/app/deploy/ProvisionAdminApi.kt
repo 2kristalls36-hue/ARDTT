@@ -15,6 +15,10 @@ object ProvisionAdminApi {
         val deployVersion: String = "",
         /** HTTP RTT of GET /health, milliseconds. */
         val pingMs: Long = -1L,
+        val cascade: Boolean = false,
+        val role: String = "",
+        /** Exit VPS host when this provision is a cascade entry. */
+        val cascadeHost: String = "",
     )
 
     data class UserSummary(
@@ -73,6 +77,9 @@ object ProvisionAdminApi {
                 ok = ok,
                 deployVersion = o?.optString("deployVersion").orEmpty().trim(),
                 pingMs = pingMs,
+                cascade = o?.optBoolean("cascade", false) == true,
+                role = o?.optString("role").orEmpty().trim(),
+                cascadeHost = cascadeHostFromHealth(o),
             )
         }
     }
@@ -80,6 +87,19 @@ object ProvisionAdminApi {
     /** Convenience for callers that only need online boolean. */
     suspend fun healthOk(baseUrl: String): Result<Boolean> =
         health(baseUrl).map { it.ok }
+
+    internal fun cascadeHostFromHealth(o: JSONObject?): String {
+        if (o == null) return ""
+        val direct = o.optString("cascadeHost").trim()
+        if (direct.isNotBlank()) return DeployHop.host(direct).orEmpty()
+        return DeployHop.host(o.optString("cascadePeer")).orEmpty()
+    }
+
+    internal fun liveCascadeHost(info: HealthInfo): String? {
+        if (!info.cascade) return null
+        if (info.role.equals("exit", ignoreCase = true)) return null
+        return DeployHop.host(info.cascadeHost)
+    }
 
     suspend fun listUsers(baseUrl: String): Result<List<UserSummary>> = withContext(Dispatchers.IO) {
         runCatching {
