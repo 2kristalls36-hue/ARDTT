@@ -6,7 +6,7 @@ import android.net.Uri
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnState
 
-/** Soft donate ask on the Tunnel tab after a live session. */
+/** Soft donate ask: Tunnel while connected, and a persistent card in Settings. */
 object DonateSupport {
     const val URL = "https://spasibomir.ru/pay/34807"
     const val TITLE = "Поддержка автора"
