@@ -13,6 +13,14 @@ func setupRawNAT(rawIface string) error {
 	extIface := getDefaultInterface()
 	log.Printf("[RAW-NAT] wan=%s cidr=%s", extIface, rawServerCIDR)
 
+	if os.Getenv("NVPN_CASCADE_ENABLED") == "1" {
+		setupForwardRules(rawIface)
+		setupRawMSSClamping()
+		natType = "cascade (no WAN MASQ)"
+		log.Printf("[RAW-NAT] %s — hop owns egress", natType)
+		return nil
+	}
+
 	switch {
 	case commandExists("iptables"):
 		for i := 0; i < 5; i++ {

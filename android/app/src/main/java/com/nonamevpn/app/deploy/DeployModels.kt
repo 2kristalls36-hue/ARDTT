@@ -16,6 +16,12 @@ data class DeployTarget(
     val publicHost: String = "",
     val directPort: Int = 51820,
     val bypassPort: Int = 56003,
+    /** Second VPS: egress hop (AWG + DNS + WARP). Phone deploys it over SSH separately. */
+    val cascadeEnabled: Boolean = false,
+    val cascadeHost: String = "",
+    val cascadePort: Int = 22,
+    val cascadeUser: String = "",
+    val cascadePassword: String = "",
     /** Lowercase linux distro id (e.g. ubuntu/debian), empty when unknown. */
     val osId: String = "",
     /** Human-friendly OS version label (usually PRETTY_NAME). */
@@ -32,6 +38,10 @@ sealed class DeployAuth {
 fun DeployTarget.auth(): DeployAuth =
     if (privateKeyPem.isNotBlank()) DeployAuth.Key(privateKeyPem, keyPassphrase)
     else DeployAuth.Password(password)
+
+fun DeployTarget.cascadeAuth(): DeployAuth = DeployAuth.Password(cascadePassword)
+
+fun DeployTarget.cascadeSshUser(): String = cascadeUser.trim().ifBlank { "root" }
 
 sealed class DeployEvent {
     data class Progress(val fraction: Float, val step: String) : DeployEvent()
