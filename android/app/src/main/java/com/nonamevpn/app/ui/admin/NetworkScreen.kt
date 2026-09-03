@@ -50,6 +50,7 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
+import com.nonamevpn.app.ui.components.PingFlashDot
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.illustratedBackdropActive
@@ -533,12 +534,15 @@ private fun IpInfoCard(
                 modifier = Modifier.weight(1f),
             )
             if (pingLabel.isNotEmpty()) {
+                PingFlashDot(
+                    pingKey = pingLabel,
+                    modifier = Modifier.padding(start = 8.dp, end = 4.dp),
+                )
                 Text(
                     pingLabel,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = NvpnColors.connected,
-                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         }
