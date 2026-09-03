@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -80,14 +82,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.R
 import com.nonamevpn.app.core.needsNotificationPermission
 import com.nonamevpn.app.deploy.DeployBundle
 import com.nonamevpn.app.deploy.DeployEngine
 import com.nonamevpn.app.deploy.DeployTarget
 import com.nonamevpn.app.deploy.ProvisionAdminApi
+import com.nonamevpn.app.deploy.ServerOsMark
 import com.nonamevpn.app.deploy.ServerOsProbe
 import com.nonamevpn.app.deploy.ServersRepository
 import com.nonamevpn.app.deploy.isRecognizedServerOsId
+import com.nonamevpn.app.deploy.serverOsBadgeLabel
+import com.nonamevpn.app.deploy.serverOsMark
 import com.nonamevpn.app.profile.NetworkEndpoint
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
@@ -312,21 +318,7 @@ private fun ServerListScreen(
                     val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
                         .getOrNull()
                     val status = healthUiOf(info)
-                    if (target.osVersion.isBlank()) {
-                        val osInfo = ServerOsProbe.probe(target).getOrNull()
-                        if (osInfo != null) {
-                            val nextId = osInfo.osId.trim()
-                            val nextVersion = osInfo.osVersionLabel.trim()
-                            if (target.osId != nextId || target.osVersion != nextVersion) {
-                                serversRepo.upsert(
-                                    target.copy(
-                                        osId = nextId,
-                                        osVersion = nextVersion,
-                                    ),
-                                )
-                            }
-                        }
-                    }
+                    ServerOsProbe.refreshStored(serversRepo, target)
                     healthById = healthById + (target.id to status)
                 }
             }.awaitAll()
@@ -610,21 +602,7 @@ private fun ServerOverviewHost(
         health = HealthUi.Checking
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
         health = healthUiOf(info)
-        if (target.osVersion.isBlank()) {
-            val osInfo = ServerOsProbe.probe(target).getOrNull()
-            if (osInfo != null) {
-                val nextId = osInfo.osId.trim()
-                val nextVersion = osInfo.osVersionLabel.trim()
-                if (target.osId != nextId || target.osVersion != nextVersion) {
-                    serversRepo.upsert(
-                        target.copy(
-                            osId = nextId,
-                            osVersion = nextVersion,
-                        ),
-                    )
-                }
-            }
-        }
+        ServerOsProbe.refreshStored(serversRepo, target)
     }
 
     LaunchedEffect(busy, activeTargetId, serverId) {
@@ -658,21 +636,7 @@ private fun ServerOverviewHost(
         val target = server ?: return@rememberPullRefresh
         val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
         health = healthUiOf(info)
-        if (target.osVersion.isBlank()) {
-            val osInfo = ServerOsProbe.probe(target).getOrNull()
-            if (osInfo != null) {
-                val nextId = osInfo.osId.trim()
-                val nextVersion = osInfo.osVersionLabel.trim()
-                if (target.osId != nextId || target.osVersion != nextVersion) {
-                    serversRepo.upsert(
-                        target.copy(
-                            osId = nextId,
-                            osVersion = nextVersion,
-                        ),
-                    )
-                }
-            }
-        }
+        ServerOsProbe.refreshStored(serversRepo, target)
     }
 
     if (server == null) {
@@ -1583,42 +1547,48 @@ fun DeployScreen(
     }
 }
 
+private fun serverOsMarkDrawable(mark: ServerOsMark): Int = when (mark) {
+    ServerOsMark.Ubuntu -> R.drawable.ic_os_ubuntu
+    ServerOsMark.Debian -> R.drawable.ic_os_debian
+    ServerOsMark.Fedora -> R.drawable.ic_os_fedora
+    ServerOsMark.Alpine -> R.drawable.ic_os_alpine
+    ServerOsMark.Arch -> R.drawable.ic_os_arch
+    ServerOsMark.Rhel -> R.drawable.ic_os_rhel
+    ServerOsMark.Suse -> R.drawable.ic_os_suse
+    ServerOsMark.Linux -> R.drawable.ic_os_linux
+    ServerOsMark.Unknown -> R.drawable.ic_os_unknown
+}
+
 @Composable
 private fun ServerOsBadge(
     osId: String,
     osVersion: String,
 ) {
-    val normalized = osId.trim().lowercase()
-    val symbol = when {
-        normalized.contains("ubuntu") -> "🟠"
-        normalized.contains("debian") -> "🔴"
-        normalized.contains("alpine") -> "🔷"
-        normalized.contains("arch") -> "⚫"
-        normalized.contains("centos") ||
-            normalized.contains("rhel") ||
-            normalized.contains("rocky") ||
-            normalized.contains("alma") ||
-            normalized.contains("fedora") ||
-            normalized.contains("suse") ||
-            normalized.contains("linux") -> "🐧"
-        normalized.contains("windows") -> "🪟"
-        normalized.contains("darwin") || normalized.contains("mac") -> "🍎"
-        osVersion.isNotBlank() -> "🖥️"
-        else -> "🖥️"
-    }
-    val label = osId.ifBlank { "OS" }.uppercase()
+    val mark = serverOsMark(osId)
+    val label = serverOsBadgeLabel(osId)
+    val description = osVersion.trim().ifBlank { label }
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-        contentColor = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
-        Text(
-            "$symbol $label",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        ) {
+            Image(
+                painter = painterResource(serverOsMarkDrawable(mark)),
+                contentDescription = description,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

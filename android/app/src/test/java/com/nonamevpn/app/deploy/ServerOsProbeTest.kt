@@ -2,6 +2,7 @@ package com.nonamevpn.app.deploy
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,6 +20,8 @@ class ServerOsProbeTest {
         assertEquals("ubuntu", parsed.osId)
         assertEquals("Ubuntu 24.04.1 LTS", parsed.osVersionLabel)
         assertTrue(parsed.isRecognized)
+        assertEquals(ServerOsMark.Ubuntu, serverOsMark(parsed.osId))
+        assertEquals("Ubuntu", serverOsBadgeLabel(parsed.osId))
     }
 
     @Test
@@ -48,5 +51,53 @@ class ServerOsProbeTest {
         assertEquals("NixOS 24.05", parsed.osVersionLabel)
         assertFalse(parsed.isRecognized)
         assertFalse(isRecognizedServerOsId("nixos"))
+        assertEquals(ServerOsMark.Linux, serverOsMark("nixos"))
+    }
+
+    @Test
+    fun parseReadsQuotedIdAndIdLikeAliases() {
+        val parsed = ServerOsProbe.parse(
+            """
+            NAME='Pop!_OS'
+            ID='pop'
+            ID_LIKE="ubuntu debian"
+            PRETTY_NAME='Pop!_OS 22.04 LTS'
+            """.trimIndent(),
+        )
+        assertEquals("ubuntu", parsed.osId)
+        assertEquals("Pop!_OS 22.04 LTS", parsed.osVersionLabel)
+        assertTrue(parsed.isRecognized)
+        assertEquals(ServerOsMark.Ubuntu, serverOsMark(parsed.osId))
+    }
+
+    @Test
+    fun parseIgnoresMotdNoiseAroundOsRelease() {
+        val parsed = ServerOsProbe.parse(
+            """
+            Welcome to Ubuntu 24.04 LTS
+            ID=ubuntu
+            PRETTY_NAME="Ubuntu 24.04.1 LTS"
+            Last login: Thu
+            """.trimIndent(),
+        )
+        assertEquals("ubuntu", parsed.osId)
+        assertEquals("Ubuntu 24.04.1 LTS", parsed.osVersionLabel)
+    }
+
+    @Test
+    fun blankOsShowsUnknownMarkAndOsLabel() {
+        assertEquals(ServerOsMark.Unknown, serverOsMark(""))
+        assertEquals("OS", serverOsBadgeLabel(""))
+        assertFalse(isRecognizedServerOsId(""))
+    }
+
+    @Test
+    fun appliedToSkipsUnchangedAndEmpty() {
+        val target = DeployTarget(id = "1", name = "s", host = "10.0.0.1")
+        assertNull(ServerOsInfo("", "").appliedTo(target))
+        val next = ServerOsInfo("ubuntu", "Ubuntu 24.04.1 LTS").appliedTo(target)
+        assertEquals("ubuntu", next?.osId)
+        assertEquals("Ubuntu 24.04.1 LTS", next?.osVersion)
+        assertNull(ServerOsInfo("ubuntu", "Ubuntu 24.04.1 LTS").appliedTo(next!!))
     }
 }
