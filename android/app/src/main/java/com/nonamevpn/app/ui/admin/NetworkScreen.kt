@@ -506,7 +506,10 @@ private fun IpInfoCard(
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
-        border = if (highlighted) BorderStroke(2.dp, NvpnColors.connected) else null,
+        border = BorderStroke(
+            2.dp,
+            if (highlighted) NvpnColors.connected else MaterialTheme.colorScheme.outline,
+        ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),

@@ -183,6 +183,14 @@ internal data class HopHealthPings(
 internal fun isLastFilledHop(index: Int, filledCount: Int): Boolean =
     filledCount > 0 && index == filledCount - 1
 
+internal enum class HopCardOutline {
+    Last,
+    Other,
+}
+
+internal fun hopCardOutline(index: Int, filledCount: Int): HopCardOutline =
+    if (isLastFilledHop(index, filledCount)) HopCardOutline.Last else HopCardOutline.Other
+
 /** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */
 internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Long = when (kind) {
     NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1 -> pings.entryMs

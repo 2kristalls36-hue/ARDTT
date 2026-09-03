@@ -469,6 +469,15 @@ class NetworkConnectionMapTest {
     }
 
     @Test
+    fun earlierHopsUseGrayOutline() {
+        assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 3))
+        assertEquals(HopCardOutline.Other, hopCardOutline(index = 1, filledCount = 3))
+        assertEquals(HopCardOutline.Last, hopCardOutline(index = 2, filledCount = 3))
+        assertEquals(HopCardOutline.Last, hopCardOutline(index = 0, filledCount = 1))
+        assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 0))
+    }
+
+    @Test
     fun hopPingUsesEntryForVpsAndExitForVps2() {
         val pings = HopHealthPings(entryMs = 12L, exitMs = 40L)
         assertEquals(12L, hopHealthPingMs(NetworkMapHopKind.Vps, pings))
