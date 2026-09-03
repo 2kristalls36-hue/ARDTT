@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -18,6 +20,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -29,6 +34,43 @@ object CompactListCard {
     val CornerRadius = 18.dp
     val Shape = RoundedCornerShape(CornerRadius)
     val ShadowElevation = 4.dp
+    val IconCorner = 12.dp
+}
+
+/** Squared leading glyph used on compact identity cards (servers, profiles). */
+@Composable
+fun CompactListLeadingIcon(
+    painter: Painter,
+    contentDescription: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(CompactListCard.IconCorner),
+        color = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        Icon(
+            painter = painter,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier
+                .padding(8.dp)
+                .size(18.dp),
+        )
+    }
+}
+
+@Composable
+fun CompactListLeadingIcon(
+    imageVector: ImageVector,
+    contentDescription: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    CompactListLeadingIcon(
+        painter = rememberVectorPainter(imageVector),
+        contentDescription = contentDescription,
+        modifier = modifier,
+    )
 }
 
 /** Soft section card. */

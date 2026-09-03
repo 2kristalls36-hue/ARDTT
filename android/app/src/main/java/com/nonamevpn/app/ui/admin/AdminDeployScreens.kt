@@ -45,8 +45,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -100,6 +98,9 @@ import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.TabHeaderMetrics
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.CompactListCard
+import com.nonamevpn.app.ui.components.CompactListLeadingIcon
+import com.nonamevpn.app.ui.components.OverflowMenu
+import com.nonamevpn.app.ui.components.OverflowMenuItem
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -450,77 +451,92 @@ private fun ServerIdentityBody(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
+        CompactListLeadingIcon(
+            imageVector = Icons.Filled.Dns,
+            contentDescription = "Сервер",
+        )
+        Column(
             modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        ServerOsBadge(
-            osId = server.osId,
-            osVersion = server.osVersion,
-        )
-    }
-    if (osDetail != null) {
-        Text(
-            osDetail,
-            style = MaterialTheme.typography.labelSmall,
-            color = muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-    Text(
-        meta,
-        style = MaterialTheme.typography.labelSmall,
-        color = muted,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
-    extraLines.forEach { line ->
-        Text(
-            line,
-            style = MaterialTheme.typography.labelSmall,
-            color = muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        val pingMs = (health as? HealthUi.Online)?.pingMs ?: -1L
-        PingFlashDot(pingKey = if (pingMs > 0L) pingMs else null)
-        Text(
-            statusText,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = statusColor,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-    freshnessChip?.let { chip ->
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = NvpnColors.warning.copy(alpha = 0.18f),
+            verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                ServerOsBadge(
+                    osId = server.osId,
+                    osVersion = server.osVersion,
+                )
+            }
+            if (osDetail != null) {
+                Text(
+                    osDetail,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
-                chip,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                meta,
                 style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = NvpnColors.warning,
+                color = muted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            extraLines.forEach { line ->
+                Text(
+                    line,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                val pingMs = (health as? HealthUi.Online)?.pingMs ?: -1L
+                PingFlashDot(pingKey = if (pingMs > 0L) pingMs else null)
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = statusColor,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            freshnessChip?.let { chip ->
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = NvpnColors.warning.copy(alpha = 0.18f),
+                ) {
+                    Text(
+                        chip,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NvpnColors.warning,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }
@@ -772,54 +788,30 @@ private fun ServerOverviewScreen(
                                     tint = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            DropdownMenu(
+                            OverflowMenu(
                                 expanded = showActions,
                                 onDismissRequest = { onShowActions(false) },
-                                modifier = Modifier
-                                    .width(216.dp)
-                                    .padding(vertical = 4.dp),
-                                shape = RoundedCornerShape(22.dp),
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                tonalElevation = 2.dp,
-                                shadowElevation = 6.dp,
                             ) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.heightIn(min = 54.dp),
-                                    contentPadding = PaddingValues(horizontal = 18.dp),
-                                    text = { Text("Обновить деплой", fontWeight = FontWeight.Medium) },
-                                    leadingIcon = { Icon(Icons.Filled.CloudUpload, contentDescription = null) },
+                                OverflowMenuItem(
+                                    text = "Обновить деплой",
+                                    leadingIcon = Icons.Filled.CloudUpload,
                                     onClick = {
                                         onShowActions(false)
                                         onUpdateDeploy()
                                     },
                                 )
-                                DropdownMenuItem(
-                                    modifier = Modifier.heightIn(min = 54.dp),
-                                    contentPadding = PaddingValues(horizontal = 18.dp),
-                                    text = { Text("Переименовать", fontWeight = FontWeight.Medium) },
-                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                OverflowMenuItem(
+                                    text = "Переименовать",
+                                    leadingIcon = Icons.Filled.Edit,
                                     onClick = {
                                         onShowActions(false)
                                         onRename()
                                     },
                                 )
-                                DropdownMenuItem(
-                                    modifier = Modifier.heightIn(min = 54.dp),
-                                    contentPadding = PaddingValues(horizontal = 18.dp),
-                                    text = {
-                                        Text(
-                                            "Удалить",
-                                            color = MaterialTheme.colorScheme.error,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Filled.Delete,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error,
-                                        )
-                                    },
+                                OverflowMenuItem(
+                                    text = "Удалить",
+                                    leadingIcon = Icons.Filled.Delete,
+                                    destructive = true,
                                     onClick = {
                                         onShowActions(false)
                                         onDelete()
