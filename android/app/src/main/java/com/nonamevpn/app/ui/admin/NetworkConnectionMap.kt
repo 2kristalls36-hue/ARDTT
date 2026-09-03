@@ -44,6 +44,23 @@ internal data class NetworkMapLayout(
 /** VPN hops (VPS / CloudFlare) only exist while the tunnel is actually up. */
 internal fun networkMapShowsVpnHops(state: ConnState): Boolean = state == ConnState.Connected
 
+internal fun entryHost(profileHost: String?, server: DeployTarget?): String? =
+    hopHost(profileHost) ?: hopHost(server?.publicHost) ?: hopHost(server?.host)
+
+internal fun cascadePathLive(
+    matched: DeployTarget?,
+    profileHost: String?,
+    servers: List<DeployTarget>,
+    liveCascadeHost: String?,
+    cascadeLive: Boolean,
+): Boolean {
+    val profile = profileHost ?: entryHost(profileHost, matched)
+    return cascadeLive ||
+        hopHost(liveCascadeHost) != null ||
+        (matched != null && DeployHop.isCascadeEntry(matched, profile)) ||
+        servers.any { DeployHop.isCascadeEntry(it, profile) }
+}
+
 /**
  * Connection map of the *live* path.
  * Disconnected → provider only. Connected → provider → VPS (or VPS 1 → VPS 2)
@@ -62,9 +79,7 @@ internal fun buildNetworkMapLayout(
     val hops = buildList {
         add(NetworkMapHop(NetworkMapHopKind.Provider, NetworkMapCopy.PROVIDER))
         if (!sessionUp) return@buildList
-        val vps1 = hopHost(profileHost)
-            ?: hopHost(server?.publicHost)
-            ?: hopHost(server?.host)
+        val vps1 = entryHost(profileHost, server)
         val vps2 = resolveCascadeExitHost(
             servers = servers,
             matched = server,
@@ -90,9 +105,9 @@ internal fun buildNetworkMapLayout(
 }
 
 /**
- * Exit hop for a cascade path. Uses the matching deploy card, any cascade card
- * for this profile, live entry /health, the other server card when health says
- * cascade is on, then the probed last-hop WAN.
+ * Exit hop for a cascade path. Matching deploy card, other cascade cards for
+ * this profile, live entry /health, the unique sibling server when cascade is
+ * on, then the probed last-hop WAN.
  */
 internal fun resolveCascadeExitHost(
     servers: List<DeployTarget> = emptyList(),
@@ -104,18 +119,20 @@ internal fun resolveCascadeExitHost(
     cascadeLive: Boolean = false,
 ): String? {
     val profile = profileHost ?: vps1
-    val cascadeOn = cascadeLive ||
-        !hopHost(liveCascadeHost).isNullOrBlank() ||
-        (matched != null && DeployHop.isCascadeEntry(matched, profile)) ||
-        servers.any { DeployHop.isCascadeEntry(it, profile) }
+    val cascadeCards = servers.filter { DeployHop.isCascadeEntry(it, profile) }
+    val cascadeOn = cascadePathLive(
+        matched = matched,
+        profileHost = profile,
+        servers = servers,
+        liveCascadeHost = liveCascadeHost,
+        cascadeLive = cascadeLive,
+    )
     val candidates = buildList {
-        if (matched?.cascadeEnabled == true) add(hopHost(matched.cascadeHost))
-        servers.forEach { server ->
-            if (DeployHop.isCascadeEntry(server, profile)) add(hopHost(server.cascadeHost))
-        }
-        add(hopHost(liveCascadeHost))
-        if (cascadeOn) add(uniqueOtherServerHost(servers, vps1))
-        add(hopHost(observedLastHop))
+        if (matched?.cascadeEnabled == true) hopHost(matched.cascadeHost)?.let(::add)
+        cascadeCards.forEach { hopHost(it.cascadeHost)?.let(::add) }
+        hopHost(liveCascadeHost)?.let(::add)
+        if (cascadeOn) uniqueOtherServerHost(servers, vps1)?.let(::add)
+        hopHost(observedLastHop)?.let(::add)
     }
     return candidates.firstOrNull { lastHopCanBeVps2(vps1, it) }
 }
@@ -129,9 +146,7 @@ internal fun uniqueOtherServerHost(servers: List<DeployTarget>, vps1: String?): 
 
 internal fun lastHopCanBeVps2(vps1: String?, lastHop: String?): Boolean {
     val last = hopHost(lastHop) ?: return false
-    if (sameHopHost(vps1, last)) return false
-    if (EgressIpProbe.isLikelyCloudflare(last)) return false
-    return true
+    return !sameHopHost(vps1, last) && !EgressIpProbe.isLikelyCloudflare(last)
 }
 
 internal fun findMatchingDeployServer(
@@ -145,11 +160,11 @@ internal fun sameHopHost(a: String?, b: String?): Boolean = DeployHop.same(a, b)
 
 internal fun provisionUrlForHost(host: String?): String? = DeployHop.provisionUrl(host)
 
-internal fun lastHopProvisionUrl(entry: String?, exit: String?): String? =
-    DeployHop.lastHopProvisionUrl(entry, exit)
-
-internal fun lastHopProvisionUrls(entry: String?, exit: String?): List<String> =
-    DeployHop.lastHopProvisionUrls(entry, exit)
+internal fun lastHopProvisionUrl(
+    entry: String?,
+    exit: String?,
+    cascade: Boolean = false,
+): String? = DeployHop.lastHopProvisionUrl(entry, exit, cascade)
 
 /** Cards appear only with a real address; CloudFlare is omitted if it duplicates a VPS hop. */
 internal fun shouldShowFilledHop(

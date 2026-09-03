@@ -108,6 +108,13 @@ object ProvisionAdminApi {
 
     internal fun liveCascadeHost(info: HealthInfo): String? = liveCascadeInfo(info).host
 
+    suspend fun liveCascade(baseUrl: String?): LiveCascadeInfo {
+        val base = baseUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+            ?: return LiveCascadeInfo(enabled = false)
+        val health = health(base).getOrNull() ?: return LiveCascadeInfo(enabled = false)
+        return liveCascadeInfo(health)
+    }
+
     suspend fun listUsers(baseUrl: String): Result<List<UserSummary>> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users")

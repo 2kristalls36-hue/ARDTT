@@ -54,15 +54,18 @@ object DeployHop {
     }
 
     /**
-     * Provision of the last hop only: cascade exit when known, otherwise the
-     * single VPS. Never falls back from VPS 2 to VPS 1.
+     * Provision of the last hop only.
+     * Cascade: exit VPS, never the entry. Single hop: that VPS.
      */
-    fun lastHopProvisionUrl(entryProvision: String?, exitProvision: String?): String? {
-        val exit = exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+    fun lastHopProvisionUrl(
+        entryProvision: String?,
+        exitProvision: String?,
+        cascade: Boolean = false,
+    ): String? {
+        fun clean(raw: String?) = raw?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        val exit = clean(exitProvision)
         if (exit != null) return exit
-        return entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        if (cascade) return null
+        return clean(entryProvision)
     }
-
-    fun lastHopProvisionUrls(entryProvision: String?, exitProvision: String?): List<String> =
-        listOfNotNull(lastHopProvisionUrl(entryProvision, exitProvision))
 }

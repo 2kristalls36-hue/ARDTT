@@ -87,10 +87,8 @@ object EgressIpProbe {
         exitProvisionBaseUrl: String? = null,
     ): String? = withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
-        val bases = DeployHop.lastHopProvisionUrls(provisionBaseUrl, exitProvisionBaseUrl)
-
-        // Last-hop provision only (cascade exit, else the single VPS).
-        for (base in bases) {
+        val base = DeployHop.lastHopProvisionUrl(provisionBaseUrl, exitProvisionBaseUrl)
+        if (!base.isNullOrBlank()) {
             val fromProvision = probeProvision(
                 viaWarp = hideIp,
                 provisionBaseUrl = base,
@@ -106,8 +104,7 @@ object EgressIpProbe {
                 return@withContext fromProvision
             }
             errors += "provision viaWarp=$hideIp $base failed"
-        }
-        if (bases.isEmpty()) {
+        } else {
             errors += "нет provision URL"
         }
 

@@ -324,6 +324,43 @@ class NetworkConnectionMapTest {
     }
 
     @Test
+    fun cascadePathLiveFromHealthOrCard() {
+        val entry = server(
+            host = "45.129.2.3",
+            cascadeEnabled = true,
+            cascadeHost = "2.26.125.160",
+        )
+        assertTrue(cascadePathLive(entry, "45.129.2.3", listOf(entry), null, false))
+        assertTrue(
+            cascadePathLive(
+                server("45.129.2.3"),
+                "45.129.2.3",
+                emptyList(),
+                liveCascadeHost = "2.26.125.160",
+                cascadeLive = false,
+            ),
+        )
+        assertTrue(
+            cascadePathLive(
+                server("45.129.2.3"),
+                "45.129.2.3",
+                emptyList(),
+                liveCascadeHost = null,
+                cascadeLive = true,
+            ),
+        )
+        assertFalse(
+            cascadePathLive(
+                server("45.129.2.3"),
+                "45.129.2.3",
+                emptyList(),
+                liveCascadeHost = null,
+                cascadeLive = false,
+            ),
+        )
+    }
+
+    @Test
     fun healthCascadeWithSiblingServerShowsVps2() {
         val entry = server("45.129.2.3")
         val exit = server("2.26.125.160", id = "exit")
@@ -388,12 +425,13 @@ class NetworkConnectionMapTest {
             lastHopProvisionUrl("http://45.129.2.3:9100", "http://2.26.125.160:9100"),
         )
         assertEquals(
-            listOf("http://2.26.125.160:9100"),
-            lastHopProvisionUrls("http://45.129.2.3:9100", "http://2.26.125.160:9100"),
+            "http://45.129.2.3:9100",
+            lastHopProvisionUrl("http://45.129.2.3:9100", null),
         )
+        assertNull(lastHopProvisionUrl("http://45.129.2.3:9100", null, cascade = true))
         assertEquals(
-            listOf("http://45.129.2.3:9100"),
-            lastHopProvisionUrls("http://45.129.2.3:9100", null),
+            "http://2.26.125.160:9100",
+            lastHopProvisionUrl("http://45.129.2.3:9100", "http://2.26.125.160:9100", cascade = true),
         )
         assertNull(lastHopProvisionUrl(null, null))
         assertEquals(

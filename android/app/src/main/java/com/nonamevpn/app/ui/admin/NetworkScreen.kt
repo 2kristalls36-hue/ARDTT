@@ -58,7 +58,6 @@ private const val MAP_REFRESH_MS = 8_000L
 private data class HopView(
     val hop: NetworkMapHop,
     val info: IpApiInfo,
-    val loading: Boolean,
 )
 
 @Composable
@@ -75,20 +74,17 @@ fun NetworkScreen(
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
 
     val sessionUp = networkMapShowsVpnHops(ui.state)
-    val viaVpn = sessionUp
     val profileHost = activeProfileHost(profile)
     val server = remember(servers, profileHost) { findMatchingDeployServer(servers, profileHost) }
     var observedLastHop by remember { mutableStateOf<String?>(null) }
-    var liveCascadeHost by remember { mutableStateOf<String?>(null) }
-    var cascadeLive by remember { mutableStateOf(false) }
+    var liveCascade by remember { mutableStateOf(ProvisionAdminApi.LiveCascadeInfo(enabled = false)) }
     val layout = remember(
         profileHost,
         server,
         hideIp,
         sessionUp,
         observedLastHop,
-        liveCascadeHost,
-        cascadeLive,
+        liveCascade,
         servers,
     ) {
         buildNetworkMapLayout(
@@ -97,8 +93,8 @@ fun NetworkScreen(
             hideIp = hideIp,
             sessionUp = sessionUp,
             observedLastHop = observedLastHop,
-            liveCascadeHost = liveCascadeHost,
-            cascadeLive = cascadeLive,
+            liveCascadeHost = liveCascade.host,
+            cascadeLive = liveCascade.enabled,
             servers = servers,
         )
     }
@@ -107,7 +103,7 @@ fun NetworkScreen(
     val hops = remember(layout, loaded) { syncHopViews(layout, loaded) }
     val hopsLatest = rememberUpdatedState(hops)
     val visibleHops = remember(hops) {
-        val earlier = mutableListOf<String>()
+        val earlier = ArrayList<String>(hops.size)
         hops.mapNotNull { view ->
             if (!shouldShowFilledHop(view.hop.kind, view.info.ip, earlier)) {
                 null
@@ -124,13 +120,10 @@ fun NetworkScreen(
             server = server,
             hideIp = hideIp,
             sessionUp = sessionUp,
-            observedLastHop = observedLastHop,
-            liveCascadeHost = liveCascadeHost,
-            cascadeLive = cascadeLive,
+            liveCascade = liveCascade,
             servers = servers,
             entryProvision = profile?.provisionBaseUrl,
             deviceId = profile?.deviceId,
-            viaVpn = viaVpn,
         ),
     )
 
@@ -138,62 +131,36 @@ fun NetworkScreen(
         val inputs = refreshInputs.value
         if (!inputs.sessionUp) {
             if (observedLastHop != null) observedLastHop = null
-            if (liveCascadeHost != null) liveCascadeHost = null
-            if (cascadeLive) cascadeLive = false
+            if (liveCascade.enabled || liveCascade.host != null) {
+                liveCascade = ProvisionAdminApi.LiveCascadeInfo(enabled = false)
+            }
+            loaded = loadHopViews(context, inputs.disconnected(), hopsLatest.value)
+            return
         }
-        val live = if (inputs.sessionUp) {
-            fetchLiveCascade(inputs.entryProvision)
-        } else {
-            ProvisionAdminApi.LiveCascadeInfo(enabled = false)
-        }
-        if (live.host != liveCascadeHost) {
-            liveCascadeHost = live.host
-        }
-        if (live.enabled != cascadeLive) {
-            cascadeLive = live.enabled
-        }
-        val lastHop = if (inputs.sessionUp) {
-            EgressIpProbe.probeLastHopWan(
+        val live = ProvisionAdminApi.liveCascade(inputs.entryProvision)
+        if (live != liveCascade) liveCascade = live
+        val vps1 = entryHost(inputs.profileHost, inputs.server)
+        val knownExit = resolveCascadeExitHost(
+            servers = inputs.servers,
+            matched = inputs.server,
+            profileHost = inputs.profileHost,
+            vps1 = vps1,
+            observedLastHop = null,
+            liveCascadeHost = live.host,
+            cascadeLive = live.enabled,
+        )
+        val lastHop = knownExit
+            ?: EgressIpProbe.probeLastHopWan(
                 context = context,
-                exitProvisionBaseUrl = DeployHop.exitProvisionUrl(inputs.server)
-                    ?: provisionUrlForHost(
-                        resolveCascadeExitHost(
-                            servers = inputs.servers,
-                            matched = inputs.server,
-                            profileHost = inputs.profileHost,
-                            vps1 = hopHost(inputs.profileHost),
-                            observedLastHop = null,
-                            liveCascadeHost = live.host,
-                            cascadeLive = live.enabled,
-                        ),
-                    ),
+                exitProvisionBaseUrl = DeployHop.exitProvisionUrl(inputs.server),
                 deviceId = inputs.deviceId,
                 viaVpn = true,
                 bindVpnIfNoExit = true,
-            )
-        } else {
-            null
-        }
-        if (lastHop != observedLastHop) {
-            observedLastHop = lastHop
-        }
-        val resolved = buildNetworkMapLayout(
-            profileHost = inputs.profileHost,
-            server = inputs.server,
-            hideIp = inputs.hideIp,
-            sessionUp = inputs.sessionUp,
-            observedLastHop = lastHop,
-            liveCascadeHost = live.host,
-            cascadeLive = live.enabled,
-            servers = inputs.servers,
-        )
+            )?.takeIf { lastHopCanBeVps2(vps1, it) }
+        if (lastHop != observedLastHop) observedLastHop = lastHop
         loaded = loadHopViews(
             context,
-            inputs.copy(
-                layout = resolved,
-                liveCascadeHost = live.host,
-                cascadeLive = live.enabled,
-            ),
+            inputs.copy(liveCascade = live).connected(lastHop),
             hopsLatest.value,
         )
     }
@@ -207,9 +174,7 @@ fun NetworkScreen(
         server?.cascadeHost,
         profile?.provisionBaseUrl,
         profile?.deviceId,
-        viaVpn,
         ui.probe?.elapsedMs,
-        ui.state,
     ) {
         refreshAll()
         while (isActive) {
@@ -256,50 +221,59 @@ private data class NetworkRefreshInputs(
     val server: DeployTarget?,
     val hideIp: Boolean,
     val sessionUp: Boolean,
-    val observedLastHop: String?,
-    val liveCascadeHost: String?,
-    val cascadeLive: Boolean,
+    val liveCascade: ProvisionAdminApi.LiveCascadeInfo,
     val servers: List<DeployTarget>,
     val entryProvision: String?,
     val deviceId: String?,
-    val viaVpn: Boolean,
-    val layout: NetworkMapLayout = buildNetworkMapLayout(
-        profileHost = profileHost,
-        server = server,
-        hideIp = hideIp,
-        sessionUp = sessionUp,
-        observedLastHop = observedLastHop,
-        liveCascadeHost = liveCascadeHost,
-        cascadeLive = cascadeLive,
-        servers = servers,
-    ),
+    val layout: NetworkMapLayout = NetworkMapLayout(emptyList()),
 ) {
+    val cascade: Boolean
+        get() = liveCascade.enabled ||
+            liveCascade.host != null ||
+            layout.vps2Host != null ||
+            (server != null && DeployHop.isCascadeEntry(server, profileHost))
+
     val exitProvision: String?
         get() = DeployHop.exitProvisionUrl(server) ?: provisionUrlForHost(layout.vps2Host)
-}
 
-private suspend fun fetchLiveCascade(entryProvision: String?): ProvisionAdminApi.LiveCascadeInfo {
-    val base = entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
-        ?: return ProvisionAdminApi.LiveCascadeInfo(enabled = false)
-    val health = ProvisionAdminApi.health(base).getOrNull()
-        ?: return ProvisionAdminApi.LiveCascadeInfo(enabled = false)
-    return ProvisionAdminApi.liveCascadeInfo(health)
+    fun disconnected() = copy(
+        sessionUp = false,
+        liveCascade = ProvisionAdminApi.LiveCascadeInfo(enabled = false),
+        layout = buildNetworkMapLayout(
+            profileHost = profileHost,
+            server = server,
+            hideIp = hideIp,
+            sessionUp = false,
+            servers = servers,
+        ),
+    )
+
+    fun connected(lastHop: String?) = copy(
+        sessionUp = true,
+        layout = buildNetworkMapLayout(
+            profileHost = profileHost,
+            server = server,
+            hideIp = hideIp,
+            sessionUp = true,
+            observedLastHop = lastHop,
+            liveCascadeHost = liveCascade.host,
+            cascadeLive = liveCascade.enabled,
+            servers = servers,
+        ),
+    )
 }
 
 private fun syncHopViews(layout: NetworkMapLayout, previous: List<HopView>): List<HopView> {
     return layout.hops.map { hop ->
         val old = previous.firstOrNull { it.hop.kind == hop.kind }
         val known = hop.knownHost
-        val sameKnown = known != null && sameHopHost(old?.info?.ip, known)
         val info = when {
-            known != null && sameKnown -> old?.info ?: IpApiInfo(ip = known, subtitle = "")
-            known != null -> IpApiInfo(
-                ip = known,
-                subtitle = old?.info?.subtitle.orEmpty(),
-            )
+            known != null && sameHopHost(old?.info?.ip, known) ->
+                old?.info ?: IpApiInfo(ip = known, subtitle = "")
+            known != null -> IpApiInfo(ip = known, subtitle = old?.info?.subtitle.orEmpty())
             else -> old?.info ?: IpApiInfo.Empty
         }
-        HopView(hop = hop, info = info, loading = info.ip.isBlank())
+        HopView(hop = hop, info = info)
     }
 }
 
@@ -308,14 +282,12 @@ private suspend fun loadHopViews(
     inputs: NetworkRefreshInputs,
     previous: List<HopView>,
 ): List<HopView> = coroutineScope {
-    val jobs = inputs.layout.hops.map { hop ->
+    inputs.layout.hops.map { hop ->
         async {
             val old = previous.firstOrNull { it.hop.kind == hop.kind }
-            val info = loadHop(context, hop, inputs, old?.info ?: IpApiInfo.Empty)
-            HopView(hop = hop, info = info, loading = false)
+            HopView(hop = hop, info = loadHop(context, hop, inputs, old?.info ?: IpApiInfo.Empty))
         }
-    }
-    jobs.map { it.await() }
+    }.map { it.await() }
 }
 
 private suspend fun loadHop(
@@ -327,14 +299,22 @@ private suspend fun loadHop(
     val loaded = try {
         when (hop.kind) {
             NetworkMapHopKind.Provider -> loadProvider(context)
-            NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1, NetworkMapHopKind.Vps2 ->
-                loadKnownHost(context, hop.knownHost)
+            NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1, NetworkMapHopKind.Vps2 -> {
+                if (sameHopHost(previous.ip, hop.knownHost) && previous.subtitle.isNotBlank()) {
+                    previous
+                } else {
+                    loadKnownHost(context, hop.knownHost)
+                }
+            }
             NetworkMapHopKind.Cloudflare -> loadCloudflare(
                 context = context,
-                provisionBaseUrl = lastHopProvisionUrl(inputs.entryProvision, inputs.exitProvision),
+                provisionBaseUrl = lastHopProvisionUrl(
+                    inputs.entryProvision,
+                    inputs.exitProvision,
+                    cascade = inputs.cascade,
+                ),
                 deviceId = inputs.deviceId,
-                viaVpn = inputs.viaVpn,
-                hideIp = inputs.hideIp,
+                viaVpn = inputs.sessionUp,
             )
         }
     } catch (e: CancellationException) {
@@ -385,7 +365,6 @@ private suspend fun loadCloudflare(
     provisionBaseUrl: String?,
     deviceId: String?,
     viaVpn: Boolean,
-    hideIp: Boolean,
 ): IpApiInfo {
     val ip = EgressIpProbe.probeProvision(
         viaWarp = true,
@@ -397,7 +376,7 @@ private suspend fun loadCloudflare(
     if (ip.isNullOrBlank()) {
         return IpApiInfo.Empty.copy(error = "Не удалось определить IP")
     }
-    if (hideIp) EgressIpProbe.remember(ip, "provision/warp")
+    EgressIpProbe.remember(ip, "provision/warp")
     return IpApiLookup.lookupAddress(context, ip)
 }
 
