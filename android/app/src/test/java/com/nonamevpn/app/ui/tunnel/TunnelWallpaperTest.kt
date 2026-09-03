@@ -123,6 +123,26 @@ class TunnelWallpaperTest {
     }
 
     @Test
+    fun tunnelTabUsesAdminChromeWhenAdminEvenBeforeLocalCollect() {
+        assertEquals(
+            TunnelSessionChrome.Admin,
+            tunnelSessionChrome(admin = true, classicAppearance = false),
+        )
+        assertEquals(
+            TunnelSessionChrome.Admin,
+            tunnelSessionChrome(admin = true, classicAppearance = true),
+        )
+        assertEquals(
+            TunnelSessionChrome.User,
+            tunnelSessionChrome(admin = false, classicAppearance = false),
+        )
+        assertEquals(
+            TunnelSessionChrome.Admin,
+            tunnelSessionChrome(admin = false, classicAppearance = true),
+        )
+    }
+
+    @Test
     fun randomSceneAlwaysReturnsOneOfThreeScenes() {
         repeat(30) {
             assertTrue(TunnelWallpaperScene.random() in TunnelWallpaperScene.all)
