@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -37,12 +39,12 @@ import com.nonamevpn.app.bypass.VkCallHashGenerator
 import com.nonamevpn.app.bypass.VkLoginActivity
 import com.nonamevpn.app.bypass.VkSession
 import com.nonamevpn.app.bypass.VkUrl
+import com.nonamevpn.app.bypass.vkSessionAction
 import com.nonamevpn.app.core.AppLog
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.ui.components.AppSectionCard
-import com.nonamevpn.app.ui.components.ChoiceChipButton
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import kotlinx.coroutines.launch
@@ -148,48 +150,55 @@ fun CallHashSettingsContent(
                 Text("Ввести вручную")
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ChoiceChipButton(
-                label = "Авторизация",
-                selected = !vkLoggedIn,
-                enabled = canEdit,
-                onClick = {
-                    if (vkLoggedIn || !canEdit) return@ChoiceChipButton
-                    scope.launch {
-                        busy = true
-                        message = "Открывается авторизация ВКонтакте…"
-                        AppLog.i("VK", "Settings login")
-                        val activityCtx = context.findActivity() ?: context
-                        val r = runCatching { VkLoginActivity.login(activityCtx) }
-                            .getOrElse { Result.failure(it) }
-                        busy = false
-                        vkLoggedIn = VkSession.hasSessionCookie()
-                        message = when {
-                            r.isSuccess && vkLoggedIn ->
-                                "Вход выполнен. Создайте код звонка."
-                            r.isSuccess -> "Сессия не подтверждена. Повторите вход."
-                            else -> r.exceptionOrNull()?.message ?: "Авторизация отменена."
-                        }
-                    }
-                },
-                modifier = Modifier.weight(1f),
-            )
-            ChoiceChipButton(
-                label = "Завершить сессию",
-                selected = vkLoggedIn,
-                enabled = !vpnActive && !busy,
-                selectedContainer = colors.error,
-                onClick = {
-                    if (!vkLoggedIn || vpnActive || busy) return@ChoiceChipButton
+        val sessionAction = vkSessionAction(
+            loggedIn = vkLoggedIn,
+            vpnActive = vpnActive,
+            busy = busy,
+            hasProfile = profile != null,
+        )
+        Button(
+            onClick = {
+                if (!sessionAction.enabled) return@Button
+                if (sessionAction.destructive) {
                     VkSession.clear()
                     vkLoggedIn = false
                     vkDisplayName = null
                     message = "Сессия ВКонтакте завершена."
-                },
-                modifier = Modifier.weight(1f),
+                    return@Button
+                }
+                scope.launch {
+                    busy = true
+                    message = "Открывается авторизация ВКонтакте…"
+                    AppLog.i("VK", "Settings login")
+                    val activityCtx = context.findActivity() ?: context
+                    val r = runCatching { VkLoginActivity.login(activityCtx) }
+                        .getOrElse { Result.failure(it) }
+                    busy = false
+                    vkLoggedIn = VkSession.hasSessionCookie()
+                    message = when {
+                        r.isSuccess && vkLoggedIn ->
+                            "Вход выполнен. Создайте код звонка."
+                        r.isSuccess -> "Сессия не подтверждена. Повторите вход."
+                        else -> r.exceptionOrNull()?.message ?: "Авторизация отменена."
+                    }
+                }
+            },
+            enabled = sessionAction.enabled,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = if (sessionAction.destructive) {
+                ButtonDefaults.buttonColors(
+                    containerColor = colors.error,
+                    contentColor = colors.onError,
+                )
+            } else {
+                ButtonDefaults.buttonColors()
+            },
+        ) {
+            Text(
+                sessionAction.label,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
             )
         }
         Text(
