@@ -13,7 +13,7 @@ class DeployInstallEnvTest {
             publicHost = "45.129.2.3",
             directPort = 51820,
             bypassPort = 56003,
-            deployVersion = "1.0.19",
+            deployVersion = "1.0.20",
             role = "entry",
         )
         assertTrue(cmd.contains("NVPN_ROLE='entry'"))
@@ -29,7 +29,7 @@ class DeployInstallEnvTest {
             publicHost = "2.26.125.160",
             directPort = 51820,
             bypassPort = 56003,
-            deployVersion = "1.0.19",
+            deployVersion = "1.0.20",
             role = "exit",
             cascadeEnabled = true,
         )
@@ -45,7 +45,7 @@ class DeployInstallEnvTest {
             publicHost = "45.129.2.3",
             directPort = 51820,
             bypassPort = 56003,
-            deployVersion = "1.0.19",
+            deployVersion = "1.0.20",
             role = "entry",
             cascadeEnabled = true,
             cascadePeerEndpoint = "2.26.125.160:51820",
