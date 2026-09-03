@@ -35,6 +35,21 @@ if [ -f "$INSTALLER" ]; then
   fi
   grep -q 'NVPN_ROLE' "$INSTALLER" || err "installer missing NVPN_ROLE"
   grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
+  grep -q 'cleanup_stale_deploy_files' "$INSTALLER" || err "installer missing leftover-file cleanup"
+  grep -q 'swap_target_mb' "$INSTALLER" || err "installer missing small-disk swap cap"
+  grep -q 'disk_need_mb' "$INSTALLER" || err "installer missing scaled disk threshold"
+  grep -q 'install-live.log' "$INSTALLER" || err "installer must remove legacy install-live.log"
+  if awk '
+    $0 ~ /^cleanup_stale_deploy_files\(\)/ { in_fn=1; next }
+    in_fn && $0 ~ /^}/ { in_fn=0 }
+    in_fn && $0 ~ /rm / && $0 ~ /stack\.staging/ { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$INSTALLER"; then
+    err "cleanup_stale_deploy_files must not delete in-progress stack.staging"
+  fi
+  if grep -E '^[^#]*image prune -a' "$INSTALLER" >/dev/null; then
+    err "install.sh must not docker image prune -a (drops unused tagged stack images)"
+  fi
   if grep -q 'NVPN_CASCADE_PASSWORD' "$INSTALLER"; then
     err "installer must not write cascade SSH password into .env"
   fi

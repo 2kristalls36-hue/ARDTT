@@ -230,6 +230,8 @@ bash /opt/nonamevpn/install.sh
       warp/               # wgcf-account.toml, профиль warp0
 ```
 
+После успешного деплоя не должно оставаться `stack.staging`, `stack.old`, `stack.tar.gz`, `install-live.log`, `install-run.log`. На 8–10 ГБ VPS установщик держит `/swapfile` ≈ 1 ГБ (не 2 ГБ) и не делает `docker image prune -af` — иначе пропадают неиспользуемые `stack-*` образы. `/opt/ardtt-distribution` — раздача APK, не мусор стека.
+
 Не коммитить `server/data/` с боевыми секретами (уже в `.gitignore`).
 
 ---
@@ -360,7 +362,7 @@ ss -tlnp | grep -E '9100|9200'
 | Симптом | Что проверить |
 |---------|----------------|
 | «В APK нет deploy/stack.tar.gz» | Собрать APK с Gradle (`packDeployAssets`) или вручную `scripts/pack-deploy-assets.sh` |
-| `install.sh exit=…` + «Мало места» | Диск VPS < 1.8 ГБ; `docker system prune -af` |
+| `install.sh` + «Мало места» | На 8–10 ГБ VPS порог обновления ~500–1100 МБ; установщик сожмёт 2 ГБ swap до 1 ГБ и не удаляет неиспользуемые `stack-*` образы. Не делайте `docker image prune -af` вручную. |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
 | `/health` не отвечает после DONE | `docker compose logs provision`; `NVPN_PUBLIC_HOST` и слушатель `:9100` |
 | `nvpn-telemetry` Restarting, «Connection in use :9200» | Порт занят другим процессом. `NVPN_TELEMETRY_PORT=9210` или освободите 9200 |
