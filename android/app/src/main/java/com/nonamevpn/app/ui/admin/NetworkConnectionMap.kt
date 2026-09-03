@@ -171,3 +171,22 @@ internal fun hopCardPrimaryText(info: IpApiInfo): String {
     if (info.ip.isNotBlank()) return info.ip
     return info.error?.trim()?.takeIf { it.isNotBlank() } ?: "Не удалось определить IP"
 }
+
+/** RTT from GET /health on the entry and (when cascade) exit provision. */
+internal data class HopHealthPings(
+    val entryMs: Long = -1L,
+    val exitMs: Long = -1L,
+)
+
+internal fun isLastFilledHop(index: Int, filledCount: Int): Boolean =
+    filledCount > 0 && index == filledCount - 1
+
+/** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */
+internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Long = when (kind) {
+    NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1 -> pings.entryMs
+    NetworkMapHopKind.Vps2 -> pings.exitMs
+    NetworkMapHopKind.Provider, NetworkMapHopKind.Cloudflare -> -1L
+}
+
+internal fun hopPingLabel(kind: NetworkMapHopKind, pings: HopHealthPings): String =
+    formatHealthPingMs(hopHealthPingMs(kind, pings))

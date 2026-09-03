@@ -1,10 +1,12 @@
 package com.nonamevpn.app.ui.admin
 
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -47,6 +50,7 @@ import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.illustratedBackdropActive
 import com.nonamevpn.app.ui.components.rememberPullRefresh
+import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -81,6 +85,7 @@ fun NetworkScreen(
     var observedLastHop by remember { mutableStateOf<String?>(null) }
     var liveCascadeHost by remember { mutableStateOf<String?>(null) }
     var cascadeLive by remember { mutableStateOf(false) }
+    var hopPings by remember { mutableStateOf(HopHealthPings()) }
     val layout = remember(
         profileHost,
         server,
@@ -140,12 +145,14 @@ fun NetworkScreen(
             if (observedLastHop != null) observedLastHop = null
             if (liveCascadeHost != null) liveCascadeHost = null
             if (cascadeLive) cascadeLive = false
+            if (hopPings != HopHealthPings()) hopPings = HopHealthPings()
         }
-        val live = if (inputs.sessionUp) {
-            fetchLiveCascade(inputs.entryProvision)
+        val entryHealth = if (inputs.sessionUp) {
+            fetchEntryHealth(inputs.entryProvision)
         } else {
-            ProvisionAdminApi.LiveCascadeInfo(enabled = false)
+            EntryHealthSnapshot()
         }
+        val live = entryHealth.cascade
         if (live.host != liveCascadeHost) {
             liveCascadeHost = live.host
         }
@@ -187,6 +194,19 @@ fun NetworkScreen(
             cascadeLive = live.enabled,
             servers = inputs.servers,
         )
+        val nextPings = if (inputs.sessionUp) {
+            val exitUrl = DeployHop.exitProvisionUrl(inputs.server)
+                ?: provisionUrlForHost(resolved.vps2Host)
+            val exitPing = when {
+                resolved.vps2Host.isNullOrBlank() -> -1L
+                sameProvisionBase(inputs.entryProvision, exitUrl) -> entryHealth.pingMs
+                else -> fetchHopPingMs(exitUrl)
+            }
+            HopHealthPings(entryMs = entryHealth.pingMs, exitMs = exitPing)
+        } else {
+            HopHealthPings()
+        }
+        if (nextPings != hopPings) hopPings = nextPings
         loaded = loadHopViews(
             context,
             inputs.copy(
@@ -244,6 +264,8 @@ fun NetworkScreen(
                     IpInfoCard(
                         title = view.hop.title,
                         info = view.info,
+                        highlighted = isLastFilledHop(index, visibleHops.size),
+                        pingLabel = hopPingLabel(view.hop.kind, hopPings),
                     )
                 }
             }
@@ -278,12 +300,31 @@ private data class NetworkRefreshInputs(
         get() = DeployHop.exitProvisionUrl(server) ?: provisionUrlForHost(layout.vps2Host)
 }
 
-private suspend fun fetchLiveCascade(entryProvision: String?): ProvisionAdminApi.LiveCascadeInfo {
+private data class EntryHealthSnapshot(
+    val cascade: ProvisionAdminApi.LiveCascadeInfo = ProvisionAdminApi.LiveCascadeInfo(enabled = false),
+    val pingMs: Long = -1L,
+)
+
+private suspend fun fetchEntryHealth(entryProvision: String?): EntryHealthSnapshot {
     val base = entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
-        ?: return ProvisionAdminApi.LiveCascadeInfo(enabled = false)
-    val health = ProvisionAdminApi.health(base).getOrNull()
-        ?: return ProvisionAdminApi.LiveCascadeInfo(enabled = false)
-    return ProvisionAdminApi.liveCascadeInfo(health)
+        ?: return EntryHealthSnapshot()
+    val health = ProvisionAdminApi.health(base).getOrNull() ?: return EntryHealthSnapshot()
+    return EntryHealthSnapshot(
+        cascade = ProvisionAdminApi.liveCascadeInfo(health),
+        pingMs = if (health.ok) health.pingMs else -1L,
+    )
+}
+
+private suspend fun fetchHopPingMs(provisionUrl: String?): Long {
+    val base = provisionUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return -1L
+    val health = ProvisionAdminApi.health(base).getOrNull() ?: return -1L
+    return if (health.ok) health.pingMs else -1L
+}
+
+private fun sameProvisionBase(a: String?, b: String?): Boolean {
+    val left = a?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return false
+    val right = b?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return false
+    return left.equals(right, ignoreCase = true)
 }
 
 private fun syncHopViews(layout: NetworkMapLayout, previous: List<HopView>): List<HopView> {
@@ -450,6 +491,8 @@ private fun HopConnector() {
 private fun IpInfoCard(
     title: String,
     info: IpApiInfo,
+    highlighted: Boolean = false,
+    pingLabel: String = "",
 ) {
     AppSectionCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
@@ -457,12 +500,29 @@ private fun IpInfoCard(
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
+        border = if (highlighted) BorderStroke(2.dp, NvpnColors.connected) else null,
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            if (pingLabel.isNotEmpty()) {
+                Text(
+                    pingLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = NvpnColors.connected,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
         Text(
             hopCardPrimaryText(info),
             style = MaterialTheme.typography.headlineSmall,
