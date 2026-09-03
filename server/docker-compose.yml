@@ -115,6 +115,7 @@ services:
       NVPN_DATA: /data
     volumes:
       - ./data:/data
+      - ./direct/cascade-entrypoint.sh:/cascade-entrypoint.sh:ro
     entrypoint: ["/cascade-entrypoint.sh"]
     restart: unless-stopped
 

@@ -25,7 +25,10 @@ CONF_DIR="/etc/amneziawg"
 CONF="${CONF_DIR}/${IFACE}.conf"
 COMMENT="NVPN_CASCADE_MANAGED"
 DNS_DST="${NVPN_CASCADE_DNS:-10.10.0.2}"
-STALE_SEC="${NVPN_CASCADE_STALE_SEC:-45}"
+# WireGuard/AWG latest-handshake only moves on a full handshake (~120s rekey),
+# not on keepalives. 45s was dropping a healthy hop.
+STALE_SEC="${NVPN_CASCADE_STALE_SEC:-180}"
+CLIENT_NETS="10.8.0.0/24 10.9.0.0/24"
 
 mkdir -p "${CONF_DIR}" "${DATA}"
 chmod 700 "${DATA}" 2>/dev/null || true
@@ -35,6 +38,10 @@ echo "[cascade] role=${ROLE} iface=${IFACE} listen=${LISTEN}"
 if [ -w /proc/sys/net/ipv4/ip_forward ]; then
   echo 1 >/proc/sys/net/ipv4/ip_forward || true
 fi
+# Strict rp_filter drops WARP replies whose reverse path is cascade0, not warp0.
+for rp in /proc/sys/net/ipv4/conf/*/rp_filter; do
+  [ -w "${rp}" ] && echo 2 >"${rp}" || true
+done
 
 need_awg() {
   command -v awg >/dev/null 2>&1 || { echo "[cascade] awg missing" >&2; exit 1; }
@@ -111,14 +118,24 @@ write_conf() {
   echo "[cascade] wrote ${CONF} peer=${peer:-none} addr=${addr}"
 }
 
+# iptables-nft -S quoting breaks "${spec/-A/-D}". Delete by line number instead.
+delete_commented_chain() {
+  local table="$1" chain="$2"
+  local n
+  command -v iptables >/dev/null 2>&1 || return 0
+  while true; do
+    n="$(iptables -t "${table}" -L "${chain}" --line-numbers -n 2>/dev/null \
+      | awk -v c="${COMMENT}" '$0 ~ c {print $1}' | tail -1)"
+    [ -n "${n}" ] || break
+    iptables -t "${table}" -D "${chain}" "${n}" 2>/dev/null || break
+  done
+}
+
 delete_commented() {
   local table="$1"
-  command -v iptables >/dev/null 2>&1 || return 0
-  local spec
-  while spec="$(iptables -t "${table}" -S 2>/dev/null | grep -F "comment ${COMMENT}" | head -1 || true)"; do
-    [ -z "${spec}" ] && break
-    # shellcheck disable=SC2086
-    iptables -t "${table}" ${spec/^-A/-D} 2>/dev/null || break
+  local chain
+  for chain in PREROUTING POSTROUTING OUTPUT INPUT FORWARD; do
+    delete_commented_chain "${table}" "${chain}"
   done
 }
 
@@ -126,24 +143,46 @@ wan_iface() {
   ip route show default 0.0.0.0/0 2>/dev/null | awk '{print $5; exit}'
 }
 
+# Leftover MASQ from a previous standalone stack would leak 10.8/10.9 to WAN.
+strip_stale_wan_masq() {
+  command -v iptables >/dev/null 2>&1 || return 0
+  local wan net comment
+  wan="$(wan_iface)"
+  for net in ${CLIENT_NETS}; do
+    while iptables -t nat -D POSTROUTING -s "${net}" -j MASQUERADE 2>/dev/null; do :; done
+    if [ -n "${wan}" ]; then
+      while iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -j MASQUERADE 2>/dev/null; do :; done
+    fi
+    for comment in AWG_DIRECT_MANAGED WDTT_RAW_MANAGED NVPN_BYPASS_MANAGED; do
+      if [ -n "${wan}" ]; then
+        while iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null; do :; done
+      fi
+      while iptables -t nat -D POSTROUTING -s "${net}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null; do :; done
+    done
+  done
+}
+
 # Entry must not NAT client subnets out of its own WAN — that would leak
 # the first VPS IP instead of forwarding through the hop.
 strip_entry_wan_masq() {
   [ "${ROLE}" = "entry" ] || return 0
+  strip_stale_wan_masq
   command -v iptables >/dev/null 2>&1 || return 0
-  local wan
+  local wan net
   wan="$(wan_iface)"
-  local net comment
-  for net in 10.8.0.0/24 10.9.0.0/24; do
-    iptables -t nat -D POSTROUTING -s "${net}" -j MASQUERADE 2>/dev/null || true
+  for net in ${CLIENT_NETS}; do
     if [ -n "${wan}" ]; then
-      iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -j MASQUERADE 2>/dev/null || true
-      iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -m comment --comment AWG_DIRECT_MANAGED -j MASQUERADE 2>/dev/null || true
-      iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -m comment --comment WDTT_RAW_MANAGED -j MASQUERADE 2>/dev/null || true
+      iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -p udp --dport 53 \
+        -m comment --comment NVPN_WARP_DNS_MAIN -j MASQUERADE 2>/dev/null || true
+      iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -p tcp --dport 53 \
+        -m comment --comment NVPN_WARP_DNS_MAIN -j MASQUERADE 2>/dev/null || true
     fi
-    for comment in AWG_DIRECT_MANAGED WDTT_RAW_MANAGED; do
-      iptables -t nat -D POSTROUTING -s "${net}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null || true
-    done
+  done
+  # Standalone warp left iif awg0/wdttraw0 :53 → main. Drop so client DNS
+  # follows the hop policy table (DNAT still rewrites dest to 10.10.0.2).
+  local prio
+  for prio in $(seq 100 110); do
+    ip rule del pref "${prio}" 2>/dev/null || true
   done
 }
 
@@ -161,15 +200,26 @@ setup_entry_policy() {
     ip route add "${DNS_DST}" dev "${IFACE}" 2>/dev/null || true
 }
 
+# Userspace amneziawg-go does not install AllowedIPs into the kernel FIB.
+# Return traffic from WARP to 10.8/10.9 must go back out cascade0.
+setup_exit_client_routes() {
+  [ "${ROLE}" = "exit" ] || return 0
+  local net
+  for net in ${CLIENT_NETS}; do
+    ip route replace "${net}" dev "${IFACE}" 2>/dev/null || \
+      ip route add "${net}" dev "${IFACE}" 2>/dev/null || true
+  done
+}
+
 setup_entry_dns_dnat() {
   command -v iptables >/dev/null 2>&1 || return 0
   delete_commented nat
   local iface proto
   for iface in awg0 wdttraw0; do
     for proto in udp tcp; do
-      iptables -t nat -C PREROUTING -i "${iface}" -p "${proto}" --dport 53 \
+      iptables -t nat -C PREROUTING -i "${iface}" -p "${proto}" -m "${proto}" --dport 53 \
         -m comment --comment "${COMMENT}" -j DNAT --to-destination "${DNS_DST}:53" 2>/dev/null \
-        || iptables -t nat -A PREROUTING -i "${iface}" -p "${proto}" --dport 53 \
+        || iptables -t nat -A PREROUTING -i "${iface}" -p "${proto}" -m "${proto}" --dport 53 \
           -m comment --comment "${COMMENT}" -j DNAT --to-destination "${DNS_DST}:53" || true
     done
   done
@@ -193,6 +243,9 @@ setup_forwarding() {
     strip_entry_wan_masq
     setup_entry_dns_dnat
     setup_entry_policy
+  else
+    strip_stale_wan_masq
+    setup_exit_client_routes
   fi
 }
 
@@ -238,7 +291,8 @@ sync_peer_if_changed() {
 
 hop_handshake_ok() {
   local hs
-  hs="$(awg show "${IFACE}" latest-handshakes 2>/dev/null | awk '{print $2; exit}')"
+  # `awg show <iface> latest-handshakes` → "<pubkey> <unix_ts>" (last field is seconds).
+  hs="$(awg show "${IFACE}" latest-handshakes 2>/dev/null | awk '$NF ~ /^[0-9]+$/ {print $NF; exit}')"
   [ -n "${hs}" ] || return 1
   [ "${hs}" != "0" ] || return 1
   local now
@@ -273,6 +327,13 @@ cleanup() {
     delete_commented nat
     delete_commented mangle
     delete_commented filter
+  else
+    local net
+    for net in ${CLIENT_NETS}; do
+      ip route del "${net}" dev "${IFACE}" 2>/dev/null || true
+    done
+    delete_commented filter
+    delete_commented mangle
   fi
   ip link del "${IFACE}" 2>/dev/null || true
   write_status down
