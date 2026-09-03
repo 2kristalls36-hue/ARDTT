@@ -119,3 +119,29 @@ func TestTouchPresenceStoresDeviceModelAndAppVersion(t *testing.T) {
 		t.Fatalf("ip: %q", u.LastExternalIP)
 	}
 }
+
+func TestTouchPresenceUpdatesAppVersion(t *testing.T) {
+	dir := t.TempDir()
+	s := &Store{
+		path: filepath.Join(dir, "users.json"),
+		Users: []User{{
+			Name:       "alice",
+			DeviceID:   "dev-abc",
+			DeviceIDs:  []string{"dev-abc"},
+			MaxDevices: 1,
+		}},
+	}
+	if _, err := s.TouchPresence("dev-abc", "alice", "", "Pixel 8", "0.5.199", 217); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.TouchPresence("dev-abc", "alice", "", "Pixel 8", "0.5.201", 219)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.DeviceAppVersions["dev-abc"] != "0.5.201" {
+		t.Fatalf("version: %#v", u.DeviceAppVersions)
+	}
+	if u.DeviceAppVersionCodes["dev-abc"] != 219 {
+		t.Fatalf("code: %#v", u.DeviceAppVersionCodes)
+	}
+}

@@ -216,20 +216,29 @@ internal fun ClientSettingsSheet(
             } else {
                 user.deviceIds.forEachIndexed { index, id ->
                     val label = deviceLabels.getOrNull(index)?.ifBlank { null } ?: id
+                    val appVer = clientDeviceAppVersion(user, id)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 22.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                appVer ?: "нет версии",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         IconButton(
                             onClick = { onUnbindDevice(id) },
                             enabled = !busy,

@@ -65,6 +65,7 @@ import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val createDayOptions = listOf(0 to "∞", 7 to "7 дн", 30 to "30 дн", 90 to "90 дн")
@@ -169,6 +170,12 @@ private fun ClientsScreen(
         }
     }
 
+    fun refreshQuiet() {
+        scope.launch {
+            applyUsersResult(ProvisionAdminApi.listUsers(base))
+        }
+    }
+
     val pull = rememberPullRefresh {
         error = null
         applyUsersResult(ProvisionAdminApi.listUsers(base))
@@ -207,7 +214,13 @@ private fun ClientsScreen(
         }
     }
 
-    LaunchedEffect(base) { refresh() }
+    LaunchedEffect(base) {
+        refresh()
+        while (true) {
+            delay(15_000L)
+            applyUsersResult(ProvisionAdminApi.listUsers(base))
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         PullRefreshHost(
@@ -302,6 +315,7 @@ private fun ClientsScreen(
                                         sheetUser = user
                                         sheetProfile = null
                                         sheetLoadingProfile = true
+                                        refreshQuiet()
                                         loadProfile(user.name) { json ->
                                             runCatching { VpnProfileJson.parse(json) }
                                                 .onSuccess {
