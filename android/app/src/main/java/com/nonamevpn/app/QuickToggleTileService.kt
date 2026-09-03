@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.net.VpnService
 import android.os.Build
 import android.service.quicksettings.Tile
@@ -71,6 +72,7 @@ class QuickToggleTileService : TileService() {
         val hasHash = ConnectionManager.getOrNull()?.ui?.value?.hasCallHash == true
         val running = isRunning()
         tile.label = "ARDTT"
+        tile.icon = Icon.createWithResource(this, R.drawable.ic_tile_custom)
         when {
             running -> {
                 tile.state = Tile.STATE_ACTIVE

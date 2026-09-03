@@ -194,8 +194,11 @@ def main() -> None:
         )
 
     for density, size in GLYPH_SIZES.items():
+        # QS tiles are tinted by SystemUI. An opaque charcoal square becomes a
+        # solid blob, so the tile stays on the old silhouette. Use the AR/DTT
+        # mark on a transparent field so the new letterforms stay visible.
         save_png(
-            rounded_square(square_color_icon(master, size), size),
+            fit_on_canvas(color_mark, size, safe_frac=0.84),
             RES / f"drawable-{density}" / "ic_tile_custom.png",
         )
         save_png(
