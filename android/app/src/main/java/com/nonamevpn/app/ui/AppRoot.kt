@@ -71,9 +71,16 @@ import com.nonamevpn.app.ui.unlock.AlphaUnlockScreen
 import com.nonamevpn.app.ui.theme.wallpaperAdaptedColorScheme
 import com.nonamevpn.app.update.AppUpdateController
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+
+private data class SessionChromeFlags(
+    val alphaUnlocked: Boolean,
+    val admin: Boolean,
+    val classicAppearance: Boolean,
+)
 
 @Composable
 fun AppRoot(
@@ -83,30 +90,38 @@ fun AppRoot(
     deployEngine: DeployEngine,
 ) {
     val context = LocalContext.current
-    var alphaUnlocked by remember { mutableStateOf<Boolean?>(null) }
+    var session by remember { mutableStateOf<SessionChromeFlags?>(null) }
     LaunchedEffect(settings) {
-        settings.alphaUnlockedFlow.collect { alphaUnlocked = it }
+        combine(
+            settings.alphaUnlockedFlow,
+            settings.isAdminUnlocked,
+            settings.classicAppearanceEnabled,
+        ) { alpha, admin, classic ->
+            SessionChromeFlags(
+                alphaUnlocked = alpha,
+                admin = admin,
+                classicAppearance = classic,
+            )
+        }.collect { session = it }
     }
-    when (alphaUnlocked) {
-        null -> {
-            Box(modifier = Modifier.fillMaxSize()) {
-                AppBackdrop(modifier = Modifier.fillMaxSize())
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            }
-            return
+    val flags = session
+    if (flags == null) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            AppBackdrop(modifier = Modifier.fillMaxSize())
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
-        false -> {
-            AlphaUnlockScreen(settings = settings)
-            return
-        }
-        true -> Unit
+        return
     }
+    if (!flags.alphaUnlocked) {
+        AlphaUnlockScreen(settings = settings)
+        return
+    }
+    val admin = flags.admin
+    val classicAppearance = flags.classicAppearance
     val activity = context as? Activity
     val conn = remember { ConnectionManager.get(context) }
     val scope = rememberCoroutineScope()
-    val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
-    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
     val haptics = rememberSmartHaptics(uiHapticsEnabled)
@@ -377,6 +392,8 @@ fun AppRoot(
                                 settings = settings,
                                 profiles = profiles,
                                 onRequestConnect = { requestVpnThenConnect() },
+                                isAdmin = admin,
+                                classicAppearance = classicAppearance,
                             )
                         }
                         composable(AppDestination.Servers.route) {

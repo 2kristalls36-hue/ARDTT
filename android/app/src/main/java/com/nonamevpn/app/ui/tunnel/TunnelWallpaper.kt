@@ -83,6 +83,16 @@ fun resolveTunnelWallpaper(
 fun tunnelWallpaperVisible(admin: Boolean, classicAppearance: Boolean = false): Boolean =
     !admin && !classicAppearance
 
+/** Chrome on the Tunnel tab. Same flags as [tunnelWallpaperVisible]. */
+enum class TunnelSessionChrome { User, Admin }
+
+fun tunnelSessionChrome(admin: Boolean, classicAppearance: Boolean = false): TunnelSessionChrome =
+    if (tunnelWallpaperVisible(admin, classicAppearance)) {
+        TunnelSessionChrome.User
+    } else {
+        TunnelSessionChrome.Admin
+    }
+
 /**
  * Walk through Field, City, and Refinery before repeating.
  * A plain 1/3 roll skipped НПЗ for long stretches of cold starts.

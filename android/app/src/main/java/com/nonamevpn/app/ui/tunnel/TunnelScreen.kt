@@ -94,10 +94,12 @@ fun TunnelScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     onRequestConnect: () -> Unit,
+    isAdmin: Boolean,
+    classicAppearance: Boolean,
 ) {
-    val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
-    val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
-    if (!admin && !classicAppearance) {
+    // Use session flags from AppRoot — a fresh collectAsState(false) here flashes the
+    // user-mode round power button for a frame every time this tab is composed.
+    if (tunnelSessionChrome(isAdmin, classicAppearance) == TunnelSessionChrome.User) {
         UserTunnelScreen(
             settings = settings,
             profiles = profiles,
@@ -105,6 +107,7 @@ fun TunnelScreen(
         )
         return
     }
+    val admin = isAdmin
 
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
