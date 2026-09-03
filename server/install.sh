@@ -589,6 +589,13 @@ if echo "$UP_SERVICES" | grep -qw telemetry; then
     echo "NVPN_WARN|telemetry :${TELEMETRY_PORT} не отвечает — логи тестирования не примут. cd $STACK && docker compose --env-file .env up -d --no-deps telemetry"
   fi
 fi
+if echo "$UP_SERVICES" | grep -qw warp; then
+  if docker inspect -f '{{.State.Running}}' nvpn-warp 2>/dev/null | grep -qx true; then
+    prog 0.935 "nvpn-warp running"
+  else
+    echo "NVPN_WARN|nvpn-warp не запущен — Hide-IP на этом хосте не применится. cd $STACK && docker compose --env-file .env up -d --no-deps --build warp"
+  fi
+fi
 if docker exec nvpn-provision test -s /data/users.json 2>/dev/null; then
   prog 0.94 "provision видит /data/users.json"
 else

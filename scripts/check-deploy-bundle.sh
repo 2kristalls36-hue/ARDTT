@@ -84,6 +84,14 @@ done
 [ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
 if [ -f "$COMPOSE" ]; then
   grep -q 'container_name: nvpn-cascade' "$COMPOSE" || err "compose missing nvpn-cascade"
+  if awk '
+    $0 ~ /^  warp:/ { in_warp=1; next }
+    in_warp && $0 ~ /^  [a-z]/ { in_warp=0 }
+    in_warp && $0 ~ /^[[:space:]]+- dns[[:space:]]*$/ { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$COMPOSE"; then
+    err "warp must not depend_on dns (cascade entry does not start dns)"
+  fi
 fi
 bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n failed for cascade-entrypoint.sh"
 

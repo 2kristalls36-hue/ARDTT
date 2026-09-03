@@ -92,9 +92,10 @@ services:
     volumes:
       - ./data:/data:ro
       - ./data/warp:/var/lib/nvpn-warp
+    # Do not depend_on dns: cascade entry never starts that service, and
+    # Compose would then skip warp (Hide-IP /32 never installs).
     depends_on:
       - provision
-      - dns
     restart: unless-stopped
 
   # Same image as `direct` (install.sh builds `direct` first).
