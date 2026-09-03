@@ -28,8 +28,9 @@ TELEMETRY_PORT="${NVPN_TELEMETRY_PORT:-9200}"
 KEEP_INSTALL_LOG="${NVPN_KEEP_INSTALL_LOG:-0}"
 COMPOSE_PROJECT="${NVPN_COMPOSE_PROJECT:-stack}"
 MIN_SWAP_MB="${NVPN_MIN_SWAP_MB:-2048}"
-MIN_DISK_MB="${NVPN_MIN_DISK_MB:-1800}"
-MIN_DISK_UPDATE_MB="${NVPN_MIN_DISK_UPDATE_MB:-900}"
+# Sequential one-image builds; do not demand 1.8G free on a 8–10G VPS.
+MIN_DISK_MB="${NVPN_MIN_DISK_MB:-1100}"
+MIN_DISK_UPDATE_MB="${NVPN_MIN_DISK_UPDATE_MB:-500}"
 # entry = phone-facing stack. exit = hop egress (AWG + DNS + WARP).
 ROLE="${NVPN_ROLE:-entry}"
 CASCADE_ENABLED="${NVPN_CASCADE_ENABLED:-0}"
@@ -56,33 +57,77 @@ cleanup_host_packages() {
 
 cleanup_docker_build_junk() {
   docker builder prune -af >/dev/null 2>&1 || true
+  # Dangling layers only. `prune -af` would drop tagged stack-* images whose
+  # container is down (that is how nvpn-warp vanished on cascade entry).
   docker image prune -f >/dev/null 2>&1 || true
   # Never prune volumes: bypass-config and other named volumes must survive redeploy.
+}
+
+cleanup_stale_deploy_files() {
+  # Leftovers from older installer names, failed SSH drops, and agent probes.
+  # Do not delete stack.staging here: it is the in-progress unpack.
+  # Do not glob /tmp/nvpn-install.*.log: that is the live tee for this run.
+  rm -f "$INSTALL_DIR/install-live.log" "$INSTALL_DIR/install-run.log"
+  rm -f /var/log/nvpn-build*.log /var/log/nvpn-install.log
+  rm -f /tmp/nvpn-entry-* /tmp/nvpn-cascade-* /tmp/nvpn-cascade-probe-*.sh
+  rm -rf /tmp/nvpn-provision /tmp/nvpn-data-bak /var/tmp/nvpn-*
+  rm -rf "$INSTALL_DIR/stack.old"
 }
 
 reclaim_disk() {
   cleanup_docker_build_junk
   cleanup_host_packages
-  docker image prune -af >/dev/null 2>&1 || true
+  cleanup_stale_deploy_files
   docker container prune -f >/dev/null 2>&1 || true
-  rm -rf /tmp/nvpn-data-bak "$INSTALL_DIR/stack.old" /var/tmp/nvpn-* 2>/dev/null || true
-  rm -f /var/log/nvpn-build*.log /var/log/*.gz /var/log/*.1 2>/dev/null || true
+  rm -f /var/log/*.gz /var/log/*.1 2>/dev/null || true
   if command -v journalctl >/dev/null 2>&1; then
     journalctl --vacuum-size=32M >/dev/null 2>&1 || true
   fi
 }
 
-stack_images_ready() {
+stack_missing_image_count() {
   local missing=0
   local img
   local names="$1"
-  [ -n "$names" ] || names="stack-provision stack-direct stack-bypass stack-dns stack-warp stack-telemetry"
+  [ -n "$names" ] || names="$(role_image_names)"
   for img in $names; do
     if ! docker image inspect "${img}:latest" >/dev/null 2>&1; then
       missing=$((missing + 1))
     fi
   done
-  [ "$missing" -eq 0 ]
+  echo "$missing"
+}
+
+stack_images_ready() {
+  [ "$(stack_missing_image_count "$1")" -eq 0 ]
+}
+
+# How much free disk the sequential build actually needs.
+disk_need_mb() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "$MIN_DISK_MB"
+    return 0
+  fi
+  local missing
+  missing="$(stack_missing_image_count "$(role_image_names)")"
+  if [ "${missing:-0}" -eq 0 ]; then
+    echo "$MIN_DISK_UPDATE_MB"
+  elif [ "${missing}" -le 2 ]; then
+    echo 700
+  else
+    echo "$MIN_DISK_MB"
+  fi
+}
+
+# 2G swap on an 8–10G VPS leaves too little room for image rebuilds.
+swap_target_mb() {
+  local disk_mb
+  disk_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $2}')"
+  if [ "${disk_mb:-0}" -gt 0 ] && [ "${disk_mb}" -lt 16384 ]; then
+    echo 1024
+  else
+    echo "${MIN_SWAP_MB:-2048}"
+  fi
 }
 
 role_build_services() {
@@ -145,6 +190,7 @@ cleanup_install_artifacts() {
   rm -f "$INSTALL_DIR/stack.tar.gz"
   rm -f /var/log/nvpn-build*.log /var/log/nvpn-install.log
   rm -rf /tmp/nvpn-data-bak "$INSTALL_DIR/stack.staging" "$INSTALL_DIR/stack.old"
+  cleanup_stale_deploy_files
   if [ "$KEEP_INSTALL_LOG" = "1" ]; then
     mkdir -p "$INSTALL_DIR"
     tail -c 200000 "$LOG_FILE" >"$INSTALL_DIR/install.log" 2>/dev/null || true
@@ -210,19 +256,32 @@ load_stack_env() {
 
 ensure_swap() {
   local need_mb="$1"
-  local have_mb
+  local have_mb file_mb avail_mb used_swap
   have_mb="$(swap_total_mb)"
+  file_mb=0
+  [ -f /swapfile ] && file_mb="$(du -m /swapfile 2>/dev/null | awk '{print $1}')"
+  avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
+  used_swap="$(awk '/SwapTotal:/{t=$2} /SwapFree:/{f=$2} END{printf "%d", (t-f)/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+  # A 2G swapfile on an 8G rootfs is leftover from the first install. Shrink it
+  # when the disk is tight and almost none of that swap is actually in use.
+  if [ -f /swapfile ] && [ "${file_mb:-0}" -gt $((need_mb + 96)) ] &&
+     [ "${avail_mb:-0}" -lt 2200 ] && [ "${used_swap:-0}" -lt 400 ]; then
+    echo "NVPN_INFO|сжимаем swapfile ${file_mb} → ${need_mb} МБ (свободно ${avail_mb} МБ)"
+    swapoff /swapfile 2>/dev/null || true
+    rm -f /swapfile
+    have_mb="$(swap_total_mb)"
+    avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
+  fi
   # /proc reports ~2047 for a 2G file — allow a small slack so we don't recreate.
   local min_ok=$((need_mb - 64))
-  if [ "$min_ok" -lt 1024 ]; then min_ok=1024; fi
+  if [ "$min_ok" -lt 512 ]; then min_ok=512; fi
   if [ "${have_mb:-0}" -ge "$min_ok" ] 2>/dev/null; then
     echo "NVPN_INFO|swap уже ${have_mb} МБ (цель ≥${need_mb})"
     return 0
   fi
-  local avail_mb
   avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
   # Leave room for Docker images; never fill the rootfs with a swapfile.
-  local reserve_mb="${MIN_DISK_UPDATE_MB:-900}"
+  local reserve_mb="${MIN_DISK_UPDATE_MB:-500}"
   local max_swap=$(( ${avail_mb:-0} - reserve_mb ))
   if [ "$max_swap" -lt 512 ]; then
     echo "NVPN_WARN|мало места для swap (свободно ${avail_mb:-0} МБ, нужно оставить ≥${reserve_mb}) — без увеличения"
@@ -283,6 +342,7 @@ fi
 prog 0.10 "Подготовка каталога $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
+cleanup_stale_deploy_files
 
 STAGING="$INSTALL_DIR/stack.staging"
 if [ -f "$INSTALL_DIR/stack.tar.gz" ]; then
@@ -379,7 +439,7 @@ if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
   reclaim_disk
   mem_mb="$(mem_total_mb)"
   if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
-    ensure_swap "$MIN_SWAP_MB"
+    ensure_swap "$(swap_target_mb)"
   fi
 fi
 
@@ -453,11 +513,8 @@ prog 0.45 "Очистка места перед сборкой"
 reclaim_disk
 
 avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
-need_mb="$MIN_DISK_MB"
-if stack_images_ready "$(role_image_names)"; then
-  need_mb="$MIN_DISK_UPDATE_MB"
-  echo "NVPN_INFO|образы стека уже есть — порог диска ${need_mb} МБ"
-fi
+need_mb="$(disk_need_mb)"
+echo "NVPN_INFO|диск: свободно ${avail_mb:-?} МБ, порог обновления ${need_mb} МБ"
 if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt "$need_mb" ] 2>/dev/null; then
   die "Мало места на диске VPS: свободно ${avail_mb} МБ (нужно ≥${need_mb} МБ). Увеличьте диск или очистите: docker builder prune -af && apt-get clean"
 fi
@@ -482,8 +539,9 @@ fi
 
 # One service at a time: after each image is tagged, drop BuildKit/Go intermediates
 # so peak disk/RAM stay near a single compile (not 6 stacked caches ~1.7G).
-# Never `docker image prune -af` here: new :latest is not used by a container yet
-# while the old stack is still up, so -af would delete the image we just built.
+# Never prune unused tagged images here: the new :latest is not used by a
+# container yet while the old stack is still up, so a full prune would
+# delete the image we just built.
 export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
 
 BUILD_SERVICES="$(role_build_services)"
@@ -587,6 +645,13 @@ if echo "$UP_SERVICES" | grep -qw telemetry; then
     prog 0.93 "telemetry /health OK"
   else
     echo "NVPN_WARN|telemetry :${TELEMETRY_PORT} не отвечает — логи тестирования не примут. cd $STACK && docker compose --env-file .env up -d --no-deps telemetry"
+  fi
+fi
+if echo "$UP_SERVICES" | grep -qw warp; then
+  if docker inspect -f '{{.State.Running}}' nvpn-warp 2>/dev/null | grep -qx true; then
+    prog 0.935 "nvpn-warp running"
+  else
+    echo "NVPN_WARN|nvpn-warp не запущен — Hide-IP на этом хосте не применится. cd $STACK && docker compose --env-file .env up -d --no-deps --build warp"
   fi
 fi
 if docker exec nvpn-provision test -s /data/users.json 2>/dev/null; then

@@ -35,6 +35,21 @@ if [ -f "$INSTALLER" ]; then
   fi
   grep -q 'NVPN_ROLE' "$INSTALLER" || err "installer missing NVPN_ROLE"
   grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
+  grep -q 'cleanup_stale_deploy_files' "$INSTALLER" || err "installer missing leftover-file cleanup"
+  grep -q 'swap_target_mb' "$INSTALLER" || err "installer missing small-disk swap cap"
+  grep -q 'disk_need_mb' "$INSTALLER" || err "installer missing scaled disk threshold"
+  grep -q 'install-live.log' "$INSTALLER" || err "installer must remove legacy install-live.log"
+  if awk '
+    $0 ~ /^cleanup_stale_deploy_files\(\)/ { in_fn=1; next }
+    in_fn && $0 ~ /^}/ { in_fn=0 }
+    in_fn && $0 ~ /rm / && $0 ~ /stack\.staging/ { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$INSTALLER"; then
+    err "cleanup_stale_deploy_files must not delete in-progress stack.staging"
+  fi
+  if grep -E '^[^#]*image prune -a' "$INSTALLER" >/dev/null; then
+    err "install.sh must not docker image prune -a (drops unused tagged stack images)"
+  fi
   if grep -q 'NVPN_CASCADE_PASSWORD' "$INSTALLER"; then
     err "installer must not write cascade SSH password into .env"
   fi
@@ -84,6 +99,14 @@ done
 [ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
 if [ -f "$COMPOSE" ]; then
   grep -q 'container_name: nvpn-cascade' "$COMPOSE" || err "compose missing nvpn-cascade"
+  if awk '
+    $0 ~ /^  warp:/ { in_warp=1; next }
+    in_warp && $0 ~ /^  [a-z]/ { in_warp=0 }
+    in_warp && $0 ~ /^[[:space:]]+- dns[[:space:]]*$/ { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$COMPOSE"; then
+    err "warp must not depend_on dns (cascade entry does not start dns)"
+  fi
 fi
 bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n failed for cascade-entrypoint.sh"
 
