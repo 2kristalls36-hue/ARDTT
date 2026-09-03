@@ -233,21 +233,17 @@ class ConnectionManager(
             if (r.isSuccess) {
                 lastHideIpSent = enabled
                 refreshVpnNotification()
-                // Egress flip on VPS invalidates in-flight TCP (new SNAT IP).
-                // Server conntrack flush alone leaves phone sockets waiting ~RTO (30s).
-                // Soft-restart TUN so apps reconnect in ~1–2s instead of hanging.
+                // Proven production WARP (wireproxy+tun2socks) flips egress with
+                // ip rule + conntrack flush. Restarting the phone TUN dropped
+                // calls and made the toggle feel slow.
                 if (_ui.value.state == ConnState.Connected) {
-                    delay(1_500) // nvpn-warp debounce + apply ip rules
+                    delay(1_200) // nvpn-warp debounce (~1s) + apply ip rules
                     if (_ui.value.hideIp != enabled) return@launch
-                    val why = if (enabled) {
-                        "Hide-IP: egress → WARP"
-                    } else {
-                        "Hide-IP: egress → VPS"
+                    if (hideIpShouldRestartTransport()) {
+                        val why = if (enabled) "Hide-IP: egress → WARP" else "Hide-IP: egress → VPS"
+                        requestTransportRestart(why)
                     }
-                    AppLog.v(TAG, "Hide-IP applied — $why (soft-restart sockets)")
-                    requestTransportRestart(why)
-                    // Soft-restart also refreshes on tunnel-up; schedule a late
-                    // WARP/VPS IP fetch in case the first attempt races policy apply.
+                    EgressIpProbe.invalidate()
                     scheduleEgressIpRefresh("hide-ip-applied")
                 } else {
                     scheduleEgressIpRefresh("hide-ip-synced-offline")
@@ -1602,7 +1598,11 @@ class ConnectionManager(
         scope.launch {
             val hideIp = _ui.value.hideIp
             // WARP policy + MSS path need a beat longer than plain VPS SNAT.
-            val initialDelay = if (hideIp) 2_500L else 1_000L
+            val initialDelay = when {
+                reason == "hide-ip-applied" -> 400L
+                hideIp -> 2_500L
+                else -> 1_000L
+            }
             delay(initialDelay)
             val attempts = if (hideIp) 5 else 4
             repeat(attempts) { attempt ->

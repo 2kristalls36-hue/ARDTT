@@ -1,14 +1,18 @@
 #!/bin/bash
-# WARP egress: wgcf → warp0 (Table=off) + policy routing.
+# WARP egress: wgcf → wireproxy (SOCKS5) → tun2socks TUN + policy routing.
+#
+# Same layout as the long-lived production host (wireproxy 1.1.2 + tun2socks
+# 2.5.2): userspace WG stays ~110 MiB; Hide-IP is ip rule add/del + conntrack
+# flush — no kernel wg-quick, no client TUN restart.
 #
 # hideip (default, entry standalone and cascade entry): per-user ip rules
 # from users.json hideIp. /32 at prio 300 beats cascade hop (prio 320).
-# cascade (exit VPS): do NOT steal 10.8/10.9/10.10 into warp0 — the exit
+# cascade (exit VPS): do NOT steal 10.8/10.9/10.10 into the WARP TUN — the exit
 # NATs to its WAN. Hide-IP is applied on the entry hop.
 #
 # DNS must NOT go through WARP:
 #   priority 100: iif <ingress> udp/tcp dport 53 → main
-#   priority 300+: from <client> → table 51820 (WARP)
+#   priority 300+: from <client> → table 51820 (WARP TUN)
 set -euo pipefail
 
 DATA="${NVPN_DATA:-/data}"
@@ -23,16 +27,23 @@ DNS_COMMENT="NVPN_WARP_DNS_MAIN"
 DNS_RULE_PRIO="${NVPN_WARP_DNS_PRIO:-100}"
 WARP_RULE_PRIO_BASE="${NVPN_WARP_RULE_PRIO:-300}"
 WARP_MODE="${NVPN_WARP_MODE:-hideip}"
+SOCKS_ADDR="${NVPN_WARP_SOCKS:-127.0.0.1:40000}"
+TUN_ADDR="${NVPN_WARP_TUN_ADDR:-10.99.99.1/24}"
+# Recycle wireproxy in-process if RSS exceeds this (kB). Production sits ~110 MiB.
+WIREPROXY_RSS_LIMIT_KB="${NVPN_WARP_RSS_LIMIT_KB:-350000}"
 
 # VPN ingress ifaces whose client DNS must stay on main.
 DNS_IIFACES="${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0}"
 
+WIREPROXY_PID=0
+TUN2SOCKS_PID=0
+
 mkdir -p "${STATE_DIR}"
 cd "${STATE_DIR}"
 
-echo "[warp] Cloudflare WARP egress via ${IFACE} table=${TABLE} mode=${WARP_MODE}"
+echo "[warp] Cloudflare WARP via wireproxy+tun2socks ${IFACE} table=${TABLE} mode=${WARP_MODE}"
 echo "[warp] DNS via main (prio ${DNS_RULE_PRIO}); WARP from/client (prio ${WARP_RULE_PRIO_BASE}+)"
-echo "[warp] GOMEMLIMIT=${GOMEMLIMIT:-400MiB}; no container restart-on-OOM"
+echo "[warp] GOMEMLIMIT=${GOMEMLIMIT:-256MiB}; socks=${SOCKS_ADDR}; no docker restart-on-OOM"
 
 if [ -w /proc/sys/net/ipv4/ip_forward ]; then
   echo 1 >/proc/sys/net/ipv4/ip_forward || true
@@ -50,70 +61,140 @@ ensure_account() {
 }
 
 # Build a WireGuard conf that does NOT steal the host default route.
+# Convert wgcf-profile.conf → wireproxy SOCKS config (IPv4 only).
 build_conf() {
   local src=wgcf-profile.conf
-  local out="${IFACE}.conf"
-  # Strip DNS / rewrite AllowedIPs handling — Table=off keeps main routing intact.
-  awk -v iface="${IFACE}" '
-    BEGIN { in_iface=0 }
-    /^\[Interface\]/ { in_iface=1; print; next }
-    /^\[Peer\]/ {
-      in_iface=0
-      print "Table = off"
-      print "MTU = 1280"
-      print
-      next
-    }
-    in_iface && /^DNS/ { next }
-    in_iface && /^Address/ {
-      # Keep IPv4 only — simpler policy routing on IPv4 VPS
-      gsub(/,.*$/, "", $0)
-      print
-      next
-    }
-    { print }
-  ' "${src}" >"${out}.tmp"
+  local out=proxy.conf
+  [[ -f "${src}" ]] || { echo "[warp] missing ${src}" >&2; exit 1; }
+  local priv pub endpoint addr
+  priv="$(awk -F'= *' '/^PrivateKey/{print $2; exit}' "${src}")"
+  pub="$(awk -F'= *' '/^PublicKey/{print $2; exit}' "${src}")"
+  endpoint="$(awk -F'= *' '/^Endpoint/{print $2; exit}' "${src}")"
+  addr="$(awk -F'= *' '/^Address/{print $2; exit}' "${src}" | cut -d, -f1 | tr -d ' ')"
+  addr="${addr%%/*}/32"
+  [[ -n "${priv}" && -n "${pub}" && -n "${endpoint}" && -n "${addr}" ]] || {
+    echo "[warp] failed to parse ${src}" >&2
+    exit 1
+  }
+  cat >"${out}.tmp" <<EOF
+[Interface]
+PrivateKey = ${priv}
+Address = ${addr}
+MTU = 1420
 
-  # Ensure Interface name section for wg-quick
-  if ! grep -q "^Table = off" "${out}.tmp"; then
-    sed -i "/^\[Peer\]/i Table = off\nMTU = 1280" "${out}.tmp"
-  fi
+[Peer]
+PublicKey = ${pub}
+Endpoint = ${endpoint}
+
+[Socks5]
+BindAddress = ${SOCKS_ADDR}
+EOF
   mv "${out}.tmp" "${out}"
-  echo "[warp] wrote ${out}"
+  echo "[warp] wrote ${out} socks=${SOCKS_ADDR}"
+}
+
+pid_alive() {
+  local pid="${1:-0}"
+  [[ "${pid}" -gt 0 ]] && kill -0 "${pid}" 2>/dev/null
+}
+
+rss_kb() {
+  local pid="${1:-0}"
+  [[ "${pid}" -gt 0 && -r "/proc/${pid}/status" ]] || { echo 0; return; }
+  awk '/^VmRSS:/{print $2; exit}' "/proc/${pid}/status" 2>/dev/null || echo 0
+}
+
+stop_pid() {
+  local pid="${1:-0}"
+  pid_alive "${pid}" || return 0
+  kill "${pid}" 2>/dev/null || true
+  local i
+  for i in 1 2 3 4 5; do
+    pid_alive "${pid}" || return 0
+    sleep 0.2
+  done
+  kill -9 "${pid}" 2>/dev/null || true
+}
+
+wait_socks() {
+  local host="${SOCKS_ADDR%:*}"
+  local port="${SOCKS_ADDR##*:}"
+  local i
+  for i in $(seq 1 50); do
+    if (echo >"/dev/tcp/${host}/${port}") 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+start_wireproxy() {
+  stop_pid "${WIREPROXY_PID}"
+  WIREPROXY_PID=0
+  GOMEMLIMIT="${GOMEMLIMIT:-256MiB}" /usr/local/bin/wireproxy -c "${STATE_DIR}/proxy.conf" &
+  WIREPROXY_PID=$!
+  if wait_socks; then
+    echo "[warp] wireproxy pid=${WIREPROXY_PID} socks=${SOCKS_ADDR}"
+    return 0
+  fi
+  if ! pid_alive "${WIREPROXY_PID}"; then
+    echo "[warp] wireproxy exited" >&2
+    return 1
+  fi
+  echo "[warp] WARN: wireproxy socks not ready yet pid=${WIREPROXY_PID}" >&2
+}
+
+start_tun2socks() {
+  stop_pid "${TUN2SOCKS_PID}"
+  TUN2SOCKS_PID=0
+  /usr/local/bin/tun2socks -device "${IFACE}" -proxy "socks5://${SOCKS_ADDR}" &
+  TUN2SOCKS_PID=$!
+  echo "[warp] tun2socks pid=${TUN2SOCKS_PID} dev=${IFACE}"
+}
+
+# Drop leftover kernel-WG warp0 from older stacks (junk iface + wg-quick conf).
+clear_legacy_kernel_warp() {
+  wg-quick down "${IFACE}" 2>/dev/null || true
+  wg-quick down "./${IFACE}.conf" 2>/dev/null || true
+  ip link del "${IFACE}" 2>/dev/null || true
+  rm -f "/etc/wireguard/${IFACE}.conf" "${STATE_DIR}/${IFACE}.conf" "${STATE_DIR}/${IFACE}.conf.tmp"
 }
 
 bring_up() {
-  local conf="${IFACE}.conf"
-  # Clean leftovers
-  wg-quick down "${conf}" 2>/dev/null || true
-  ip link del "${IFACE}" 2>/dev/null || true
+  stop_pid "${TUN2SOCKS_PID}"; TUN2SOCKS_PID=0
+  stop_pid "${WIREPROXY_PID}"; WIREPROXY_PID=0
+  clear_legacy_kernel_warp
+  ip tuntap add mode tun dev "${IFACE}" 2>/dev/null || true
+  ip addr replace "${TUN_ADDR}" dev "${IFACE}"
+  ip link set dev "${IFACE}" up
+  ip link set dev "${IFACE}" mtu 1420 2>/dev/null || true
 
-  # wg-quick wants conf in /etc/wireguard or path — use explicit
-  WG_QUICK_USERSPACE_IMPLEMENTATION="" wg-quick up "./${conf}" || {
-    echo "[warp] wg-quick up failed" >&2
-    exit 1
-  }
-
-  # Rename interface if wg-quick used filename stem
-  local stem
-  stem="$(basename "${conf}" .conf)"
-  if ip link show "${stem}" >/dev/null 2>&1 && [[ "${stem}" != "${IFACE}" ]]; then
-    ip link set "${stem}" name "${IFACE}" || true
+  # rp_filter drops WARP replies whose reverse path is the TUN, not eth0.
+  if [ -w /proc/sys/net/ipv4/conf/all/rp_filter ]; then
+    echo 0 >/proc/sys/net/ipv4/conf/all/rp_filter || true
+  fi
+  if [ -w "/proc/sys/net/ipv4/conf/${IFACE}/rp_filter" ]; then
+    echo 0 >"/proc/sys/net/ipv4/conf/${IFACE}/rp_filter" || true
   fi
 
-  # Policy table: default via WARP only (main table untouched)
+  start_wireproxy || true
+  start_tun2socks
+
+  # Policy table: default via WARP TUN only (main table untouched).
   ip route replace default dev "${IFACE}" table "${TABLE}" || \
     ip route add default dev "${IFACE}" table "${TABLE}"
 
-  iptables -t nat -C POSTROUTING -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j MASQUERADE 2>/dev/null \
-    || iptables -t nat -A POSTROUTING -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j MASQUERADE || true
+  # No MASQUERADE onto the TUN — tun2socks SNATs through wireproxy.
+  # Drop leftover MASQ from kernel-WG stacks so Hide-IP-off is not double-NAT.
+  iptables -t nat -D POSTROUTING -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j MASQUERADE 2>/dev/null || true
+
   iptables -C FORWARD -i "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -i "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT || true
   iptables -C FORWARD -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j ACCEPT || true
 
-  # warp0 MTU is 1280; VPN ingress is often higher (AWG ~1420). Without MSS clamp,
-  # TCP SYN advertises too-large MSS → blackhole on Hide-IP (small pings work, HTTPS dies).
+  # TUN MTU 1420; AWG ingress is often ~1420. Clamp so Hide-IP HTTPS does not blackhole.
   iptables -t mangle -C FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
     -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
     || iptables -t mangle -A FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
@@ -125,7 +206,7 @@ bring_up() {
 
   ensure_dns_masquerade
 
-  echo "[warp] ${IFACE} up; default in table ${TABLE}; TCPMSS clamp on FORWARD"
+  echo "[warp] ${IFACE} tun2socks up; default in table ${TABLE}; TCPMSS clamp on FORWARD"
 }
 
 # Explicit DNS MASQUERADE on WAN for VPN client subnets (upstream 1.1.1.1 via main).
@@ -265,7 +346,7 @@ install_local_exempt_rules() {
   for clear_p in $(seq "${LOCAL_EXEMPT_PRIO}" $((LOCAL_EXEMPT_PRIO + 16))); do
     ip rule del pref "${clear_p}" 2>/dev/null || true
   done
-  for net in 10.8.0.0/24 10.9.0.0/24 10.10.0.0/30 127.0.0.0/8; do
+  for net in 10.8.0.0/24 10.9.0.0/24 10.10.0.0/30 10.99.99.0/24 127.0.0.0/8; do
     if ip rule add to "${net}" lookup main priority "${p}" 2>/dev/null; then
       echo "[warp] local exempt to ${net} → main prio=${p}"
     fi
@@ -386,7 +467,9 @@ sync_rules() {
 }
 
 cleanup_on_exit() {
-  echo "[warp] exit — clearing hideIp + DNS policy rules"
+  echo "[warp] exit — stopping wireproxy/tun2socks and clearing policy rules"
+  stop_pid "${TUN2SOCKS_PID}"; TUN2SOCKS_PID=0
+  stop_pid "${WIREPROXY_PID}"; WIREPROXY_PID=0
   clear_rules_for_table "${TABLE}"
   clear_dns_main_rules
   iptables -t nat -D POSTROUTING -o "${IFACE}" -m comment --comment "${MARK_COMMENT}" -j MASQUERADE 2>/dev/null || true
@@ -396,6 +479,7 @@ cleanup_on_exit() {
     -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
   iptables -t mangle -D FORWARD -i "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
     -m comment --comment "${MARK_COMMENT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+  ip link del "${IFACE}" 2>/dev/null || true
 }
 
 trap cleanup_on_exit EXIT INT TERM
@@ -407,7 +491,7 @@ install_dns_main_rules
 install_local_exempt_rules
 sync_rules
 
-# Soft recycle watcher: if RSS grows huge, restart tunnel in-process (no docker restart).
+# Keep children alive; recycle wireproxy in-process if RSS grows (no docker restart).
 LAST_MTIME=0
 PENDING_SYNC=0
 PENDING_SINCE=0
@@ -416,6 +500,20 @@ DNS_RETRY_TICK=0
 SYNC_DEBOUNCE_SEC="${NVPN_WARP_SYNC_DEBOUNCE:-1}"
 while true; do
   sleep 1
+  if ! pid_alive "${WIREPROXY_PID}"; then
+    echo "[warp] wireproxy dead — restart"
+    start_wireproxy || true
+  else
+    rss="$(rss_kb "${WIREPROXY_PID}")"
+    if [[ "${rss}" -gt "${WIREPROXY_RSS_LIMIT_KB}" ]]; then
+      echo "[warp] wireproxy RSS ${rss}kB > ${WIREPROXY_RSS_LIMIT_KB}kB — in-process recycle"
+      start_wireproxy || true
+    fi
+  fi
+  if ! pid_alive "${TUN2SOCKS_PID}"; then
+    echo "[warp] tun2socks dead — restart"
+    start_tun2socks
+  fi
   if [[ -f "${USERS}" ]]; then
     now="$(stat -c %Y "${USERS}" 2>/dev/null || echo 0)"
     if [[ "${now}" != "${LAST_MTIME}" ]]; then
