@@ -448,7 +448,11 @@ private fun ProfileCard(
         shadowElevation = CompactListCard.ShadowElevation,
         tonalElevation = 0.dp,
         showBorder = false,
-        border = if (active) BorderStroke(2.dp, NvpnColors.connected) else null,
+        border = if (active) {
+            BorderStroke(2.dp, NvpnColors.connected)
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
