@@ -151,6 +151,9 @@ internal fun activeProfileHost(profile: VpnProfile?): String? {
         ?: NetworkEndpoint.hostOf(profile.bypass.peer)
 }
 
+/** Leave the deploy form only when SSH is idle — collapsing it mid-run trapped a modal scrim. */
+internal fun deployFormCanLeave(busy: Boolean): Boolean = !busy
+
 /**
  * Server that backs the current profile/deploy in use.
  * Prefer exact [DeployTarget.publicHost], then [DeployTarget.host]; if no profile match,
@@ -225,6 +228,7 @@ fun ServersScreen(
     reselectSignal: Int = 0,
 ) {
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
+    val busy by engine.busy.collectAsStateWithLifecycle()
     var screen by rememberSaveable(stateSaver = ServersNavScreenSaver) {
         mutableStateOf<ServersNavScreen>(ServersNavScreen.List)
     }
@@ -234,7 +238,9 @@ fun ServersScreen(
         }
     }
 
-    BackHandler(enabled = screen !is ServersNavScreen.List) {
+    val canPopServers = screen !is ServersNavScreen.List &&
+        !(screen is ServersNavScreen.Deploy && !deployFormCanLeave(busy))
+    BackHandler(enabled = canPopServers) {
         screen = when (val current = screen) {
             is ServersNavScreen.Clients -> ServersNavScreen.Overview(current.serverId)
             is ServersNavScreen.Deploy -> current.serverId
@@ -700,16 +706,14 @@ private fun ServerOverviewHost(
                     redeployStatus?.startsWith("Ошибка") == true -> "Ошибка"
                     else -> "Готово"
                 },
-                onDismissRequest = {
-                    if (!busy) showRedeployProgress = false
-                },
+                onDismissRequest = {},
                 confirmAction = if (busy) {
                     NvpnDialogAction("Отменить", { engine.cancel() }, destructive = true)
                 } else {
                     NvpnDialogAction("Закрыть", { showRedeployProgress = false })
                 },
-                dismissOnBackPress = !busy,
-                dismissOnClickOutside = !busy,
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
             ) {
                 Text(
                     step.ifBlank { "…" },
@@ -1073,6 +1077,9 @@ fun DeployScreen(
     val context = LocalContext.current
     val expectedDeployVersion = remember(context) { DeployBundle.expectedVersion(context) }
     val isUpdate = initial != null && lastDeployedAtMs > 0L
+    val canLeave = deployFormCanLeave(busy)
+
+    BackHandler(enabled = !canLeave) { }
 
     Column(
         modifier = Modifier
@@ -1089,7 +1096,7 @@ fun DeployScreen(
                 } else {
                     "SSH · установка Compose-стека ARDTT"
                 },
-                onBack = onBack,
+                onBack = if (canLeave) onBack else null,
             )
         }
         Text(
@@ -1370,11 +1377,13 @@ fun DeployScreen(
             )
         }
 
-        OutlinedButton(
-            onClick = onBack,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (busy) "Свернуть (деплой в фоне)" else "Назад")
+        if (canLeave) {
+            OutlinedButton(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Назад")
+            }
         }
 
         if (busy) {

@@ -8,18 +8,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
+import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,10 +34,20 @@ data class NvpnDialogAction(
     val destructive: Boolean = false,
 )
 
+/** Sheet can hide only when at least one dismiss path is enabled. */
+internal fun nvpnDialogAllowsHide(
+    dismissOnBackPress: Boolean,
+    dismissOnClickOutside: Boolean,
+): Boolean = dismissOnBackPress || dismissOnClickOutside
+
 /**
  * Shared bottom sheet replacing the old opaque modal surface.
  * Actions always live in one footer row:
  * optional secondary action on the left, cancel and primary on the right.
+ *
+ * When both dismiss flags are false the sheet cannot be swiped, back-pressed,
+ * or scrim-tapped away — otherwise a Hidden sheet left in composition blocks
+ * the whole UI until process restart.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,13 +62,34 @@ fun NvpnDialog(
     dismissOnClickOutside: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val allowsHide = nvpnDialogAllowsHide(dismissOnBackPress, dismissOnClickOutside)
+    val allowsHideState = rememberUpdatedState(allowsHide)
+    val onDismissState = rememberUpdatedState(onDismissRequest)
+    val confirmValueChange = remember {
+        { value: SheetValue ->
+            value != SheetValue.Hidden || allowsHideState.value
+        }
+    }
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = confirmValueChange,
+    )
     ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = {
+            if (allowsHideState.value) onDismissState.value()
+        },
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 6.dp,
+        dragHandle = if (allowsHide) {
+            { BottomSheetDefaults.DragHandle() }
+        } else {
+            null
+        },
+        properties = ModalBottomSheetProperties(
+            shouldDismissOnBackPress = dismissOnBackPress,
+        ),
     ) {
         Column(
             modifier = modifier
