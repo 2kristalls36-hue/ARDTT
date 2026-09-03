@@ -19,9 +19,27 @@ cd android
 printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
 ./gradlew :app:assembleRelease :app:bundleRelease --no-daemon
 
-APK=app/build/outputs/apk/release/app-release.apk
 AAB=app/build/outputs/bundle/release/app-release.aab
-ls -lh "$APK" "$AAB"
-sha256sum "$APK"
+shopt -s nullglob
+apks=(app/build/outputs/apk/release/*.apk)
+if (( ${#apks[@]} == 0 )); then
+  echo "No release APKs under app/build/outputs/apk/release/" >&2
+  exit 1
+fi
+ls -lh "${apks[@]}" "$AAB"
+sha256sum "${apks[@]}"
+# ABI splits emit app-<abi>-release.apk plus optional universal; prefer arm64, then universal.
+APK=""
+for candidate in \
+  app/build/outputs/apk/release/app-arm64-v8a-release.apk \
+  app/build/outputs/apk/release/app-universal-release.apk \
+  app/build/outputs/apk/release/app-release.apk
+do
+  if [[ -f "$candidate" ]]; then
+    APK="$candidate"
+    break
+  fi
+done
+APK="${APK:-${apks[0]}}"
 echo "APK=$ROOT_DIR/android/$APK"
 echo "AAB=$ROOT_DIR/android/$AAB"
