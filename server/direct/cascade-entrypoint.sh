@@ -119,13 +119,15 @@ write_conf() {
 }
 
 # iptables-nft -S quoting breaks "${spec/-A/-D}". Delete by line number instead.
+# Only walk chains that exist in this table (nat has no FORWARD/INPUT).
 delete_commented_chain() {
   local table="$1" chain="$2"
   local n
   command -v iptables >/dev/null 2>&1 || return 0
+  iptables -t "${table}" -L "${chain}" >/dev/null 2>&1 || return 0
   while true; do
     n="$(iptables -t "${table}" -L "${chain}" --line-numbers -n 2>/dev/null \
-      | awk -v c="${COMMENT}" '$0 ~ c {print $1}' | tail -1)"
+      | awk -v c="${COMMENT}" '$0 ~ c {print $1}' | tail -1 || true)"
     [ -n "${n}" ] || break
     iptables -t "${table}" -D "${chain}" "${n}" 2>/dev/null || break
   done
@@ -134,7 +136,12 @@ delete_commented_chain() {
 delete_commented() {
   local table="$1"
   local chain
-  for chain in PREROUTING POSTROUTING OUTPUT INPUT FORWARD; do
+  case "${table}" in
+    nat) set -- PREROUTING POSTROUTING OUTPUT ;;
+    mangle) set -- PREROUTING INPUT FORWARD OUTPUT POSTROUTING ;;
+    filter|*) set -- INPUT FORWARD OUTPUT ;;
+  esac
+  for chain in "$@"; do
     delete_commented_chain "${table}" "${chain}"
   done
 }
@@ -251,6 +258,7 @@ setup_forwarding() {
 
 bring_up_iface() {
   ip link del "${IFACE}" 2>/dev/null || true
+  sleep 0.3
   echo "[cascade] starting amneziawg-go -f ${IFACE}"
   amneziawg-go -f "${IFACE}" &
   AWG_PID=$!
