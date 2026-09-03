@@ -1,8 +1,10 @@
 #!/bin/bash
 # WARP egress: wgcf → warp0 (Table=off) + policy routing.
 #
-# hideip (default, entry standalone): per-user ip rules from users.json hideIp.
-# cascade (exit VPS): all 10.8/10.9/10.10 traffic except DNS → warp0.
+# hideip (default, entry standalone and cascade entry): per-user ip rules
+# from users.json hideIp. /32 at prio 300 beats cascade hop (prio 320).
+# cascade (exit VPS): do NOT steal 10.8/10.9/10.10 into warp0 — the exit
+# NATs to its WAN. Hide-IP is applied on the entry hop.
 #
 # DNS must NOT go through WARP:
 #   priority 100: iif <ingress> udp/tcp dport 53 → main
@@ -300,27 +302,30 @@ flush_client_conntrack() {
   fi
 }
 
-# Cascade exit: every client subnet on the hop goes through WARP (except DNS).
-sync_cascade_rules() {
-  local prio="${WARP_RULE_PRIO_BASE}"
-  local net
+# Cascade exit used to blanket-WARP every client subnet. That made Hide-IP
+# a no-op (browser always saw Cloudflare). Clear those from-rules so the
+# hop NATs to the exit WAN; hideIp /32 lives on the entry warp table.
+clear_cascade_from_rules() {
+  local net removed=0
   for net in 10.8.0.0/24 10.9.0.0/24 10.10.0.0/30; do
-    if ip rule show 2>/dev/null | grep -q "from ${net} lookup ${TABLE}"; then
-      prio=$((prio + 1))
-      continue
-    fi
-    if ip rule add from "${net}" lookup "${TABLE}" priority "${prio}" 2>/dev/null; then
-      echo "[warp] cascade from ${net} → table ${TABLE} prio=${prio}"
-    fi
-    prio=$((prio + 1))
+    while ip rule del from "${net}" lookup "${TABLE}" 2>/dev/null; do
+      echo "[warp] cascade WAN — removed from ${net} lookup ${TABLE}"
+      removed=1
+    done
   done
+  if [[ "${removed}" -eq 1 ]] && command -v conntrack >/dev/null 2>&1; then
+    conntrack -D -s 10.8.0.0/24 >/dev/null 2>&1 || true
+    conntrack -D -s 10.9.0.0/24 >/dev/null 2>&1 || true
+    conntrack -D -s 10.10.0.0/30 >/dev/null 2>&1 || true
+    echo "[warp] cascade WAN — flushed client conntrack"
+  fi
 }
 
 # Diff-based hideIp sync: add/remove only changed client prefixes.
 # Does NOT tear down DNS→main rules (that caused internet blips on rapid toggles).
 sync_rules() {
   if [ "${WARP_MODE}" = "cascade" ]; then
-    sync_cascade_rules
+    clear_cascade_from_rules
     return 0
   fi
   [[ -f "${USERS}" ]] || return 0

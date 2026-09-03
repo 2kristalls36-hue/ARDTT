@@ -9,7 +9,8 @@
 # - direct: amneziawg-go + awg (AmneziaWG 2.0 userspace).
 # - bypass: wdtt-server -listen-raw (qWDTT / SpaceNeuroX RAW, GPL-3).
 # - dns: dnsmasq on 10.8.0.1 / 10.9.0.1 (standalone) or cascade0 10.10.0.2 (exit hop).
-# - warp: hideIp on standalone entry; cascade mode on exit (all hop traffic except DNS).
+# - warp: hideIp per client on the entry hop (standalone and cascade).
+#         Exit hop NATs to its WAN; it does not blanket-WARP all clients.
 # - cascade: AmneziaWG hop between entry (VPS1) and exit (VPS2). Same image as direct.
 
 services:
@@ -97,7 +98,8 @@ services:
     restart: unless-stopped
 
   # Same image as `direct` (install.sh builds `direct` first).
-  # entry: policy-route 10.8/10.9 into the hop. exit: AWG listen; DNS+WARP on this host.
+  # entry: policy-route 10.8/10.9 into the hop (hideIp /32 uses local warp0 first).
+  # exit: AWG listen; DNS + WAN MASQ on this host.
   cascade:
     image: ${COMPOSE_PROJECT_NAME:-stack}-direct
     pull_policy: never
