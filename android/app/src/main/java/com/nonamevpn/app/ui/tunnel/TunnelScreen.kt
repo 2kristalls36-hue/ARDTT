@@ -76,6 +76,9 @@ import com.nonamevpn.app.ui.connectionControlsLocked
 import com.nonamevpn.app.ui.commitHideIp
 import com.nonamevpn.app.ui.commitPathMode
 import com.nonamevpn.app.ui.tunnelConnectionParamsVisible
+import com.nonamevpn.app.ui.tunnelStickyCtaEnabled
+import com.nonamevpn.app.ui.tunnelStickyCtaIsDestructive
+import com.nonamevpn.app.ui.tunnelStickyCtaLabel
 import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.HideIpChipRow
@@ -200,9 +203,7 @@ fun TunnelScreen(
     val pausedTrusted = ui.state == ConnState.PausedTrustedWifi
     val connected = ui.state == ConnState.Connected
     val sessionUp = connected || pausedTrusted
-    val probing = ui.state == ConnState.Probing
     val disconnecting = ui.state == ConnState.Disconnecting
-    val busy = probing || connecting || disconnecting
     val vpnLocked = connectionControlsLocked(
         sessionActive = connecting || connected || pausedTrusted || disconnecting,
         unlockWhileConnected = unlockConnControls,
@@ -532,28 +533,24 @@ fun TunnelScreen(
             )
         }
 
-        // Sticky «Подключить» / «Отменить» (same button) above tab bar
-        val cancelMode = connecting || probing
+        // Sticky «Подключить» / «Отменить» (same button) above tab bar.
+        // Idle Probing is not Cancel — that was flashing red Stop on tab open.
         StickyPrimaryButton(
-            text = when {
-                cancelMode -> "Отменить"
-                sessionUp -> "Отключить"
-                else -> "Подключиться"
-            },
+            text = tunnelStickyCtaLabel(ui.state),
             onClick = {
                 haptics.tick()
                 when {
-                    cancelMode || sessionUp -> conn.disconnect()
+                    tunnelStickyCtaIsDestructive(ui.state) -> conn.disconnect()
                     else -> onRequestConnect()
                 }
             },
-            enabled = cancelMode || (!busy && (sessionUp || ui.connectEnabled)),
+            enabled = tunnelStickyCtaEnabled(ui.state, ui.connectEnabled),
             containerColor = when {
-                cancelMode || sessionUp -> MaterialTheme.colorScheme.error
+                tunnelStickyCtaIsDestructive(ui.state) -> MaterialTheme.colorScheme.error
                 else -> buttonColor
             },
             icon = when {
-                cancelMode -> Icons.Default.Stop
+                ui.state == ConnState.Connecting -> Icons.Default.Stop
                 pausedTrusted -> Icons.Default.Pause
                 sessionUp -> Icons.Default.Stop
                 else -> Icons.Default.PowerSettingsNew
