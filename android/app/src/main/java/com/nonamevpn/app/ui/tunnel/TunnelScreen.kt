@@ -174,6 +174,9 @@ fun TunnelScreen(
     val hideTunnelQuickSettings by settings.hideTunnelQuickSettingsFlow.collectAsStateWithLifecycle(initialValue = false)
     val trustedWifiEnabled by settings.trustedWifiEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
+    val donateBannerDismissed by settings.donateBannerDismissedFlow.collectAsStateWithLifecycle(
+        initialValue = false,
+    )
     val haptics = rememberSmartHaptics(uiHapticsEnabled)
     var previousConnState by remember { mutableStateOf(ui.state) }
     var connStateInitialized by remember { mutableStateOf(false) }
@@ -204,6 +207,7 @@ fun TunnelScreen(
     val connected = ui.state == ConnState.Connected
     val sessionUp = connected || pausedTrusted
     val disconnecting = ui.state == ConnState.Disconnecting
+    val showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state)
     val vpnLocked = connectionControlsLocked(
         sessionActive = connecting || connected || pausedTrusted || disconnecting,
         unlockWhileConnected = unlockConnControls,
@@ -334,6 +338,11 @@ fun TunnelScreen(
                     sessionSwitchingEnabled = (connected || connecting || pausedTrusted) && unlockConnControls,
                     quickSettingsHidden = hideTunnelQuickSettings,
                     onDismiss = { showConnectionHint = false },
+                )
+            }
+            if (showDonateBanner) {
+                DonateSupportBanner(
+                    onDismiss = { scope.launch { settings.setDonateBannerDismissed(true) } },
                 )
             }
 

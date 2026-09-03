@@ -99,6 +99,9 @@ fun UserTunnelScreen(
     val pathMode by settings.pathModeName.collectAsStateWithLifecycle(initialValue = "auto")
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
+    val donateBannerDismissed by settings.donateBannerDismissedFlow.collectAsStateWithLifecycle(
+        initialValue = false,
+    )
     val haptics = rememberSmartHaptics(uiHapticsEnabled)
     var previousConnState by remember { mutableStateOf(ui.state) }
     var connStateInitialized by remember { mutableStateOf(false) }
@@ -178,6 +181,8 @@ fun UserTunnelScreen(
                 conn.updateProfile(target.profile)
             }
         },
+        showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state),
+        onDismissDonate = { scope.launch { settings.setDonateBannerDismissed(true) } },
     )
 }
 
@@ -194,6 +199,8 @@ private fun UserTunnelSimpleScreen(
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
+    showDonateBanner: Boolean,
+    onDismissDonate: () -> Unit,
 ) {
     val droneExitDurationMs = 980L
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -307,6 +314,9 @@ private fun UserTunnelSimpleScreen(
                 hasCallHash = ui.hasCallHash,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
+            if (showDonateBanner) {
+                DonateSupportBanner(onDismiss = onDismissDonate)
+            }
             Spacer(modifier = Modifier.height(14.dp))
             ProfileSwitcherBar(
                 activeItem = activeItem,
