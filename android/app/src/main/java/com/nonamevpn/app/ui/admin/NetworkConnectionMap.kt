@@ -169,8 +169,9 @@ internal fun shouldShowFilledHop(
 }
 
 /** Headline for a hop card: the address, or a lookup error when the IP is missing. */
-internal fun hopCardPrimaryText(info: IpApiInfo): String {
+internal fun hopCardPrimaryText(info: IpApiInfo, loading: Boolean = false): String {
     if (info.ip.isNotBlank()) return info.ip
+    if (loading) return "Определение…"
     return info.error?.trim()?.takeIf { it.isNotBlank() } ?: "Не удалось определить IP"
 }
 
@@ -182,6 +183,14 @@ internal data class HopHealthPings(
 
 internal fun isLastFilledHop(index: Int, filledCount: Int): Boolean =
     filledCount > 0 && index == filledCount - 1
+
+internal enum class HopCardOutline {
+    Last,
+    Other,
+}
+
+internal fun hopCardOutline(index: Int, filledCount: Int): HopCardOutline =
+    if (isLastFilledHop(index, filledCount)) HopCardOutline.Last else HopCardOutline.Other
 
 /** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */
 internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Long = when (kind) {

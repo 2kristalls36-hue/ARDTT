@@ -219,6 +219,7 @@ fun NetworkScreen(
                 cascadeLive = live.enabled,
             ),
             hopsLatest.value,
+            onHop = { view -> loaded = replaceHopView(loaded, view) },
         )
     }
 
@@ -269,7 +270,8 @@ fun NetworkScreen(
                         title = view.hop.title,
                         kind = view.hop.kind,
                         info = view.info,
-                        highlighted = isLastFilledHop(index, visibleHops.size),
+                        loading = view.loading,
+                        highlighted = hopCardOutline(index, visibleHops.size) == HopCardOutline.Last,
                         pingLabel = hopPingLabel(view.hop.kind, hopPings),
                     )
                 }
@@ -345,20 +347,28 @@ private fun syncHopViews(layout: NetworkMapLayout, previous: List<HopView>): Lis
             )
             else -> old?.info ?: IpApiInfo.Empty
         }
-        HopView(hop = hop, info = info, loading = info.ip.isBlank())
+        HopView(hop = hop, info = info, loading = info.ip.isBlank() && info.error == null)
     }
+}
+
+private fun replaceHopView(current: List<HopView>, next: HopView): List<HopView> {
+    if (current.none { it.hop.kind == next.hop.kind }) return current + next
+    return current.map { if (it.hop.kind == next.hop.kind) next else it }
 }
 
 private suspend fun loadHopViews(
     context: Context,
     inputs: NetworkRefreshInputs,
     previous: List<HopView>,
+    onHop: (HopView) -> Unit = {},
 ): List<HopView> = coroutineScope {
     val jobs = inputs.layout.hops.map { hop ->
         async {
             val old = previous.firstOrNull { it.hop.kind == hop.kind }
             val info = loadHop(context, hop, inputs, old?.info ?: IpApiInfo.Empty)
-            HopView(hop = hop, info = info, loading = false)
+            val view = HopView(hop = hop, info = info, loading = false)
+            onHop(view)
+            view
         }
     }
     jobs.map { it.await() }
@@ -497,6 +507,7 @@ private fun IpInfoCard(
     title: String,
     kind: NetworkMapHopKind,
     info: IpApiInfo,
+    loading: Boolean = false,
     highlighted: Boolean = false,
     pingLabel: String = "",
 ) {
@@ -506,7 +517,10 @@ private fun IpInfoCard(
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
-        border = if (highlighted) BorderStroke(2.dp, NvpnColors.connected) else null,
+        border = BorderStroke(
+            2.dp,
+            if (highlighted) NvpnColors.connected else MaterialTheme.colorScheme.outline,
+        ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -529,7 +543,7 @@ private fun IpInfoCard(
             }
         }
         Text(
-            hopCardPrimaryText(info),
+            hopCardPrimaryText(info, loading = loading),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
         )
