@@ -60,6 +60,11 @@ class HideIpPolicyTest {
     }
 
     @Test
+    fun hideIpToggleDoesNotRestartTheTunnel() {
+        assertFalse(hideIpShouldRestartTransport())
+    }
+
+    @Test
     fun appIconDecodeSizeCapsLongestEdge() {
         assertEquals(96 to 48, appIconDecodeSize(192, 96, maxPx = 96))
         assertEquals(64 to 64, appIconDecodeSize(64, 64, maxPx = 96))

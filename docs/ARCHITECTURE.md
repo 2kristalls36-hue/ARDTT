@@ -145,7 +145,7 @@ Android
 UI перед Connect: чекбокс **«Скрыть свой IP»** (per-session или запомнить в профиле).
 
 - Выкл: NAT в интернет с IP сервера (standalone — этот VPS; каскад — WAN выхода).
-- Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` (wgcf / kernel WG).
+- Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` через **wireproxy + tun2socks** (userspace WG → SOCKS → TUN). Переключение Hide-IP — только `ip rule` + flush conntrack, без рестарта клиентского TUN.
   На каскадном входе `/32` prio 300 бьёт hop `from 10.8/24` prio 320, поэтому Hide-IP не зависит от WARP на выходе.
 
 **DNS не через WARP.** Иначе резолв ломается (таймауты, «IP есть — сайты нет»), особенно на tun2socks/SOCKS и часто на WARP-пути.
@@ -308,17 +308,16 @@ TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9
 
 ## WARP память без рестарта (#11)
 
-Не используем `Restart=always` / OOM-kill цикл на `warp`.
+Не используем `Restart=always` / OOM-kill цикл на контейнере `warp`.
 
-Вместо этого:
+Боевой контур (проверен на рабочем VPS ~2 ГБ RAM, 14+ дней без OOM):
 
-- `GOMEMLIMIT` (~400–450 MiB) + мягкий GC внутри процесса;
-- лимит одновременных SOCKS/потоков в tun2socks;
-- периодический **soft recycle** соединений (не контейнера), если RSS растёт;
-- метрики RSS в лог; алерт админу;
-- `mem_limit` в Docker — только как cgroup ceiling **без** обязательного restart policy (или без limit, если предпочитаем деградацию скорости, а не kill).
+- **wireproxy** 1.1.2 (userspace WG, SOCKS5 на localhost) — RSS ~110 MiB, `GOMEMLIMIT` 256 MiB;
+- **tun2socks** 2.5.2 (`warp0` TUN) — RSS ~20 MiB;
+- Hide-IP = `ip rule` from `/32` → table `51820` + conntrack flush (как ранние релизы: на лету);
+- in-process recycle wireproxy, если RSS > 350 MiB — без docker restart.
 
-Цель: процесс сам сбрасывает давление, клиенты не теряют egress из‑за рестарта контейнера.
+Kernel `wg-quick` на `warp0` не используем: он раздувал память и требовал soft-restart TUN на телефоне.
 
 ---
 

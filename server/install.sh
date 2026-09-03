@@ -97,6 +97,11 @@ cleanup_stale_deploy_files() {
   rm -f /tmp/nvpn-entry-* /tmp/nvpn-cascade-* /tmp/nvpn-cascade-probe-*.sh
   rm -rf /tmp/nvpn-provision /tmp/nvpn-data-bak /var/tmp/nvpn-*
   rm -rf "$INSTALL_DIR/stack.old"
+  # Leftover wg-quick conf from kernel-WG WARP. Do not ip-link-del warp0 here:
+  # the live nvpn-warp may still own it until compose replaces the container.
+  # Do not delete stack/data/warp — that is the live wgcf account.
+  rm -f /etc/wireguard/warp0.conf
+  rm -f /tmp/nvpn-warp-* "$INSTALL_DIR"/stack/data/warp/*.conf.tmp 2>/dev/null || true
 }
 
 reclaim_disk() {
@@ -495,7 +500,7 @@ NVPN_DIRECT_PORT=$DIRECT_PORT
 NVPN_BYPASS_PORT=$BYPASS_PORT
 NVPN_PROVISION_LISTEN=$PROVISION_LISTEN
 NVPN_DEPLOY_VERSION=$DEPLOY_VERSION
-NVPN_WARP_GOMEMLIMIT=400MiB
+NVPN_WARP_GOMEMLIMIT=256MiB
 TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
 NVPN_TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
 NVPN_TELEMETRY_PORT=${TELEMETRY_PORT}
