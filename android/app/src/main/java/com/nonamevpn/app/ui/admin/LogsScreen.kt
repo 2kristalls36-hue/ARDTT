@@ -7,6 +7,7 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -65,7 +66,14 @@ fun LogsScreen() {
     val listState = rememberLazyListState()
     val fmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     val isDark = isSystemInDarkTheme()
-    val terminalBg = if (isDark) NvpnColors.terminalBgDark else NvpnColors.terminalBg
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    // In light mode blend the dark terminal background toward the theme surface so the
+    // card does not appear as a harsh foreign block on the light page.
+    val terminalBg = if (isDark) {
+        NvpnColors.terminalBgDark
+    } else {
+        lerp(NvpnColors.terminalBg, surfaceColor, 0.35f)
+    }
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -169,8 +177,8 @@ fun LogsScreen() {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(0.dp),
             shape = RoundedCornerShape(24.dp),
-            color = terminalBg.copy(alpha = if (isDark) 0.90f else 0.93f),
-            shadowElevation = 4.dp,
+            color = terminalBg.copy(alpha = if (isDark) 0.90f else 1.00f),
+            shadowElevation = if (isDark) 4.dp else 2.dp,
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (pinnedStats != null || uptimeText != null) {
