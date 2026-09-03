@@ -56,6 +56,7 @@ import com.nonamevpn.app.ui.latestAppVersionCode
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.TabFeedHeader
+import com.nonamevpn.app.ui.components.TabHeaderMetrics
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -213,15 +214,17 @@ private fun ClientsScreen(
             onRefresh = { if (!loading) pull.onRefresh() },
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                TabFeedHeader(
-                    title = "Клиенты",
-                    subtitle = when {
-                        loading -> "Загрузка…"
-                        error != null -> server.host
-                        else -> "${users.size} · ${server.name.ifBlank { server.host }}"
-                    },
-                    onBack = onBack,
-                )
+                Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
+                    TabFeedHeader(
+                        title = "Клиенты",
+                        subtitle = when {
+                            loading -> "Загрузка…"
+                            error != null -> server.host
+                            else -> "${users.size} · ${server.name.ifBlank { server.host }}"
+                        },
+                        onBack = onBack,
+                    )
+                }
 
                 when {
                     loading -> {

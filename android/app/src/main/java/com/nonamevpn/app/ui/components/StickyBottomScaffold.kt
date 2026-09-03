@@ -87,8 +87,7 @@ fun StickyBottomScaffold(
                     .padding(bottom = NvpnBottomChrome.scrollContentPadding()),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                EdgeFeedTopInset()
-                header()
+                TabHeaderAnchor { header() }
                 content()
             }
         }
@@ -127,7 +126,8 @@ fun EdgeFeedTopInset(extra: Dp = 0.dp) {
 
 /**
  * Edge-to-edge scrollable feed (Settings / Logs / nested admin style).
- * Header and content scroll together; [EdgeFeedTopInset] is applied once before [header].
+ * Header and content scroll together; status-bar inset + title are grouped in
+ * [TabHeaderAnchor] so [verticalArrangement] does not push titles apart.
  * Pass [TabPageHeader] in [header] (not [TabFeedHeader]).
  */
 @Composable
@@ -153,8 +153,7 @@ fun EdgeFeedColumn(
                 .padding(bottom = bottomPad),
             verticalArrangement = verticalArrangement,
         ) {
-            EdgeFeedTopInset()
-            header()
+            TabHeaderAnchor { header() }
             content()
         }
     }
