@@ -17,7 +17,8 @@ import com.nonamevpn.app.deploy.DeployHop
  *
  * The VPN app process is usually excluded from the TUN, so unbound ipify would
  * show the provider address. This probe talks to provision on the last hop
- * (`exit` then entry) and only falls back to ipify bound to the VPN network.
+ * (cascade exit, otherwise the single VPS) and only falls back to ipify bound
+ * to the VPN network.
  */
 object EgressIpProbe {
     internal const val PRIMARY_ENDPOINT = "https://api.ipify.org/"
@@ -72,7 +73,7 @@ object EgressIpProbe {
     /**
      * @param hideIp When true, provision probes via warp0 (Cloudflare).
      * @param provisionBaseUrl Profile provision base (e.g. http://vps:9100) — entry.
-     * @param exitProvisionBaseUrl Cascade exit provision, if any. Tried first (last hop).
+     * @param exitProvisionBaseUrl Cascade exit provision. When set, entry is not queried.
      * @param deviceId Profile device id for per-user hideIp lookup on VPS.
      * @param context Used to bind sockets to underlay / VPN when needed.
      * @param viaVpn Prefer default/VPN route when talking to provision (tunnel up).
@@ -88,7 +89,7 @@ object EgressIpProbe {
         val errors = mutableListOf<String>()
         val bases = DeployHop.lastHopProvisionUrls(provisionBaseUrl, exitProvisionBaseUrl)
 
-        // Last-hop provision: cascade exit (then entry). Not the phone's underlay IP.
+        // Last-hop provision only (cascade exit, else the single VPS).
         for (base in bases) {
             val fromProvision = probeProvision(
                 viaWarp = hideIp,

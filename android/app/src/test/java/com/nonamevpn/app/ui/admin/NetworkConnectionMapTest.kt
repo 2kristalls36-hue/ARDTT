@@ -382,15 +382,20 @@ class NetworkConnectionMapTest {
     }
 
     @Test
-    fun lastHopProvisionPrefersExit() {
+    fun lastHopProvisionUsesExitOnlyWhenCascade() {
         assertEquals(
-            listOf("http://2.26.125.160:9100", "http://45.129.2.3:9100"),
+            "http://2.26.125.160:9100",
+            lastHopProvisionUrl("http://45.129.2.3:9100", "http://2.26.125.160:9100"),
+        )
+        assertEquals(
+            listOf("http://2.26.125.160:9100"),
             lastHopProvisionUrls("http://45.129.2.3:9100", "http://2.26.125.160:9100"),
         )
         assertEquals(
             listOf("http://45.129.2.3:9100"),
             lastHopProvisionUrls("http://45.129.2.3:9100", null),
         )
+        assertNull(lastHopProvisionUrl(null, null))
         assertEquals(
             "http://2.26.125.160:9100",
             DeployHop.exitProvisionUrl(

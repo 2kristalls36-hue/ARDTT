@@ -53,11 +53,16 @@ object DeployHop {
         return provisionUrl(exit)
     }
 
-    /** Last hop first (cascade exit), then entry. Tunnel tab uses this for the public egress IP. */
-    fun lastHopProvisionUrls(entryProvision: String?, exitProvision: String?): List<String> {
-        val urls = linkedSetOf<String>()
-        exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
-        entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
-        return urls.toList()
+    /**
+     * Provision of the last hop only: cascade exit when known, otherwise the
+     * single VPS. Never falls back from VPS 2 to VPS 1.
+     */
+    fun lastHopProvisionUrl(entryProvision: String?, exitProvision: String?): String? {
+        val exit = exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        if (exit != null) return exit
+        return entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
     }
+
+    fun lastHopProvisionUrls(entryProvision: String?, exitProvision: String?): List<String> =
+        listOfNotNull(lastHopProvisionUrl(entryProvision, exitProvision))
 }

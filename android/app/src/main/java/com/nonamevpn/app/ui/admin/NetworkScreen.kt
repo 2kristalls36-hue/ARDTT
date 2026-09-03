@@ -331,8 +331,7 @@ private suspend fun loadHop(
                 loadKnownHost(context, hop.knownHost)
             NetworkMapHopKind.Cloudflare -> loadCloudflare(
                 context = context,
-                entryProvision = inputs.entryProvision,
-                exitProvision = inputs.exitProvision,
+                provisionBaseUrl = lastHopProvisionUrl(inputs.entryProvision, inputs.exitProvision),
                 deviceId = inputs.deviceId,
                 viaVpn = inputs.viaVpn,
                 hideIp = inputs.hideIp,
@@ -383,36 +382,23 @@ private suspend fun loadKnownHost(context: Context, host: String?): IpApiInfo {
 
 private suspend fun loadCloudflare(
     context: Context,
-    entryProvision: String?,
-    exitProvision: String?,
+    provisionBaseUrl: String?,
     deviceId: String?,
     viaVpn: Boolean,
     hideIp: Boolean,
 ): IpApiInfo {
-    val urls = linkedSetOf<String>()
-    exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
-    entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
-    var lastIp: String? = null
-    for (base in urls) {
-        val ip = EgressIpProbe.probeProvision(
-            viaWarp = true,
-            provisionBaseUrl = base,
-            deviceId = deviceId,
-            context = context,
-            viaVpn = viaVpn,
-        )
-        if (ip.isNullOrBlank()) continue
-        lastIp = ip
-        if (EgressIpProbe.isLikelyCloudflare(ip) || urls.size == 1) {
-            if (hideIp) EgressIpProbe.remember(ip, "provision/warp")
-            return IpApiLookup.lookupAddress(context, ip)
-        }
+    val ip = EgressIpProbe.probeProvision(
+        viaWarp = true,
+        provisionBaseUrl = provisionBaseUrl,
+        deviceId = deviceId,
+        context = context,
+        viaVpn = viaVpn,
+    )
+    if (ip.isNullOrBlank()) {
+        return IpApiInfo.Empty.copy(error = "Не удалось определить IP")
     }
-    if (!lastIp.isNullOrBlank()) {
-        if (hideIp) EgressIpProbe.remember(lastIp, "provision/warp")
-        return IpApiLookup.lookupAddress(context, lastIp)
-    }
-    return IpApiInfo.Empty.copy(error = "Не удалось определить IP")
+    if (hideIp) EgressIpProbe.remember(ip, "provision/warp")
+    return IpApiLookup.lookupAddress(context, ip)
 }
 
 @Composable

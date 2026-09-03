@@ -145,6 +145,9 @@ internal fun sameHopHost(a: String?, b: String?): Boolean = DeployHop.same(a, b)
 
 internal fun provisionUrlForHost(host: String?): String? = DeployHop.provisionUrl(host)
 
+internal fun lastHopProvisionUrl(entry: String?, exit: String?): String? =
+    DeployHop.lastHopProvisionUrl(entry, exit)
+
 internal fun lastHopProvisionUrls(entry: String?, exit: String?): List<String> =
     DeployHop.lastHopProvisionUrls(entry, exit)
 
