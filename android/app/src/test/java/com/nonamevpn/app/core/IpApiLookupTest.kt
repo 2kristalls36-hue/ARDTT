@@ -46,4 +46,38 @@ class IpApiLookupTest {
             IpApiLookup.friendlyError("Binding socket to network 634 failed: EPERM (Operation not permitted)"),
         )
     }
+
+    @Test
+    fun pickUnderlayIpSkipsCloudflareAndPrefersCache() {
+        EgressIpProbe.clear()
+        EgressIpProbe.invalidateUnderlay()
+        val failed = IpApiInfo(ip = "", subtitle = "", error = "Не удалось определить IP")
+        assertEquals(
+            "9.9.9.9",
+            IpApiLookup.pickUnderlayIp(failed, probedIp = "9.9.9.9", cachedIp = "1.2.3.4"),
+        )
+        assertEquals(
+            "1.2.3.4",
+            IpApiLookup.pickUnderlayIp(failed, probedIp = "104.28.198.244", cachedIp = "1.2.3.4"),
+        )
+        assertNull(
+            IpApiLookup.pickUnderlayIp(failed, probedIp = "104.28.198.244", cachedIp = null),
+        )
+        assertNull(
+            IpApiLookup.pickUnderlayIp(
+                IpApiInfo(ip = "2.26.125.160", subtitle = "VPS"),
+                probedIp = null,
+                cachedIp = null,
+                rejectIps = listOf("2.26.125.160"),
+            ),
+        )
+        assertEquals(
+            "203.0.113.10",
+            IpApiLookup.pickUnderlayIp(
+                IpApiInfo(ip = "203.0.113.10", subtitle = "ISP"),
+                probedIp = "9.9.9.9",
+                cachedIp = "1.2.3.4",
+            ),
+        )
+    }
 }

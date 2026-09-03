@@ -30,6 +30,22 @@ class EgressIpProbeTest {
     }
 
     @Test
+    fun usableUnderlayIpRejectsCloudflareTunnelAndVps() {
+        EgressIpProbe.clear()
+        EgressIpProbe.invalidateUnderlay()
+        assertEquals("203.0.113.10", EgressIpProbe.usableUnderlayIp("203.0.113.10"))
+        assertEquals(null, EgressIpProbe.usableUnderlayIp("104.28.198.244"))
+        EgressIpProbe.remember("2.26.125.160", "test")
+        assertEquals(null, EgressIpProbe.usableUnderlayIp("2.26.125.160"))
+        EgressIpProbe.clear()
+        assertEquals(null, EgressIpProbe.usableUnderlayIp("45.129.2.3", rejectIps = listOf("45.129.2.3")))
+        assertEquals(
+            "203.0.113.10",
+            EgressIpProbe.usableUnderlayIp("203.0.113.10", rejectIps = listOf("45.129.2.3")),
+        )
+    }
+
+    @Test
     fun egressLabelWaitsForPublicIp() {
         assertEquals("—", vpnEgressIpLabel(null, vpnSessionActive = false))
         assertEquals(

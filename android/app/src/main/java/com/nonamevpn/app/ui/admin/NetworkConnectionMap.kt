@@ -2,6 +2,7 @@ package com.nonamevpn.app.ui.admin
 
 import com.nonamevpn.app.core.ConnState
 import com.nonamevpn.app.core.EgressIpProbe
+import com.nonamevpn.app.core.IpApiInfo
 import com.nonamevpn.app.deploy.DeployHop
 import com.nonamevpn.app.deploy.DeployTarget
 
@@ -148,15 +149,25 @@ internal fun provisionUrlForHost(host: String?): String? = DeployHop.provisionUr
 internal fun lastHopProvisionUrls(entry: String?, exit: String?): List<String> =
     DeployHop.lastHopProvisionUrls(entry, exit)
 
-/** Cards appear only with a real address; CloudFlare is omitted if it duplicates a VPS hop. */
+/**
+ * Provider stays on the map even when lookup fails (empty IP / error).
+ * Other hops need a real address. CloudFlare is omitted if it duplicates a VPS hop.
+ */
 internal fun shouldShowFilledHop(
     kind: NetworkMapHopKind,
     ip: String,
     earlierIps: Collection<String>,
 ): Boolean {
+    if (kind == NetworkMapHopKind.Provider) return true
     if (ip.isBlank()) return false
     if (kind == NetworkMapHopKind.Cloudflare && earlierIps.any { sameHopHost(it, ip) }) {
         return false
     }
     return true
+}
+
+/** Headline for a hop card: the address, or a lookup error when the IP is missing. */
+internal fun hopCardPrimaryText(info: IpApiInfo): String {
+    if (info.ip.isNotBlank()) return info.ip
+    return info.error?.trim()?.takeIf { it.isNotBlank() } ?: "Не удалось определить IP"
 }

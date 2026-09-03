@@ -26,8 +26,47 @@ object IpApiLookup {
     private const val FIELDS = "status,message,query,isp,city,country,countryCode"
     private const val LOOKUP_ENDPOINT = "http://ip-api.com/json/?fields=$FIELDS"
 
-    suspend fun fetchUnderlay(context: Context): IpApiInfo = withContext(Dispatchers.IO) {
-        fetchJson(LOOKUP_ENDPOINT, pickBestUnderlayNetwork(context))
+    suspend fun fetchUnderlay(
+        context: Context,
+        rejectIps: Collection<String> = emptyList(),
+    ): IpApiInfo = withContext(Dispatchers.IO) {
+        val bound = runCatching { fetchJson(LOOKUP_ENDPOINT, pickBestUnderlayNetwork(context)) }
+            .getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
+        val boundIp = pickUnderlayIp(bound, probedIp = null, cachedIp = null, rejectIps = rejectIps)
+        if (!boundIp.isNullOrBlank()) {
+            EgressIpProbe.rememberUnderlay(boundIp, "ip-api")
+            return@withContext bound.copy(ip = boundIp, error = null)
+        }
+        if (bound.error != null || bound.ip.isNotBlank()) {
+            AppLog.w(TAG, "underlay ip-api failed: ${bound.error ?: bound.ip}")
+        }
+        val probed = runCatching { EgressIpProbe.refreshUnderlay(context, rejectIps) }.getOrNull()
+        val ip = pickUnderlayIp(
+            boundLookup = IpApiInfo.Empty,
+            probedIp = probed,
+            cachedIp = EgressIpProbe.currentUnderlay(),
+            rejectIps = rejectIps,
+        )
+        if (ip.isNullOrBlank()) {
+            return@withContext IpApiInfo.Empty.copy(
+                error = bound.error ?: friendlyError(EgressIpProbe.lastUnderlayError),
+            )
+        }
+        lookupAddress(context, ip)
+    }
+
+    /**
+     * Prefer a bound ip-api hit, then HTTPS ipify, then a cache from before the
+     * VPN went up. CloudFlare / VPS addresses are never the provider.
+     */
+    internal fun pickUnderlayIp(
+        boundLookup: IpApiInfo,
+        probedIp: String?,
+        cachedIp: String?,
+        rejectIps: Collection<String> = emptyList(),
+    ): String? {
+        val candidates = listOf(boundLookup.ip, probedIp, cachedIp)
+        return candidates.firstNotNullOfOrNull { EgressIpProbe.usableUnderlayIp(it, rejectIps) }
     }
 
     /**
@@ -155,4 +194,6 @@ object IpApiLookup {
         val raw = if (bindNetwork != null) bindNetwork.openConnection(url) else url.openConnection()
         return raw as HttpURLConnection
     }
+
+    private const val TAG = "IpApi"
 }

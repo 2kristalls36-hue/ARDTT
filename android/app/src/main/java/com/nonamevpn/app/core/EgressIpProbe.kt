@@ -201,29 +201,85 @@ object EgressIpProbe {
         AppLog.v(TAG, "egress ip=$ip via=$via")
     }
 
+    fun rememberUnderlay(ip: String, via: String) {
+        val usable = usableUnderlayIp(ip) ?: return
+        underlayCached.set(usable)
+        lastUnderlayError = null
+        lastUnderlayVia = via
+        AppLog.v(TAG, "underlay ip=$usable via=$via")
+    }
+
     /**
-     * Provider public IP bound to the underlay (NOT_VPN). Used on the tunnel
-     * tab even when the VPN is down.
+     * Provider public IP. Prefer the underlay network (NOT_VPN). On Android 16
+     * binding that network can fail with EPERM while a VPN is up — retry the
+     * default route, but never accept CloudFlare / tunnel egress as provider.
      */
-    suspend fun refreshUnderlay(context: Context): String? = withContext(Dispatchers.IO) {
-        val bind = pickBestUnderlayNetwork(context)
+    suspend fun refreshUnderlay(
+        context: Context,
+        rejectIps: Collection<String> = emptyList(),
+    ): String? = withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
-        for (url in endpoints) {
-            val ip = runCatching { fetchIp(url, bind) }.getOrElse {
-                errors += "${hostOf(url)}: ${it.message}"
-                null
-            }
-            if (!ip.isNullOrBlank()) {
-                underlayCached.set(ip)
-                lastUnderlayError = null
-                lastUnderlayVia = url
-                AppLog.v(TAG, "underlay ip=$ip via=$url bind=${bind?.networkHandle}")
-                return@withContext ip
-            }
+        val underlay = pickBestUnderlayNetwork(context)
+        val fromBind = if (underlay != null) {
+            probeUnderlayOn(underlay, rejectIps, errors)
+        } else {
+            null
+        }
+        if (!fromBind.isNullOrBlank()) return@withContext fromBind
+        if (underlay != null) {
+            val reason = errors.lastOrNull() ?: "empty"
+            AppLog.i(TAG, "underlay bind failed ($reason) — retry default")
+        }
+        val fromDefault = probeUnderlayOn(bindNetwork = null, rejectIps = rejectIps, errors = errors)
+        if (!fromDefault.isNullOrBlank()) return@withContext fromDefault
+        val cachedIp = usableUnderlayIp(underlayCached.get(), rejectIps)
+        if (!cachedIp.isNullOrBlank()) {
+            AppLog.v(TAG, "underlay ip=$cachedIp via=cache")
+            return@withContext cachedIp
         }
         lastUnderlayError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
         AppLog.w(TAG, "underlay ip failed: $lastUnderlayError")
         null
+    }
+
+    private fun probeUnderlayOn(
+        bindNetwork: Network?,
+        rejectIps: Collection<String>,
+        errors: MutableList<String>,
+    ): String? {
+        for (url in endpoints) {
+            val ip = runCatching { fetchIp(url, bindNetwork) }.getOrElse {
+                errors += "${hostOf(url)}: ${it.message}"
+                null
+            }
+            val usable = usableUnderlayIp(ip, rejectIps)
+            if (!usable.isNullOrBlank()) {
+                rememberUnderlay(usable, url)
+                return usable
+            }
+            if (!ip.isNullOrBlank()) {
+                errors += "${hostOf(url)}: rejected $ip"
+            }
+        }
+        return null
+    }
+
+    /**
+     * True provider addresses only: public IP, not CloudFlare, not the cached
+     * tunnel egress, not a VPS hop the caller already knows.
+     */
+    fun usableUnderlayIp(
+        ip: String?,
+        rejectIps: Collection<String> = emptyList(),
+    ): String? {
+        val trimmed = ip?.trim().orEmpty()
+        if (!looksLikeIp(trimmed)) return null
+        if (isLikelyCloudflare(trimmed)) return null
+        val tunnel = cached.get()?.trim().orEmpty()
+        if (tunnel.isNotBlank() && tunnel.equals(trimmed, ignoreCase = true)) return null
+        val rejected = rejectIps.map { it.trim() }.filter { it.isNotBlank() }
+        if (rejected.any { it.equals(trimmed, ignoreCase = true) }) return null
+        return trimmed
     }
 
     private fun hostOf(url: String): String = runCatching { URL(url).host }.getOrDefault(url)
