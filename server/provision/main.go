@@ -33,6 +33,9 @@ const (
 	maxHostID         = 254
 )
 
+// Heartbeats must not rewrite users.json every minute: nvpn-warp watches mtime.
+const presenceSaveMinInterval = time.Minute
+
 type Config struct {
 	PublicHost       string `json:"publicHost"`
 	DirectPort       int    `json:"directPort"`
@@ -409,20 +412,15 @@ func runServer(store *Store, listen string) error {
 				}
 			}
 		}
-		viaWarp := false
+		userFound := false
+		userHideIP := false
 		if deviceID != "" || name != "" {
 			if u, err := store.FindUserByDeviceOrName(deviceID, name); err == nil {
-				viaWarp = u.HideIP
+				userFound = true
+				userHideIP = u.HideIP
 			}
 		}
-		// Client may force WARP probe right after toggle (users.json already flipped,
-		// but allow explicit override for races / diagnostics).
-		switch strings.ToLower(r.URL.Query().Get("viaWarp")) {
-		case "1", "true", "yes":
-			viaWarp = true
-		case "0", "false", "no":
-			viaWarp = false
-		}
+		viaWarp := resolveEgressViaWarp(userFound, userHideIP, r.URL.Query().Get("viaWarp"))
 		ip, err := probeServiceEgressIP(viaWarp)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadGateway)
@@ -920,8 +918,14 @@ func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel, appVersio
 		if !match {
 			continue
 		}
+		prevSeen := u.LastSeenAt
+		prevIP := u.LastExternalIP
+		material := false
 		u.LastSeenAt = time.Now().Unix()
 		if ip := strings.TrimSpace(externalIP); ip != "" && looksLikeIP(ip) && !isPrivateOrTunnelIP(ip) {
+			if u.LastExternalIP != ip {
+				material = true
+			}
 			u.LastExternalIP = ip
 		}
 		// Bind device slot when presence reports a new device id.
@@ -934,6 +938,7 @@ func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel, appVersio
 					if u.DeviceID == "" {
 						u.DeviceID = deviceID
 					}
+					material = true
 				}
 			}
 			if containsString(u.DeviceIDs, deviceID) {
@@ -941,23 +946,39 @@ func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel, appVersio
 					if u.DeviceModels == nil {
 						u.DeviceModels = map[string]string{}
 					}
-					u.DeviceModels[deviceID] = model
+					if u.DeviceModels[deviceID] != model {
+						u.DeviceModels[deviceID] = model
+						material = true
+					}
 				}
 				if ver := sanitizeDeviceModel(appVersion); ver != "" {
 					if u.DeviceAppVersions == nil {
 						u.DeviceAppVersions = map[string]string{}
 					}
-					u.DeviceAppVersions[deviceID] = ver
+					if u.DeviceAppVersions[deviceID] != ver {
+						u.DeviceAppVersions[deviceID] = ver
+						material = true
+					}
 				}
 				if appVersionCode > 0 {
 					if u.DeviceAppVersionCodes == nil {
 						u.DeviceAppVersionCodes = map[string]int{}
 					}
-					u.DeviceAppVersionCodes[deviceID] = appVersionCode
+					if u.DeviceAppVersionCodes[deviceID] != appVersionCode {
+						u.DeviceAppVersionCodes[deviceID] = appVersionCode
+						material = true
+					}
 				}
 			}
 		}
 		normalizeUserDevices(u)
+		// Heartbeats rewrote users.json every minute and made nvpn-warp
+		// debounce-resync Hide-IP rules (conntrack flushes). Keep LastSeen in
+		// memory; persist at most once a minute unless device metadata changed.
+		if !material && prevIP == u.LastExternalIP && prevSeen > 0 &&
+			time.Since(time.Unix(prevSeen, 0)) < presenceSaveMinInterval {
+			return *u, nil
+		}
 		if err := s.saveLocked(); err != nil {
 			return User{}, err
 		}
@@ -1011,6 +1032,22 @@ func cascadeEnabled() bool {
 
 func cascadePeerHost() string {
 	return cascadeHostFromPeer(os.Getenv("NVPN_CASCADE_PEER_ENDPOINT"))
+}
+
+// resolveEgressViaWarp picks warp0 vs VPS WAN for GET /v1/egress-ip.
+// When the user is known, users.json hideIp is the source of truth: old
+// clients sent viaWarp=0 from the UI toggle and reported the VPS WAN
+// while that host's /32 still left through Cloudflare (2ip.ru mismatch).
+func resolveEgressViaWarp(userFound, userHideIP bool, viaWarpQuery string) bool {
+	if userFound {
+		return userHideIP
+	}
+	switch strings.ToLower(strings.TrimSpace(viaWarpQuery)) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 // On the cascade entry, hideIp-off traffic leaves the exit VPS WAN.

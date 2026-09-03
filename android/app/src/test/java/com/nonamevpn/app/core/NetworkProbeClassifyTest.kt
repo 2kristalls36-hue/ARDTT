@@ -7,7 +7,7 @@ import org.junit.Test
 
 class NetworkProbeClassifyTest {
     @Test
-    fun vpsIpUnlocksDirect() {
+    fun vpsIpOnWhitelistPicksBypass() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -16,15 +16,15 @@ class NetworkProbeClassifyTest {
             awgUdpOk = false,
             provisionOk = true,
         )
-        assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals(NetworkClass.DirectOk, r.networkClass)
-        assertTrue(r.message.contains("прямое"))
-        // Operator БС shape (Yandex up, Cloudflare down) even when VPS unlocks Direct.
+        assertEquals(VpnPath.Bypass, r.preselectedPath)
+        assertEquals(NetworkClass.NeedBypass, r.networkClass)
         assertTrue(r.whitelistRestricted)
+        assertTrue(r.provisionOk)
+        assertTrue(r.message.contains("белый список") || r.message.contains("обход"))
     }
 
     @Test
-    fun vpsOnWhitelistStillPicksDirect() {
+    fun vpsOnWhitelistPicksBypassNotDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -32,10 +32,10 @@ class NetworkProbeClassifyTest {
             captive = false,
             provisionOk = true,
         )
-        assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertEquals(VpnPath.Bypass, r.preselectedPath)
+        assertEquals(NetworkClass.NeedBypass, r.networkClass)
         assertTrue(r.whitelistRestricted)
-        assertTrue(r.message.contains("белом списке") || r.message.contains("белый список"))
+        assertTrue(r.message.contains("белый список") || r.message.contains("обход"))
     }
 
     @Test
@@ -136,13 +136,39 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathVpsWinsImmediately() {
+    fun decideProbePathWaitsForCloudflareWhenVpsUp() {
         assertEquals(
-            ProbePathHint.Direct,
+            ProbePathHint.Wait,
             NetworkProbe.decideProbePath(
                 provisionOk = true,
                 yandexOk = null,
                 cloudflareOk = null,
+                captive = null,
+            ),
+        )
+    }
+
+    @Test
+    fun decideProbePathWhitelistBypassEvenIfVpsTcpUp() {
+        assertEquals(
+            ProbePathHint.Bypass,
+            NetworkProbe.decideProbePath(
+                provisionOk = true,
+                yandexOk = true,
+                cloudflareOk = false,
+                captive = null,
+            ),
+        )
+    }
+
+    @Test
+    fun decideProbePathOpenInternetDirectWhenVpsUp() {
+        assertEquals(
+            ProbePathHint.Direct,
+            NetworkProbe.decideProbePath(
+                provisionOk = true,
+                yandexOk = true,
+                cloudflareOk = true,
                 captive = null,
             ),
         )

@@ -35,6 +35,8 @@ if [ -f "$INSTALLER" ]; then
   fi
   grep -q 'NVPN_ROLE' "$INSTALLER" || err "installer missing NVPN_ROLE"
   grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
+  grep -q 'preserve_live_cascade' "$INSTALLER" || err "installer missing live-cascade preserve"
+  grep -q 'NVPN_CASCADE_FORCE_DISABLE' "$INSTALLER" || err "installer missing cascade force-disable flag"
   grep -q 'cleanup_stale_deploy_files' "$INSTALLER" || err "installer missing leftover-file cleanup"
   grep -q 'swap_target_mb' "$INSTALLER" || err "installer missing small-disk swap cap"
   grep -q 'disk_need_mb' "$INSTALLER" || err "installer missing scaled disk threshold"

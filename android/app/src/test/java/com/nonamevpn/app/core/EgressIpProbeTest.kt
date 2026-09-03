@@ -60,6 +60,22 @@ class EgressIpProbeTest {
     }
 
     @Test
+    fun provisionEgressUrlOmitsViaWarpWhenDeviceIdSet() {
+        assertEquals(
+            "http://45.129.2.3:9100/v1/egress-ip?deviceId=dev-abc",
+            EgressIpProbe.provisionEgressIpUrl("http://45.129.2.3:9100", "dev-abc", viaWarp = false),
+        )
+        assertEquals(
+            "http://45.129.2.3:9100/v1/egress-ip?viaWarp=0",
+            EgressIpProbe.provisionEgressIpUrl("http://45.129.2.3:9100", null, viaWarp = false),
+        )
+        assertEquals(
+            "http://45.129.2.3:9100/v1/egress-ip?viaWarp=1",
+            EgressIpProbe.provisionEgressIpUrl("http://45.129.2.3:9100/", "", viaWarp = true),
+        )
+    }
+
+    @Test
     fun connectedWithoutPublicIpIsStillConnected() {
         assertEquals(
             "Подключено: прямое",
