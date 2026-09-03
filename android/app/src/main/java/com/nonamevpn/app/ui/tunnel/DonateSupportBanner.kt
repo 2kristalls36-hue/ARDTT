@@ -26,8 +26,8 @@ import com.nonamevpn.app.ui.components.AppSectionCard
 
 @Composable
 fun DonateSupportBanner(
-    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    onDismiss: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     AppSectionCard(
@@ -56,15 +56,17 @@ fun DonateSupportBanner(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.size(28.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Close,
-                    contentDescription = "Закрыть предложение поддержать автора",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (onDismiss != null) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Закрыть предложение поддержать автора",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         Text(
