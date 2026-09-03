@@ -31,6 +31,25 @@ object IpApiLookup {
     }
 
     /**
+     * Geo lookup for an already known public address. On geo failure the IP is
+     * still returned so the Network map never blanks a hop that we already know.
+     */
+    suspend fun lookupAddress(context: Context, address: String): IpApiInfo = withContext(Dispatchers.IO) {
+        val ip = address.trim()
+        if (ip.isBlank()) {
+            return@withContext IpApiInfo.Empty.copy(error = friendlyError(null))
+        }
+        val geo = runCatching { fetchJson(lookupEndpoint(ip), pickBestUnderlayNetwork(context)) }
+            .getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
+        when {
+            geo.ip.isNotBlank() -> geo.copy(
+                ip = if (EgressIpProbe.looksLikeIp(ip)) ip else geo.ip,
+            )
+            else -> IpApiInfo(ip = ip, subtitle = "")
+        }
+    }
+
+    /**
      * Tunnel egress IP from provision (works when the app process is excluded from TUN),
      * then ISP/location via ip-api for that address.
      */

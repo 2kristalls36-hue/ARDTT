@@ -87,27 +87,18 @@ object EgressIpProbe {
 
         // 1) Provision on VPS — source of truth for client tunnel egress / WARP.
         if (!provisionBaseUrl.isNullOrBlank()) {
-            val fromProvision = runCatching {
-                fetchProvisionEgressIp(
-                    provisionBaseUrl = provisionBaseUrl,
-                    deviceId = deviceId,
-                    context = context,
-                    viaVpn = viaVpn,
-                    viaWarp = hideIp,
-                )
-            }.getOrElse {
-                val msg = it.message ?: "provision failed"
-                errors += msg
-                AppLog.w(TAG, "provision egress failed viaWarp=$hideIp: $msg")
-                null
-            }
+            val fromProvision = probeProvision(
+                viaWarp = hideIp,
+                provisionBaseUrl = provisionBaseUrl,
+                deviceId = deviceId,
+                context = context,
+                viaVpn = viaVpn,
+            )
             if (!fromProvision.isNullOrBlank()) {
-                cached.set(fromProvision)
-                lastError = null
-                lastVia = if (hideIp) "provision/warp" else "provision"
-                AppLog.v(TAG, "egress ip=$fromProvision via=$lastVia")
+                remember(fromProvision, if (hideIp) "provision/warp" else "provision")
                 return@withContext fromProvision
             }
+            errors += "provision viaWarp=$hideIp failed"
         } else {
             errors += "нет provision URL"
         }
@@ -120,10 +111,7 @@ object EgressIpProbe {
                 null
             }
             if (!ip.isNullOrBlank()) {
-                cached.set(ip)
-                lastError = null
-                lastVia = if (vpnNet != null) "vpn+$url" else url
-                AppLog.v(TAG, "egress ip=$ip via=$lastVia")
+                remember(ip, if (vpnNet != null) "vpn+$url" else url)
                 return@withContext ip
             }
         }
@@ -131,6 +119,39 @@ object EgressIpProbe {
         lastError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
         AppLog.w(TAG, "egress ip failed: $lastError")
         null
+    }
+
+    /**
+     * Provision `/v1/egress-ip` without touching the cached tunnel egress.
+     * Used by the Network tab map so VPS / CloudFlare hops stay distinct.
+     */
+    suspend fun probeProvision(
+        viaWarp: Boolean,
+        provisionBaseUrl: String?,
+        deviceId: String?,
+        context: Context?,
+        viaVpn: Boolean = false,
+    ): String? = withContext(Dispatchers.IO) {
+        if (provisionBaseUrl.isNullOrBlank()) return@withContext null
+        runCatching {
+            fetchProvisionEgressIp(
+                provisionBaseUrl = provisionBaseUrl,
+                deviceId = deviceId,
+                context = context,
+                viaVpn = viaVpn,
+                viaWarp = viaWarp,
+            )
+        }.onFailure {
+            AppLog.w(TAG, "provision probe failed viaWarp=$viaWarp: ${it.message}")
+        }.getOrNull()
+    }
+
+    fun remember(ip: String, via: String) {
+        if (!looksLikeIp(ip)) return
+        cached.set(ip)
+        lastError = null
+        lastVia = via
+        AppLog.v(TAG, "egress ip=$ip via=$via")
     }
 
     /**
