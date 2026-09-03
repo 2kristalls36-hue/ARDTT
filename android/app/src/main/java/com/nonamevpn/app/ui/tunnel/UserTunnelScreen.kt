@@ -72,6 +72,10 @@ import com.nonamevpn.app.settings.AppSettingsRepository
 import com.nonamevpn.app.ui.nextThemeMode
 import com.nonamevpn.app.ui.persistThemeMode
 import com.nonamevpn.app.ui.themeModeVisualKey
+import com.nonamevpn.app.ui.tunnelPowerBusy
+import com.nonamevpn.app.ui.tunnelPowerClickDisconnects
+import com.nonamevpn.app.ui.tunnelPowerSessionLit
+import com.nonamevpn.app.ui.tunnelPowerToggleEnabled
 import com.nonamevpn.app.ui.vpnSessionBlocksProfileSwitch
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnFloatingShell
@@ -142,13 +146,10 @@ fun UserTunnelScreen(
         },
         onToggleTunnel = {
             haptics.tick()
-            when (ui.state) {
-                ConnState.Connected,
-                ConnState.Connecting,
-                ConnState.Probing,
-                ConnState.Disconnecting,
-                ConnState.PausedTrustedWifi -> conn.disconnect()
-                else -> onRequestConnect()
+            if (tunnelPowerClickDisconnects(ui.state)) {
+                conn.disconnect()
+            } else {
+                onRequestConnect()
             }
         },
         onSelectPreviousProfile = {
@@ -229,9 +230,7 @@ private fun UserTunnelSimpleScreen(
         }
     }
 
-    val connectingLike = ui.state == ConnState.Connecting || ui.state == ConnState.Probing
     val connected = ui.state == ConnState.Connected
-    val disconnecting = ui.state == ConnState.Disconnecting
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
     val modeBadge = themeModeVisualKey(themeMode)
     Box(modifier = Modifier.fillMaxSize()) {
@@ -291,7 +290,9 @@ private fun UserTunnelSimpleScreen(
             TunnelPowerToggle(
                 connected = connected,
                 paused = ui.state == ConnState.PausedTrustedWifi,
-                busy = connectingLike || disconnecting,
+                busy = tunnelPowerBusy(ui.state),
+                sessionLit = tunnelPowerSessionLit(ui.state),
+                enabled = tunnelPowerToggleEnabled(ui.state, ui.connectEnabled),
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
@@ -385,10 +386,11 @@ private fun TunnelPowerToggle(
     connected: Boolean,
     paused: Boolean,
     busy: Boolean,
+    sessionLit: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val sessionLit = connected || paused || busy
     val shellColor = NvpnFloatingShell.shellColor()
     val accentColor = if (sessionLit) {
         Color(0xFF35C759)
@@ -425,7 +427,7 @@ private fun TunnelPowerToggle(
         Surface(
             modifier = Modifier
                 .size(180.dp)
-                .clickable(enabled = !busy) {
+                .clickable(enabled = enabled && !busy) {
                     runCatching { onClick() }
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
                 },

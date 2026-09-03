@@ -32,6 +32,10 @@ class TunnelStatusCopyTest {
             "Пауза",
             sessionCardStatusText(ConnState.PausedTrustedWifi, publicIp = "1.1.1.1"),
         )
+        assertEquals(
+            "Проверка сети…",
+            sessionCardStatusText(ConnState.Probing, publicIp = null),
+        )
     }
 
     @Test
