@@ -25,6 +25,7 @@ services:
       NVPN_ROLE: ${NVPN_ROLE:-entry}
       NVPN_CASCADE_ENABLED: ${NVPN_CASCADE_ENABLED:-0}
       NVPN_CASCADE_DNS: ${NVPN_CASCADE_DNS:-}
+      NVPN_CASCADE_PEER_ENDPOINT: ${NVPN_CASCADE_PEER_ENDPOINT:-}
     volumes:
       - ./data:/data
     restart: unless-stopped

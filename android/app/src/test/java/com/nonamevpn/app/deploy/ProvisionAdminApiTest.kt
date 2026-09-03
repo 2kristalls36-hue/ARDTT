@@ -58,5 +58,10 @@ class ProvisionAdminApiTest {
                 ProvisionAdminApi.HealthInfo(ok = true, cascade = false, role = "entry", cascadeHost = "2.26.125.160"),
             ),
         )
+        val flagged = ProvisionAdminApi.liveCascadeInfo(
+            ProvisionAdminApi.HealthInfo(ok = true, cascade = true, role = "entry"),
+        )
+        assertTrue(flagged.enabled)
+        assertNull(flagged.host)
     }
 }

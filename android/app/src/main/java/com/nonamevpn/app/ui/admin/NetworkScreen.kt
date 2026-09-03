@@ -24,7 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -81,7 +80,17 @@ fun NetworkScreen(
     val server = remember(servers, profileHost) { findMatchingDeployServer(servers, profileHost) }
     var observedLastHop by remember { mutableStateOf<String?>(null) }
     var liveCascadeHost by remember { mutableStateOf<String?>(null) }
-    val layout = remember(profileHost, server, hideIp, sessionUp, observedLastHop, liveCascadeHost) {
+    var cascadeLive by remember { mutableStateOf(false) }
+    val layout = remember(
+        profileHost,
+        server,
+        hideIp,
+        sessionUp,
+        observedLastHop,
+        liveCascadeHost,
+        cascadeLive,
+        servers,
+    ) {
         buildNetworkMapLayout(
             profileHost = profileHost,
             server = server,
@@ -89,6 +98,8 @@ fun NetworkScreen(
             sessionUp = sessionUp,
             observedLastHop = observedLastHop,
             liveCascadeHost = liveCascadeHost,
+            cascadeLive = cascadeLive,
+            servers = servers,
         )
     }
 
@@ -115,6 +126,8 @@ fun NetworkScreen(
             sessionUp = sessionUp,
             observedLastHop = observedLastHop,
             liveCascadeHost = liveCascadeHost,
+            cascadeLive = cascadeLive,
+            servers = servers,
             entryProvision = profile?.provisionBaseUrl,
             deviceId = profile?.deviceId,
             viaVpn = viaVpn,
@@ -126,14 +139,18 @@ fun NetworkScreen(
         if (!inputs.sessionUp) {
             if (observedLastHop != null) observedLastHop = null
             if (liveCascadeHost != null) liveCascadeHost = null
+            if (cascadeLive) cascadeLive = false
         }
-        val healthCascade = if (inputs.sessionUp) {
-            fetchLiveCascadeHost(inputs.entryProvision)
+        val live = if (inputs.sessionUp) {
+            fetchLiveCascade(inputs.entryProvision)
         } else {
-            null
+            ProvisionAdminApi.LiveCascadeInfo(enabled = false)
         }
-        if (healthCascade != liveCascadeHost) {
-            liveCascadeHost = healthCascade
+        if (live.host != liveCascadeHost) {
+            liveCascadeHost = live.host
+        }
+        if (live.enabled != cascadeLive) {
+            cascadeLive = live.enabled
         }
         val lastHop = if (inputs.sessionUp) {
             EgressIpProbe.probeLastHopWan(
@@ -141,15 +158,18 @@ fun NetworkScreen(
                 exitProvisionBaseUrl = DeployHop.exitProvisionUrl(inputs.server)
                     ?: provisionUrlForHost(
                         resolveCascadeExitHost(
-                            inputs.server,
-                            hopHost(inputs.profileHost),
-                            null,
-                            healthCascade,
+                            servers = inputs.servers,
+                            matched = inputs.server,
+                            profileHost = inputs.profileHost,
+                            vps1 = hopHost(inputs.profileHost),
+                            observedLastHop = null,
+                            liveCascadeHost = live.host,
+                            cascadeLive = live.enabled,
                         ),
                     ),
                 deviceId = inputs.deviceId,
                 viaVpn = true,
-                bindVpnIfNoExit = !inputs.hideIp,
+                bindVpnIfNoExit = true,
             )
         } else {
             null
@@ -163,11 +183,17 @@ fun NetworkScreen(
             hideIp = inputs.hideIp,
             sessionUp = inputs.sessionUp,
             observedLastHop = lastHop,
-            liveCascadeHost = healthCascade,
+            liveCascadeHost = live.host,
+            cascadeLive = live.enabled,
+            servers = inputs.servers,
         )
         loaded = loadHopViews(
             context,
-            inputs.copy(layout = resolved, liveCascadeHost = healthCascade),
+            inputs.copy(
+                layout = resolved,
+                liveCascadeHost = live.host,
+                cascadeLive = live.enabled,
+            ),
             hopsLatest.value,
         )
     }
@@ -232,6 +258,8 @@ private data class NetworkRefreshInputs(
     val sessionUp: Boolean,
     val observedLastHop: String?,
     val liveCascadeHost: String?,
+    val cascadeLive: Boolean,
+    val servers: List<DeployTarget>,
     val entryProvision: String?,
     val deviceId: String?,
     val viaVpn: Boolean,
@@ -242,16 +270,20 @@ private data class NetworkRefreshInputs(
         sessionUp = sessionUp,
         observedLastHop = observedLastHop,
         liveCascadeHost = liveCascadeHost,
+        cascadeLive = cascadeLive,
+        servers = servers,
     ),
 ) {
     val exitProvision: String?
         get() = DeployHop.exitProvisionUrl(server) ?: provisionUrlForHost(layout.vps2Host)
 }
 
-private suspend fun fetchLiveCascadeHost(entryProvision: String?): String? {
-    val base = entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return null
-    val health = ProvisionAdminApi.health(base).getOrNull() ?: return null
-    return ProvisionAdminApi.liveCascadeHost(health)
+private suspend fun fetchLiveCascade(entryProvision: String?): ProvisionAdminApi.LiveCascadeInfo {
+    val base = entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        ?: return ProvisionAdminApi.LiveCascadeInfo(enabled = false)
+    val health = ProvisionAdminApi.health(base).getOrNull()
+        ?: return ProvisionAdminApi.LiveCascadeInfo(enabled = false)
+    return ProvisionAdminApi.liveCascadeInfo(health)
 }
 
 private fun syncHopViews(layout: NetworkMapLayout, previous: List<HopView>): List<HopView> {
@@ -394,34 +426,17 @@ private fun HopConnector() {
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
-            .height(32.dp)
+            .height(22.dp)
             .semantics { contentDescription = "связь" },
     ) {
         val x = size.width / 2f
-        val stroke = 3.dp.toPx()
-        val arrowH = 8.dp.toPx()
-        val arrowW = 7.dp.toPx()
-        val nodeR = 3.5.dp.toPx()
-        val shaftEnd = size.height - arrowH
         drawLine(
             color = color,
             start = Offset(x, 0f),
-            end = Offset(x, shaftEnd),
-            strokeWidth = stroke,
+            end = Offset(x, size.height),
+            strokeWidth = 3.dp.toPx(),
             cap = StrokeCap.Round,
         )
-        drawCircle(
-            color = color,
-            radius = nodeR,
-            center = Offset(x, size.height / 2f),
-        )
-        val arrow = Path().apply {
-            moveTo(x, size.height)
-            lineTo(x - arrowW, shaftEnd)
-            lineTo(x + arrowW, shaftEnd)
-            close()
-        }
-        drawPath(arrow, color)
     }
 }
 

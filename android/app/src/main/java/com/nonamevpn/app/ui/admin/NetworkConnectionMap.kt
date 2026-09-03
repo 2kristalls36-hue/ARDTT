@@ -56,6 +56,8 @@ internal fun buildNetworkMapLayout(
     sessionUp: Boolean,
     observedLastHop: String? = null,
     liveCascadeHost: String? = null,
+    cascadeLive: Boolean = false,
+    servers: List<DeployTarget> = emptyList(),
 ): NetworkMapLayout {
     val hops = buildList {
         add(NetworkMapHop(NetworkMapHopKind.Provider, NetworkMapCopy.PROVIDER))
@@ -63,7 +65,15 @@ internal fun buildNetworkMapLayout(
         val vps1 = hopHost(profileHost)
             ?: hopHost(server?.publicHost)
             ?: hopHost(server?.host)
-        val vps2 = resolveCascadeExitHost(server, vps1, observedLastHop, liveCascadeHost)
+        val vps2 = resolveCascadeExitHost(
+            servers = servers,
+            matched = server,
+            profileHost = profileHost,
+            vps1 = vps1,
+            observedLastHop = observedLastHop,
+            liveCascadeHost = liveCascadeHost,
+            cascadeLive = cascadeLive,
+        )
         if (!vps1.isNullOrBlank()) {
             if (vps2 != null) {
                 add(NetworkMapHop(NetworkMapHopKind.Vps1, NetworkMapCopy.VPS1, vps1))
@@ -79,19 +89,42 @@ internal fun buildNetworkMapLayout(
     return NetworkMapLayout(hops)
 }
 
-/** Deploy cascade host, else live entry health, else a last-hop WAN that is not VPS1 or CloudFlare. */
+/**
+ * Exit hop for a cascade path. Uses the matching deploy card, any cascade card
+ * for this profile, live entry /health, the other server card when health says
+ * cascade is on, then the probed last-hop WAN.
+ */
 internal fun resolveCascadeExitHost(
-    server: DeployTarget?,
+    servers: List<DeployTarget> = emptyList(),
+    matched: DeployTarget?,
+    profileHost: String?,
     vps1: String?,
     observedLastHop: String?,
     liveCascadeHost: String? = null,
+    cascadeLive: Boolean = false,
 ): String? {
-    val candidates = listOf(
-        if (server?.cascadeEnabled == true) hopHost(server.cascadeHost) else null,
-        hopHost(liveCascadeHost),
-        hopHost(observedLastHop),
-    )
+    val profile = profileHost ?: vps1
+    val cascadeOn = cascadeLive ||
+        !hopHost(liveCascadeHost).isNullOrBlank() ||
+        (matched != null && DeployHop.isCascadeEntry(matched, profile)) ||
+        servers.any { DeployHop.isCascadeEntry(it, profile) }
+    val candidates = buildList {
+        if (matched?.cascadeEnabled == true) add(hopHost(matched.cascadeHost))
+        servers.forEach { server ->
+            if (DeployHop.isCascadeEntry(server, profile)) add(hopHost(server.cascadeHost))
+        }
+        add(hopHost(liveCascadeHost))
+        if (cascadeOn) add(uniqueOtherServerHost(servers, vps1))
+        add(hopHost(observedLastHop))
+    }
     return candidates.firstOrNull { lastHopCanBeVps2(vps1, it) }
+}
+
+internal fun uniqueOtherServerHost(servers: List<DeployTarget>, vps1: String?): String? {
+    val others = servers.mapNotNull { hopHost(it.publicHost) ?: hopHost(it.host) }
+        .distinctBy { it.lowercase() }
+        .filter { lastHopCanBeVps2(vps1, it) }
+    return others.singleOrNull()
 }
 
 internal fun lastHopCanBeVps2(vps1: String?, lastHop: String?): Boolean {
