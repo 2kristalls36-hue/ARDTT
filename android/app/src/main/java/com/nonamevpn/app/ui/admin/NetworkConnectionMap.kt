@@ -14,6 +14,8 @@ internal object NetworkMapCopy {
     const val VPS1 = "IP VPS 1"
     const val VPS2 = "IP VPS 2"
     const val CLOUDFLARE = "IP CloudFlare"
+    const val CLOUDFLARE_IP = "IP"
+    const val CLOUDFLARE_NAME = "CloudFlare"
 }
 
 internal enum class NetworkMapHopKind {
@@ -190,3 +192,21 @@ internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Lo
 
 internal fun hopPingLabel(kind: NetworkMapHopKind, pings: HopHealthPings): String =
     formatHealthPingMs(hopHealthPingMs(kind, pings))
+
+/** Cloudflare title is split so the WARP mark can sit between «IP» and the name. */
+internal data class HopTitleLayout(
+    val leadingText: String,
+    val showCloudflareMark: Boolean,
+    val trailingText: String = "",
+)
+
+internal fun hopTitleLayout(kind: NetworkMapHopKind, title: String): HopTitleLayout {
+    if (kind != NetworkMapHopKind.Cloudflare) {
+        return HopTitleLayout(leadingText = title, showCloudflareMark = false)
+    }
+    return HopTitleLayout(
+        leadingText = NetworkMapCopy.CLOUDFLARE_IP,
+        showCloudflareMark = true,
+        trailingText = NetworkMapCopy.CLOUDFLARE_NAME,
+    )
+}

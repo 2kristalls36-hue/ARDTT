@@ -3,6 +3,7 @@ package com.nonamevpn.app.ui.admin
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -29,11 +31,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nonamevpn.app.R
 import com.nonamevpn.app.core.ConnectionManager
 import com.nonamevpn.app.core.EgressIpProbe
 import com.nonamevpn.app.core.IpApiInfo
@@ -263,6 +267,7 @@ fun NetworkScreen(
                     }
                     IpInfoCard(
                         title = view.hop.title,
+                        kind = view.hop.kind,
                         info = view.info,
                         highlighted = isLastFilledHop(index, visibleHops.size),
                         pingLabel = hopPingLabel(view.hop.kind, hopPings),
@@ -490,6 +495,7 @@ private fun HopConnector() {
 @Composable
 private fun IpInfoCard(
     title: String,
+    kind: NetworkMapHopKind,
     info: IpApiInfo,
     highlighted: Boolean = false,
     pingLabel: String = "",
@@ -505,12 +511,11 @@ private fun IpInfoCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+            HopCardTitle(
+                title = title,
+                kind = kind,
                 modifier = Modifier.weight(1f),
             )
             if (pingLabel.isNotEmpty()) {
@@ -535,5 +540,48 @@ private fun IpInfoCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun HopCardTitle(
+    title: String,
+    kind: NetworkMapHopKind,
+    modifier: Modifier = Modifier,
+) {
+    val layout = hopTitleLayout(kind, title)
+    val textStyle = MaterialTheme.typography.titleMedium
+    if (!layout.showCloudflareMark) {
+        Text(
+            layout.leadingText,
+            style = textStyle,
+            fontWeight = FontWeight.SemiBold,
+            modifier = modifier,
+        )
+        return
+    }
+    Row(
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = NetworkMapCopy.CLOUDFLARE
+        },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            layout.leadingText,
+            style = textStyle,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Image(
+            painter = painterResource(R.drawable.ic_cloudflare),
+            contentDescription = null,
+            modifier = Modifier
+                .padding(horizontal = 6.dp)
+                .size(16.dp),
+        )
+        Text(
+            layout.trailingText,
+            style = textStyle,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }

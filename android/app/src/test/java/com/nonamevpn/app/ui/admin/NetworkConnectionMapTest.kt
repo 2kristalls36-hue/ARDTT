@@ -482,4 +482,17 @@ class NetworkConnectionMapTest {
         assertEquals("", hopPingLabel(NetworkMapHopKind.Vps, HopHealthPings()))
         assertEquals("", hopPingLabel(NetworkMapHopKind.Vps2, HopHealthPings(entryMs = 12L)))
     }
+
+    @Test
+    fun cloudflareTitlePutsMarkBetweenIpAndName() {
+        val cloudflare = hopTitleLayout(NetworkMapHopKind.Cloudflare, NetworkMapCopy.CLOUDFLARE)
+        assertEquals(NetworkMapCopy.CLOUDFLARE_IP, cloudflare.leadingText)
+        assertTrue(cloudflare.showCloudflareMark)
+        assertEquals(NetworkMapCopy.CLOUDFLARE_NAME, cloudflare.trailingText)
+
+        val vps = hopTitleLayout(NetworkMapHopKind.Vps, NetworkMapCopy.VPS)
+        assertEquals(NetworkMapCopy.VPS, vps.leadingText)
+        assertFalse(vps.showCloudflareMark)
+        assertEquals("", vps.trailingText)
+    }
 }
