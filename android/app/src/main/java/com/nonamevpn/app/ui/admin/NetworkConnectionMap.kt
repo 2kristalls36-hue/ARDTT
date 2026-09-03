@@ -14,6 +14,8 @@ internal object NetworkMapCopy {
     const val VPS1 = "IP VPS 1"
     const val VPS2 = "IP VPS 2"
     const val CLOUDFLARE = "IP CloudFlare"
+    const val CLOUDFLARE_IP = "IP"
+    const val CLOUDFLARE_NAME = "CloudFlare"
 }
 
 internal enum class NetworkMapHopKind {
@@ -170,4 +172,41 @@ internal fun shouldShowFilledHop(
 internal fun hopCardPrimaryText(info: IpApiInfo): String {
     if (info.ip.isNotBlank()) return info.ip
     return info.error?.trim()?.takeIf { it.isNotBlank() } ?: "Не удалось определить IP"
+}
+
+/** RTT from GET /health on the entry and (when cascade) exit provision. */
+internal data class HopHealthPings(
+    val entryMs: Long = -1L,
+    val exitMs: Long = -1L,
+)
+
+internal fun isLastFilledHop(index: Int, filledCount: Int): Boolean =
+    filledCount > 0 && index == filledCount - 1
+
+/** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */
+internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Long = when (kind) {
+    NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1 -> pings.entryMs
+    NetworkMapHopKind.Vps2 -> pings.exitMs
+    NetworkMapHopKind.Provider, NetworkMapHopKind.Cloudflare -> -1L
+}
+
+internal fun hopPingLabel(kind: NetworkMapHopKind, pings: HopHealthPings): String =
+    formatHealthPingMs(hopHealthPingMs(kind, pings))
+
+/** Cloudflare title is split so the WARP mark can sit between «IP» and the name. */
+internal data class HopTitleLayout(
+    val leadingText: String,
+    val showCloudflareMark: Boolean,
+    val trailingText: String = "",
+)
+
+internal fun hopTitleLayout(kind: NetworkMapHopKind, title: String): HopTitleLayout {
+    if (kind != NetworkMapHopKind.Cloudflare) {
+        return HopTitleLayout(leadingText = title, showCloudflareMark = false)
+    }
+    return HopTitleLayout(
+        leadingText = NetworkMapCopy.CLOUDFLARE_IP,
+        showCloudflareMark = true,
+        trailingText = NetworkMapCopy.CLOUDFLARE_NAME,
+    )
 }

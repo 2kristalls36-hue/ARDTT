@@ -55,6 +55,7 @@ import com.nonamevpn.app.profile.VpnProfileJson
 import com.nonamevpn.app.ui.latestAppVersionCode
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.CompactListCard
 import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.TabHeaderMetrics
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
@@ -64,6 +65,7 @@ import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val createDayOptions = listOf(0 to "∞", 7 to "7 дн", 30 to "30 дн", 90 to "90 дн")
@@ -168,6 +170,12 @@ private fun ClientsScreen(
         }
     }
 
+    fun refreshQuiet() {
+        scope.launch {
+            applyUsersResult(ProvisionAdminApi.listUsers(base))
+        }
+    }
+
     val pull = rememberPullRefresh {
         error = null
         applyUsersResult(ProvisionAdminApi.listUsers(base))
@@ -206,7 +214,13 @@ private fun ClientsScreen(
         }
     }
 
-    LaunchedEffect(base) { refresh() }
+    LaunchedEffect(base) {
+        refresh()
+        while (true) {
+            delay(15_000L)
+            applyUsersResult(ProvisionAdminApi.listUsers(base))
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         PullRefreshHost(
@@ -290,7 +304,7 @@ private fun ClientsScreen(
                                 top = 8.dp,
                                 bottom = NvpnBottomChrome.scrollContentPadding(),
                             ),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
                         ) {
                             items(users, key = { "${it.name}-${it.hostId}" }) { user ->
                                 ClientCard(
@@ -301,6 +315,7 @@ private fun ClientsScreen(
                                         sheetUser = user
                                         sheetProfile = null
                                         sheetLoadingProfile = true
+                                        refreshQuiet()
                                         loadProfile(user.name) { json ->
                                             runCatching { VpnProfileJson.parse(json) }
                                                 .onSuccess {
@@ -708,10 +723,10 @@ private fun ClientCard(
         ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
     }
     AppSectionCard(
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        shape = RoundedCornerShape(18.dp),
-        shadowElevation = 4.dp,
+        contentPadding = CompactListCard.ContentPadding,
+        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+        shape = CompactListCard.Shape,
+        shadowElevation = CompactListCard.ShadowElevation,
         tonalElevation = 0.dp,
         showBorder = false,
     ) {
@@ -719,7 +734,7 @@ private fun ClientCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(enabled = !busy, onClick = onOpenProfile),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

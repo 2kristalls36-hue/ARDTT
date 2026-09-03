@@ -459,4 +459,40 @@ class NetworkConnectionMapTest {
             hopCardPrimaryText(IpApiInfo(ip = "8.8.8.8", subtitle = "ISP · City, US")),
         )
     }
+
+    @Test
+    fun lastFilledHopIsTheEgressCard() {
+        assertFalse(isLastFilledHop(index = 0, filledCount = 0))
+        assertTrue(isLastFilledHop(index = 0, filledCount = 1))
+        assertFalse(isLastFilledHop(index = 0, filledCount = 4))
+        assertTrue(isLastFilledHop(index = 3, filledCount = 4))
+    }
+
+    @Test
+    fun hopPingUsesEntryForVpsAndExitForVps2() {
+        val pings = HopHealthPings(entryMs = 12L, exitMs = 40L)
+        assertEquals(12L, hopHealthPingMs(NetworkMapHopKind.Vps, pings))
+        assertEquals(12L, hopHealthPingMs(NetworkMapHopKind.Vps1, pings))
+        assertEquals(40L, hopHealthPingMs(NetworkMapHopKind.Vps2, pings))
+        assertEquals(-1L, hopHealthPingMs(NetworkMapHopKind.Provider, pings))
+        assertEquals(-1L, hopHealthPingMs(NetworkMapHopKind.Cloudflare, pings))
+        assertEquals("12 мс", hopPingLabel(NetworkMapHopKind.Vps, pings))
+        assertEquals("40 мс", hopPingLabel(NetworkMapHopKind.Vps2, pings))
+        assertEquals("", hopPingLabel(NetworkMapHopKind.Provider, pings))
+        assertEquals("", hopPingLabel(NetworkMapHopKind.Vps, HopHealthPings()))
+        assertEquals("", hopPingLabel(NetworkMapHopKind.Vps2, HopHealthPings(entryMs = 12L)))
+    }
+
+    @Test
+    fun cloudflareTitlePutsMarkBetweenIpAndName() {
+        val cloudflare = hopTitleLayout(NetworkMapHopKind.Cloudflare, NetworkMapCopy.CLOUDFLARE)
+        assertEquals(NetworkMapCopy.CLOUDFLARE_IP, cloudflare.leadingText)
+        assertTrue(cloudflare.showCloudflareMark)
+        assertEquals(NetworkMapCopy.CLOUDFLARE_NAME, cloudflare.trailingText)
+
+        val vps = hopTitleLayout(NetworkMapHopKind.Vps, NetworkMapCopy.VPS)
+        assertEquals(NetworkMapCopy.VPS, vps.leadingText)
+        assertFalse(vps.showCloudflareMark)
+        assertEquals("", vps.trailingText)
+    }
 }

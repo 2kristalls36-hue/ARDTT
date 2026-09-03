@@ -73,6 +73,24 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun deviceRowShowsThatDeviceVersion() {
+        val u = user(
+            deviceIds = listOf("dev-a", "dev-b"),
+            deviceAppVersions = mapOf(
+                "dev-a" to "0.5.199",
+                "dev-b" to "0.5.201",
+            ),
+            deviceAppVersionCodes = mapOf(
+                "dev-a" to 217,
+                "dev-b" to 219,
+            ),
+        )
+        assertEquals("0.5.199", clientDeviceAppVersion(u, "dev-a"))
+        assertEquals("0.5.201", clientDeviceAppVersion(u, "dev-b"))
+        assertEquals(null, clientDeviceAppVersion(u, "dev-missing"))
+    }
+
+    @Test
     fun expiresToneHighlightsLicenseDate() {
         val now = 1_700_000_000_000L
         assertEquals(ClientExpiresTone.Unlimited, clientExpiresTone(0L, now))

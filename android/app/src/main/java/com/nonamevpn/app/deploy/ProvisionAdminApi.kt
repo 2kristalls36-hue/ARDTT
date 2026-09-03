@@ -342,7 +342,7 @@ object ProvisionAdminApi {
             val keys = mo.keys()
             while (keys.hasNext()) {
                 val key = keys.next()
-                val code = mo.optInt(key, 0)
+                val code = jsonObjectInt(mo, key)
                 if (code > 0) deviceAppVersionCodes[key] = code
             }
         }
@@ -368,7 +368,7 @@ object ProvisionAdminApi {
             trafficLimitBytes = trafficLimitBytes,
             deviceModels = deviceModels,
             appVersion = o.optString("appVersion").trim(),
-            appVersionCode = o.optInt("appVersionCode", 0),
+            appVersionCode = jsonObjectInt(o, "appVersionCode"),
             deviceAppVersions = deviceAppVersions,
             deviceAppVersionCodes = deviceAppVersionCodes,
         )
@@ -387,6 +387,15 @@ object ProvisionAdminApi {
             }
         }
         return 0L
+    }
+
+    internal fun jsonObjectInt(o: JSONObject, key: String, default: Int = 0): Int {
+        if (!o.has(key) || o.isNull(key)) return default
+        return when (val value = o.opt(key)) {
+            is Number -> value.toInt()
+            is String -> value.trim().toIntOrNull() ?: default
+            else -> o.optInt(key, default)
+        }
     }
 }
 

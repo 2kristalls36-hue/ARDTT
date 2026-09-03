@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Rasterize ARDTT launcher / widget icons from docs/assets/brand masters."""
+"""Rasterize ARDTT launcher / widget / notification icons from the brand master."""
 from __future__ import annotations
 
-from collections import deque
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAND = ROOT / "docs/assets/brand"
 RES = ROOT / "android/app/src/main/res"
 COLOR_SRC = BRAND / "ardtt-icon-source.png"
-RED = (255, 24, 0, 255)
+
+# Inner field of the supplied mark (not the black corner padding).
+CHARCOAL = (24, 30, 37)
+CHARCOAL_A = (*CHARCOAL, 255)
 
 LAUNCHER_SIZES = {
     "mdpi": 48,
@@ -35,50 +37,44 @@ LOGO_FULL_SIZES = {
     "xxhdpi": 120,
     "xxxhdpi": 160,
 }
+GLYPH_SIZES = {
+    "mdpi": 24,
+    "hdpi": 36,
+    "xhdpi": 48,
+    "xxhdpi": 72,
+    "xxxhdpi": 96,
+}
 
 
-def flood_edge_mask(rgb: np.ndarray, thresh: int = 240) -> np.ndarray:
-    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
-    near = (r > thresh) & (g > thresh) & (b > thresh)
-    h, w = near.shape
-    edge = np.zeros((h, w), dtype=bool)
-    edge[0, :] = near[0, :]
-    edge[-1, :] = near[-1, :]
-    edge[:, 0] = near[:, 0]
-    edge[:, -1] = near[:, -1]
-    seen = edge.copy()
-    q = deque(zip(*np.where(edge)))
-    while q:
-        y, x = q.popleft()
-        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            ny, nx = y + dy, x + dx
-            if 0 <= ny < h and 0 <= nx < w and not seen[ny, nx] and near[ny, nx]:
-                seen[ny, nx] = True
-                q.append((ny, nx))
-    return seen
+def luma_of(rgb: np.ndarray) -> np.ndarray:
+    r = rgb[:, :, 0].astype(np.float32)
+    g = rgb[:, :, 1].astype(np.float32)
+    b = rgb[:, :, 2].astype(np.float32)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def load_color_master() -> Image.Image:
     return Image.open(COLOR_SRC).convert("RGB")
 
 
+def fill_pad_with_charcoal(master: Image.Image) -> Image.Image:
+    """Turn the black corner padding of the squircle into the charcoal field."""
+    arr = np.array(master.convert("RGBA"))
+    pad = luma_of(arr) < 10.0
+    arr[pad, 0] = CHARCOAL[0]
+    arr[pad, 1] = CHARCOAL[1]
+    arr[pad, 2] = CHARCOAL[2]
+    arr[pad, 3] = 255
+    return Image.fromarray(arr, "RGBA")
+
+
 def square_color_icon(master: Image.Image, size: int) -> Image.Image:
-    arr = np.array(master)
-    pad = flood_edge_mask(arr)
-    ys, xs = np.where(~pad)
-    left, top, right, bottom = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
-    side = min(right - left, bottom - top)
-    inset = max(2, int(round(0.066 * side)))
-    crop = master.crop((left + inset, top + inset, right - inset + 1, bottom - inset + 1))
-    cw, ch = crop.size
-    s = min(cw, ch)
-    x0, y0 = (cw - s) // 2, (ch - s) // 2
-    square = crop.crop((x0, y0, x0 + s, y0 + s))
-    return square.resize((size, size), Image.Resampling.LANCZOS)
+    filled = fill_pad_with_charcoal(master)
+    return filled.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def round_icon(square_rgb: Image.Image, size: int) -> Image.Image:
-    im = square_rgb.resize((size, size), Image.Resampling.LANCZOS).convert("RGBA")
+def round_icon(square_rgba: Image.Image, size: int) -> Image.Image:
+    im = square_rgba.resize((size, size), Image.Resampling.LANCZOS).convert("RGBA")
     y, x = np.ogrid[:size, :size]
     cx = cy = (size - 1) / 2.0
     radius = size / 2.0
@@ -89,34 +85,44 @@ def round_icon(square_rgb: Image.Image, size: int) -> Image.Image:
     return Image.fromarray(arr, "RGBA")
 
 
-def extract_white_mark(master: Image.Image) -> Image.Image:
-    arr = np.array(master.convert("RGB"))
-    h, w = arr.shape[:2]
-    r = arr[:, :, 0].astype(np.int16)
-    g = arr[:, :, 1].astype(np.int16)
-    b = arr[:, :, 2].astype(np.int16)
-    pad = flood_edge_mask(arr)
-    icon = ~pad
-    icon_img = Image.fromarray(icon.astype(np.uint8) * 255)
-    eroded = np.array(icon_img.filter(ImageFilter.MinFilter(31))) > 128
-    gb = (g + b) // 2
-    alpha = np.zeros((h, w), dtype=np.uint8)
-    t0, t1 = 90.0, 230.0
-    val = np.clip((gb.astype(np.float32) - t0) * (255.0 / (t1 - t0)), 0, 255)
-    alpha[eroded] = val[eroded].astype(np.uint8)
-    alpha[(gb >= 215) & eroded] = 255
+def rounded_square(square_rgba: Image.Image, size: int, radius_frac: float = 0.22) -> Image.Image:
+    im = square_rgba.resize((size, size), Image.Resampling.LANCZOS).convert("RGBA")
+    mask = Image.new("L", (size, size), 0)
+    radius = max(1, int(round(size * radius_frac)))
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=255)
+    arr = np.array(im)
+    arr[:, :, 3] = np.minimum(arr[:, :, 3], np.array(mask))
+    return Image.fromarray(arr, "RGBA")
+
+
+def extract_mark(master: Image.Image, white_only: bool = False) -> Image.Image:
+    """Keep AR (white) + DTT (orange) with a transparent charcoal field."""
+    rgb = np.array(master.convert("RGB"))
+    h, w = rgb.shape[:2]
+    r = rgb[:, :, 0].astype(np.float32)
+    g = rgb[:, :, 1].astype(np.float32)
+    b = rgb[:, :, 2].astype(np.float32)
+    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    orange = (r > 150) & (b < 90) & (g > 20) & (g < 220)
+    soft = np.clip((luma - 48.0) * (255.0 / 60.0), 0, 255)
+    alpha = np.maximum(np.where(orange, 255.0, 0.0), soft).astype(np.uint8)
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
-    rgba[:, :, 0] = 255
-    rgba[:, :, 1] = 255
-    rgba[:, :, 2] = 255
+    if white_only:
+        rgba[:, :, 0] = 255
+        rgba[:, :, 1] = 255
+        rgba[:, :, 2] = 255
+    else:
+        rgba[:, :, 0] = rgb[:, :, 0]
+        rgba[:, :, 1] = rgb[:, :, 1]
+        rgba[:, :, 2] = rgb[:, :, 2]
     rgba[:, :, 3] = alpha
     mark = Image.fromarray(rgba, "RGBA")
-    hard = mark.getchannel("A").point(lambda p: 255 if p > 80 else 0)
+    hard = mark.getchannel("A").point(lambda p: 255 if p > 40 else 0)
     bbox = hard.getbbox()
     if bbox is None:
         raise SystemExit("could not extract ARDTT mark from color icon")
     left, top, right, bottom = bbox
-    pad_px = 12
+    pad_px = max(8, int(round(0.02 * max(w, h))))
     return mark.crop(
         (
             max(0, left - pad_px),
@@ -127,7 +133,7 @@ def extract_white_mark(master: Image.Image) -> Image.Image:
     )
 
 
-def fit_on_canvas(mark: Image.Image, canvas: int, safe_frac: float = 0.66 * 0.88) -> Image.Image:
+def fit_on_canvas(mark: Image.Image, canvas: int, safe_frac: float) -> Image.Image:
     safe = max(1, int(round(canvas * safe_frac)))
     mw, mh = mark.size
     scale = min(safe / mw, safe / mh)
@@ -144,15 +150,29 @@ def save_png(image: Image.Image, path: Path) -> None:
     image.save(path, format="PNG", optimize=True)
 
 
+def cap_side(image: Image.Image, max_side: int = 1024) -> Image.Image:
+    w, h = image.size
+    longest = max(w, h)
+    if longest <= max_side:
+        return image
+    scale = max_side / longest
+    return image.resize(
+        (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
+        Image.Resampling.LANCZOS,
+    )
+
+
 def main() -> None:
     if not COLOR_SRC.exists():
         raise SystemExit(f"missing {COLOR_SRC}")
     master = load_color_master()
     square_1024 = square_color_icon(master, 1024)
-    mark = extract_white_mark(master)
-    save_png(square_1024.convert("RGBA"), BRAND / "ar-icon-color.png")
-    save_png(square_1024.convert("RGBA"), BRAND / "ar-icon-red.png")
-    save_png(mark, BRAND / "ar-mark-white.png")
+    color_mark = extract_mark(master, white_only=False)
+    white_mark = extract_mark(master, white_only=True)
+    save_png(square_1024, BRAND / "ar-icon-color.png")
+    save_png(square_1024, BRAND / "ar-icon-red.png")
+    save_png(cap_side(color_mark), BRAND / "ardtt-mark-source.png")
+    save_png(cap_side(white_mark), BRAND / "ar-mark-white.png")
 
     for density, size in LAUNCHER_SIZES.items():
         square = square_color_icon(master, size)
@@ -160,15 +180,29 @@ def main() -> None:
         save_png(round_icon(square, size), RES / f"mipmap-{density}" / "ic_launcher_round.png")
 
     for density, size in FOREGROUND_SIZES.items():
-        save_png(fit_on_canvas(mark, size), RES / f"mipmap-{density}" / "ic_launcher_foreground.png")
+        save_png(
+            fit_on_canvas(color_mark, size, safe_frac=0.62),
+            RES / f"mipmap-{density}" / "ic_launcher_foreground.png",
+        )
 
-    save_png(fit_on_canvas(mark, 256), RES / "drawable" / "ic_launcher_monochrome.png")
+    save_png(fit_on_canvas(white_mark, 256, safe_frac=0.72), RES / "drawable" / "ic_launcher_monochrome.png")
 
     for density, size in LOGO_FULL_SIZES.items():
         save_png(
-            square_color_icon(master, size).convert("RGBA"),
+            rounded_square(square_color_icon(master, size), size),
             RES / f"drawable-{density}" / "ic_logo_full.png",
         )
+
+    for density, size in GLYPH_SIZES.items():
+        save_png(
+            rounded_square(square_color_icon(master, size), size),
+            RES / f"drawable-{density}" / "ic_tile_custom.png",
+        )
+        save_png(
+            fit_on_canvas(white_mark, size, safe_frac=0.84),
+            RES / f"drawable-{density}" / "ic_stat_connected.png",
+        )
+
     print("wrote launcher icons from", COLOR_SRC.relative_to(ROOT))
 
 
