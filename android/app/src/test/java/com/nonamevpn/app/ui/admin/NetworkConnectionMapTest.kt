@@ -442,4 +442,12 @@ class NetworkConnectionMapTest {
             ),
         )
     }
+
+    @Test
+    fun lastFilledHopIsTheEgressCard() {
+        assertFalse(isLastFilledHop(index = 0, filledCount = 0))
+        assertTrue(isLastFilledHop(index = 0, filledCount = 1))
+        assertFalse(isLastFilledHop(index = 0, filledCount = 4))
+        assertTrue(isLastFilledHop(index = 3, filledCount = 4))
+    }
 }

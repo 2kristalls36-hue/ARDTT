@@ -160,3 +160,6 @@ internal fun shouldShowFilledHop(
     }
     return true
 }
+
+internal fun isLastFilledHop(index: Int, filledCount: Int): Boolean =
+    filledCount > 0 && index == filledCount - 1

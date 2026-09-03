@@ -1,6 +1,7 @@
 package com.nonamevpn.app.ui.admin
 
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,7 @@ import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.illustratedBackdropActive
 import com.nonamevpn.app.ui.components.rememberPullRefresh
+import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -244,6 +246,7 @@ fun NetworkScreen(
                     IpInfoCard(
                         title = view.hop.title,
                         info = view.info,
+                        highlighted = isLastFilledHop(index, visibleHops.size),
                     )
                 }
             }
@@ -444,6 +447,7 @@ private fun HopConnector() {
 private fun IpInfoCard(
     title: String,
     info: IpApiInfo,
+    highlighted: Boolean = false,
 ) {
     AppSectionCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
@@ -451,6 +455,7 @@ private fun IpInfoCard(
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
+        border = if (highlighted) BorderStroke(2.dp, NvpnColors.connected) else null,
     ) {
         Text(
             title,
