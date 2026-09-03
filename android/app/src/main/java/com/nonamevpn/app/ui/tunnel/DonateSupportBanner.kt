@@ -21,14 +21,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nonamevpn.app.ui.components.AppSectionCard
 
-private val DonateYellow = Color(0xFFFFF8D6)
-private val DonateAccent = Color(0xFFB8860B)
+private val DonateCardLight = Color(0xFFFFFBE6)
+private val DonateCardDark  = Color(0xFF2A2510)
+private val DonateAccent    = Color(0xFFB8860B)
 
 @Composable
 fun DonateSupportBanner(
@@ -36,11 +36,8 @@ fun DonateSupportBanner(
     onDismiss: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val surface = MaterialTheme.colorScheme.surface
-    val isDark = surface.luminance() < 0.22f
-    // Blend yellow into the theme surface so the card looks like a tinted variant,
-    // not a harsh foreign element.
-    val cardColor = lerp(surface, DonateYellow, if (isDark) 0.10f else 0.55f)
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.22f
+    val cardColor  = if (isDark) DonateCardDark else DonateCardLight
     val accentColor = DonateAccent
     AppSectionCard(
         modifier = modifier,
