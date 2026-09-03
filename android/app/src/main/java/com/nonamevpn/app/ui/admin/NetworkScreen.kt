@@ -112,7 +112,7 @@ fun NetworkScreen(
             if (!shouldShowFilledHop(view.hop.kind, view.info.ip, earlier)) {
                 null
             } else {
-                earlier += view.info.ip
+                if (view.info.ip.isNotBlank()) earlier += view.info.ip
                 view
             }
         }
@@ -326,7 +326,10 @@ private suspend fun loadHop(
 ): IpApiInfo {
     val loaded = try {
         when (hop.kind) {
-            NetworkMapHopKind.Provider -> loadProvider(context)
+            NetworkMapHopKind.Provider -> loadProvider(
+                context,
+                rejectIps = inputs.layout.hops.mapNotNull { hopHost(it.knownHost) },
+            )
             NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1, NetworkMapHopKind.Vps2 ->
                 loadKnownHost(context, hop.knownHost)
             NetworkMapHopKind.Cloudflare -> loadCloudflare(
@@ -358,9 +361,12 @@ private fun mergeHopInfo(previous: IpApiInfo, loaded: IpApiInfo): IpApiInfo {
     return loaded
 }
 
-private suspend fun loadProvider(context: Context): IpApiInfo =
+private suspend fun loadProvider(
+    context: Context,
+    rejectIps: Collection<String> = emptyList(),
+): IpApiInfo =
     try {
-        IpApiLookup.fetchUnderlay(context)
+        IpApiLookup.fetchUnderlay(context, rejectIps)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -458,11 +464,11 @@ private fun IpInfoCard(
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            info.ip,
+            hopCardPrimaryText(info),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
         )
-        if (info.subtitle.isNotBlank()) {
+        if (info.ip.isNotBlank() && info.subtitle.isNotBlank()) {
             Text(
                 info.subtitle,
                 style = MaterialTheme.typography.bodyMedium,

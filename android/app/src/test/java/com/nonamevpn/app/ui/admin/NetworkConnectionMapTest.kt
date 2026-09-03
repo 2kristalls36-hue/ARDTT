@@ -1,6 +1,7 @@
 package com.nonamevpn.app.ui.admin
 
 import com.nonamevpn.app.core.ConnState
+import com.nonamevpn.app.core.IpApiInfo
 import com.nonamevpn.app.deploy.DeployHop
 import com.nonamevpn.app.deploy.DeployTarget
 import org.junit.Assert.assertEquals
@@ -414,7 +415,7 @@ class NetworkConnectionMapTest {
 
     @Test
     fun emptyOrDuplicateHopsAreNotShown() {
-        assertFalse(
+        assertTrue(
             shouldShowFilledHop(NetworkMapHopKind.Provider, ip = "", earlierIps = emptyList()),
         )
         assertFalse(
@@ -440,6 +441,22 @@ class NetworkConnectionMapTest {
                 ip = "104.28.1.1",
                 earlierIps = listOf("45.129.2.3"),
             ),
+        )
+    }
+
+    @Test
+    fun providerCardShowsErrorWhenIpIsMissing() {
+        assertEquals(
+            "Не удалось определить IP",
+            hopCardPrimaryText(IpApiInfo.Empty),
+        )
+        assertEquals(
+            "Не удалось определить IP",
+            hopCardPrimaryText(IpApiInfo(ip = "", subtitle = "", error = "Не удалось определить IP")),
+        )
+        assertEquals(
+            "8.8.8.8",
+            hopCardPrimaryText(IpApiInfo(ip = "8.8.8.8", subtitle = "ISP · City, US")),
         )
     }
 }
