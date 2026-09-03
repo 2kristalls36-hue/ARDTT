@@ -21,6 +21,11 @@ object ProvisionAdminApi {
         val cascadeHost: String = "",
     )
 
+    data class LiveCascadeInfo(
+        val enabled: Boolean,
+        val host: String? = null,
+    )
+
     data class UserSummary(
         val name: String,
         val hostId: Int,
@@ -95,11 +100,13 @@ object ProvisionAdminApi {
         return DeployHop.host(o.optString("cascadePeer")).orEmpty()
     }
 
-    internal fun liveCascadeHost(info: HealthInfo): String? {
-        if (!info.cascade) return null
-        if (info.role.equals("exit", ignoreCase = true)) return null
-        return DeployHop.host(info.cascadeHost)
+    internal fun liveCascadeInfo(info: HealthInfo): LiveCascadeInfo {
+        val enabled = info.cascade && !info.role.equals("exit", ignoreCase = true)
+        val host = if (enabled) DeployHop.host(info.cascadeHost) else null
+        return LiveCascadeInfo(enabled = enabled, host = host)
     }
+
+    internal fun liveCascadeHost(info: HealthInfo): String? = liveCascadeInfo(info).host
 
     suspend fun listUsers(baseUrl: String): Result<List<UserSummary>> = withContext(Dispatchers.IO) {
         runCatching {

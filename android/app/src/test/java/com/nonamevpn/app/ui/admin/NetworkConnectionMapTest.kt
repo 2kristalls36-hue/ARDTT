@@ -34,6 +34,8 @@ class NetworkConnectionMapTest {
         sessionUp: Boolean = true,
         observedLastHop: String? = null,
         liveCascadeHost: String? = null,
+        cascadeLive: Boolean = false,
+        servers: List<DeployTarget> = emptyList(),
     ) = buildNetworkMapLayout(
         profileHost = profileHost,
         server = server,
@@ -41,6 +43,8 @@ class NetworkConnectionMapTest {
         sessionUp = sessionUp,
         observedLastHop = observedLastHop,
         liveCascadeHost = liveCascadeHost,
+        cascadeLive = cascadeLive,
+        servers = servers,
     )
 
     @Test
@@ -317,6 +321,42 @@ class NetworkConnectionMapTest {
             built.titles,
         )
         assertEquals("2.26.125.160", built.vps2Host)
+    }
+
+    @Test
+    fun healthCascadeWithSiblingServerShowsVps2() {
+        val entry = server("45.129.2.3")
+        val exit = server("2.26.125.160", id = "exit")
+        val built = layout(
+            profileHost = "45.129.2.3",
+            server = entry,
+            hideIp = false,
+            cascadeLive = true,
+            servers = listOf(entry, exit),
+        )
+        assertEquals(
+            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
+            built.titles,
+        )
+        assertEquals("2.26.125.160", built.vps2Host)
+    }
+
+    @Test
+    fun healthCascadeDoesNotPickRandomThirdServer() {
+        val entry = server("45.129.2.3")
+        val built = layout(
+            profileHost = "45.129.2.3",
+            server = entry,
+            hideIp = false,
+            cascadeLive = true,
+            servers = listOf(
+                entry,
+                server("2.26.125.160", id = "exit"),
+                server("9.9.9.9", id = "other"),
+            ),
+        )
+        assertEquals(listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS), built.titles)
+        assertNull(built.vps2Host)
     }
 
     @Test
