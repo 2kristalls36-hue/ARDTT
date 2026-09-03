@@ -285,6 +285,30 @@ object EgressIpProbe {
 
     private fun hostOf(url: String): String = runCatching { URL(url).host }.getOrDefault(url)
 
+    /**
+     * When [deviceId] is set, omit viaWarp so provision uses users.json hideIp.
+     * Forcing viaWarp=0 was showing the VPS WAN while this host's /32 still
+     * exited through Cloudflare (the 2ip.ru mismatch).
+     */
+    internal fun provisionEgressIpUrl(
+        base: String,
+        deviceId: String?,
+        viaWarp: Boolean,
+    ): String = buildString {
+        append(base.trimEnd('/'))
+        append("/v1/egress-ip")
+        val params = mutableListOf<String>()
+        if (!deviceId.isNullOrBlank()) {
+            params += "deviceId=" + java.net.URLEncoder.encode(deviceId.trim(), Charsets.UTF_8.name())
+        } else {
+            params += if (viaWarp) "viaWarp=1" else "viaWarp=0"
+        }
+        if (params.isNotEmpty()) {
+            append('?')
+            append(params.joinToString("&"))
+        }
+    }
+
     private fun fetchProvisionEgressIp(
         provisionBaseUrl: String?,
         deviceId: String?,
@@ -294,15 +318,7 @@ object EgressIpProbe {
     ): String {
         val base = provisionBaseUrl?.trimEnd('/')
             ?: error("Нет provision URL")
-        val q = buildString {
-            append("$base/v1/egress-ip?")
-            val params = mutableListOf<String>()
-            if (!deviceId.isNullOrBlank()) {
-                params += "deviceId=" + java.net.URLEncoder.encode(deviceId.trim(), Charsets.UTF_8.name())
-            }
-            params += if (viaWarp) "viaWarp=1" else "viaWarp=0"
-            append(params.joinToString("&"))
-        }
+        val q = provisionEgressIpUrl(base, deviceId, viaWarp)
         // Route selection depends on connection mode:
         // - viaVpn=true: Bypass/whitelist may require VPN route to reach provision.
         // - viaVpn=false: prefer direct underlay route.

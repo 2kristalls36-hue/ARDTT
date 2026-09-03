@@ -42,6 +42,31 @@ if [ "$ROLE" = "exit" ]; then
   CASCADE_ENABLED=1
 fi
 
+# An in-app "update" of the entry hop often omits cascade flags. Dropping them
+# tears down nvpn-cascade, leaves profiles on 10.10.0.2 DNS, and Hide-IP-off
+# traffic can stick on Cloudflare while the app still shows the VPS WAN.
+preserve_live_cascade() {
+  [ "$ROLE" = "entry" ] || return 0
+  [ "${NVPN_CASCADE_FORCE_DISABLE:-0}" = "1" ] && return 0
+  local envf="$INSTALL_DIR/stack/.env"
+  [ -f "$envf" ] || return 0
+  local prev endpoint key
+  prev="$(grep -E '^NVPN_CASCADE_ENABLED=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'" | tr -d '[:space:]')"
+  [ "$prev" = "1" ] || return 0
+  [ "$CASCADE_ENABLED" = "1" ] && return 0
+  CASCADE_ENABLED=1
+  if [ -z "$CASCADE_PEER_ENDPOINT" ]; then
+    endpoint="$(grep -E '^NVPN_CASCADE_PEER_ENDPOINT=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'")"
+    CASCADE_PEER_ENDPOINT="$(printf '%s' "$endpoint" | tr -d '[:space:]')"
+  fi
+  if [ -z "$CASCADE_PEER_PUBLIC_KEY" ]; then
+    key="$(grep -E '^NVPN_CASCADE_PEER_PUBLIC_KEY=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'")"
+    CASCADE_PEER_PUBLIC_KEY="$(printf '%s' "$key" | tr -d '[:space:]')"
+  fi
+  echo "NVPN_WARN|каскад сохранён с прошлого деплоя (NVPN_CASCADE_FORCE_DISABLE=1 чтобы снять)"
+}
+preserve_live_cascade
+
 LOG_FILE="$(mktemp /tmp/nvpn-install.XXXXXX.log)"
 STAGING=""
 

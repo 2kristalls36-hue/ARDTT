@@ -31,6 +31,10 @@ fun decideHideIpDispatch(
 fun isBypassWarming(state: ConnState, path: VpnPath?): Boolean =
     state == ConnState.Connecting && path == VpnPath.Bypass
 
+/** Failed Hide-IP POST (on or off) must be retried after the TUN is up. */
+fun hideIpShouldRetryAfterTunnel(lastSent: Boolean?, want: Boolean, pending: Boolean): Boolean =
+    pending || lastSent != want
+
 /** Cap launcher-icon decode size so the Bypass tab cannot OOM on dense icon packs. */
 fun appIconDecodeSize(
     intrinsicWidth: Int,

@@ -2,9 +2,10 @@ package com.nonamevpn.app.core
 
 /**
  * Initial Connect path. Auto follows the underlay probe on Wi‑Fi and LTE:
- * VPS :9100 up → Direct, Yandex-only whitelist → Bypass. Forced Direct/Bypass
- * ignore the probe. [underlayKind] / [bypassAllowed] stay on the signature
- * so call sites can keep passing them; they do not override a Direct probe.
+ * open internet + VPS :9100 → Direct; Yandex-only whitelist → Bypass even if
+ * :9100 answers (AWG UDP is usually dropped). Forced Direct/Bypass ignore the
+ * probe. [underlayKind] / [bypassAllowed] stay on the signature so call sites
+ * can keep passing them; they do not override a Direct probe.
  */
 fun resolveConnectPath(
     mode: ConnPathMode,
