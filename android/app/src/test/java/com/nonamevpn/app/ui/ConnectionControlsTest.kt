@@ -1,6 +1,7 @@
 package com.nonamevpn.app.ui
 
 import com.nonamevpn.app.core.ConnPathMode
+import com.nonamevpn.app.core.ConnState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -13,6 +14,18 @@ class ConnectionControlsTest {
         assertFalse(connectionControlsLocked(sessionActive = true, unlockWhileConnected = true))
         assertFalse(connectionControlsLocked(sessionActive = false, unlockWhileConnected = false))
         assertFalse(connectionControlsLocked(sessionActive = false, unlockWhileConnected = true))
+    }
+
+    @Test
+    fun profileSwitchBlockedDuringLiveVpnSession() {
+        assertTrue(vpnSessionBlocksProfileSwitch(ConnState.Connected))
+        assertTrue(vpnSessionBlocksProfileSwitch(ConnState.Connecting))
+        assertTrue(vpnSessionBlocksProfileSwitch(ConnState.Disconnecting))
+        assertTrue(vpnSessionBlocksProfileSwitch(ConnState.PausedTrustedWifi))
+        assertFalse(vpnSessionBlocksProfileSwitch(ConnState.Ready))
+        assertFalse(vpnSessionBlocksProfileSwitch(ConnState.Idle))
+        assertFalse(vpnSessionBlocksProfileSwitch(ConnState.Probing))
+        assertFalse(vpnSessionBlocksProfileSwitch(ConnState.Error))
     }
 
     @Test
