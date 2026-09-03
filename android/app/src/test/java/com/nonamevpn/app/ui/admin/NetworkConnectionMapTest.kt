@@ -458,6 +458,14 @@ class NetworkConnectionMapTest {
             "8.8.8.8",
             hopCardPrimaryText(IpApiInfo(ip = "8.8.8.8", subtitle = "ISP · City, US")),
         )
+        assertEquals(
+            "Определение…",
+            hopCardPrimaryText(IpApiInfo.Empty, loading = true),
+        )
+        assertEquals(
+            "8.8.8.8",
+            hopCardPrimaryText(IpApiInfo(ip = "8.8.8.8", subtitle = ""), loading = true),
+        )
     }
 
     @Test
@@ -466,6 +474,15 @@ class NetworkConnectionMapTest {
         assertTrue(isLastFilledHop(index = 0, filledCount = 1))
         assertFalse(isLastFilledHop(index = 0, filledCount = 4))
         assertTrue(isLastFilledHop(index = 3, filledCount = 4))
+    }
+
+    @Test
+    fun earlierHopsUseGrayOutline() {
+        assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 3))
+        assertEquals(HopCardOutline.Other, hopCardOutline(index = 1, filledCount = 3))
+        assertEquals(HopCardOutline.Last, hopCardOutline(index = 2, filledCount = 3))
+        assertEquals(HopCardOutline.Last, hopCardOutline(index = 0, filledCount = 1))
+        assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 0))
     }
 
     @Test
