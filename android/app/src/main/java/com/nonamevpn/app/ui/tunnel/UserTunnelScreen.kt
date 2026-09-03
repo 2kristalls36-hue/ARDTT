@@ -3,6 +3,7 @@ package com.nonamevpn.app.ui.tunnel
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.WbSunny
@@ -493,12 +495,27 @@ private fun ProfileSwitcherBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        val scheme = MaterialTheme.colorScheme
+        val sessionLocked = canSwitch && !switchEnabled
         val commonButtonColors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
-            disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+            containerColor = scheme.primary,
+            contentColor = scheme.onPrimary,
+            disabledContainerColor = if (sessionLocked) {
+                scheme.surface.copy(alpha = 0.88f)
+            } else {
+                scheme.primary.copy(alpha = 0.65f)
+            },
+            disabledContentColor = if (sessionLocked) {
+                scheme.onSurface.copy(alpha = 0.58f)
+            } else {
+                scheme.onPrimary.copy(alpha = 0.75f)
+            },
         )
+        val lockedBorder = if (sessionLocked) {
+            BorderStroke(1.dp, scheme.outline.copy(alpha = 0.55f))
+        } else {
+            null
+        }
         if (canSwitch) {
             Button(
                 onClick = onPrev,
@@ -508,6 +525,7 @@ private fun ProfileSwitcherBar(
                     .height(NvpnBottomChrome.ButtonHeight)
                     .width(62.dp),
                 colors = commonButtonColors,
+                border = lockedBorder,
                 contentPadding = PaddingValues(0.dp),
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий профиль")
@@ -521,7 +539,16 @@ private fun ProfileSwitcherBar(
                 .weight(1f)
                 .height(NvpnBottomChrome.ButtonHeight),
             colors = commonButtonColors,
+            border = lockedBorder,
         ) {
+            if (sessionLocked) {
+                Icon(
+                    Icons.Filled.Lock,
+                    contentDescription = "Смена профиля недоступна",
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
             Text(
                 activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль",
                 fontWeight = FontWeight.SemiBold,
@@ -538,6 +565,7 @@ private fun ProfileSwitcherBar(
                     .height(NvpnBottomChrome.ButtonHeight)
                     .width(62.dp),
                 colors = commonButtonColors,
+                border = lockedBorder,
                 contentPadding = PaddingValues(0.dp),
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий профиль")
