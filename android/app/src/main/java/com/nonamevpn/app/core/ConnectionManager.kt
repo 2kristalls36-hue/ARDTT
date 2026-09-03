@@ -75,6 +75,8 @@ class ConnectionManager(
     private var probeJob: Job? = null
     private var connectJob: Job? = null
     private var presenceJob: Job? = null
+    private var lastPresenceKey: String = ""
+    private var lastPresenceAtMs: Long = 0L
     private var profile: VpnProfile? = null
     private var directEndpoint: String? = null
     private var provisionUrl: String? = null
@@ -125,6 +127,7 @@ class ConnectionManager(
             }
             workers = DEFAULT_WORKERS
             refreshHashFlag()
+            reportPresenceAsync()
         } else {
             directEndpoint = null
             provisionUrl = null
@@ -1647,24 +1650,43 @@ class ConnectionManager(
                 _ui.value.state == ConnState.Connected ||
                 _ui.value.state == ConnState.PausedTrustedWifi
             ) {
-                val p = profile
-                val base = resolveProvisionUrl()
-                if (p != null && !base.isNullOrBlank()) {
-                    val ext = EgressIpProbe.current().orEmpty()
-                    runCatching {
-                        com.nonamevpn.app.deploy.ProvisionAdminApi.reportPresence(
-                            baseUrl = base,
-                            deviceId = p.deviceId,
-                            name = p.name,
-                            externalIp = ext,
-                            deviceModel = PhoneModelLabel.current(),
-                            appVersion = com.nonamevpn.app.BuildConfig.VERSION_NAME,
-                            appVersionCode = com.nonamevpn.app.BuildConfig.VERSION_CODE,
-                        )
-                    }
-                }
+                sendPresenceOnce(force = true)
                 delay(60_000L)
             }
+        }
+    }
+
+    private fun reportPresenceAsync() {
+        scope.launch { sendPresenceOnce(force = false) }
+    }
+
+    private suspend fun sendPresenceOnce(force: Boolean) {
+        val p = profile ?: return
+        val base = resolveProvisionUrl()?.takeIf { it.isNotBlank() } ?: return
+        val key = "${p.deviceId}|${p.name}|${com.nonamevpn.app.BuildConfig.VERSION_CODE}"
+        val now = System.currentTimeMillis()
+        if (!force && key == lastPresenceKey && now - lastPresenceAtMs < PRESENCE_DEBOUNCE_MS) {
+            return
+        }
+        val ext = EgressIpProbe.current().orEmpty()
+        val result = com.nonamevpn.app.deploy.ProvisionAdminApi.reportPresence(
+            baseUrl = base,
+            deviceId = p.deviceId,
+            name = p.name,
+            externalIp = ext,
+            deviceModel = PhoneModelLabel.current(),
+            appVersion = com.nonamevpn.app.BuildConfig.VERSION_NAME,
+            appVersionCode = com.nonamevpn.app.BuildConfig.VERSION_CODE,
+        )
+        result.onSuccess {
+            lastPresenceKey = key
+            lastPresenceAtMs = now
+            AppLog.i(
+                TAG,
+                "presence ok name=${p.name} ver=${com.nonamevpn.app.BuildConfig.VERSION_NAME}",
+            )
+        }.onFailure { error ->
+            AppLog.w(TAG, "presence failed: ${error.message}")
         }
     }
 
@@ -1736,6 +1758,7 @@ class ConnectionManager(
         private const val BYPASS_WORKERS_WAIT_MS = 25_000L
         private const val BYPASS_WORKERS_POLL_MS = 250L
         private const val TRANSPORT_RESTART_DEBOUNCE_MS = 150L
+        private const val PRESENCE_DEBOUNCE_MS = 5_000L
 
         @Volatile
         private var instance: ConnectionManager? = null
