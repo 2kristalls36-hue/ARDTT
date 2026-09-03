@@ -13,17 +13,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -37,7 +40,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -438,10 +440,11 @@ private fun ProfileCard(
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    val connectEnabled = !selectionLocked || active
+    val deleteEnabled = !selectionLocked || !active
     AppSectionCard(
-        modifier = Modifier
-            .alpha(if (selectionLocked && !active) 0.72f else 1f)
-            .clickable(enabled = !selectionLocked, onClick = onSelect),
+        modifier = Modifier.clickable(enabled = !selectionLocked, onClick = onSelect),
         contentPadding = CompactListCard.ContentPadding,
         verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
         shape = CompactListCard.Shape,
@@ -451,7 +454,7 @@ private fun ProfileCard(
         border = if (active) {
             BorderStroke(2.dp, NvpnColors.connected)
         } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            BorderStroke(1.dp, colors.outlineVariant)
         },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -459,11 +462,25 @@ private fun ProfileCard(
                 item.profile.name,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = if (active) NvpnColors.connected else MaterialTheme.colorScheme.onSurface,
+                color = when {
+                    active -> NvpnColors.connected
+                    selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
+                    else -> colors.onSurface
+                },
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (selectionLocked) {
+                Icon(
+                    Icons.Filled.Lock,
+                    contentDescription = "Смена профиля недоступна",
+                    tint = colors.onSurface.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .padding(end = 6.dp)
+                        .size(16.dp),
+                )
+            }
             if (active) {
                 Icon(
                     Icons.Filled.CheckCircle,
@@ -479,6 +496,11 @@ private fun ProfileCard(
                 Icon(
                     Icons.Filled.MoreVert,
                     contentDescription = "Действия",
+                    tint = if (selectionLocked) {
+                        colors.onSurface.copy(alpha = 0.45f)
+                    } else {
+                        colors.onSurfaceVariant
+                    },
                     modifier = Modifier.size(18.dp),
                 )
             }
@@ -487,25 +509,34 @@ private fun ProfileCard(
                 onDismissRequest = { menu = false },
                 shape = CompactListCard.Shape,
             ) {
-                DropdownMenuItem(
-                    text = { Text("Подключить") },
+                ProfileActionMenuItem(
+                    text = "Подключить",
+                    enabled = connectEnabled,
                     onClick = { menu = false; onOpen() },
-                    enabled = !selectionLocked || active,
                 )
-                DropdownMenuItem(text = { Text("Копировать JSON") }, onClick = { menu = false; onCopy() })
-                DropdownMenuItem(text = { Text("Ссылка / QR") }, onClick = { menu = false; onShare() })
-                DropdownMenuItem(text = { Text("Переименовать") }, onClick = { menu = false; onRename() })
-                DropdownMenuItem(
-                    text = { Text("Удалить") },
+                ProfileActionMenuItem(
+                    text = "Копировать JSON",
+                    onClick = { menu = false; onCopy() },
+                )
+                ProfileActionMenuItem(
+                    text = "Ссылка / QR",
+                    onClick = { menu = false; onShare() },
+                )
+                ProfileActionMenuItem(
+                    text = "Переименовать",
+                    onClick = { menu = false; onRename() },
+                )
+                ProfileActionMenuItem(
+                    text = "Удалить",
+                    enabled = deleteEnabled,
                     onClick = { menu = false; onDelete() },
-                    enabled = !selectionLocked || !active,
                 )
             }
         }
         Text(
             item.profile.direct.endpoint.ifBlank { item.profile.bypass.peer },
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -519,8 +550,32 @@ private fun ProfileCard(
                     }
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f),
             )
         }
     }
+}
+
+@Composable
+private fun ProfileActionMenuItem(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    val colors = MaterialTheme.colorScheme
+    val disabledColor = colors.onSurface.copy(alpha = 0.42f)
+    DropdownMenuItem(
+        text = {
+            Text(
+                text,
+                color = if (enabled) colors.onSurface else disabledColor,
+            )
+        },
+        onClick = onClick,
+        enabled = enabled,
+        colors = MenuDefaults.itemColors(
+            textColor = colors.onSurface,
+            disabledTextColor = disabledColor,
+        ),
+    )
 }
