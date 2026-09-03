@@ -21,6 +21,16 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** Compact list cards — Clients tab metrics, reused on Profiles. */
+object CompactListCard {
+    val ContentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+    val ItemSpacing = 6.dp
+    val ListSpacing = 8.dp
+    val CornerRadius = 18.dp
+    val Shape = RoundedCornerShape(CornerRadius)
+    val ShadowElevation = 4.dp
+}
+
 /** Soft section card. */
 val LocalOpaqueSectionCards = staticCompositionLocalOf { false }
 

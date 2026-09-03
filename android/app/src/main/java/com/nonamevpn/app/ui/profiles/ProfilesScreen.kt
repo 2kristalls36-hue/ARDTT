@@ -9,11 +9,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -59,6 +59,7 @@ import com.nonamevpn.app.ui.PROFILE_SWITCH_LOCKED_MESSAGE
 import com.nonamevpn.app.ui.vpnSessionBlocksProfileSwitch
 import com.nonamevpn.app.ui.components.TabPageHeader
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.CompactListCard
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.StickyBottomScaffold
@@ -216,69 +217,81 @@ fun ProfilesScreen(
         },
     ) {
         error?.let {
-            AppSectionCard(contentPadding = PaddingValues(16.dp)) {
+            AppSectionCard(
+                contentPadding = CompactListCard.ContentPadding,
+                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+                shape = CompactListCard.Shape,
+                shadowElevation = CompactListCard.ShadowElevation,
+            ) {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
 
         if (visible.isEmpty()) {
-            AppSectionCard(contentPadding = PaddingValues(16.dp)) {
+            AppSectionCard(
+                contentPadding = CompactListCard.ContentPadding,
+                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+                shape = CompactListCard.Shape,
+                shadowElevation = CompactListCard.ShadowElevation,
+            ) {
                 Text(
                     "Профили не загружены",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
                     "Импортируйте JSON пользователя или создайте клиента на вкладке VPS.",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
-            visible.forEach { item ->
-                ProfileCard(
-                    item = item,
-                    active = item.id == catalog.activeId,
-                    selectionLocked = profileSwitchLocked,
-                    onSelect = { applyProfile(item) },
-                    onOpen = { applyProfile(item, openTunnel = true) },
-                    onCopy = {
-                        val json = VpnProfileJson.encode(item.profile)
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("ARDTT profile", json))
-                        Toast.makeText(context, "JSON скопирован", Toast.LENGTH_SHORT).show()
-                    },
-                    onShare = {
-                        scope.launch {
-                            delay(64)
-                            shareProfile = item.profile
-                        }
-                    },
-                    onRename = {
-                        renameTarget = item
-                        renameText = item.profile.name
-                    },
-                    onDelete = {
-                        if (profileSwitchLocked && item.id == catalog.activeId) {
-                            Toast.makeText(
-                                context,
-                                PROFILE_SWITCH_LOCKED_MESSAGE,
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                            return@ProfileCard
-                        }
-                        scope.launch {
-                            val wasActive = item.id == catalog.activeId
-                            profiles.delete(item.id)
-                            if (wasActive) {
-                                val next = profiles.snapshot().active
-                                settings.setProfileName(next?.name.orEmpty())
-                                conn.updateProfile(next)
+            Column(verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing)) {
+                visible.forEach { item ->
+                    ProfileCard(
+                        item = item,
+                        active = item.id == catalog.activeId,
+                        selectionLocked = profileSwitchLocked,
+                        onSelect = { applyProfile(item) },
+                        onOpen = { applyProfile(item, openTunnel = true) },
+                        onCopy = {
+                            val json = VpnProfileJson.encode(item.profile)
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("ARDTT profile", json))
+                            Toast.makeText(context, "JSON скопирован", Toast.LENGTH_SHORT).show()
+                        },
+                        onShare = {
+                            scope.launch {
+                                delay(64)
+                                shareProfile = item.profile
                             }
-                            AppLog.i("Profiles", "deleted ${item.profile.name}")
-                        }
-                    },
-                )
+                        },
+                        onRename = {
+                            renameTarget = item
+                            renameText = item.profile.name
+                        },
+                        onDelete = {
+                            if (profileSwitchLocked && item.id == catalog.activeId) {
+                                Toast.makeText(
+                                    context,
+                                    PROFILE_SWITCH_LOCKED_MESSAGE,
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                return@ProfileCard
+                            }
+                            scope.launch {
+                                val wasActive = item.id == catalog.activeId
+                                profiles.delete(item.id)
+                                if (wasActive) {
+                                    val next = profiles.snapshot().active
+                                    settings.setProfileName(next?.name.orEmpty())
+                                    conn.updateProfile(next)
+                                }
+                                AppLog.i("Profiles", "deleted ${item.profile.name}")
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -429,14 +442,18 @@ private fun ProfileCard(
         modifier = Modifier
             .alpha(if (selectionLocked && !active) 0.72f else 1f)
             .clickable(enabled = !selectionLocked, onClick = onSelect),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = CompactListCard.ContentPadding,
+        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+        shape = CompactListCard.Shape,
+        shadowElevation = CompactListCard.ShadowElevation,
+        tonalElevation = 0.dp,
+        showBorder = false,
         border = if (active) BorderStroke(2.dp, NvpnColors.connected) else null,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 item.profile.name,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = if (active) NvpnColors.connected else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
@@ -448,15 +465,23 @@ private fun ProfileCard(
                     Icons.Filled.CheckCircle,
                     contentDescription = "Активен",
                     tint = NvpnColors.connected,
+                    modifier = Modifier.size(18.dp),
                 )
             }
-            IconButton(onClick = { menu = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Действия")
+            IconButton(
+                onClick = { menu = true },
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "Действия",
+                    modifier = Modifier.size(18.dp),
+                )
             }
             DropdownMenu(
                 expanded = menu,
                 onDismissRequest = { menu = false },
-                shape = RoundedCornerShape(18.dp),
+                shape = CompactListCard.Shape,
             ) {
                 DropdownMenuItem(
                     text = { Text("Подключить") },
@@ -475,7 +500,7 @@ private fun ProfileCard(
         }
         Text(
             item.profile.direct.endpoint.ifBlank { item.profile.bypass.peer },
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -489,7 +514,7 @@ private fun ProfileCard(
                         append("выбран")
                     }
                 },
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

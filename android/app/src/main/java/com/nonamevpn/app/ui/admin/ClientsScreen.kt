@@ -55,6 +55,7 @@ import com.nonamevpn.app.profile.VpnProfileJson
 import com.nonamevpn.app.ui.latestAppVersionCode
 import com.nonamevpn.app.update.AppUpdateController
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.CompactListCard
 import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.TabHeaderMetrics
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
@@ -290,7 +291,7 @@ private fun ClientsScreen(
                                 top = 8.dp,
                                 bottom = NvpnBottomChrome.scrollContentPadding(),
                             ),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
                         ) {
                             items(users, key = { "${it.name}-${it.hostId}" }) { user ->
                                 ClientCard(
@@ -708,10 +709,10 @@ private fun ClientCard(
         ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
     }
     AppSectionCard(
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        shape = RoundedCornerShape(18.dp),
-        shadowElevation = 4.dp,
+        contentPadding = CompactListCard.ContentPadding,
+        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+        shape = CompactListCard.Shape,
+        shadowElevation = CompactListCard.ShadowElevation,
         tonalElevation = 0.dp,
         showBorder = false,
     ) {
@@ -719,7 +720,7 @@ private fun ClientCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(enabled = !busy, onClick = onOpenProfile),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
