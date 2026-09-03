@@ -1,8 +1,8 @@
 package com.nonamevpn.app.ui
 
 /**
- * Recording must be stopped on the Testing tab before leaving tester/admin mode.
- * Do not auto-stop telemetry when the user tries to flip those switches.
+ * Recording must be stopped on the Testing tab before turning testing off.
+ * Do not auto-stop telemetry when the user tries to flip that switch.
  */
 internal object TestingSessionGuard {
     const val STOP_RECORDING_FIRST =
@@ -11,8 +11,7 @@ internal object TestingSessionGuard {
     fun canLeaveTestingSession(isRecording: Boolean): Boolean = !isRecording
 
     fun testingTabVisible(
-        admin: Boolean,
         testingMode: Boolean,
         isRecording: Boolean,
-    ): Boolean = (admin && testingMode) || isRecording
+    ): Boolean = testingMode || isRecording
 }

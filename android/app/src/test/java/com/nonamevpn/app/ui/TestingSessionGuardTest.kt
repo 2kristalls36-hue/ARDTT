@@ -13,26 +13,33 @@ class TestingSessionGuardTest {
     }
 
     @Test
-    fun keepsTestingTabWhileRecordingEvenIfModesOff() {
+    fun testingTabFollowsModeForAnyUser() {
         assertTrue(
             TestingSessionGuard.testingTabVisible(
-                admin = false,
-                testingMode = false,
-                isRecording = true,
+                testingMode = true,
+                isRecording = false,
             ),
         )
         assertFalse(
             TestingSessionGuard.testingTabVisible(
-                admin = false,
                 testingMode = false,
                 isRecording = false,
             ),
         )
+    }
+
+    @Test
+    fun keepsTestingTabWhileRecordingEvenIfModeOff() {
         assertTrue(
             TestingSessionGuard.testingTabVisible(
-                admin = true,
+                testingMode = false,
+                isRecording = true,
+            ),
+        )
+        assertTrue(
+            TestingSessionGuard.testingTabVisible(
                 testingMode = true,
-                isRecording = false,
+                isRecording = true,
             ),
         )
     }

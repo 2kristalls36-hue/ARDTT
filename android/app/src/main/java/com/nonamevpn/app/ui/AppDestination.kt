@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /**
  * Bottom tabs: Tunnel → Network (admin) → Servers → Profiles → Exceptions → Logs → Settings.
  * Deploy is reached from Servers (not a bottom tab).
- * Testing appears for admin+tester, and stays visible while a session is recording.
+ * Testing appears when testing mode is on, and stays visible while a session is recording.
  */
 enum class AppDestination(
     val route: String,
@@ -31,7 +31,7 @@ enum class AppDestination(
     Exceptions("exceptions", "Обход", adminOnly = false),
     Logs("logs", "Логи", adminOnly = false),
     Settings("settings", "Настройки", navLabel = "Настр.", adminOnly = false),
-    Testing("testing", "Тестирование", navLabel = "Тест", adminOnly = true),
+    Testing("testing", "Тестирование", navLabel = "Тест", adminOnly = false),
     /** Nested from Servers — not in bottom bar. */
     Deploy("deploy", "Деплой", navLabel = "Деплой", adminOnly = true, inBottomNav = false),
     ;

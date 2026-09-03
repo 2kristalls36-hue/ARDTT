@@ -197,7 +197,7 @@ fun AppRoot(
         if (!dest.inBottomNav) return@filter false
         when (dest) {
             AppDestination.Testing ->
-                TestingSessionGuard.testingTabVisible(admin, testingMode, isRecording)
+                TestingSessionGuard.testingTabVisible(testingMode, isRecording)
             else -> !dest.adminOnly || admin
         }
     }
@@ -335,7 +335,7 @@ fun AppRoot(
         val dest = AppDestination.entries.find { it.route == currentRoute }
         val blocked = when {
             dest == AppDestination.Testing ->
-                !TestingSessionGuard.testingTabVisible(admin, testingMode, isRecording)
+                !TestingSessionGuard.testingTabVisible(testingMode, isRecording)
             dest?.adminOnly == true -> !admin
             else -> false
         }
