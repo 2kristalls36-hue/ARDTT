@@ -33,6 +33,11 @@ if [ -f "$INSTALLER" ]; then
   if grep -q '127.0.0.1:9200/health' "$INSTALLER"; then
     err "installer hardcodes telemetry :9200 health check"
   fi
+  grep -q 'NVPN_ROLE' "$INSTALLER" || err "installer missing NVPN_ROLE"
+  grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
+  if grep -q 'NVPN_CASCADE_PASSWORD' "$INSTALLER"; then
+    err "installer must not write cascade SSH password into .env"
+  fi
 fi
 
 if [ -f "$INSTALLER" ] && [ -f "$ASSET_INSTALLER" ]; then
@@ -76,6 +81,11 @@ for context in provision direct bypass dns warp telemetry-upload; do
     err "docker-compose.yml has no build context for $context"
   fi
 done
+[ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
+if [ -f "$COMPOSE" ]; then
+  grep -q 'container_name: nvpn-cascade' "$COMPOSE" || err "compose missing nvpn-cascade"
+fi
+bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n failed for cascade-entrypoint.sh"
 
 if [ "$fail" -ne 0 ]; then
   msg "deploy bundle check failed"

@@ -32,5 +32,7 @@ COPY --from=go-build /out/direct-sync /usr/local/bin/direct-sync
 COPY --from=tools-build /src/amneziawg-tools/src/wg /usr/local/bin/awg
 RUN ln -sf /usr/local/bin/awg /usr/local/bin/wg
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh /usr/local/bin/amneziawg-go /usr/local/bin/direct-sync /usr/local/bin/awg
+COPY cascade-entrypoint.sh /cascade-entrypoint.sh
+RUN chmod +x /entrypoint.sh /cascade-entrypoint.sh \
+      /usr/local/bin/amneziawg-go /usr/local/bin/direct-sync /usr/local/bin/awg
 ENTRYPOINT ["/entrypoint.sh"]

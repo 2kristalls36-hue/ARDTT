@@ -4,6 +4,9 @@
 #
 # Product path (from the app): SSH upload of stack.tar.gz + this script, then:
 #   NVPN_PUBLIC_HOST=… bash /opt/nonamevpn/install.sh
+# Cascade: phone SSHs to the exit VPS (NVPN_ROLE=exit) and the entry VPS
+#   (NVPN_ROLE=entry NVPN_CASCADE_ENABLED=1) separately. Do not write SSH passwords
+#   into .env.
 # Ops path: same script; if the tarball is gone, re-run against already unpacked stack/.
 #
 # Protocol lines consumed by the Android DeployEngine:
@@ -27,6 +30,16 @@ COMPOSE_PROJECT="${NVPN_COMPOSE_PROJECT:-stack}"
 MIN_SWAP_MB="${NVPN_MIN_SWAP_MB:-2048}"
 MIN_DISK_MB="${NVPN_MIN_DISK_MB:-1800}"
 MIN_DISK_UPDATE_MB="${NVPN_MIN_DISK_UPDATE_MB:-900}"
+# entry = phone-facing stack. exit = hop egress (AWG + DNS + WARP).
+ROLE="${NVPN_ROLE:-entry}"
+CASCADE_ENABLED="${NVPN_CASCADE_ENABLED:-0}"
+CASCADE_LISTEN_PORT="${NVPN_CASCADE_LISTEN_PORT:-51820}"
+CASCADE_PEER_ENDPOINT="${NVPN_CASCADE_PEER_ENDPOINT:-}"
+CASCADE_PEER_PUBLIC_KEY="${NVPN_CASCADE_PEER_PUBLIC_KEY:-}"
+CASCADE_DNS="${NVPN_CASCADE_DNS:-10.10.0.2}"
+if [ "$ROLE" = "exit" ]; then
+  CASCADE_ENABLED=1
+fi
 
 LOG_FILE="$(mktemp /tmp/nvpn-install.XXXXXX.log)"
 STAGING=""
@@ -62,12 +75,70 @@ reclaim_disk() {
 stack_images_ready() {
   local missing=0
   local img
-  for img in stack-provision stack-direct stack-bypass stack-dns stack-warp stack-telemetry; do
+  local names="$1"
+  [ -n "$names" ] || names="stack-provision stack-direct stack-bypass stack-dns stack-warp stack-telemetry"
+  for img in $names; do
     if ! docker image inspect "${img}:latest" >/dev/null 2>&1; then
       missing=$((missing + 1))
     fi
   done
   [ "$missing" -eq 0 ]
+}
+
+role_build_services() {
+  if [ "$ROLE" = "exit" ]; then
+    echo "provision direct dns warp telemetry"
+  elif [ "$CASCADE_ENABLED" = "1" ]; then
+    echo "provision direct bypass telemetry"
+  else
+    echo "provision direct bypass dns warp telemetry"
+  fi
+}
+
+role_up_services() {
+  if [ "$ROLE" = "exit" ]; then
+    echo "provision cascade dns warp telemetry"
+  elif [ "$CASCADE_ENABLED" = "1" ]; then
+    echo "provision direct bypass cascade telemetry"
+  else
+    echo "provision direct bypass dns warp telemetry"
+  fi
+}
+
+role_image_names() {
+  if [ "$ROLE" = "exit" ]; then
+    echo "stack-provision stack-direct stack-dns stack-warp stack-telemetry"
+  elif [ "$CASCADE_ENABLED" = "1" ]; then
+    echo "stack-provision stack-direct stack-bypass stack-telemetry"
+  else
+    echo "stack-provision stack-direct stack-bypass stack-dns stack-warp stack-telemetry"
+  fi
+}
+
+ensure_cascade_keys() {
+  local data="$1"
+  mkdir -p "$data"
+  if [ "$CASCADE_ENABLED" != "1" ] && [ "$ROLE" != "exit" ]; then
+    return 0
+  fi
+  if ! docker image inspect stack-direct:latest >/dev/null 2>&1; then
+    echo "NVPN_WARN|нет образа stack-direct — ключи каскада создаст контейнер"
+    return 0
+  fi
+  if [ ! -s "$data/cascade.priv" ]; then
+    docker run --rm --network none --entrypoint awg stack-direct genkey >"$data/cascade.priv"
+    chmod 600 "$data/cascade.priv"
+  fi
+  docker run --rm --network none -i --entrypoint awg stack-direct pubkey <"$data/cascade.priv" >"$data/cascade.pub"
+  chmod 644 "$data/cascade.pub" 2>/dev/null || true
+  if [ -n "$CASCADE_PEER_PUBLIC_KEY" ]; then
+    printf '%s\n' "$CASCADE_PEER_PUBLIC_KEY" >"$data/cascade.peer.pub"
+  fi
+  local pub
+  pub="$(tr -d '[:space:]' <"$data/cascade.pub" 2>/dev/null || true)"
+  if [ -n "$pub" ]; then
+    echo "NVPN_CASCADE_PUBLIC_KEY|$pub"
+  fi
 }
 
 cleanup_install_artifacts() {
@@ -192,16 +263,22 @@ stop_stack() {
   if [ -f "$dir/docker-compose.yml" ]; then
     (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose down) 2>/dev/null || \
       (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose down) 2>/dev/null || \
-      docker rm -f nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry >/dev/null 2>&1 || true
+      docker rm -f nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade >/dev/null 2>&1 || true
   fi
 }
 
-prog 0.05 "Проверка прав"
+PROG_ROLE="вход (клиенты)"
+[ "$ROLE" = "exit" ] && PROG_ROLE="выход (WARP)"
+[ "$CASCADE_ENABLED" = "1" ] && [ "$ROLE" = "entry" ] && PROG_ROLE="вход + каскад на ${CASCADE_PEER_ENDPOINT:-?}"
+prog 0.05 "Проверка прав · ${PROG_ROLE}"
 if [ "${NVPN_SKIP_ROOT_CHECK:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
   die "Нужен root (или запуск через sudo)"
 fi
 
 [ -n "$PUBLIC_HOST" ] || die "NVPN_PUBLIC_HOST не задан"
+if [ "$ROLE" != "entry" ] && [ "$ROLE" != "exit" ]; then
+  die "NVPN_ROLE должен быть entry или exit"
+fi
 
 prog 0.10 "Подготовка каталога $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
@@ -317,6 +394,16 @@ fi
 [ -n "$DEPLOY_VERSION" ] || DEPLOY_VERSION="unknown"
 printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
 printf '%s\n' "$DEPLOY_VERSION" > "$STAGING/DEPLOY_VERSION"
+BYPASS_DNS="10.9.0.1"
+WARP_MODE="hideip"
+WARP_DNS_IFACES="awg0 wdttraw0"
+if [ "$CASCADE_ENABLED" = "1" ]; then
+  BYPASS_DNS="$CASCADE_DNS"
+fi
+if [ "$ROLE" = "exit" ]; then
+  WARP_MODE="cascade"
+  WARP_DNS_IFACES="cascade0"
+fi
 cat > "$STAGING/.env" <<EOF
 NVPN_PUBLIC_HOST=$PUBLIC_HOST
 NVPN_DIRECT_PORT=$DIRECT_PORT
@@ -327,6 +414,16 @@ NVPN_WARP_GOMEMLIMIT=400MiB
 TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
 NVPN_TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
 NVPN_TELEMETRY_PORT=${TELEMETRY_PORT}
+NVPN_ROLE=$ROLE
+NVPN_CASCADE_ENABLED=$CASCADE_ENABLED
+NVPN_CASCADE_LISTEN_PORT=$CASCADE_LISTEN_PORT
+NVPN_CASCADE_PEER_ENDPOINT=$CASCADE_PEER_ENDPOINT
+NVPN_CASCADE_PEER_PUBLIC_KEY=$CASCADE_PEER_PUBLIC_KEY
+NVPN_CASCADE_DNS=$CASCADE_DNS
+NVPN_BYPASS_DNS=$BYPASS_DNS
+NVPN_WARP_MODE=$WARP_MODE
+NVPN_WARP_DNS_IIFACES="$WARP_DNS_IFACES"
+COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT
 EOF
 load_stack_env "$STAGING/.env"
 
@@ -357,7 +454,7 @@ reclaim_disk
 
 avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
 need_mb="$MIN_DISK_MB"
-if stack_images_ready; then
+if stack_images_ready "$(role_image_names)"; then
   need_mb="$MIN_DISK_UPDATE_MB"
   echo "NVPN_INFO|образы стека уже есть — порог диска ${need_mb} МБ"
 fi
@@ -389,7 +486,7 @@ fi
 # while the old stack is still up, so -af would delete the image we just built.
 export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
 
-BUILD_SERVICES="provision direct bypass dns warp telemetry"
+BUILD_SERVICES="$(role_build_services)"
 BUILD_LOG="$(mktemp /tmp/nvpn-compose-build.XXXXXX.log)"
 svc_i=0
 svc_n=$(echo "$BUILD_SERVICES" | wc -w | tr -d ' ')
@@ -440,9 +537,14 @@ fi
 # Carry .env we wrote in staging (already inside $STACK after mv).
 chmod 700 "$STACK/data" 2>/dev/null || true
 
+if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
+  prog 0.76 "Ключи каскадного AWG"
+  ensure_cascade_keys "$STACK/data"
+fi
+
 # Remove only legacy/unmanaged nvpn containers. Compose-managed containers are
 # left intact and will be recreated normally.
-for managed_name in nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry; do
+for managed_name in nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade; do
   if docker inspect "$managed_name" >/dev/null 2>&1; then
     compose_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$managed_name" 2>/dev/null || true)"
     if [ -z "$compose_project" ] || [ "$compose_project" = "<no value>" ]; then
@@ -455,10 +557,10 @@ done
 prog 0.78 "Запуск Compose"
 cd "$STACK"
 load_stack_env "$STACK/.env"
-UP_SERVICES="provision direct bypass dns warp telemetry"
+UP_SERVICES="$(role_up_services)"
 if tcp_listen_port "$TELEMETRY_PORT"; then
   echo "NVPN_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — nvpn-telemetry не запускаем. Освободите порт или задайте NVPN_TELEMETRY_PORT"
-  UP_SERVICES="provision direct bypass dns warp"
+  UP_SERVICES="$(echo "$UP_SERVICES" | sed 's/ telemetry//')"
 fi
 UP_LOG="$(mktemp /tmp/nvpn-compose-up.XXXXXX.log)"
 if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d $UP_SERVICES 2>&1 | tee "$UP_LOG"; then
@@ -494,6 +596,27 @@ else
 fi
 
 prog 0.96 "Открытие портов (best-effort)"
+if [ "$ROLE" = "exit" ]; then
+  if command -v ufw >/dev/null 2>&1; then
+    ufw allow "${CASCADE_LISTEN_PORT}/udp" || true
+    ufw allow 9100/tcp || true
+    ufw allow "${TELEMETRY_PORT}/tcp" || true
+  fi
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    firewall-cmd --add-port="${CASCADE_LISTEN_PORT}/udp" --permanent || true
+    firewall-cmd --add-port=9100/tcp --permanent || true
+    firewall-cmd --add-port="${TELEMETRY_PORT}/tcp" --permanent || true
+    firewall-cmd --reload || true
+  fi
+  if command -v iptables >/dev/null 2>&1; then
+    iptables -C INPUT -p udp --dport "$CASCADE_LISTEN_PORT" -j ACCEPT 2>/dev/null || \
+      iptables -I INPUT -p udp --dport "$CASCADE_LISTEN_PORT" -j ACCEPT || true
+    iptables -C INPUT -p tcp --dport 9100 -j ACCEPT 2>/dev/null || \
+      iptables -I INPUT -p tcp --dport 9100 -j ACCEPT || true
+    iptables -C INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT 2>/dev/null || \
+      iptables -I INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT || true
+  fi
+else
 if command -v ufw >/dev/null 2>&1; then
   ufw allow "${DIRECT_PORT}/udp" || true
   ufw allow "${BYPASS_PORT}/udp" || true
@@ -517,7 +640,8 @@ if command -v iptables >/dev/null 2>&1; then
   iptables -C INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT 2>/dev/null || \
     iptables -I INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT || true
 fi
+fi
 
 prog 1.00 "Готово"
-echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT"
+echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|role=$ROLE|cascade=$CASCADE_ENABLED"
 echo "Создать пользователя: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"

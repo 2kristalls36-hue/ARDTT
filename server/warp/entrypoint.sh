@@ -1,10 +1,12 @@
 #!/bin/bash
-# WARP egress: wgcf → warp0 (Table=off) + per-user ip rules from users.json hideIp.
+# WARP egress: wgcf → warp0 (Table=off) + policy routing.
 #
-# DNS must NOT go through WARP (breaks resolvers / looks like tun2socks DNS loops):
-#   priority 100: iif awg0|wdttraw0 udp/tcp dport 53 → main
-#   priority 300+: from <client>/32 → table 51820 (WARP)
-# Existing MASQUERADE on VPN subnets → eth0 covers DNS upstream on main.
+# hideip (default, entry standalone): per-user ip rules from users.json hideIp.
+# cascade (exit VPS): all 10.8/10.9/10.10 traffic except DNS → warp0.
+#
+# DNS must NOT go through WARP:
+#   priority 100: iif <ingress> udp/tcp dport 53 → main
+#   priority 300+: from <client> → table 51820 (WARP)
 set -euo pipefail
 
 DATA="${NVPN_DATA:-/data}"
@@ -18,6 +20,7 @@ DNS_COMMENT="NVPN_WARP_DNS_MAIN"
 # Keep DNS well below any accidental unprioritized WARP rules (~163xx / auto).
 DNS_RULE_PRIO="${NVPN_WARP_DNS_PRIO:-100}"
 WARP_RULE_PRIO_BASE="${NVPN_WARP_RULE_PRIO:-300}"
+WARP_MODE="${NVPN_WARP_MODE:-hideip}"
 
 # VPN ingress ifaces whose client DNS must stay on main.
 DNS_IIFACES="${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0}"
@@ -25,7 +28,7 @@ DNS_IIFACES="${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0}"
 mkdir -p "${STATE_DIR}"
 cd "${STATE_DIR}"
 
-echo "[warp] Cloudflare WARP egress via ${IFACE} table=${TABLE}"
+echo "[warp] Cloudflare WARP egress via ${IFACE} table=${TABLE} mode=${WARP_MODE}"
 echo "[warp] DNS via main (prio ${DNS_RULE_PRIO}); WARP from/client (prio ${WARP_RULE_PRIO_BASE}+)"
 echo "[warp] GOMEMLIMIT=${GOMEMLIMIT:-400MiB}; no container restart-on-OOM"
 
@@ -129,7 +132,7 @@ ensure_dns_masquerade() {
   local wan
   wan="$(ip route show default 0.0.0.0/0 2>/dev/null | awk '{print $5; exit}')"
   [[ -z "${wan}" ]] && wan="eth0"
-  local nets=("10.8.0.0/24" "10.9.0.0/24")
+  local nets=("10.8.0.0/24" "10.9.0.0/24" "10.10.0.0/30")
   local net proto
   for net in "${nets[@]}"; do
     for proto in udp tcp; do
@@ -260,7 +263,7 @@ install_local_exempt_rules() {
   for clear_p in $(seq "${LOCAL_EXEMPT_PRIO}" $((LOCAL_EXEMPT_PRIO + 16))); do
     ip rule del pref "${clear_p}" 2>/dev/null || true
   done
-  for net in 10.8.0.0/24 10.9.0.0/24 127.0.0.0/8; do
+  for net in 10.8.0.0/24 10.9.0.0/24 10.10.0.0/30 127.0.0.0/8; do
     if ip rule add to "${net}" lookup main priority "${p}" 2>/dev/null; then
       echo "[warp] local exempt to ${net} → main prio=${p}"
     fi
@@ -297,9 +300,29 @@ flush_client_conntrack() {
   fi
 }
 
+# Cascade exit: every client subnet on the hop goes through WARP (except DNS).
+sync_cascade_rules() {
+  local prio="${WARP_RULE_PRIO_BASE}"
+  local net
+  for net in 10.8.0.0/24 10.9.0.0/24 10.10.0.0/30; do
+    if ip rule show 2>/dev/null | grep -q "from ${net} lookup ${TABLE}"; then
+      prio=$((prio + 1))
+      continue
+    fi
+    if ip rule add from "${net}" lookup "${TABLE}" priority "${prio}" 2>/dev/null; then
+      echo "[warp] cascade from ${net} → table ${TABLE} prio=${prio}"
+    fi
+    prio=$((prio + 1))
+  done
+}
+
 # Diff-based hideIp sync: add/remove only changed client prefixes.
 # Does NOT tear down DNS→main rules (that caused internet blips on rapid toggles).
 sync_rules() {
+  if [ "${WARP_MODE}" = "cascade" ]; then
+    sync_cascade_rules
+    return 0
+  fi
   [[ -f "${USERS}" ]] || return 0
 
   local desired="" count=0

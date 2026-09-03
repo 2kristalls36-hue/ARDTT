@@ -46,11 +46,41 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 ```
 Android
   probe (лёгкий) → preselect Direct|Bypass → Connect
-  ├─ Path A: AWG 2.0 UDP ──────────────────────────► VPS direct (awg0)
-  └─ Path B: TUN → WRAP → TURN/TCP → VPS bypass (raw0)
+  ├─ Path A: AWG 2.0 UDP ──────────────────────────► VPS1 direct (awg0)
+  └─ Path B: TUN → WRAP → TURN/TCP → VPS1 bypass (raw0)
                                               │
-              если «Скрыть IP» ───────────────┴─► policy route → warp0 → Cloudflare
+              без каскада + «Скрыть IP» ──────┴─► warp0 на VPS1
+              с каскадом: весь трафик ──────────► VPS1 cascade0 ─AWG─► VPS2
+                                                                      ├ DNS :53 → main
+                                                                      └ остальное → warp0
 ```
+
+---
+
+## Каскад (два VPS)
+
+Не два одинаковых VPN для телефона. Телефон знает только **вход** (VPS1). Второй сервер — **выход**.
+
+```
+телефон ── Path A / Path B ──► VPS1 (provision, клиенты, awg0, wdttraw0)
+                                  │
+                                  │ AmneziaWG 2.0 (cascade0, 10.10.0.0/30)
+                                  ▼
+                               VPS2 (DNS, затем WARP) ──► интернет
+```
+
+| | VPS1 вход | VPS2 выход |
+|---|---|---|
+| Кто деплоит | телефон, SSH на первый host | телефон, отдельный SSH на каскад host |
+| Клиенты | живут здесь (`:9100`) | нет |
+| Телефон коннектится | да (UDP 51820 / 56003) | нет |
+| DNS | нет (форвард на 10.10.0.2) | dnsmasq на `cascade0`, upstream с main |
+| WARP | нет | весь трафик кроме DNS |
+| Если выход мёртв | hop без handshake → `awg0`/`wdttraw0` down, туннель на телефоне падает | — |
+
+Профиль по-прежнему с endpoint VPS1. Снаружи виден IP VPS2 / Cloudflare, не IP входа.
+
+Деплой из приложения: карточка первого сервера + тумблер «Каскад» (SSH второго). «Установить» сначала ставит **exit** на втором, затем **entry** на первом, затем копирует ключ пира. Пароль второго VPS на первый **не** записывается.
 
 ---
 
