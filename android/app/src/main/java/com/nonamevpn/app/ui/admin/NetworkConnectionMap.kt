@@ -1,7 +1,7 @@
 package com.nonamevpn.app.ui.admin
 
+import com.nonamevpn.app.deploy.DeployHop
 import com.nonamevpn.app.deploy.DeployTarget
-import com.nonamevpn.app.profile.NetworkEndpoint
 
 /** Labels for the Network tab connection map. */
 internal object NetworkMapCopy {
@@ -69,37 +69,29 @@ internal fun buildNetworkMapLayout(
     return NetworkMapLayout(hops)
 }
 
-/**
- * Exact profile-host match only — do not fall back to the latest deploy,
- * or the map would show another server's cascade hop.
- */
 internal fun findMatchingDeployServer(
     servers: List<DeployTarget>,
     profileHost: String?,
-): DeployTarget? {
-    val host = hopHost(profileHost) ?: return null
-    val byPublic = servers.filter {
-        hopHost(it.publicHost)?.let { pub -> sameHopHost(pub, host) } == true
+): DeployTarget? = DeployHop.matchingServer(servers, profileHost)
+
+internal fun hopHost(raw: String?): String? = DeployHop.host(raw)
+
+internal fun sameHopHost(a: String?, b: String?): Boolean = DeployHop.same(a, b)
+
+internal fun provisionUrlForHost(host: String?): String? = DeployHop.provisionUrl(host)
+
+internal fun lastHopProvisionUrls(entry: String?, exit: String?): List<String> =
+    DeployHop.lastHopProvisionUrls(entry, exit)
+
+/** Cards appear only with a real address; CloudFlare is omitted if it duplicates a VPS hop. */
+internal fun shouldShowFilledHop(
+    kind: NetworkMapHopKind,
+    ip: String,
+    earlierIps: Collection<String>,
+): Boolean {
+    if (ip.isBlank()) return false
+    if (kind == NetworkMapHopKind.Cloudflare && earlierIps.any { sameHopHost(it, ip) }) {
+        return false
     }
-    if (byPublic.isNotEmpty()) {
-        return byPublic.maxByOrNull { it.lastDeployedAtMs }
-    }
-    val byHost = servers.filter { hopHost(it.host)?.let { h -> sameHopHost(h, host) } == true }
-    return byHost.maxByOrNull { it.lastDeployedAtMs }
-}
-
-internal fun hopHost(raw: String?): String? {
-    val trimmed = raw?.trim()?.ifBlank { null } ?: return null
-    return NetworkEndpoint.hostOf(trimmed)?.ifBlank { null } ?: trimmed
-}
-
-internal fun sameHopHost(a: String?, b: String?): Boolean {
-    val left = hopHost(a) ?: return false
-    val right = hopHost(b) ?: return false
-    return left.equals(right, ignoreCase = true)
-}
-
-internal fun provisionUrlForHost(host: String?): String? {
-    val h = hopHost(host) ?: return null
-    return "http://$h:9100"
+    return true
 }
