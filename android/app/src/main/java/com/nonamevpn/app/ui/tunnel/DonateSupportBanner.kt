@@ -55,7 +55,7 @@ fun DonateSupportBanner(
             Icon(
                 imageVector = Icons.Outlined.LocalCafe,
                 contentDescription = null,
-                tint = accentColor,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .padding(end = 8.dp)
                     .size(18.dp),
