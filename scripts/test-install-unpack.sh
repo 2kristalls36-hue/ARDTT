@@ -39,6 +39,31 @@ run_install() {
   bash "$INSTALL/install.sh"
 }
 
+echo leftover-live > "$INSTALL/install-live.log"
+echo leftover-run > "$INSTALL/install-run.log"
+mkdir -p "$INSTALL/stack.old" "$INSTALL/stack.staging"
+echo stale-old > "$INSTALL/stack.old/junk"
+echo keep-staging-until-success > "$INSTALL/stack.staging/junk"
+
+# Isolated leftover cleanup: drop old logs / stack.old, keep in-progress staging.
+leftover_root="$(mktemp -d)"
+mkdir -p "${leftover_root}/stack.old" "${leftover_root}/stack.staging"
+echo old > "${leftover_root}/stack.old/a"
+echo staging > "${leftover_root}/stack.staging/b"
+echo live > "${leftover_root}/install-live.log"
+echo run > "${leftover_root}/install-run.log"
+(
+  set -euo pipefail
+  INSTALL_DIR="$leftover_root"
+  eval "$(sed -n '/^cleanup_stale_deploy_files()/,/^}/p' "$ROOT/server/install.sh")"
+  cleanup_stale_deploy_files
+)
+[ ! -e "${leftover_root}/install-live.log" ] || err "cleanup_stale left install-live.log"
+[ ! -e "${leftover_root}/install-run.log" ] || err "cleanup_stale left install-run.log"
+[ ! -d "${leftover_root}/stack.old" ] || err "cleanup_stale left stack.old"
+[ -f "${leftover_root}/stack.staging/b" ] || err "cleanup_stale must keep stack.staging"
+rm -rf "${leftover_root}"
+
 out="$(run_install)" || err "first install.sh exited $?"
 echo "$out" | grep -q 'NVPN_DONE|dry_run=1' || err "first run missing NVPN_DONE dry_run"
 echo "$out" | grep -q 'Распаковка стека' || err "first run did not unpack tar"
@@ -57,6 +82,10 @@ fi
 [ -f "$INSTALL/DEPLOY_VERSION" ] || err "missing host DEPLOY_VERSION"
 [ -f "$INSTALL/stack/data/DEPLOY_VERSION" ] || err "missing data/DEPLOY_VERSION"
 [ ! -f "$INSTALL/stack.tar.gz" ] || err "tar should be deleted after run"
+[ ! -f "$INSTALL/install-live.log" ] || err "install-live.log leftover after dry-run"
+[ ! -f "$INSTALL/install-run.log" ] || err "install-run.log leftover after dry-run"
+[ ! -d "$INSTALL/stack.staging" ] || err "stack.staging leftover after successful dry-run"
+[ ! -d "$INSTALL/stack.old" ] || err "stack.old leftover after successful dry-run"
 
 echo 'keep-me' > "$INSTALL/stack/data/users.json"
 
