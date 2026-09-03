@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Person mark for profile list cards; tinted by CompactListLeadingIcon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,4.2A3.9,3.9 0,1,1 12,12 3.9,3.9 0,1,1 12,4.2Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,13.4c-3.5,0 -8,1.7 -8,5.1V20.5h16v-2c0,-3.4 -4.5,-5.1 -8,-5.1z" />
+</vector>
