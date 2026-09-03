@@ -2,12 +2,14 @@ package com.nonamevpn.app.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -31,6 +33,21 @@ object TabHeaderMetrics {
     val TopPaddingAfterStatusBar = 8.dp
     val HorizontalPadding = 16.dp
     val BottomPaddingBelowTitle = 12.dp
+}
+
+/**
+ * Status-bar spacer + title as **one** column child.
+ *
+ * Parent feeds use [Arrangement.spacedBy]; if the inset and title are siblings,
+ * that gap sits *between* the status bar and the word, so titles jump by ~14.dp
+ * from tab to tab. This wrapper keeps every tab title on the same baseline.
+ */
+@Composable
+fun TabHeaderAnchor(content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        EdgeFeedTopInset()
+        content()
+    }
 }
 
 /**
@@ -64,13 +81,14 @@ fun TabFeedHeader(
     onBack: (() -> Unit)? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
-    EdgeFeedTopInset()
-    TabPageHeader(
-        title = title,
-        subtitle = subtitle,
-        onBack = onBack,
-        actions = actions,
-    )
+    TabHeaderAnchor {
+        TabPageHeader(
+            title = title,
+            subtitle = subtitle,
+            onBack = onBack,
+            actions = actions,
+        )
+    }
 }
 
 /** Generic page header for dialogs and standalone screens (not bottom-tab anchor). */
@@ -113,13 +131,10 @@ private fun PageHeaderChrome(
     } else {
         null
     }
-    val startPad = if (onBack != null) 4.dp else 0.dp
-    val endPad = if (onBack != null) 8.dp else 0.dp
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = startPad, end = endPad, top = topPadding, bottom = bottomPadding),
+            .padding(top = topPadding, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
@@ -129,7 +144,10 @@ private fun PageHeaderChrome(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(TabHeaderMetrics.TitleRowHeight),
+                ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Назад",
@@ -153,7 +171,7 @@ private fun PageHeaderChrome(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (onBack != null) Modifier.padding(start = 48.dp) else Modifier),
+                    .then(if (onBack != null) Modifier.padding(start = TabHeaderMetrics.TitleRowHeight) else Modifier),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!subtitle.isNullOrBlank()) {

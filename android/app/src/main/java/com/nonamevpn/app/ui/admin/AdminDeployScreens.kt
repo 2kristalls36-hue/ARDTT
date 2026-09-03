@@ -92,7 +92,7 @@ import com.nonamevpn.app.profile.ProfileRepository
 import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.components.TabFeedHeader
-import com.nonamevpn.app.ui.components.TabPageHeader
+import com.nonamevpn.app.ui.components.TabHeaderMetrics
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
@@ -833,10 +833,11 @@ private fun ServerOverviewScreen(
             onRefresh = onRefresh,
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                TabFeedHeader(
-                    title = server.name.ifBlank { server.host },
-                    subtitle = "Управление сервером",
-                    onBack = onBack,
+                Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
+                    TabFeedHeader(
+                        title = server.name.ifBlank { server.host },
+                        subtitle = "Управление сервером",
+                        onBack = onBack,
                     actions = {
                         Box {
                             IconButton(onClick = { onShowActions(true) }) {
@@ -902,7 +903,8 @@ private fun ServerOverviewScreen(
                             }
                         }
                     },
-                )
+                    )
+                }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -1214,15 +1216,17 @@ fun DeployScreen(
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        TabFeedHeader(
-            title = if (isUpdate) "Обновить деплой" else "Деплой",
-            subtitle = if (isUpdate) {
-                "Стек $expectedDeployVersion · SSH · Compose"
-            } else {
-                "SSH · установка Compose-стека ARDTT"
-            },
-            onBack = onBack,
-        )
+        Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
+            TabFeedHeader(
+                title = if (isUpdate) "Обновить деплой" else "Деплой",
+                subtitle = if (isUpdate) {
+                    "Стек $expectedDeployVersion · SSH · Compose"
+                } else {
+                    "SSH · установка Compose-стека ARDTT"
+                },
+                onBack = onBack,
+            )
+        }
         Text(
             if (isUpdate) {
                 "Кнопка «Обновить деплой» заново зальёт стек версии $expectedDeployVersion на VPS."
