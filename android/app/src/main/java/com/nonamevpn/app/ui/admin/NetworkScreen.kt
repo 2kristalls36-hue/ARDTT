@@ -269,7 +269,7 @@ fun NetworkScreen(
                         title = view.hop.title,
                         kind = view.hop.kind,
                         info = view.info,
-                        highlighted = isLastFilledHop(index, visibleHops.size),
+                        highlighted = hopCardOutline(index, visibleHops.size) == HopCardOutline.Last,
                         pingLabel = hopPingLabel(view.hop.kind, hopPings),
                     )
                 }
