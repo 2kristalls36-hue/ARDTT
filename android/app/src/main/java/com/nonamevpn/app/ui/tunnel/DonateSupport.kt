@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Soft donate ask on the Tunnel tab while connected.
- * Closing it hides the card for this process only — it comes back on the next launch.
+ * Soft donate ask: Tunnel while connected, and a persistent card in Settings.
+ * Closing the Tunnel banner hides it for this process only — it comes back on the next launch.
  */
 object DonateSupport {
     const val URL = "https://spasibomir.ru/pay/34807"

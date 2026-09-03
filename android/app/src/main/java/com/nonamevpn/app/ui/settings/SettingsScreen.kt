@@ -78,6 +78,7 @@ import com.nonamevpn.app.ui.components.ThemeModeChipRow
 import com.nonamevpn.app.ui.components.EdgeFeedColumn
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.rememberPullRefresh
+import com.nonamevpn.app.ui.tunnel.DonateSupportBanner
 import com.nonamevpn.app.ui.components.rememberSmartHaptics
 import com.nonamevpn.app.ui.theme.NvpnColors
 import com.nonamevpn.app.update.AppUpdateController
@@ -369,21 +370,19 @@ fun SettingsScreen(
                     checked = dynamicColors,
                     onCheckedChange = { scope.launch { settings.setDynamicColors(it) } },
                 )
-                if (admin) {
-                    RowSetting(
-                        title = "Виброотклик",
-                        subtitle = if (uiHapticsEnabled) {
-                            "Короткая тактильная отдача на ключевых действиях интерфейса."
-                        } else {
-                            "Виброотклик отключён."
-                        },
-                        checked = uiHapticsEnabled,
-                        onCheckedChange = {
-                            if (uiHapticsEnabled) haptics.tick()
-                            scope.launch { settings.setUiHapticsEnabled(it) }
-                        },
-                    )
-                }
+                RowSetting(
+                    title = "Виброотклик",
+                    subtitle = if (uiHapticsEnabled) {
+                        "Короткая тактильная отдача на ключевых действиях интерфейса."
+                    } else {
+                        "Виброотклик отключён."
+                    },
+                    checked = uiHapticsEnabled,
+                    onCheckedChange = {
+                        if (uiHapticsEnabled) haptics.tick()
+                        scope.launch { settings.setUiHapticsEnabled(it) }
+                    },
+                )
             }
             if (!admin) {
                 RowSetting(
@@ -419,6 +418,8 @@ fun SettingsScreen(
                 },
             )
         }
+
+        DonateSupportBanner()
 
         AppSectionCard(
             contentPadding = PaddingValues(16.dp),
