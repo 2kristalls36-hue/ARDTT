@@ -50,4 +50,14 @@ class PendingUiActionTest {
         assertFalse(PendingUiAction.openAppearanceSettings.value)
         assertFalse(PendingUiAction.consumeOpenAppearanceSettings())
     }
+
+    @Test
+    fun openProfilesIsOneShotFlag() {
+        PendingUiAction.consumeOpenProfiles()
+        PendingUiAction.requestOpenProfiles()
+        assertTrue(PendingUiAction.openProfiles.value)
+        assertTrue(PendingUiAction.consumeOpenProfiles())
+        assertFalse(PendingUiAction.openProfiles.value)
+        assertFalse(PendingUiAction.consumeOpenProfiles())
+    }
 }
