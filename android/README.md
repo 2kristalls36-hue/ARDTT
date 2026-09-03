@@ -7,7 +7,7 @@ Jetpack Compose. Отображаемое имя: **ARDTT** (Amnezia + RAW Dial 
 
 ## Иконка
 
-Круглый и квадратный знак: белая монограмма **ARDTT** (AR над ключом DTT) на красном (`#FF1800`) — `mipmap-*/ic_launcher(_round).png`, adaptive foreground `mipmap-*/ic_launcher_foreground.png`, монохром `drawable/ic_launcher_monochrome.png`. Исходники — `docs/assets/brand/`. Пересборка плотностей: `python3 scripts/generate-launcher-icons.py`.
+Круглый и квадратный знак: белое **AR** над оранжевым **DTT** на тёмно-угольном поле (`#181E25`) — `mipmap-*/ic_launcher(_round).png`, adaptive foreground `mipmap-*/ic_launcher_foreground.png`, монохром `drawable/ic_launcher_monochrome.png`. Исходник — `docs/assets/brand/ardtt-icon-source.png`. Пересборка плотностей: `python3 scripts/generate-launcher-icons.py`.
 
 ## Сборка
 
