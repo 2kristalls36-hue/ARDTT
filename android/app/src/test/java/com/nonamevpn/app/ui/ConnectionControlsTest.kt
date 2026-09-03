@@ -29,6 +29,48 @@ class ConnectionControlsTest {
     }
 
     @Test
+    fun idleProbeKeepsConnectChromeNotStop() {
+        assertEquals("Подключиться", tunnelStickyCtaLabel(ConnState.Probing))
+        assertEquals("Подключиться", tunnelStickyCtaLabel(ConnState.Idle))
+        assertEquals("Подключиться", tunnelStickyCtaLabel(ConnState.Ready))
+        assertEquals("Отменить", tunnelStickyCtaLabel(ConnState.Connecting))
+        assertEquals("Отключить", tunnelStickyCtaLabel(ConnState.Connected))
+        assertEquals("Отключить", tunnelStickyCtaLabel(ConnState.PausedTrustedWifi))
+
+        assertFalse(tunnelStickyCtaIsDestructive(ConnState.Probing))
+        assertFalse(tunnelStickyCtaIsDestructive(ConnState.Idle))
+        assertFalse(tunnelStickyCtaIsDestructive(ConnState.Ready))
+        assertFalse(tunnelStickyCtaIsDestructive(ConnState.Error))
+        assertFalse(tunnelStickyCtaIsDestructive(ConnState.Disconnecting))
+        assertTrue(tunnelStickyCtaIsDestructive(ConnState.Connecting))
+        assertTrue(tunnelStickyCtaIsDestructive(ConnState.Connected))
+        assertTrue(tunnelStickyCtaIsDestructive(ConnState.PausedTrustedWifi))
+
+        assertTrue(tunnelStickyCtaEnabled(ConnState.Probing, connectEnabled = false))
+        assertFalse(tunnelStickyCtaEnabled(ConnState.Idle, connectEnabled = false))
+        assertTrue(tunnelStickyCtaEnabled(ConnState.Idle, connectEnabled = true))
+        assertTrue(tunnelStickyCtaEnabled(ConnState.Connecting, connectEnabled = false))
+        assertFalse(tunnelStickyCtaEnabled(ConnState.Disconnecting, connectEnabled = true))
+    }
+
+    @Test
+    fun userPowerToggleDoesNotLightDuringIdleProbe() {
+        assertFalse(tunnelPowerBusy(ConnState.Probing))
+        assertFalse(tunnelPowerSessionLit(ConnState.Probing))
+        assertFalse(tunnelPowerToggleEnabled(ConnState.Probing, connectEnabled = false))
+        assertFalse(tunnelPowerClickDisconnects(ConnState.Probing))
+
+        assertTrue(tunnelPowerBusy(ConnState.Connecting))
+        assertTrue(tunnelPowerSessionLit(ConnState.Connecting))
+        assertTrue(tunnelPowerSessionLit(ConnState.Connected))
+        assertTrue(tunnelPowerSessionLit(ConnState.Disconnecting))
+        assertTrue(tunnelPowerClickDisconnects(ConnState.Connected))
+        assertTrue(tunnelPowerToggleEnabled(ConnState.Connected, connectEnabled = false))
+        assertTrue(tunnelPowerToggleEnabled(ConnState.Ready, connectEnabled = true))
+        assertFalse(tunnelPowerToggleEnabled(ConnState.Ready, connectEnabled = false))
+    }
+
+    @Test
     fun tunnelParamsHiddenWhenQuickSettingsHidden() {
         assertFalse(tunnelConnectionParamsVisible(hideQuickSettings = true))
         assertTrue(tunnelConnectionParamsVisible(hideQuickSettings = false))
