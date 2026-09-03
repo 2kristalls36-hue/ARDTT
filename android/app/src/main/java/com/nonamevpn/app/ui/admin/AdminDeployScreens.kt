@@ -42,7 +42,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -91,7 +90,6 @@ import com.nonamevpn.app.deploy.ProvisionAdminApi
 import com.nonamevpn.app.deploy.ServerOsMark
 import com.nonamevpn.app.deploy.ServerOsProbe
 import com.nonamevpn.app.deploy.ServersRepository
-import com.nonamevpn.app.deploy.isRecognizedServerOsId
 import com.nonamevpn.app.deploy.serverOsBadgeLabel
 import com.nonamevpn.app.deploy.serverOsMark
 import com.nonamevpn.app.profile.NetworkEndpoint
@@ -101,6 +99,7 @@ import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.TabHeaderMetrics
 import com.nonamevpn.app.ui.components.AppSectionCard
+import com.nonamevpn.app.ui.components.CompactListCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
@@ -379,7 +378,7 @@ private fun ServerListScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 8.dp, bottom = NvpnBottomChrome.scrollContentPadding()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
                     ) {
                         items(servers, key = { it.id }) { server ->
                             ServerCard(
@@ -413,155 +412,116 @@ private fun ServerCard(
     expectedVersion: String,
     onOpenServer: () -> Unit,
 ) {
+    AppSectionCard(
+        modifier = Modifier.clickable(onClick = onOpenServer),
+        contentPadding = CompactListCard.ContentPadding,
+        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+        shape = CompactListCard.Shape,
+        shadowElevation = CompactListCard.ShadowElevation,
+        tonalElevation = 0.dp,
+        showBorder = false,
+    ) {
+        ServerIdentityBody(
+            server = server,
+            health = health,
+            expectedVersion = expectedVersion,
+        )
+    }
+}
+
+@Composable
+private fun ServerIdentityBody(
+    server: DeployTarget,
+    health: HealthUi?,
+    expectedVersion: String,
+    extraLines: List<String> = emptyList(),
+) {
     val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
     val statusColor = when {
         statusColorHint != null -> statusColorHint
         health == HealthUi.Offline -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
+    val title = serverCardTitle(server.name, server.host)
+    val meta = serverCardMetaLine(server.name, server.host, server.sshPort, server.publicHost)
+    val osDetail = serverOsDetailLine(server.osId, server.osVersion)
+    val freshnessChip = deployFreshnessChipText(health, expectedVersion)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
-    AppSectionCard(
-        modifier = Modifier.clickable(onClick = onOpenServer),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        shadowElevation = 0.dp,
-        shape = RoundedCornerShape(24.dp),
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                Icon(
-                    Icons.Filled.Dns,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier
-                        .padding(11.dp)
-                        .size(22.dp),
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    server.name.ifBlank { server.host },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                ServerHostLine(server = server)
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "pub ${server.publicHost.ifBlank { server.host }}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    ServerOsBadge(
-                        osId = server.osId,
-                        osVersion = server.osVersion,
-                    )
-                }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    "SSH ${server.sshPort}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    val pingMs = (health as? HealthUi.Online)?.pingMs ?: -1L
-                    PingFlashDot(pingKey = if (pingMs > 0L) pingMs else null)
-                    Text(
-                        statusText,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = statusColor,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                deployFreshnessChipText(health, expectedVersion)?.let { chip ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = NvpnColors.warning.copy(alpha = 0.18f),
-                    ) {
-                        Text(
-                            chip,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = NvpnColors.warning,
-                        )
-                    }
-                }
-            }
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = "Открыть сервер",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        ServerOsBadge(
+            osId = server.osId,
+            osVersion = server.osVersion,
+        )
     }
-}
-
-@Composable
-private fun ServerHostLine(
-    server: DeployTarget,
-    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodySmall,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    iconTint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-) {
-    val osVersion = server.osVersion.trim()
-    val osRecognized = isRecognizedServerOsId(server.osId)
+    if (osDetail != null) {
+        Text(
+            osDetail,
+            style = MaterialTheme.typography.labelSmall,
+            color = muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    Text(
+        meta,
+        style = MaterialTheme.typography.labelSmall,
+        color = muted,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+    extraLines.forEach { line ->
+        Text(
+            line,
+            style = MaterialTheme.typography.labelSmall,
+            color = muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (osVersion.isNotBlank()) {
-            if (osRecognized) {
-                Icon(
-                    imageVector = Icons.Outlined.Terminal,
-                    contentDescription = "ОС сервера",
-                    tint = iconTint,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
+        val pingMs = (health as? HealthUi.Online)?.pingMs ?: -1L
+        PingFlashDot(pingKey = if (pingMs > 0L) pingMs else null)
+        Text(
+            statusText,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = statusColor,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    freshnessChip?.let { chip ->
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = NvpnColors.warning.copy(alpha = 0.18f),
+        ) {
             Text(
-                osVersion,
-                style = style,
-                color = color,
+                chip,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = NvpnColors.warning,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                "·",
-                style = style,
-                color = color.copy(alpha = 0.7f),
-                maxLines = 1,
-            )
         }
-        Text(
-            server.host,
-            style = style,
-            color = color,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
@@ -790,15 +750,7 @@ private fun ServerOverviewScreen(
     refreshing: Boolean,
     onRefresh: () -> Unit,
 ) {
-    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
-    val statusColor = when {
-        statusColorHint != null -> statusColorHint
-        health == HealthUi.Offline -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
     val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
-    val publicHostLine = distinctPublicHost(server.host, server.publicHost)
-    val freshnessChip = deployFreshnessChipText(health, expectedVersion)
 
     Box(modifier = Modifier.fillMaxSize()) {
         PullRefreshHost(
@@ -891,102 +843,25 @@ private fun ServerOverviewScreen(
                             NvpnBottomChrome.navigationReserve() + 16.dp
                         },
                     ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
                 ) {
             item {
                 AppSectionCard(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = CompactListCard.ContentPadding,
+                    verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+                    shape = CompactListCard.Shape,
+                    shadowElevation = CompactListCard.ShadowElevation,
+                    tonalElevation = 0.dp,
+                    showBorder = false,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                        ) {
-                            Icon(
-                                Icons.Filled.Dns,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier
-                                    .padding(10.dp)
-                                    .size(22.dp),
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            ServerHostLine(
-                                server = server,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                iconTint = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                "SSH ${server.sshPort}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (publicHostLine == null) {
-                            ServerOsBadge(
-                                osId = server.osId,
-                                osVersion = server.osVersion,
-                            )
-                        }
-                    }
-                    if (publicHostLine != null) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Публичный host: $publicHostLine",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            ServerOsBadge(
-                                osId = server.osId,
-                                osVersion = server.osVersion,
-                            )
-                        }
-                    }
-                    Text(
-                        "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ServerIdentityBody(
+                        server = server,
+                        health = health,
+                        expectedVersion = expectedVersion,
+                        extraLines = listOf(
+                            "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}",
+                        ),
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        val pingMs = (health as? HealthUi.Online)?.pingMs ?: -1L
-                        PingFlashDot(pingKey = if (pingMs > 0L) pingMs else null)
-                        Text(
-                            statusText,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = statusColor,
-                        )
-                    }
-                    if (freshnessChip != null) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = NvpnColors.warning.copy(alpha = 0.18f),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                freshnessChip,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = NvpnColors.warning,
-                            )
-                        }
-                    }
                 }
             }
             item {
@@ -1042,35 +917,38 @@ private fun ServerActionCard(
 ) {
     AppSectionCard(
         modifier = Modifier.clickable(onClick = onClick),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        contentPadding = CompactListCard.ContentPadding,
         verticalArrangement = Arrangement.spacedBy(0.dp),
-        shape = RoundedCornerShape(24.dp),
+        shape = CompactListCard.Shape,
+        shadowElevation = CompactListCard.ShadowElevation,
+        tonalElevation = 0.dp,
+        showBorder = false,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                 Icon(
                     icon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier
-                        .padding(10.dp)
-                        .size(22.dp),
+                        .padding(8.dp)
+                        .size(18.dp),
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     description,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1568,14 +1446,14 @@ private fun ServerOsBadge(
     val label = serverOsBadgeLabel(osId)
     val description = osVersion.trim().ifBlank { label }
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
         ) {
             Image(
                 painter = painterResource(serverOsMarkDrawable(mark)),
