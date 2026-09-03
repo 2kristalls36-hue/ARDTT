@@ -1,5 +1,17 @@
 package com.nonamevpn.app.ui
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.FilterList
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material.icons.outlined.Wifi
+import androidx.compose.ui.graphics.vector.ImageVector
+
 /**
  * Bottom tabs: Tunnel → Network (admin) → Servers → Profiles → Exceptions → Logs → Settings.
  * Deploy is reached from Servers (not a bottom tab).
@@ -22,4 +34,17 @@ enum class AppDestination(
     Testing("testing", "Тестирование", navLabel = "Тест", adminOnly = true),
     /** Nested from Servers — not in bottom bar. */
     Deploy("deploy", "Деплой", navLabel = "Деплой", adminOnly = true, inBottomNav = false),
+    ;
+
+    fun navIcon(): ImageVector = when (this) {
+        Tunnel -> Icons.Outlined.VpnKey
+        Servers -> Icons.Outlined.Cloud
+        Profiles -> Icons.Outlined.Folder
+        Exceptions -> Icons.Outlined.FilterList
+        Network -> Icons.Outlined.Wifi
+        Logs -> Icons.Outlined.Terminal
+        Deploy -> Icons.Outlined.CloudUpload
+        Settings -> Icons.Outlined.Settings
+        Testing -> Icons.Outlined.Science
+    }
 }

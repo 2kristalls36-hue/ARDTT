@@ -1,0 +1,53 @@
+package com.nonamevpn.app.deploy
+
+/** Shell env + installer invocation uploaded to the VPS. Never includes SSH passwords. */
+object DeployInstallEnv {
+    const val CASCADE_DNS = "10.10.0.2"
+    const val CASCADE_LISTEN_PORT = 51820
+
+    fun command(
+        publicHost: String,
+        directPort: Int,
+        bypassPort: Int,
+        deployVersion: String,
+        role: String,
+        cascadeEnabled: Boolean = false,
+        cascadeListenPort: Int = CASCADE_LISTEN_PORT,
+        cascadePeerEndpoint: String = "",
+        cascadePeerPublicKey: String = "",
+        cascadeDns: String = CASCADE_DNS,
+    ): String = buildString {
+        append("NVPN_PUBLIC_HOST="); append(SshClient.shellQuote(publicHost)); append(' ')
+        append("NVPN_DIRECT_PORT="); append(directPort); append(' ')
+        append("NVPN_BYPASS_PORT="); append(bypassPort); append(' ')
+        append("NVPN_DEPLOY_VERSION="); append(SshClient.shellQuote(deployVersion)); append(' ')
+        append("NVPN_ROLE="); append(SshClient.shellQuote(role)); append(' ')
+        append("NVPN_CASCADE_ENABLED="); append(if (cascadeEnabled) "1" else "0"); append(' ')
+        if (cascadeEnabled) {
+            append("NVPN_CASCADE_LISTEN_PORT="); append(cascadeListenPort); append(' ')
+            append("NVPN_CASCADE_DNS="); append(SshClient.shellQuote(cascadeDns)); append(' ')
+            if (cascadePeerEndpoint.isNotBlank()) {
+                append("NVPN_CASCADE_PEER_ENDPOINT=")
+                append(SshClient.shellQuote(cascadePeerEndpoint))
+                append(' ')
+            }
+            if (cascadePeerPublicKey.isNotBlank()) {
+                append("NVPN_CASCADE_PEER_PUBLIC_KEY=")
+                append(SshClient.shellQuote(cascadePeerPublicKey))
+                append(' ')
+            }
+        }
+        append("bash /opt/nonamevpn/install.sh")
+    }
+
+    fun peerEndpoint(host: String, listenPort: Int = CASCADE_LISTEN_PORT): String {
+        val h = host.trim()
+        if (h.isEmpty()) return ""
+        return "$h:$listenPort"
+    }
+
+    fun publicKeyFromLine(line: String): String? {
+        if (!line.startsWith("NVPN_CASCADE_PUBLIC_KEY|")) return null
+        return line.removePrefix("NVPN_CASCADE_PUBLIC_KEY|").trim().takeIf { it.isNotEmpty() }
+    }
+}

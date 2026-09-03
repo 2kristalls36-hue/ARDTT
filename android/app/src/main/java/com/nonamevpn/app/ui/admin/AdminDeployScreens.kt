@@ -55,8 +55,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -94,7 +94,6 @@ import com.nonamevpn.app.profile.VpnProfile
 import com.nonamevpn.app.ui.PendingUiAction
 import com.nonamevpn.app.ui.components.TabFeedHeader
 import com.nonamevpn.app.ui.components.TabHeaderMetrics
-import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
@@ -1158,14 +1157,14 @@ fun DeployScreen(
     var publicHost by remember { mutableStateOf(initial?.publicHost ?: "") }
     var directPort by remember { mutableStateOf((initial?.directPort ?: 51820).toString()) }
     var bypassPort by remember { mutableStateOf((initial?.bypassPort ?: 56003).toString()) }
+    var osId by remember { mutableStateOf(initial?.osId ?: "") }
+    var osVersion by remember { mutableStateOf(initial?.osVersion ?: "") }
+    var lastDeployedAtMs by remember { mutableStateOf(initial?.lastDeployedAtMs ?: 0L) }
     var cascadeEnabled by remember { mutableStateOf(initial?.cascadeEnabled == true) }
     var cascadeHost by remember { mutableStateOf(initial?.cascadeHost ?: "") }
     var cascadePort by remember { mutableStateOf((initial?.cascadePort ?: 22).toString()) }
     var cascadeUser by remember { mutableStateOf(initial?.cascadeUser ?: "") }
     var cascadePassword by remember { mutableStateOf(initial?.cascadePassword ?: "") }
-    var osId by remember { mutableStateOf(initial?.osId ?: "") }
-    var osVersion by remember { mutableStateOf(initial?.osVersion ?: "") }
-    var lastDeployedAtMs by remember { mutableStateOf(initial?.lastDeployedAtMs ?: 0L) }
     var status by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(initial?.id) {
@@ -1181,14 +1180,14 @@ fun DeployScreen(
         publicHost = t.publicHost
         directPort = t.directPort.toString()
         bypassPort = t.bypassPort.toString()
+        osId = t.osId
+        osVersion = t.osVersion
+        lastDeployedAtMs = t.lastDeployedAtMs
         cascadeEnabled = t.cascadeEnabled
         cascadeHost = t.cascadeHost
         cascadePort = t.cascadePort.toString()
         cascadeUser = t.cascadeUser
         cascadePassword = t.cascadePassword
-        osId = t.osId
-        osVersion = t.osVersion
-        lastDeployedAtMs = t.lastDeployedAtMs
     }
 
     LaunchedEffect(busy, outcome) {
@@ -1354,6 +1353,7 @@ fun DeployScreen(
                 enabled = !busy,
             )
         }
+
         AppSectionCard(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1376,7 +1376,7 @@ fun DeployScreen(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "Использовать промежуточный узел. После включения заполните параметры каскада.",
+                        "Второй сервер — выход в интернет и WARP. Телефон ставит его отдельно; клиенты живут на первом.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1391,7 +1391,8 @@ fun DeployScreen(
                 OutlinedTextField(
                     value = cascadeHost,
                     onValueChange = { cascadeHost = it },
-                    label = { Text("Каскад host / IP") },
+                    label = { Text("Выход host / IP") },
+                    placeholder = { Text("Второй VPS, WARP") },
                     singleLine = true,
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
@@ -1403,7 +1404,7 @@ fun DeployScreen(
                     OutlinedTextField(
                         value = cascadePort,
                         onValueChange = { cascadePort = it.filter { ch -> ch.isDigit() }.take(5) },
-                        label = { Text("Каскад порт") },
+                        label = { Text("SSH порт") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         enabled = !busy,
@@ -1412,7 +1413,7 @@ fun DeployScreen(
                     OutlinedTextField(
                         value = cascadeUser,
                         onValueChange = { cascadeUser = it },
-                        label = { Text("Каскад user") },
+                        label = { Text("SSH user") },
                         singleLine = true,
                         enabled = !busy,
                         modifier = Modifier.weight(1f),
@@ -1421,7 +1422,7 @@ fun DeployScreen(
                 OutlinedTextField(
                     value = cascadePassword,
                     onValueChange = { cascadePassword = it },
-                    label = { Text("Каскад пароль") },
+                    label = { Text("SSH пароль выхода") },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     enabled = !busy,
@@ -1442,15 +1443,15 @@ fun DeployScreen(
                 }
                 if (cascadeEnabled) {
                     if (cascadeHost.isBlank()) {
-                        status = "Укажите каскад host"
+                        status = "Укажите host второго сервера"
                         return@OutlinedButton
                     }
                     if (cascadeUser.isBlank()) {
-                        status = "Укажите каскад user"
+                        status = "Укажите SSH user второго сервера"
                         return@OutlinedButton
                     }
                     if (cascadePassword.isBlank()) {
-                        status = "Укажите каскад пароль"
+                        status = "Укажите пароль второго сервера"
                         return@OutlinedButton
                     }
                 }
@@ -1477,15 +1478,15 @@ fun DeployScreen(
                 }
                 if (cascadeEnabled) {
                     if (cascadeHost.isBlank()) {
-                        status = "Укажите каскад host"
+                        status = "Укажите host второго сервера"
                         return@Button
                     }
                     if (cascadeUser.isBlank()) {
-                        status = "Укажите каскад user"
+                        status = "Укажите SSH user второго сервера"
                         return@Button
                     }
                     if (cascadePassword.isBlank()) {
-                        status = "Укажите каскад пароль"
+                        status = "Укажите пароль второго сервера"
                         return@Button
                     }
                 }
@@ -1513,6 +1514,7 @@ fun DeployScreen(
                     busy && isUpdate -> "Обновление…"
                     busy -> "Установка…"
                     isUpdate -> "Обновить деплой ($expectedDeployVersion)"
+                    cascadeEnabled -> "Установить каскад"
                     else -> "Установить на VPS"
                 },
                 fontWeight = FontWeight.SemiBold,

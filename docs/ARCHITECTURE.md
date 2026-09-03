@@ -20,7 +20,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 |------|---------|
 | Платформа | Android; форк `amneziawg-android` + RAW bypass из qWDTT / SpaceNeuroX |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
-| Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision` + `telemetry`; `host_id` → IP в подсетях direct/bypass. Из приложения: SSH + `install.sh` — [DEPLOY.md](DEPLOY.md) |
+| Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision` + `telemetry`; `host_id` → IP в подсетях direct/bypass. Из приложения: SSH + `install.sh` — [DEPLOY.md](DEPLOY.md). Bypass-контейнер — RAW-only (`-listen-raw`), без DTLS/WG/бота |
 | WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
 
 | Call hash | **1 hash на устройство** (не на имя профиля): EncryptedSharedPreferences + файл в `noBackupFilesDir`, чтобы код переживал обновление APK |
@@ -46,11 +46,41 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 ```
 Android
   probe (лёгкий) → preselect Direct|Bypass → Connect
-  ├─ Path A: AWG 2.0 UDP ──────────────────────────► VPS direct (awg0)
-  └─ Path B: TUN → WRAP → TURN/TCP → VPS bypass (raw0)
+  ├─ Path A: AWG 2.0 UDP ──────────────────────────► VPS1 direct (awg0)
+  └─ Path B: TUN → WRAP → TURN/TCP → VPS1 bypass (raw0)
                                               │
-              если «Скрыть IP» ───────────────┴─► policy route → warp0 → Cloudflare
+              без каскада + «Скрыть IP» ──────┴─► warp0 на VPS1
+              с каскадом: весь трафик ──────────► VPS1 cascade0 ─AWG─► VPS2
+                                                                      ├ DNS :53 → main
+                                                                      └ остальное → warp0
 ```
+
+---
+
+## Каскад (два VPS)
+
+Не два одинаковых VPN для телефона. Телефон знает только **вход** (VPS1). Второй сервер — **выход**.
+
+```
+телефон ── Path A / Path B ──► VPS1 (provision, клиенты, awg0, wdttraw0)
+                                  │
+                                  │ AmneziaWG 2.0 (cascade0, 10.10.0.0/30)
+                                  ▼
+                               VPS2 (DNS, затем WARP) ──► интернет
+```
+
+| | VPS1 вход | VPS2 выход |
+|---|---|---|
+| Кто деплоит | телефон, SSH на первый host | телефон, отдельный SSH на каскад host |
+| Клиенты | живут здесь (`:9100`) | нет |
+| Телефон коннектится | да (UDP 51820 / 56003) | нет |
+| DNS | нет (форвард на 10.10.0.2) | dnsmasq на `cascade0`, upstream с main |
+| WARP | нет | весь трафик кроме DNS |
+| Если выход мёртв | hop без handshake → `awg0`/`wdttraw0` down, туннель на телефоне падает | — |
+
+Профиль по-прежнему с endpoint VPS1. Снаружи виден IP VPS2 / Cloudflare, не IP входа.
+
+Деплой из приложения: карточка первого сервера + тумблер «Каскад» (SSH второго). «Установить» сначала ставит **exit** на втором, затем **entry** на первом, затем копирует ключ пира. Пароль второго VPS на первый **не** записывается.
 
 ---
 
@@ -120,9 +150,9 @@ UI перед Connect: чекбокс **«Скрыть свой IP»** (per-sess
 **DNS не через WARP.** Иначе резолв ломается (таймауты, «IP есть — сайты нет»), особенно на tun2socks/SOCKS и часто на WARP-пути.
 
 ```
-prio 100: iif awg0|wdttraw0|wdtt0 udp/tcp dport 53 → lookup main   # DNS → WAN
+prio 100: iif awg0|wdttraw0 udp/tcp dport 53 → lookup main   # DNS → WAN
 prio 300+: from 10.8.0.x / 10.9.0.x → lookup 51820 → warp0         # остальное
-+ MASQUERADE :53 на eth0 для 10.8/10.9/10.66
++ MASQUERADE :53 на eth0 для 10.8/10.9
 ```
 
 Клиентский DNS — **шлюз туннеля** (`10.8.0.1` Direct / `10.9.0.1` Bypass) → **dnsmasq** (`nvpn-dns`) → upstream `1.1.1.1`/`1.0.0.1` по `main`. Запросы на внешний `:53` (старые профили) по-прежнему уводятся `ip rule` prio 100 → main.
@@ -356,18 +386,6 @@ Call hash — **локально на устройстве**, не обязан 
 
 ---
 
-## MVP
-
-1. Форк AmneziaWG Android + AWG direct.
-2. Bypass RAW + TCP + dial auto (vkcalls→legacy).
-3. Hash на телефоне; VK только create/recreate call.
-4. Compose: direct + bypass + dns + warp (hide-IP egress) + provision + telemetry. Деплой: [DEPLOY.md](DEPLOY.md).
-5. Лёгкий parallel probe + re-probe на Connect; без hard-block OpenNoVps.
-6. LICENSE/NOTICE (GPL-3 + атрибуции).
-7. warp без restart-on-OOM; GOMEMLIMIT/soft recycle.
-
----
-
 ## Риски (актуальные)
 
 | Риск | Митигация |
@@ -379,22 +397,3 @@ Call hash — **локально на устройстве**, не обязан 
 | warp RAM | GOMEMLIMIT, без restart контейнера |
 | Ложный VPS probe | Только TCP provision host:port; 1.1.1.1 не блокер Direct |
 | Скорость RAW | workers default 3, не 1 |
-
----
-
-## Следующий шаг
-
-1. ~~Каркас репо + LICENSE/NOTICE.~~
-2. ~~Server compose + provision (health, host_id, профиль, AWG keys).~~
-3. ~~Упаковать **direct** (AmneziaWG 2.0 / amneziawg-go) и **bypass** (wdtt-server `-listen-raw`).~~
-4. ~~Client scaffold: UI user/admin modes.~~
-5. ~~Client: probe UDP-lite + path preselect + hide-IP → VpnService stub.~~ (`NetworkProbe`, `ConnectionManager`, `VpnTunnelService`).
-6. ~~Импорт профиля JSON (формат provision) + demo; endpoints → probe.~~
-7. ~~Bypass scaffold на Android: WRAP, hash-on-device, dial Auto, TunnelBackend wiring.~~
-8. ~~Админ-деплой с приложения: SSH + upload Compose stack + install.sh.~~
-9. ~~Native Direct (AWG GoBackend / libwg-go).~~ (`android/tunnel` → `DirectBackend`)
-10. ~~Native Bypass (TURN TCP / vkcalls / RAW via go_client).~~ (`libclient.so` + `BypassSession`)
-11. ~~Client: WebView create-call (VK login → calls.start → hash on device).~~
-12. ~~Client: dial path UI (Авто / vkcalls / legacy) в Настройках + DataStore.~~
-13. ~~Мёртвый звонок: диалог Ask/NeedLogin или тихий recreate (один attempt).~~
-14. Legacy captcha WebView bridge (если нужно); WARP egress (не stub); UX vs SmartVPN.

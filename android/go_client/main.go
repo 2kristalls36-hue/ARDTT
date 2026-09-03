@@ -178,7 +178,7 @@ func main() {
 	obfsMode := flag.String("obfs", "audio", "режим обфускации (audio/video)")
 	checkHashes := flag.Bool("check-hashes", false, "проверить VK-хеши и выйти")
 	connMode := flag.String("mode", "rawtun", "режим клиента (rawtun)")
-	noDTLS := flag.Bool("notls", false, "прямой режим: RTP-obfs AEAD без DTLS поверх TURN (нужен сервер с -listen-direct)")
+	noDTLS := flag.Bool("notls", false, "RTP-obfs AEAD без DTLS поверх TURN (ARDTT Path B: сервер -listen-raw)")
 	turnTCP := flag.Bool("turn-tcp", false, "соединяться с TURN-relay по TCP вместо UDP (обход UDP-душения на некоторых сетях, напр. Ростелеком)")
 	tunFdSock := flag.String("tun-fd-sock", "", "unix-сокет для получения TUN fd от Android (только -mode rawtun)")
 

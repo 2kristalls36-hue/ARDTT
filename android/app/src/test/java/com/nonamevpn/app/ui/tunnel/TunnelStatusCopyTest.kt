@@ -39,6 +39,8 @@ class TunnelStatusCopyTest {
         assertEquals("Авто", selectedModeLabel("auto"))
         assertEquals("Прямой", selectedModeLabel("direct"))
         assertEquals("Обход", selectedModeLabel("bypass"))
+        assertEquals("Прямой", selectedModeLabel("awg"))
+        assertEquals("Обход", selectedModeLabel("wdtt"))
         assertEquals("—", currentModeLabel(ConnState.Ready, activePath = VpnPath.Direct))
         assertEquals(
             "Прямой",

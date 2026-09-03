@@ -1,25 +1,15 @@
 package main
 
 const (
-	wgIfaceName           = "wdtt0"
-	wgServerAddr          = "10.66.66.1"
-	wgServerCIDR          = wgServerAddr + "/16"
-	defaultInternalWGPort = 56001
-	wgMTU                 = 1280
-	keepalive             = 25
-
-	// Raw-IP роутер (без WireGuard) — отдельный TUN/подсеть/NAT, полностью
-	// параллельно WG-пути. Подсеть намеренно не пересекается с wgServerCIDR.
+	// RAW TUN for Path B. Subnet matches ARDTT provision (10.9.0.{hostId}).
 	rawIfaceName  = "wdttraw0"
-	rawServerAddr = "10.70.66.1"
-	rawServerCIDR = rawServerAddr + "/16"
-	// Raw-режим не несёт WG data header (~32 байта) — только RTP-obfs (12 байт
-	// заголовок + 16 байт AEAD tag + до 60 байт padding в video-режиме) и TURN
-	// ChannelData/Send Indication framing (4-24 байта). Даже в худшем случае
-	// (video-режим, максимальный padding) итоговый размер на проводе — около
-	// 1420 байт с MTU=1300, что укладывается в стандартный Ethernet MTU 1500
-	// без фрагментации.
+	rawServerAddr = "10.9.0.1"
+	rawServerCIDR = rawServerAddr + "/24"
+	// Raw path carries RTP-obfs (12 B header + 16 B AEAD tag + optional
+	// padding) plus TURN framing. MTU 1300 stays under Ethernet 1500.
 	rawMTU = 1300
+
+	wrapKeyLen = 32
 )
 
 var dns = "8.8.8.8"

@@ -36,6 +36,11 @@ build_conf() {
       echo "interface=wdttraw0"
       echo "listen-address=10.9.0.1"
     fi
+    # Cascade hop (exit node DNS, right before internet / WARP)
+    if iface_has_addr cascade0 10.10.0.2; then
+      echo "interface=cascade0"
+      echo "listen-address=10.10.0.2"
+    fi
     local s
     for s in ${UPSTREAMS}; do
       echo "server=${s}"
@@ -52,7 +57,7 @@ start_or_reload() {
   local fp new_fp
   build_conf "${CONF}.new"
   if ! grep -q '^listen-address=' "${CONF}.new"; then
-    echo "[dns] waiting for awg0/wdttraw0 addresses…"
+    echo "[dns] waiting for awg0/wdttraw0/cascade0 addresses…"
     rm -f "${CONF}.new"
     return 1
   fi

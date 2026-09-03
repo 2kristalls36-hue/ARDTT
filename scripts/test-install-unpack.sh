@@ -46,6 +46,14 @@ echo "$out" | grep -q 'Распаковка стека' || err "first run did no
 [ -f "$INSTALL/stack/.env" ] || err "missing .env"
 grep -q 'NVPN_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env public host"
 grep -q 'NVPN_DEPLOY_VERSION=1.0.6-test' "$INSTALL/stack/.env" || err ".env version"
+grep -q 'TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env telemetry listen"
+grep -q 'NVPN_TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env NVPN_TELEMETRY_LISTEN alias"
+grep -q 'NVPN_TELEMETRY_PORT=9200' "$INSTALL/stack/.env" || err ".env NVPN_TELEMETRY_PORT"
+grep -q 'NVPN_ROLE=entry' "$INSTALL/stack/.env" || err ".env default role entry"
+grep -q 'NVPN_CASCADE_ENABLED=0' "$INSTALL/stack/.env" || err ".env cascade off by default"
+if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
+  err ".env must not contain PASSWORD"
+fi
 [ -f "$INSTALL/DEPLOY_VERSION" ] || err "missing host DEPLOY_VERSION"
 [ -f "$INSTALL/stack/data/DEPLOY_VERSION" ] || err "missing data/DEPLOY_VERSION"
 [ ! -f "$INSTALL/stack.tar.gz" ] || err "tar should be deleted after run"
@@ -64,6 +72,26 @@ out3="$(run_install)" || err "third install.sh exited $?"
 echo "$out3" | grep -q 'уже распакованный стек' || err "third run should use existing stack"
 grep -qx 'keep-me' "$INSTALL/stack/data/users.json" || err "users.json lost on tar-less re-run"
 grep -q 'NVPN_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env rewritten on tar-less re-run"
+
+run_exit() {
+  NVPN_INSTALL_DIR="$INSTALL" \
+  NVPN_PUBLIC_HOST="203.0.113.10" \
+  NVPN_ROLE=exit \
+  NVPN_DEPLOY_VERSION="1.0.6-test" \
+  NVPN_SKIP_ROOT_CHECK=1 \
+  NVPN_DRY_RUN=1 \
+  NVPN_KEEP_INSTALL_LOG=1 \
+  bash "$INSTALL/install.sh"
+}
+out4="$(run_exit)" || err "exit-role install.sh exited $?"
+echo "$out4" | grep -q 'NVPN_DONE|dry_run=1' || err "exit dry-run missing NVPN_DONE"
+grep -q 'NVPN_ROLE=exit' "$INSTALL/stack/.env" || err ".env role exit"
+grep -q 'NVPN_CASCADE_ENABLED=1' "$INSTALL/stack/.env" || err "exit forces cascade enabled"
+grep -q 'NVPN_WARP_MODE=cascade' "$INSTALL/stack/.env" || err "exit warp mode cascade"
+grep -Eq 'NVPN_WARP_DNS_IIFACES=.*cascade0' "$INSTALL/stack/.env" || err "exit DNS iif cascade0"
+if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
+  err "exit .env must not contain PASSWORD"
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "install.sh unpack tests failed" >&2
