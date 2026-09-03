@@ -5,7 +5,9 @@ import com.nonamevpn.app.profile.BypassConfig
 import com.nonamevpn.app.profile.DirectConfig
 import com.nonamevpn.app.profile.VpnProfile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ActiveDeployMatchTest {
@@ -79,5 +81,11 @@ class ActiveDeployMatchTest {
     @Test
     fun noServersReturnsNull() {
         assertNull(findActiveDeployServerId(emptyList(), "1.2.3.4"))
+    }
+
+    @Test
+    fun deployFormStaysOpenWhileBusy() {
+        assertFalse(deployFormCanLeave(busy = true))
+        assertTrue(deployFormCanLeave(busy = false))
     }
 }
