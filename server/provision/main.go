@@ -48,25 +48,25 @@ type Config struct {
 }
 
 type User struct {
-	Name              string            `json:"name"`
-	HostID            int               `json:"hostId"`
-	DeviceID          string            `json:"deviceId"`
-	DeviceIDs         []string          `json:"deviceIds,omitempty"`
-	MaxDevices        int               `json:"maxDevices"`
-	Password          string            `json:"password"`
-	HideIP            bool              `json:"hideIp"`
-	ExpiresAt         int64             `json:"expiresAt"` // unix seconds; 0 = no expiry
-	Deactivated       bool              `json:"deactivated"`
-	TrafficLimitBytes int64             `json:"trafficLimitBytes,omitempty"` // 0 = unlimited
+	Name                  string            `json:"name"`
+	HostID                int               `json:"hostId"`
+	DeviceID              string            `json:"deviceId"`
+	DeviceIDs             []string          `json:"deviceIds,omitempty"`
+	MaxDevices            int               `json:"maxDevices"`
+	Password              string            `json:"password"`
+	HideIP                bool              `json:"hideIp"`
+	ExpiresAt             int64             `json:"expiresAt"` // unix seconds; 0 = no expiry
+	Deactivated           bool              `json:"deactivated"`
+	TrafficLimitBytes     int64             `json:"trafficLimitBytes,omitempty"` // 0 = unlimited
 	LastSeenAt            int64             `json:"lastSeenAt,omitempty"`
 	LastExternalIP        string            `json:"lastExternalIp,omitempty"`
 	DeviceModels          map[string]string `json:"deviceModels,omitempty"`
 	DeviceAppVersions     map[string]string `json:"deviceAppVersions,omitempty"`
 	DeviceAppVersionCodes map[string]int    `json:"deviceAppVersionCodes,omitempty"`
-	CreatedAt         time.Time         `json:"createdAt"`
-	DirectPrivateKey  string            `json:"directPrivateKey,omitempty"`
-	DirectPublicKey   string            `json:"directPublicKey,omitempty"`
-	ServerPublicKey   string            `json:"serverPublicKey,omitempty"`
+	CreatedAt             time.Time         `json:"createdAt"`
+	DirectPrivateKey      string            `json:"directPrivateKey,omitempty"`
+	DirectPublicKey       string            `json:"directPublicKey,omitempty"`
+	ServerPublicKey       string            `json:"serverPublicKey,omitempty"`
 }
 
 const onlineGraceSeconds = 120
@@ -109,21 +109,21 @@ type Profile struct {
 
 // UserPublic is the admin list/detail shape (includes online presence).
 type UserPublic struct {
-	Name              string            `json:"name"`
-	HostID            int               `json:"hostId"`
-	DeviceID          string            `json:"deviceId"`
-	DeviceIDs         []string          `json:"deviceIds"`
-	MaxDevices        int               `json:"maxDevices"`
-	HideIP            bool              `json:"hideIp"`
-	ExpiresAt         int64             `json:"expiresAt"`
-	Deactivated       bool              `json:"deactivated"`
-	CreatedAt         string            `json:"createdAt"`
-	LastSeenAt        int64             `json:"lastSeenAt"`
-	LastExternalIP    string            `json:"lastExternalIp"`
-	Online            bool              `json:"online"`
-	OfflineForSec     int64             `json:"offlineForSec"`
-	DownBytes         int64             `json:"downBytes"`
-	UpBytes           int64             `json:"upBytes"`
+	Name                  string            `json:"name"`
+	HostID                int               `json:"hostId"`
+	DeviceID              string            `json:"deviceId"`
+	DeviceIDs             []string          `json:"deviceIds"`
+	MaxDevices            int               `json:"maxDevices"`
+	HideIP                bool              `json:"hideIp"`
+	ExpiresAt             int64             `json:"expiresAt"`
+	Deactivated           bool              `json:"deactivated"`
+	CreatedAt             string            `json:"createdAt"`
+	LastSeenAt            int64             `json:"lastSeenAt"`
+	LastExternalIP        string            `json:"lastExternalIp"`
+	Online                bool              `json:"online"`
+	OfflineForSec         int64             `json:"offlineForSec"`
+	DownBytes             int64             `json:"downBytes"`
+	UpBytes               int64             `json:"upBytes"`
 	TrafficLimitBytes     int64             `json:"trafficLimitBytes"`
 	DeviceModels          map[string]string `json:"deviceModels,omitempty"`
 	AppVersion            string            `json:"appVersion,omitempty"`
@@ -231,14 +231,14 @@ func runServer(store *Store, listen string) error {
 			return
 		}
 		var body struct {
-			Name              string `json:"name"`
+			Name              string  `json:"name"`
 			NewName           *string `json:"newName"`
-			MaxDevices        *int   `json:"maxDevices"`
-			Days              *int   `json:"days"`
-			Deactivated       *bool  `json:"deactivated"`
-			ClearDevices      bool   `json:"clearDevices"`
-			TrafficLimitBytes *int64 `json:"trafficLimitBytes"`
-			TrafficLimitGb    *int   `json:"trafficLimitGb"`
+			MaxDevices        *int    `json:"maxDevices"`
+			Days              *int    `json:"days"`
+			Deactivated       *bool   `json:"deactivated"`
+			ClearDevices      bool    `json:"clearDevices"`
+			TrafficLimitBytes *int64  `json:"trafficLimitBytes"`
+			TrafficLimitGb    *int    `json:"trafficLimitGb"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
 			http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
@@ -342,12 +342,6 @@ func runServer(store *Store, listen string) error {
 		if err != nil {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 			return
-		}
-		// Best-effort presence when profile is fetched (connect / import).
-		_, _ = store.TouchPresence(u.DeviceID, u.Name, clientIP(r), "", "", 0)
-		u2, _ := store.FindUser(name)
-		if u2.Name != "" {
-			u = u2
 		}
 		writeJSON(w, store.BuildProfile(u))
 	})
@@ -628,7 +622,6 @@ func (s *Store) CreateUser(name string, days, maxDevices int) (User, error) {
 		Name:             name,
 		HostID:           id,
 		DeviceID:         deviceID,
-		DeviceIDs:        []string{deviceID},
 		MaxDevices:       maxDevices,
 		Password:         pass,
 		ExpiresAt:        expires,
@@ -726,21 +719,25 @@ func toPublicLocked(u User, now int64) UserPublic {
 		}
 	}
 	ids := append([]string{}, u.DeviceIDs...)
+	primary := ""
+	if len(ids) > 0 {
+		primary = ids[0]
+	}
 	appVer, appCode := primaryAppVersion(u)
 	return UserPublic{
-		Name:              u.Name,
-		HostID:            u.HostID,
-		DeviceID:          u.DeviceID,
-		DeviceIDs:         ids,
-		MaxDevices:        maxInt(u.MaxDevices, 1),
-		HideIP:            u.HideIP,
-		ExpiresAt:         u.ExpiresAt,
-		Deactivated:       u.Deactivated,
-		CreatedAt:         u.CreatedAt.UTC().Format(time.RFC3339),
-		LastSeenAt:        u.LastSeenAt,
-		LastExternalIP:    u.LastExternalIP,
-		Online:            online,
-		OfflineForSec:     offlineFor,
+		Name:                  u.Name,
+		HostID:                u.HostID,
+		DeviceID:              primary,
+		DeviceIDs:             ids,
+		MaxDevices:            maxInt(u.MaxDevices, 1),
+		HideIP:                u.HideIP,
+		ExpiresAt:             u.ExpiresAt,
+		Deactivated:           u.Deactivated,
+		CreatedAt:             u.CreatedAt.UTC().Format(time.RFC3339),
+		LastSeenAt:            u.LastSeenAt,
+		LastExternalIP:        u.LastExternalIP,
+		Online:                online,
+		OfflineForSec:         offlineFor,
 		TrafficLimitBytes:     u.TrafficLimitBytes,
 		DeviceModels:          copyDeviceModels(u.DeviceModels),
 		AppVersion:            appVer,
@@ -1364,6 +1361,12 @@ func isPrivateOrTunnelIP(ip string) bool {
 	return false
 }
 
+func userHasRealDevicePresence(u User) bool {
+	return len(u.DeviceModels) > 0 ||
+		len(u.DeviceAppVersions) > 0 ||
+		len(u.DeviceAppVersionCodes) > 0
+}
+
 func normalizeUserDevices(u *User) bool {
 	changed := false
 	if u.MaxDevices <= 0 {
@@ -1371,11 +1374,7 @@ func normalizeUserDevices(u *User) bool {
 		changed = true
 	}
 	seen := map[string]bool{}
-	out := make([]string, 0, len(u.DeviceIDs)+1)
-	if u.DeviceID != "" {
-		seen[u.DeviceID] = true
-		out = append(out, u.DeviceID)
-	}
+	out := make([]string, 0, len(u.DeviceIDs))
 	for _, id := range u.DeviceIDs {
 		id = strings.TrimSpace(id)
 		if id == "" || seen[id] {
@@ -1383,13 +1382,27 @@ func normalizeUserDevices(u *User) bool {
 		}
 		seen[id] = true
 		out = append(out, id)
-		changed = true
 	}
-	if len(out) != len(u.DeviceIDs) || (len(out) > 0 && u.DeviceID == "") {
+	template := strings.TrimSpace(u.DeviceID)
+	if len(out) == 0 && template != "" && (userHasRealDevicePresence(*u) || u.LastSeenAt > 0) {
+		out = append(out, template)
+	}
+	if len(out) == 1 && template != "" && out[0] == template &&
+		!userHasRealDevicePresence(*u) && u.LastSeenAt == 0 {
+		out = nil
+	}
+	if len(out) != len(u.DeviceIDs) {
 		changed = true
+	} else {
+		for i := range out {
+			if out[i] != u.DeviceIDs[i] {
+				changed = true
+				break
+			}
+		}
 	}
 	u.DeviceIDs = out
-	if u.DeviceID == "" && len(out) > 0 {
+	if len(out) > 0 && u.DeviceID == "" {
 		u.DeviceID = out[0]
 		changed = true
 	}

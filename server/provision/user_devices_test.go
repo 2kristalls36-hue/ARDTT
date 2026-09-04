@@ -179,3 +179,81 @@ func TestTouchPresenceHeartbeatDoesNotRewriteUsersJson(t *testing.T) {
 		t.Fatal("heartbeat rewrote users.json")
 	}
 }
+
+func TestCreateUserDoesNotBindDevice(t *testing.T) {
+	dir := t.TempDir()
+	s := &Store{path: filepath.Join(dir, "users.json")}
+	u, err := s.CreateUser("alice", 30, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.DeviceID == "" {
+		t.Fatal("profile still needs a deviceId for the JSON")
+	}
+	if len(u.DeviceIDs) != 0 {
+		t.Fatalf("bound at create: %#v", u.DeviceIDs)
+	}
+	pub := s.ToPublic(u)
+	if pub.DeviceID != "" || len(pub.DeviceIDs) != 0 {
+		t.Fatalf("admin list bound: id=%q ids=%#v", pub.DeviceID, pub.DeviceIDs)
+	}
+	if s.BuildProfile(u).DeviceID == "" {
+		t.Fatal("shared profile JSON missing deviceId")
+	}
+}
+
+func TestNormalizeDropsUnusedCreateBinding(t *testing.T) {
+	u := User{DeviceID: "dev-x", DeviceIDs: []string{"dev-x"}, MaxDevices: 1}
+	if !normalizeUserDevices(&u) {
+		t.Fatal("expected unused template to drop")
+	}
+	if len(u.DeviceIDs) != 0 {
+		t.Fatalf("still bound: %#v", u.DeviceIDs)
+	}
+	if u.DeviceID != "dev-x" {
+		t.Fatalf("template lost: %q", u.DeviceID)
+	}
+}
+
+func TestNormalizeKeepsSeenBinding(t *testing.T) {
+	u := User{
+		DeviceID:   "dev-x",
+		DeviceIDs:  []string{"dev-x"},
+		LastSeenAt: 1,
+		MaxDevices: 1,
+	}
+	normalizeUserDevices(&u)
+	if len(u.DeviceIDs) != 1 || u.DeviceIDs[0] != "dev-x" {
+		t.Fatalf("lost bind: %#v", u.DeviceIDs)
+	}
+}
+
+func TestTouchPresenceBindsDeviceOnFirstReport(t *testing.T) {
+	dir := t.TempDir()
+	s := &Store{
+		path: filepath.Join(dir, "users.json"),
+		Users: []User{{
+			Name:       "alice",
+			DeviceID:   "dev-abc",
+			MaxDevices: 1,
+		}},
+	}
+	u, err := s.TouchPresence("dev-abc", "alice", "203.0.113.10", "Pixel 8", "0.5.218", 236)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(u.DeviceIDs) != 1 || u.DeviceIDs[0] != "dev-abc" {
+		t.Fatalf("bound: %#v", u.DeviceIDs)
+	}
+	if u.DeviceModels["dev-abc"] != "Pixel 8" {
+		t.Fatalf("model: %#v", u.DeviceModels)
+	}
+}
+
+func TestToPublicOmitsUnboundTemplateDevice(t *testing.T) {
+	u := User{Name: "alice", DeviceID: "dev-template", MaxDevices: 1}
+	pub := toPublicLocked(u, time.Now().Unix())
+	if pub.DeviceID != "" || len(pub.DeviceIDs) != 0 {
+		t.Fatalf("public: %#v", pub)
+	}
+}
