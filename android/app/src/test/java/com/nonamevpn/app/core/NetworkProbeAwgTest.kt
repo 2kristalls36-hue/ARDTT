@@ -6,11 +6,11 @@ import org.junit.Test
 
 class NetworkProbeAwgTest {
     @Test
-    fun vpsTcpUnlocksDirectEvenIfAwgSilent() {
+    fun openInternetVpsTcpUnlocksDirectEvenIfAwgSilent() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
-            bigtechOk = false,
+            bigtechOk = true,
             captive = false,
             awgUdpOk = false,
             provisionOk = true,

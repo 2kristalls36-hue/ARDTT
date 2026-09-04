@@ -4,7 +4,7 @@
 Клиентская сторона деплоя — вкладка **Серверы** в режиме администратора Android.  
 Состав сервисов и смысл Path A/B: [ARCHITECTURE.md](ARCHITECTURE.md), [LEGEND.md](LEGEND.md).
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.22**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.24**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -47,7 +47,7 @@ VPS  /opt/nonamevpn/stack/     ← compose + исходники сервисов
 | `nvpn-direct` | `server/direct` | AmneziaWG 2.0 (`amneziawg-go` + `awg`) на `awg0`, подсеть `10.8.0.0/24` |
 | `nvpn-bypass` | `server/bypass` | `wdtt-server -listen-raw` на `wdttraw0`, подсеть `10.9.0.0/24` |
 | `nvpn-dns` | `server/dns` | dnsmasq на шлюзах `10.8.0.1` / `10.9.0.1`, upstream `1.1.1.1`/`1.0.0.1` **через main**, не через WARP |
-| `nvpn-warp` | `server/warp` | wgcf → `warp0`; hideIp → table `51820`. DNS (:53) остаётся на main |
+| `nvpn-warp` | `server/warp` | wgcf → wireproxy → tun2socks `warp0`; hideIp → table `51820`. DNS (:53) остаётся на main |
 | `nvpn-telemetry` | `server/telemetry-upload` | `POST /api/upload-log` с телефона |
 
 Один `host_id` (начиная с **2**, `.1` — шлюз) даёт клиенту оба адреса: `10.8.0.{id}` и `10.9.0.{id}`.  
@@ -86,14 +86,14 @@ WARP — не третий путь подключения, а **egress** выб
 
 ```bash
 NVPN_PUBLIC_HOST='…' NVPN_DIRECT_PORT=51820 NVPN_BYPASS_PORT=56003 \
-NVPN_DEPLOY_VERSION='1.0.22' bash /opt/nonamevpn/install.sh
+NVPN_DEPLOY_VERSION='1.0.24' bash /opt/nonamevpn/install.sh
 ```
 
 Каскад (два VPS): телефон **отдельно** SSH на выход, потом на вход. Пароль второго сервера в `.env` входа не пишется.
 
 ```bash
 # 1) выход (DNS + WARP)
-NVPN_ROLE=exit NVPN_PUBLIC_HOST='2.26.125.160' NVPN_DEPLOY_VERSION='1.0.22' \
+NVPN_ROLE=exit NVPN_PUBLIC_HOST='2.26.125.160' NVPN_DEPLOY_VERSION='1.0.24' \
   bash /opt/nonamevpn/install.sh
 # stdout: NVPN_CASCADE_PUBLIC_KEY|<base64>
 
@@ -101,11 +101,15 @@ NVPN_ROLE=exit NVPN_PUBLIC_HOST='2.26.125.160' NVPN_DEPLOY_VERSION='1.0.22' \
 NVPN_ROLE=entry NVPN_CASCADE_ENABLED=1 \
   NVPN_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
   NVPN_CASCADE_PEER_PUBLIC_KEY='…' \
-  NVPN_PUBLIC_HOST='45.129.2.3' NVPN_DEPLOY_VERSION='1.0.22' \
+  NVPN_PUBLIC_HOST='45.129.2.3' NVPN_DEPLOY_VERSION='1.0.24' \
   bash /opt/nonamevpn/install.sh
 
 # 3) ключ входа → /opt/nonamevpn/stack/data/cascade.peer.pub на выходе
 ```
+
+Повторный «Обновить деплой» **входа** без `NVPN_CASCADE_ENABLED=1` больше не сбрасывает живой каскад: `install.sh` копирует флаги из `stack/.env`. Снять каскад явно: `NVPN_CASCADE_FORCE_DISABLE=1`.
+
+Порядок обновления каскада: сначала **выход** до этого стека, потом вход. Если обновить только вход и включить hop, Hide-IP-выкл уедет в старый blanket WARP на выходе — 2ip.ru снова покажет Cloudflare.
 
 6. Разбор stdout построчно (UTF-8, без ANSI):
    - `NVPN_PROGRESS|<0..1>|<шаг>` — полоса и подпись в UI;
@@ -169,7 +173,7 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 ```bash
 cd server
 cp .env.example .env          # NVPN_PUBLIC_HOST=IP_VPS
-echo 1.0.22 > DEPLOY_VERSION   # или оставить как в репо
+echo 1.0.24 > DEPLOY_VERSION   # или оставить как в репо
 docker compose up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh alice   # JSON профиля в stdout
@@ -180,7 +184,7 @@ curl -s http://127.0.0.1:9100/health
 Тот же `server/install.sh` можно прогнать вручную, если положить дерево в `/opt/nonamevpn/stack` (или залить tar) и вызвать от root:
 
 ```bash
-export NVPN_PUBLIC_HOST=1.2.3.4 NVPN_DEPLOY_VERSION=1.0.22
+export NVPN_PUBLIC_HOST=1.2.3.4 NVPN_DEPLOY_VERSION=1.0.24
 bash /opt/nonamevpn/install.sh
 ```
 
@@ -266,7 +270,7 @@ Hash звонка на сервер **не** кладётся.
 
 ### Hide IP / WARP
 
-`POST /v1/hide-ip` → `users.json.hideIp`. warp-entrypoint дебаунсит ~1 с и вешает `from 10.8.0.{id}/32` и `from 10.9.0.{id}/32` в table 51820. DNS и подсети туннелей остаются на main. Контейнер **не** перезапускают по OOM (`GOMEMLIMIT` ~400 MiB).
+`POST /v1/hide-ip` → `users.json.hideIp`. warp-entrypoint дебаунсит ~1 с и вешает `from 10.8.0.{id}/32` и `from 10.9.0.{id}/32` в table 51820. DNS и подсети туннелей остаются на main. Клиент **не** рестартует TUN: смена VPS↔Cloudflare на лету. Контейнер **не** перезапускают по OOM (`GOMEMLIMIT` 256 MiB; in-process recycle wireproxy).
 
 ### Provision API (телефон бьёт в `:9100`)
 
@@ -347,13 +351,13 @@ docker compose down          # контейнеры; data/ остаётся
 ```bash
 docker compose -f /opt/nonamevpn/stack/docker-compose.yml ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.22"
+# ожидается: "ok": true, "deployVersion": "1.0.24"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'
 ```
 
-С телефона: карточка VPS «Онлайн · деплой 1.0.22 · актуален», создание клиента, импорт профиля, Connect.
+С телефона: карточка VPS «Онлайн · деплой 1.0.24 · актуален», создание клиента, импорт профиля, Connect.
 
 ---
 

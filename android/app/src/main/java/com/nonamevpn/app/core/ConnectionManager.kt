@@ -233,34 +233,33 @@ class ConnectionManager(
             if (r.isSuccess) {
                 lastHideIpSent = enabled
                 refreshVpnNotification()
-                // Egress flip on VPS invalidates in-flight TCP (new SNAT IP).
-                // Server conntrack flush alone leaves phone sockets waiting ~RTO (30s).
-                // Soft-restart TUN so apps reconnect in ~1–2s instead of hanging.
+                // Proven production WARP (wireproxy+tun2socks) flips egress with
+                // ip rule + conntrack flush. Restarting the phone TUN dropped
+                // calls and made the toggle feel slow.
                 if (_ui.value.state == ConnState.Connected) {
-                    delay(1_500) // nvpn-warp debounce + apply ip rules
+                    delay(1_200) // nvpn-warp debounce (~1s) + apply ip rules
                     if (_ui.value.hideIp != enabled) return@launch
-                    val why = if (enabled) {
-                        "Hide-IP: egress → WARP"
-                    } else {
-                        "Hide-IP: egress → VPS"
+                    if (hideIpShouldRestartTransport()) {
+                        val why = if (enabled) "Hide-IP: egress → WARP" else "Hide-IP: egress → VPS"
+                        requestTransportRestart(why)
                     }
-                    AppLog.v(TAG, "Hide-IP applied — $why (soft-restart sockets)")
-                    requestTransportRestart(why)
-                    // Soft-restart also refreshes on tunnel-up; schedule a late
-                    // WARP/VPS IP fetch in case the first attempt races policy apply.
+                    EgressIpProbe.invalidate()
                     scheduleEgressIpRefresh("hide-ip-applied")
                 } else {
                     scheduleEgressIpRefresh("hide-ip-synced-offline")
                 }
             } else {
                 AppLog.e(TAG, "hide-ip sync failed: ${r.exceptionOrNull()?.message}")
+                // Retry after TUN is up for both on and off. A failed disable
+                // used to set pending=false, so the VPS kept hideIp=true while
+                // the app showed «Мой IP» and 2ip.ru still saw Cloudflare.
+                pendingHideIpSync = true
                 if (viaVpn) {
                     _ui.value = _ui.value.copy(
                         lastError = "Скрытие адреса не синхронизировано: ${r.exceptionOrNull()?.message}",
                     )
                 } else {
-                    pendingHideIpSync = enabled
-                    AppLog.i(TAG, "Hide-IP will retry after tunnel up")
+                    AppLog.i(TAG, "Hide-IP will retry after tunnel up (want=$enabled)")
                 }
             }
         }
@@ -568,20 +567,22 @@ class ConnectionManager(
                     val r = syncHideIpToProvision(true, viaVpn = false)
                     if (r.isFailure) {
                         AppLog.e(TAG, "hide-ip enable failed: ${r.exceptionOrNull()?.message}")
-                        _ui.value = _ui.value.copy(
-                            state = ConnState.Error,
-                            lastError = "Не удалось скрыть адрес: ${r.exceptionOrNull()?.message}",
-                            connectEnabled = true,
-                        )
-                        return@launch
+                        pendingHideIpSync = true
+                        AppLog.i(TAG, "Hide-IP enable deferred until tunnel up")
+                    } else {
+                        lastHideIpSent = true
                     }
-                    lastHideIpSent = true
                 } else if (deferHideIp) {
                     pendingHideIpSync = true
                     AppLog.v(TAG, "Hide-IP deferred until Bypass tunnel (underlay cannot reach provision)")
-                } else if (lastHideIpSent == true) {
-                    runCatching { syncHideIpToProvision(false, viaVpn = false) }
-                        .onSuccess { lastHideIpSent = false }
+                } else if (lastHideIpSent != false) {
+                    val r = syncHideIpToProvision(false, viaVpn = false)
+                    if (r.isSuccess) {
+                        lastHideIpSent = false
+                    } else {
+                        pendingHideIpSync = true
+                        AppLog.i(TAG, "Hide-IP disable deferred until tunnel up")
+                    }
                 }
                 val selectedApps = runCatching { settingsRepo.excludedAppsSnapshot() }
                     .getOrDefault(emptySet())
@@ -835,7 +836,8 @@ class ConnectionManager(
 
     /**
      * After Wi‑Fi↔LTE / SIM settle: re-classify underlay.
-     * VPS reachable → Direct even on БС. Otherwise 77.88.8.8 → Bypass.
+     * Open internet + VPS TCP → Direct. Operator whitelist (Yandex up,
+     * Cloudflare down) → Bypass even if TCP :9100 answers (AWG is UDP).
      * NoNetwork → hold (do not restart into a dead SIM gap).
      *
      * [bindNetwork] must be the real underlay (NOT_VPN); probing through the
@@ -1198,22 +1200,19 @@ class ConnectionManager(
                 callRecreateAttempts = 0
             }
             refreshVpnNotification()
-            if (pendingHideIpSync || _ui.value.hideIp) {
-                val want = _ui.value.hideIp
+            val wantHideIp = _ui.value.hideIp
+            if (hideIpShouldRetryAfterTunnel(lastHideIpSent, wantHideIp, pendingHideIpSync)) {
                 pendingHideIpSync = false
-                if (lastHideIpSent == want) {
-                    AppLog.i(TAG, "Hide-IP already at hideIp=$want after tunnel up")
+                val r = syncHideIpToProvision(wantHideIp, viaVpn = true, tryVpnFallback = false)
+                if (r.isSuccess) {
+                    lastHideIpSent = wantHideIp
                 } else {
-                    val r = syncHideIpToProvision(want, viaVpn = true, tryVpnFallback = false)
-                    if (r.isSuccess) {
-                        lastHideIpSent = want
-                    } else {
-                        AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
-                        if (want) {
-                            _ui.value = _ui.value.copy(
-                                lastError = "Скрытие адреса: ${r.exceptionOrNull()?.message}",
-                            )
-                        }
+                    pendingHideIpSync = true
+                    AppLog.e(TAG, "hide-ip post-tunnel sync failed: ${r.exceptionOrNull()?.message}")
+                    if (wantHideIp) {
+                        _ui.value = _ui.value.copy(
+                            lastError = "Скрытие адреса: ${r.exceptionOrNull()?.message}",
+                        )
                     }
                 }
             }
@@ -1465,17 +1464,17 @@ class ConnectionManager(
             parts += "Профиль указывает на документационный IP — импортируйте JSON с вашего VPS."
         }
         when (result.networkClass) {
-            NetworkClass.NeedBypass, NetworkClass.OpenNeedBypass ->
-                if (pathMode == ConnPathMode.Auto) {
-                    parts += "VPS недоступен — будет обход."
-                }
             NetworkClass.NeedBypass ->
                 if (pathMode == ConnPathMode.Auto) {
-                    parts += "Похоже на белый список, VPS не отвечает — будет обход."
+                    parts += if (result.provisionOk && result.whitelistRestricted) {
+                        "Белый список: UDP до VPS, скорее всего, закрыт — сразу обход."
+                    } else {
+                        "Похоже на белый список, VPS не отвечает — будет обход."
+                    }
                 }
-            NetworkClass.DirectOk ->
-                if (result.whitelistRestricted) {
-                    parts += "Белый список, но VPS доступен — прямое."
+            NetworkClass.OpenNeedBypass ->
+                if (pathMode == ConnPathMode.Auto) {
+                    parts += "VPS недоступен — будет обход."
                 }
             NetworkClass.Captive ->
                 parts += "Обнаружена страница авторизации сети. Сначала выполните вход в Wi‑Fi."
@@ -1599,7 +1598,11 @@ class ConnectionManager(
         scope.launch {
             val hideIp = _ui.value.hideIp
             // WARP policy + MSS path need a beat longer than plain VPS SNAT.
-            val initialDelay = if (hideIp) 2_500L else 1_000L
+            val initialDelay = when {
+                reason == "hide-ip-applied" -> 400L
+                hideIp -> 2_500L
+                else -> 1_000L
+            }
             delay(initialDelay)
             val attempts = if (hideIp) 5 else 4
             repeat(attempts) { attempt ->

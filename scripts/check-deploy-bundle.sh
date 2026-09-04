@@ -35,7 +35,10 @@ if [ -f "$INSTALLER" ]; then
   fi
   grep -q 'NVPN_ROLE' "$INSTALLER" || err "installer missing NVPN_ROLE"
   grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
+  grep -q 'preserve_live_cascade' "$INSTALLER" || err "installer missing live-cascade preserve"
+  grep -q 'NVPN_CASCADE_FORCE_DISABLE' "$INSTALLER" || err "installer missing cascade force-disable flag"
   grep -q 'cleanup_stale_deploy_files' "$INSTALLER" || err "installer missing leftover-file cleanup"
+  grep -q 'clear_legacy_kernel_warp' "$ROOT/server/warp/entrypoint.sh" || err "warp entrypoint must drop leftover kernel-WG warp0"
   grep -q 'swap_target_mb' "$INSTALLER" || err "installer missing small-disk swap cap"
   grep -q 'disk_need_mb' "$INSTALLER" || err "installer missing scaled disk threshold"
   grep -q 'install-live.log' "$INSTALLER" || err "installer must remove legacy install-live.log"
@@ -109,6 +112,9 @@ if [ -f "$COMPOSE" ]; then
   fi
 fi
 bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n failed for cascade-entrypoint.sh"
+bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n failed for warp/entrypoint.sh"
+grep -q 'wireproxy' "$ROOT/server/warp/Dockerfile" || err "warp Dockerfile missing wireproxy"
+grep -q 'tun2socks' "$ROOT/server/warp/Dockerfile" || err "warp Dockerfile missing tun2socks"
 
 if [ "$fail" -ne 0 ]; then
   msg "deploy bundle check failed"

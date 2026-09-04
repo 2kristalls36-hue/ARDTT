@@ -145,7 +145,7 @@ Android
 UI перед Connect: чекбокс **«Скрыть свой IP»** (per-session или запомнить в профиле).
 
 - Выкл: NAT в интернет с IP сервера (standalone — этот VPS; каскад — WAN выхода).
-- Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` (wgcf / kernel WG).
+- Вкл: трафик **этого** `host_id` (с `10.8.0.{id}` или `10.9.0.{id}`) уходит в `warp0` через **wireproxy + tun2socks** (userspace WG → SOCKS → TUN). Переключение Hide-IP — только `ip rule` + flush conntrack, без рестарта клиентского TUN.
   На каскадном входе `/32` prio 300 бьёт hop `from 10.8/24` prio 320, поэтому Hide-IP не зависит от WARP на выходе.
 
 **DNS не через WARP.** Иначе резолв ломается (таймауты, «IP есть — сайты нет»), особенно на tun2socks/SOCKS и часто на WARP-пути.
@@ -178,7 +178,7 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 
 Те же проверки. На **смене сети при активном туннеле** сокеты биндятся к underlay (`NOT_VPN`), чтобы не классифицировать мир через уже поднятый Direct/Bypass. В режиме Auto при смене класса сети — переключение пути; иначе soft-restart того же path. **Нет сети** (дыра WIFI↔LTE↔LTE / смена SIM) — hold, без рестарта в пустоту; следующий validated underlay / смена data SIM ставит probe в очередь, если предыдущий ещё идёт.
 
-Таймауты handover/`quick`: TCP **450 мс**, captive **400 мс**, VPS TCP **600 мс**. Старт приложения: 700 / 600 / 900 мс. Пробы **по IP, без DNS**: `77.88.8.8` и `1.1.1.1` (порт 443 и 53 гонка). VPS — TCP на host:port provision (не HTTP GET). Если VPS открылся — **сразу Direct**, не ждём таймаут 1.1.1.1. Captive (`generate_204`) только когда оба IP мертвы — иначе Google на БС даёт ложный captive. Settle после смены сети **~400 мс**. Connect re-probe использует `quick`.
+Таймауты handover/`quick`: TCP **450 мс**, captive **400 мс**, VPS TCP **600 мс**. Старт приложения: 700 / 600 / 900 мс. Пробы **по IP, без DNS**: `77.88.8.8` и `1.1.1.1` (порт 443 и 53 гонка). VPS — TCP на host:port provision (не HTTP GET). Это **не** AmneziaWG UDP :51820: на белом списке `:9100` часто отвечает, а UDP дропается — Auto тогда берёт **обход**, а не мёртвый Direct. Captive (`generate_204`) только когда оба IP мертвы — иначе Google на БС даёт ложный captive. Settle после смены сети **~400 мс**. Connect re-probe использует `quick`. Dead-Direct watchdog: нет TUN rx ~4 с → Auto переключается на обход.
 
 | Probe | Как | Зачем |
 |-------|-----|--------|
@@ -186,7 +186,7 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 | **77.88.8.8** | TCP :443 \|\| :53 | «Есть интернет» на типичных БС (Yandex DNS) |
 | **1.1.1.1** | TCP :443 \|\| :53 | Открытая сеть vs БС (Cloudflare режется на белом списке) |
 | **Captive** | `generate_204`, только если оба IP мертвы | Captive portal |
-| **VPS TCP** | Connect на provision host:port | Direct, **в том числе при БС**, если свой сервер доступен |
+| **VPS TCP** | Connect на provision host:port | Открытая сеть → Direct; на БС (Yandex↑ Cloudflare↓) → обход, даже если :9100 жив |
 
 Опционально позже: UDP-lite на `direct.endpoint` (handshake AWG) — отдельно от TCP provision.
 
@@ -200,8 +200,8 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 |-------|---------|-----------|-----|
 | **NoNetwork** | нет VPS и (!77.88.8.8 && !1.1.1.1) | — | Connect disabled; handover — hold |
 | **Captive** | оба IP мертвы и generate_204 ≠ 204 | — | «Войдите в сеть» |
-| **DirectOk** | VPS TCP ok | Path A | «Прямое» (даже на БС) |
-| **NeedBypass** | VPS fail, 77.88.8.8 ok, 1.1.1.1 fail | Path B | «Обход» (белый список) |
+| **DirectOk** | VPS TCP ok и не белый список | Path A | «Прямое» |
+| **NeedBypass** | 77.88.8.8 ok, 1.1.1.1 fail (VPS TCP не важен) | Path B | «Обход» (белый список) |
 | **OpenNeedBypass** | VPS fail, 1.1.1.1 ok | Path B | Мягкий info, **не** blocking dialog |
 
 **Убрали** hard-block «не используйте без БС». На открытой сети при недоступном VPS обход как раз нужен. Info-текст можно показать, Connect не запрещаем.
@@ -308,17 +308,16 @@ TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9
 
 ## WARP память без рестарта (#11)
 
-Не используем `Restart=always` / OOM-kill цикл на `warp`.
+Не используем `Restart=always` / OOM-kill цикл на контейнере `warp`.
 
-Вместо этого:
+Боевой контур (проверен на рабочем VPS ~2 ГБ RAM, 14+ дней без OOM):
 
-- `GOMEMLIMIT` (~400–450 MiB) + мягкий GC внутри процесса;
-- лимит одновременных SOCKS/потоков в tun2socks;
-- периодический **soft recycle** соединений (не контейнера), если RSS растёт;
-- метрики RSS в лог; алерт админу;
-- `mem_limit` в Docker — только как cgroup ceiling **без** обязательного restart policy (или без limit, если предпочитаем деградацию скорости, а не kill).
+- **wireproxy** 1.1.2 (userspace WG, SOCKS5 на localhost) — RSS ~110 MiB, `GOMEMLIMIT` 256 MiB;
+- **tun2socks** 2.5.2 (`warp0` TUN) — RSS ~20 MiB;
+- Hide-IP = `ip rule` from `/32` → table `51820` + conntrack flush (как ранние релизы: на лету);
+- in-process recycle wireproxy, если RSS > 350 MiB — без docker restart.
 
-Цель: процесс сам сбрасывает давление, клиенты не теряют egress из‑за рестарта контейнера.
+Kernel `wg-quick` на `warp0` не используем: он раздувал память и требовал soft-restart TUN на телефоне.
 
 ---
 
@@ -396,5 +395,5 @@ Call hash — **локально на устройстве**, не обязан 
 | WRAP без DTLS | Пароль как секрет; сильный Path A |
 | GPL | GPL-3 на APK + NOTICE |
 | warp RAM | GOMEMLIMIT, без restart контейнера |
-| Ложный VPS probe | Только TCP provision host:port; 1.1.1.1 не блокер Direct |
+| Ложный VPS probe | TCP :9100 ≠ AWG UDP; БС (Yandex↑ CF↓) → обход, даже если provision отвечает |
 | Скорость RAW | workers default 3, не 1 |
