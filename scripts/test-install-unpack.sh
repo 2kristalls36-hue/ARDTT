@@ -28,14 +28,14 @@ cp "$ROOT/server/install.sh" "$INSTALL/install.sh"
 chmod +x "$INSTALL/install.sh"
 
 run_install() {
-  NVPN_INSTALL_DIR="$INSTALL" \
-  NVPN_PUBLIC_HOST="203.0.113.9" \
-  NVPN_DIRECT_PORT=51820 \
-  NVPN_BYPASS_PORT=56003 \
-  NVPN_DEPLOY_VERSION="1.0.6-test" \
-  NVPN_SKIP_ROOT_CHECK=1 \
-  NVPN_DRY_RUN=1 \
-  NVPN_KEEP_INSTALL_LOG=1 \
+  ARDTT_INSTALL_DIR="$INSTALL" \
+  ARDTT_PUBLIC_HOST="203.0.113.9" \
+  ARDTT_DIRECT_PORT=51820 \
+  ARDTT_BYPASS_PORT=56003 \
+  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_SKIP_ROOT_CHECK=1 \
+  ARDTT_DRY_RUN=1 \
+  ARDTT_KEEP_INSTALL_LOG=1 \
   bash "$INSTALL/install.sh"
 }
 
@@ -65,18 +65,18 @@ echo run > "${leftover_root}/install-run.log"
 rm -rf "${leftover_root}"
 
 out="$(run_install)" || err "first install.sh exited $?"
-echo "$out" | grep -q 'NVPN_DONE|dry_run=1' || err "first run missing NVPN_DONE dry_run"
+echo "$out" | grep -q 'ARDTT_DONE|dry_run=1' || err "first run missing ARDTT_DONE dry_run"
 echo "$out" | grep -q 'Распаковка стека' || err "first run did not unpack tar"
 [ -f "$INSTALL/stack/docker-compose.yml" ] || err "stack not unpacked"
 [ -f "$INSTALL/stack/.env" ] || err "missing .env"
-grep -q 'NVPN_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env public host"
-grep -q 'NVPN_DEPLOY_VERSION=1.0.6-test' "$INSTALL/stack/.env" || err ".env version"
+grep -q 'ARDTT_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env public host"
+grep -q 'ARDTT_DEPLOY_VERSION=1.0.6-test' "$INSTALL/stack/.env" || err ".env version"
 grep -q 'TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env telemetry listen"
-grep -q 'NVPN_TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env NVPN_TELEMETRY_LISTEN alias"
-grep -q 'NVPN_TELEMETRY_PORT=9200' "$INSTALL/stack/.env" || err ".env NVPN_TELEMETRY_PORT"
-grep -q 'NVPN_ROLE=entry' "$INSTALL/stack/.env" || err ".env default role entry"
-grep -q 'NVPN_CASCADE_ENABLED=0' "$INSTALL/stack/.env" || err ".env cascade off by default"
-grep -q '^NVPN_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone first install must leave hop DNS empty"
+grep -q 'ARDTT_TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env ARDTT_TELEMETRY_LISTEN alias"
+grep -q 'ARDTT_TELEMETRY_PORT=9200' "$INSTALL/stack/.env" || err ".env ARDTT_TELEMETRY_PORT"
+grep -q 'ARDTT_ROLE=entry' "$INSTALL/stack/.env" || err ".env default role entry"
+grep -q 'ARDTT_CASCADE_ENABLED=0' "$INSTALL/stack/.env" || err ".env cascade off by default"
+grep -q '^ARDTT_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone first install must leave hop DNS empty"
 if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
   err ".env must not contain PASSWORD"
 fi
@@ -101,13 +101,13 @@ grep -qx 'keep-me' "$INSTALL/stack/data/users.json" || err "users.json not prese
 out3="$(run_install)" || err "third install.sh exited $?"
 echo "$out3" | grep -q 'уже распакованный стек' || err "third run should use existing stack"
 grep -qx 'keep-me' "$INSTALL/stack/data/users.json" || err "users.json lost on tar-less re-run"
-grep -q 'NVPN_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env rewritten on tar-less re-run"
-grep -q '^NVPN_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone .env must not set hop DNS"
+grep -q 'ARDTT_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env rewritten on tar-less re-run"
+grep -q '^ARDTT_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone .env must not set hop DNS"
 
 # Live cascade flags on entry must survive an update that omits them.
-sed -i 's/^NVPN_CASCADE_ENABLED=.*/NVPN_CASCADE_ENABLED=1/' "$INSTALL/stack/.env"
-sed -i 's/^NVPN_CASCADE_PEER_ENDPOINT=.*/NVPN_CASCADE_PEER_ENDPOINT=2.26.125.160:51820/' "$INSTALL/stack/.env"
-sed -i 's/^NVPN_CASCADE_PEER_PUBLIC_KEY=.*/NVPN_CASCADE_PEER_PUBLIC_KEY=abc+DEF\/123=/' "$INSTALL/stack/.env"
+sed -i 's/^ARDTT_CASCADE_ENABLED=.*/ARDTT_CASCADE_ENABLED=1/' "$INSTALL/stack/.env"
+sed -i 's/^ARDTT_CASCADE_PEER_ENDPOINT=.*/ARDTT_CASCADE_PEER_ENDPOINT=2.26.125.160:51820/' "$INSTALL/stack/.env"
+sed -i 's/^ARDTT_CASCADE_PEER_PUBLIC_KEY=.*/ARDTT_CASCADE_PEER_PUBLIC_KEY=abc+DEF\/123=/' "$INSTALL/stack/.env"
 mkdir -p "$INSTALL/stack/data"
 printf '%s\n' '2.26.125.160:51820' > "$INSTALL/stack/data/cascade.peer.endpoint"
 printf '%s\n' 'abc+DEF/123=' > "$INSTALL/stack/data/cascade.peer.pub"
@@ -115,29 +115,29 @@ printf '%s\n' 'fake-priv' > "$INSTALL/stack/data/cascade.priv"
 cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
 out_preserve="$(run_install)" || err "preserve-cascade install.sh exited $?"
 echo "$out_preserve" | grep -q 'каскад сохранён с прошлого деплоя' || err "missing live-cascade preserve warning"
-grep -q '^NVPN_CASCADE_ENABLED=1$' "$INSTALL/stack/.env" || err "cascade flag not preserved"
-grep -q '^NVPN_CASCADE_PEER_ENDPOINT=2.26.125.160:51820$' "$INSTALL/stack/.env" || err "cascade peer endpoint not preserved"
-grep -q '^NVPN_CASCADE_PEER_PUBLIC_KEY=abc+DEF/123=$' "$INSTALL/stack/.env" || err "cascade peer key not preserved"
-grep -q '^NVPN_CASCADE_DNS=10.10.0.2$' "$INSTALL/stack/.env" || err "cascade DNS not restored when hop is on"
-grep -q '^NVPN_WARP_MODE=passthrough$' "$INSTALL/stack/.env" || err "cascade entry must not WARP locally"
+grep -q '^ARDTT_CASCADE_ENABLED=1$' "$INSTALL/stack/.env" || err "cascade flag not preserved"
+grep -q '^ARDTT_CASCADE_PEER_ENDPOINT=2.26.125.160:51820$' "$INSTALL/stack/.env" || err "cascade peer endpoint not preserved"
+grep -q '^ARDTT_CASCADE_PEER_PUBLIC_KEY=abc+DEF/123=$' "$INSTALL/stack/.env" || err "cascade peer key not preserved"
+grep -q '^ARDTT_CASCADE_DNS=10.10.0.2$' "$INSTALL/stack/.env" || err "cascade DNS not restored when hop is on"
+grep -q '^ARDTT_WARP_MODE=passthrough$' "$INSTALL/stack/.env" || err "cascade entry must not WARP locally"
 
 run_exit() {
-  NVPN_INSTALL_DIR="$INSTALL" \
-  NVPN_PUBLIC_HOST="203.0.113.10" \
-  NVPN_ROLE=exit \
-  NVPN_DEPLOY_VERSION="1.0.6-test" \
-  NVPN_SKIP_ROOT_CHECK=1 \
-  NVPN_DRY_RUN=1 \
-  NVPN_KEEP_INSTALL_LOG=1 \
+  ARDTT_INSTALL_DIR="$INSTALL" \
+  ARDTT_PUBLIC_HOST="203.0.113.10" \
+  ARDTT_ROLE=exit \
+  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_SKIP_ROOT_CHECK=1 \
+  ARDTT_DRY_RUN=1 \
+  ARDTT_KEEP_INSTALL_LOG=1 \
   bash "$INSTALL/install.sh"
 }
 out4="$(run_exit)" || err "exit-role install.sh exited $?"
-echo "$out4" | grep -q 'NVPN_DONE|dry_run=1' || err "exit dry-run missing NVPN_DONE"
-grep -q 'NVPN_ROLE=exit' "$INSTALL/stack/.env" || err ".env role exit"
-grep -q 'NVPN_CASCADE_ENABLED=1' "$INSTALL/stack/.env" || err "exit forces cascade enabled"
-grep -q 'NVPN_WARP_MODE=exit-hideip' "$INSTALL/stack/.env" || err "exit warp mode exit-hideip"
-grep -q 'NVPN_WARP_HIDEIP_URL=http://10.10.0.1:9100/v1/hide-ip-prefixes' "$INSTALL/stack/.env" || err "exit hideIp URL"
-grep -Eq 'NVPN_WARP_DNS_IIFACES=.*cascade0' "$INSTALL/stack/.env" || err "exit DNS iif cascade0"
+echo "$out4" | grep -q 'ARDTT_DONE|dry_run=1' || err "exit dry-run missing ARDTT_DONE"
+grep -q 'ARDTT_ROLE=exit' "$INSTALL/stack/.env" || err ".env role exit"
+grep -q 'ARDTT_CASCADE_ENABLED=1' "$INSTALL/stack/.env" || err "exit forces cascade enabled"
+grep -q 'ARDTT_WARP_MODE=exit-hideip' "$INSTALL/stack/.env" || err "exit warp mode exit-hideip"
+grep -q 'ARDTT_WARP_HIDEIP_URL=http://10.10.0.1:9100/v1/hide-ip-prefixes' "$INSTALL/stack/.env" || err "exit hideIp URL"
+grep -Eq 'ARDTT_WARP_DNS_IIFACES=.*cascade0' "$INSTALL/stack/.env" || err "exit DNS iif cascade0"
 if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
   err "exit .env must not contain PASSWORD"
 fi

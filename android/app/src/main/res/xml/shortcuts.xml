@@ -7,9 +7,9 @@
         android:shortcutShortLabel="@string/shortcut_start_short"
         android:shortcutLongLabel="@string/shortcut_start_long">
         <intent
-            android:action="com.nonamevpn.app.shortcut.START_TUNNEL"
-            android:targetClass="com.nonamevpn.app.MainActivity"
-            android:targetPackage="com.nonamevpn.app" />
+            android:action="com.ardtt.app.shortcut.START_TUNNEL"
+            android:targetClass="com.ardtt.app.MainActivity"
+            android:targetPackage="com.ardtt.app" />
     </shortcut>
     <shortcut
         android:shortcutId="shortcut_stop_tunnel"
@@ -18,8 +18,8 @@
         android:shortcutShortLabel="@string/shortcut_stop_short"
         android:shortcutLongLabel="@string/shortcut_stop_long">
         <intent
-            android:action="com.nonamevpn.app.shortcut.STOP_TUNNEL"
-            android:targetClass="com.nonamevpn.app.MainActivity"
-            android:targetPackage="com.nonamevpn.app" />
+            android:action="com.ardtt.app.shortcut.STOP_TUNNEL"
+            android:targetClass="com.ardtt.app.MainActivity"
+            android:targetPackage="com.ardtt.app" />
     </shortcut>
 </shortcuts>

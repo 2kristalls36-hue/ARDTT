@@ -8,12 +8,12 @@ import (
 	"sync"
 )
 
-const stateDirEnv = "NVPN_STATE_DIR"
+const stateDirEnv = "ARDTT_STATE_DIR"
 
 var logStateDirOnce sync.Once
 
 // stateDir is a writable folder for vk_profile.json and captcha fingerprints.
-// On Android the APK/native dir is read-only; the app sets NVPN_STATE_DIR.
+// On Android the APK/native dir is read-only; the app sets ARDTT_STATE_DIR.
 func stateDir() string {
 	dir := strings.TrimSpace(os.Getenv(stateDirEnv))
 	if dir == "" {

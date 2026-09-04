@@ -343,7 +343,7 @@ func fetchCurl(rawURL string, viaWarp bool) fetchResult {
 		"-sS", "-L", "--max-redirs", "8",
 		"--max-time", "8",
 		"-A", netcheckBrowserUA,
-		"-w", "\n__NVPN_CODE__%{http_code}\n__NVPN_URL__%{url_effective}",
+		"-w", "\n__ARDTT_CODE__%{http_code}\n__ARDTT_URL__%{url_effective}",
 	}
 	if viaWarp {
 		args = append(args, "--interface", "warp0")
@@ -351,7 +351,7 @@ func fetchCurl(rawURL string, viaWarp bool) fetchResult {
 	args = append(args, rawURL)
 	out, err := exec.Command("curl", args...).CombinedOutput()
 	text := string(out)
-	if err != nil && !strings.Contains(text, "__NVPN_CODE__") {
+	if err != nil && !strings.Contains(text, "__ARDTT_CODE__") {
 		return fetchResult{Err: strings.TrimSpace(text + " " + err.Error())}
 	}
 	return parseCurlOutput(text, rawURL)
@@ -361,10 +361,10 @@ func parseCurlOutput(text, fallbackURL string) fetchResult {
 	code := 0
 	final := fallbackURL
 	body := text
-	if i := strings.LastIndex(text, "\n__NVPN_CODE__"); i >= 0 {
+	if i := strings.LastIndex(text, "\n__ARDTT_CODE__"); i >= 0 {
 		body = text[:i]
-		rest := text[i+len("\n__NVPN_CODE__"):]
-		codeLine, urlPart, _ := strings.Cut(rest, "\n__NVPN_URL__")
+		rest := text[i+len("\n__ARDTT_CODE__"):]
+		codeLine, urlPart, _ := strings.Cut(rest, "\n__ARDTT_URL__")
 		codeLine = strings.TrimSpace(codeLine)
 		if n := atoiSafe(codeLine); n > 0 {
 			code = n

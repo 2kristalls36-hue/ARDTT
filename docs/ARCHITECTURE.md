@@ -2,7 +2,7 @@
 
 Легенда имени и смыслов: [LEGEND.md](LEGEND.md).  
 Деплой VPS (приложение / Compose, `install.sh`, версии): [DEPLOY.md](DEPLOY.md).  
-**ARDTT** = Amnezia + RAW Dial via TURN (черновики: nonameVPN → AWDTT).  
+**ARDTT** = Amnezia + RAW Dial via TURN.  
 Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DTLS); см. [LEGEND.md](LEGEND.md).
 
 Клиентский VPN с двумя путями до своего VPS:
@@ -29,7 +29,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Мёртвый звонок | По умолчанию диалог на экране Туннеля; настройка «Обновлять звонок автоматически» — recreate в фоне (нужна живая `remixsid`, иначе диалог входа). Один silent-attempt за цикл |
 | TURN transport | **TCP** |
 | Workers | **Default 3** на один hash (TCP); в настройках можно 1 («экономия») |
-| Имя | **ARDTT** (Amnezia + RAW Dial via TURN); см. [LEGEND.md](LEGEND.md). Внутренние id/`nvpn`/каталоги `wdtt-*` — совместимость |
+| Имя | **ARDTT** (Amnezia + RAW Dial via TURN); см. [LEGEND.md](LEGEND.md). Внутренние id/`ardtt`/каталоги `wdtt-*` — совместимость |
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
@@ -156,7 +156,7 @@ prio 300+: from 10.8.0.x / 10.9.0.x → lookup 51820 → warp0         # ост�
 + MASQUERADE :53 на eth0 для 10.8/10.9
 ```
 
-Клиентский DNS — **шлюз туннеля** (`10.8.0.1` Direct / `10.9.0.1` Bypass) → **dnsmasq** (`nvpn-dns`) → upstream `1.1.1.1`/`1.0.0.1` по `main`. Запросы на внешний `:53` (старые профили) по-прежнему уводятся `ip rule` prio 100 → main.
+Клиентский DNS — **шлюз туннеля** (`10.8.0.1` Direct / `10.9.0.1` Bypass) → **dnsmasq** (`ardtt-dns`) → upstream `1.1.1.1`/`1.0.0.1` по `main`. Запросы на внешний `:53` (старые профили) по-прежнему уводятся `ip rule` prio 100 → main.
 
 На клиенте **нет** отдельного `10.10.0.{id}` как path подключения.
 
@@ -238,7 +238,7 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 
 - 1 hash на пользователя VPN.
 - Хранится **на телефоне** (encrypted prefs / account storage).
-- В серверный профиль hash **не обязателен**; `nvpn://` несёт AWG + bypass peer/password/`hostId`.
+- В серверный профиль hash **не обязателен**; `ardtt://` несёт AWG + bypass peer/password/`hostId`.
 
 ### Роль VK-аккаунта
 
@@ -271,14 +271,14 @@ TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9
 
 **Как в WDTT:** форк API/WebView под текущий VK; при поломке — обновление приложения; Path всегда только через TURN VK; несколько hash/workers как смягчение; captcha/account как запасные ветки.
 
-**Наше предложение:**
+**Как устроено:**
 
-1. Path A (AWG) всегда независим — поломка VK ≠ полный даун продукта.
+1. Path A (AWG) независим — поломка VK ≠ полный даун продукта.
 2. Авто: `vkcalls` → fail → `legacy`.
-3. Изолировать `bypass` модуль (легче чинить VK без трогания AWG).
-4. Версионировать «диалект» VK API в клиенте; remote flag (позже) для принудить legacy.
-5. Честный UX: «Обход временно недоступен» если оба дозвона мертвы; Direct если VPS UDP ок.
-6. Не обещать SLA обхода; один hash — осознанный риск (нет multi-hash failover); тихий recreate и legacy — основные подушки.
+3. Модуль `bypass` изолирован (чинить VK без трогания AWG).
+4. «Диалект» VK API живёт в клиенте; remote flag, чтобы принудить legacy, пока нет.
+5. UX: «Обход временно недоступен», если оба дозвона мертвы; Direct, если VPS UDP ок.
+6. SLA обхода не обещаем; один hash — осознанный риск (нет multi-hash failover); тихий recreate и legacy — основные подушки.
 
 ---
 
@@ -294,15 +294,13 @@ TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9
 - Path B RAW (qWDTT / SpaceNeuroX) ≈ **GPL-3.0** — см. [NOTICE](../NOTICE), [LEGEND.md](LEGEND.md)
 - Классический WDTT (amurcanov) — идейный предок (WG/TURN/DTLS), не источник RAW
 
-**Сделать:**
+Как лицензировано:
 
-1. В репо: `LICENSE` (решение для **всего APK** — практично **GPL-3.0**), `NOTICE` с атрибуцией Amnezia (Apache) и SpaceNeuroX/qWDTT RAW (GPL).
-2. Не удалять copyright headers из форкнутых файлов.
-3. README: откуда код, что продукт — комбинированное произведение под GPL-3.
-4. Play/распространение: готовность отдать corresponding source (GPL).
-5. Не линковать GPL в закрытый proprietary без соблюдения GPL.
-
-Альтернатива позже (дорого): переписать TURN/WRAP без GPL-кода → снова можно Apache-only UI.
+1. В репо: `LICENSE` на **весь APK** — **GPL-3.0**, `NOTICE` с атрибуцией Amnezia (Apache) и SpaceNeuroX/qWDTT RAW (GPL).
+2. Copyright headers из форкнутых файлов не удаляются.
+3. README описывает комбинированное произведение под GPL-3.
+4. Play/распространение: corresponding source отдаётся по GPL.
+5. GPL-код нельзя линковать в закрытый proprietary без соблюдения GPL.
 
 ---
 
@@ -323,14 +321,14 @@ Kernel `wg-quick` на `warp0` не используем: он раздувал 
 
 ## Dual VpnService (#15)
 
-**Предложение:** один `TunnelService` / один `VpnService` binder; два **взаимоисключающих** backend:
+Один `VpnTunnelService` (`VpnService`); два **взаимоисключающих** backend:
 
-- `AwgBackend` (Path A)
-- `RawBackend` (Path B)
+- `DirectBackend` — Path A, AmneziaWG userspace (`libwg-go`)
+- `BypassBackend` — Path B, RAW `go_client` (`libclient.so`)
 
 Смена path = stop backend → start other в том же service (короткий reconnect).  
 Probe **никогда** не держит VpnService up.  
-Не держать два TUN сразу.
+Два TUN сразу не поднимаются.
 
 ---
 
@@ -348,12 +346,15 @@ provision /data — host_id, keys, passwords
 `network_mode: host`, `NET_ADMIN`, `/dev/net/tun`.  
 Create-user: адреса в `10.8` и `10.9` с одним octet; флаг hide-IP — клиентский/сессионный, применяется policy на сервере (mark по IP клиента).
 
-Боевой путь: админ в приложении → SSH → `/opt/nonamevpn` + `install.sh` + Compose.  
+Боевой путь: админ в приложении → SSH → каталог установки ARDTT + `install.sh` + Compose.  
+На диске путь по умолчанию `/opt/ardtt` оставлен для совместимости с уже развёрнутыми VPS (`ARDTT_INSTALL_DIR`).  
 Версия стека (`DEPLOY_VERSION`) сравнивается с APK через `GET /health`.
 
 ---
 
-## Профиль (черновик)
+## Профиль
+
+Боевой JSON: клиент `VpnProfile` / `VpnProfileJson`, сервер — `provision`. Один профиль — два endpoint'а и общий `host_id`.
 
 ```json
 {

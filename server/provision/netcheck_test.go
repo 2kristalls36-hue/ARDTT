@@ -78,7 +78,7 @@ func TestClassifyIPType(t *testing.T) {
 }
 
 func TestParseCurlOutput(t *testing.T) {
-	r := parseCurlOutput("hello\n__NVPN_CODE__200\n__NVPN_URL__https://example.com/final", "https://example.com")
+	r := parseCurlOutput("hello\n__ARDTT_CODE__200\n__ARDTT_URL__https://example.com/final", "https://example.com")
 	if r.Status != 200 || r.FinalURL != "https://example.com/final" || r.Body != "hello" {
 		t.Fatalf("%+v", r)
 	}

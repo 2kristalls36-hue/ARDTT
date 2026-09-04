@@ -9,26 +9,26 @@
 # exit:  VPS2 — listens for the entry peer; DNS + WAN MASQ + Hide-IP WARP.
 set -euo pipefail
 
-DATA="${NVPN_DATA:-/data}"
-ROLE="${NVPN_CASCADE_ROLE:-entry}"
-IFACE="${NVPN_CASCADE_IFACE:-cascade0}"
-TABLE="${NVPN_CASCADE_TABLE:-51821}"
-LISTEN="${NVPN_CASCADE_LISTEN_PORT:-51820}"
-PEER_ENDPOINT="${NVPN_CASCADE_PEER_ENDPOINT:-}"
-PEER_PUB_ENV="${NVPN_CASCADE_PEER_PUBLIC_KEY:-}"
-ENTRY_ADDR="${NVPN_CASCADE_ENTRY_ADDR:-10.10.0.1/30}"
-EXIT_ADDR="${NVPN_CASCADE_EXIT_ADDR:-10.10.0.2/30}"
+DATA="${ARDTT_DATA:-/data}"
+ROLE="${ARDTT_CASCADE_ROLE:-entry}"
+IFACE="${ARDTT_CASCADE_IFACE:-cascade0}"
+TABLE="${ARDTT_CASCADE_TABLE:-51821}"
+LISTEN="${ARDTT_CASCADE_LISTEN_PORT:-51820}"
+PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-}"
+PEER_PUB_ENV="${ARDTT_CASCADE_PEER_PUBLIC_KEY:-}"
+ENTRY_ADDR="${ARDTT_CASCADE_ENTRY_ADDR:-10.10.0.1/30}"
+EXIT_ADDR="${ARDTT_CASCADE_EXIT_ADDR:-10.10.0.2/30}"
 PRIV_FILE="${DATA}/cascade.priv"
 PUB_FILE="${DATA}/cascade.pub"
 PEER_FILE="${DATA}/cascade.peer.pub"
 STATUS_FILE="${DATA}/cascade.status"
 CONF_DIR="/etc/amneziawg"
 CONF="${CONF_DIR}/${IFACE}.conf"
-COMMENT="NVPN_CASCADE_MANAGED"
-DNS_DST="${NVPN_CASCADE_DNS:-10.10.0.2}"
+COMMENT="ARDTT_CASCADE_MANAGED"
+DNS_DST="${ARDTT_CASCADE_DNS:-10.10.0.2}"
 # WireGuard/AWG latest-handshake only moves on a full handshake (~120s rekey),
 # not on keepalives. 45s was dropping a healthy hop.
-STALE_SEC="${NVPN_CASCADE_STALE_SEC:-180}"
+STALE_SEC="${ARDTT_CASCADE_STALE_SEC:-180}"
 CLIENT_NETS="10.8.0.0/24 10.9.0.0/24"
 
 mkdir -p "${CONF_DIR}" "${DATA}"
@@ -161,7 +161,7 @@ strip_stale_wan_masq() {
     if [ -n "${wan}" ]; then
       while iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -j MASQUERADE 2>/dev/null; do :; done
     fi
-    for comment in AWG_DIRECT_MANAGED WDTT_RAW_MANAGED NVPN_BYPASS_MANAGED; do
+    for comment in AWG_DIRECT_MANAGED WDTT_RAW_MANAGED ARDTT_BYPASS_MANAGED; do
       if [ -n "${wan}" ]; then
         while iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null; do :; done
       fi
@@ -178,10 +178,10 @@ ensure_exit_wan_masq() {
   wan="$(wan_iface)"
   [[ -z "${wan}" ]] && wan="eth0"
   for net in ${CLIENT_NETS} 10.10.0.0/30; do
-    if iptables -t nat -C POSTROUTING -s "${net}" -o "${wan}" -m comment --comment NVPN_CASCADE_WAN_MASQ -j MASQUERADE 2>/dev/null; then
+    if iptables -t nat -C POSTROUTING -s "${net}" -o "${wan}" -m comment --comment ARDTT_CASCADE_WAN_MASQ -j MASQUERADE 2>/dev/null; then
       continue
     fi
-    iptables -t nat -A POSTROUTING -s "${net}" -o "${wan}" -m comment --comment NVPN_CASCADE_WAN_MASQ -j MASQUERADE || true
+    iptables -t nat -A POSTROUTING -s "${net}" -o "${wan}" -m comment --comment ARDTT_CASCADE_WAN_MASQ -j MASQUERADE || true
     echo "[cascade] WAN MASQ ${net} via ${wan}"
   done
 }
@@ -197,9 +197,9 @@ strip_entry_wan_masq() {
   for net in ${CLIENT_NETS}; do
     if [ -n "${wan}" ]; then
       iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -p udp --dport 53 \
-        -m comment --comment NVPN_WARP_DNS_MAIN -j MASQUERADE 2>/dev/null || true
+        -m comment --comment ARDTT_WARP_DNS_MAIN -j MASQUERADE 2>/dev/null || true
       iptables -t nat -D POSTROUTING -s "${net}" -o "${wan}" -p tcp --dport 53 \
-        -m comment --comment NVPN_WARP_DNS_MAIN -j MASQUERADE 2>/dev/null || true
+        -m comment --comment ARDTT_WARP_DNS_MAIN -j MASQUERADE 2>/dev/null || true
     fi
   done
   # Keep warp DNS exceptions (prio 100+) so hideIp /32 does not suck :53 into warp0.
