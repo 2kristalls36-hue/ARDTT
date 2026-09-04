@@ -234,7 +234,7 @@ fun SettingsScreen(
                     vpnLocked -> "Недоступно во время соединения."
                     vpnSessionActive && unlockConnControls ->
                         "Соединение активно. Изменение маршрута применяется сразу, без отключения."
-                    else -> "Автоматический режим: приоритет прямого подключения, резервный маршрут — обход. Доступно ручное переключение."
+                    else -> "Автоматический режим: в Wi‑Fi всегда прямое, в мобильной сети прямое с резервом обхода. Доступно ручное переключение."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

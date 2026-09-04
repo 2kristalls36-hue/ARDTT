@@ -5,7 +5,7 @@ package com.ardtt.app.core
  * Independent from Path B TURN dial (vkcalls / legacy).
  */
 enum class ConnPathMode {
-    /** Probe chooses Direct (AWG) when healthy, else Bypass (RAW via TURN). */
+    /** Probe chooses Direct (AWG) when healthy, else Bypass (RAW via TURN). Wi‑Fi Auto always Direct. */
     Auto,
 
     /** Always Path A — AmneziaWG. */
