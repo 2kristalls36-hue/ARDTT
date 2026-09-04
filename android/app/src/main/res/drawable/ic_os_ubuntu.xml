@@ -1,23 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Simplified Ubuntu Circle of Friends mark. -->
+<!--
+  Ubuntu Circle of Friends roundel (classic CoF on orange disc).
+  Geometry from Canonical's Logo-ubuntu_cof-orange-hex.svg (GPL-3.0+).
+  Colour is Ubuntu orange #E95420. The previous mark was four dots on a disc
+  and did not read as Ubuntu at badge size.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="16dp"
     android:height="16dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
+    android:viewportWidth="285"
+    android:viewportHeight="285">
     <path
         android:fillColor="#E95420"
-        android:pathData="M12,2A10,10 0,1,0 12,22A10,10 0,1,0 12,2Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,10.15A1.85,1.85 0,1,0 12,13.85A1.85,1.85 0,1,0 12,10.15Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,4.15A1.35,1.35 0,1,0 12,6.85A1.35,1.35 0,1,0 12,4.15Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M17.95,15.05A1.35,1.35 0,1,0 17.95,17.75A1.35,1.35 0,1,0 17.95,15.05Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M6.05,15.05A1.35,1.35 0,1,0 6.05,17.75A1.35,1.35 0,1,0 6.05,15.05Z" />
+        android:pathData="M142.5,142.5 m-141.732,0 a141.732,141.732 0,1,1 283.464,0 a141.732,141.732 0,1,1 -283.464,0" />
+    <group
+        android:pivotX="142.5"
+        android:pivotY="142.5"
+        android:rotation="0">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M46.123,142.5 m-18.922,0 a18.922,18.922 0,1,1 37.844,0 a18.922,18.922 0,1,1 -37.844,0" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M96.894,210.895 C80.334,199.832 68.016,182.917 62.899,163.107 C68.877,158.235 72.695,150.816 72.695,142.5 C72.695,134.184 68.877,126.765 62.899,121.894 C68.016,102.083 80.334,85.168 96.894,74.105 L110.728,97.279 C96.518,107.28 87.225,123.797 87.225,142.5 C87.225,161.203 96.518,177.72 110.728,187.721 Z" />
+    </group>
+    <group
+        android:pivotX="142.5"
+        android:pivotY="142.5"
+        android:rotation="120">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M46.123,142.5 m-18.922,0 a18.922,18.922 0,1,1 37.844,0 a18.922,18.922 0,1,1 -37.844,0" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M96.894,210.895 C80.334,199.832 68.016,182.917 62.899,163.107 C68.877,158.235 72.695,150.816 72.695,142.5 C72.695,134.184 68.877,126.765 62.899,121.894 C68.016,102.083 80.334,85.168 96.894,74.105 L110.728,97.279 C96.518,107.28 87.225,123.797 87.225,142.5 C87.225,161.203 96.518,177.72 110.728,187.721 Z" />
+    </group>
+    <group
+        android:pivotX="142.5"
+        android:pivotY="142.5"
+        android:rotation="240">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M46.123,142.5 m-18.922,0 a18.922,18.922 0,1,1 37.844,0 a18.922,18.922 0,1,1 -37.844,0" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M96.894,210.895 C80.334,199.832 68.016,182.917 62.899,163.107 C68.877,158.235 72.695,150.816 72.695,142.5 C72.695,134.184 68.877,126.765 62.899,121.894 C68.016,102.083 80.334,85.168 96.894,74.105 L110.728,97.279 C96.518,107.28 87.225,123.797 87.225,142.5 C87.225,161.203 96.518,177.72 110.728,187.721 Z" />
+    </group>
 </vector>
