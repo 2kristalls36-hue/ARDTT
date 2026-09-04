@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -27,8 +28,44 @@ import androidx.compose.ui.unit.dp
 import com.nonamevpn.app.ui.components.AppSectionCard
 
 private val DonateCardLight = Color(0xFFFFFBE6)
-private val DonateCardDark  = Color(0xFF2A2510)
-private val DonateAccent    = Color(0xFFB8860B)
+private val DonateAccentLight = Color(0xFFB8860B)
+
+internal data class DonateBannerPalette(
+    val card: Color,
+    val accent: Color,
+    val body: Color,
+    val border: Color,
+    val icon: Color,
+    val dismiss: Color,
+)
+
+/** Light keeps the cream/gold coffee card; dark follows the blue-navy theme. */
+internal fun donateBannerPalette(
+    isDark: Boolean,
+    surface: Color,
+    primary: Color,
+    primaryContainer: Color,
+    onSurfaceVariant: Color,
+): DonateBannerPalette {
+    if (!isDark) {
+        return DonateBannerPalette(
+            card = DonateCardLight,
+            accent = DonateAccentLight,
+            body = DonateAccentLight.copy(alpha = 0.80f),
+            border = DonateAccentLight.copy(alpha = 0.45f),
+            icon = primary,
+            dismiss = DonateAccentLight.copy(alpha = 0.72f),
+        )
+    }
+    return DonateBannerPalette(
+        card = lerp(surface, primaryContainer, 0.40f),
+        accent = primary,
+        body = onSurfaceVariant,
+        border = primary.copy(alpha = 0.28f),
+        icon = primary,
+        dismiss = onSurfaceVariant.copy(alpha = 0.80f),
+    )
+}
 
 @Composable
 fun DonateSupportBanner(
@@ -36,16 +73,22 @@ fun DonateSupportBanner(
     onDismiss: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.22f
-    val cardColor  = if (isDark) DonateCardDark else DonateCardLight
-    val accentColor = DonateAccent
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.22f
+    val colors = donateBannerPalette(
+        isDark = isDark,
+        surface = scheme.surface,
+        primary = scheme.primary,
+        primaryContainer = scheme.primaryContainer,
+        onSurfaceVariant = scheme.onSurfaceVariant,
+    )
     AppSectionCard(
         modifier = modifier,
-        color = cardColor,
+        color = colors.card,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
+        border = BorderStroke(1.dp, colors.border),
         shadowElevation = 0.dp,
     ) {
         Row(
@@ -55,7 +98,7 @@ fun DonateSupportBanner(
             Icon(
                 imageVector = Icons.Outlined.LocalCafe,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = colors.icon,
                 modifier = Modifier
                     .padding(end = 8.dp)
                     .size(18.dp),
@@ -74,7 +117,7 @@ fun DonateSupportBanner(
                     Icon(
                         imageVector = Icons.Outlined.Close,
                         contentDescription = "Закрыть предложение поддержать автора",
-                        tint = accentColor.copy(alpha = 0.72f),
+                        tint = colors.dismiss,
                     )
                 }
             }
@@ -82,13 +125,13 @@ fun DonateSupportBanner(
         Text(
             DonateSupport.BODY,
             style = MaterialTheme.typography.bodySmall,
-            color = accentColor.copy(alpha = 0.80f),
+            color = colors.body,
         )
         TextButton(
             onClick = { DonateSupport.openPage(context) },
             contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
         ) {
-            Text(DonateSupport.ACTION, color = accentColor, fontWeight = FontWeight.SemiBold)
+            Text(DonateSupport.ACTION, color = colors.accent, fontWeight = FontWeight.SemiBold)
         }
     }
 }
