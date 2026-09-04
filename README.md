@@ -109,8 +109,6 @@ cd android
 
 - Path A — [AmneziaWG](https://github.com/amnezia-vpn/amneziawg-android) (Apache-2.0).
 - Path B RAW — [SpaceNeuroX/proxy-turn-vk-android](https://github.com/SpaceNeuroX/proxy-turn-vk-android) (GPL-3.0, `-listen-raw`).
-- Классический [WDTT amurcanov](https://github.com/amurcanov/proxy-turn-vk-android) — WG over TURN/DTLS, **не** источник RAW.
-- Близкий TURN/RTP-проект (другая архитектура и лицензия): [CSQTT](https://github.com/amurcanov/csqtt). ARDTT — не форк CSQTT.
 
 ## Лицензия
 
