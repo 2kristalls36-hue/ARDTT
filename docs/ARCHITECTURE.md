@@ -2,7 +2,7 @@
 
 Легенда имени и смыслов: [LEGEND.md](LEGEND.md).  
 Деплой VPS (приложение / Compose, `install.sh`, версии): [DEPLOY.md](DEPLOY.md).  
-**ARDTT** = Amnezia + RAW Dial via TURN.  
+**ARDTT** = Amnezia & Raw Dial over TURN Tunnel.  
 Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DTLS); см. [LEGEND.md](LEGEND.md).
 
 Клиентский VPN с двумя путями до своего VPS:
@@ -29,7 +29,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Мёртвый звонок | По умолчанию диалог на экране Туннеля; настройка «Обновлять звонок автоматически» — recreate в фоне (нужна живая `remixsid`, иначе диалог входа). Один silent-attempt за цикл |
 | TURN transport | **TCP** |
 | Workers | **Default 3** на один hash (TCP); в настройках можно 1 («экономия») |
-| Имя | **ARDTT** (Amnezia + RAW Dial via TURN); см. [LEGEND.md](LEGEND.md). Внутренние id/`ardtt`/каталоги `wdtt-*` — совместимость |
+| Имя | **ARDTT** (Amnezia & Raw Dial over TURN Tunnel); см. [LEGEND.md](LEGEND.md). Внутренние id/`ardtt`/каталоги `wdtt-*` — совместимость |
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
