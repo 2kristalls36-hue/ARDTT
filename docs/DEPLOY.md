@@ -14,8 +14,8 @@
 
 | Способ | Когда | Что происходит |
 |--------|--------|----------------|
-| **Из приложения** | Боевой путь. Админ с телефоном и SSH на чистый VPS | APK заливает `stack.tar.gz` + `install.sh` по SSH → Docker Compose на хосте |
-| **Git + Compose** | Разработка, уже есть shell на машине | Клон репозитория, `docker compose up --build` в `server/` |
+| **Из приложения** | Админ с телефоном, VPS без GitHub | APK заливает свой `stack.tar.gz` + `install.sh` по SSH → Compose на хосте |
+| **Git + Compose** | На VPS есть shell и доступ к репозиторию | Клон **тега релиза**, `install.sh` или `docker compose` в `server/` |
 
 Оба способа поднимают **один и тот же** стек: единый контейнер `ardtt` (provision + direct + bypass + dns + warp + cascade + telemetry).  
 Пользователи и ключи живут в `users.json` и **переживают** повторный деплой.
@@ -94,14 +94,14 @@ WARP — не третий путь подключения, а **egress** выб
 
 ```bash
 ARDTT_PUBLIC_HOST='…' ARDTT_DIRECT_PORT=51820 ARDTT_BYPASS_PORT=56003 \
-ARDTT_DEPLOY_VERSION='1.0.25' bash /opt/ardtt/install.sh
+ARDTT_DEPLOY_VERSION='1.0.33' bash /opt/ardtt/install.sh
 ```
 
 Каскад (два VPS): телефон **отдельно** SSH на выход, потом на вход. Пароль второго сервера в `.env` входа не пишется.
 
 ```bash
 # 1) выход (DNS + WARP)
-ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.25' \
+ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.33' \
   bash /opt/ardtt/install.sh
 # stdout: ARDTT_CASCADE_PUBLIC_KEY|<base64>
 
@@ -109,7 +109,7 @@ ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.25' \
 ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
   ARDTT_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
   ARDTT_CASCADE_PEER_PUBLIC_KEY='…' \
-  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.25' \
+  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.33' \
   bash /opt/ardtt/install.sh
 
 # 3) ключ входа → /opt/ardtt/stack/data/cascade.peer.pub на выходе
@@ -188,28 +188,36 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 
 ## Путь 2 — git + Compose
 
-Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
+Тот же стек, что в APK, но исходники берутся с GitHub. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
+
+Клонируйте **тег релиза** (`v0.5.228` = клиент 0.5.228 и стек 1.0.33), не обязательно `main`. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`. Публичный репозиторий клонируется без секретов.
 
 ```bash
-cd server
+TAG=v0.5.228
+git clone --depth 1 --branch "$TAG" \
+  https://github.com/2kristalls36-hue/ARDTT.git /tmp/ardtt
+
+# Вариант A — тот же install.sh, что из приложения (/opt/ardtt, data/ сохраняется)
+install -d -m 755 /opt/ardtt
+cp /tmp/ardtt/server/install.sh /opt/ardtt/install.sh
+tar -C /tmp/ardtt/server --exclude=data --exclude='*.tmp' --exclude='__pycache__' \
+  -czf /opt/ardtt/stack.tar.gz .
+export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS ARDTT_DEPLOY_VERSION=1.0.33
+bash /opt/ardtt/install.sh
+
+# Вариант B — compose прямо в клоне (без /opt/ardtt)
+cd /tmp/ardtt/server
 cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_VPS; COMPOSE_PROFILES=isolated
-echo 1.0.33 > DEPLOY_VERSION   # или оставить как в репо
 docker compose --profile isolated up -d --build
 curl -s http://127.0.0.1:9100/health
-./scripts/create-user.sh alice   # JSON профиля в stdout
-# docker exec ardtt provision -cmd create-user -name alice -data /data
+./scripts/create-user.sh alice
 ```
 
 Host network (если UDP через Docker DNAT не работает): `ARDTT_NETWORK_MODE=hostnet` в `.env` и `docker compose --profile hostnet up -d --build`.
 
 `ARDTT_DEPLOY_VERSION` подхватывается из `.env` / `DEPLOY_VERSION` и отдаётся в `GET /health`.
 
-Тот же `server/install.sh` можно прогнать вручную, если положить дерево в `/opt/ardtt/stack` (или залить tar) и вызвать от root:
-
-```bash
-export ARDTT_PUBLIC_HOST=1.2.3.4 ARDTT_DEPLOY_VERSION=1.0.25
-bash /opt/ardtt/install.sh
-```
+Приложение **по-прежнему** может залить стек из APK: так VPS не зависит от GitHub. Когда репозиторий публичный, путь git достаточен, и держать копию стека в APK для установки не обязательно (клиент всё равно нужен для туннеля и админки).
 
 ---
 
@@ -334,7 +342,7 @@ Hash звонка на сервер **не** кладётся.
 
 | Порт | Протокол | Кто | Обязательно снаружи |
 |------|----------|-----|---------------------|
-| SSH (22) | TCP | деплой из приложения | да, для админ-деплоя |
+| SSH (22) | TCP | деплой из приложения | да, для админ-деплоя; git-путь можно с локальной машины |
 | 51820 | UDP | direct | да, Path A |
 | 56003 | UDP | bypass RAW | да, Path B (после TURN) |
 | 9100 | TCP | provision | да, health / профили / hide-ip |
@@ -386,7 +394,7 @@ ss -tlnp | grep -E '9100|9200'
 docker exec ardtt provision -cmd create-user -name smoke -data /data
 ```
 
-С телефона: карточка VPS «Онлайн · деплой 1.0.25 · актуален», создание клиента, импорт профиля, Connect.
+С телефона: карточка VPS «Онлайн · деплой 1.0.33 · актуален», создание клиента, импорт профиля, Connect.
 
 ---
 
@@ -394,7 +402,8 @@ docker exec ardtt provision -cmd create-user -name smoke -data /data
 
 | Симптом | Что проверить |
 |---------|----------------|
-| «В APK нет deploy/stack.tar.gz» | Собрать APK с Gradle (`packDeployAssets`) или вручную `scripts/pack-deploy-assets.sh` |
+| «В APK нет deploy/stack.tar.gz» | Собрать APK с Gradle (`packDeployAssets`) или вручную `scripts/pack-deploy-assets.sh`. Либо поставьте стек клоном тега — [Путь 2](#путь-2--git--compose) |
+| `git clone`: Authentication failed | Репозиторий ещё приватный: PAT/SSH с правом `repo`, либо ставьте из приложения |
 | `install.sh` + «Мало места» | На 8–10 ГБ VPS порог обновления ~500–1100 МБ; установщик сожмёт 2 ГБ swap до 1 ГБ и не удаляет неиспользуемые `stack-*` образы. Не делайте `docker image prune -af` вручную. |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
 | `/health` не отвечает после DONE | `docker compose --profile isolated logs`; `ARDTT_PUBLIC_HOST` и публикация `:9100` |

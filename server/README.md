@@ -38,8 +38,14 @@ Call hash звонка на сервер **не** кладётся — толь�
 `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B (GPL-3, `bypass/wdtt-server/` —
 линия [SpaceNeuroX/qWDTT](https://github.com/SpaceNeuroX/proxy-turn-vk-android)).
 
+На VPS клонируйте **тег релиза**, не скользящий `main` (сейчас `v0.5.228` = стек **1.0.33**).
+Публичный репозиторий клонируется без PAT; приватный — SSH-ключ или token. Каноническая
+раскладка `/opt/ardtt` через `install.sh`: [Путь 2 в DEPLOY.md](../docs/DEPLOY.md#путь-2--git--compose).
+
 ```bash
-cd server
+git clone --depth 1 --branch v0.5.228 \
+  https://github.com/2kristalls36-hue/ARDTT.git
+cd ARDTT/server
 cp .env.example .env   # пропишите ARDTT_PUBLIC_HOST; COMPOSE_PROFILES=isolated
 docker compose --profile isolated up -d --build
 curl -s http://127.0.0.1:9100/health
@@ -67,6 +73,8 @@ curl -s http://127.0.0.1:9100/health
 Все процессы читают общие данные из `server/data/` (`/data` в контейнере). На хост уходят только опубликованные порты, без `network_mode: host`. Если UDP через Docker DNAT не работает: `ARDTT_NETWORK_MODE=hostnet`.
 
 ### 2) Как проходит деплой
+
+Стек ставится из Android (SSH, архив из APK) или клоном тега релиза — [DEPLOY.md](../docs/DEPLOY.md). Дальше одинаково:
 
 1. В `.env` задаётся внешний адрес VPS (`ARDTT_PUBLIC_HOST`) и порты.
 2. Compose собирает и запускает контейнеры.
