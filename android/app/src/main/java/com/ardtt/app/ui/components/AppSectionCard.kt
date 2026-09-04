@@ -76,6 +76,31 @@ fun CompactListLeadingIcon(
 /** Soft section card. */
 val LocalOpaqueSectionCards = staticCompositionLocalOf { false }
 
+/** Hairline used by «Оформление» / «Поддержка автора»: 2.dp primary at 16% along the rounded contour. */
+object AppSectionCardDefaults {
+    val ContourWidth = 2.dp
+    const val ContourAlpha = 0.16f
+
+    fun contourColor(primary: Color, alpha: Float = ContourAlpha): Color =
+        primary.copy(alpha = alpha)
+
+    fun contourBorder(
+        primary: Color,
+        alpha: Float = ContourAlpha,
+        width: Dp = ContourWidth,
+    ): BorderStroke = BorderStroke(width, contourColor(primary, alpha))
+}
+
+@Composable
+fun sectionCardContourBorder(
+    alpha: Float = AppSectionCardDefaults.ContourAlpha,
+    width: Dp = AppSectionCardDefaults.ContourWidth,
+): BorderStroke = AppSectionCardDefaults.contourBorder(
+    primary = MaterialTheme.colorScheme.primary,
+    alpha = alpha,
+    width = width,
+)
+
 /** User-mode illustrated wallpaper is visible behind tab content. */
 @Composable
 fun illustratedBackdropActive(): Boolean = LocalOpaqueSectionCards.current
@@ -135,17 +160,12 @@ fun AppSectionCard(
     } else {
         Color(0xFFF6FAFF)
     }
-    val borderColor = if (isDark) {
-        colors.outlineVariant.copy(alpha = 0.26f)
-    } else {
-        colors.outlineVariant.copy(alpha = 0.24f)
-    }
 
     Surface(
         shape = shape,
         color = cardColor,
         contentColor = contentColor,
-        border = border ?: if (showBorder) BorderStroke(1.dp, borderColor) else null,
+        border = border ?: if (showBorder) sectionCardContourBorder() else null,
         shadowElevation = shadowElevation ?: if (isDark) 2.dp else 4.dp,
         tonalElevation = tonalElevation ?: 0.dp,
         modifier = modifier.fillMaxWidth(),

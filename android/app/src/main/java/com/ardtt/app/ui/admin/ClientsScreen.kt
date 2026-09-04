@@ -736,7 +736,6 @@ private fun ClientCard(
         shape = CompactListCard.Shape,
         shadowElevation = CompactListCard.ShadowElevation,
         tonalElevation = 0.dp,
-        showBorder = false,
     ) {
         Column(
             modifier = Modifier

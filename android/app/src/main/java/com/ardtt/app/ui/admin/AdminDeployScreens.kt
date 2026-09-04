@@ -103,6 +103,7 @@ import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.components.TabFeedHeader
 import com.ardtt.app.ui.components.TabHeaderMetrics
 import com.ardtt.app.ui.components.AppSectionCard
+import com.ardtt.app.ui.components.AppSectionCardDefaults
 import com.ardtt.app.ui.components.CompactListCard
 import com.ardtt.app.ui.components.CompactListLeadingIcon
 import com.ardtt.app.ui.components.OverflowMenu
@@ -441,7 +442,6 @@ private fun ServerCard(
         shape = CompactListCard.Shape,
         shadowElevation = CompactListCard.ShadowElevation,
         tonalElevation = 0.dp,
-        showBorder = false,
     ) {
         ServerIdentityBody(
             server = server,
@@ -657,7 +657,7 @@ private fun DeployHopSlotCard(
         shape = RoundedCornerShape(16.dp),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
-        border = BorderStroke(2.dp, borderColor),
+        border = BorderStroke(AppSectionCardDefaults.ContourWidth, borderColor),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -998,7 +998,6 @@ private fun ServerOverviewScreen(
                     shape = CompactListCard.Shape,
                     shadowElevation = CompactListCard.ShadowElevation,
                     tonalElevation = 0.dp,
-                    showBorder = false,
                 ) {
                     ServerIdentityBody(
                         server = server,
@@ -1068,7 +1067,6 @@ private fun ServerActionCard(
         shape = CompactListCard.Shape,
         shadowElevation = CompactListCard.ShadowElevation,
         tonalElevation = 0.dp,
-        showBorder = false,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {

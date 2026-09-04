@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Build
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -95,6 +94,7 @@ import com.ardtt.app.core.ExceptionAppVisibility
 import com.ardtt.app.core.HostExclusion
 import com.ardtt.app.core.appIconDecodeSize
 import com.ardtt.app.ui.components.AppSectionCard
+import com.ardtt.app.ui.components.sectionCardContourBorder
 import com.ardtt.app.ui.components.PullRefreshHost
 import com.ardtt.app.ui.components.TabFeedHeader
 import com.ardtt.app.ui.components.backdropSegmentInactiveContainer
@@ -767,7 +767,7 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
                     .padding(horizontal = 12.dp, vertical = 3.dp),
                 shape = AppCardShape,
                 color = colors.surface,
-                border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.24f)),
+                border = sectionCardContourBorder(),
                 shadowElevation = 1.dp,
                 tonalElevation = 0.dp,
             ) {
@@ -1029,7 +1029,7 @@ private fun AppExceptionRow(
         contentColor = colors.onSurface,
         shadowElevation = 1.dp,
         tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.35f)),
+        border = sectionCardContourBorder(),
     ) {
         Row(
             modifier = Modifier
