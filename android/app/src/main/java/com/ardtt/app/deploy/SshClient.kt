@@ -138,7 +138,13 @@ class SshClient(
     }
 
     companion object {
-        fun connect(host: String, user: String, port: Int, auth: DeployAuth): Session {
+        fun connect(
+            host: String,
+            user: String,
+            port: Int,
+            auth: DeployAuth,
+            timeoutMs: Int = 20_000,
+        ): Session {
             val jsch = JSch()
             when (auth) {
                 is DeployAuth.Key -> {
@@ -163,7 +169,7 @@ class SshClient(
                     })
                 },
             )
-            session.connect(20_000)
+            session.connect(timeoutMs.coerceAtLeast(1_000))
             return session
         }
 
