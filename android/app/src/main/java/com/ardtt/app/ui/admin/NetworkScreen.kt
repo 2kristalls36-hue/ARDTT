@@ -86,29 +86,15 @@ fun NetworkScreen(
     val viaVpn = sessionUp
     val profileHost = activeProfileHost(profile)
     val server = remember(servers, profileHost) { findMatchingDeployServer(servers, profileHost) }
-    var observedLastHop by remember { mutableStateOf<String?>(null) }
-    var liveCascadeHost by remember { mutableStateOf<String?>(null) }
-    var cascadeLive by remember { mutableStateOf<Boolean?>(null) }
+    var liveCascade by remember { mutableStateOf<ProvisionAdminApi.LiveCascadeInfo?>(null) }
     var hopPings by remember { mutableStateOf(HopHealthPings()) }
-    val layout = remember(
-        profileHost,
-        server,
-        hideIp,
-        sessionUp,
-        observedLastHop,
-        liveCascadeHost,
-        cascadeLive,
-        servers,
-    ) {
+    val layout = remember(profileHost, server, hideIp, sessionUp, liveCascade) {
         buildNetworkMapLayout(
             profileHost = profileHost,
             server = server,
             hideIp = hideIp,
             sessionUp = sessionUp,
-            observedLastHop = observedLastHop,
-            liveCascadeHost = liveCascadeHost,
-            cascadeLive = cascadeLive,
-            servers = servers,
+            liveCascade = liveCascade,
         )
     }
 
@@ -133,10 +119,7 @@ fun NetworkScreen(
             server = server,
             hideIp = hideIp,
             sessionUp = sessionUp,
-            observedLastHop = observedLastHop,
-            liveCascadeHost = liveCascadeHost,
-            cascadeLive = cascadeLive,
-            servers = servers,
+            liveCascade = liveCascade,
             entryProvision = profile?.provisionBaseUrl,
             deviceId = profile?.deviceId,
             viaVpn = viaVpn,
@@ -146,9 +129,7 @@ fun NetworkScreen(
     suspend fun refreshAll() {
         val inputs = refreshInputs.value
         if (!inputs.sessionUp) {
-            if (observedLastHop != null) observedLastHop = null
-            if (liveCascadeHost != null) liveCascadeHost = null
-            if (cascadeLive != null) cascadeLive = null
+            if (liveCascade != null) liveCascade = null
             if (hopPings != HopHealthPings()) hopPings = HopHealthPings()
         }
         val entryHealth = if (inputs.sessionUp) {
@@ -156,55 +137,18 @@ fun NetworkScreen(
         } else {
             EntryHealthSnapshot()
         }
-        val live = entryHealth.cascade
-        val liveFlag: Boolean? = when {
+        val live = when {
             !inputs.sessionUp -> null
-            entryHealth.known -> live.enabled
-            else -> inputs.cascadeLive
+            entryHealth.known -> entryHealth.cascade
+            else -> inputs.liveCascade
         }
-        val liveHost = when {
-            !inputs.sessionUp -> null
-            entryHealth.known -> live.host
-            else -> inputs.liveCascadeHost
-        }
-        if (liveHost != liveCascadeHost) {
-            liveCascadeHost = liveHost
-        }
-        if (liveFlag != cascadeLive) {
-            cascadeLive = liveFlag
-        }
-        val knownExit = resolveCascadeExitHost(
-            servers = inputs.servers,
-            matched = inputs.server,
-            profileHost = inputs.profileHost,
-            vps1 = hopHost(inputs.profileHost),
-            observedLastHop = null,
-            liveCascadeHost = liveHost,
-            cascadeLive = liveFlag,
-        )
-        val lastHop = if (inputs.sessionUp && (liveFlag == true || knownExit != null)) {
-            EgressIpProbe.probeLastHopWan(
-                context = context,
-                exitProvisionBaseUrl = provisionUrlForHost(knownExit),
-                deviceId = inputs.deviceId,
-                viaVpn = true,
-                bindVpnIfNoExit = knownExit == null,
-            )
-        } else {
-            null
-        }
-        if (lastHop != observedLastHop) {
-            observedLastHop = lastHop
-        }
+        if (live != liveCascade) liveCascade = live
         val resolved = buildNetworkMapLayout(
             profileHost = inputs.profileHost,
             server = inputs.server,
             hideIp = inputs.hideIp,
             sessionUp = inputs.sessionUp,
-            observedLastHop = lastHop,
-            liveCascadeHost = liveHost,
-            cascadeLive = liveFlag,
-            servers = inputs.servers,
+            liveCascade = live,
         )
         val nextPings = if (inputs.sessionUp) {
             val exitUrl = provisionUrlForHost(resolved.vps2Host)
@@ -220,11 +164,7 @@ fun NetworkScreen(
         if (nextPings != hopPings) hopPings = nextPings
         loaded = loadHopViews(
             context,
-            inputs.copy(
-                layout = resolved,
-                liveCascadeHost = liveHost,
-                cascadeLive = liveFlag,
-            ),
+            inputs.copy(layout = resolved, liveCascade = live),
             hopsLatest.value,
             onHop = { view -> loaded = replaceHopView(loaded, view) },
         )
@@ -292,10 +232,7 @@ private data class NetworkRefreshInputs(
     val server: DeployTarget?,
     val hideIp: Boolean,
     val sessionUp: Boolean,
-    val observedLastHop: String?,
-    val liveCascadeHost: String?,
-    val cascadeLive: Boolean?,
-    val servers: List<DeployTarget>,
+    val liveCascade: ProvisionAdminApi.LiveCascadeInfo?,
     val entryProvision: String?,
     val deviceId: String?,
     val viaVpn: Boolean,
@@ -304,10 +241,7 @@ private data class NetworkRefreshInputs(
         server = server,
         hideIp = hideIp,
         sessionUp = sessionUp,
-        observedLastHop = observedLastHop,
-        liveCascadeHost = liveCascadeHost,
-        cascadeLive = cascadeLive,
-        servers = servers,
+        liveCascade = liveCascade,
     ),
 ) {
     val exitProvision: String?

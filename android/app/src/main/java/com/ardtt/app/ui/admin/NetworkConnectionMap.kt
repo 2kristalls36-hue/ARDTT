@@ -5,6 +5,7 @@ import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
+import com.ardtt.app.deploy.ProvisionAdminApi
 
 /** Labels for the Network tab connection map. */
 internal object NetworkMapCopy {
@@ -51,17 +52,17 @@ internal fun networkMapShowsVpnHops(state: ConnState): Boolean = state == ConnSt
  * Connection map of the *live* path.
  * Disconnected → provider only. Connected → provider → VPS (or VPS 1 → VPS 2)
  * → CloudFlare when Hide-IP is on. Incognito never hides addresses.
+ *
+ * VPS 2 comes only from live entry /health or the matching deploy card.
+ * A different WAN IP or another server in the list is not a cascade.
  */
 internal fun buildNetworkMapLayout(
     profileHost: String?,
     server: DeployTarget?,
     hideIp: Boolean,
     sessionUp: Boolean,
-    observedLastHop: String? = null,
-    liveCascadeHost: String? = null,
-    /** Live entry /health: true/false when known, null before the first successful probe. */
-    cascadeLive: Boolean? = null,
-    servers: List<DeployTarget> = emptyList(),
+    /** Null until /health is known. enabled=false hides VPS 2 even if the card still has a flag. */
+    liveCascade: ProvisionAdminApi.LiveCascadeInfo? = null,
 ): NetworkMapLayout {
     val hops = buildList {
         add(NetworkMapHop(NetworkMapHopKind.Provider, NetworkMapCopy.PROVIDER))
@@ -69,15 +70,7 @@ internal fun buildNetworkMapLayout(
         val vps1 = hopHost(profileHost)
             ?: hopHost(server?.publicHost)
             ?: hopHost(server?.host)
-        val vps2 = resolveCascadeExitHost(
-            servers = servers,
-            matched = server,
-            profileHost = profileHost,
-            vps1 = vps1,
-            observedLastHop = observedLastHop,
-            liveCascadeHost = liveCascadeHost,
-            cascadeLive = cascadeLive,
-        )
+        val vps2 = cascadeExitHost(vps1, server, liveCascade)
         if (!vps1.isNullOrBlank()) {
             if (vps2 != null) {
                 add(NetworkMapHop(NetworkMapHopKind.Vps1, NetworkMapCopy.VPS1, vps1))
@@ -93,53 +86,21 @@ internal fun buildNetworkMapLayout(
     return NetworkMapLayout(hops)
 }
 
-/**
- * Exit hop for a cascade path.
- *
- * Live entry /health is authoritative: cascade=false never shows VPS 2, even if
- * an old deploy card or a different WAN IP still looks like a second hop.
- * A distinct last-hop WAN is not cascade by itself (standalone VPS SNAT, a
- * second server in the list, leftover probe). Use it only after cascade is
- * confirmed by health or the matching deploy card.
- */
-internal fun resolveCascadeExitHost(
-    servers: List<DeployTarget> = emptyList(),
-    matched: DeployTarget?,
-    profileHost: String?,
+/** Exit IP when cascade is on: health host first, else the deploy card. */
+internal fun cascadeExitHost(
     vps1: String?,
-    observedLastHop: String?,
-    liveCascadeHost: String? = null,
-    cascadeLive: Boolean? = null,
+    server: DeployTarget?,
+    liveCascade: ProvisionAdminApi.LiveCascadeInfo? = null,
 ): String? {
-    if (cascadeLive == false) return null
-    val profile = profileHost ?: vps1
-    val fromMatched = if (matched != null && DeployHop.isCascadeEntry(matched, profile)) {
-        hopHost(matched.cascadeHost)
-    } else {
-        null
-    }
-    val fromLive = hopHost(liveCascadeHost)
-    val cascadeOn = cascadeLive == true ||
-        !fromLive.isNullOrBlank() ||
-        fromMatched != null
-    if (!cascadeOn) return null
-    val candidates = buildList {
-        add(fromLive)
-        add(fromMatched)
-        if (cascadeLive == true) add(uniqueOtherServerHost(servers, vps1))
-        add(hopHost(observedLastHop))
-    }
-    return candidates.firstOrNull { lastHopCanBeVps2(vps1, it) }
+    if (liveCascade?.enabled == false) return null
+    val fromHealth = hopHost(liveCascade?.host)
+    val fromCard = server
+        ?.takeIf { DeployHop.isCascadeEntry(it, vps1) }
+        ?.let { hopHost(it.cascadeHost) }
+    return listOf(fromHealth, fromCard).firstOrNull { usableAsVps2(vps1, it) }
 }
 
-internal fun uniqueOtherServerHost(servers: List<DeployTarget>, vps1: String?): String? {
-    val others = servers.mapNotNull { hopHost(it.publicHost) ?: hopHost(it.host) }
-        .distinctBy { it.lowercase() }
-        .filter { lastHopCanBeVps2(vps1, it) }
-    return others.singleOrNull()
-}
-
-internal fun lastHopCanBeVps2(vps1: String?, lastHop: String?): Boolean {
+internal fun usableAsVps2(vps1: String?, lastHop: String?): Boolean {
     val last = hopHost(lastHop) ?: return false
     if (sameHopHost(vps1, last)) return false
     if (EgressIpProbe.isLikelyCloudflare(last)) return false

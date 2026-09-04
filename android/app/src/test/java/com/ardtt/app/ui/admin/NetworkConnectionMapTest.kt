@@ -4,6 +4,7 @@ import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
+import com.ardtt.app.deploy.ProvisionAdminApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -33,20 +34,17 @@ class NetworkConnectionMapTest {
         server: DeployTarget?,
         hideIp: Boolean,
         sessionUp: Boolean = true,
-        observedLastHop: String? = null,
-        liveCascadeHost: String? = null,
-        cascadeLive: Boolean? = null,
-        servers: List<DeployTarget> = emptyList(),
+        liveCascade: ProvisionAdminApi.LiveCascadeInfo? = null,
     ) = buildNetworkMapLayout(
         profileHost = profileHost,
         server = server,
         hideIp = hideIp,
         sessionUp = sessionUp,
-        observedLastHop = observedLastHop,
-        liveCascadeHost = liveCascadeHost,
-        cascadeLive = cascadeLive,
-        servers = servers,
+        liveCascade = liveCascade,
     )
+
+    private fun live(enabled: Boolean, host: String? = null) =
+        ProvisionAdminApi.LiveCascadeInfo(enabled = enabled, host = host)
 
     @Test
     fun disconnectedHidesVpsEvenWhenProfileHasHost() {
@@ -130,38 +128,6 @@ class NetworkConnectionMapTest {
     }
 
     @Test
-    fun differentWanWithoutCascadeStaysSingleVps() {
-        val built = layout(
-            profileHost = "159.194.225.162",
-            server = server("159.194.225.162"),
-            hideIp = false,
-            observedLastHop = "2.26.125.160",
-        )
-        assertEquals(
-            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS),
-            built.titles,
-        )
-        assertEquals("159.194.225.162", built.vps1Host)
-        assertNull(built.vps2Host)
-    }
-
-    @Test
-    fun cascadeFromLiveLastHopWhenHealthSaysOn() {
-        val built = layout(
-            profileHost = "45.129.2.3",
-            server = server("45.129.2.3"),
-            hideIp = false,
-            observedLastHop = "2.26.125.160",
-            cascadeLive = true,
-        )
-        assertEquals(
-            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
-            built.titles,
-        )
-        assertEquals("2.26.125.160", built.vps2Host)
-    }
-
-    @Test
     fun liveHealthOffIgnoresStaleCascadeCard() {
         val built = layout(
             profileHost = "159.194.225.162",
@@ -171,9 +137,7 @@ class NetworkConnectionMapTest {
                 cascadeHost = "2.26.125.160",
             ),
             hideIp = false,
-            observedLastHop = "2.26.125.160",
-            liveCascadeHost = "2.26.125.160",
-            cascadeLive = false,
+            liveCascade = live(enabled = false, host = "2.26.125.160"),
         )
         assertEquals(
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS),
@@ -183,46 +147,13 @@ class NetworkConnectionMapTest {
     }
 
     @Test
-    fun siblingStandaloneServerIsNotVps2() {
-        val entry = server("159.194.225.162")
-        val other = server("2.26.125.160", id = "other")
-        val built = layout(
-            profileHost = "159.194.225.162",
-            server = entry,
-            hideIp = false,
-            observedLastHop = "2.26.125.160",
-            servers = listOf(entry, other),
-        )
-        assertEquals(
-            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS),
-            built.titles,
-        )
-        assertNull(built.vps2Host)
-    }
-
-    @Test
-    fun liveLastHopSameAsEntryStaysSingleVps() {
-        val built = layout(
-            profileHost = "45.129.2.3",
-            server = server("45.129.2.3"),
-            hideIp = false,
-            observedLastHop = "45.129.2.3",
-        )
-        assertEquals(
-            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS),
-            built.titles,
-        )
-        assertNull(built.vps2Host)
-    }
-
-    @Test
-    fun cloudflareLastHopIsNotVps2() {
-        assertFalse(lastHopCanBeVps2("45.129.2.3", "104.16.132.229"))
+    fun cloudflareExitIsNotVps2() {
+        assertFalse(usableAsVps2("45.129.2.3", "104.16.132.229"))
         val built = layout(
             profileHost = "45.129.2.3",
             server = server("45.129.2.3"),
             hideIp = true,
-            observedLastHop = "104.16.132.229",
+            liveCascade = live(enabled = true, host = "104.16.132.229"),
         )
         assertEquals(
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS, NetworkMapCopy.CLOUDFLARE),
@@ -367,12 +298,12 @@ class NetworkConnectionMapTest {
     }
 
     @Test
-    fun liveCascadeHostAddsVps2WithoutDeployFlag() {
+    fun liveHealthHostAddsVps2WithoutDeployFlag() {
         val built = layout(
             profileHost = "45.129.2.3",
             server = server("45.129.2.3"),
             hideIp = false,
-            liveCascadeHost = "2.26.125.160",
+            liveCascade = live(enabled = true, host = "2.26.125.160"),
         )
         assertEquals(
             listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
@@ -382,39 +313,30 @@ class NetworkConnectionMapTest {
     }
 
     @Test
-    fun healthCascadeWithSiblingServerShowsVps2() {
-        val entry = server("45.129.2.3")
-        val exit = server("2.26.125.160", id = "exit")
+    fun healthOnWithoutExitHostStaysSingleVps() {
         val built = layout(
             profileHost = "45.129.2.3",
-            server = entry,
+            server = server("45.129.2.3"),
             hideIp = false,
-            cascadeLive = true,
-            servers = listOf(entry, exit),
-        )
-        assertEquals(
-            listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS1, NetworkMapCopy.VPS2),
-            built.titles,
-        )
-        assertEquals("2.26.125.160", built.vps2Host)
-    }
-
-    @Test
-    fun healthCascadeDoesNotPickRandomThirdServer() {
-        val entry = server("45.129.2.3")
-        val built = layout(
-            profileHost = "45.129.2.3",
-            server = entry,
-            hideIp = false,
-            cascadeLive = true,
-            servers = listOf(
-                entry,
-                server("2.26.125.160", id = "exit"),
-                server("9.9.9.9", id = "other"),
-            ),
+            liveCascade = live(enabled = true),
         )
         assertEquals(listOf(NetworkMapCopy.PROVIDER, NetworkMapCopy.VPS), built.titles)
         assertNull(built.vps2Host)
+    }
+
+    @Test
+    fun healthOnWithoutHostUsesDeployCard() {
+        val built = layout(
+            profileHost = "45.129.2.3",
+            server = server(
+                host = "45.129.2.3",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+            hideIp = false,
+            liveCascade = live(enabled = true),
+        )
+        assertEquals("2.26.125.160", built.vps2Host)
     }
 
     @Test
