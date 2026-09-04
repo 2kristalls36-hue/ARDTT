@@ -4,6 +4,8 @@
 #
 # Product path (from the app): SSH upload of stack.tar.gz + this script, then:
 #   ARDTT_PUBLIC_HOST=… bash /opt/ardtt/install.sh
+# Git path: clone a release tag, tar server/ into /opt/ardtt/stack.tar.gz,
+#   copy this script, then the same command (see docs/DEPLOY.md Path 2).
 # Cascade: phone SSHs to the exit VPS (ARDTT_ROLE=exit) and the entry VPS
 #   (ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1) separately. Do not write SSH passwords
 #   into .env.

@@ -48,10 +48,12 @@ Release (подписанный постоянным keystore):
 | `ANDROID_KEYSTORE_PASSWORD` | из `keystore.properties` |
 | `ANDROID_KEY_ALIAS` | `ardtt` |
 | `ANDROID_KEY_PASSWORD` | из `keystore.properties` |
-| `GITHUB_RELEASE_READ_TOKEN` | read-only PAT с `Contents: Read` для приватного репозитория (вшивается в release APK) |
+| `GITHUB_RELEASE_READ_TOKEN` | нужен **только пока репозиторий приватный**: read-only PAT с `Contents: Read`, вшивается в release APK |
 
 Приложение проверяет обновления через **GitHub Releases API** (как qWDTT),
-с fallback на старый `update.json` на VPS. Для **приватного** репозитория без токена GitHub API недоступен — нужен `GITHUB_RELEASE_READ_TOKEN` в CI или публичный репозиторий.
+с fallback на старый `update.json` на VPS. Пока репозиторий **приватный**, без токена API релизов недоступен — задайте `GITHUB_RELEASE_READ_TOKEN` в CI. Когда репозиторий **публичный**, секрет можно не задавать: клиент читает Releases без PAT.
+
+Стек на VPS ставится из вкладки **Серверы** (архив `server/` внутри APK) **или** клоном тега релиза на машине с Docker — [docs/DEPLOY.md](../docs/DEPLOY.md). Публичный clone с VPS тоже не требует токена.
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`
@@ -67,8 +69,7 @@ Release (подписанный постоянным keystore):
 - `tunnel` — AmneziaWG userspace (`libwg-go`)
 - `go_client` — Path B RAW (qWDTT / SpaceNeuroX) → `libclient.so`
 - **Режим тестирования:** полная телеметрия, JSONL, upload на VPS — [../docs/TELEMETRY.md](../docs/TELEMETRY.md)
-- **Обновления:** сначала GitHub Releases (`2kristalls36-hue/ARDTT`), fallback — `https://45.129.2.3/update.json`.
-  скачивает APK внутри приложения, проверяет SHA-256 и запускает системный установщик.
+- **Обновления:** GitHub Releases (`2kristalls36-hue/ARDTT`), fallback — `https://45.129.2.3/update.json`. Клиент скачивает APK, проверяет SHA-256 и запускает системный установщик. Публичный репозиторий не требует `GITHUB_RELEASE_READ_TOKEN`.
 
 После деплоя сервера на VPS стек лежит в `/opt/ardtt/stack/` и рабочие образы.
 
