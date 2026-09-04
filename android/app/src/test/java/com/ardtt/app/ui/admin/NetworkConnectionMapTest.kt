@@ -1,10 +1,12 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.ui.graphics.Color
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.ui.theme.ArdttColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -462,6 +464,19 @@ class NetworkConnectionMapTest {
         assertEquals(HopCardOutline.Last, hopCardOutline(index = 2, filledCount = 3))
         assertEquals(HopCardOutline.Last, hopCardOutline(index = 0, filledCount = 1))
         assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 0))
+    }
+
+    @Test
+    fun hopMapGrayStrokeDropsBlueCastAndMatchesCardRim() {
+        val outline = Color(0xFFB2C2D7)
+        val gray = hopMapGrayStroke(outline)
+        assertEquals(gray.red, gray.green, 1e-5f)
+        assertEquals(gray.green, gray.blue, 1e-5f)
+        assertEquals(gray, hopCardStrokeColor(highlighted = false, outline = outline, connected = ArdttColors.connected))
+        assertEquals(
+            ArdttColors.connected,
+            hopCardStrokeColor(highlighted = true, outline = outline, connected = ArdttColors.connected),
+        )
     }
 
     @Test

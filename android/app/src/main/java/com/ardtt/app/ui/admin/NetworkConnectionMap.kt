@@ -1,5 +1,6 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.ui.graphics.Color
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
@@ -263,6 +264,15 @@ internal enum class HopCardOutline {
 
 internal fun hopCardOutline(index: Int, filledCount: Int): HopCardOutline =
     if (isLastFilledHop(index, filledCount)) HopCardOutline.Last else HopCardOutline.Other
+
+/** Gray rim for unhighlighted hop cards and the stick between them (theme outline is blue-gray). */
+internal fun hopMapGrayStroke(outline: Color): Color {
+    val luma = 0.299f * outline.red + 0.587f * outline.green + 0.114f * outline.blue
+    return Color(red = luma, green = luma, blue = luma, alpha = outline.alpha)
+}
+
+internal fun hopCardStrokeColor(highlighted: Boolean, outline: Color, connected: Color): Color =
+    if (highlighted) connected else hopMapGrayStroke(outline)
 
 /** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */
 internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Long = when (kind) {
