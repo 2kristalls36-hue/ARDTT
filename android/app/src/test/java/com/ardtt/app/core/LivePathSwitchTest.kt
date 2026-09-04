@@ -95,4 +95,28 @@ class LivePathSwitchTest {
             ),
         )
     }
+
+    @Test
+    fun autoOnWifiUsesDirectEvenIfProbeWantsBypass() {
+        assertEquals(
+            VpnPath.Direct,
+            resolveLiveSwitchPath(
+                mode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probePath = VpnPath.Bypass,
+                hasCallHash = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+        assertEquals(
+            VpnPath.Bypass,
+            resolveLiveSwitchPath(
+                mode = ConnPathMode.Bypass,
+                currentPath = VpnPath.Direct,
+                probePath = VpnPath.Direct,
+                hasCallHash = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+    }
 }

@@ -388,6 +388,7 @@ class ConnectionManager(
             currentPath = current,
             probePath = _ui.value.probe?.preselectedPath,
             hasCallHash = hasHash,
+            underlayKind = underlayKindOf(pickBestUnderlayNetwork(appContext)),
         )
         if (target == null) {
             AppLog.w(TAG, "Live path switch skipped — Bypass needs call hash")
@@ -506,7 +507,9 @@ class ConnectionManager(
         if (mode == ConnPathMode.Auto && probePreferred == null) {
             val kind = underlayKindOf(pickBestUnderlayNetwork(appContext))
             val bypassAllowed = callHashOrNull() != null
-            if (!shouldSkipConnectProbe(mode, bypassAllowed, kind)) {
+            if (!autoUsesDirectOnWifi(mode, kind) &&
+                !shouldSkipConnectProbe(mode, bypassAllowed, kind)
+            ) {
                 AppLog.w(TAG, "Connect ignored (auto, no probe path)")
                 return
             }
@@ -539,9 +542,11 @@ class ConnectionManager(
                 val kind = underlayKindOf(pickBestUnderlayNetwork(appContext))
                 val bypassAllowed = callHashOrNull() != null
                 val skipProbe = shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
+                val wifiAutoDirect = autoUsesDirectOnWifi(liveMode, kind)
                 val labelPreferred = when {
                     liveMode == ConnPathMode.Direct -> VpnPath.Direct
                     liveMode == ConnPathMode.Bypass || skipProbe -> VpnPath.Bypass
+                    wifiAutoDirect -> VpnPath.Direct
                     else -> probePreferred ?: VpnPath.Direct
                 }
                 AppLog.v(TAG, "Connect requested mode=$liveMode preferred=$labelPreferred hideIp=${snap.hideIp}")
@@ -608,6 +613,27 @@ class ConnectionManager(
                     AppLog.v(
                         TAG,
                         "Connect skip-probe use=Bypass mode=$pathMode kind=$kind " +
+                            "whitelist=$whitelistOn apps=${selectedApps.size} " +
+                            SplitTunnel.logSample(selectedApps),
+                    )
+                } else if (wifiAutoDirect) {
+                    AppLog.v(TAG, "Connect: skip VPS probe — Auto on Wi-Fi always Direct")
+                    fresh = ProbeResult(
+                        networkClass = NetworkClass.DirectOk,
+                        preselectedPath = VpnPath.Direct,
+                        systemOnline = true,
+                        yandexOk = true,
+                        bigtechOk = true,
+                        captive = false,
+                        awgUdpOk = true,
+                        provisionOk = true,
+                        message = "Авто на Wi‑Fi: прямое подключение",
+                        elapsedMs = 0,
+                    )
+                    usePath = VpnPath.Direct
+                    AppLog.v(
+                        TAG,
+                        "Connect skip-probe use=Direct mode=$pathMode kind=$kind " +
                             "whitelist=$whitelistOn apps=${selectedApps.size} " +
                             SplitTunnel.logSample(selectedApps),
                     )
@@ -885,10 +911,11 @@ class ConnectionManager(
             return decision
         }
 
-        if (underlayChanged && kind == UnderlayKind.Wifi) {
+        if (autoUsesDirectOnWifi(mode, kind)) {
             AppLog.v(
                 TAG,
-                "Handover: skip VPS probe — Wi‑Fi Auto uses Direct path=$currentPath",
+                "Handover: skip VPS probe — Wi‑Fi Auto uses Direct path=$currentPath " +
+                    "underlayChanged=$underlayChanged",
             )
             val decision = decideNetworkHandoverAction(
                 pathMode = mode,
@@ -899,7 +926,7 @@ class ConnectionManager(
                 currentPathHealthy = pathHealthy,
                 underlayVpsReachable = true,
                 sameProbeStreak = 1,
-                underlayChanged = true,
+                underlayChanged = underlayChanged,
                 allowBypassToDirect = allowBypassToDirect,
                 directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
                 underlayKind = UnderlayKind.Wifi,
@@ -910,7 +937,7 @@ class ConnectionManager(
                 probePath = VpnPath.Direct,
                 probeMessage = null,
                 bypassAllowed = bypassAllowed,
-                underlayChanged = true,
+                underlayChanged = underlayChanged,
                 vpsReachable = true,
             )
             return decision
@@ -1065,8 +1092,9 @@ class ConnectionManager(
     }
 
     /**
-     * Direct is Connected but TUN has no inbound bytes. Auto+hash switches to
-     * Bypass; forced Direct stops so the phone is not a blackhole.
+     * Direct is Connected but TUN has no inbound bytes. Auto+hash on cellular
+     * switches to Bypass; Auto on Wi‑Fi and forced Direct stop so the phone
+     * is not a blackhole.
      */
     fun onDeadDirectNoRx() {
         val current = TunnelSessionHolder.config?.path ?: _ui.value.activePath
@@ -1075,6 +1103,7 @@ class ConnectionManager(
             decideDeadDirectAction(
                 pathMode = pathMode,
                 bypassAllowed = callHashOrNull() != null,
+                underlayKind = underlayKindOf(pickBestUnderlayNetwork(appContext)),
             )
         ) {
             DeadDirectDecision.KeepWatching -> Unit
@@ -1432,7 +1461,10 @@ class ConnectionManager(
         if (profile == null) return false
         return when (pathMode) {
             ConnPathMode.Direct, ConnPathMode.Bypass -> true
-            ConnPathMode.Auto -> probe?.preselectedPath != null
+            ConnPathMode.Auto -> {
+                val kind = underlayKindOf(pickBestUnderlayNetwork(appContext))
+                autoUsesDirectOnWifi(pathMode, kind) || probe?.preselectedPath != null
+            }
         }
     }
 
@@ -1452,6 +1484,10 @@ class ConnectionManager(
 
     private fun softInfoFor(result: ProbeResult?): String? {
         val parts = mutableListOf<String>()
+        val wifiAuto = autoUsesDirectOnWifi(
+            pathMode,
+            underlayKindOf(pickBestUnderlayNetwork(appContext)),
+        )
         when (pathMode) {
             ConnPathMode.Direct -> parts += "Режим: только прямое подключение."
             ConnPathMode.Bypass -> parts += "Режим: только обход. Требуется код звонка."
@@ -1465,7 +1501,7 @@ class ConnectionManager(
         }
         when (result.networkClass) {
             NetworkClass.NeedBypass ->
-                if (pathMode == ConnPathMode.Auto) {
+                if (pathMode == ConnPathMode.Auto && !wifiAuto) {
                     parts += if (result.provisionOk && result.whitelistRestricted) {
                         "Белый список: UDP до VPS, скорее всего, закрыт — сразу обход."
                     } else {
@@ -1473,7 +1509,7 @@ class ConnectionManager(
                     }
                 }
             NetworkClass.OpenNeedBypass ->
-                if (pathMode == ConnPathMode.Auto) {
+                if (pathMode == ConnPathMode.Auto && !wifiAuto) {
                     parts += "VPS недоступен — будет обход."
                 }
             NetworkClass.Captive ->
@@ -1481,7 +1517,7 @@ class ConnectionManager(
             else -> Unit
         }
         val needsHash = pathMode == ConnPathMode.Bypass ||
-            (pathMode == ConnPathMode.Auto && result.preselectedPath == VpnPath.Bypass)
+            (pathMode == ConnPathMode.Auto && !wifiAuto && result.preselectedPath == VpnPath.Bypass)
         if (needsHash && !_ui.value.hasCallHash) {
             parts += "Для обхода сохраните код звонка на устройстве."
         }

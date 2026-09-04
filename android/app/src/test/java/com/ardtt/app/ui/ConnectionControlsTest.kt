@@ -130,11 +130,11 @@ class ConnectionControlsTest {
             PathModeCopy.help("awg", hasCallHash = false, compact = true),
         )
         assertEquals(
-            "Приоритет прямого подключения, резерв — обход.",
+            "В Wi‑Fi всегда прямое подключение. В мобильной сети — прямое, при недоступности обход.",
             PathModeCopy.help("auto", hasCallHash = false, compact = false),
         )
         assertEquals(
-            "Сначала прямое, при недоступности — обход.",
+            "На Wi‑Fi — прямое. В мобильной сети сначала прямое, иначе обход.",
             PathModeCopy.help("auto", hasCallHash = true, compact = true),
         )
         assertEquals(
