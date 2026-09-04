@@ -136,7 +136,7 @@ ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
 Класс: `android/.../deploy/ServerUninstall.kt` (команда в APK, **без** бампа `DEPLOY_VERSION`).
 
 1. Плашка «Удалить сервер?» — предупреждение, что стек снимется с VPS.
-2. `docker compose down -v` в `/opt/ardtt/stack` (и legacy `/opt/nonamevpn`), `docker rm -f` контейнеров `ardtt` / `ardtt-*` / `nvpn-*`, снятие leftover `awg0`/`warp0`/`ip rule` lookup 51820 на хосте, `rm -rf /opt/ardtt /opt/nonamevpn`.
+2. `docker compose down -v` в `/opt/ardtt/stack` (и legacy `/opt/nonamevpn`), `docker rm -f` контейнеров `ardtt` / `ardtt-*` / `nvpn-*`, снятие leftover TUN/`ip rule`/iptables с комментариями ARDTT, правила ufw/firewalld на порты стека, `rm -rf /opt/ardtt /opt/nonamevpn`. Образы `stack-ardtt`. Если на хосте **нет чужих контейнеров** — `apt-get purge` Docker, `docker0`, `/var/lib/docker`, `/swapfile` установщика и docker.list. Чужой стек на shared VPS не трогается.
 3. Каскад: сначала выходной VPS, затем вход. Ошибка на любом хосте оставляет карточку, чтобы можно было повторить (команда идемпотентна).
 4. Маркер stdout `ARDTT_UNINSTALLED` и exit 0. Только после этого `ServersRepository.delete`.
 5. Отмена = обрыв SSH; карточка не удаляется.

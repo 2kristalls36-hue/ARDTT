@@ -1,6 +1,6 @@
 # Документация ARDTT
 
-Обзор продукта и текущие версии — в корневом [README.md](../README.md). Заметки линейки 0.5.225 — [CHANGELOG.md](../CHANGELOG.md).
+Обзор продукта и текущие версии — в корневом [README.md](../README.md). Заметки линейки 0.5.226 — [CHANGELOG.md](../CHANGELOG.md).
 
 | Документ | Содержание |
 |----------|------------|
@@ -8,7 +8,7 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP, VpnService |
 | [DEPLOY.md](DEPLOY.md) | Установка стека **1.0.33** из приложения и Compose |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
-| [android/README.md](../android/README.md) | Сборка клиента 0.5.225, keystore, GitHub Releases |
+| [android/README.md](../android/README.md) | Сборка клиента 0.5.226, keystore, GitHub Releases |
 | [server/README.md](../server/README.md) | Единый контейнер `ardtt`: provision, direct, bypass, dns, warp, cascade, telemetry |
 
 Бренд-исходник иконки: [assets/brand/ardtt-icon-source.png](assets/brand/ardtt-icon-source.png).
