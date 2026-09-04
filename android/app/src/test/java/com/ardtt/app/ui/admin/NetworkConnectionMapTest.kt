@@ -491,4 +491,111 @@ class NetworkConnectionMapTest {
         assertFalse(vps.showCloudflareMark)
         assertEquals("", vps.trailingText)
     }
+
+    @Test
+    fun keepCardsThroughConnectingButClearAfterDisconnect() {
+        assertTrue(networkMapKeepCards(ConnState.Connected))
+        assertTrue(networkMapKeepCards(ConnState.Connecting))
+        assertFalse(networkMapKeepCards(ConnState.Disconnecting))
+        assertFalse(networkMapKeepCards(ConnState.Ready))
+        assertFalse(networkMapKeepCards(ConnState.Idle))
+        assertFalse(networkMapKeepCards(ConnState.PausedTrustedWifi))
+        assertFalse(shouldClearNetworkMapCards(ConnState.Connected, ConnState.Connecting))
+        assertTrue(shouldClearNetworkMapCards(ConnState.Connected, ConnState.Disconnecting))
+        assertTrue(shouldClearNetworkMapCards(ConnState.Connecting, ConnState.Ready))
+        assertFalse(shouldClearNetworkMapCards(ConnState.Ready, ConnState.Connected))
+    }
+
+    @Test
+    fun skipAutoloadWhenSameSessionAlreadyHasCards() {
+        val hops = listOf(filledProvider())
+        val key = cacheKey()
+        assertTrue(
+            shouldSkipNetworkMapAutoload(
+                state = ConnState.Connected,
+                storedKey = key,
+                currentKey = key,
+                hops = hops,
+            ),
+        )
+        assertFalse(
+            shouldSkipNetworkMapAutoload(
+                state = ConnState.Connected,
+                storedKey = key,
+                currentKey = key,
+                hops = emptyList(),
+            ),
+        )
+        assertFalse(
+            shouldSkipNetworkMapAutoload(
+                state = ConnState.Connected,
+                storedKey = key,
+                currentKey = cacheKey(hideIp = true),
+                hops = hops,
+            ),
+        )
+        assertTrue(
+            shouldSkipNetworkMapAutoload(
+                state = ConnState.Connecting,
+                storedKey = key,
+                currentKey = cacheKey(sessionUp = false),
+                hops = hops,
+            ),
+        )
+        assertFalse(
+            shouldSkipNetworkMapAutoload(
+                state = ConnState.Ready,
+                storedKey = key,
+                currentKey = cacheKey(sessionUp = false),
+                hops = hops,
+            ),
+        )
+    }
+
+    @Test
+    fun syncKeepsFilledProviderWhenReturningToTheTab() {
+        val previous = listOf(filledProvider())
+        val layout = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = false,
+            sessionUp = true,
+        )
+        val synced = syncNetworkMapHopViews(layout, previous)
+        val provider = synced.first { it.hop.kind == NetworkMapHopKind.Provider }
+        assertEquals("1.2.3.4", provider.info.ip)
+        assertEquals("ISP", provider.info.subtitle)
+        assertFalse(provider.loading)
+        val vps = synced.first { it.hop.kind == NetworkMapHopKind.Vps }
+        assertEquals("45.129.2.3", vps.info.ip)
+    }
+
+    @Test
+    fun replaceHopUpdatesMatchingKind() {
+        val provider = filledProvider()
+        val updated = provider.copy(info = IpApiInfo(ip = "8.8.8.8", subtitle = "New"))
+        val next = replaceNetworkMapHopView(listOf(provider), updated)
+        assertEquals(1, next.size)
+        assertEquals("8.8.8.8", next[0].info.ip)
+    }
+
+    private fun filledProvider() = NetworkMapHopView(
+        hop = NetworkMapHop(NetworkMapHopKind.Provider, NetworkMapCopy.PROVIDER),
+        info = IpApiInfo(ip = "1.2.3.4", subtitle = "ISP"),
+        loading = false,
+    )
+
+    private fun cacheKey(
+        sessionUp: Boolean = true,
+        hideIp: Boolean = false,
+    ) = NetworkMapCacheKey(
+        sessionUp = sessionUp,
+        profileHost = "45.129.2.3",
+        hideIp = hideIp,
+        serverId = "s1",
+        cascadeEnabled = false,
+        cascadeHost = "",
+        provisionBase = "http://45.129.2.3:9100",
+        deviceId = "dev",
+    )
 }

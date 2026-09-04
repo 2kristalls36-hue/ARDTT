@@ -34,6 +34,108 @@ internal data class NetworkMapHop(
     val knownHost: String? = null,
 )
 
+internal data class NetworkMapHopView(
+    val hop: NetworkMapHop,
+    val info: IpApiInfo,
+    val loading: Boolean,
+)
+
+internal data class NetworkMapCacheKey(
+    val sessionUp: Boolean,
+    val profileHost: String?,
+    val hideIp: Boolean,
+    val serverId: String?,
+    val cascadeEnabled: Boolean,
+    val cascadeHost: String,
+    val provisionBase: String?,
+    val deviceId: String?,
+)
+
+internal data class NetworkMapSnapshot(
+    val key: NetworkMapCacheKey? = null,
+    val liveCascade: ProvisionAdminApi.LiveCascadeInfo? = null,
+    val hopPings: HopHealthPings = HopHealthPings(),
+    val hops: List<NetworkMapHopView> = emptyList(),
+)
+
+internal fun networkMapCacheKey(
+    sessionUp: Boolean,
+    profileHost: String?,
+    hideIp: Boolean,
+    server: DeployTarget?,
+    provisionBase: String?,
+    deviceId: String?,
+) = NetworkMapCacheKey(
+    sessionUp = sessionUp,
+    profileHost = profileHost,
+    hideIp = hideIp,
+    serverId = server?.id,
+    cascadeEnabled = server?.cascadeEnabled == true,
+    cascadeHost = server?.cascadeHost.orEmpty(),
+    provisionBase = provisionBase?.trim()?.takeIf { it.isNotBlank() },
+    deviceId = deviceId?.trim()?.takeIf { it.isNotBlank() },
+)
+
+/** Keep filled cards across Connecting (soft reconnect). Drop them once the tunnel is down. */
+internal fun networkMapKeepCards(state: ConnState): Boolean = when (state) {
+    ConnState.Connected, ConnState.Connecting -> true
+    else -> false
+}
+
+internal fun shouldClearNetworkMapCards(previous: ConnState, next: ConnState): Boolean =
+    networkMapKeepCards(previous) && !networkMapKeepCards(next)
+
+internal fun networkMapHasFilledCards(hops: List<NetworkMapHopView>): Boolean =
+    hops.any { it.info.ip.isNotBlank() }
+
+/**
+ * Returning to «Сеть» while the same VPN session is up must not rebuild cards.
+ * Pull-to-refresh still reloads; Connecting keeps the last filled snapshot.
+ */
+internal fun shouldSkipNetworkMapAutoload(
+    state: ConnState,
+    storedKey: NetworkMapCacheKey?,
+    currentKey: NetworkMapCacheKey,
+    hops: List<NetworkMapHopView>,
+): Boolean {
+    if (!networkMapHasFilledCards(hops)) return false
+    if (state == ConnState.Connecting || state == ConnState.Disconnecting) return true
+    if (!currentKey.sessionUp) return false
+    return storedKey == currentKey
+}
+
+internal fun syncNetworkMapHopViews(
+    layout: NetworkMapLayout,
+    previous: List<NetworkMapHopView>,
+): List<NetworkMapHopView> {
+    return layout.hops.map { hop ->
+        val old = previous.firstOrNull { it.hop.kind == hop.kind }
+        val known = hop.knownHost
+        val sameKnown = known != null && sameHopHost(old?.info?.ip, known)
+        val info = when {
+            known != null && sameKnown -> old?.info ?: IpApiInfo(ip = known, subtitle = "")
+            known != null -> IpApiInfo(
+                ip = known,
+                subtitle = old?.info?.subtitle.orEmpty(),
+            )
+            else -> old?.info ?: IpApiInfo.Empty
+        }
+        NetworkMapHopView(
+            hop = hop,
+            info = info,
+            loading = info.ip.isBlank() && info.error == null,
+        )
+    }
+}
+
+internal fun replaceNetworkMapHopView(
+    current: List<NetworkMapHopView>,
+    next: NetworkMapHopView,
+): List<NetworkMapHopView> {
+    if (current.none { it.hop.kind == next.hop.kind }) return current + next
+    return current.map { if (it.hop.kind == next.hop.kind) next else it }
+}
+
 internal data class NetworkMapLayout(
     val hops: List<NetworkMapHop>,
 ) {
