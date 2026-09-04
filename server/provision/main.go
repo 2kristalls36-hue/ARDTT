@@ -1158,13 +1158,16 @@ func (s *Store) nextHostIDLocked() (int, error) {
 }
 
 func profileDNS(directBase string) []string {
+	// NVPN_CASCADE_DNS is always written into stack/.env (default 10.10.0.2).
+	// It must not win while the hop is off — phones would resolve via an
+	// unreachable 10.10.0.2 after a standalone update of the entry VPS.
+	if envOr("NVPN_CASCADE_ENABLED", "0") != "1" {
+		return []string{fmt.Sprintf("%s.1", directBase)}
+	}
 	if v := strings.TrimSpace(os.Getenv("NVPN_CASCADE_DNS")); v != "" {
 		return []string{v}
 	}
-	if envOr("NVPN_CASCADE_ENABLED", "0") == "1" {
-		return []string{"10.10.0.2"}
-	}
-	return []string{fmt.Sprintf("%s.1", directBase)}
+	return []string{"10.10.0.2"}
 }
 
 func (s *Store) BuildProfile(u User) Profile {

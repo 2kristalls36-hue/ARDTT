@@ -76,6 +76,7 @@ grep -q 'NVPN_TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env 
 grep -q 'NVPN_TELEMETRY_PORT=9200' "$INSTALL/stack/.env" || err ".env NVPN_TELEMETRY_PORT"
 grep -q 'NVPN_ROLE=entry' "$INSTALL/stack/.env" || err ".env default role entry"
 grep -q 'NVPN_CASCADE_ENABLED=0' "$INSTALL/stack/.env" || err ".env cascade off by default"
+grep -q '^NVPN_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone first install must leave hop DNS empty"
 if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
   err ".env must not contain PASSWORD"
 fi
@@ -101,6 +102,23 @@ out3="$(run_install)" || err "third install.sh exited $?"
 echo "$out3" | grep -q 'уже распакованный стек' || err "third run should use existing stack"
 grep -qx 'keep-me' "$INSTALL/stack/data/users.json" || err "users.json lost on tar-less re-run"
 grep -q 'NVPN_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env rewritten on tar-less re-run"
+grep -q '^NVPN_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone .env must not set hop DNS"
+
+# Live cascade flags on entry must survive an update that omits them.
+sed -i 's/^NVPN_CASCADE_ENABLED=.*/NVPN_CASCADE_ENABLED=1/' "$INSTALL/stack/.env"
+sed -i 's/^NVPN_CASCADE_PEER_ENDPOINT=.*/NVPN_CASCADE_PEER_ENDPOINT=2.26.125.160:51820/' "$INSTALL/stack/.env"
+sed -i 's/^NVPN_CASCADE_PEER_PUBLIC_KEY=.*/NVPN_CASCADE_PEER_PUBLIC_KEY=abc+DEF\/123=/' "$INSTALL/stack/.env"
+mkdir -p "$INSTALL/stack/data"
+printf '%s\n' '2.26.125.160:51820' > "$INSTALL/stack/data/cascade.peer.endpoint"
+printf '%s\n' 'abc+DEF/123=' > "$INSTALL/stack/data/cascade.peer.pub"
+printf '%s\n' 'fake-priv' > "$INSTALL/stack/data/cascade.priv"
+cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
+out_preserve="$(run_install)" || err "preserve-cascade install.sh exited $?"
+echo "$out_preserve" | grep -q 'каскад сохранён с прошлого деплоя' || err "missing live-cascade preserve warning"
+grep -q '^NVPN_CASCADE_ENABLED=1$' "$INSTALL/stack/.env" || err "cascade flag not preserved"
+grep -q '^NVPN_CASCADE_PEER_ENDPOINT=2.26.125.160:51820$' "$INSTALL/stack/.env" || err "cascade peer endpoint not preserved"
+grep -q '^NVPN_CASCADE_PEER_PUBLIC_KEY=abc+DEF/123=$' "$INSTALL/stack/.env" || err "cascade peer key not preserved"
+grep -q '^NVPN_CASCADE_DNS=10.10.0.2$' "$INSTALL/stack/.env" || err "cascade DNS not restored when hop is on"
 
 run_exit() {
   NVPN_INSTALL_DIR="$INSTALL" \

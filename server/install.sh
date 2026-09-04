@@ -42,6 +42,12 @@ if [ "$ROLE" = "exit" ]; then
   CASCADE_ENABLED=1
 fi
 
+env_file_val() {
+  local file="$1" key="$2"
+  [ -f "$file" ] || return 0
+  grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'" | tr -d '[:space:]'
+}
+
 # An in-app "update" of the entry hop often omits cascade flags. Dropping them
 # tears down nvpn-cascade, leaves profiles on 10.10.0.2 DNS, and Hide-IP-off
 # traffic can stick on Cloudflare while the app still shows the VPS WAN.
@@ -49,21 +55,33 @@ preserve_live_cascade() {
   [ "$ROLE" = "entry" ] || return 0
   [ "${NVPN_CASCADE_FORCE_DISABLE:-0}" = "1" ] && return 0
   local envf="$INSTALL_DIR/stack/.env"
-  [ -f "$envf" ] || return 0
-  local prev endpoint key
-  prev="$(grep -E '^NVPN_CASCADE_ENABLED=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'" | tr -d '[:space:]')"
-  [ "$prev" = "1" ] || return 0
-  [ "$CASCADE_ENABLED" = "1" ] && return 0
-  CASCADE_ENABLED=1
+  local data="$INSTALL_DIR/stack/data"
+  local prev
+  prev="$(env_file_val "$envf" NVPN_CASCADE_ENABLED)"
+  if [ "$prev" = "1" ] && [ "$CASCADE_ENABLED" != "1" ]; then
+    CASCADE_ENABLED=1
+    echo "NVPN_WARN|каскад сохранён с прошлого деплоя (NVPN_CASCADE_FORCE_DISABLE=1 чтобы снять)"
+  fi
+  if [ "$CASCADE_ENABLED" != "1" ]; then
+    if [ -s "$data/cascade.priv" ]; then
+      echo "NVPN_WARN|каскадные ключи на диске, hop выключен — включите каскад в приложении чтобы снова связать вход с выходом"
+    fi
+    CASCADE_DNS=""
+    return 0
+  fi
   if [ -z "$CASCADE_PEER_ENDPOINT" ]; then
-    endpoint="$(grep -E '^NVPN_CASCADE_PEER_ENDPOINT=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'")"
-    CASCADE_PEER_ENDPOINT="$(printf '%s' "$endpoint" | tr -d '[:space:]')"
+    CASCADE_PEER_ENDPOINT="$(env_file_val "$envf" NVPN_CASCADE_PEER_ENDPOINT)"
+  fi
+  if [ -z "$CASCADE_PEER_ENDPOINT" ] && [ -s "$data/cascade.peer.endpoint" ]; then
+    CASCADE_PEER_ENDPOINT="$(tr -d '[:space:]' < "$data/cascade.peer.endpoint")"
   fi
   if [ -z "$CASCADE_PEER_PUBLIC_KEY" ]; then
-    key="$(grep -E '^NVPN_CASCADE_PEER_PUBLIC_KEY=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'")"
-    CASCADE_PEER_PUBLIC_KEY="$(printf '%s' "$key" | tr -d '[:space:]')"
+    CASCADE_PEER_PUBLIC_KEY="$(env_file_val "$envf" NVPN_CASCADE_PEER_PUBLIC_KEY)"
   fi
-  echo "NVPN_WARN|каскад сохранён с прошлого деплоя (NVPN_CASCADE_FORCE_DISABLE=1 чтобы снять)"
+  if [ -z "$CASCADE_PEER_PUBLIC_KEY" ] && [ -s "$data/cascade.peer.pub" ]; then
+    CASCADE_PEER_PUBLIC_KEY="$(tr -d '[:space:]' < "$data/cascade.peer.pub")"
+  fi
+  [ -n "$CASCADE_DNS" ] || CASCADE_DNS="10.10.0.2"
 }
 preserve_live_cascade
 
@@ -208,6 +226,9 @@ ensure_cascade_keys() {
   chmod 644 "$data/cascade.pub" 2>/dev/null || true
   if [ -n "$CASCADE_PEER_PUBLIC_KEY" ]; then
     printf '%s\n' "$CASCADE_PEER_PUBLIC_KEY" >"$data/cascade.peer.pub"
+  fi
+  if [ -n "$CASCADE_PEER_ENDPOINT" ]; then
+    printf '%s\n' "$CASCADE_PEER_ENDPOINT" >"$data/cascade.peer.endpoint"
   fi
   local pub
   pub="$(tr -d '[:space:]' <"$data/cascade.pub" 2>/dev/null || true)"
@@ -488,7 +509,12 @@ BYPASS_DNS="10.9.0.1"
 WARP_MODE="hideip"
 WARP_DNS_IFACES="awg0 wdttraw0"
 if [ "$CASCADE_ENABLED" = "1" ]; then
+  [ -n "$CASCADE_DNS" ] || CASCADE_DNS="10.10.0.2"
   BYPASS_DNS="$CASCADE_DNS"
+else
+  # Provision treats a non-empty NVPN_CASCADE_DNS as hop DNS even when
+  # NVPN_CASCADE_ENABLED=0. Keep it blank on a standalone entry.
+  CASCADE_DNS=""
 fi
 if [ "$ROLE" = "exit" ]; then
   WARP_MODE="cascade"
