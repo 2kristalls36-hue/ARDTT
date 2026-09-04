@@ -4,7 +4,7 @@
 Клиентская сторона деплоя — вкладка **Серверы** в режиме администратора Android.  
 Состав сервисов и смысл Path A/B: [ARCHITECTURE.md](ARCHITECTURE.md), [LEGEND.md](LEGEND.md).
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.27**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.28**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -254,6 +254,7 @@ provision ──writes──► /data/users.json
     ├─ direct-sync  → awg0.conf  → amneziawg-go   (каждые 5 с при изменении)
     ├─ bypass-sync  → passwords.json + raw_ip     (SIGHUP wdtt-server)
     └─ warp         → ip rule from 10.8/10.9.{id} → table 51820, если hideIp
+                      (на каскаде правило ставит выход, не вход)
 ```
 
 ### Direct (Path A)
@@ -274,7 +275,7 @@ Hash звонка на сервер **не** кладётся.
 
 ### Hide IP / WARP
 
-`POST /v1/hide-ip` → `users.json.hideIp`. warp-entrypoint дебаунсит ~1 с и вешает `from 10.8.0.{id}/32` и `from 10.9.0.{id}/32` в table 51820. DNS и подсети туннелей остаются на main. Клиент **не** рестартует TUN: смена VPS↔Cloudflare на лету. Контейнер **не** перезапускают по OOM (`GOMEMLIMIT` 256 MiB; in-process recycle wireproxy).
+`POST /v1/hide-ip` → `users.json.hideIp`. На standalone вход warp-entrypoint дебаунсит ~1 с и вешает `from 10.8.0.{id}/32`. На каскаде вход в `passthrough`, а выход опрашивает `GET /v1/hide-ip-prefixes` у `10.10.0.1` и вешает те же `/32` на своём `warp0`. DNS и подсети туннелей остаются на main. Клиент **не** рестартует TUN.
 
 ### Provision API (телефон бьёт в `:9100`)
 
@@ -355,7 +356,7 @@ docker compose down          # контейнеры; data/ остаётся
 ```bash
 docker compose -f /opt/nonamevpn/stack/docker-compose.yml ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.27"
+# ожидается: "ok": true, "deployVersion": "1.0.28"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'

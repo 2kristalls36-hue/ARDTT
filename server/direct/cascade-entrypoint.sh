@@ -1,12 +1,12 @@
 #!/bin/bash
 # Inter-VPS AmneziaWG hop (cascade0).
 #
-# entry: VPS1 — phone clients stay on awg0/wdttraw0; traffic without hideIp is
-#        policy-routed into cascade0 toward the exit. hideIp /32 on the entry
-#        warp table (prio 300) beats this hop (prio 320). No WAN MASQ fallback.
+# entry: VPS1 — phone clients stay on awg0/wdttraw0; traffic is policy-routed
+#        into cascade0 toward the exit. Hide-IP /32 is applied on the exit
+#        warp table, not here. No WAN MASQ fallback.
 #        If the hop handshake dies, awg0/wdttraw0 are taken down so the
 #        phone tunnel falls.
-# exit:  VPS2 — listens for the entry peer; DNS + WAN MASQ live on this host.
+# exit:  VPS2 — listens for the entry peer; DNS + WAN MASQ + Hide-IP WARP.
 set -euo pipefail
 
 DATA="${NVPN_DATA:-/data}"
