@@ -138,4 +138,81 @@ class ServerDeployCardLogicTest {
             healthUiOf(ProvisionAdminApi.HealthInfo(ok = false, pingMs = 9L)),
         )
     }
+
+    @Test
+    fun savedCardActionIsAlwaysReinstall() {
+        assertEquals("Переустановить сервер", serverDeployActionLabel(saved = true, cascadeEnabled = false))
+        assertEquals("Переустановить сервер", serverDeployActionLabel(saved = true, cascadeEnabled = true))
+    }
+
+    @Test
+    fun newCardActionDependsOnCascade() {
+        assertEquals("Установить на VPS", serverDeployActionLabel(saved = false, cascadeEnabled = false))
+        assertEquals("Установить каскад", serverDeployActionLabel(saved = false, cascadeEnabled = true))
+    }
+
+    @Test
+    fun deployScreenTitleDependsOnSavedCard() {
+        assertEquals("Параметры сервера", serverDeployScreenTitle(saved = true))
+        assertEquals("Деплой", serverDeployScreenTitle(saved = false))
+    }
+
+    @Test
+    fun deployFormHelpMentionsSheetOnSavedCard() {
+        val saved = serverDeployFormHelp(
+            saved = true,
+            cascadeEnabled = false,
+            expectedVersion = "1.0.29",
+        )
+        assertTrue(saved.contains("Переустановить сервер"))
+        assertTrue(saved.contains("1.0.29"))
+        assertTrue(saved.contains("снизу"))
+        val fresh = serverDeployFormHelp(
+            saved = false,
+            cascadeEnabled = true,
+            expectedVersion = "1.0.29",
+        )
+        assertTrue(fresh.contains("Установить каскад"))
+        assertFalse(fresh.contains("Переустановить"))
+    }
+
+    @Test
+    fun reinstallConfirmNamesHostAndVersion() {
+        assertEquals(
+            "Стек версии 1.0.29 будет заново залит на 10.0.0.1 по указанным SSH-данным.",
+            serverReinstallConfirmBody("10.0.0.1", "1.0.29"),
+        )
+        assertEquals(
+            "Стек версии 1.0.29 будет заново залит на VPS по указанным SSH-данным.",
+            serverReinstallConfirmBody("  ", "1.0.29"),
+        )
+    }
+
+    @Test
+    fun progressSheetTitleWhileBusy() {
+        assertEquals(
+            "Установка деплоя…",
+            deployProgressSheetTitle(busy = true, isUpdate = false, status = "что угодно"),
+        )
+        assertEquals(
+            "Обновление деплоя…",
+            deployProgressSheetTitle(busy = true, isUpdate = true, status = ""),
+        )
+    }
+
+    @Test
+    fun progressSheetTitleAfterFinish() {
+        assertEquals(
+            "Готово",
+            deployProgressSheetTitle(busy = false, isUpdate = true, status = "Обновление завершено"),
+        )
+        assertEquals(
+            "Ошибка",
+            deployProgressSheetTitle(busy = false, isUpdate = false, status = "Ошибка: timeout"),
+        )
+        assertEquals(
+            "Готово",
+            deployProgressSheetTitle(busy = false, isUpdate = false, status = null),
+        )
+    }
 }

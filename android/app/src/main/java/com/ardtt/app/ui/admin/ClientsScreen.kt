@@ -666,18 +666,6 @@ private fun ClientsScreen(
     }
 }
 
-private fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSummary(
-    name = profile.name,
-    hostId = profile.hostId,
-    deviceId = profile.deviceId,
-    deviceIds = listOf(profile.deviceId).filter { it.isNotBlank() },
-    maxDevices = profile.maxDevices,
-    hideIp = profile.hideIp,
-    createdAt = "",
-    expiresAt = profile.expiresAt,
-    deactivated = profile.deactivated,
-)
-
 @Composable
 private fun ClientCard(
     user: ProvisionAdminApi.UserSummary,

@@ -313,14 +313,8 @@ object ProvisionAdminApi {
     }
 
     internal fun parseUser(o: JSONObject): UserSummary {
-        val deviceIds = mutableListOf<String>()
-        o.optJSONArray("deviceIds")?.let { arr ->
-            for (i in 0 until arr.length()) {
-                arr.optString(i).takeIf { it.isNotBlank() }?.let { deviceIds.add(it) }
-            }
-        }
-        val primary = o.optString("deviceId")
-        if (primary.isNotBlank() && primary !in deviceIds) deviceIds.add(0, primary)
+        val deviceIds = boundDeviceIdsFromJson(o)
+        val primary = deviceIds.firstOrNull().orEmpty()
         val deviceModels = linkedMapOf<String, String>()
         o.optJSONObject("deviceModels")?.let { mo ->
             val keys = mo.keys()
@@ -426,4 +420,19 @@ fun deviceDisplayLabels(
         val model = deviceModels[id]?.trim().orEmpty()
         if (model.isNotEmpty()) model else id
     }
+}
+
+/**
+ * Bound slots come from `deviceIds`. A template `deviceId` in the profile JSON
+ * is not a binding — unless the payload is legacy and has no `deviceIds` key.
+ */
+internal fun boundDeviceIdsFromJson(o: JSONObject): List<String> {
+    val fromArray = mutableListOf<String>()
+    val arr = o.optJSONArray("deviceIds") ?: return listOfNotNull(
+        o.optString("deviceId").trim().takeIf { it.isNotEmpty() },
+    )
+    for (i in 0 until arr.length()) {
+        arr.optString(i).takeIf { it.isNotBlank() }?.let(fromArray::add)
+    }
+    return fromArray
 }
