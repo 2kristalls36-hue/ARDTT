@@ -1,3 +1,11 @@
+# ARDTT v0.5.227
+
+Клиент **0.5.227** (`versionCode` 245). Серверный стек **1.0.33** (`DEPLOY_VERSION`).
+
+## 0.5.227
+
+- «Удалить сервер»: на выделенном VPS снимаются и следы Docker в iptables/ip6tables (`DOCKER*` chains, MASQ `docker0`/`br-*`, raw DROP), ufw-правила даже при inactive ufw, `/etc/containerd`, `/swapfile` и apt-пакеты Docker.
+
 # ARDTT v0.5.226
 
 Клиент **0.5.226** (`versionCode` 244). Серверный стек **1.0.33** (`DEPLOY_VERSION`).
@@ -151,6 +159,7 @@
 
 | Релиз | Суть |
 |-------|------|
+| 0.5.227 | Uninstall: iptables/ip6tables Docker, ufw при inactive, containerd dirs |
 | 0.5.226 | Uninstall полностью снимает Docker/swap, если на VPS нет чужих контейнеров |
 | 0.5.225 | Единый контейнер деплоя (isolated netns); стек 1.0.33 чинит cascade/WARP |
 | 0.5.224 | «Сеть»: карточки сохраняются до отключения VPN |

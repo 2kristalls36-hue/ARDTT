@@ -24,6 +24,7 @@ object ServerUninstall {
 
     private val SCRIPT = """
         set +e
+        set +H
         echo "ARDTT_PROGRESS|0.08|Остановка Compose…"
         env_val() {
           local key="${'$'}1" file="${'$'}2" def="${'$'}3" v=""
@@ -131,10 +132,9 @@ object ServerUninstall {
           [ -n "${'$'}port" ] || return 0
           if command -v ufw >/dev/null 2>&1; then
             local guard=0
-            while ufw status 2>/dev/null | grep -Eq "(^|[[:space:]])${'$'}{port}/${'$'}{proto}([[:space:]]|${'$'})"; do
+            while [ "${'$'}guard" -lt 16 ]; do
               ufw --force delete allow "${'$'}{port}/${'$'}{proto}" >/dev/null 2>&1 || break
               guard="${'$'}((guard + 1))"
-              [ "${'$'}guard" -gt 16 ] && break
             done
           fi
           if command -v firewall-cmd >/dev/null 2>&1; then
@@ -203,29 +203,56 @@ object ServerUninstall {
             dnf -y remove docker docker-ce docker-ce-cli docker-compose-plugin docker-buildx-plugin containerd.io >/dev/null 2>&1
           fi
           rm -rf /var/lib/docker /var/lib/containerd /etc/docker /var/lib/docker-engine
+          rm -rf /etc/containerd /opt/containerd /root/.docker /run/docker /run/containerd /usr/libexec/docker
           rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources
           rm -f /etc/apt/keyrings/docker.asc /etc/apt/keyrings/docker.gpg /etc/apt/keyrings/docker.gpg.asc
+          rm -f /var/run/docker.sock /var/run/docker.pid /var/run/docker.sock.old
           ip link del docker0 >/dev/null 2>&1
-          ip -o link show 2>/dev/null | awk -F': ' '{print ${'$'}2}' | cut -d'@' -f1 | grep -E '^(br-|docker)' | while read -r br; do
+          ip -o link show 2>/dev/null | awk -F': ' '{print ${'$'}2}' | cut -d'@' -f1 | grep -E '^(br-|docker|veth)' | while read -r br; do
             ip link del "${'$'}br" >/dev/null 2>&1
           done
-          if command -v iptables >/dev/null 2>&1; then
-            iptables -t filter -D FORWARD -j DOCKER-USER >/dev/null 2>&1
-            iptables -t filter -D FORWARD -j DOCKER-FORWARD >/dev/null 2>&1
-            iptables -t nat -D PREROUTING -m addrtype --dst-type LOCAL -j DOCKER >/dev/null 2>&1
-            iptables -t nat -D OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER >/dev/null 2>&1
-            iptables -t nat -S POSTROUTING 2>/dev/null | grep docker0 | sed 's/^-A POSTROUTING //' | while read -r spec; do
-              [ -n "${'$'}spec" ] || continue
-              eval "iptables -t nat -D POSTROUTING ${'$'}spec" >/dev/null 2>&1
+          wipe_docker_netfilter() {
+            local ipt table chain line n ch guard
+            for ipt in iptables ip6tables; do
+              command -v "${'$'}ipt" >/dev/null 2>&1 || continue
+              for table in filter nat mangle raw; do
+                for chain in INPUT FORWARD OUTPUT PREROUTING POSTROUTING; do
+                  n=0
+                  while [ "${'$'}n" -lt 64 ]; do
+                    n="${'$'}((n + 1))"
+                    line="${'$'}("${'$'}ipt" -t "${'$'}table" -S "${'$'}chain" 2>/dev/null | grep '^-A ' | grep -iE 'DOCKER|docker0|br-[0-9a-f]{12}' | tail -1 || true)"
+                    [ -n "${'$'}line" ] || break
+                    set -f
+                    set -- ${'$'}line
+                    set +f
+                    shift
+                    ch="${'$'}1"
+                    shift
+                    "${'$'}ipt" -t "${'$'}table" -D "${'$'}ch" "${'$'}@" >/dev/null 2>&1 || break
+                  done
+                done
+                "${'$'}ipt" -t "${'$'}table" -S 2>/dev/null | awk '/^-N DOCKER/ {print ${'$'}2}' | while read -r chain; do
+                  [ -n "${'$'}chain" ] || continue
+                  "${'$'}ipt" -t "${'$'}table" -F "${'$'}chain" >/dev/null 2>&1
+                done
+                guard=0
+                while [ "${'$'}guard" -lt 16 ]; do
+                  guard="${'$'}((guard + 1))"
+                  chain="${'$'}("${'$'}ipt" -t "${'$'}table" -S 2>/dev/null | awk '/^-N DOCKER/ {print ${'$'}2}' | head -1 || true)"
+                  [ -n "${'$'}chain" ] || break
+                  if ! "${'$'}ipt" -t "${'$'}table" -X "${'$'}chain" >/dev/null 2>&1; then
+                    "${'$'}ipt" -t "${'$'}table" -S 2>/dev/null | awk '/^-N DOCKER/ {print ${'$'}2}' | while read -r ch; do
+                      "${'$'}ipt" -t "${'$'}table" -X "${'$'}ch" >/dev/null 2>&1 || true
+                    done
+                  fi
+                done
+              done
             done
-            for chain in DOCKER DOCKER-BRIDGE DOCKER-CT DOCKER-FORWARD DOCKER-INTERNAL DOCKER-USER DOCKER-ISOLATION-STAGE-1 DOCKER-ISOLATION-STAGE-2 DOCKER-INGRESS; do
-              iptables -t filter -F "${'$'}chain" >/dev/null 2>&1
-              iptables -t nat -F "${'$'}chain" >/dev/null 2>&1
-            done
-            for chain in DOCKER-INGRESS DOCKER-ISOLATION-STAGE-2 DOCKER-ISOLATION-STAGE-1 DOCKER-USER DOCKER-INTERNAL DOCKER-FORWARD DOCKER-CT DOCKER-BRIDGE DOCKER; do
-              iptables -t filter -X "${'$'}chain" >/dev/null 2>&1
-              iptables -t nat -X "${'$'}chain" >/dev/null 2>&1
-            done
+          }
+          wipe_docker_netfilter
+          if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload >/dev/null 2>&1
+            systemctl reset-failed docker docker.socket containerd >/dev/null 2>&1
           fi
           echo "ARDTT_PROGRESS|0.88|Снятие swapfile установщика…"
           swapoff /swapfile >/dev/null 2>&1
@@ -234,6 +261,9 @@ object ServerUninstall {
             sed -i '\#^/swapfile[[:space:]]#d' /etc/fstab
           fi
         fi
+
+        rm -f /tmp/ardtt-apt-purge.log /tmp/ardtt-apt-autoremove.log
+        rm -f /tmp/ardtt-* /tmp/ardtt-install*.log
 
         echo "ARDTT_PROGRESS|1|Готово"
         echo "$DONE_MARKER"

@@ -36,6 +36,9 @@ class ServerUninstallTest {
         assertTrue(cmd.contains("host_drop_port"))
         assertTrue(cmd.contains("wait_apt_lock"))
         assertTrue(cmd.contains("docker-model-plugin"))
-        assertTrue(cmd.contains("DOCKER-FORWARD"))
+        assertTrue(cmd.contains("wipe_docker_netfilter"))
+        assertTrue(cmd.contains("ip6tables"))
+        assertTrue(cmd.contains("/etc/containerd"))
+        assertTrue(cmd.contains("br-[0-9a-f]{12}"))
     }
 }
