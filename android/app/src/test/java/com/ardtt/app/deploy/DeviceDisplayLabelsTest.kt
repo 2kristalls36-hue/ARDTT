@@ -91,4 +91,37 @@ class ProvisionUserSummaryParseTest {
         assertEquals(219, users[0].appVersionCode)
         assertEquals(219, users[0].deviceAppVersionCodes["dev-abc12345"])
     }
+
+    @Test
+    fun emptyDeviceIdsDoesNotBindTemplateDeviceId() {
+        val users = ProvisionAdminApi.parseUsers(
+            """
+            [{
+              "name": "alice",
+              "hostId": 2,
+              "deviceId": "dev-template",
+              "deviceIds": [],
+              "maxDevices": 1
+            }]
+            """.trimIndent(),
+        )
+        assertEquals(emptyList<String>(), users[0].deviceIds)
+        assertEquals("", users[0].deviceId)
+    }
+
+    @Test
+    fun missingDeviceIdsFallsBackToLegacyDeviceId() {
+        val users = ProvisionAdminApi.parseUsers(
+            """
+            [{
+              "name": "alice",
+              "hostId": 2,
+              "deviceId": "dev-legacy",
+              "maxDevices": 1
+            }]
+            """.trimIndent(),
+        )
+        assertEquals(listOf("dev-legacy"), users[0].deviceIds)
+        assertEquals("dev-legacy", users[0].deviceId)
+    }
 }
