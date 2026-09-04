@@ -35,10 +35,10 @@ class ServerDeployCardLogicTest {
         assertEquals("10.0.0.1", serverCardTitle("  ", "10.0.0.1"))
         assertEquals("10.0.0.1", serverCardTitle("10.0.0.1", "10.0.0.1"))
         assertEquals(
-            "10.0.0.1-2.26.125.160",
-            serverCardTitle("  ", "10.0.0.1", "10.0.0.1-2.26.125.160"),
+            "10.0.0.1 → 2.26.125.160",
+            serverCardTitle("  ", "10.0.0.1", "10.0.0.1 → 2.26.125.160"),
         )
-        assertEquals("Edge", serverCardTitle("Edge", "10.0.0.1", "10.0.0.1-2.26.125.160"))
+        assertEquals("Edge", serverCardTitle("Edge", "10.0.0.1", "10.0.0.1 → 2.26.125.160"))
     }
 
     @Test
@@ -70,7 +70,7 @@ class ServerDeployCardLogicTest {
             serverCardCascadeIpSpan("10.0.0.1", "10.0.0.1", cascadeEnabled = true, cascadeHost = ""),
         )
         assertEquals(
-            "10.0.0.1-2.26.125.160",
+            "10.0.0.1 → 2.26.125.160",
             serverCardCascadeIpSpan(
                 host = "10.0.0.1",
                 publicHost = "10.0.0.1",
@@ -79,7 +79,7 @@ class ServerDeployCardLogicTest {
             ),
         )
         assertEquals(
-            "203.0.113.10-2.26.125.160",
+            "203.0.113.10 → 2.26.125.160",
             serverCardCascadeIpSpan(
                 host = "10.0.0.1",
                 publicHost = "203.0.113.10",
@@ -88,7 +88,7 @@ class ServerDeployCardLogicTest {
             ),
         )
         assertEquals(
-            "10.0.0.1-2.26.125.160 · SSH 22",
+            "10.0.0.1 → 2.26.125.160 · SSH 22",
             serverCardMetaLine(
                 name = "Edge",
                 host = "10.0.0.1",
@@ -114,7 +114,7 @@ class ServerDeployCardLogicTest {
             serverCardMetaLine("Edge", "10.0.0.1", 22, "10.0.0.1", cascadeEnabled = true, cascadeHost = ""),
         )
         assertEquals(
-            "203.0.113.10-2.26.125.160 · SSH 22",
+            "203.0.113.10 → 2.26.125.160 · SSH 22",
             serverCardMetaLine(
                 name = "Edge",
                 host = "10.0.0.1",

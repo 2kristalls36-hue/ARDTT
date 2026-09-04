@@ -75,7 +75,7 @@ internal fun serverCardTitle(
     return cascadeIpSpan?.takeIf { it.isNotBlank() } ?: ssh
 }
 
-/** Entry–exit `ip-ip` when the card is a cascade with two distinct hosts. */
+/** Entry → exit hosts when the card is a cascade with two distinct addresses. */
 internal fun serverCardCascadeIpSpan(
     host: String,
     publicHost: String,
@@ -91,10 +91,10 @@ internal fun serverCardCascadeIpSpan(
         ) ?: return null
     val exit = DeployHop.host(cascadeHost)?.takeIf { it.isNotBlank() } ?: return null
     if (entry.equals(exit, ignoreCase = true)) return null
-    return "$entry-$exit"
+    return "$entry → $exit"
 }
 
-/** SSH / pub facts under the title — never repeats the title IP. Cascade shows `ip-ip`. */
+/** SSH / pub facts under the title — never repeats the title IP. Cascade shows `ip → ip`. */
 internal fun serverCardMetaLine(
     name: String,
     host: String,
