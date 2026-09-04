@@ -10,7 +10,7 @@
 
 </div>
 
-**ARDTT** — Android-приложение и self-hosted сервер для защищённого туннеля до вашего VPS. Прямой путь — AmneziaWG 2.0; обход поднимает локальный интерфейс на устройстве и маскирует транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP, без DTLS и без вложенного WG).
+**ARDTT** (Amnezia + RAW Dial via TURN) — Android-приложение и self-hosted сервер для защищённого туннеля до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP, без DTLS и без вложенного WireGuard).
 
 > [!WARNING]
 > **Назначение проекта**
@@ -19,43 +19,48 @@
 > Авторы **не призывают** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Текущий клиент: **0.5.215** (`versionCode` 233). Серверный стек: **1.0.29**. Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Технические документы — [docs/](docs/README.md).
+> Клиент **0.5.215** (`versionCode` 233), пакет `com.ardtt.app`. Серверный стек **1.0.29** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
+>
+> Смена пакета с `com.nonamevpn.app` — это **новое приложение** для Android: обновление поверх старого APK не встанет, нужна переустановка.
+>
+> Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
 ---
 
 ## Сейчас
 
-| Что | Значение |
-|-----|----------|
-| Клиент | [v0.5.215](https://github.com/2kristalls36-hue/ARDTT/releases) · APK: `arm64-v8a`, `armeabi-v7a`, `x86_64`, universal |
-| Сервер | `DEPLOY_VERSION` **1.0.29** · Compose: `provision` `:9100`, `direct`, `bypass`, `dns`, `warp`, `telemetry` `:9200` |
+| | |
+|---|---|
+| Клиент | **0.5.215** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
+| Стек | **1.0.29** · `/opt/ardtt` · контейнеры `ardtt-*` · переменные `ARDTT_*` |
+| Compose | `provision` `:9100`, `direct`, `bypass`, `dns`, `warp`, `cascade`, `telemetry` `:9200` |
+| Профиль | ссылка `ardtt://config` |
 | Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases) |
 
-## Два пути
+## Два пути до VPS
 
-| Параметр | Path A · прямое | Path B · обход |
+| | Прямое | Обход |
 |---|---|---|
 | Стек | AmneziaWG 2.0 | RAW Dial via TURN (qWDTT / SpaceNeuroX, `-listen-raw`) |
 | Транспорт | UDP `:51820` | TURN/TCP → WRAP → VPS UDP `:56003` |
 | Подсеть | `10.8.0.0/24` | `10.9.0.0/24` |
 | Крипто | AmneziaWG | WRAP AEAD, **без DTLS**, **без вложенного WG** |
 
-Опционально **«Скрыть свой IP»**: egress через Cloudflare WARP (`wireproxy` + `tun2socks`). DNS `:53` остаётся на `main`.
+**«Скрыть свой IP»** — не третий клиентский путь: egress выбранного пользователя через Cloudflare WARP (`wireproxy` + `tun2socks`). DNS `:53` остаётся на `main`.
 
-**Каскад:** телефон говорит только со входным VPS; WAN и Hide-IP WARP — на **выходном** VPS. Hide-IP выкл. → выход в интернет с WAN выхода, не через Cloudflare.
+**Каскад** (два VPS): телефон знает только **вход**; WAN и Hide-IP WARP — на **выходе**. Hide-IP выкл. → интернет с WAN выхода, не через Cloudflare.
 
 ## Репозиторий
 
 ```
 ARDTT/
-├── README.md
+├── android/      # Jetpack Compose-клиент (Gradle живёт здесь)
+├── server/       # Docker Compose: 7 сервисов
+├── scripts/      # APK, иконки, deploy-бандл
+├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
 ├── CHANGELOG.md
-├── LICENSE                 # GNU GPL v3
-├── NOTICE                  # Amnezia Apache-2.0 + SpaceNeuroX/qWDTT GPL RAW
-├── android/                # Jetpack Compose-клиент (Gradle живёт здесь)
-├── server/                 # Docker Compose-стек
-├── scripts/                # APK, иконки, deploy-бандл
-└── docs/                   # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
+├── LICENSE       # GNU GPL v3
+└── NOTICE        # Amnezia Apache-2.0 + SpaceNeuroX/qWDTT GPL RAW
 ```
 
 Клиент и Gradle **не** вынесены в корень: сборка — `cd android && ./gradlew …`.
@@ -72,6 +77,8 @@ curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh alice
 ```
 
+Каскад: `ARDTT_ROLE=entry|exit` и `ARDTT_CASCADE_*` в `.env`. Обычный путь установки — SSH из приложения, см. [docs/DEPLOY.md](docs/DEPLOY.md).
+
 Android:
 
 ```bash
@@ -80,21 +87,19 @@ cd android
 # app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Подписанные APK — [GitHub Releases](https://github.com/2kristalls36-hue/ARDTT/releases). Деплой из приложения (SSH) — [docs/DEPLOY.md](docs/DEPLOY.md).
-
-Подробнее: [android/README.md](android/README.md), [server/README.md](server/README.md).
+Подписанные APK — [GitHub Releases](https://github.com/2kristalls36-hue/ARDTT/releases). Подробнее: [android/README.md](android/README.md), [server/README.md](server/README.md).
 
 ## Документация
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Текущая линейка 0.5.215 / стек 1.0.29 |
-| [docs/LEGEND.md](docs/LEGEND.md) | Имя ARDTT, Path A/B, знак |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, WARP |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.215 / стек 1.0.29 |
+| [docs/LEGEND.md](docs/LEGEND.md) | Имя ARDTT, Path A/B, знак AR/DTT |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS из приложения и Compose |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
 | [android/README.md](android/README.md) | Сборка клиента, keystore, релизы |
-| [server/README.md](server/README.md) | Шесть сервисов Compose |
+| [server/README.md](server/README.md) | Compose: provision, direct, bypass, dns, warp, cascade, telemetry |
 
 ## Поддержать
 
