@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
+import com.ardtt.app.core.PhoneModelLabel
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.deviceDisplayLabels
@@ -132,18 +133,6 @@ private fun ClientsScreen(
     var deleteUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var deleting by remember { mutableStateOf(false) }
 
-    fun addToPhone(json: String) {
-        scope.launch {
-            runCatching { profiles.importJson(json, activate = false) }
-                .onSuccess {
-                    Toast.makeText(context, "Добавлен в профили", Toast.LENGTH_SHORT).show()
-                }
-                .onFailure {
-                    Toast.makeText(context, it.message ?: "Не удалось добавить", Toast.LENGTH_LONG).show()
-                }
-        }
-    }
-
     fun toast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     }
@@ -186,6 +175,37 @@ private fun ClientsScreen(
         if (sheetUser?.name == previousName) sheetUser = updated
         if (renameUser?.name == previousName) renameUser = updated
         if (editUser?.name == previousName) editUser = updated
+    }
+
+    fun addToPhone(profile: VpnProfile) {
+        val toImport = profileWithBindDeviceId(profile)
+        busyUser = toImport.name
+        scope.launch {
+            val imported = runCatching {
+                profiles.importJson(VpnProfileJson.encode(toImport), activate = false)
+            }
+            if (imported.isFailure) {
+                busyUser = null
+                toast(imported.exceptionOrNull()?.message ?: "Не удалось добавить")
+                return@launch
+            }
+            val presence = ProvisionAdminApi.reportPresence(
+                baseUrl = base,
+                deviceId = toImport.deviceId,
+                name = toImport.name,
+                deviceModel = PhoneModelLabel.current(),
+                appVersion = BuildConfig.VERSION_NAME,
+                appVersionCode = BuildConfig.VERSION_CODE,
+            )
+            presence.getOrNull()?.let { replaceUser(toImport.name, it) }
+            val listed = ProvisionAdminApi.listUsers(base)
+            if (listed.isSuccess) applyUsersResult(listed)
+            busyUser = null
+            val latest = listed.getOrNull()?.find { it.name == toImport.name }
+                ?: presence.getOrNull()
+            val bound = latest != null && userHasDevice(latest, toImport.deviceId)
+            Toast.makeText(context, addToPhoneBindMessage(bound), Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun loadProfile(name: String, after: (String) -> Unit) {
@@ -660,7 +680,7 @@ private fun ClientsScreen(
                 }
             },
             onAddToPhone = {
-                sheetProfile?.let { addToPhone(VpnProfileJson.encode(it)) }
+                sheetProfile?.let { addToPhone(it) }
             },
         )
     }
