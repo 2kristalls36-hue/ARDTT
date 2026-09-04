@@ -119,6 +119,22 @@ object ServerOsProbe {
         runCatching { probeBlocking(target) }
     }
 
+    /** SSH login only — used to tell “not installed” from “unreachable”. */
+    suspend fun authOk(target: DeployTarget, timeoutMs: Int = 8_000): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val session = SshClient.connect(
+                    host = target.host.trim(),
+                    user = target.sshUser.trim().ifBlank { "root" },
+                    port = target.sshPort,
+                    auth = target.auth(),
+                    timeoutMs = timeoutMs,
+                )
+                runCatching { session.disconnect() }
+                true
+            }.getOrDefault(false)
+        }
+
     suspend fun refreshStored(repo: ServersRepository, target: DeployTarget) {
         if (target.osId.isNotBlank()) return
         val info = probe(target).getOrNull() ?: return

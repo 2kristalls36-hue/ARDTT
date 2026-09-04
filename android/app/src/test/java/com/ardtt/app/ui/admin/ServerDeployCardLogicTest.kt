@@ -78,7 +78,8 @@ class ServerDeployCardLogicTest {
     fun updateButtonShownWhenOutdatedOfflineOrUnknown() {
         assertTrue(shouldShowUpdateDeployButton(HealthUi.Online("1.0.5"), "1.0.6"))
         assertTrue(shouldShowUpdateDeployButton(HealthUi.Online(""), "1.0.6"))
-        assertTrue(shouldShowUpdateDeployButton(HealthUi.Offline, "1.0.6"))
+        assertTrue(shouldShowUpdateDeployButton(HealthUi.Unreachable, "1.0.6"))
+        assertTrue(shouldShowUpdateDeployButton(HealthUi.NotInstalled, "1.0.6"))
         assertTrue(shouldShowUpdateDeployButton(HealthUi.Checking, "1.0.6"))
         assertTrue(shouldShowUpdateDeployButton(null, "1.0.6"))
     }
@@ -90,19 +91,20 @@ class ServerDeployCardLogicTest {
             "Требуется обновление · 1.0.5 → 1.0.6",
             deployFreshnessChipText(HealthUi.Online("1.0.5"), "1.0.6"),
         )
-        assertNull(deployFreshnessChipText(HealthUi.Offline, "1.0.6"))
+        assertNull(deployFreshnessChipText(HealthUi.Unreachable, "1.0.6"))
+        assertNull(deployFreshnessChipText(HealthUi.NotInstalled, "1.0.6"))
         assertNull(deployFreshnessChipText(HealthUi.Checking, "1.0.6"))
         assertNull(deployFreshnessChipText(null, "1.0.6"))
     }
 
     @Test
     fun statusLineDoesNotRepeatFreshnessWords() {
-        val current = healthStatusLabel(HealthUi.Online("1.0.6"), lastDeployedAtMs = 0L)
+        val current = healthStatusLabel(HealthUi.Online("1.0.6"))
         assertEquals("● Онлайн · деплой 1.0.6", current)
         assertFalse(current.contains("актуален"))
         assertFalse(current.contains("нужно обновить"))
 
-        val outdated = healthStatusLabel(HealthUi.Online("1.0.5"), lastDeployedAtMs = 0L)
+        val outdated = healthStatusLabel(HealthUi.Online("1.0.5"))
         assertEquals("● Онлайн · деплой 1.0.5", outdated)
         assertFalse(outdated.contains("актуален"))
         assertFalse(outdated.contains("нужно обновить"))
@@ -112,7 +114,6 @@ class ServerDeployCardLogicTest {
     fun statusLineShowsPingInsteadOfDeployAge() {
         val withPing = healthStatusLabel(
             HealthUi.Online("1.0.12", pingMs = 42L),
-            lastDeployedAtMs = 1_700_000_000_000L,
         )
         assertEquals("● Онлайн · деплой 1.0.12 · 42 мс", withPing)
         assertFalse(withPing.contains("назад"))
@@ -132,11 +133,47 @@ class ServerDeployCardLogicTest {
             ProvisionAdminApi.HealthInfo(ok = true, deployVersion = "1.0.12", pingMs = 18L),
         )
         assertEquals(HealthUi.Online("1.0.12", 18L), online)
-        assertEquals(HealthUi.Offline, healthUiOf(null))
+        assertEquals(HealthUi.Unreachable, healthUiOf(null))
         assertEquals(
-            HealthUi.Offline,
+            HealthUi.Unreachable,
             healthUiOf(ProvisionAdminApi.HealthInfo(ok = false, pingMs = 9L)),
         )
+    }
+
+    @Test
+    fun failedHealthSplitsNotInstalledAndUnreachable() {
+        assertEquals(
+            HealthUi.NotInstalled,
+            healthUiFromProbes(null, sshAuthOk = true),
+        )
+        assertEquals(
+            HealthUi.Unreachable,
+            healthUiFromProbes(null, sshAuthOk = false),
+        )
+        assertEquals(
+            HealthUi.NotInstalled,
+            healthUiFromProbes(
+                ProvisionAdminApi.HealthInfo(ok = false, pingMs = 9L),
+                sshAuthOk = true,
+            ),
+        )
+        val online = healthUiFromProbes(
+            ProvisionAdminApi.HealthInfo(ok = true, deployVersion = "1.0.12", pingMs = 18L),
+            sshAuthOk = false,
+        )
+        assertEquals(HealthUi.Online("1.0.12", 18L), online)
+        assertTrue(healthUiIsDown(HealthUi.Unreachable))
+        assertTrue(healthUiIsDown(HealthUi.NotInstalled))
+        assertFalse(healthUiIsDown(HealthUi.Online("1.0.12")))
+        assertFalse(healthUiIsDown(HealthUi.Checking))
+    }
+
+    @Test
+    fun statusLineSplitsNotInstalledAndNoConnection() {
+        assertEquals("● Не установлено", healthStatusLabel(HealthUi.NotInstalled))
+        assertEquals("● Нет связи", healthStatusLabel(HealthUi.Unreachable))
+        assertFalse(healthStatusLabel(HealthUi.NotInstalled).contains("нет связи", ignoreCase = true))
+        assertFalse(healthStatusLabel(HealthUi.Unreachable).contains("установ", ignoreCase = true))
     }
 
     @Test
