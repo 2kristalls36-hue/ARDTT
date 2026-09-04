@@ -57,10 +57,13 @@ class ServerDeployCardLogicTest {
     }
 
     @Test
-    fun osDetailOmitsRedundantBadgeLabel() {
-        assertNull(serverOsDetailLine("ubuntu", ""))
-        assertNull(serverOsDetailLine("ubuntu", "Ubuntu"))
-        assertEquals("Ubuntu 24.04.1 LTS", serverOsDetailLine("ubuntu", "Ubuntu 24.04.1 LTS"))
+    fun osBadgeVersionStripsDuplicatedName() {
+        assertNull(serverOsBadgeVersionText("ubuntu", ""))
+        assertNull(serverOsBadgeVersionText("ubuntu", "Ubuntu"))
+        assertEquals("24.04.1 LTS", serverOsBadgeVersionText("ubuntu", "Ubuntu 24.04.1 LTS"))
+        assertEquals("40", serverOsBadgeVersionText("fedora", "Fedora 40"))
+        assertEquals("Pop!_OS 22.04 LTS", serverOsBadgeVersionText("ubuntu", "Pop!_OS 22.04 LTS"))
+        assertEquals("12", serverOsBadgeVersionText("debian", "12"))
     }
 
     @Test
