@@ -12,12 +12,13 @@
 | Часть | Откуда | Что даёт продукту |
 |-------|--------|-------------------|
 | **A** | **Amnezia** / AmneziaWG | Прямой быстрый VPN (Path A): UDP, AmneziaWG 2.0 на телефоне и `amneziawg-go` на VPS |
-| **R** | **RAW** | Обход несёт **сырые IP-пакеты**, а не второй WireGuard/AmneziaWG внутри TURN |
-| **DTT** | **D**ial via **T**URN / **T**elephony-style | Дозвон и транспорт через инфраструктуру звонков (TURN), снаружи похоже на медиазвонок |
+| **R** | **Raw** | Обход несёт **сырые IP-пакеты**, а не второй WireGuard/AmneziaWG внутри TURN |
+| **D** | **Dial** | Дозвон |
+| **TT** | **TURN Tunnel** | Dial/транспорт **over TURN** (TCP); снаружи похоже на медиазвонок |
 
 Итоговая формула:
 
-> **ARDTT = Amnezia + RAW Dial via TURN**  
+> **ARDTT = Amnezia & Raw Dial over TURN Tunnel**  
 > один клиент, один ваш сервер, два независимых способа дойти до него.
 
 ### Почему не «WDTT» и не «AWDTT»
@@ -29,7 +30,7 @@
 - https://github.com/SpaceNeuroX/proxy-turn-vk-android
 
 Именно оттуда в ARDTT вендорятся `server/bypass/wdtt-server/` и идеи Path B клиента (`android/go_client/`).  
-Поэтому продуктовое имя — **ARDTT** (R = RAW), а не AWDTT/WDTT: имя отражает фактический обход, а не классический WG-поверх-TURN.
+Поэтому продуктовое имя — **ARDTT** (R = Raw, не WireGuard), а не AWDTT/WDTT: имя отражает фактический обход, а не классический WG-поверх-TURN.
 
 Каталоги upstream в дереве могут по-прежнему называться `wdtt-*` — это вендорные/исторические имена кода, не название продукта.
 
@@ -130,8 +131,8 @@
 
 ```
 ARDTT
-├── A    → AmneziaWG          → быстро, напрямую
-└── RDTT → RAW Dial via TURN  → обход, когда прямого нет
+├── A    → Amnezia                         → быстро, напрямую
+└── RDTT → Raw Dial over TURN Tunnel       → обход, когда прямого нет
      └── опционально WARP на VPS → скрыть IP сервера
 ```
 

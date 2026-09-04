@@ -4,7 +4,7 @@
 
 | Документ | Содержание |
 |----------|------------|
-| [LEGEND.md](LEGEND.md) | Имя **ARDTT**, Path A/B, знак AR/DTT, происхождение кода |
+| [LEGEND.md](LEGEND.md) | Имя **ARDTT** (Amnezia & Raw Dial over TURN Tunnel), Path A/B, знак AR/DTT |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP, VpnService |
 | [DEPLOY.md](DEPLOY.md) | Установка стека **1.0.29** из приложения и Compose |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
