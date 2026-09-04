@@ -21,8 +21,6 @@
 > [!NOTE]
 > Клиент **0.5.229** (`versionCode` 247), пакет `com.ardtt.app`. Серверный стек **1.0.34** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
 >
-> Смена пакета с `com.nonamevpn.app` — это **новое приложение** для Android: обновление поверх старого APK не встанет, нужна переустановка.
->
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
 ---
