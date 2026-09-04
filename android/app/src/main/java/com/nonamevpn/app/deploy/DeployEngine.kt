@@ -231,7 +231,8 @@ class DeployEngine(private val appContext: Context) {
                         "install -d -m 700 /opt/nonamevpn/stack/data && " +
                             "printf '%s\\n' ${SshClient.shellQuote(entryPub)} " +
                             "> /opt/nonamevpn/stack/data/cascade.peer.pub && " +
-                            "chmod 644 /opt/nonamevpn/stack/data/cascade.peer.pub",
+                            "chmod 644 /opt/nonamevpn/stack/data/cascade.peer.pub && " +
+                            "(docker restart nvpn-cascade >/dev/null 2>&1 || true)",
                     )
                     append("Пир входа записан на $exitHost")
                 } finally {

@@ -60,6 +60,21 @@ ensure_account() {
   fi
 }
 
+# INI values after the first "=" — WireGuard keys end with "=" padding, so
+# awk -F'= *' was chopping the last character and wireproxy exited with
+# "invalid base64 string".
+wg_conf_field() {
+  local key="$1" file="$2"
+  awk -v k="$key" '
+    $0 ~ "^" k "[[:space:]]*=" {
+      sub("^" k "[[:space:]]*=[[:space:]]*", "")
+      sub(/[[:space:]]+$/, "")
+      print
+      exit
+    }
+  ' "$file"
+}
+
 # Build a WireGuard conf that does NOT steal the host default route.
 # Convert wgcf-profile.conf → wireproxy SOCKS config (IPv4 only).
 build_conf() {
@@ -67,10 +82,10 @@ build_conf() {
   local out=proxy.conf
   [[ -f "${src}" ]] || { echo "[warp] missing ${src}" >&2; exit 1; }
   local priv pub endpoint addr
-  priv="$(awk -F'= *' '/^PrivateKey/{print $2; exit}' "${src}")"
-  pub="$(awk -F'= *' '/^PublicKey/{print $2; exit}' "${src}")"
-  endpoint="$(awk -F'= *' '/^Endpoint/{print $2; exit}' "${src}")"
-  addr="$(awk -F'= *' '/^Address/{print $2; exit}' "${src}" | cut -d, -f1 | tr -d ' ')"
+  priv="$(wg_conf_field PrivateKey "${src}")"
+  pub="$(wg_conf_field PublicKey "${src}")"
+  endpoint="$(wg_conf_field Endpoint "${src}")"
+  addr="$(wg_conf_field Address "${src}" | cut -d, -f1 | tr -d ' ')"
   addr="${addr%%/*}/32"
   [[ -n "${priv}" && -n "${pub}" && -n "${endpoint}" && -n "${addr}" ]] || {
     echo "[warp] failed to parse ${src}" >&2
