@@ -1,142 +1,84 @@
-# ARDTT server stack
+# ARDTT unified container
 # Usage:
 #   export ARDTT_PUBLIC_HOST=1.2.3.4
-#   docker compose -f server/docker-compose.yml up -d --build
+#   docker compose --profile isolated up -d --build
 #
-# Notes:
-# - host network + NET_ADMIN required for TUN (direct/bypass/warp).
-# - provision exposes TCP :9100 /health and generates AWG keypairs.
-# - direct: amneziawg-go + awg (AmneziaWG 2.0 userspace).
-# - bypass: wdtt-server -listen-raw (qWDTT / SpaceNeuroX RAW, GPL-3).
-# - dns: dnsmasq on 10.8.0.1 / 10.9.0.1 (standalone) or cascade0 10.10.0.2 (exit hop).
-# - warp: hideIp /32 on standalone entry, or on the cascade exit.
-#         Cascade entry does not WARP (passthrough to the hop).
-# - cascade: AmneziaWG hop between entry (VPS1) and exit (VPS2). Same image as direct.
+# Default profile `isolated`: own netns, published ports only.
+# iptables / TUN / ip rules stay inside the container — other VPS services keep
+# their host network. Last-resort host netns: COMPOSE_PROFILES=hostnet
+# (or ARDTT_NETWORK_MODE=hostnet).
+
+x-ardtt: &ardtt
+  build: .
+  image: ${COMPOSE_PROJECT_NAME:-stack}-ardtt
+  container_name: ardtt
+  restart: unless-stopped
+  init: true
+  cap_add:
+    - NET_ADMIN
+    - NET_RAW
+  devices:
+    - /dev/net/tun:/dev/net/tun
+  volumes:
+    - ./data:/data
+    - ${ARDTT_TELEMETRY_LOG_ROOT:-/var/logs/app}:/var/logs/app
+  environment:
+    ARDTT_PUBLIC_HOST: ${ARDTT_PUBLIC_HOST:-}
+    ARDTT_PROVISION_LISTEN: ${ARDTT_PROVISION_LISTEN:-0.0.0.0:9100}
+    ARDTT_DATA: /data
+    ARDTT_DEPLOY_VERSION: ${ARDTT_DEPLOY_VERSION:-}
+    ARDTT_ROLE: ${ARDTT_ROLE:-entry}
+    ARDTT_CASCADE_ENABLED: ${ARDTT_CASCADE_ENABLED:-0}
+    ARDTT_CASCADE_DNS: ${ARDTT_CASCADE_DNS:-}
+    ARDTT_CASCADE_PEER_ENDPOINT: ${ARDTT_CASCADE_PEER_ENDPOINT:-}
+    ARDTT_CASCADE_PEER_PUBLIC_KEY: ${ARDTT_CASCADE_PEER_PUBLIC_KEY:-}
+    ARDTT_CASCADE_LISTEN_PORT: ${ARDTT_CASCADE_LISTEN_PORT:-51820}
+    ARDTT_DIRECT_PORT: ${ARDTT_DIRECT_PORT:-51820}
+    ARDTT_BYPASS_PORT: ${ARDTT_BYPASS_PORT:-56003}
+    ARDTT_BYPASS_DNS: ${ARDTT_BYPASS_DNS:-10.9.0.1}
+    ARDTT_WDTT_CONFIG: /data/wdtt
+    GOMEMLIMIT: ${ARDTT_WARP_GOMEMLIMIT:-256MiB}
+    ARDTT_WARP_STATE: /var/lib/ardtt-warp
+    ARDTT_WARP_MODE: ${ARDTT_WARP_MODE:-hideip}
+    ARDTT_WARP_DNS_IIFACES: ${ARDTT_WARP_DNS_IIFACES:-awg0 wdttraw0}
+    ARDTT_WARP_HIDEIP_URL: ${ARDTT_WARP_HIDEIP_URL:-}
+    TELEMETRY_LOG_ROOT: /var/logs/app
+    TELEMETRY_LISTEN: ${TELEMETRY_LISTEN:-0.0.0.0:9200}
+    TELEMETRY_REVIEW_TOKEN: ${TELEMETRY_REVIEW_TOKEN:-}
+    ARDTT_SKIP_TELEMETRY: ${ARDTT_SKIP_TELEMETRY:-0}
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
 services:
-  provision:
-    build: ./provision
-    container_name: ardtt-provision
-    network_mode: host
-    environment:
-      ARDTT_PUBLIC_HOST: ${ARDTT_PUBLIC_HOST:-}
-      ARDTT_PROVISION_LISTEN: ${ARDTT_PROVISION_LISTEN:-0.0.0.0:9100}
-      ARDTT_DATA: /data
-      ARDTT_DEPLOY_VERSION: ${ARDTT_DEPLOY_VERSION:-}
-      ARDTT_ROLE: ${ARDTT_ROLE:-entry}
-      ARDTT_CASCADE_ENABLED: ${ARDTT_CASCADE_ENABLED:-0}
-      ARDTT_CASCADE_DNS: ${ARDTT_CASCADE_DNS:-}
-      ARDTT_CASCADE_PEER_ENDPOINT: ${ARDTT_CASCADE_PEER_ENDPOINT:-}
-    volumes:
-      - ./data:/data
-    restart: unless-stopped
+  ardtt:
+    <<: *ardtt
+    profiles: ["isolated"]
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    ports:
+      - "${ARDTT_DIRECT_PORT:-51820}:${ARDTT_DIRECT_PORT:-51820}/udp"
+      - "${ARDTT_BYPASS_PORT:-56003}:${ARDTT_BYPASS_PORT:-56003}/udp"
+      - "${ARDTT_PROVISION_PORT:-9100}:9100/tcp"
+      - "${ARDTT_TELEMETRY_PORT:-9200}:9200/tcp"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9100/health"]
+      interval: 15s
+      timeout: 4s
+      retries: 8
+      start_period: 20s
 
-  direct:
-    build: ./direct
-    container_name: ardtt-direct
+  # Host netns — only when isolated UDP publish is broken on that VPS.
+  ardtt-host:
+    <<: *ardtt
+    profiles: ["hostnet"]
     network_mode: host
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    environment:
-      ARDTT_DIRECT_PORT: ${ARDTT_DIRECT_PORT:-51820}
-      ARDTT_DATA: /data
-      ARDTT_CASCADE_ENABLED: ${ARDTT_CASCADE_ENABLED:-0}
-    volumes:
-      - ./data:/data:ro
-    depends_on:
-      - provision
-    restart: unless-stopped
-
-  bypass:
-    build: ./bypass
-    container_name: ardtt-bypass
-    network_mode: host
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    environment:
-      ARDTT_BYPASS_PORT: ${ARDTT_BYPASS_PORT:-56003}
-      ARDTT_DATA: /data
-      ARDTT_BYPASS_DNS: ${ARDTT_BYPASS_DNS:-10.9.0.1}
-      ARDTT_CASCADE_ENABLED: ${ARDTT_CASCADE_ENABLED:-0}
-    volumes:
-      - ./data:/data
-      - bypass-config:/etc/wdtt
-    depends_on:
-      - provision
-    restart: unless-stopped
-
-  dns:
-    build: ./dns
-    container_name: ardtt-dns
-    network_mode: host
-    restart: unless-stopped
-
-  warp:
-    build: ./warp
-    container_name: ardtt-warp
-    network_mode: host
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    environment:
-      GOMEMLIMIT: ${ARDTT_WARP_GOMEMLIMIT:-256MiB}
-      ARDTT_DATA: /data
-      ARDTT_WARP_STATE: /var/lib/ardtt-warp
-      ARDTT_WARP_MODE: ${ARDTT_WARP_MODE:-hideip}
-      ARDTT_WARP_DNS_IIFACES: ${ARDTT_WARP_DNS_IIFACES:-awg0 wdttraw0}
-      ARDTT_WARP_HIDEIP_URL: ${ARDTT_WARP_HIDEIP_URL:-}
-    volumes:
-      - ./data:/data:ro
-      - ./data/warp:/var/lib/ardtt-warp
-    # Do not depend_on dns: cascade entry never starts that service, and
-    # Compose would then skip warp (Hide-IP /32 never installs).
-    depends_on:
-      - provision
-    restart: unless-stopped
-
-  # Same image as `direct` (install.sh builds `direct` first).
-  # entry: policy-route 10.8/10.9 into the hop (no local hideIp /32).
-  # exit: AWG listen; DNS + WAN MASQ; hideIp /32 via this host's warp0.
-  cascade:
-    image: ${COMPOSE_PROJECT_NAME:-stack}-direct
-    pull_policy: never
-    container_name: ardtt-cascade
-    network_mode: host
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    environment:
-      ARDTT_CASCADE_ROLE: ${ARDTT_ROLE:-entry}
-      ARDTT_CASCADE_LISTEN_PORT: ${ARDTT_CASCADE_LISTEN_PORT:-51820}
-      ARDTT_CASCADE_PEER_ENDPOINT: ${ARDTT_CASCADE_PEER_ENDPOINT:-}
-      ARDTT_CASCADE_PEER_PUBLIC_KEY: ${ARDTT_CASCADE_PEER_PUBLIC_KEY:-}
-      ARDTT_CASCADE_DNS: ${ARDTT_CASCADE_DNS:-10.10.0.2}
-      ARDTT_DATA: /data
-    volumes:
-      - ./data:/data
-      - ./direct/cascade-entrypoint.sh:/cascade-entrypoint.sh:ro
-    entrypoint: ["/cascade-entrypoint.sh"]
-    restart: unless-stopped
-
-  telemetry:
-    build: ./telemetry-upload
-    container_name: ardtt-telemetry
-    network_mode: host
-    environment:
-      TELEMETRY_LOG_ROOT: /var/logs/app
-      # Installer writes TELEMETRY_LISTEN into stack/.env (and the alias ARDTT_TELEMETRY_LISTEN).
-      TELEMETRY_LISTEN: ${TELEMETRY_LISTEN:-0.0.0.0:9200}
-      # Optional: when set, review/list/mark-read APIs require Bearer auth.
-      TELEMETRY_REVIEW_TOKEN: ${TELEMETRY_REVIEW_TOKEN:-}
-    volumes:
-      - ${ARDTT_TELEMETRY_LOG_ROOT:-/var/logs/app}:/var/logs/app
-    restart: unless-stopped
-
-volumes:
-  bypass-config:
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9100/health"]
+      interval: 15s
+      timeout: 4s
+      retries: 8
+      start_period: 20s

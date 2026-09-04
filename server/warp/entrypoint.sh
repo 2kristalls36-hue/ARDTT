@@ -49,9 +49,16 @@ echo "[warp] GOMEMLIMIT=${GOMEMLIMIT:-256MiB}; socks=${SOCKS_ADDR}; no docker re
 if [ -w /proc/sys/net/ipv4/ip_forward ]; then
   echo 1 >/proc/sys/net/ipv4/ip_forward || true
 fi
-# Strict rp_filter drops WARP replies whose reverse path is cascade0.
-for rp in /proc/sys/net/ipv4/conf/*/rp_filter; do
-  [ -w "${rp}" ] && echo 2 >"${rp}" || true
+# Only VPN ifaces. Never touch eth0/docker0/all — that broke other host services
+# when this script ran in network_mode: host.
+set_iface_rp_filter() {
+  local iface="$1" value="$2"
+  local path="/proc/sys/net/ipv4/conf/${iface}/rp_filter"
+  [ -w "${path}" ] && echo "${value}" >"${path}" || true
+}
+set_iface_rp_filter "${IFACE}" 2
+for rp_iface in awg0 wdttraw0 cascade0; do
+  set_iface_rp_filter "${rp_iface}" 2
 done
 
 ensure_account() {
@@ -191,12 +198,8 @@ bring_up() {
   ip link set dev "${IFACE}" mtu 1420 2>/dev/null || true
 
   # rp_filter drops WARP replies whose reverse path is the TUN, not eth0.
-  if [ -w /proc/sys/net/ipv4/conf/all/rp_filter ]; then
-    echo 0 >/proc/sys/net/ipv4/conf/all/rp_filter || true
-  fi
-  if [ -w "/proc/sys/net/ipv4/conf/${IFACE}/rp_filter" ]; then
-    echo 0 >"/proc/sys/net/ipv4/conf/${IFACE}/rp_filter" || true
-  fi
+  # Do not write conf/all — that is host-wide when running with host netns.
+  set_iface_rp_filter "${IFACE}" 0
 
   start_wireproxy || true
   start_tun2socks
@@ -282,29 +285,18 @@ clear_rules_for_table() {
   done
 }
 
-# Remove our DNS→main exceptions (match by dport 53 → main and known pref band).
+# Remove our DNS→main exceptions (only ARDTT ingress ifaces, never every dport 53 rule).
 clear_dns_main_rules() {
-  local guard=0
-  local fr pref
-  while true; do
-    fr="$(ip rule show 2>/dev/null | grep -E "dport 53.*lookup main|lookup main.*dport 53" | head -1 || true)"
-    [[ -z "${fr}" ]] && break
-    pref="$(echo "${fr}" | cut -d: -f1 | tr -d '[:space:]')"
-    [[ -n "${pref}" ]] && ip rule del pref "${pref}" 2>/dev/null || true
-    guard=$((guard + 1))
-    [[ "${guard}" -gt 64 ]] && break
+  local iface proto p
+  for iface in ${DNS_IIFACES}; do
+    for proto in udp tcp; do
+      ip rule del iif "${iface}" ipproto "${proto}" dport 53 lookup main 2>/dev/null || true
+      ip rule del iif "${iface}" ipproto "${proto}" dport 53 table main 2>/dev/null || true
+    done
   done
-  # Also drop known prefs in case grep wording differs across iproute2 versions.
-  local p
   for p in $(seq "${DNS_RULE_PRIO}" $((DNS_RULE_PRIO + 20))); do
     ip rule del pref "${p}" 2>/dev/null || true
   done
-  # Legacy band from older images (prio 200+).
-  if [[ "${DNS_RULE_PRIO}" -ne 200 ]]; then
-    for p in $(seq 200 220); do
-      ip rule del pref "${p}" 2>/dev/null || true
-    done
-  fi
 }
 
 install_dns_main_rules() {

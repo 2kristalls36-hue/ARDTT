@@ -4,7 +4,7 @@
 # Canonical sources:
 #   server/install.sh
 #   server/DEPLOY_VERSION
-#   server/{docker-compose.yml,provision,direct,bypass,dns,warp,telemetry-upload,…}
+#   server/{Dockerfile,entrypoint.sh,docker-compose.yml,provision,direct,bypass,dns,warp,telemetry-upload,…}
 #
 # aapt/aapt2 may unpack *.gz and drop the suffix. Store the archive as
 # stack.tar.gz.bin so the gzipped bytes survive packaging. DeployEngine also
@@ -43,7 +43,7 @@ tar -czf "$TMP" \
   --exclude='*.tmp' \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
-  docker-compose.yml .env.example DEPLOY_VERSION README.md install.sh scripts \
+  docker-compose.yml Dockerfile entrypoint.sh .env.example DEPLOY_VERSION README.md install.sh scripts \
   provision direct bypass dns warp telemetry-upload
 cp -f "$TMP" "$OUT/stack.tar.gz.bin"
 cp -f "$TMP" "$OUT/stack.tar.gz"
