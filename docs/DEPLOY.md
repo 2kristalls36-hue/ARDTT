@@ -67,6 +67,7 @@ WARP — не третий путь подключения, а **egress** выб
 4. Публичный host (`ARDTT_PUBLIC_HOST`) — то, что попадёт в endpoint профиля; обычно = IP VPS.
 5. Порты Direct UDP / Bypass UDP (по умолчанию 51820 / 56003).
 6. «Сохранить сервер» только пишет цель в encrypted prefs. Установка — **«Установить на VPS»**.
+7. **«Удалить»** на карточке не снимает её сразу. Плашка предупреждает, что стек будет стёрт на VPS (контейнеры, `/opt/ardtt`, профили клиентов). После подтверждения `DeployEngine` по SSH делает uninstall (каскад: сначала выход, потом вход). Карточка во вкладке **Сервера** пропадает только если удалённый wipe завершился успешно. Если SSH не проходит, карточка остаётся.
 
 Креды лежат в `EncryptedSharedPreferences` (`ardtt_servers`), не в профиле VPN.
 
@@ -126,6 +127,16 @@ ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
 8. После ошибки: `tail` удалённого `/opt/ardtt/install.log` в телеметрию (если включена запись).
 
 Отмена = `session.disconnect()`.
+
+### Удаление сервера из приложения
+
+Класс: `android/.../deploy/ServerUninstall.kt` (команда в APK, **без** бампа `DEPLOY_VERSION`).
+
+1. Плашка «Удалить сервер?» — предупреждение, что стек снимется с VPS.
+2. Тот же foreground `DeployService`, что у установки: SSH → `docker compose down -v` в `/opt/ardtt/stack` (и legacy `/opt/nonamevpn`), `docker rm -f` контейнеров `ardtt-*` / `nvpn-*`, `rm -rf /opt/ardtt /opt/nonamevpn`.
+3. Каскад: сначала выходной VPS, затем вход. Ошибка на любом хосте оставляет карточку, чтобы можно было повторить (команда идемпотентна).
+4. Маркер stdout `ARDTT_UNINSTALLED` и exit 0. Только после этого `ServersRepository.delete`.
+5. Отмена = обрыв SSH; карточка не удаляется.
 
 ### Бандл в APK
 
@@ -380,6 +391,7 @@ ss -tlnp | grep -E '9100|9200'
 | `/health` не отвечает после DONE | `docker compose logs provision`; `ARDTT_PUBLIC_HOST` и слушатель `:9100` |
 | `ardtt-telemetry` Restarting, «Connection in use :9200» | Порт занят другим процессом. `ARDTT_TELEMETRY_PORT=9210` или освободите 9200 |
 | Карточка «нужно обновить» | APK новее стека — «Обновить деплой»; или рассинхрон `DEPLOY_VERSION` |
+| «Удалить» не снимает карточку | SSH до VPS не прошёл или uninstall оборвался — карточка специально остаётся. Повторите или поправьте креды |
 | Hide IP: ping есть, HTTPS нет | MSS clamp на warp0 (уже в entrypoint); DNS не через WARP |
 | Повторный деплой «нет tar» | С 1.0.12 установщик продолжает с уже распакованного `stack/` |
 

@@ -5,9 +5,17 @@ import org.junit.Test
 
 class DeployShadeTest {
     @Test
-    fun titlesDistinguishInstallAndUpdate() {
+    fun titlesDistinguishInstallUpdateAndUninstall() {
         assertEquals("Установка деплоя", DeployShade.title(isUpdate = false))
         assertEquals("Обновление деплоя", DeployShade.title(isUpdate = true))
+        assertEquals(
+            "Удаление деплоя",
+            DeployShade.title(isUpdate = false, isUninstall = true),
+        )
+        assertEquals(
+            "Удаление деплоя",
+            DeployShade.title(isUpdate = true, isUninstall = true),
+        )
     }
 
     @Test
@@ -28,6 +36,10 @@ class DeployShadeTest {
         )
         assertEquals("vps.example", DeployShade.contentText("  ", "vps.example"))
         assertEquals("Идёт установка…", DeployShade.contentText("", ""))
+        assertEquals(
+            "Идёт удаление…",
+            DeployShade.contentText("", "", isUninstall = true),
+        )
     }
 
     @Test

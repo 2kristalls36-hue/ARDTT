@@ -82,6 +82,7 @@ import com.ardtt.app.R
 import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
+import com.ardtt.app.deploy.DeployJobKind
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ServerOsMark
 import com.ardtt.app.deploy.ServersRepository
@@ -111,9 +112,11 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 @Composable
-private fun rememberStartDeploy(engine: DeployEngine): (DeployTarget, Boolean) -> Boolean {
+private fun rememberEnqueueDeploy(
+    engine: DeployEngine,
+): (DeployTarget, DeployJobKind) -> Boolean {
     val context = LocalContext.current
-    val pending = remember { mutableStateOf<Pair<DeployTarget, Boolean>?>(null) }
+    val pending = remember { mutableStateOf<Pair<DeployTarget, DeployJobKind>?>(null) }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
@@ -121,16 +124,24 @@ private fun rememberStartDeploy(engine: DeployEngine): (DeployTarget, Boolean) -
         pending.value = null
         engine.enqueue(job.first, job.second)
     }
-    return { target, isUpdate ->
+    return { target, kind ->
         if (needsNotificationPermission(context) &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
         ) {
-            pending.value = target to isUpdate
+            pending.value = target to kind
             launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
             true
         } else {
-            engine.enqueue(target, isUpdate)
+            engine.enqueue(target, kind)
         }
+    }
+}
+
+@Composable
+private fun rememberStartDeploy(engine: DeployEngine): (DeployTarget, Boolean) -> Boolean {
+    val enqueue = rememberEnqueueDeploy(engine)
+    return { target, isUpdate ->
+        enqueue(target, if (isUpdate) DeployJobKind.Update else DeployJobKind.Install)
     }
 }
 
@@ -546,9 +557,10 @@ private fun DeployProgressSheet(
     log: List<String>,
     onCancel: () -> Unit,
     onClose: () -> Unit,
+    isUninstall: Boolean = false,
 ) {
     ArdttDialog(
-        title = deployProgressSheetTitle(busy, isUpdate, status),
+        title = deployProgressSheetTitle(busy, isUpdate, status, isUninstall),
         onDismissRequest = {},
         confirmAction = if (busy) {
             ArdttDialogAction("Отменить", onCancel, destructive = true)
@@ -603,6 +615,8 @@ private fun ServerOverviewHost(
     val server = servers.find { it.id == serverId }
     var showActions by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showDeleteProgress by remember { mutableStateOf(false) }
+    var deleteStatus by remember { mutableStateOf<String?>(null) }
     var showRename by remember { mutableStateOf(false) }
     var showRedeployConfirm by remember { mutableStateOf(false) }
     var showRedeployProgress by remember { mutableStateOf(false) }
@@ -610,7 +624,7 @@ private fun ServerOverviewHost(
     var health by remember { mutableStateOf<HealthUi?>(HealthUi.Checking) }
     val context = LocalContext.current
     val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
-    val startDeploy = rememberStartDeploy(engine)
+    val enqueueJob = rememberEnqueueDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
     val progress by engine.progress.collectAsStateWithLifecycle()
     val step by engine.step.collectAsStateWithLifecycle()
@@ -618,8 +632,10 @@ private fun ServerOverviewHost(
     val outcome by engine.outcome.collectAsStateWithLifecycle()
     val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
+    val engineIsUninstall by engine.isUninstall.collectAsStateWithLifecycle()
 
-    LaunchedEffect(servers, serverId) {
+    LaunchedEffect(servers, serverId, showDeleteProgress) {
+        if (showDeleteProgress) return@LaunchedEffect
         if (servers.isNotEmpty() && server == null) onBack()
     }
 
@@ -629,16 +645,25 @@ private fun ServerOverviewHost(
         health = probeServerHealthUi(target, serversRepo)
     }
 
-    LaunchedEffect(busy, activeTargetId, serverId) {
+    LaunchedEffect(busy, activeTargetId, serverId, engineIsUninstall) {
         if (busy && activeTargetId == serverId) {
-            showRedeployProgress = true
-            redeployStatus = null
+            if (engineIsUninstall) {
+                showDeleteProgress = true
+                deleteStatus = null
+            } else {
+                showRedeployProgress = true
+                redeployStatus = null
+            }
         }
     }
 
-    LaunchedEffect(busy, outcome, serverId, activeTargetId) {
+    LaunchedEffect(busy, outcome, serverId, activeTargetId, showDeleteProgress, showRedeployProgress) {
         if (busy || outcome == null) return@LaunchedEffect
         if (activeTargetId != null && activeTargetId != serverId) return@LaunchedEffect
+        if (showDeleteProgress) {
+            deleteStatus = outcome
+            return@LaunchedEffect
+        }
         if (!showRedeployProgress) return@LaunchedEffect
         redeployStatus = outcome
         val target = server ?: return@LaunchedEffect
@@ -650,8 +675,22 @@ private fun ServerOverviewHost(
         showRedeployConfirm = false
         showRedeployProgress = true
         redeployStatus = null
-        if (!startDeploy(target, serverOverviewDeployIsUpdate(health))) {
+        val kind = if (serverOverviewDeployIsUpdate(health)) {
+            DeployJobKind.Update
+        } else {
+            DeployJobKind.Install
+        }
+        if (!enqueueJob(target, kind)) {
             redeployStatus = "Ошибка: деплой уже идёт"
+        }
+    }
+
+    fun startUninstall(target: DeployTarget) {
+        showDeleteConfirm = false
+        showDeleteProgress = true
+        deleteStatus = null
+        if (!enqueueJob(target, DeployJobKind.Uninstall)) {
+            deleteStatus = "Ошибка: деплой уже идёт"
         }
     }
 
@@ -660,85 +699,112 @@ private fun ServerOverviewHost(
         health = probeServerHealthUi(target, serversRepo)
     }
 
-    if (server == null) {
+    if (server == null && !showDeleteProgress) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
     } else {
-        ServerOverviewScreen(
-            server = server,
-            health = health,
-            expectedVersion = expectedVersion,
-            onOpenClients = onOpenClients,
-            onUpdateDeploy = { showRedeployConfirm = true },
-            onOpenDeploySettings = onOpenDeploySettings,
-            onBack = onBack,
-            showActions = showActions,
-            onShowActions = { showActions = it },
-            onRename = { showRename = true },
-            onDelete = { showDeleteConfirm = true },
-            refreshing = pull.refreshing,
-            onRefresh = pull.onRefresh,
-        )
-        if (showRename) {
-            RenameServerDialog(
-                initialName = server.name.ifBlank { server.host },
-                onDismiss = { showRename = false },
-                onConfirm = { name ->
-                    serversRepo.upsert(server.copy(name = name))
-                    showRename = false
+        if (server != null) {
+            ServerOverviewScreen(
+                server = server,
+                health = health,
+                expectedVersion = expectedVersion,
+                onOpenClients = onOpenClients,
+                onUpdateDeploy = { showRedeployConfirm = true },
+                onOpenDeploySettings = onOpenDeploySettings,
+                onBack = onBack,
+                showActions = showActions,
+                onShowActions = { showActions = it },
+                onRename = { showRename = true },
+                onDelete = { showDeleteConfirm = true },
+                refreshing = pull.refreshing,
+                onRefresh = pull.onRefresh,
+            )
+            if (showRename) {
+                RenameServerDialog(
+                    initialName = server.name.ifBlank { server.host },
+                    onDismiss = { showRename = false },
+                    onConfirm = { name ->
+                        serversRepo.upsert(server.copy(name = name))
+                        showRename = false
+                    },
+                )
+            }
+            if (showDeleteConfirm) {
+                ArdttDialog(
+                    title = serverDeleteConfirmTitle(),
+                    onDismissRequest = { if (!busy) showDeleteConfirm = false },
+                    confirmAction = ArdttDialogAction(
+                        text = "Удалить",
+                        onClick = { startUninstall(server) },
+                        destructive = true,
+                        enabled = !busy,
+                    ),
+                    dismissAction = ArdttDialogAction(
+                        text = "Отмена",
+                        onClick = { showDeleteConfirm = false },
+                        enabled = !busy,
+                    ),
+                    dismissOnBackPress = !busy,
+                    dismissOnClickOutside = !busy,
+                ) {
+                    Text(
+                        serverDeleteConfirmBody(
+                            host = server.host,
+                            cascadeEnabled = server.cascadeEnabled,
+                            cascadeHost = server.cascadeHost,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (showRedeployConfirm) {
+                ArdttDialog(
+                    title = serverOverviewDeployConfirmTitle(health),
+                    onDismissRequest = { if (!busy) showRedeployConfirm = false },
+                    confirmAction = ArdttDialogAction(
+                        text = serverOverviewDeployConfirmAction(health),
+                        onClick = { startRedeploy(server) },
+                        enabled = !busy,
+                    ),
+                    dismissAction = ArdttDialogAction(
+                        text = "Отмена",
+                        onClick = { showRedeployConfirm = false },
+                        enabled = !busy,
+                    ),
+                    dismissOnBackPress = !busy,
+                    dismissOnClickOutside = !busy,
+                ) {
+                    Text(
+                        "Стек версии $expectedVersion будет заново залит на ${server.host} " +
+                            "по сохранённым SSH-данным. Параметры подключения менять не нужно.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        if (showDeleteProgress) {
+            if (server == null) {
+                Box(modifier = Modifier.fillMaxSize())
+            }
+            DeployProgressSheet(
+                busy = busy,
+                isUpdate = false,
+                isUninstall = true,
+                status = deleteStatus,
+                step = step,
+                progress = progress,
+                log = deployLog,
+                onCancel = { engine.cancel() },
+                onClose = {
+                    val leave = serverDeleteFinishedShouldLeave(busy, deleteStatus)
+                    showDeleteProgress = false
+                    if (leave) onBack()
                 },
             )
-        }
-        if (showDeleteConfirm) {
-            ArdttDialog(
-                title = "Удалить сервер?",
-                onDismissRequest = { showDeleteConfirm = false },
-                confirmAction = ArdttDialogAction(
-                    text = "Удалить",
-                    onClick = {
-                        serversRepo.delete(server.id)
-                        showDeleteConfirm = false
-                        onBack()
-                    },
-                    destructive = true,
-                ),
-                dismissAction = ArdttDialogAction("Отмена", { showDeleteConfirm = false }),
-            ) {
-                Text(
-                    "Из приложения будут удалены только данные подключения. " +
-                        "Сервер и пользователи на VPS останутся без изменений.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (showRedeployConfirm) {
-            ArdttDialog(
-                title = serverOverviewDeployConfirmTitle(health),
-                onDismissRequest = { if (!busy) showRedeployConfirm = false },
-                confirmAction = ArdttDialogAction(
-                    text = serverOverviewDeployConfirmAction(health),
-                    onClick = { startRedeploy(server) },
-                    enabled = !busy,
-                ),
-                dismissAction = ArdttDialogAction(
-                    text = "Отмена",
-                    onClick = { showRedeployConfirm = false },
-                    enabled = !busy,
-                ),
-                dismissOnBackPress = !busy,
-                dismissOnClickOutside = !busy,
-            ) {
-                Text(
-                    "Стек версии $expectedVersion будет заново залит на ${server.host} " +
-                        "по сохранённым SSH-данным. Параметры подключения менять не нужно.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (showRedeployProgress) {
+        } else if (server != null && showRedeployProgress) {
             DeployProgressSheet(
                 busy = busy,
                 isUpdate = if (busy) engineIsUpdate else serverOverviewDeployIsUpdate(health),
