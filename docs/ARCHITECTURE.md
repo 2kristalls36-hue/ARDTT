@@ -20,7 +20,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 |------|---------|
 | Платформа | Android; форк `amneziawg-android` + RAW bypass из qWDTT / SpaceNeuroX |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
-| Деплой | Compose: `provision` + `direct` + `bypass` + `dns` + `warp` + `cascade` + `telemetry`; `host_id` → IP в подсетях direct/bypass. Из приложения: SSH + `install.sh` — [DEPLOY.md](DEPLOY.md). Bypass-контейнер — RAW-only (`-listen-raw`), без DTLS/WG/бота |
+| Деплой | Compose: **один контейнер** `ardtt` (provision + direct + bypass + dns + warp + cascade + telemetry); `host_id` → IP в подсетях direct/bypass. По умолчанию isolated netns + published ports, не `network_mode: host`. Из приложения: SSH + `install.sh` — [DEPLOY.md](DEPLOY.md). Bypass — RAW-only (`-listen-raw`), без DTLS/WG/бота |
 | WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
 
 | Call hash | **1 hash на устройство** (не на имя профиля): EncryptedSharedPreferences + файл в `noBackupFilesDir`, чтобы код переживал обновление APK |
@@ -343,7 +343,7 @@ warp    warp0  (egress; не клиентский path)
 provision /data — host_id, keys, passwords
 ```
 
-`network_mode: host`, `NET_ADMIN`, `/dev/net/tun`.  
+`NET_ADMIN`, `/dev/net/tun`, по умолчанию **своя netns** (не host).  
 Create-user: адреса в `10.8` и `10.9` с одним octet; флаг hide-IP — клиентский/сессионный, применяется policy на сервере (mark по IP клиента).
 
 Боевой путь: админ в приложении → SSH → каталог установки ARDTT + `install.sh` + Compose.  
