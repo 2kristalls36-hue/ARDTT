@@ -7,8 +7,7 @@ WORKDIR /src/wdtt/server
 RUN go build -o /out/wdtt-server .
 
 COPY sync/ /src/bypass-sync/
-WORKDIR /src/bypass-sync
-RUN go build -o /out/bypass-sync .
+RUN cd /src/bypass-sync && go build -o /out/bypass-sync .
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
