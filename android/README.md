@@ -66,7 +66,7 @@ Release (подписанный постоянным keystore):
 - `tunnel` — AmneziaWG userspace (`libwg-go`)
 - `go_client` — Path B RAW (qWDTT / SpaceNeuroX) → `libclient.so`
 - **Режим тестирования:** полная телеметрия, JSONL, upload на VPS — [../docs/TELEMETRY.md](../docs/TELEMETRY.md)
-- **Обновления:** сначала GitHub Releases (`2kristalls36-hue/nonameVPN`), fallback — `https://45.129.2.3/update.json`.
+- **Обновления:** сначала GitHub Releases (`2kristalls36-hue/ARDTT`), fallback — `https://45.129.2.3/update.json`.
   скачивает APK внутри приложения, проверяет SHA-256 и запускает системный установщик.
 
 После деплоя сервера на VPS обычно остаётся `/opt/nonamevpn/stack/` (исторический путь каталога) и рабочие образы.
