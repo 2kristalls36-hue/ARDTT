@@ -404,6 +404,14 @@ class NetworkConnectionMapTest {
         )
         assertTrue(
             shouldShowFilledHop(
+                kind = NetworkMapHopKind.Cloudflare,
+                ip = "",
+                earlierIps = emptyList(),
+                terminal = true,
+            ),
+        )
+        assertTrue(
+            shouldShowFilledHop(
                 NetworkMapHopKind.Vps,
                 ip = "45.129.2.3",
                 earlierIps = listOf("1.2.3.4"),
@@ -414,6 +422,14 @@ class NetworkConnectionMapTest {
                 NetworkMapHopKind.Cloudflare,
                 ip = "45.129.2.3",
                 earlierIps = listOf("45.129.2.3"),
+            ),
+        )
+        assertFalse(
+            shouldShowFilledHop(
+                kind = NetworkMapHopKind.Cloudflare,
+                ip = "45.129.2.3",
+                earlierIps = listOf("45.129.2.3"),
+                terminal = true,
             ),
         )
         assertTrue(
@@ -450,20 +466,52 @@ class NetworkConnectionMapTest {
     }
 
     @Test
-    fun lastFilledHopIsTheEgressCard() {
-        assertFalse(isLastFilledHop(index = 0, filledCount = 0))
-        assertTrue(isLastFilledHop(index = 0, filledCount = 1))
-        assertFalse(isLastFilledHop(index = 0, filledCount = 4))
-        assertTrue(isLastFilledHop(index = 3, filledCount = 4))
-    }
+    fun greenCardFollowsSettingsEgressHop() {
+        val standalone = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = false,
+        )
+        assertEquals(NetworkMapHopKind.Vps, terminalHopKind(standalone.hops))
+        assertFalse(hopCardHighlighted(NetworkMapHopKind.Provider, terminalHopKind(standalone.hops)))
+        assertTrue(hopCardHighlighted(NetworkMapHopKind.Vps, terminalHopKind(standalone.hops)))
 
-    @Test
-    fun earlierHopsUseGrayOutline() {
-        assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 3))
-        assertEquals(HopCardOutline.Other, hopCardOutline(index = 1, filledCount = 3))
-        assertEquals(HopCardOutline.Last, hopCardOutline(index = 2, filledCount = 3))
-        assertEquals(HopCardOutline.Last, hopCardOutline(index = 0, filledCount = 1))
-        assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 0))
+        val cascade = layout(
+            profileHost = "45.129.2.3",
+            server = server(
+                host = "45.129.2.3",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+            hideIp = false,
+        )
+        val cascadeTerm = terminalHopKind(cascade.hops)
+        assertEquals(NetworkMapHopKind.Vps2, cascadeTerm)
+        assertFalse(hopCardHighlighted(NetworkMapHopKind.Vps1, cascadeTerm))
+        assertTrue(hopCardHighlighted(NetworkMapHopKind.Vps2, cascadeTerm))
+
+        val hideIp = layout(
+            profileHost = "45.129.2.3",
+            server = server(
+                host = "45.129.2.3",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+            hideIp = true,
+        )
+        val hideTerm = terminalHopKind(hideIp.hops)
+        assertEquals(NetworkMapHopKind.Cloudflare, hideTerm)
+        assertFalse(hopCardHighlighted(NetworkMapHopKind.Vps2, hideTerm))
+        assertTrue(hopCardHighlighted(NetworkMapHopKind.Cloudflare, hideTerm))
+
+        val down = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = true,
+            sessionUp = false,
+        )
+        assertNull(terminalHopKind(down.hops))
+        assertFalse(hopCardHighlighted(NetworkMapHopKind.Provider, terminalHopKind(down.hops)))
     }
 
     @Test

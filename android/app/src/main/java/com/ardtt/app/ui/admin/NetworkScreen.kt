@@ -108,10 +108,18 @@ fun NetworkScreen(
 
     val hops = remember(layout, snapshot.hops) { syncNetworkMapHopViews(layout, snapshot.hops) }
     val hopsLatest = rememberUpdatedState(hops)
-    val visibleHops = remember(hops) {
+    val terminalKind = remember(layout) { terminalHopKind(layout.hops) }
+    val visibleHops = remember(hops, terminalKind) {
         val earlier = mutableListOf<String>()
         hops.mapNotNull { view ->
-            if (!shouldShowFilledHop(view.hop.kind, view.info.ip, earlier)) {
+            val kind = view.hop.kind
+            if (!shouldShowFilledHop(
+                    kind = kind,
+                    ip = view.info.ip,
+                    earlierIps = earlier,
+                    terminal = hopCardHighlighted(kind, terminalKind),
+                )
+            ) {
                 null
             } else {
                 if (view.info.ip.isNotBlank()) earlier += view.info.ip
@@ -224,7 +232,7 @@ fun NetworkScreen(
                         kind = view.hop.kind,
                         info = view.info,
                         loading = view.loading,
-                        highlighted = hopCardOutline(index, visibleHops.size) == HopCardOutline.Last,
+                        highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
                         pingLabel = hopPingLabel(view.hop.kind, hopPings),
                     )
                 }
