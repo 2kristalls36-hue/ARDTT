@@ -15,8 +15,10 @@
 #   NVPN_DONE|install_dir=…|public_host=…
 #   NVPN_WARN|<message>
 #
-# Critical: build new images BEFORE stopping the old stack. On low-RAM VPS a mid-build
-# SSH drop used to leave the host with compose already down and no healthy containers.
+# On VPS with ≥1.8 GiB RAM, build new images BEFORE stopping the old stack so a
+# mid-build SSH drop does not take the VPN down. On ~1 GiB hosts that order OOMs
+# BuildKit (snapshot … does not exist). We stop first, wipe BuildKit, and bring
+# the previous stack back if the build fails.
 set -euo pipefail
 
 INSTALL_DIR="${NVPN_INSTALL_DIR:-/opt/nonamevpn}"
@@ -98,19 +100,66 @@ cleanup_host_packages() {
   fi
 }
 
-# Drop stale BuildKit snapshots left by a crashed/OOM deploy. Those show up as
-# "snapshot … does not exist: not found" on the next `compose build`.
-# Never `docker image prune -a`: tagged stack-* images must stay while the old
-# stack is still running. Never prune volumes (bypass-config).
+# Drop dangling images only. Never `docker image prune -a`: tagged stack-*
+# images must stay while the old stack is still running. Never prune volumes
+# (bypass-config). Never `docker builder prune -af` between services: Docker 29
+# overlayfs keeps BuildKit cache keys after prune, so the next golang image
+# (direct and bypass share golang:1.25-bookworm) reports CACHED layers whose
+# snapshots are gone → "snapshot … does not exist: not found".
 prepare_docker_build() {
+  command -v docker >/dev/null 2>&1 || return 0
+  docker image prune -f >/dev/null 2>&1 || true
+}
+
+wait_for_docker() {
+  local i
+  for i in $(seq 1 45); do
+    docker info >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  return 1
+}
+
+# Stop dockerd, delete BuildKit metadata+snapshots, start dockerd.
+# Callers on tiny VPS must compose-down the VPN stack first.
+reset_docker_buildkit() {
   command -v docker >/dev/null 2>&1 || return 0
   docker builder prune -af >/dev/null 2>&1 || true
   docker buildx prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
+  echo "NVPN_INFO|сброс BuildKit: restart docker и удаление /var/lib/docker/buildkit"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl stop docker 2>/dev/null || true
+    rm -rf /var/lib/docker/buildkit
+    systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
+    if ! wait_for_docker; then
+      echo "NVPN_WARN|docker не ответил сразу после сброса BuildKit"
+    fi
+  else
+    rm -rf /var/lib/docker/buildkit
+  fi
 }
 
 cleanup_docker_build_junk() {
   prepare_docker_build
+}
+
+STACK_STOPPED_FOR_BUILD=0
+
+restore_live_stack_if_needed() {
+  [ "${STACK_STOPPED_FOR_BUILD:-0}" = "1" ] || return 0
+  [ -f "$INSTALL_DIR/stack/docker-compose.yml" ] || return 0
+  echo "NVPN_WARN|поднимаем прежний стек (сборка не закончена)"
+  (
+    cd "$INSTALL_DIR/stack" || exit 0
+    if [ -f .env ]; then
+      COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose --env-file .env up -d
+    else
+      COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose up -d
+    fi
+  ) >/dev/null 2>&1 || \
+    docker start nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade >/dev/null 2>&1 || true
+  STACK_STOPPED_FOR_BUILD=0
 }
 
 cleanup_stale_deploy_files() {
@@ -265,6 +314,7 @@ on_exit() {
   if [ "$code" -eq 0 ]; then
     cleanup_install_artifacts
   else
+    restore_live_stack_if_needed
     if [ -f "$LOG_FILE" ]; then
       mkdir -p "$INSTALL_DIR"
       cp -f "$LOG_FILE" "$INSTALL_DIR/install.log" 2>/dev/null || true
@@ -573,7 +623,7 @@ if [ "${NVPN_DRY_RUN:-0}" = "1" ]; then
   exit 0
 fi
 
-prog 0.45 "Ещё раз очистка кэша перед сборкой образов"
+prog 0.45 "Проверка места перед сборкой образов"
 reclaim_disk
 echo "NVPN_INFO|перед сборкой свободно $(df -Pm / 2>/dev/null | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
 
@@ -587,7 +637,24 @@ if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt "$MIN_DISK_MB" ] 2>/dev/null; the
   echo "NVPN_WARN|на диске ${avail_mb} МБ — пропускаем compose pull, собираем поверх существующих образов"
 fi
 
-prog 0.50 "Сборка образов (старый стек ещё работает)"
+mem_mb="$(mem_total_mb)"
+if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
+  prog 0.48 "Мало RAM — останавливаем стек и сбрасываем BuildKit"
+  if [ -d "$INSTALL_DIR/stack" ]; then
+    stop_stack "$INSTALL_DIR/stack"
+    STACK_STOPPED_FOR_BUILD=1
+  fi
+  reset_docker_buildkit
+  sync
+  echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
+  echo "NVPN_INFO|после сброса RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
+  prog 0.50 "Сборка образов"
+else
+  prog 0.48 "Очистка кэша сборки Docker"
+  docker builder prune -af >/dev/null 2>&1 || true
+  docker buildx prune -af >/dev/null 2>&1 || true
+  prog 0.50 "Сборка образов (старый стек ещё работает)"
+fi
 cd "$STAGING"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 export BUILDKIT_PROGRESS=plain
@@ -602,11 +669,10 @@ else
   echo "NVPN_INFO|compose pull пропущен (мало места)"
 fi
 
-# One service at a time: after each image is tagged, drop BuildKit/Go intermediates
-# so peak disk/RAM stay near a single compile (not 6 stacked caches ~1.7G).
+# One service at a time. Do not builder-prune between images: that poisons the
+# next golang Dockerfile (bypass after direct) on Docker 29 overlayfs.
 # Never prune unused tagged images here: the new :latest is not used by a
-# container yet while the old stack is still up, so a full prune would
-# delete the image we just built.
+# container yet, so a full prune would delete the image we just built.
 export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
 
 BUILD_SERVICES="$(role_build_services)"
@@ -618,20 +684,28 @@ for svc in $BUILD_SERVICES; do
   # Progress 0.50 → 0.72 across sequential builds
   frac="$(awk -v i="$svc_i" -v n="$svc_n" 'BEGIN { printf "%.2f", 0.50 + (0.22 * i / n) }')"
   prog "$frac" "Сборка $svc ($svc_i/$svc_n)"
-  if ! compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
+  build_ok=0
+  if compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
+    build_ok=1
+  else
+    echo "NVPN_WARN|сборка $svc не удалась — сброс BuildKit и повтор без кэша"
+    reset_docker_buildkit
+    if compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build --no-cache "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
+      build_ok=1
+    fi
+  fi
+  if [ "$build_ok" != 1 ]; then
     build_tail="$(tail -n 20 "$BUILD_LOG" | tr '\n' ' ' | cut -c1-1000)"
     rm -f "$BUILD_LOG"
     cleanup_docker_build_junk
     die "Сборка Docker ($svc) не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}'), RAM: $(free -h | awk '/Mem:/{print $7}') avail"
   fi
   prepare_docker_build
-  # Overlay snapshot keys from prune must settle before the next Go image.
-  sleep 1
   echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo) МБ"
 done
 rm -f "$BUILD_LOG"
 
-# Switchover: only now stop the old stack and promote staging → stack.
+# Switchover: stop the old stack if it is still up, then promote staging → stack.
 STACK="$INSTALL_DIR/stack"
 prog 0.74 "Остановка старого стека и переключение"
 # Bind mounts pin the data directory inode. Never rm -rf stack while containers
@@ -694,6 +768,7 @@ if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d $
 fi
 rm -f "$UP_LOG"
 rm -rf "$INSTALL_DIR/stack.old"
+STACK_STOPPED_FOR_BUILD=0
 
 prog 0.80 "Очистка build-кэша и временных файлов"
 cleanup_docker_build_junk

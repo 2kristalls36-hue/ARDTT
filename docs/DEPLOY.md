@@ -4,7 +4,7 @@
 Клиентская сторона деплоя — вкладка **Серверы** в режиме администратора Android.  
 Состав сервисов и смысл Path A/B: [ARCHITECTURE.md](ARCHITECTURE.md), [LEGEND.md](LEGEND.md).
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.26**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.27**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -203,10 +203,11 @@ bash /opt/nonamevpn/install.sh
 | 0.15 | распаковка tar **или** уже лежащий `stack/` |
 | 0.22 | в архиве есть все build-контексты compose |
 | 0.25 | Docker + compose plugin, если их не было (`get.docker.com`) |
-| 0.28 | очистка кэша BuildKit (`docker builder/buildx prune -af`), swap если RAM < 1.8 ГБ |
+| 0.28 | очистка мусора Docker/apt (`image prune -f`, не builder prune между сервисами), swap если RAM < 1.8 ГБ |
 | 0.40 | `.env`, `DEPLOY_VERSION` на хосте и в `stack/data/` |
-| 0.45 | повторный prune + проверка места |
-| 0.50 | `compose build` (parallel limit 1, plain logs) → `compose up -d` |
+| 0.45 | проверка места |
+| 0.48 | на VPS < 1.8 ГБ RAM: `compose down` + restart docker и снос `/var/lib/docker/buildkit`; иначе `builder prune -af` |
+| 0.50 | `compose build` по одному сервису (повтор `--no-cache` после сброса BuildKit) → `compose up -d` |
 | 0.80 | снос build-cache и apt-архивов |
 | 0.85 | `curl` provision `:9100` и telemetry на `NVPN_TELEMETRY_PORT` (по умолчанию 9200) |
 | 0.96 | ufw / firewalld: Direct UDP, Bypass UDP, 9100/tcp, telemetry TCP |
@@ -354,7 +355,7 @@ docker compose down          # контейнеры; data/ остаётся
 ```bash
 docker compose -f /opt/nonamevpn/stack/docker-compose.yml ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.26"
+# ожидается: "ok": true, "deployVersion": "1.0.27"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'
