@@ -191,6 +191,12 @@ internal fun serverReinstallConfirmBody(host: String, expectedVersion: String): 
     return "Стек версии $expectedVersion будет заново залит на $target по указанным SSH-данным."
 }
 
+/** Same default as the first VPS SSH user field. */
+internal fun deploySshUserOrRoot(raw: String): String = raw.trim().ifBlank { "root" }
+
+internal fun deploySshSecretMissing(password: String, privateKeyPem: String): Boolean =
+    password.isBlank() && privateKeyPem.isBlank()
+
 internal fun deployProgressSheetTitle(
     busy: Boolean,
     isUpdate: Boolean,

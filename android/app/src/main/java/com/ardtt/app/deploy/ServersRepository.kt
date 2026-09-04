@@ -61,6 +61,8 @@ class ServersRepository(context: Context) {
                     .put("cascadePort", t.cascadePort)
                     .put("cascadeUser", t.cascadeUser)
                     .put("cascadePassword", t.cascadePassword)
+                    .put("cascadePrivateKeyPem", t.cascadePrivateKeyPem)
+                    .put("cascadeKeyPassphrase", t.cascadeKeyPassphrase)
                     .put("osId", t.osId)
                     .put("osVersion", t.osVersion)
                     .put("lastDeployedAtMs", t.lastDeployedAtMs),
@@ -94,8 +96,10 @@ class ServersRepository(context: Context) {
                             cascadeEnabled = o.optBoolean("cascadeEnabled", false),
                             cascadeHost = o.optString("cascadeHost", ""),
                             cascadePort = o.optInt("cascadePort", 22),
-                            cascadeUser = o.optString("cascadeUser", ""),
+                            cascadeUser = o.optString("cascadeUser", "root").ifBlank { "root" },
                             cascadePassword = o.optString("cascadePassword", ""),
+                            cascadePrivateKeyPem = o.optString("cascadePrivateKeyPem", ""),
+                            cascadeKeyPassphrase = o.optString("cascadeKeyPassphrase", ""),
                             osId = o.optString("osId", ""),
                             osVersion = o.optString("osVersion", ""),
                             lastDeployedAtMs = o.optLong("lastDeployedAtMs", 0L),
