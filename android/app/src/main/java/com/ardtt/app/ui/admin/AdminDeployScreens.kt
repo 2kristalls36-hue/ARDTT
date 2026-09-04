@@ -49,7 +49,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -102,6 +101,7 @@ import com.ardtt.app.ui.components.OverflowMenuItem
 import com.ardtt.app.ui.components.ArdttBottomChrome
 import com.ardtt.app.ui.components.ArdttDialog
 import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.ArdttLinearProgress
 import com.ardtt.app.ui.components.PullRefreshHost
 import com.ardtt.app.ui.components.StickyPrimaryButton
 import com.ardtt.app.ui.components.TerminalLogCard
@@ -574,10 +574,7 @@ private fun DeployProgressSheet(
             step.ifBlank { "…" },
             style = MaterialTheme.typography.bodyMedium,
         )
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth(),
-        )
+        ArdttLinearProgress(progress = progress)
         status?.let {
             Text(
                 it,
