@@ -83,6 +83,41 @@ internal fun isDeployOutdated(health: HealthUi?, expectedVersion: String): Boole
 internal fun shouldShowUpdateDeployButton(health: HealthUi?, expectedVersion: String): Boolean =
     isDeployOutdated(health, expectedVersion)
 
+/** Saved server params: reinstall only. New card: first install. */
+internal fun serverDeployActionLabel(saved: Boolean, cascadeEnabled: Boolean): String = when {
+    saved -> "Переустановить сервер"
+    cascadeEnabled -> "Установить каскад"
+    else -> "Установить на VPS"
+}
+
+internal fun serverDeployScreenTitle(saved: Boolean): String =
+    if (saved) "Параметры сервера" else "Деплой"
+
+internal fun serverDeployFormHelp(
+    saved: Boolean,
+    cascadeEnabled: Boolean,
+    expectedVersion: String,
+): String {
+    if (saved) {
+        return "Кнопка «Переустановить сервер» заново зальёт стек версии $expectedVersion на VPS. " +
+            "Ход установки откроется снизу, как при обновлении деплоя."
+    }
+    val action = serverDeployActionLabel(saved = false, cascadeEnabled = cascadeEnabled)
+    return "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «$action»."
+}
+
+internal fun serverReinstallConfirmBody(host: String, expectedVersion: String): String {
+    val target = host.trim().ifBlank { "VPS" }
+    return "Стек версии $expectedVersion будет заново залит на $target по указанным SSH-данным."
+}
+
+internal fun deployProgressSheetTitle(busy: Boolean, isUpdate: Boolean, status: String?): String = when {
+    busy && isUpdate -> "Обновление деплоя…"
+    busy -> "Установка деплоя…"
+    status?.startsWith("Ошибка") == true -> "Ошибка"
+    else -> "Готово"
+}
+
 /**
  * Orange freshness bar: only when online but not current.
  * Current deploys use the status line; no second “актуален” chip.
