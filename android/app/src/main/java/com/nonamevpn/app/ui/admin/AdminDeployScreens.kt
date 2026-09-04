@@ -103,7 +103,6 @@ import com.nonamevpn.app.ui.components.OverflowMenuItem
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.NvpnDialog
 import com.nonamevpn.app.ui.components.NvpnDialogAction
-import com.nonamevpn.app.ui.components.PingFlashDot
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
 import com.nonamevpn.app.ui.components.TerminalLogCard
@@ -502,21 +501,14 @@ private fun ServerIdentityBody(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                val pingMs = (health as? HealthUi.Online)?.pingMs ?: -1L
-                PingFlashDot(pingKey = if (pingMs > 0L) pingMs else null)
-                Text(
-                    statusText,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = statusColor,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(
+                statusText,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = statusColor,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
             freshnessChip?.let { chip ->
                 Surface(
                     shape = RoundedCornerShape(8.dp),
