@@ -19,7 +19,7 @@
 > Авторы **не призывают** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.224** (`versionCode` 242), пакет `com.ardtt.app`. Серверный стек **1.0.31** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
+> Клиент **0.5.225** (`versionCode` 243), пакет `com.ardtt.app`. Серверный стек **1.0.32** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
 >
 > Смена пакета с `com.nonamevpn.app` — это **новое приложение** для Android: обновление поверх старого APK не встанет, нужна переустановка.
 >
@@ -31,9 +31,9 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.224** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
-| Стек | **1.0.31** · `/opt/ardtt` · контейнеры `ardtt-*` · переменные `ARDTT_*` |
-| Compose | `provision` `:9100`, `direct`, `bypass`, `dns`, `warp`, `cascade`, `telemetry` `:9200` |
+| Клиент | **0.5.225** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
+| Стек | **1.0.32** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
+| Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases) |
 
@@ -55,7 +55,7 @@
 ```
 ARDTT/
 ├── android/      # Jetpack Compose-клиент (Gradle живёт здесь)
-├── server/       # Docker Compose: 7 сервисов
+├── server/       # единый Docker-образ ardtt (compose profile isolated)
 ├── scripts/      # APK, иконки, deploy-бандл
 ├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
 ├── CHANGELOG.md
@@ -72,7 +72,7 @@ ARDTT/
 ```bash
 cd server
 cp .env.example .env          # ARDTT_PUBLIC_HOST
-docker compose up -d --build
+docker compose --profile isolated up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh alice
 ```
@@ -93,7 +93,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.224 / стек 1.0.31 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.225 / стек 1.0.32 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS из приложения и Compose |

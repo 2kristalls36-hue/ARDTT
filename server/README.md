@@ -1,12 +1,12 @@
 # Сервер ARDTT
 
-Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.31** (`DEPLOY_VERSION`).  
+Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.32** (`DEPLOY_VERSION`).  
 Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
-Compose-стек из семи сервисов (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
+Боевой контур — **один контейнер** `ardtt` (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)). Процессы внутри те же:
 
-| Сервис | Статус сейчас | Назначение |
+| Процесс | Статус сейчас | Назначение |
 |--------|---------------|------------|
 | **provision** | рабочий | `/health`, пользователи, `host_id`, AWG-ключи, JSON-профиль |
 | **direct** | **AmneziaWG 2.0** | `amneziawg-go` + `awg`, conf из `users.json` |
@@ -40,10 +40,11 @@ Call hash звонка на сервер **не** кладётся — толь�
 
 ```bash
 cd server
-cp .env.example .env   # пропишите ARDTT_PUBLIC_HOST
-docker compose up -d --build
+cp .env.example .env   # пропишите ARDTT_PUBLIC_HOST; COMPOSE_PROFILES=isolated
+docker compose --profile isolated up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh bob
+# или: docker exec ardtt provision -cmd create-user -name bob -data /data
 ```
 
 `direct` слушает UDP `ARDTT_DIRECT_PORT` (default 51820).  
@@ -53,7 +54,7 @@ curl -s http://127.0.0.1:9100/health
 
 ### 1) Что разворачивается
 
-При `docker compose up -d --build` поднимается единый серверный контур из контейнеров:
+При `docker compose --profile isolated up -d --build` поднимается **один** контейнер `ardtt`. Внутри — те же процессы (общая netns контейнера, не хоста):
 
 1. `provision` — источник истины по пользователям, ключам и `host_id`.
 2. `direct` — прямой AmneziaWG-контур (`10.8.0.0/24`).
@@ -63,7 +64,7 @@ curl -s http://127.0.0.1:9100/health
 6. `cascade` — AmneziaWG-hop между входным и выходным VPS (`10.10.0.0/30`).
 7. `telemetry` — приём клиентских debug-логов.
 
-Все сервисы читают общие данные из `server/data/`, чтобы прямой и обходной пути работали согласованно для одного и того же пользователя.
+Все процессы читают общие данные из `server/data/` (`/data` в контейнере). На хост уходят только опубликованные порты, без `network_mode: host`. Если UDP через Docker DNAT не работает: `ARDTT_NETWORK_MODE=hostnet`.
 
 ### 2) Как проходит деплой
 
@@ -86,14 +87,14 @@ curl -s http://127.0.0.1:9100/health
 
 ```bash
 cd server
-docker compose ps
+docker compose --profile isolated ps
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh smoke-test
 ```
 
 Проверка считается успешной, если:
 
-- все контейнеры в состоянии `running`;
+- контейнер `ardtt` в состоянии `running`;
 - `/health` возвращает успешный ответ;
 - пользователь создаётся без ошибок и получает валидный JSON-профиль.
 

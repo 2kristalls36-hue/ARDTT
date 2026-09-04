@@ -14,6 +14,8 @@ for context in provision direct bypass dns warp telemetry-upload; do
   mkdir -p "$STAGE/$context"
 done
 cp "$ROOT/server/docker-compose.yml" "$STAGE/docker-compose.yml"
+echo '# test dockerfile' > "$STAGE/Dockerfile"
+echo '#!/bin/sh' > "$STAGE/entrypoint.sh"
 printf '%s\n' "1.0.6-test" > "$STAGE/DEPLOY_VERSION"
 echo "test-readme" > "$STAGE/README.md"
 mkdir -p "$STAGE/scripts"
@@ -76,6 +78,8 @@ grep -q 'ARDTT_TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env
 grep -q 'ARDTT_TELEMETRY_PORT=9200' "$INSTALL/stack/.env" || err ".env ARDTT_TELEMETRY_PORT"
 grep -q 'ARDTT_ROLE=entry' "$INSTALL/stack/.env" || err ".env default role entry"
 grep -q 'ARDTT_CASCADE_ENABLED=0' "$INSTALL/stack/.env" || err ".env cascade off by default"
+grep -q '^ARDTT_NETWORK_MODE=isolated$' "$INSTALL/stack/.env" || err "default network mode must be isolated"
+grep -q '^COMPOSE_PROFILES=isolated$' "$INSTALL/stack/.env" || err ".env COMPOSE_PROFILES=isolated"
 grep -q '^ARDTT_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone first install must leave hop DNS empty"
 if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
   err ".env must not contain PASSWORD"
@@ -141,6 +145,20 @@ grep -Eq 'ARDTT_WARP_DNS_IIFACES=.*cascade0' "$INSTALL/stack/.env" || err "exit 
 if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
   err "exit .env must not contain PASSWORD"
 fi
+
+run_hostnet() {
+  ARDTT_INSTALL_DIR="$INSTALL" \
+  ARDTT_PUBLIC_HOST="203.0.113.9" \
+  ARDTT_NETWORK_MODE=hostnet \
+  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_SKIP_ROOT_CHECK=1 \
+  ARDTT_DRY_RUN=1 \
+  bash "$INSTALL/install.sh"
+}
+cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
+out_host="$(run_hostnet)" || err "hostnet install.sh exited $?"
+grep -q '^ARDTT_NETWORK_MODE=hostnet$' "$INSTALL/stack/.env" || err "hostnet mode not written"
+grep -q '^COMPOSE_PROFILES=hostnet$' "$INSTALL/stack/.env" || err "hostnet profile not written"
 
 if [ "$fail" -ne 0 ]; then
   echo "install.sh unpack tests failed" >&2
