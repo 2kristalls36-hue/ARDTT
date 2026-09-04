@@ -19,9 +19,7 @@
 > Авторы **не призывают** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.230** (`versionCode` 248), пакет `com.ardtt.app`. Серверный стек **1.0.33** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
->
-> Смена пакета с `com.nonamevpn.app` — это **новое приложение** для Android: обновление поверх старого APK не встанет, нужна переустановка.
+> Клиент **0.5.230** (`versionCode` 248), пакет `com.ardtt.app`. Серверный стек **1.0.34** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -32,7 +30,7 @@
 | | |
 |---|---|
 | Клиент | **0.5.230** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
-| Стек | **1.0.33** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
+| Стек | **1.0.34** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases) |
@@ -74,7 +72,7 @@ ARDTT/
 | **Приложение** | копия `server/` внутри APK, заливка по SSH | удобно с телефона; VPS **не** ходит на GitHub |
 | **Git** | `git clone` тега релиза на VPS | репозиторий доступен с машины (публичный clone или ваш ключ/PAT) |
 
-Пока репозиторий **приватный**, с VPS без токена clone не выйдет — ставьте из приложения. Когда сделаете репозиторий **публичным**, достаточно клона тега: архив в APK для сервера больше не обязателен. Имеет смысл клонировать **тег** `v0.5.228` (стек **1.0.33**), а не скользящий `main`.
+Пока репозиторий **приватный**, с VPS без токена clone не выйдет — ставьте из приложения. Когда сделаете репозиторий **публичным**, достаточно клона тега: архив в APK для сервера больше не обязателен. Имеет смысл клонировать **тег** `v0.5.230` (стек **1.0.34**), а не скользящий `main`.
 
 Подробности и каскад: [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -90,7 +88,7 @@ ARDTT/
 Сервер с GitHub (тег релиза):
 
 ```bash
-git clone --depth 1 --branch v0.5.228 \
+git clone --depth 1 --branch v0.5.230 \
   https://github.com/2kristalls36-hue/ARDTT.git
 cd ARDTT/server
 cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_этого_VPS
@@ -117,7 +115,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.230 / стек 1.0.33 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.230 / стек 1.0.34 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS: из приложения или клоном репозитория |
