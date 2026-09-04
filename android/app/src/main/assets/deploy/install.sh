@@ -98,12 +98,19 @@ cleanup_host_packages() {
   fi
 }
 
-cleanup_docker_build_junk() {
+# Drop stale BuildKit snapshots left by a crashed/OOM deploy. Those show up as
+# "snapshot … does not exist: not found" on the next `compose build`.
+# Never `docker image prune -a`: tagged stack-* images must stay while the old
+# stack is still running. Never prune volumes (bypass-config).
+prepare_docker_build() {
+  command -v docker >/dev/null 2>&1 || return 0
   docker builder prune -af >/dev/null 2>&1 || true
-  # Dangling layers only. `prune -af` would drop tagged stack-* images whose
-  # container is down (that is how nvpn-warp vanished on cascade entry).
+  docker buildx prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
-  # Never prune volumes: bypass-config and other named volumes must survive redeploy.
+}
+
+cleanup_docker_build_junk() {
+  prepare_docker_build
 }
 
 cleanup_stale_deploy_files() {
@@ -486,8 +493,9 @@ if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
     }
   fi
 
-  prog 0.28 "Очистка места перед swap и сборкой"
+  prog 0.28 "Подготовка: очистка кэша Docker"
   reclaim_disk
+  echo "NVPN_INFO|кэш сборки сброшен, свободно $(df -Pm / 2>/dev/null | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
   mem_mb="$(mem_total_mb)"
   if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
     ensure_swap "$(swap_target_mb)"
@@ -565,8 +573,9 @@ if [ "${NVPN_DRY_RUN:-0}" = "1" ]; then
   exit 0
 fi
 
-prog 0.45 "Очистка места перед сборкой"
+prog 0.45 "Ещё раз очистка кэша перед сборкой образов"
 reclaim_disk
+echo "NVPN_INFO|перед сборкой свободно $(df -Pm / 2>/dev/null | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
 
 avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
 need_mb="$(disk_need_mb)"
@@ -615,8 +624,9 @@ for svc in $BUILD_SERVICES; do
     cleanup_docker_build_junk
     die "Сборка Docker ($svc) не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}'), RAM: $(free -h | awk '/Mem:/{print $7}') avail"
   fi
-  docker builder prune -af >/dev/null 2>&1 || true
-  docker image prune -f >/dev/null 2>&1 || true
+  prepare_docker_build
+  # Overlay snapshot keys from prune must settle before the next Go image.
+  sleep 1
   echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo) МБ"
 done
 rm -f "$BUILD_LOG"

@@ -35,7 +35,9 @@ if [ -f "$INSTALLER" ]; then
   fi
   grep -q 'NVPN_ROLE' "$INSTALLER" || err "installer missing NVPN_ROLE"
   grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
-  grep -q 'preserve_live_cascade' "$INSTALLER" || err "installer missing live-cascade preserve"
+  grep -q 'prepare_docker_build' "$INSTALLER" || err "installer missing prepare_docker_build (cache reset before rebuild)"
+  grep -q 'Подготовка: очистка кэша Docker' "$INSTALLER" || err "installer must prune Docker cache at the start of an update"
+  grep -q 'docker buildx prune -af' "$INSTALLER" || err "installer must prune buildx cache, not only builder"
   grep -q 'NVPN_CASCADE_FORCE_DISABLE' "$INSTALLER" || err "installer missing cascade force-disable flag"
   grep -q 'cascade.peer.endpoint' "$INSTALLER" || err "installer must persist cascade peer endpoint"
   grep -q 'wg_conf_field' "$ROOT/server/warp/entrypoint.sh" || err "warp entrypoint must parse wgcf keys without splitting on ="
