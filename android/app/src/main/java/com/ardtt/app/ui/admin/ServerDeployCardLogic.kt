@@ -1,6 +1,7 @@
 package com.ardtt.app.ui.admin
 
 import com.ardtt.app.deploy.DeployBundle
+import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServerOsProbe
@@ -63,19 +64,54 @@ internal fun distinctPublicHost(sshHost: String, publicHost: String): String? {
     return pub.takeUnless { it.equals(ssh, ignoreCase = true) }
 }
 
-internal fun serverCardTitle(name: String, host: String): String =
-    name.trim().ifBlank { host.trim() }
+internal fun serverCardTitle(
+    name: String,
+    host: String,
+    cascadeIpSpan: String? = null,
+): String {
+    val trimmed = name.trim()
+    val ssh = host.trim()
+    if (trimmed.isNotEmpty() && !trimmed.equals(ssh, ignoreCase = true)) return trimmed
+    return cascadeIpSpan?.takeIf { it.isNotBlank() } ?: ssh
+}
 
-/** SSH / pub facts under the title — never repeats the title IP. */
+/** Entry–exit `ip-ip` when the card is a cascade with two distinct hosts. */
+internal fun serverCardCascadeIpSpan(
+    host: String,
+    publicHost: String,
+    cascadeEnabled: Boolean,
+    cascadeHost: String,
+): String? {
+    if (!cascadeEnabled) return null
+    val entry = (
+        DeployHop.host(publicHost)
+            ?: publicHost.trim().ifBlank { null }
+            ?: DeployHop.host(host)
+            ?: host.trim().ifBlank { null }
+        ) ?: return null
+    val exit = DeployHop.host(cascadeHost)?.takeIf { it.isNotBlank() } ?: return null
+    if (entry.equals(exit, ignoreCase = true)) return null
+    return "$entry-$exit"
+}
+
+/** SSH / pub facts under the title — never repeats the title IP. Cascade shows `ip-ip`. */
 internal fun serverCardMetaLine(
     name: String,
     host: String,
     sshPort: Int,
     publicHost: String,
+    cascadeEnabled: Boolean = false,
+    cascadeHost: String = "",
 ): String {
-    val title = serverCardTitle(name, host)
+    val span = serverCardCascadeIpSpan(host, publicHost, cascadeEnabled, cascadeHost)
+    val title = serverCardTitle(name, host, span)
     val ssh = host.trim()
     val parts = mutableListOf<String>()
+    if (span != null) {
+        if (!span.equals(title, ignoreCase = true)) parts.add(span)
+        parts.add("SSH $sshPort")
+        return parts.joinToString(" · ")
+    }
     if (ssh.isNotEmpty() && !ssh.equals(title, ignoreCase = true)) {
         parts.add(ssh)
     }
@@ -115,10 +151,23 @@ internal fun shouldShowUpdateDeployButton(health: HealthUi?, expectedVersion: St
 
 /** Saved server params: reinstall only. New card: first install. */
 internal fun serverDeployActionLabel(saved: Boolean, cascadeEnabled: Boolean): String = when {
-    saved -> "Переустановить сервер"
+    saved -> "Переустановить деплой"
     cascadeEnabled -> "Установить каскад"
     else -> "Установить на VPS"
 }
+
+/** Overview sticky / overflow: first install vs refresh of an existing stack. */
+internal fun serverOverviewDeployActionLabel(health: HealthUi?): String =
+    if (health is HealthUi.NotInstalled) "Установить деплой" else "Обновить деплой"
+
+internal fun serverOverviewDeployConfirmTitle(health: HealthUi?): String =
+    if (health is HealthUi.NotInstalled) "Установить деплой?" else "Обновить деплой?"
+
+internal fun serverOverviewDeployConfirmAction(health: HealthUi?): String =
+    if (health is HealthUi.NotInstalled) "Установить" else "Обновить"
+
+internal fun serverOverviewDeployIsUpdate(health: HealthUi?): Boolean =
+    health !is HealthUi.NotInstalled
 
 internal fun serverDeployScreenTitle(saved: Boolean): String =
     if (saved) "Параметры сервера" else "Деплой"
@@ -129,7 +178,7 @@ internal fun serverDeployFormHelp(
     expectedVersion: String,
 ): String {
     if (saved) {
-        return "Кнопка «Переустановить сервер» заново зальёт стек версии $expectedVersion на VPS. " +
+        return "Кнопка «Переустановить деплой» заново зальёт стек версии $expectedVersion на VPS. " +
             "Ход установки откроется снизу, как при обновлении деплоя."
     }
     val action = serverDeployActionLabel(saved = false, cascadeEnabled = cascadeEnabled)
