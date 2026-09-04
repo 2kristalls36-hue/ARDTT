@@ -230,7 +230,7 @@ object ProvisionAdminApi {
         deviceModel: String = "",
         appVersion: String = "",
         appVersionCode: Int = 0,
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<UserSummary?> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/presence")
             val payload = JSONObject()
@@ -250,9 +250,14 @@ object ProvisionAdminApi {
             }
             conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
+            val body = runCatching {
+                (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.readText().orEmpty()
+            }.getOrDefault("")
             conn.disconnect()
-            if (code !in 200..299) error("HTTP $code")
-            Unit
+            if (code !in 200..299) error(fail(code, body, "reportPresence"))
+            val parsed = parseUser(JSONObject(body))
+            parsed.takeIf { it.name.isNotBlank() && it.deviceIds.isNotEmpty() }
         }
     }
 
