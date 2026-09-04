@@ -246,7 +246,7 @@ class DeployEngine(private val appContext: Context) {
                             "printf '%s\\n' ${SshClient.shellQuote(entryPub)} " +
                             "> /opt/ardtt/stack/data/cascade.peer.pub && " +
                             "chmod 644 /opt/ardtt/stack/data/cascade.peer.pub && " +
-                            "(docker restart ardtt-cascade >/dev/null 2>&1 || docker restart nvpn-cascade >/dev/null 2>&1 || true)",
+                            "(docker restart ardtt >/dev/null 2>&1 || docker restart ardtt-host >/dev/null 2>&1 || docker restart ardtt-cascade >/dev/null 2>&1 || docker restart nvpn-cascade >/dev/null 2>&1 || true)",
                     )
                     append("Пир входа записан на $exitHost")
                 } finally {
