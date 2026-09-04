@@ -119,6 +119,8 @@ for context in provision direct bypass dns warp telemetry-upload; do
   [ -d "$ROOT/server/$context" ] || err "missing server/$context (needed in the deploy tar)"
 done
 [ -f "$ROOT/server/Dockerfile" ] || err "missing unified server/Dockerfile"
+grep -q 'ARG TARGETARCH=amd64' "$ROOT/server/Dockerfile" \
+  || err "Dockerfile TARGETARCH must default to amd64"
 [ -f "$ROOT/server/entrypoint.sh" ] || err "missing unified server/entrypoint.sh"
 [ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
 if [ -f "$COMPOSE" ]; then
@@ -141,6 +143,27 @@ grep -q 'tun2socks' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing
 if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/warp/entrypoint.sh" >/dev/null; then
   err "warp must not write net.ipv4.conf.all.rp_filter (breaks other host services)"
 fi
+if grep -E '^[^#]*conf/\*/rp_filter' "$ROOT/server/direct/cascade-entrypoint.sh" >/dev/null; then
+  err "cascade must not write every iface rp_filter (breaks other host services)"
+fi
+if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/direct/cascade-entrypoint.sh" >/dev/null; then
+  err "cascade must not write net.ipv4.conf.all.rp_filter (breaks other host services)"
+fi
+grep -q 'ARDTT_CASCADE_ROLE:-${ARDTT_ROLE:-entry}' "$ROOT/server/direct/cascade-entrypoint.sh" \
+  || err "cascade must inherit ARDTT_ROLE so the exit hop listens on UDP"
+grep -q 'ARDTT_CASCADE_ROLE: ${ARDTT_ROLE:-entry}' "$COMPOSE" \
+  || err "compose must pass ARDTT_CASCADE_ROLE from ARDTT_ROLE"
+grep -q 'ARDTT_WARP_STATE:-/data/warp' "$ROOT/server/warp/entrypoint.sh" \
+  || err "warp default state dir must be /data/warp"
+grep -q 'ARDTT_WARP_STATE: /data/warp' "$COMPOSE" || err "compose must persist WARP on /data/warp"
+if grep -q '/var/lib/ardtt-warp' "$COMPOSE"; then
+  err "compose must not use ephemeral /var/lib/ardtt-warp for WARP state"
+fi
+grep -q 'ARDTT_CASCADE_ROLE=$ROLE' "$INSTALLER" || err "installer must write ARDTT_CASCADE_ROLE"
+grep -q 'DIRECT_PORT="$CASCADE_LISTEN_PORT"' "$INSTALLER" \
+  || err "exit install must publish cascade UDP via DIRECT_PORT"
+grep -Fq 'iif (awg0|wdttraw0|warp0|cascade0)' "$INSTALLER" \
+  || err "host dataplane cleanup must not delete foreign lookup 51820 rules"
 
 if [ "$fail" -ne 0 ]; then
   msg "deploy bundle check failed"

@@ -10,11 +10,16 @@
 set -euo pipefail
 
 DATA="${ARDTT_DATA:-/data}"
-ROLE="${ARDTT_CASCADE_ROLE:-entry}"
+# Old split compose set ARDTT_CASCADE_ROLE from ARDTT_ROLE. The unified
+# image must do the same or an exit VPS never listens on UDP.
+ROLE="${ARDTT_CASCADE_ROLE:-${ARDTT_ROLE:-entry}}"
 IFACE="${ARDTT_CASCADE_IFACE:-cascade0}"
 TABLE="${ARDTT_CASCADE_TABLE:-51821}"
 LISTEN="${ARDTT_CASCADE_LISTEN_PORT:-51820}"
 PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-}"
+if [ -z "${PEER_ENDPOINT}" ] && [ -s "${DATA}/cascade.peer.endpoint" ]; then
+  PEER_ENDPOINT="$(tr -d '[:space:]' <"${DATA}/cascade.peer.endpoint")"
+fi
 PEER_PUB_ENV="${ARDTT_CASCADE_PEER_PUBLIC_KEY:-}"
 ENTRY_ADDR="${ARDTT_CASCADE_ENTRY_ADDR:-10.10.0.1/30}"
 EXIT_ADDR="${ARDTT_CASCADE_EXIT_ADDR:-10.10.0.2/30}"
@@ -40,8 +45,15 @@ if [ -w /proc/sys/net/ipv4/ip_forward ]; then
   echo 1 >/proc/sys/net/ipv4/ip_forward || true
 fi
 # Strict rp_filter drops WARP replies whose reverse path is cascade0, not warp0.
-for rp in /proc/sys/net/ipv4/conf/*/rp_filter; do
-  [ -w "${rp}" ] && echo 2 >"${rp}" || true
+# Only VPN ifaces — never conf/all, eth0, or docker0 (hostnet shares the VPS).
+set_iface_rp_filter() {
+  local iface="$1" value="$2"
+  local path="/proc/sys/net/ipv4/conf/${iface}/rp_filter"
+  [ -w "${path}" ] && echo "${value}" >"${path}" || true
+}
+set_iface_rp_filter "${IFACE}" 2
+for rp_iface in awg0 wdttraw0 warp0; do
+  set_iface_rp_filter "${rp_iface}" 2
 done
 
 need_awg() {
