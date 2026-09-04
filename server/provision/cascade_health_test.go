@@ -15,20 +15,32 @@ func TestCascadeHostFromPeer(t *testing.T) {
 }
 
 func TestShouldProxyEgressToExit(t *testing.T) {
-	if !shouldProxyEgressToExit("entry", true, false, "2.26.125.160") {
-		t.Fatal("entry cascade hideIp-off should ask the exit")
+	if !shouldProxyEgressToExit("entry", true, "2.26.125.160") {
+		t.Fatal("cascade entry must ask the exit for WAN and WARP probes")
 	}
-	if shouldProxyEgressToExit("entry", true, true, "2.26.125.160") {
-		t.Fatal("hideIp-on probes local warp0, not the exit")
-	}
-	if shouldProxyEgressToExit("exit", true, false, "45.129.2.3") {
+	if shouldProxyEgressToExit("exit", true, "45.129.2.3") {
 		t.Fatal("exit must not proxy (loop)")
 	}
-	if shouldProxyEgressToExit("entry", false, false, "2.26.125.160") {
+	if shouldProxyEgressToExit("entry", false, "2.26.125.160") {
 		t.Fatal("standalone entry uses local WAN")
 	}
-	if shouldProxyEgressToExit("entry", true, false, "") {
+	if shouldProxyEgressToExit("entry", true, "") {
 		t.Fatal("missing cascade host")
+	}
+}
+
+func TestHideIPPrefixes(t *testing.T) {
+	s := &Store{
+		Config: Config{DirectSubnet: "10.8.0.0/24", BypassSubnet: "10.9.0.0/24"},
+		Users: []User{
+			{Name: "on", HostID: 5, HideIP: true},
+			{Name: "off", HostID: 6, HideIP: false},
+			{Name: "dead", HostID: 7, HideIP: true, Deactivated: true},
+		},
+	}
+	got := s.HideIPPrefixes()
+	if len(got) != 2 || got[0] != "10.8.0.5/32" || got[1] != "10.9.0.5/32" {
+		t.Fatalf("got %v", got)
 	}
 }
 

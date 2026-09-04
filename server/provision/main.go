@@ -351,6 +351,16 @@ func runServer(store *Store, listen string) error {
 		}
 		writeJSON(w, store.BuildProfile(u))
 	})
+	mux.HandleFunc("/v1/hide-ip-prefixes", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"ok":       true,
+			"prefixes": store.HideIPPrefixes(),
+		})
+	})
 	mux.HandleFunc("/v1/hide-ip", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodPut {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -660,6 +670,22 @@ func (s *Store) FindUserByDeviceOrName(deviceID, name string) (User, error) {
 		}
 	}
 	return User{}, fmt.Errorf("not found")
+}
+
+func (s *Store) HideIPPrefixes() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	directBase := subnetBase(s.Config.DirectSubnet)
+	bypassBase := subnetBase(s.Config.BypassSubnet)
+	out := make([]string, 0)
+	for _, u := range s.Users {
+		if !u.HideIP || u.Deactivated || u.HostID < minHostID {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s.%d/32", directBase, u.HostID))
+		out = append(out, fmt.Sprintf("%s.%d/32", bypassBase, u.HostID))
+	}
+	return out
 }
 
 func (s *Store) ListUsersPublic() []UserPublic {
@@ -1050,11 +1076,10 @@ func resolveEgressViaWarp(userFound, userHideIP bool, viaWarpQuery string) bool 
 	}
 }
 
-// On the cascade entry, hideIp-off traffic leaves the exit VPS WAN.
-// Probing this host's WAN would report the entry IP (45.x) while the phone
-// actually egresses via the exit (2.x). Ask the exit provision instead.
-func shouldProxyEgressToExit(role string, cascade, viaWarp bool, cascadeHost string) bool {
-	return role == "entry" && cascade && !viaWarp && strings.TrimSpace(cascadeHost) != ""
+// On the cascade entry, client internet leaves the exit VPS (WAN or that
+// hop's WARP). Probing this host would report the entry IP / entry WARP.
+func shouldProxyEgressToExit(role string, cascade bool, cascadeHost string) bool {
+	return role == "entry" && cascade && strings.TrimSpace(cascadeHost) != ""
 }
 
 func provisionPeerBaseURL(host string) string {
@@ -1094,8 +1119,8 @@ func probePeerEgressIP(host string, viaWarp bool) (string, error) {
 }
 
 func probeServiceEgressIP(viaWarp bool) (string, error) {
-	if shouldProxyEgressToExit(cascadeRole(), cascadeEnabled(), viaWarp, cascadePeerHost()) {
-		ip, err := probePeerEgressIP(cascadePeerHost(), false)
+	if shouldProxyEgressToExit(cascadeRole(), cascadeEnabled(), cascadePeerHost()) {
+		ip, err := probePeerEgressIP(cascadePeerHost(), viaWarp)
 		if err == nil {
 			return ip, nil
 		}
