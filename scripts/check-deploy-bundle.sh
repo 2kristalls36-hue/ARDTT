@@ -44,7 +44,10 @@ if [ -f "$INSTALLER" ]; then
   grep -q 'поднимаем прежний стек' "$INSTALLER" || err "installer must restore the previous stack if a build fails after compose down"
   grep -q 'NVPN_CASCADE_FORCE_DISABLE' "$INSTALLER" || err "installer missing cascade force-disable flag"
   grep -q 'cascade.peer.endpoint' "$INSTALLER" || err "installer must persist cascade peer endpoint"
-  grep -q 'wg_conf_field' "$ROOT/server/warp/entrypoint.sh" || err "warp entrypoint must parse wgcf keys without splitting on ="
+  grep -q 'exit-hideip' "$INSTALLER" || err "installer must set WARP_MODE=exit-hideip on the cascade exit"
+  grep -q 'WARP_MODE="passthrough"' "$INSTALLER" || err "cascade entry must use WARP passthrough"
+  grep -q 'hide-ip-prefixes' "$ROOT/server/warp/entrypoint.sh" || err "exit warp must poll hide-ip-prefixes"
+  grep -q '/v1/hide-ip-prefixes' "$ROOT/server/provision/main.go" || err "provision missing GET /v1/hide-ip-prefixes"
   grep -q 'cleanup_stale_deploy_files' "$INSTALLER" || err "installer missing leftover-file cleanup"
   grep -q 'clear_legacy_kernel_warp' "$ROOT/server/warp/entrypoint.sh" || err "warp entrypoint must drop leftover kernel-WG warp0"
   grep -q 'swap_target_mb' "$INSTALLER" || err "installer missing small-disk swap cap"
@@ -123,6 +126,9 @@ bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n failed for c
 bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n failed for warp/entrypoint.sh"
 if [ -f "$ROOT/scripts/test-warp-wgcf-parse.sh" ]; then
   bash "$ROOT/scripts/test-warp-wgcf-parse.sh" || err "warp wgcf parse"
+fi
+if [ -f "$ROOT/scripts/test-warp-hideip-prefixes.sh" ]; then
+  bash "$ROOT/scripts/test-warp-hideip-prefixes.sh" || err "warp hideIp prefixes"
 fi
 grep -q 'wireproxy' "$ROOT/server/warp/Dockerfile" || err "warp Dockerfile missing wireproxy"
 grep -q 'tun2socks' "$ROOT/server/warp/Dockerfile" || err "warp Dockerfile missing tun2socks"

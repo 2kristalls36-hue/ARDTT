@@ -566,17 +566,20 @@ printf '%s\n' "$DEPLOY_VERSION" > "$STAGING/DEPLOY_VERSION"
 BYPASS_DNS="10.9.0.1"
 WARP_MODE="hideip"
 WARP_DNS_IFACES="awg0 wdttraw0"
+WARP_HIDEIP_URL=""
 if [ "$CASCADE_ENABLED" = "1" ]; then
   [ -n "$CASCADE_DNS" ] || CASCADE_DNS="10.10.0.2"
   BYPASS_DNS="$CASCADE_DNS"
+  WARP_MODE="passthrough"
 else
   # Provision treats a non-empty NVPN_CASCADE_DNS as hop DNS even when
   # NVPN_CASCADE_ENABLED=0. Keep it blank on a standalone entry.
   CASCADE_DNS=""
 fi
 if [ "$ROLE" = "exit" ]; then
-  WARP_MODE="cascade"
+  WARP_MODE="exit-hideip"
   WARP_DNS_IFACES="cascade0"
+  WARP_HIDEIP_URL="http://10.10.0.1:9100/v1/hide-ip-prefixes"
 fi
 cat > "$STAGING/.env" <<EOF
 NVPN_PUBLIC_HOST=$PUBLIC_HOST
@@ -597,6 +600,7 @@ NVPN_CASCADE_DNS=$CASCADE_DNS
 NVPN_BYPASS_DNS=$BYPASS_DNS
 NVPN_WARP_MODE=$WARP_MODE
 NVPN_WARP_DNS_IIFACES="$WARP_DNS_IFACES"
+NVPN_WARP_HIDEIP_URL=$WARP_HIDEIP_URL
 COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT
 EOF
 load_stack_env "$STAGING/.env"
