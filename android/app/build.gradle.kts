@@ -25,15 +25,15 @@ val githubReleaseToken = providers.gradleProperty("githubReleaseToken")
     .replace("\"", "\\\"")
 
 android {
-    namespace = "com.nonamevpn.app"
+    namespace = "com.ardtt.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.nonamevpn.app"
+        applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 232
-        versionName = "0.5.214"
+        versionCode = 233
+        versionName = "0.5.215"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",

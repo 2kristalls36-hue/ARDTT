@@ -16,25 +16,25 @@
 #   priority 300+: from <client> → table 51820 (WARP TUN)
 set -euo pipefail
 
-DATA="${NVPN_DATA:-/data}"
+DATA="${ARDTT_DATA:-/data}"
 USERS="${DATA}/users.json"
-STATE_DIR="${NVPN_WARP_STATE:-/var/lib/nvpn-warp}"
-IFACE="${NVPN_WARP_IFACE:-warp0}"
-TABLE="${NVPN_WARP_TABLE:-51820}"
-MARK_COMMENT="NVPN_WARP_MANAGED"
-DNS_COMMENT="NVPN_WARP_DNS_MAIN"
+STATE_DIR="${ARDTT_WARP_STATE:-/var/lib/ardtt-warp}"
+IFACE="${ARDTT_WARP_IFACE:-warp0}"
+TABLE="${ARDTT_WARP_TABLE:-51820}"
+MARK_COMMENT="ARDTT_WARP_MANAGED"
+DNS_COMMENT="ARDTT_WARP_DNS_MAIN"
 # Prefer DNS (main) over WARP table — lower pref number = higher priority.
 # Keep DNS well below any accidental unprioritized WARP rules (~163xx / auto).
-DNS_RULE_PRIO="${NVPN_WARP_DNS_PRIO:-100}"
-WARP_RULE_PRIO_BASE="${NVPN_WARP_RULE_PRIO:-300}"
-WARP_MODE="${NVPN_WARP_MODE:-hideip}"
-SOCKS_ADDR="${NVPN_WARP_SOCKS:-127.0.0.1:40000}"
-TUN_ADDR="${NVPN_WARP_TUN_ADDR:-10.99.99.1/24}"
+DNS_RULE_PRIO="${ARDTT_WARP_DNS_PRIO:-100}"
+WARP_RULE_PRIO_BASE="${ARDTT_WARP_RULE_PRIO:-300}"
+WARP_MODE="${ARDTT_WARP_MODE:-hideip}"
+SOCKS_ADDR="${ARDTT_WARP_SOCKS:-127.0.0.1:40000}"
+TUN_ADDR="${ARDTT_WARP_TUN_ADDR:-10.99.99.1/24}"
 # Recycle wireproxy in-process if RSS exceeds this (kB). Production sits ~110 MiB.
-WIREPROXY_RSS_LIMIT_KB="${NVPN_WARP_RSS_LIMIT_KB:-350000}"
+WIREPROXY_RSS_LIMIT_KB="${ARDTT_WARP_RSS_LIMIT_KB:-350000}"
 
 # VPN ingress ifaces whose client DNS must stay on main.
-DNS_IIFACES="${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0}"
+DNS_IIFACES="${ARDTT_WARP_DNS_IIFACES:-awg0 wdttraw0}"
 
 WIREPROXY_PID=0
 TUN2SOCKS_PID=0
@@ -354,7 +354,7 @@ has_hideip_from() {
 # Keep VPN/LAN and VPS-public destinations on main even when hideIp from-rule is on.
 # Otherwise DNS/gateway and provision (:9100) get sucked into warp0 → stalls on toggle.
 # Do NOT exempt 172.16.0.0/12 — that is WARP's own CGNAT (warp0 = 172.16.0.2/32).
-LOCAL_EXEMPT_PRIO="${NVPN_WARP_LOCAL_PRIO:-280}"
+LOCAL_EXEMPT_PRIO="${ARDTT_WARP_LOCAL_PRIO:-280}"
 
 install_local_exempt_rules() {
   local p="${LOCAL_EXEMPT_PRIO}"
@@ -432,7 +432,7 @@ warp_passthrough_mode() {
 hideip_desired_prefixes() {
   if [ "${WARP_MODE}" = "exit-hideip" ]; then
     local url raw
-    url="${NVPN_WARP_HIDEIP_URL:-http://10.10.0.1:9100/v1/hide-ip-prefixes}"
+    url="${ARDTT_WARP_HIDEIP_URL:-http://10.10.0.1:9100/v1/hide-ip-prefixes}"
     raw="$(curl -fsS --max-time 3 "${url}" 2>/dev/null)" || return 2
     echo "${raw}" | jq -e '.ok == true' >/dev/null 2>&1 || return 2
     echo "${raw}" | jq -r '.prefixes[]? // empty'
@@ -555,7 +555,7 @@ PENDING_SYNC=0
 PENDING_SINCE=0
 DNS_RETRY_TICK=0
 # Coalesce rapid hideIp toggles: apply only after users.json stable ~1s.
-SYNC_DEBOUNCE_SEC="${NVPN_WARP_SYNC_DEBOUNCE:-1}"
+SYNC_DEBOUNCE_SEC="${ARDTT_WARP_SYNC_DEBOUNCE:-1}"
 while true; do
   sleep 1
   if ! pid_alive "${WIREPROXY_PID}"; then

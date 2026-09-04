@@ -29,7 +29,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Мёртвый звонок | По умолчанию диалог на экране Туннеля; настройка «Обновлять звонок автоматически» — recreate в фоне (нужна живая `remixsid`, иначе диалог входа). Один silent-attempt за цикл |
 | TURN transport | **TCP** |
 | Workers | **Default 3** на один hash (TCP); в настройках можно 1 («экономия») |
-| Имя | **ARDTT** (Amnezia + RAW Dial via TURN); см. [LEGEND.md](LEGEND.md). Внутренние id/`nvpn`/каталоги `wdtt-*` — совместимость |
+| Имя | **ARDTT** (Amnezia + RAW Dial via TURN); см. [LEGEND.md](LEGEND.md). Внутренние id/`ardtt`/каталоги `wdtt-*` — совместимость |
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
@@ -156,7 +156,7 @@ prio 300+: from 10.8.0.x / 10.9.0.x → lookup 51820 → warp0         # ост�
 + MASQUERADE :53 на eth0 для 10.8/10.9
 ```
 
-Клиентский DNS — **шлюз туннеля** (`10.8.0.1` Direct / `10.9.0.1` Bypass) → **dnsmasq** (`nvpn-dns`) → upstream `1.1.1.1`/`1.0.0.1` по `main`. Запросы на внешний `:53` (старые профили) по-прежнему уводятся `ip rule` prio 100 → main.
+Клиентский DNS — **шлюз туннеля** (`10.8.0.1` Direct / `10.9.0.1` Bypass) → **dnsmasq** (`ardtt-dns`) → upstream `1.1.1.1`/`1.0.0.1` по `main`. Запросы на внешний `:53` (старые профили) по-прежнему уводятся `ip rule` prio 100 → main.
 
 На клиенте **нет** отдельного `10.10.0.{id}` как path подключения.
 
@@ -238,7 +238,7 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 
 - 1 hash на пользователя VPN.
 - Хранится **на телефоне** (encrypted prefs / account storage).
-- В серверный профиль hash **не обязателен**; `nvpn://` несёт AWG + bypass peer/password/`hostId`.
+- В серверный профиль hash **не обязателен**; `ardtt://` несёт AWG + bypass peer/password/`hostId`.
 
 ### Роль VK-аккаунта
 
@@ -347,7 +347,7 @@ provision /data — host_id, keys, passwords
 Create-user: адреса в `10.8` и `10.9` с одним octet; флаг hide-IP — клиентский/сессионный, применяется policy на сервере (mark по IP клиента).
 
 Боевой путь: админ в приложении → SSH → каталог установки ARDTT + `install.sh` + Compose.  
-На диске путь по умолчанию `/opt/nonamevpn` оставлен для совместимости с уже развёрнутыми VPS (`NVPN_INSTALL_DIR`).  
+На диске путь по умолчанию `/opt/ardtt` оставлен для совместимости с уже развёрнутыми VPS (`ARDTT_INSTALL_DIR`).  
 Версия стека (`DEPLOY_VERSION`) сравнивается с APK через `GET /health`.
 
 ---

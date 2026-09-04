@@ -1,10 +1,12 @@
-# ARDTT v0.5.214
+# ARDTT v0.5.215
 
-Клиент **0.5.214** (`versionCode` 232). Серверный стек **1.0.28** (`DEPLOY_VERSION`).  
-Релиз: https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.214
+Клиент **0.5.215** (`versionCode` 233). Серверный стек **1.0.29** (`DEPLOY_VERSION`).
 
 ## Коротко
 
+- В коде больше нет идентификатора **nonamevpn**: пакет `com.ardtt.app`, VPS `/opt/ardtt`, контейнеры `ardtt-*`, переменные `ARDTT_*`, протокол установщика `ARDTT_PROGRESS|…`.
+- Смена `applicationId` — это **новое приложение** для Android: обновление поверх старого APK не встанет, нужна переустановка.
+- Установщик переносит `/opt/nonamevpn` → `/opt/ardtt` и снимает контейнеры `nvpn-*`. Старые `NVPN_*` в окружении и `.env` ещё читаются.
 - Каскад: Hide-IP WARP ставится на **выходном** VPS; без галочки выход идёт в WAN выхода, не в Cloudflare. После одиночных обновлений входа/выхода починены утечка DNS каскада и ключи WARP.
 - Обход: быстрее failover на белом списке; Hide-IP больше не расходится с фактическим Cloudflare-egress; на малых VPS — Docker 29 snapshot и prune build-cache перед обновлением стека.
 - UI: знак AR/DTT, бейджи Ubuntu (Circle of Friends) и Debian, баннер доната, QS-тайл профиля, карточки hop на «Сети», заблокированные действия профиля при поднятом VPN, терминальный хром логов деплоя; с карточки сервера убрана мигающая ping-точка.
@@ -43,7 +45,7 @@
 
 ## Поставка
 
-- GitHub Release `v0.5.214`: `ardtt-0.5.214-{arm64-v8a,armeabi-v7a,x86_64,universal}.apk`, `ardtt-update.json`, `SHA256SUMS.txt`.
+- GitHub Release: `ardtt-0.5.215-{arm64-v8a,armeabi-v7a,x86_64,universal}.apk`, `ardtt-update.json`, `SHA256SUMS.txt`.
 - Сборка: workflow `.github/workflows/android-release.yml` с `main` / тега `v*`.
 - Gradle по-прежнему в `android/`, не в корне репозитория.
 

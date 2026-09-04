@@ -33,7 +33,7 @@ const (
 	maxHostID         = 254
 )
 
-// Heartbeats must not rewrite users.json every minute: nvpn-warp watches mtime.
+// Heartbeats must not rewrite users.json every minute: ardtt-warp watches mtime.
 const presenceSaveMinInterval = time.Minute
 
 type Config struct {
@@ -133,9 +133,9 @@ type UserPublic struct {
 }
 
 func main() {
-	dataDir := flag.String("data", envOr("NVPN_DATA", defaultDataDir), "data directory")
-	listen := flag.String("listen", envOr("NVPN_PROVISION_LISTEN", defaultListen), "HTTP listen address (health + API)")
-	publicHost := flag.String("public-host", envOr("NVPN_PUBLIC_HOST", ""), "public VPS IP/DNS for profiles")
+	dataDir := flag.String("data", envOr("ARDTT_DATA", defaultDataDir), "data directory")
+	listen := flag.String("listen", envOr("ARDTT_PROVISION_LISTEN", defaultListen), "HTTP listen address (health + API)")
+	publicHost := flag.String("public-host", envOr("ARDTT_PUBLIC_HOST", ""), "public VPS IP/DNS for profiles")
 	cmd := flag.String("cmd", "serve", "serve | create-user | list-users | profile")
 	name := flag.String("name", "", "user name (create-user / profile)")
 	flag.Parse()
@@ -185,8 +185,8 @@ func main() {
 func runServer(store *Store, listen string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		cascade := envOr("NVPN_CASCADE_ENABLED", "0") == "1"
-		peer := strings.TrimSpace(os.Getenv("NVPN_CASCADE_PEER_ENDPOINT"))
+		cascade := envOr("ARDTT_CASCADE_ENABLED", "0") == "1"
+		peer := strings.TrimSpace(os.Getenv("ARDTT_CASCADE_PEER_ENDPOINT"))
 		cascadeHost := ""
 		if cascade {
 			cascadeHost = cascadeHostFromPeer(peer)
@@ -195,7 +195,7 @@ func runServer(store *Store, listen string) error {
 			"ok":            true,
 			"service":       "provision",
 			"deployVersion": resolveDeployVersion(),
-			"role":          strings.TrimSpace(envOr("NVPN_ROLE", "entry")),
+			"role":          strings.TrimSpace(envOr("ARDTT_ROLE", "entry")),
 			"cascade":       cascade,
 			"cascadePeer":   peer,
 			"cascadeHost":   cascadeHost,
@@ -998,7 +998,7 @@ func (s *Store) TouchPresence(deviceID, name, externalIP, deviceModel, appVersio
 			}
 		}
 		normalizeUserDevices(u)
-		// Heartbeats rewrote users.json every minute and made nvpn-warp
+		// Heartbeats rewrote users.json every minute and made ardtt-warp
 		// debounce-resync Hide-IP rules (conntrack flushes). Keep LastSeen in
 		// memory; persist at most once a minute unless device metadata changed.
 		if !material && prevIP == u.LastExternalIP && prevSeen > 0 &&
@@ -1049,15 +1049,15 @@ func probeEgressIP(viaWarp bool) (string, error) {
 }
 
 func cascadeRole() string {
-	return strings.TrimSpace(envOr("NVPN_ROLE", "entry"))
+	return strings.TrimSpace(envOr("ARDTT_ROLE", "entry"))
 }
 
 func cascadeEnabled() bool {
-	return envOr("NVPN_CASCADE_ENABLED", "0") == "1"
+	return envOr("ARDTT_CASCADE_ENABLED", "0") == "1"
 }
 
 func cascadePeerHost() string {
-	return cascadeHostFromPeer(os.Getenv("NVPN_CASCADE_PEER_ENDPOINT"))
+	return cascadeHostFromPeer(os.Getenv("ARDTT_CASCADE_PEER_ENDPOINT"))
 }
 
 // resolveEgressViaWarp picks warp0 vs VPS WAN for GET /v1/egress-ip.
@@ -1083,7 +1083,7 @@ func shouldProxyEgressToExit(role string, cascade bool, cascadeHost string) bool
 }
 
 func provisionPeerBaseURL(host string) string {
-	listen := strings.TrimSpace(envOr("NVPN_PROVISION_LISTEN", "0.0.0.0:9100"))
+	listen := strings.TrimSpace(envOr("ARDTT_PROVISION_LISTEN", "0.0.0.0:9100"))
 	port := "9100"
 	if _, p, err := net.SplitHostPort(listen); err == nil && strings.TrimSpace(p) != "" {
 		port = p
@@ -1183,13 +1183,13 @@ func (s *Store) nextHostIDLocked() (int, error) {
 }
 
 func profileDNS(directBase string) []string {
-	// NVPN_CASCADE_DNS is always written into stack/.env (default 10.10.0.2).
+	// ARDTT_CASCADE_DNS is always written into stack/.env (default 10.10.0.2).
 	// It must not win while the hop is off — phones would resolve via an
 	// unreachable 10.10.0.2 after a standalone update of the entry VPS.
-	if envOr("NVPN_CASCADE_ENABLED", "0") != "1" {
+	if envOr("ARDTT_CASCADE_ENABLED", "0") != "1" {
 		return []string{fmt.Sprintf("%s.1", directBase)}
 	}
-	if v := strings.TrimSpace(os.Getenv("NVPN_CASCADE_DNS")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("ARDTT_CASCADE_DNS")); v != "" {
 		return []string{v}
 	}
 	return []string{"10.10.0.2"}
@@ -1291,14 +1291,23 @@ func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
+	if strings.HasPrefix(k, "ARDTT_") {
+		if v := os.Getenv("NVPN_" + strings.TrimPrefix(k, "ARDTT_")); v != "" {
+			return v
+		}
+	}
 	return def
 }
 
 func resolveDeployVersion() string {
+	if v := strings.TrimSpace(os.Getenv("ARDTT_DEPLOY_VERSION")); v != "" {
+		return v
+	}
 	if v := strings.TrimSpace(os.Getenv("NVPN_DEPLOY_VERSION")); v != "" {
 		return v
 	}
 	candidates := []string{
+		"/opt/ardtt/DEPLOY_VERSION",
 		"/opt/nonamevpn/DEPLOY_VERSION",
 		"/data/DEPLOY_VERSION",
 		"DEPLOY_VERSION",

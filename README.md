@@ -4,7 +4,7 @@
 
 # ARDTT
 
-[Релизы](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.214)
+[Релизы](https://github.com/2kristalls36-hue/ARDTT/releases)
 ·
 [Поддержка автора](https://spasibomir.ru/pay/34807)
 
@@ -19,7 +19,7 @@
 > Авторы **не призывают** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Текущий клиент: **0.5.214** (`versionCode` 232). Серверный стек: **1.0.28**. Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Технические документы — [docs/](docs/README.md).
+> Текущий клиент: **0.5.215** (`versionCode` 233). Серверный стек: **1.0.29**. Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Технические документы — [docs/](docs/README.md).
 
 ---
 
@@ -27,8 +27,8 @@
 
 | Что | Значение |
 |-----|----------|
-| Клиент | [v0.5.214](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.214) · APK: `arm64-v8a`, `armeabi-v7a`, `x86_64`, universal |
-| Сервер | `DEPLOY_VERSION` **1.0.28** · Compose: `provision` `:9100`, `direct`, `bypass`, `dns`, `warp`, `telemetry` `:9200` |
+| Клиент | [v0.5.215](https://github.com/2kristalls36-hue/ARDTT/releases) · APK: `arm64-v8a`, `armeabi-v7a`, `x86_64`, universal |
+| Сервер | `DEPLOY_VERSION` **1.0.29** · Compose: `provision` `:9100`, `direct`, `bypass`, `dns`, `warp`, `telemetry` `:9200` |
 | Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases) |
 
 ## Два пути
@@ -66,7 +66,7 @@ ARDTT/
 
 ```bash
 cd server
-cp .env.example .env          # NVPN_PUBLIC_HOST
+cp .env.example .env          # ARDTT_PUBLIC_HOST
 docker compose up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh alice
@@ -80,7 +80,7 @@ cd android
 # app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Подписанные APK — [GitHub Releases](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.214). Деплой из приложения (SSH) — [docs/DEPLOY.md](docs/DEPLOY.md).
+Подписанные APK — [GitHub Releases](https://github.com/2kristalls36-hue/ARDTT/releases). Деплой из приложения (SSH) — [docs/DEPLOY.md](docs/DEPLOY.md).
 
 Подробнее: [android/README.md](android/README.md), [server/README.md](server/README.md).
 
@@ -88,7 +88,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Текущая линейка 0.5.214 / стек 1.0.28 |
+| [CHANGELOG.md](CHANGELOG.md) | Текущая линейка 0.5.215 / стек 1.0.29 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя ARDTT, Path A/B, знак |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS из приложения и Compose |

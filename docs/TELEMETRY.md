@@ -73,7 +73,7 @@ client_a1b2c3d4e5f6_1.0.0_4_192.168.1.100_1712345678_1712345987.json
 ### Локальное хранение
 
 ```
-/data/data/com.nonamevpn.app/files/logs/
+/data/data/com.ardtt.app/files/logs/
 ```
 
 Запись буферизуется (flush каждые ~40 событий), запись идёт в фоне (`Dispatchers.IO`).

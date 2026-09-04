@@ -10,7 +10,7 @@ INSTALLER="$ROOT/server/install.sh"
 ASSET_INSTALLER="$ROOT/android/app/src/main/assets/deploy/install.sh"
 VERSION_FILE="$ROOT/server/DEPLOY_VERSION"
 ASSET_VERSION="$ROOT/android/app/src/main/assets/deploy/DEPLOY_VERSION"
-BUNDLE_KT="$ROOT/android/app/src/main/java/com/nonamevpn/app/deploy/DeployBundle.kt"
+BUNDLE_KT="$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployBundle.kt"
 COMPOSE="$ROOT/server/docker-compose.yml"
 
 [ -f "$INSTALLER" ] || err "missing $INSTALLER"
@@ -22,18 +22,18 @@ COMPOSE="$ROOT/server/docker-compose.yml"
 
 if [ -f "$INSTALLER" ]; then
   bash -n "$INSTALLER" || err "bash -n failed for server/install.sh"
-  grep -q 'NVPN_PROGRESS|' "$INSTALLER" || err "installer missing NVPN_PROGRESS protocol"
-  grep -q 'NVPN_ERROR|' "$INSTALLER" || err "installer missing NVPN_ERROR protocol"
-  grep -q 'NVPN_DONE|' "$INSTALLER" || err "installer missing NVPN_DONE protocol"
+  grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
+  grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
+  grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
   grep -q 'уже распакованный стек' "$INSTALLER" || err "installer missing re-run-without-tar path"
-  grep -q 'NVPN_TELEMETRY_PORT' "$INSTALLER" || err "installer missing telemetry port"
+  grep -q 'ARDTT_TELEMETRY_PORT' "$INSTALLER" || err "installer missing telemetry port"
   grep -q 'TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing TELEMETRY_LISTEN in .env"
-  grep -q 'NVPN_TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing NVPN_TELEMETRY_LISTEN alias in .env"
+  grep -q 'ARDTT_TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing ARDTT_TELEMETRY_LISTEN alias in .env"
   grep -q '127.0.0.1:\${TELEMETRY_PORT}/health' "$INSTALLER" || err "installer telemetry health must use TELEMETRY_PORT"
   if grep -q '127.0.0.1:9200/health' "$INSTALLER"; then
     err "installer hardcodes telemetry :9200 health check"
   fi
-  grep -q 'NVPN_ROLE' "$INSTALLER" || err "installer missing NVPN_ROLE"
+  grep -q 'ARDTT_ROLE' "$INSTALLER" || err "installer missing ARDTT_ROLE"
   grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
   grep -q 'prepare_docker_build' "$INSTALLER" || err "installer missing prepare_docker_build (dangling image prune)"
   grep -q 'reset_docker_buildkit' "$INSTALLER" || err "installer missing reset_docker_buildkit (wipe /var/lib/docker/buildkit)"
@@ -42,7 +42,7 @@ if [ -f "$INSTALLER" ]; then
   grep -q 'Мало RAM — останавливаем стек и сбрасываем BuildKit' "$INSTALLER" || err "installer must stop the stack before golang rebuilds on tiny VPS"
   grep -q 'build --no-cache' "$INSTALLER" || err "installer must retry compose build --no-cache after a snapshot failure"
   grep -q 'поднимаем прежний стек' "$INSTALLER" || err "installer must restore the previous stack if a build fails after compose down"
-  grep -q 'NVPN_CASCADE_FORCE_DISABLE' "$INSTALLER" || err "installer missing cascade force-disable flag"
+  grep -q 'ARDTT_CASCADE_FORCE_DISABLE' "$INSTALLER" || err "installer missing cascade force-disable flag"
   grep -q 'cascade.peer.endpoint' "$INSTALLER" || err "installer must persist cascade peer endpoint"
   grep -q 'exit-hideip' "$INSTALLER" || err "installer must set WARP_MODE=exit-hideip on the cascade exit"
   grep -q 'WARP_MODE="passthrough"' "$INSTALLER" || err "cascade entry must use WARP passthrough"
@@ -64,7 +64,7 @@ if [ -f "$INSTALLER" ]; then
   if grep -E '^[^#]*image prune -a' "$INSTALLER" >/dev/null; then
     err "install.sh must not docker image prune -a (drops unused tagged stack images)"
   fi
-  if grep -q 'NVPN_CASCADE_PASSWORD' "$INSTALLER"; then
+  if grep -q 'ARDTT_CASCADE_PASSWORD' "$INSTALLER"; then
     err "installer must not write cascade SSH password into .env"
   fi
 fi
@@ -99,8 +99,8 @@ fi
 
 if [ -f "$COMPOSE" ]; then
   grep -q 'TELEMETRY_LISTEN: \${TELEMETRY_LISTEN' "$COMPOSE" || err "compose must interpolate TELEMETRY_LISTEN from .env"
-  if grep -q 'NVPN_TELEMETRY_LISTEN:-0.0.0.0:9200' "$COMPOSE"; then
-    err "compose still defaults telemetry from NVPN_TELEMETRY_LISTEN (install.sh writes TELEMETRY_LISTEN)"
+  if grep -q 'ARDTT_TELEMETRY_LISTEN:-0.0.0.0:9200' "$COMPOSE"; then
+    err "compose still defaults telemetry from ARDTT_TELEMETRY_LISTEN (install.sh writes TELEMETRY_LISTEN)"
   fi
 fi
 
@@ -112,7 +112,7 @@ for context in provision direct bypass dns warp telemetry-upload; do
 done
 [ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
 if [ -f "$COMPOSE" ]; then
-  grep -q 'container_name: nvpn-cascade' "$COMPOSE" || err "compose missing nvpn-cascade"
+  grep -q 'container_name: ardtt-cascade' "$COMPOSE" || err "compose missing ardtt-cascade"
   if awk '
     $0 ~ /^  warp:/ { in_warp=1; next }
     in_warp && $0 ~ /^  [a-z]/ { in_warp=0 }

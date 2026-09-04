@@ -1,6 +1,6 @@
 # ARDTT server stack
 # Usage:
-#   export NVPN_PUBLIC_HOST=1.2.3.4
+#   export ARDTT_PUBLIC_HOST=1.2.3.4
 #   docker compose -f server/docker-compose.yml up -d --build
 #
 # Notes:
@@ -16,33 +16,33 @@
 services:
   provision:
     build: ./provision
-    container_name: nvpn-provision
+    container_name: ardtt-provision
     network_mode: host
     environment:
-      NVPN_PUBLIC_HOST: ${NVPN_PUBLIC_HOST:-}
-      NVPN_PROVISION_LISTEN: ${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}
-      NVPN_DATA: /data
-      NVPN_DEPLOY_VERSION: ${NVPN_DEPLOY_VERSION:-}
-      NVPN_ROLE: ${NVPN_ROLE:-entry}
-      NVPN_CASCADE_ENABLED: ${NVPN_CASCADE_ENABLED:-0}
-      NVPN_CASCADE_DNS: ${NVPN_CASCADE_DNS:-}
-      NVPN_CASCADE_PEER_ENDPOINT: ${NVPN_CASCADE_PEER_ENDPOINT:-}
+      ARDTT_PUBLIC_HOST: ${ARDTT_PUBLIC_HOST:-}
+      ARDTT_PROVISION_LISTEN: ${ARDTT_PROVISION_LISTEN:-0.0.0.0:9100}
+      ARDTT_DATA: /data
+      ARDTT_DEPLOY_VERSION: ${ARDTT_DEPLOY_VERSION:-}
+      ARDTT_ROLE: ${ARDTT_ROLE:-entry}
+      ARDTT_CASCADE_ENABLED: ${ARDTT_CASCADE_ENABLED:-0}
+      ARDTT_CASCADE_DNS: ${ARDTT_CASCADE_DNS:-}
+      ARDTT_CASCADE_PEER_ENDPOINT: ${ARDTT_CASCADE_PEER_ENDPOINT:-}
     volumes:
       - ./data:/data
     restart: unless-stopped
 
   direct:
     build: ./direct
-    container_name: nvpn-direct
+    container_name: ardtt-direct
     network_mode: host
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
     environment:
-      NVPN_DIRECT_PORT: ${NVPN_DIRECT_PORT:-51820}
-      NVPN_DATA: /data
-      NVPN_CASCADE_ENABLED: ${NVPN_CASCADE_ENABLED:-0}
+      ARDTT_DIRECT_PORT: ${ARDTT_DIRECT_PORT:-51820}
+      ARDTT_DATA: /data
+      ARDTT_CASCADE_ENABLED: ${ARDTT_CASCADE_ENABLED:-0}
     volumes:
       - ./data:/data:ro
     depends_on:
@@ -51,17 +51,17 @@ services:
 
   bypass:
     build: ./bypass
-    container_name: nvpn-bypass
+    container_name: ardtt-bypass
     network_mode: host
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
     environment:
-      NVPN_BYPASS_PORT: ${NVPN_BYPASS_PORT:-56003}
-      NVPN_DATA: /data
-      NVPN_BYPASS_DNS: ${NVPN_BYPASS_DNS:-10.9.0.1}
-      NVPN_CASCADE_ENABLED: ${NVPN_CASCADE_ENABLED:-0}
+      ARDTT_BYPASS_PORT: ${ARDTT_BYPASS_PORT:-56003}
+      ARDTT_DATA: /data
+      ARDTT_BYPASS_DNS: ${ARDTT_BYPASS_DNS:-10.9.0.1}
+      ARDTT_CASCADE_ENABLED: ${ARDTT_CASCADE_ENABLED:-0}
     volumes:
       - ./data:/data
       - bypass-config:/etc/wdtt
@@ -71,28 +71,28 @@ services:
 
   dns:
     build: ./dns
-    container_name: nvpn-dns
+    container_name: ardtt-dns
     network_mode: host
     restart: unless-stopped
 
   warp:
     build: ./warp
-    container_name: nvpn-warp
+    container_name: ardtt-warp
     network_mode: host
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
     environment:
-      GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-256MiB}
-      NVPN_DATA: /data
-      NVPN_WARP_STATE: /var/lib/nvpn-warp
-      NVPN_WARP_MODE: ${NVPN_WARP_MODE:-hideip}
-      NVPN_WARP_DNS_IIFACES: ${NVPN_WARP_DNS_IIFACES:-awg0 wdttraw0}
-      NVPN_WARP_HIDEIP_URL: ${NVPN_WARP_HIDEIP_URL:-}
+      GOMEMLIMIT: ${ARDTT_WARP_GOMEMLIMIT:-256MiB}
+      ARDTT_DATA: /data
+      ARDTT_WARP_STATE: /var/lib/ardtt-warp
+      ARDTT_WARP_MODE: ${ARDTT_WARP_MODE:-hideip}
+      ARDTT_WARP_DNS_IIFACES: ${ARDTT_WARP_DNS_IIFACES:-awg0 wdttraw0}
+      ARDTT_WARP_HIDEIP_URL: ${ARDTT_WARP_HIDEIP_URL:-}
     volumes:
       - ./data:/data:ro
-      - ./data/warp:/var/lib/nvpn-warp
+      - ./data/warp:/var/lib/ardtt-warp
     # Do not depend_on dns: cascade entry never starts that service, and
     # Compose would then skip warp (Hide-IP /32 never installs).
     depends_on:
@@ -105,19 +105,19 @@ services:
   cascade:
     image: ${COMPOSE_PROJECT_NAME:-stack}-direct
     pull_policy: never
-    container_name: nvpn-cascade
+    container_name: ardtt-cascade
     network_mode: host
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
     environment:
-      NVPN_CASCADE_ROLE: ${NVPN_ROLE:-entry}
-      NVPN_CASCADE_LISTEN_PORT: ${NVPN_CASCADE_LISTEN_PORT:-51820}
-      NVPN_CASCADE_PEER_ENDPOINT: ${NVPN_CASCADE_PEER_ENDPOINT:-}
-      NVPN_CASCADE_PEER_PUBLIC_KEY: ${NVPN_CASCADE_PEER_PUBLIC_KEY:-}
-      NVPN_CASCADE_DNS: ${NVPN_CASCADE_DNS:-10.10.0.2}
-      NVPN_DATA: /data
+      ARDTT_CASCADE_ROLE: ${ARDTT_ROLE:-entry}
+      ARDTT_CASCADE_LISTEN_PORT: ${ARDTT_CASCADE_LISTEN_PORT:-51820}
+      ARDTT_CASCADE_PEER_ENDPOINT: ${ARDTT_CASCADE_PEER_ENDPOINT:-}
+      ARDTT_CASCADE_PEER_PUBLIC_KEY: ${ARDTT_CASCADE_PEER_PUBLIC_KEY:-}
+      ARDTT_CASCADE_DNS: ${ARDTT_CASCADE_DNS:-10.10.0.2}
+      ARDTT_DATA: /data
     volumes:
       - ./data:/data
       - ./direct/cascade-entrypoint.sh:/cascade-entrypoint.sh:ro
@@ -126,16 +126,16 @@ services:
 
   telemetry:
     build: ./telemetry-upload
-    container_name: nvpn-telemetry
+    container_name: ardtt-telemetry
     network_mode: host
     environment:
       TELEMETRY_LOG_ROOT: /var/logs/app
-      # Installer writes TELEMETRY_LISTEN into stack/.env (and the alias NVPN_TELEMETRY_LISTEN).
+      # Installer writes TELEMETRY_LISTEN into stack/.env (and the alias ARDTT_TELEMETRY_LISTEN).
       TELEMETRY_LISTEN: ${TELEMETRY_LISTEN:-0.0.0.0:9200}
       # Optional: when set, review/list/mark-read APIs require Bearer auth.
       TELEMETRY_REVIEW_TOKEN: ${TELEMETRY_REVIEW_TOKEN:-}
     volumes:
-      - ${NVPN_TELEMETRY_LOG_ROOT:-/var/logs/app}:/var/logs/app
+      - ${ARDTT_TELEMETRY_LOG_ROOT:-/var/logs/app}:/var/logs/app
     restart: unless-stopped
 
 volumes:

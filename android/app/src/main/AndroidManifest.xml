@@ -80,7 +80,7 @@
             android:label="@string/widget_description">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.nonamevpn.app.ACTION_TOGGLE" />
+                <action android:name="com.ardtt.app.ACTION_TOGGLE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
