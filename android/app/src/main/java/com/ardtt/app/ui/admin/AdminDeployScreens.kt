@@ -7,6 +7,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -27,6 +30,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -49,7 +54,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -61,11 +65,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -82,7 +88,9 @@ import com.ardtt.app.R
 import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
+import com.ardtt.app.deploy.DeployHopTrack
 import com.ardtt.app.deploy.DeployJobKind
+import com.ardtt.app.deploy.DeployProgressCopy
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ServerOsMark
 import com.ardtt.app.deploy.ServersRepository
@@ -102,6 +110,7 @@ import com.ardtt.app.ui.components.OverflowMenuItem
 import com.ardtt.app.ui.components.ArdttBottomChrome
 import com.ardtt.app.ui.components.ArdttDialog
 import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.ArdttLinearProgress
 import com.ardtt.app.ui.components.PullRefreshHost
 import com.ardtt.app.ui.components.StickyPrimaryButton
 import com.ardtt.app.ui.components.TerminalLogCard
@@ -110,6 +119,8 @@ import com.ardtt.app.ui.theme.ArdttColors
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 private fun rememberEnqueueDeploy(
@@ -558,7 +569,13 @@ private fun DeployProgressSheet(
     onCancel: () -> Unit,
     onClose: () -> Unit,
     isUninstall: Boolean = false,
+    hopTrack: DeployHopTrack = DeployHopTrack(),
 ) {
+    val slots = cascadeDeploySlots(
+        hopTrack,
+        failed = deployProgressFailed(busy, status),
+        finishedSuccess = deployProgressFinishedSuccess(busy, status),
+    )
     ArdttDialog(
         title = deployProgressSheetTitle(busy, isUpdate, status, isUninstall),
         onDismissRequest = {},
@@ -570,13 +587,27 @@ private fun DeployProgressSheet(
         dismissOnBackPress = false,
         dismissOnClickOutside = false,
     ) {
+        if (slots.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                slots.forEach { slot ->
+                    DeployHopSlotCard(
+                        slot = slot,
+                        isUpdate = isUpdate,
+                        isUninstall = isUninstall,
+                    )
+                }
+            }
+        }
         Text(
             step.ifBlank { "…" },
             style = MaterialTheme.typography.bodyMedium,
         )
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth(),
+        ArdttLinearProgress(progress = progress)
+        Text(
+            DeployProgressCopy.percentLabel(progress),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         status?.let {
             Text(
@@ -597,7 +628,58 @@ private fun DeployProgressSheet(
         )
         TerminalLogCard(
             text = log.takeLast(24).joinToString("\n"),
-            maxHeight = 240.dp,
+            maxHeight = 200.dp,
+        )
+    }
+}
+
+@Composable
+private fun DeployHopSlotCard(
+    slot: DeploySlotView,
+    isUpdate: Boolean,
+    isUninstall: Boolean,
+) {
+    val outline = MaterialTheme.colorScheme.outline
+    val borderColor = when (slot.phase) {
+        DeploySlotPhase.Done -> ArdttColors.connected
+        DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
+        DeploySlotPhase.Pending, DeploySlotPhase.Active -> hopMapGrayStroke(outline)
+    }
+    val statusColor = when (slot.phase) {
+        DeploySlotPhase.Done -> ArdttColors.connected
+        DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
+        DeploySlotPhase.Active -> MaterialTheme.colorScheme.onSurface
+        DeploySlotPhase.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    AppSectionCard(
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        border = BorderStroke(2.dp, borderColor),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                slot.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                deploySlotStatusText(slot.phase, isUpdate, isUninstall),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = statusColor,
+            )
+        }
+        Text(
+            slot.host,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }
@@ -633,6 +715,7 @@ private fun ServerOverviewHost(
     val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
     val engineIsUninstall by engine.isUninstall.collectAsStateWithLifecycle()
+    val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
 
     LaunchedEffect(servers, serverId, showDeleteProgress) {
         if (showDeleteProgress) return@LaunchedEffect
@@ -797,6 +880,7 @@ private fun ServerOverviewHost(
                 step = step,
                 progress = progress,
                 log = deployLog,
+                hopTrack = hopTrack,
                 onCancel = { engine.cancel() },
                 onClose = {
                     val leave = serverDeleteFinishedShouldLeave(busy, deleteStatus)
@@ -812,6 +896,7 @@ private fun ServerOverviewHost(
                 step = step,
                 progress = progress,
                 log = deployLog,
+                hopTrack = hopTrack,
                 onCancel = { engine.cancel() },
                 onClose = { showRedeployProgress = false },
             )
@@ -1049,6 +1134,22 @@ private fun RenameServerDialog(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.bringIntoViewWhenFocused(): Modifier {
+    val requester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+    return this
+        .bringIntoViewRequester(requester)
+        .onFocusEvent { state ->
+            if (!state.isFocused) return@onFocusEvent
+            scope.launch {
+                delay(280)
+                runCatching { requester.bringIntoView() }
+            }
+        }
+}
+
 @Composable
 fun DeployScreen(
     serversRepo: ServersRepository,
@@ -1068,7 +1169,7 @@ fun DeployScreen(
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var host by remember { mutableStateOf(initial?.host ?: "") }
     var sshPort by remember { mutableStateOf((initial?.sshPort ?: 22).toString()) }
-    var sshUser by remember { mutableStateOf(initial?.sshUser ?: "root") }
+    var sshUser by remember { mutableStateOf(deploySshUserOrRoot(initial?.sshUser.orEmpty())) }
     var password by remember { mutableStateOf(initial?.password ?: "") }
     var privateKey by remember { mutableStateOf(initial?.privateKeyPem ?: "") }
     var keyPass by remember { mutableStateOf(initial?.keyPassphrase ?: "") }
@@ -1081,14 +1182,17 @@ fun DeployScreen(
     var cascadeEnabled by remember { mutableStateOf(initial?.cascadeEnabled == true) }
     var cascadeHost by remember { mutableStateOf(initial?.cascadeHost ?: "") }
     var cascadePort by remember { mutableStateOf((initial?.cascadePort ?: 22).toString()) }
-    var cascadeUser by remember { mutableStateOf(initial?.cascadeUser ?: "") }
+    var cascadeUser by remember { mutableStateOf(deploySshUserOrRoot(initial?.cascadeUser.orEmpty())) }
     var cascadePassword by remember { mutableStateOf(initial?.cascadePassword ?: "") }
+    var cascadePrivateKey by remember { mutableStateOf(initial?.cascadePrivateKeyPem ?: "") }
+    var cascadeKeyPass by remember { mutableStateOf(initial?.cascadeKeyPassphrase ?: "") }
     var status by remember { mutableStateOf<String?>(null) }
     var deployStatus by remember { mutableStateOf<String?>(null) }
     var showReinstallConfirm by remember { mutableStateOf(false) }
     var showDeployProgress by remember { mutableStateOf(false) }
     val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
+    val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
     val saved = initial != null
 
     LaunchedEffect(initial?.id) {
@@ -1097,7 +1201,7 @@ fun DeployScreen(
         name = t.name
         host = t.host
         sshPort = t.sshPort.toString()
-        sshUser = t.sshUser
+        sshUser = deploySshUserOrRoot(t.sshUser)
         password = t.password
         privateKey = t.privateKeyPem
         keyPass = t.keyPassphrase
@@ -1110,8 +1214,10 @@ fun DeployScreen(
         cascadeEnabled = t.cascadeEnabled
         cascadeHost = t.cascadeHost
         cascadePort = t.cascadePort.toString()
-        cascadeUser = t.cascadeUser
+        cascadeUser = deploySshUserOrRoot(t.cascadeUser)
         cascadePassword = t.cascadePassword
+        cascadePrivateKey = t.cascadePrivateKeyPem
+        cascadeKeyPass = t.cascadeKeyPassphrase
     }
 
     LaunchedEffect(busy, activeTargetId, id) {
@@ -1135,7 +1241,7 @@ fun DeployScreen(
         name = name.ifBlank { host },
         host = host.trim(),
         sshPort = sshPort.toIntOrNull() ?: 22,
-        sshUser = sshUser.trim().ifBlank { "root" },
+        sshUser = deploySshUserOrRoot(sshUser),
         password = password,
         privateKeyPem = privateKey.trim(),
         keyPassphrase = keyPass,
@@ -1146,8 +1252,10 @@ fun DeployScreen(
         cascadeEnabled = cascadeEnabled,
         cascadeHost = cascadeHost.trim(),
         cascadePort = cascadePort.toIntOrNull() ?: 22,
-        cascadeUser = cascadeUser.trim(),
+        cascadeUser = deploySshUserOrRoot(cascadeUser),
         cascadePassword = cascadePassword,
+        cascadePrivateKeyPem = cascadePrivateKey.trim(),
+        cascadeKeyPassphrase = cascadeKeyPass,
         osId = osId.trim(),
         osVersion = osVersion.trim(),
         lastDeployedAtMs = deployedAt,
@@ -1160,11 +1268,12 @@ fun DeployScreen(
 
     fun formValidationError(): String? {
         if (host.isBlank()) return "Укажите host"
-        if (password.isBlank() && privateKey.isBlank()) return "Нужен пароль или SSH-ключ"
+        if (deploySshSecretMissing(password, privateKey)) return "Нужен пароль или SSH-ключ"
         if (cascadeEnabled) {
             if (cascadeHost.isBlank()) return "Укажите host второго сервера"
-            if (cascadeUser.isBlank()) return "Укажите SSH user второго сервера"
-            if (cascadePassword.isBlank()) return "Укажите пароль второго сервера"
+            if (deploySshSecretMissing(cascadePassword, cascadePrivateKey)) {
+                return "Нужен пароль или SSH-ключ второго сервера"
+            }
         }
         return null
     }
@@ -1190,8 +1299,9 @@ fun DeployScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = 24.dp),
+                .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
         Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
@@ -1220,7 +1330,9 @@ fun DeployScreen(
             value = name,
             onValueChange = { name = it },
             label = { Text("Имя сервера") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
             shape = RoundedCornerShape(16.dp),
@@ -1229,7 +1341,9 @@ fun DeployScreen(
             value = host,
             onValueChange = { host = it },
             label = { Text("SSH host / IP") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
         )
@@ -1238,7 +1352,9 @@ fun DeployScreen(
                 value = sshPort,
                 onValueChange = { sshPort = it.filter { ch -> ch.isDigit() }.take(5) },
                 label = { Text("SSH порт") },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .bringIntoViewWhenFocused(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 enabled = !busy,
@@ -1247,7 +1363,9 @@ fun DeployScreen(
                 value = sshUser,
                 onValueChange = { sshUser = it },
                 label = { Text("SSH user") },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .bringIntoViewWhenFocused(),
                 singleLine = true,
                 enabled = !busy,
             )
@@ -1256,7 +1374,9 @@ fun DeployScreen(
             value = password,
             onValueChange = { password = it },
             label = { Text("Пароль (или sudo)") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewWhenFocused(),
             visualTransformation = PasswordVisualTransformation(),
             singleLine = true,
             enabled = !busy,
@@ -1267,7 +1387,8 @@ fun DeployScreen(
             label = { Text("SSH private key PEM (опционально)") },
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 80.dp),
+                .heightIn(min = 80.dp)
+                .bringIntoViewWhenFocused(),
             minLines = 3,
             enabled = !busy,
         )
@@ -1276,7 +1397,9 @@ fun DeployScreen(
                 value = keyPass,
                 onValueChange = { keyPass = it },
                 label = { Text("Passphrase ключа") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bringIntoViewWhenFocused(),
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 enabled = !busy,
@@ -1287,7 +1410,9 @@ fun DeployScreen(
             onValueChange = { publicHost = it },
             label = { Text("Публичный host для профиля") },
             placeholder = { Text("Как в ARDTT_PUBLIC_HOST, обычно = IP") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
         )
@@ -1296,7 +1421,9 @@ fun DeployScreen(
                 value = directPort,
                 onValueChange = { directPort = it.filter { ch -> ch.isDigit() }.take(5) },
                 label = { Text("Direct UDP") },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .bringIntoViewWhenFocused(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 enabled = !busy,
@@ -1305,7 +1432,9 @@ fun DeployScreen(
                 value = bypassPort,
                 onValueChange = { bypassPort = it.filter { ch -> ch.isDigit() }.take(5) },
                 label = { Text("Bypass UDP") },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .bringIntoViewWhenFocused(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 enabled = !busy,
@@ -1341,7 +1470,10 @@ fun DeployScreen(
                 }
                 Switch(
                     checked = cascadeEnabled,
-                    onCheckedChange = { cascadeEnabled = it },
+                    onCheckedChange = { on ->
+                        cascadeEnabled = on
+                        if (on) cascadeUser = deploySshUserOrRoot(cascadeUser)
+                    },
                     enabled = !busy,
                 )
             }
@@ -1353,7 +1485,9 @@ fun DeployScreen(
                     placeholder = { Text("Второй VPS, WARP") },
                     singleLine = true,
                     enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewWhenFocused(),
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1366,7 +1500,9 @@ fun DeployScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         enabled = !busy,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .bringIntoViewWhenFocused(),
                     )
                     OutlinedTextField(
                         value = cascadeUser,
@@ -1374,18 +1510,46 @@ fun DeployScreen(
                         label = { Text("SSH user") },
                         singleLine = true,
                         enabled = !busy,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .bringIntoViewWhenFocused(),
                     )
                 }
                 OutlinedTextField(
                     value = cascadePassword,
                     onValueChange = { cascadePassword = it },
-                    label = { Text("SSH пароль выхода") },
+                    label = { Text("Пароль (или sudo)") },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewWhenFocused(),
                 )
+                OutlinedTextField(
+                    value = cascadePrivateKey,
+                    onValueChange = { cascadePrivateKey = it },
+                    label = { Text("SSH private key PEM (опционально)") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 80.dp)
+                        .bringIntoViewWhenFocused(),
+                    minLines = 3,
+                    enabled = !busy,
+                )
+                if (cascadePrivateKey.isNotBlank()) {
+                    OutlinedTextField(
+                        value = cascadeKeyPass,
+                        onValueChange = { cascadeKeyPass = it },
+                        label = { Text("Passphrase ключа") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewWhenFocused(),
+                    )
+                }
             }
         }
 
@@ -1491,6 +1655,7 @@ fun DeployScreen(
                 step = step,
                 progress = progress,
                 log = log,
+                hopTrack = hopTrack,
                 onCancel = { engine.cancel() },
                 onClose = { showDeployProgress = false },
             )

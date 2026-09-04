@@ -1,5 +1,6 @@
 package com.ardtt.app.ui.admin
 
+import com.ardtt.app.deploy.DeployHopTrack
 import com.ardtt.app.deploy.ProvisionAdminApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,10 +36,10 @@ class ServerDeployCardLogicTest {
         assertEquals("10.0.0.1", serverCardTitle("  ", "10.0.0.1"))
         assertEquals("10.0.0.1", serverCardTitle("10.0.0.1", "10.0.0.1"))
         assertEquals(
-            "10.0.0.1-2.26.125.160",
-            serverCardTitle("  ", "10.0.0.1", "10.0.0.1-2.26.125.160"),
+            "10.0.0.1 → 2.26.125.160",
+            serverCardTitle("  ", "10.0.0.1", "10.0.0.1 → 2.26.125.160"),
         )
-        assertEquals("Edge", serverCardTitle("Edge", "10.0.0.1", "10.0.0.1-2.26.125.160"))
+        assertEquals("Edge", serverCardTitle("Edge", "10.0.0.1", "10.0.0.1 → 2.26.125.160"))
     }
 
     @Test
@@ -70,7 +71,7 @@ class ServerDeployCardLogicTest {
             serverCardCascadeIpSpan("10.0.0.1", "10.0.0.1", cascadeEnabled = true, cascadeHost = ""),
         )
         assertEquals(
-            "10.0.0.1-2.26.125.160",
+            "10.0.0.1 → 2.26.125.160",
             serverCardCascadeIpSpan(
                 host = "10.0.0.1",
                 publicHost = "10.0.0.1",
@@ -79,7 +80,7 @@ class ServerDeployCardLogicTest {
             ),
         )
         assertEquals(
-            "203.0.113.10-2.26.125.160",
+            "203.0.113.10 → 2.26.125.160",
             serverCardCascadeIpSpan(
                 host = "10.0.0.1",
                 publicHost = "203.0.113.10",
@@ -88,7 +89,7 @@ class ServerDeployCardLogicTest {
             ),
         )
         assertEquals(
-            "10.0.0.1-2.26.125.160 · SSH 22",
+            "10.0.0.1 → 2.26.125.160 · SSH 22",
             serverCardMetaLine(
                 name = "Edge",
                 host = "10.0.0.1",
@@ -114,7 +115,7 @@ class ServerDeployCardLogicTest {
             serverCardMetaLine("Edge", "10.0.0.1", 22, "10.0.0.1", cascadeEnabled = true, cascadeHost = ""),
         )
         assertEquals(
-            "203.0.113.10-2.26.125.160 · SSH 22",
+            "203.0.113.10 → 2.26.125.160 · SSH 22",
             serverCardMetaLine(
                 name = "Edge",
                 host = "10.0.0.1",
@@ -329,6 +330,59 @@ class ServerDeployCardLogicTest {
                 isUninstall = true,
             ),
         )
+    }
+
+    @Test
+    fun cascadeSlotsAreVps1ThenVps2AndOnlyDoneIsGreenPhase() {
+        val track = DeployHopTrack(
+            cascade = true,
+            entryHost = "45.129.2.3",
+            exitHost = "2.26.125.160",
+            activeHost = "2.26.125.160",
+        )
+        val installingExit = cascadeDeploySlots(track, failed = false, finishedSuccess = false)
+        assertEquals("VPS 1", installingExit[0].title)
+        assertEquals("45.129.2.3", installingExit[0].host)
+        assertEquals(DeploySlotPhase.Pending, installingExit[0].phase)
+        assertEquals("VPS 2", installingExit[1].title)
+        assertEquals("2.26.125.160", installingExit[1].host)
+        assertEquals(DeploySlotPhase.Active, installingExit[1].phase)
+        assertEquals("Ожидание", deploySlotStatusText(installingExit[0].phase, false, false))
+        assertEquals("Идёт установка", deploySlotStatusText(installingExit[1].phase, false, false))
+
+        val afterExit = cascadeDeploySlots(
+            track.copy(exitDone = true, activeHost = "45.129.2.3"),
+            failed = false,
+            finishedSuccess = false,
+        )
+        assertEquals(DeploySlotPhase.Active, afterExit[0].phase)
+        assertEquals(DeploySlotPhase.Done, afterExit[1].phase)
+        assertEquals("Идёт обновление", deploySlotStatusText(afterExit[0].phase, isUpdate = true, isUninstall = false))
+        assertEquals("Готово", deploySlotStatusText(afterExit[1].phase, false, false))
+
+        val finished = cascadeDeploySlots(
+            track.copy(entryDone = true, exitDone = true, activeHost = ""),
+            failed = false,
+            finishedSuccess = true,
+        )
+        assertEquals(DeploySlotPhase.Done, finished[0].phase)
+        assertEquals(DeploySlotPhase.Done, finished[1].phase)
+
+        assertTrue(cascadeDeploySlots(DeployHopTrack(), failed = false, finishedSuccess = false).isEmpty())
+        assertTrue(deployProgressFinishedSuccess(busy = false, status = "Каскад установлен"))
+        assertFalse(deployProgressFinishedSuccess(busy = true, status = "Каскад установлен"))
+        assertTrue(deployProgressFailed(busy = false, status = "Ошибка: SSH"))
+        assertFalse(deployProgressFailed(busy = true, status = "Ошибка: SSH"))
+    }
+
+    @Test
+    fun cascadeSshUserDefaultsToRootAndKeyCanReplacePassword() {
+        assertEquals("root", deploySshUserOrRoot(""))
+        assertEquals("root", deploySshUserOrRoot("  "))
+        assertEquals("ubuntu", deploySshUserOrRoot("ubuntu"))
+        assertTrue(deploySshSecretMissing(password = "", privateKeyPem = ""))
+        assertFalse(deploySshSecretMissing(password = "x", privateKeyPem = ""))
+        assertFalse(deploySshSecretMissing(password = "", privateKeyPem = "PEM"))
     }
 
     @Test

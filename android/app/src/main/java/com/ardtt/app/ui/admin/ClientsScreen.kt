@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -62,6 +61,7 @@ import com.ardtt.app.ui.components.TabHeaderMetrics
 import com.ardtt.app.ui.components.ArdttBottomChrome
 import com.ardtt.app.ui.components.ArdttDialog
 import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.ArdttLinearProgress
 import com.ardtt.app.ui.components.PullRefreshHost
 import com.ardtt.app.ui.components.StickyPrimaryButton
 import com.ardtt.app.ui.components.rememberPullRefresh
@@ -837,11 +837,9 @@ private fun ClientCard(
                 overflow = TextOverflow.Ellipsis,
             )
             if (limit > 0L) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp),
+                ArdttLinearProgress(
+                    progress = progress,
+                    modifier = Modifier.height(4.dp),
                     color = trafficColor,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )

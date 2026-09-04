@@ -1,10 +1,12 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.ui.graphics.Color
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.ui.theme.ArdttColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -402,6 +404,14 @@ class NetworkConnectionMapTest {
         )
         assertTrue(
             shouldShowFilledHop(
+                kind = NetworkMapHopKind.Cloudflare,
+                ip = "",
+                earlierIps = emptyList(),
+                terminal = true,
+            ),
+        )
+        assertTrue(
+            shouldShowFilledHop(
                 NetworkMapHopKind.Vps,
                 ip = "45.129.2.3",
                 earlierIps = listOf("1.2.3.4"),
@@ -412,6 +422,14 @@ class NetworkConnectionMapTest {
                 NetworkMapHopKind.Cloudflare,
                 ip = "45.129.2.3",
                 earlierIps = listOf("45.129.2.3"),
+            ),
+        )
+        assertFalse(
+            shouldShowFilledHop(
+                kind = NetworkMapHopKind.Cloudflare,
+                ip = "45.129.2.3",
+                earlierIps = listOf("45.129.2.3"),
+                terminal = true,
             ),
         )
         assertTrue(
@@ -448,20 +466,65 @@ class NetworkConnectionMapTest {
     }
 
     @Test
-    fun lastFilledHopIsTheEgressCard() {
-        assertFalse(isLastFilledHop(index = 0, filledCount = 0))
-        assertTrue(isLastFilledHop(index = 0, filledCount = 1))
-        assertFalse(isLastFilledHop(index = 0, filledCount = 4))
-        assertTrue(isLastFilledHop(index = 3, filledCount = 4))
+    fun greenCardFollowsSettingsEgressHop() {
+        val standalone = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = false,
+        )
+        assertEquals(NetworkMapHopKind.Vps, terminalHopKind(standalone.hops))
+        assertFalse(hopCardHighlighted(NetworkMapHopKind.Provider, terminalHopKind(standalone.hops)))
+        assertTrue(hopCardHighlighted(NetworkMapHopKind.Vps, terminalHopKind(standalone.hops)))
+
+        val cascade = layout(
+            profileHost = "45.129.2.3",
+            server = server(
+                host = "45.129.2.3",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+            hideIp = false,
+        )
+        val cascadeTerm = terminalHopKind(cascade.hops)
+        assertEquals(NetworkMapHopKind.Vps2, cascadeTerm)
+        assertFalse(hopCardHighlighted(NetworkMapHopKind.Vps1, cascadeTerm))
+        assertTrue(hopCardHighlighted(NetworkMapHopKind.Vps2, cascadeTerm))
+
+        val hideIp = layout(
+            profileHost = "45.129.2.3",
+            server = server(
+                host = "45.129.2.3",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+            hideIp = true,
+        )
+        val hideTerm = terminalHopKind(hideIp.hops)
+        assertEquals(NetworkMapHopKind.Cloudflare, hideTerm)
+        assertFalse(hopCardHighlighted(NetworkMapHopKind.Vps2, hideTerm))
+        assertTrue(hopCardHighlighted(NetworkMapHopKind.Cloudflare, hideTerm))
+
+        val down = layout(
+            profileHost = "45.129.2.3",
+            server = server("45.129.2.3"),
+            hideIp = true,
+            sessionUp = false,
+        )
+        assertNull(terminalHopKind(down.hops))
+        assertFalse(hopCardHighlighted(NetworkMapHopKind.Provider, terminalHopKind(down.hops)))
     }
 
     @Test
-    fun earlierHopsUseGrayOutline() {
-        assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 3))
-        assertEquals(HopCardOutline.Other, hopCardOutline(index = 1, filledCount = 3))
-        assertEquals(HopCardOutline.Last, hopCardOutline(index = 2, filledCount = 3))
-        assertEquals(HopCardOutline.Last, hopCardOutline(index = 0, filledCount = 1))
-        assertEquals(HopCardOutline.Other, hopCardOutline(index = 0, filledCount = 0))
+    fun hopMapGrayStrokeDropsBlueCastAndMatchesCardRim() {
+        val outline = Color(0xFFB2C2D7)
+        val gray = hopMapGrayStroke(outline)
+        assertEquals(gray.red, gray.green, 1e-5f)
+        assertEquals(gray.green, gray.blue, 1e-5f)
+        assertEquals(gray, hopCardStrokeColor(highlighted = false, outline = outline, connected = ArdttColors.connected))
+        assertEquals(
+            ArdttColors.connected,
+            hopCardStrokeColor(highlighted = true, outline = outline, connected = ArdttColors.connected),
+        )
     }
 
     @Test
