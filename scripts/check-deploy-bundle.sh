@@ -36,6 +36,24 @@ if [ -f "$INSTALLER" ]; then
   grep -q 'ARDTT_ROLE' "$INSTALLER" || err "installer missing ARDTT_ROLE"
   grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
   grep -q 'prepare_docker_build' "$INSTALLER" || err "installer missing prepare_docker_build (dangling image prune)"
+  grep -q 'foreign_docker_workloads' "$INSTALLER" || err "installer must detect other Docker workloads on a shared VPS"
+  grep -q 'cleanup_host_dataplane' "$INSTALLER" || err "installer must strip leftover host TUN/iptables after the old host-net stack"
+  grep -q 'пропускаем builder prune -af и restart dockerd' "$INSTALLER" || err "installer must not restart dockerd when other containers exist"
+  grep -q 'COMPOSE_PROFILES' "$INSTALLER" || err "installer missing COMPOSE_PROFILES (isolated vs hostnet)"
+  grep -q 'ARDTT_NETWORK_MODE' "$INSTALLER" || err "installer missing ARDTT_NETWORK_MODE"
+  grep -q 'docker exec ardtt' "$INSTALLER" || err "installer health must exec the unified ardtt container"
+  grep -q 'container_name: ardtt' "$COMPOSE" || err "compose missing unified container_name ardtt"
+  grep -q 'profiles: \["isolated"\]' "$COMPOSE" || err "compose missing isolated profile"
+  grep -q 'profiles: \["hostnet"\]' "$COMPOSE" || err "compose missing hostnet profile"
+  grep -q 'network_mode: host' "$COMPOSE" || err "compose missing hostnet fallback"
+  grep -q '/dev/net/tun' "$COMPOSE" || err "compose missing /dev/net/tun"
+  grep -q 'NET_ADMIN' "$COMPOSE" || err "compose missing NET_ADMIN"
+  [ -f "$ROOT/server/Dockerfile" ] || err "missing server/Dockerfile (unified image)"
+  [ -f "$ROOT/server/entrypoint.sh" ] || err "missing server/entrypoint.sh"
+  bash -n "$ROOT/server/entrypoint.sh" || err "bash -n failed for server/entrypoint.sh"
+  if grep -qE 'build:[[:space:]]*\./provision' "$COMPOSE"; then
+    err "compose still builds split provision image — use the unified Dockerfile"
+  fi
   grep -q 'reset_docker_buildkit' "$INSTALLER" || err "installer missing reset_docker_buildkit (wipe /var/lib/docker/buildkit)"
   grep -q 'Подготовка: очистка кэша Docker' "$INSTALLER" || err "installer must clean Docker junk at the start of an update"
   grep -q 'docker buildx prune -af' "$INSTALLER" || err "installer must prune buildx cache, not only builder"
@@ -97,29 +115,19 @@ if [ -f "$BUNDLE_KT" ]; then
   fi
 fi
 
+for context in provision direct bypass dns warp telemetry-upload; do
+  [ -d "$ROOT/server/$context" ] || err "missing server/$context (needed in the deploy tar)"
+done
+[ -f "$ROOT/server/Dockerfile" ] || err "missing unified server/Dockerfile"
+grep -q 'ARG TARGETARCH=amd64' "$ROOT/server/Dockerfile" \
+  || err "Dockerfile TARGETARCH must default to amd64"
+[ -f "$ROOT/server/entrypoint.sh" ] || err "missing unified server/entrypoint.sh"
+[ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
 if [ -f "$COMPOSE" ]; then
+  grep -q 'container_name: ardtt' "$COMPOSE" || err "compose missing ardtt"
   grep -q 'TELEMETRY_LISTEN: \${TELEMETRY_LISTEN' "$COMPOSE" || err "compose must interpolate TELEMETRY_LISTEN from .env"
   if grep -q 'ARDTT_TELEMETRY_LISTEN:-0.0.0.0:9200' "$COMPOSE"; then
     err "compose still defaults telemetry from ARDTT_TELEMETRY_LISTEN (install.sh writes TELEMETRY_LISTEN)"
-  fi
-fi
-
-for context in provision direct bypass dns warp telemetry-upload; do
-  [ -d "$ROOT/server/$context" ] || err "missing server/$context (needed in the deploy tar)"
-  if [ -f "$COMPOSE" ] && ! grep -Eq "build:[[:space:]]*(\\./)?${context}([[:space:]]|$)" "$COMPOSE"; then
-    err "docker-compose.yml has no build context for $context"
-  fi
-done
-[ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
-if [ -f "$COMPOSE" ]; then
-  grep -q 'container_name: ardtt-cascade' "$COMPOSE" || err "compose missing ardtt-cascade"
-  if awk '
-    $0 ~ /^  warp:/ { in_warp=1; next }
-    in_warp && $0 ~ /^  [a-z]/ { in_warp=0 }
-    in_warp && $0 ~ /^[[:space:]]+- dns[[:space:]]*$/ { found=1 }
-    END { exit found ? 0 : 1 }
-  ' "$COMPOSE"; then
-    err "warp must not depend_on dns (cascade entry does not start dns)"
   fi
 fi
 bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n failed for cascade-entrypoint.sh"
@@ -130,8 +138,32 @@ fi
 if [ -f "$ROOT/scripts/test-warp-hideip-prefixes.sh" ]; then
   bash "$ROOT/scripts/test-warp-hideip-prefixes.sh" || err "warp hideIp prefixes"
 fi
-grep -q 'wireproxy' "$ROOT/server/warp/Dockerfile" || err "warp Dockerfile missing wireproxy"
-grep -q 'tun2socks' "$ROOT/server/warp/Dockerfile" || err "warp Dockerfile missing tun2socks"
+grep -q 'wireproxy' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing wireproxy"
+grep -q 'tun2socks' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing tun2socks"
+if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/warp/entrypoint.sh" >/dev/null; then
+  err "warp must not write net.ipv4.conf.all.rp_filter (breaks other host services)"
+fi
+if grep -E '^[^#]*conf/\*/rp_filter' "$ROOT/server/direct/cascade-entrypoint.sh" >/dev/null; then
+  err "cascade must not write every iface rp_filter (breaks other host services)"
+fi
+if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/direct/cascade-entrypoint.sh" >/dev/null; then
+  err "cascade must not write net.ipv4.conf.all.rp_filter (breaks other host services)"
+fi
+grep -q 'ARDTT_CASCADE_ROLE:-${ARDTT_ROLE:-entry}' "$ROOT/server/direct/cascade-entrypoint.sh" \
+  || err "cascade must inherit ARDTT_ROLE so the exit hop listens on UDP"
+grep -q 'ARDTT_CASCADE_ROLE: ${ARDTT_ROLE:-entry}' "$COMPOSE" \
+  || err "compose must pass ARDTT_CASCADE_ROLE from ARDTT_ROLE"
+grep -q 'ARDTT_WARP_STATE:-/data/warp' "$ROOT/server/warp/entrypoint.sh" \
+  || err "warp default state dir must be /data/warp"
+grep -q 'ARDTT_WARP_STATE: /data/warp' "$COMPOSE" || err "compose must persist WARP on /data/warp"
+if grep -q '/var/lib/ardtt-warp' "$COMPOSE"; then
+  err "compose must not use ephemeral /var/lib/ardtt-warp for WARP state"
+fi
+grep -q 'ARDTT_CASCADE_ROLE=$ROLE' "$INSTALLER" || err "installer must write ARDTT_CASCADE_ROLE"
+grep -q 'DIRECT_PORT="$CASCADE_LISTEN_PORT"' "$INSTALLER" \
+  || err "exit install must publish cascade UDP via DIRECT_PORT"
+grep -Fq 'iif (awg0|wdttraw0|warp0|cascade0)' "$INSTALLER" \
+  || err "host dataplane cleanup must not delete foreign lookup 51820 rules"
 
 if [ "$fail" -ne 0 ]; then
   msg "deploy bundle check failed"

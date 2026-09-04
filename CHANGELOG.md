@@ -1,3 +1,28 @@
+# ARDTT v0.5.227
+
+Клиент **0.5.227** (`versionCode` 245). Серверный стек **1.0.33** (`DEPLOY_VERSION`).
+
+## 0.5.227
+
+- «Удалить сервер»: на выделенном VPS снимаются и следы Docker в iptables/ip6tables (`DOCKER*` chains, MASQ `docker0`/`br-*`, raw DROP), ufw-правила даже при inactive ufw, `/etc/containerd`, `/swapfile` и apt-пакеты Docker.
+
+# ARDTT v0.5.226
+
+Клиент **0.5.226** (`versionCode` 244). Серверный стек **1.0.33** (`DEPLOY_VERSION`).
+
+## 0.5.226
+
+- «Удалить сервер»: полный wipe. Снимаются контейнеры, образы ARDTT, leftover TUN/iptables/ip-rule, правила ufw/firewalld, `/opt/ardtt`. Если на VPS нет чужих контейнеров — также Docker Engine, `docker0`, `/swapfile` установщика и apt-репозиторий Docker.
+
+# ARDTT v0.5.225
+
+Клиент **0.5.225** (`versionCode` 243). Серверный стек **1.0.33** (`DEPLOY_VERSION`).
+
+## 0.5.225
+
+- Сервер: единый контейнер `ardtt` вместо семи `network_mode: host`. По умолчанию своя netns и публикация только портов ARDTT — деплой на уже занятом VPS не перехватывает iptables/sysctl/ip-rule чужих сервисов и не останавливает dockerd, если рядом крутятся другие контейнеры. Запасной режим `ARDTT_NETWORK_MODE=hostnet`.
+- Стек 1.0.33: каскадный выход снова слушает UDP (`ARDTT_ROLE` → cascade), учётка WARP живёт в `data/warp`, cascade не трогает `rp_filter` чужих интерфейсов.
+
 # ARDTT v0.5.224
 
 Клиент **0.5.224** (`versionCode` 242). Серверный стек **1.0.31** (`DEPLOY_VERSION`).
@@ -134,6 +159,9 @@
 
 | Релиз | Суть |
 |-------|------|
+| 0.5.227 | Uninstall: iptables/ip6tables Docker, ufw при inactive, containerd dirs |
+| 0.5.226 | Uninstall полностью снимает Docker/swap, если на VPS нет чужих контейнеров |
+| 0.5.225 | Единый контейнер деплоя (isolated netns); стек 1.0.33 чинит cascade/WARP |
 | 0.5.224 | «Сеть»: карточки сохраняются до отключения VPN |
 | 0.5.223 | «Удалить» сервер: uninstall на VPS, затем карточка |
 | 0.5.222 | Карточка сервера: IP каскада `вход-выход`; «Установить деплой» |

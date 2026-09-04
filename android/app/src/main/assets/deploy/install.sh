@@ -65,10 +65,133 @@ migrate_legacy_install_dir() {
   fi
 }
 
+ARDTT_CONTAINER_NAMES="ardtt ardtt-host ardtt-provision ardtt-direct ardtt-bypass ardtt-dns ardtt-warp ardtt-telemetry ardtt-cascade nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade"
+
 drop_legacy_containers() {
-  docker rm -f \
-    nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade \
-    >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  docker rm -f $ARDTT_CONTAINER_NAMES >/dev/null 2>&1 || true
+}
+
+# True if Docker is already running workloads that are not ARDTT.
+# Used to refuse dockerd restarts, builder prune -af, swap shrink, and
+# container prune that would take down someone else's stack on a shared VPS.
+foreign_docker_workloads() {
+  command -v docker >/dev/null 2>&1 || return 1
+  docker info >/dev/null 2>&1 || return 1
+  local names
+  names="$(docker ps -a --format '{{.Names}}' 2>/dev/null || true)"
+  [ -n "$names" ] || return 1
+  echo "$names" | grep -vE '^(ardtt|nvpn-|stack-|buildx_buildkit_)' | grep -q .
+}
+
+# After stopping the old host-network stack, leftover TUN / iptables / ip rules
+# on the VPS would keep breaking nginx, other VPNs, and Docker bridge traffic.
+cleanup_host_dataplane() {
+  echo "ARDTT_INFO|снимаем leftover awg0/warp0/iptables/ip-rule с хоста"
+  local iface proto net fr pref n table chain comment
+  for iface in awg0 wdttraw0 warp0 cascade0; do
+    ip link del "$iface" 2>/dev/null || true
+  done
+  rm -f /etc/wireguard/warp0.conf 2>/dev/null || true
+  # Snapshot first. Skip foreign WireGuard that happens to use table 51820.
+  while IFS= read -r fr; do
+    [ -n "$fr" ] || continue
+    echo "$fr" | grep -Eq 'from 10\.(8|9)\.|from 10\.10\.0\.|from 10\.99\.99\.|iif (awg0|wdttraw0|warp0|cascade0)' || continue
+    pref="$(echo "$fr" | cut -d: -f1 | tr -d '[:space:]')"
+    [ -n "$pref" ] && ip rule del pref "$pref" 2>/dev/null || true
+  done <<< "$(ip rule show 2>/dev/null | grep "lookup 51820" || true)"
+  for iface in awg0 wdttraw0 cascade0; do
+    for proto in udp tcp; do
+      ip rule del iif "$iface" ipproto "$proto" dport 53 lookup main 2>/dev/null || true
+    done
+  done
+  for net in 10.8.0.0/24 10.9.0.0/24 10.10.0.0/30 10.99.99.0/24 127.0.0.0/8; do
+    ip rule del to "$net" lookup main 2>/dev/null || true
+  done
+  command -v iptables >/dev/null 2>&1 || return 0
+  for comment in AWG_DIRECT_MANAGED ARDTT_BYPASS_MANAGED ARDTT_WARP_MANAGED ARDTT_WARP_DNS_MAIN ARDTT_CASCADE_WAN_MASQ ARDTT_CASCADE_MANAGED; do
+    for table in filter nat mangle; do
+      for chain in INPUT FORWARD POSTROUTING PREROUTING OUTPUT; do
+        while true; do
+          n="$(iptables -t "$table" -L "$chain" --line-numbers -n 2>/dev/null \
+            | grep -F "$comment" | awk '{print $1}' | tail -1 || true)"
+          [ -n "$n" ] || break
+          iptables -t "$table" -D "$chain" "$n" 2>/dev/null || break
+        done
+      done
+    done
+  done
+}
+
+migrate_bypass_volume() {
+  local dest="$1/wdtt"
+  mkdir -p "$dest"
+  if [ -n "$(ls -A "$dest" 2>/dev/null || true)" ]; then
+    return 0
+  fi
+  command -v docker >/dev/null 2>&1 || return 0
+  local vol img
+  img="${COMPOSE_PROJECT}-ardtt:latest"
+  for vol in "${COMPOSE_PROJECT}_bypass-config" stack_bypass-config bypass-config; do
+    docker volume inspect "$vol" >/dev/null 2>&1 || continue
+    echo "ARDTT_INFO|перенос паролей bypass из Docker volume $vol → data/wdtt"
+    if docker image inspect "$img" >/dev/null 2>&1; then
+      docker run --rm --network none --entrypoint cp \
+        -v "$vol":/from:ro -v "$dest":/to "$img" -a /from/. /to/ 2>/dev/null || true
+    fi
+    break
+  done
+}
+
+resolve_network_mode() {
+  local prev=""
+  NETWORK_MODE="${ARDTT_NETWORK_MODE:-${NVPN_NETWORK_MODE:-}}"
+  if [ -z "$NETWORK_MODE" ]; then
+    prev="$(env_file_val "$INSTALL_DIR/stack/.env" ARDTT_NETWORK_MODE)"
+    NETWORK_MODE="$prev"
+  fi
+  case "$NETWORK_MODE" in
+    host|hostnet)
+      NETWORK_MODE=hostnet
+      COMPOSE_PROFILES=hostnet
+      ;;
+    *)
+      NETWORK_MODE=isolated
+      COMPOSE_PROFILES=isolated
+      ;;
+  esac
+  export COMPOSE_PROFILES NETWORK_MODE
+}
+
+who_owns_port() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -lntup 2>/dev/null | grep -E "[.:]${port}[[:space:]]" | head -3 | tr '\n' ' ' | cut -c1-240
+  fi
+}
+
+udp_listen_port() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -lun 2>/dev/null | awk -v p=":${port}" '
+      $4 == p || $4 ~ (p "$") { found=1 }
+      END { exit !found }
+    '
+  elif command -v netstat >/dev/null 2>&1; then
+    netstat -lun 2>/dev/null | grep -Eq "[.:]${port}[[:space:]]"
+  else
+    return 1
+  fi
+}
+
+require_host_port() {
+  local proto="$1" port="$2" what="$3"
+  if [ "$proto" = udp ]; then
+    udp_listen_port "$port" || return 0
+  else
+    tcp_listen_port "$port" || return 0
+  fi
+  die "Порт ${port}/${proto} занят (${what}) — другой сервис на этом VPS. Освободите порт или задайте другой ARDTT_*_PORT. Сейчас: $(who_owns_port "$port")"
 }
 
 # An in-app "update" of the entry hop often omits cascade flags. Dropping them
@@ -108,6 +231,7 @@ preserve_live_cascade() {
 }
 migrate_legacy_install_dir
 preserve_live_cascade
+resolve_network_mode
 
 LOG_FILE="$(mktemp /tmp/ardtt-install.XXXXXX.log)"
 STAGING=""
@@ -146,6 +270,11 @@ wait_for_docker() {
 # Callers on tiny VPS must compose-down the VPN stack first.
 reset_docker_buildkit() {
   command -v docker >/dev/null 2>&1 || return 0
+  if foreign_docker_workloads; then
+    echo "ARDTT_WARN|пропускаем builder prune -af и restart dockerd — на хосте есть другие контейнеры"
+    docker image prune -f >/dev/null 2>&1 || true
+    return 0
+  fi
   docker builder prune -af >/dev/null 2>&1 || true
   docker buildx prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
@@ -180,6 +309,7 @@ restore_live_stack_if_needed() {
       COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose up -d
     fi
   ) >/dev/null 2>&1 || \
+    docker start ardtt ardtt-host >/dev/null 2>&1 || \
     docker start ardtt-provision ardtt-direct ardtt-bypass ardtt-dns ardtt-warp ardtt-telemetry ardtt-cascade >/dev/null 2>&1 || \
     docker start nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade >/dev/null 2>&1 || true
   STACK_STOPPED_FOR_BUILD=0
@@ -205,7 +335,9 @@ reclaim_disk() {
   cleanup_docker_build_junk
   cleanup_host_packages
   cleanup_stale_deploy_files
-  docker container prune -f >/dev/null 2>&1 || true
+  if ! foreign_docker_workloads; then
+    docker container prune -f >/dev/null 2>&1 || true
+  fi
   rm -f /var/log/*.gz /var/log/*.1 2>/dev/null || true
   if command -v journalctl >/dev/null 2>&1; then
     journalctl --vacuum-size=32M >/dev/null 2>&1 || true
@@ -258,33 +390,19 @@ swap_target_mb() {
 }
 
 role_build_services() {
-  if [ "$ROLE" = "exit" ]; then
-    echo "provision direct dns warp telemetry"
-  elif [ "$CASCADE_ENABLED" = "1" ]; then
-    echo "provision direct bypass warp telemetry"
+  if [ "${COMPOSE_PROFILES:-isolated}" = "hostnet" ]; then
+    echo "ardtt-host"
   else
-    echo "provision direct bypass dns warp telemetry"
+    echo "ardtt"
   fi
 }
 
 role_up_services() {
-  if [ "$ROLE" = "exit" ]; then
-    echo "provision cascade dns warp telemetry"
-  elif [ "$CASCADE_ENABLED" = "1" ]; then
-    echo "provision direct bypass warp cascade telemetry"
-  else
-    echo "provision direct bypass dns warp telemetry"
-  fi
+  role_build_services
 }
 
 role_image_names() {
-  if [ "$ROLE" = "exit" ]; then
-    echo "stack-provision stack-direct stack-dns stack-warp stack-telemetry"
-  elif [ "$CASCADE_ENABLED" = "1" ]; then
-    echo "stack-provision stack-direct stack-bypass stack-warp stack-telemetry"
-  else
-    echo "stack-provision stack-direct stack-bypass stack-dns stack-warp stack-telemetry"
-  fi
+  echo "${COMPOSE_PROJECT:-stack}-ardtt"
 }
 
 ensure_cascade_keys() {
@@ -293,15 +411,16 @@ ensure_cascade_keys() {
   if [ "$CASCADE_ENABLED" != "1" ] && [ "$ROLE" != "exit" ]; then
     return 0
   fi
-  if ! docker image inspect stack-direct:latest >/dev/null 2>&1; then
-    echo "ARDTT_WARN|нет образа stack-direct — ключи каскада создаст контейнер"
+  local img="${COMPOSE_PROJECT:-stack}-ardtt:latest"
+  if ! docker image inspect "$img" >/dev/null 2>&1; then
+    echo "ARDTT_WARN|нет образа $img — ключи каскада создаст контейнер"
     return 0
   fi
   if [ ! -s "$data/cascade.priv" ]; then
-    docker run --rm --network none --entrypoint awg stack-direct genkey >"$data/cascade.priv"
+    docker run --rm --network none --entrypoint awg "$img" genkey >"$data/cascade.priv"
     chmod 600 "$data/cascade.priv"
   fi
-  docker run --rm --network none -i --entrypoint awg stack-direct pubkey <"$data/cascade.priv" >"$data/cascade.pub"
+  docker run --rm --network none -i --entrypoint awg "$img" pubkey <"$data/cascade.priv" >"$data/cascade.pub"
   chmod 644 "$data/cascade.pub" 2>/dev/null || true
   if [ -n "$CASCADE_PEER_PUBLIC_KEY" ]; then
     printf '%s\n' "$CASCADE_PEER_PUBLIC_KEY" >"$data/cascade.peer.pub"
@@ -395,7 +514,8 @@ ensure_swap() {
   used_swap="$(awk '/SwapTotal:/{t=$2} /SwapFree:/{f=$2} END{printf "%d", (t-f)/1024}' /proc/meminfo 2>/dev/null || echo 0)"
   # A 2G swapfile on an 8G rootfs is leftover from the first install. Shrink it
   # when the disk is tight and almost none of that swap is actually in use.
-  if [ -f /swapfile ] && [ "${file_mb:-0}" -gt $((need_mb + 96)) ] &&
+  # Never rewrite swap on a shared VPS — swapoff can freeze other services.
+  if ! foreign_docker_workloads && [ -f /swapfile ] && [ "${file_mb:-0}" -gt $((need_mb + 96)) ] &&
      [ "${avail_mb:-0}" -lt 2200 ] && [ "${used_swap:-0}" -lt 400 ]; then
     echo "ARDTT_INFO|сжимаем swapfile ${file_mb} → ${need_mb} МБ (свободно ${avail_mb} МБ)"
     swapoff /swapfile 2>/dev/null || true
@@ -451,13 +571,11 @@ ensure_swap() {
 stop_stack() {
   local dir="$1"
   if [ -f "$dir/docker-compose.yml" ]; then
-    (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose down) 2>/dev/null || \
-      (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose down) 2>/dev/null || \
-      docker rm -f \
-        ardtt-provision ardtt-direct ardtt-bypass ardtt-dns ardtt-warp ardtt-telemetry ardtt-cascade \
-        nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade \
-        >/dev/null 2>&1 || true
+    (cd "$dir" && COMPOSE_PROFILES=isolated,hostnet COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose down --remove-orphans) 2>/dev/null || \
+      (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose down --remove-orphans) 2>/dev/null || true
   fi
+  # shellcheck disable=SC2086
+  docker rm -f $ARDTT_CONTAINER_NAMES >/dev/null 2>&1 || true
 }
 
 PROG_ROLE="вход (клиенты)"
@@ -501,11 +619,13 @@ fi
 prog 0.22 "Проверка состава стека"
 missing_contexts=""
 for context in provision direct bypass dns warp telemetry-upload; do
-  if grep -Eq "build:[[:space:]]*(\\./)?${context}([[:space:]]|$)" "$STAGING/docker-compose.yml" 2>/dev/null &&
-     [ ! -d "$STAGING/$context" ]; then
+  if [ ! -d "$STAGING/$context" ]; then
     missing_contexts="$missing_contexts $context"
   fi
 done
+if [ ! -f "$STAGING/Dockerfile" ] || [ ! -f "$STAGING/entrypoint.sh" ]; then
+  missing_contexts="$missing_contexts Dockerfile/entrypoint.sh"
+fi
 if [ -n "$missing_contexts" ]; then
   die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Обновите APK или пересоберите архив scripts/pack-deploy-assets.sh"
 fi
@@ -606,18 +726,23 @@ if [ "$ROLE" = "exit" ]; then
   WARP_MODE="exit-hideip"
   WARP_DNS_IFACES="cascade0"
   WARP_HIDEIP_URL="http://10.10.0.1:9100/v1/hide-ip-prefixes"
+  # Isolated compose publishes ARDTT_DIRECT_PORT. Exit listens on cascade UDP.
+  DIRECT_PORT="$CASCADE_LISTEN_PORT"
 fi
 cat > "$STAGING/.env" <<EOF
 ARDTT_PUBLIC_HOST=$PUBLIC_HOST
 ARDTT_DIRECT_PORT=$DIRECT_PORT
 ARDTT_BYPASS_PORT=$BYPASS_PORT
 ARDTT_PROVISION_LISTEN=$PROVISION_LISTEN
+ARDTT_PROVISION_PORT=9100
 ARDTT_DEPLOY_VERSION=$DEPLOY_VERSION
 ARDTT_WARP_GOMEMLIMIT=256MiB
 TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
 ARDTT_TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
 ARDTT_TELEMETRY_PORT=${TELEMETRY_PORT}
+ARDTT_SKIP_TELEMETRY=0
 ARDTT_ROLE=$ROLE
+ARDTT_CASCADE_ROLE=$ROLE
 ARDTT_CASCADE_ENABLED=$CASCADE_ENABLED
 ARDTT_CASCADE_LISTEN_PORT=$CASCADE_LISTEN_PORT
 ARDTT_CASCADE_PEER_ENDPOINT=$CASCADE_PEER_ENDPOINT
@@ -627,6 +752,8 @@ ARDTT_BYPASS_DNS=$BYPASS_DNS
 ARDTT_WARP_MODE=$WARP_MODE
 ARDTT_WARP_DNS_IIFACES="$WARP_DNS_IFACES"
 ARDTT_WARP_HIDEIP_URL=$WARP_HIDEIP_URL
+ARDTT_NETWORK_MODE=$NETWORK_MODE
+COMPOSE_PROFILES=$COMPOSE_PROFILES
 COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT
 EOF
 load_stack_env "$STAGING/.env"
@@ -649,7 +776,7 @@ if [ "${ARDTT_DRY_RUN:-${NVPN_DRY_RUN:-0}}" = "1" ]; then
   STAGING=""
   rm -rf "$INSTALL_DIR/stack.old"
   prog 1.00 "dry-run: стек подготовлен"
-  echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION"
+  echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=$NETWORK_MODE"
   exit 0
 fi
 
@@ -676,14 +803,22 @@ if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
   fi
   reset_docker_buildkit
   sync
-  echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
+  if foreign_docker_workloads; then
+    echo "ARDTT_WARN|не сбрасываем page cache — на хосте есть другие контейнеры"
+  else
+    echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
+  fi
   echo "ARDTT_INFO|после сброса RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
-  prog 0.50 "Сборка образов"
+  prog 0.50 "Сборка единого образа"
 else
   prog 0.48 "Очистка кэша сборки Docker"
-  docker builder prune -af >/dev/null 2>&1 || true
-  docker buildx prune -af >/dev/null 2>&1 || true
-  prog 0.50 "Сборка образов (старый стек ещё работает)"
+  if foreign_docker_workloads; then
+    echo "ARDTT_WARN|пропускаем builder prune -af — на хосте есть другие контейнеры"
+  else
+    docker builder prune -af >/dev/null 2>&1 || true
+    docker buildx prune -af >/dev/null 2>&1 || true
+  fi
+  prog 0.50 "Сборка единого образа (старый стек ещё работает)"
 fi
 cd "$STAGING"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
@@ -743,6 +878,8 @@ prog 0.74 "Остановка старого стека и переключен�
 if [ -d "$STACK" ]; then
   stop_stack "$STACK"
 fi
+cleanup_host_dataplane
+modprobe tun 2>/dev/null || true
 
 # Preserve live data from the previous stack.
 if [ -d "$STACK/data" ]; then
@@ -764,33 +901,41 @@ if [ -d /tmp/ardtt-data-bak ]; then
 fi
 # Carry .env we wrote in staging (already inside $STACK after mv).
 chmod 700 "$STACK/data" 2>/dev/null || true
+migrate_bypass_volume "$STACK/data"
+mkdir -p "$STACK/data/wdtt" "$STACK/data/warp"
 
 if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
   prog 0.76 "Ключи каскадного AWG"
   ensure_cascade_keys "$STACK/data"
 fi
 
-# Remove only legacy/unmanaged ardtt containers. Compose-managed containers are
-# left intact and will be recreated normally.
 drop_legacy_containers
-for managed_name in ardtt-provision ardtt-direct ardtt-bypass ardtt-dns ardtt-warp ardtt-telemetry ardtt-cascade; do
-  if docker inspect "$managed_name" >/dev/null 2>&1; then
-    compose_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$managed_name" 2>/dev/null || true)"
-    if [ -z "$compose_project" ] || [ "$compose_project" = "<no value>" ]; then
-      echo "ARDTT_WARN|Удаляется устаревший unmanaged-контейнер $managed_name"
-      docker rm -f "$managed_name" >/dev/null
-    fi
-  fi
-done
 
-prog 0.78 "Запуск Compose"
+prog 0.77 "Проверка портов на хосте"
+SKIP_TELEMETRY=0
+if tcp_listen_port "$TELEMETRY_PORT"; then
+  echo "ARDTT_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — внутри контейнера telemetry не стартуем. Задайте ARDTT_TELEMETRY_PORT"
+  SKIP_TELEMETRY=1
+  sed -i '/ARDTT_TELEMETRY_PORT.*9200\/tcp/d' "$STACK/docker-compose.yml" 2>/dev/null || true
+fi
+if [ "$ROLE" = "exit" ]; then
+  sed -i '/ARDTT_BYPASS_PORT.*udp/d' "$STACK/docker-compose.yml" 2>/dev/null || true
+  require_host_port udp "$CASCADE_LISTEN_PORT" "каскад AmneziaWG"
+else
+  require_host_port udp "$DIRECT_PORT" "Direct AmneziaWG"
+  require_host_port udp "$BYPASS_PORT" "Bypass RAW"
+fi
+require_host_port tcp 9100 "provision /health"
+if [ "$SKIP_TELEMETRY" = 1 ]; then
+  sed -i 's/^ARDTT_SKIP_TELEMETRY=.*/ARDTT_SKIP_TELEMETRY=1/' "$STACK/.env"
+fi
+export ARDTT_SKIP_TELEMETRY="$SKIP_TELEMETRY"
+
+prog 0.78 "Запуск единого контейнера"
 cd "$STACK"
 load_stack_env "$STACK/.env"
+export COMPOSE_PROFILES="${COMPOSE_PROFILES:-isolated}"
 UP_SERVICES="$(role_up_services)"
-if tcp_listen_port "$TELEMETRY_PORT"; then
-  echo "ARDTT_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — ardtt-telemetry не запускаем. Освободите порт или задайте ARDTT_TELEMETRY_PORT"
-  UP_SERVICES="$(echo "$UP_SERVICES" | sed 's/ telemetry//')"
-fi
 UP_LOG="$(mktemp /tmp/ardtt-compose-up.XXXXXX.log)"
 if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d $UP_SERVICES 2>&1 | tee "$UP_LOG"; then
   up_tail="$(tail -n 20 "$UP_LOG" | tr '\n' ' ' | cut -c1-1000)"
@@ -807,78 +952,66 @@ cleanup_host_packages
 
 prog 0.85 "Проверка health"
 sleep 3
-if curl -fsS "http://127.0.0.1:9100/health" >/dev/null 2>&1; then
+if curl -fsS "http://127.0.0.1:9100/health" >/dev/null 2>&1 || \
+   docker exec ardtt curl -fsS "http://127.0.0.1:9100/health" >/dev/null 2>&1; then
   prog 0.92 "provision /health OK"
 else
-  echo "ARDTT_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml logs"
+  echo "ARDTT_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml --profile ${COMPOSE_PROFILES} logs"
 fi
-if echo "$UP_SERVICES" | grep -qw telemetry; then
+if [ "$SKIP_TELEMETRY" != 1 ]; then
   if curl -fsS --max-time 3 "http://127.0.0.1:${TELEMETRY_PORT}/health" >/dev/null 2>&1; then
     prog 0.93 "telemetry /health OK"
   else
-    echo "ARDTT_WARN|telemetry :${TELEMETRY_PORT} не отвечает — логи тестирования не примут. cd $STACK && docker compose --env-file .env up -d --no-deps telemetry"
+    echo "ARDTT_WARN|telemetry :${TELEMETRY_PORT} не отвечает — логи тестирования не примут"
   fi
 fi
-if echo "$UP_SERVICES" | grep -qw warp; then
-  if docker inspect -f '{{.State.Running}}' ardtt-warp 2>/dev/null | grep -qx true; then
-    prog 0.935 "ardtt-warp running"
-  else
-    echo "ARDTT_WARN|ardtt-warp не запущен — Hide-IP на этом хосте не применится. cd $STACK && docker compose --env-file .env up -d --no-deps --build warp"
-  fi
+if docker inspect -f '{{.State.Running}}' ardtt 2>/dev/null | grep -qx true; then
+  prog 0.935 "контейнер ardtt running"
+else
+  echo "ARDTT_WARN|контейнер ardtt не запущен — cd $STACK && docker compose --env-file .env --profile ${COMPOSE_PROFILES} up -d"
 fi
-if docker exec ardtt-provision test -s /data/users.json 2>/dev/null; then
+if docker exec ardtt test -s /data/users.json 2>/dev/null; then
   prog 0.94 "provision видит /data/users.json"
 else
-  echo "ARDTT_WARN|provision не видит /data/users.json — контейнер, скорее всего, на старом inode. Выполните: cd $STACK && docker compose up -d --force-recreate"
+  echo "ARDTT_WARN|provision не видит /data/users.json — контейнер, скорее всего, на старом inode. Выполните: cd $STACK && docker compose --profile ${COMPOSE_PROFILES} up -d --force-recreate"
 fi
+
+host_allow_port() {
+  local proto="$1" port="$2"
+  if command -v ufw >/dev/null 2>&1; then
+    ufw allow "${port}/${proto}" || true
+  fi
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    firewall-cmd --add-port="${port}/${proto}" --permanent || true
+  fi
+  # Raw iptables -I INPUT only in host netns: isolated mode uses Docker publish.
+  if [ "${COMPOSE_PROFILES}" = "hostnet" ] && command -v iptables >/dev/null 2>&1; then
+    if [ "$proto" = udp ]; then
+      iptables -C INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT -p udp --dport "$port" -j ACCEPT || true
+    else
+      iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT -p tcp --dport "$port" -j ACCEPT || true
+    fi
+  fi
+}
 
 prog 0.96 "Открытие портов (best-effort)"
 if [ "$ROLE" = "exit" ]; then
-  if command -v ufw >/dev/null 2>&1; then
-    ufw allow "${CASCADE_LISTEN_PORT}/udp" || true
-    ufw allow 9100/tcp || true
-    ufw allow "${TELEMETRY_PORT}/tcp" || true
-  fi
-  if command -v firewall-cmd >/dev/null 2>&1; then
-    firewall-cmd --add-port="${CASCADE_LISTEN_PORT}/udp" --permanent || true
-    firewall-cmd --add-port=9100/tcp --permanent || true
-    firewall-cmd --add-port="${TELEMETRY_PORT}/tcp" --permanent || true
-    firewall-cmd --reload || true
-  fi
-  if command -v iptables >/dev/null 2>&1; then
-    iptables -C INPUT -p udp --dport "$CASCADE_LISTEN_PORT" -j ACCEPT 2>/dev/null || \
-      iptables -I INPUT -p udp --dport "$CASCADE_LISTEN_PORT" -j ACCEPT || true
-    iptables -C INPUT -p tcp --dport 9100 -j ACCEPT 2>/dev/null || \
-      iptables -I INPUT -p tcp --dport 9100 -j ACCEPT || true
-    iptables -C INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT 2>/dev/null || \
-      iptables -I INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT || true
-  fi
+  host_allow_port udp "$CASCADE_LISTEN_PORT"
 else
-if command -v ufw >/dev/null 2>&1; then
-  ufw allow "${DIRECT_PORT}/udp" || true
-  ufw allow "${BYPASS_PORT}/udp" || true
-  ufw allow 9100/tcp || true
-  ufw allow "${TELEMETRY_PORT}/tcp" || true
+  host_allow_port udp "$DIRECT_PORT"
+  host_allow_port udp "$BYPASS_PORT"
+fi
+host_allow_port tcp 9100
+if [ "$SKIP_TELEMETRY" != 1 ]; then
+  host_allow_port tcp "$TELEMETRY_PORT"
 fi
 if command -v firewall-cmd >/dev/null 2>&1; then
-  firewall-cmd --add-port="${DIRECT_PORT}/udp" --permanent || true
-  firewall-cmd --add-port="${BYPASS_PORT}/udp" --permanent || true
-  firewall-cmd --add-port=9100/tcp --permanent || true
-  firewall-cmd --add-port="${TELEMETRY_PORT}/tcp" --permanent || true
   firewall-cmd --reload || true
-fi
-if command -v iptables >/dev/null 2>&1; then
-  iptables -C INPUT -p udp --dport "$DIRECT_PORT" -j ACCEPT 2>/dev/null || \
-    iptables -I INPUT -p udp --dport "$DIRECT_PORT" -j ACCEPT || true
-  iptables -C INPUT -p udp --dport "$BYPASS_PORT" -j ACCEPT 2>/dev/null || \
-    iptables -I INPUT -p udp --dport "$BYPASS_PORT" -j ACCEPT || true
-  iptables -C INPUT -p tcp --dport 9100 -j ACCEPT 2>/dev/null || \
-    iptables -I INPUT -p tcp --dport 9100 -j ACCEPT || true
-  iptables -C INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT 2>/dev/null || \
-    iptables -I INPUT -p tcp --dport "$TELEMETRY_PORT" -j ACCEPT || true
-fi
 fi
 
 prog 1.00 "Готово"
-echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|role=$ROLE|cascade=$CASCADE_ENABLED"
-echo "Создать пользователя: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"
+echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=$NETWORK_MODE"
+echo "Создать пользователя: docker exec ardtt provision -cmd create-user -name USER -data /data"
+
