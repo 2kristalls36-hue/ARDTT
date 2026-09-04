@@ -34,6 +34,8 @@ class ServerUninstallTest {
         assertTrue(cmd.contains("sed -i"))
         assertTrue(cmd.contains("ufw --force delete allow"))
         assertTrue(cmd.contains("host_drop_port"))
-        assertTrue("shared VPS must keep Docker", cmd.contains("Чужие контейнеры есть"))
+        assertTrue(cmd.contains("wait_apt_lock"))
+        assertTrue(cmd.contains("docker-model-plugin"))
+        assertTrue(cmd.contains("DOCKER-FORWARD"))
     }
 }
