@@ -18,7 +18,7 @@ set -euo pipefail
 
 DATA="${ARDTT_DATA:-/data}"
 USERS="${DATA}/users.json"
-STATE_DIR="${ARDTT_WARP_STATE:-/var/lib/ardtt-warp}"
+STATE_DIR="${ARDTT_WARP_STATE:-/data/warp}"
 IFACE="${ARDTT_WARP_IFACE:-warp0}"
 TABLE="${ARDTT_WARP_TABLE:-51820}"
 MARK_COMMENT="ARDTT_WARP_MANAGED"

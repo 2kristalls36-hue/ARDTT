@@ -77,6 +77,7 @@ grep -q 'TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env telem
 grep -q 'ARDTT_TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env ARDTT_TELEMETRY_LISTEN alias"
 grep -q 'ARDTT_TELEMETRY_PORT=9200' "$INSTALL/stack/.env" || err ".env ARDTT_TELEMETRY_PORT"
 grep -q 'ARDTT_ROLE=entry' "$INSTALL/stack/.env" || err ".env default role entry"
+grep -q 'ARDTT_CASCADE_ROLE=entry' "$INSTALL/stack/.env" || err ".env default cascade role entry"
 grep -q 'ARDTT_CASCADE_ENABLED=0' "$INSTALL/stack/.env" || err ".env cascade off by default"
 grep -q '^ARDTT_NETWORK_MODE=isolated$' "$INSTALL/stack/.env" || err "default network mode must be isolated"
 grep -q '^COMPOSE_PROFILES=isolated$' "$INSTALL/stack/.env" || err ".env COMPOSE_PROFILES=isolated"
@@ -138,13 +139,31 @@ run_exit() {
 out4="$(run_exit)" || err "exit-role install.sh exited $?"
 echo "$out4" | grep -q 'ARDTT_DONE|dry_run=1' || err "exit dry-run missing ARDTT_DONE"
 grep -q 'ARDTT_ROLE=exit' "$INSTALL/stack/.env" || err ".env role exit"
+grep -q 'ARDTT_CASCADE_ROLE=exit' "$INSTALL/stack/.env" || err "exit must set ARDTT_CASCADE_ROLE=exit"
 grep -q 'ARDTT_CASCADE_ENABLED=1' "$INSTALL/stack/.env" || err "exit forces cascade enabled"
 grep -q 'ARDTT_WARP_MODE=exit-hideip' "$INSTALL/stack/.env" || err "exit warp mode exit-hideip"
+grep -q 'ARDTT_DIRECT_PORT=51820' "$INSTALL/stack/.env" || err "exit default must publish cascade UDP 51820"
 grep -q 'ARDTT_WARP_HIDEIP_URL=http://10.10.0.1:9100/v1/hide-ip-prefixes' "$INSTALL/stack/.env" || err "exit hideIp URL"
 grep -Eq 'ARDTT_WARP_DNS_IIFACES=.*cascade0' "$INSTALL/stack/.env" || err "exit DNS iif cascade0"
 if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
   err "exit .env must not contain PASSWORD"
 fi
+
+run_exit_listen() {
+  ARDTT_INSTALL_DIR="$INSTALL" \
+  ARDTT_PUBLIC_HOST="203.0.113.10" \
+  ARDTT_ROLE=exit \
+  ARDTT_CASCADE_LISTEN_PORT=51821 \
+  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_SKIP_ROOT_CHECK=1 \
+  ARDTT_DRY_RUN=1 \
+  ARDTT_KEEP_INSTALL_LOG=1 \
+  bash "$INSTALL/install.sh"
+}
+cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
+out_exit_port="$(run_exit_listen)" || err "exit custom-listen install.sh exited $?"
+grep -q '^ARDTT_DIRECT_PORT=51821$' "$INSTALL/stack/.env" || err "exit custom cascade listen must publish the same UDP port"
+grep -q '^ARDTT_CASCADE_LISTEN_PORT=51821$' "$INSTALL/stack/.env" || err "exit custom cascade listen not written"
 
 run_hostnet() {
   ARDTT_INSTALL_DIR="$INSTALL" \

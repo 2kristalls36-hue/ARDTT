@@ -38,7 +38,7 @@ COPY bypass/sync/ /src/bypass-sync/
 RUN cd /src/bypass-sync && go build -o /out/bypass-sync .
 
 FROM debian:bookworm-slim
-ARG TARGETARCH
+ARG TARGETARCH=amd64
 ARG WGCF_VERSION=2.2.26
 ARG WIREPROXY_VERSION=1.1.2
 ARG TUN2SOCKS_VERSION=2.5.2
@@ -100,6 +100,7 @@ RUN chmod +x /entrypoint.sh /cascade-entrypoint.sh \
 ENV GOMEMLIMIT=256MiB \
     ARDTT_DATA=/data \
     ARDTT_WDTT_CONFIG=/data/wdtt \
+    ARDTT_WARP_STATE=/data/warp \
     TELEMETRY_LOG_ROOT=/var/logs/app \
     TELEMETRY_LISTEN=0.0.0.0:9200
 

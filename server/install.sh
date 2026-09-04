@@ -88,20 +88,18 @@ foreign_docker_workloads() {
 # on the VPS would keep breaking nginx, other VPNs, and Docker bridge traffic.
 cleanup_host_dataplane() {
   echo "ARDTT_INFO|снимаем leftover awg0/warp0/iptables/ip-rule с хоста"
-  local iface proto net fr pref n table chain comment guard
+  local iface proto net fr pref n table chain comment
   for iface in awg0 wdttraw0 warp0 cascade0; do
     ip link del "$iface" 2>/dev/null || true
   done
   rm -f /etc/wireguard/warp0.conf 2>/dev/null || true
-  guard=0
-  while true; do
-    fr="$(ip rule show 2>/dev/null | grep "lookup 51820" | head -1 || true)"
-    [ -z "$fr" ] && break
+  # Snapshot first. Skip foreign WireGuard that happens to use table 51820.
+  while IFS= read -r fr; do
+    [ -n "$fr" ] || continue
+    echo "$fr" | grep -Eq 'from 10\.(8|9)\.|from 10\.10\.0\.|from 10\.99\.99\.|iif (awg0|wdttraw0|warp0|cascade0)' || continue
     pref="$(echo "$fr" | cut -d: -f1 | tr -d '[:space:]')"
     [ -n "$pref" ] && ip rule del pref "$pref" 2>/dev/null || true
-    guard=$((guard + 1))
-    [ "$guard" -gt 64 ] && break
-  done
+  done <<< "$(ip rule show 2>/dev/null | grep "lookup 51820" || true)"
   for iface in awg0 wdttraw0 cascade0; do
     for proto in udp tcp; do
       ip rule del iif "$iface" ipproto "$proto" dport 53 lookup main 2>/dev/null || true
@@ -111,9 +109,9 @@ cleanup_host_dataplane() {
     ip rule del to "$net" lookup main 2>/dev/null || true
   done
   command -v iptables >/dev/null 2>&1 || return 0
-  for comment in AWG_DIRECT_MANAGED ARDTT_BYPASS_MANAGED ARDTT_WARP_MANAGED ARDTT_WARP_DNS_MAIN ARDTT_CASCADE_WAN_MASQ; do
+  for comment in AWG_DIRECT_MANAGED ARDTT_BYPASS_MANAGED ARDTT_WARP_MANAGED ARDTT_WARP_DNS_MAIN ARDTT_CASCADE_WAN_MASQ ARDTT_CASCADE_MANAGED; do
     for table in filter nat mangle; do
-      for chain in INPUT FORWARD POSTROUTING PREROUTING; do
+      for chain in INPUT FORWARD POSTROUTING PREROUTING OUTPUT; do
         while true; do
           n="$(iptables -t "$table" -L "$chain" --line-numbers -n 2>/dev/null \
             | grep -F "$comment" | awk '{print $1}' | tail -1 || true)"
@@ -728,6 +726,8 @@ if [ "$ROLE" = "exit" ]; then
   WARP_MODE="exit-hideip"
   WARP_DNS_IFACES="cascade0"
   WARP_HIDEIP_URL="http://10.10.0.1:9100/v1/hide-ip-prefixes"
+  # Isolated compose publishes ARDTT_DIRECT_PORT. Exit listens on cascade UDP.
+  DIRECT_PORT="$CASCADE_LISTEN_PORT"
 fi
 cat > "$STAGING/.env" <<EOF
 ARDTT_PUBLIC_HOST=$PUBLIC_HOST
@@ -742,6 +742,7 @@ ARDTT_TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
 ARDTT_TELEMETRY_PORT=${TELEMETRY_PORT}
 ARDTT_SKIP_TELEMETRY=0
 ARDTT_ROLE=$ROLE
+ARDTT_CASCADE_ROLE=$ROLE
 ARDTT_CASCADE_ENABLED=$CASCADE_ENABLED
 ARDTT_CASCADE_LISTEN_PORT=$CASCADE_LISTEN_PORT
 ARDTT_CASCADE_PEER_ENDPOINT=$CASCADE_PEER_ENDPOINT

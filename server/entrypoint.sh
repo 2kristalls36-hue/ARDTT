@@ -78,13 +78,28 @@ fi
 
 reap() {
   echo "[ardtt] stopping children"
-  local pidfile pid
+  local pidfile pid i any
   for pidfile in /var/run/ardtt-*.pid; do
     [ -f "$pidfile" ] || continue
     pid="$(cat "$pidfile" 2>/dev/null || true)"
     [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null || true
   done
-  sleep 0.4
+  # Warp/cascade EXIT traps need more than a fraction of a second (iptables,
+  # ip rule, tun2socks). SIGKILL at 0.4s left hostnet leftovers on the VPS.
+  for i in $(seq 1 15); do
+    any=0
+    for pidfile in /var/run/ardtt-*.pid; do
+      [ -f "$pidfile" ] || continue
+      pid="$(cat "$pidfile" 2>/dev/null || true)"
+      [ -n "${pid:-}" ] || continue
+      if kill -0 "$pid" 2>/dev/null; then
+        any=1
+        break
+      fi
+    done
+    [ "$any" = 0 ] && break
+    sleep 0.2
+  done
   for pidfile in /var/run/ardtt-*.pid; do
     [ -f "$pidfile" ] || continue
     pid="$(cat "$pidfile" 2>/dev/null || true)"

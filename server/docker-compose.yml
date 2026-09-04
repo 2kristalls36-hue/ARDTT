@@ -28,6 +28,7 @@ x-ardtt: &ardtt
     ARDTT_DATA: /data
     ARDTT_DEPLOY_VERSION: ${ARDTT_DEPLOY_VERSION:-}
     ARDTT_ROLE: ${ARDTT_ROLE:-entry}
+    ARDTT_CASCADE_ROLE: ${ARDTT_ROLE:-entry}
     ARDTT_CASCADE_ENABLED: ${ARDTT_CASCADE_ENABLED:-0}
     ARDTT_CASCADE_DNS: ${ARDTT_CASCADE_DNS:-}
     ARDTT_CASCADE_PEER_ENDPOINT: ${ARDTT_CASCADE_PEER_ENDPOINT:-}
@@ -38,7 +39,8 @@ x-ardtt: &ardtt
     ARDTT_BYPASS_DNS: ${ARDTT_BYPASS_DNS:-10.9.0.1}
     ARDTT_WDTT_CONFIG: /data/wdtt
     GOMEMLIMIT: ${ARDTT_WARP_GOMEMLIMIT:-256MiB}
-    ARDTT_WARP_STATE: /var/lib/ardtt-warp
+    # Persist wgcf on the ./data volume (not an ephemeral container path).
+    ARDTT_WARP_STATE: /data/warp
     ARDTT_WARP_MODE: ${ARDTT_WARP_MODE:-hideip}
     ARDTT_WARP_DNS_IIFACES: ${ARDTT_WARP_DNS_IIFACES:-awg0 wdttraw0}
     ARDTT_WARP_HIDEIP_URL: ${ARDTT_WARP_HIDEIP_URL:-}

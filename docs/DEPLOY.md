@@ -6,7 +6,7 @@
 
 Каталог на диске по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). При обновлении старый `/opt/nonamevpn` переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.32**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.33**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -178,7 +178,7 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 - состояние WARP (`data/warp/`, учётка wgcf);
 - счётчики трафика bypass.
 
-Пересобираются образы и контейнеры. Неуправляемые контейнеры с именами `ardtt` / `ardtt-*` (без compose-label) снимаются, чтобы не конфликтовать с `container_name`. Имена `nvpn-*` с прошлых установок тоже удаляются. После остановки старого host-network стека установщик снимает leftover `awg0` / `wdttraw0` / `warp0` / `cascade0` и `ip rule` lookup 51820 **с хоста**, иначе они продолжают ломать nginx и чужой Docker.
+Пересобираются образы и контейнеры. Неуправляемые контейнеры с именами `ardtt` / `ardtt-*` (без compose-label) снимаются, чтобы не конфликтовать с `container_name`. Имена `nvpn-*` с прошлых установок тоже удаляются. После остановки старого host-network стека установщик снимает leftover `awg0` / `wdttraw0` / `warp0` / `cascade0` и **свои** `ip rule` lookup 51820 (подсети 10.8/10.9/10.10/10.99) **с хоста**, иначе они продолжают ломать nginx и чужой Docker. Чужой WireGuard с таблицей 51820 не трогается.
 
 Если предыдущий запуск **стёр** `stack.tar.gz` (скрипт удаляет архив и при ошибке), повторный запуск **без** новой заливки идёт по уже распакованному `stack/docker-compose.yml` — так можно добить упавшую сборку Docker.
 
@@ -193,7 +193,7 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 ```bash
 cd server
 cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_VPS; COMPOSE_PROFILES=isolated
-echo 1.0.32 > DEPLOY_VERSION   # или оставить как в репо
+echo 1.0.33 > DEPLOY_VERSION   # или оставить как в репо
 docker compose --profile isolated up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh alice   # JSON профиля в stdout
@@ -379,7 +379,7 @@ docker compose down          # контейнеры; data/ остаётся
 cd /opt/ardtt/stack
 COMPOSE_PROFILES=isolated docker compose ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.32"
+# ожидается: "ok": true, "deployVersion": "1.0.33"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'

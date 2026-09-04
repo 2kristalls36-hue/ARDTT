@@ -51,13 +51,12 @@ object ServerUninstall {
           ip link del "${'$'}iface" >/dev/null 2>&1
         done
         rm -f /etc/wireguard/warp0.conf
-        guard=0
-        while ip rule show 2>/dev/null | grep -q "lookup 51820"; do
-          pref="${'$'}(ip rule show 2>/dev/null | grep "lookup 51820" | head -1 | cut -d: -f1 | tr -d "[:space:]")"
-          [ -n "${'$'}pref" ] && ip rule del pref "${'$'}pref" 2>/dev/null || break
-          guard="${'$'}((guard + 1))"
-          [ "${'$'}guard" -gt 32 ] && break
-        done
+        while IFS= read -r fr; do
+          [ -n "${'$'}fr" ] || continue
+          echo "${'$'}fr" | grep -Eq 'from 10\.(8|9)\.|from 10\.10\.0\.|from 10\.99\.99\.|iif (awg0|wdttraw0|warp0|cascade0)' || continue
+          pref="${'$'}(echo "${'$'}fr" | cut -d: -f1 | tr -d "[:space:]")"
+          [ -n "${'$'}pref" ] && ip rule del pref "${'$'}pref" 2>/dev/null || true
+        done <<< "${'$'}(ip rule show 2>/dev/null | grep "lookup 51820" || true)"
         echo "ARDTT_PROGRESS|0.75|Удаление /opt/ardtt…"
         rm -rf /opt/ardtt /opt/nonamevpn
         echo "ARDTT_PROGRESS|1|Готово"
