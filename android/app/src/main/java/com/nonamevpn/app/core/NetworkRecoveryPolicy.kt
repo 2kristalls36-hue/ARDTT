@@ -334,10 +334,10 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
 
 /**
  * Auto handover:
- * - Direct → Bypass on NeedBypass (VPS :9100 down, Yandex up) when the underlay
- *   changed, or after [HANDOVER_DIRECT_TO_BYPASS_STREAK] hits without a new network.
- *   Open LTE (VPS up) keeps Direct — do not force Bypass just because the
- *   underlay is cellular.
+ * - Direct → Bypass when the probe says Bypass (whitelist or VPS down) and the
+ *   underlay changed, or after [HANDOVER_DIRECT_TO_BYPASS_STREAK] hits.
+ *   TCP :9100 is not AmneziaWG UDP — do not keep Direct just because provision
+ *   answered. Open LTE with Cloudflare up still stays Direct.
  * - Bypass → Direct immediately on Wi‑Fi + underlay change (no VPS probe).
  *   A cellular underlay change must not yank a working Bypass just because
  *   TCP :9100 answered (AWG UDP may still be dead).
@@ -373,7 +373,7 @@ fun decideNetworkHandoverAction(
     }
     val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
     if (currentPath == VpnPath.Direct) {
-        val needBypass = probedPath == VpnPath.Bypass && bypassAllowed && !vpsUp
+        val needBypass = probedPath == VpnPath.Bypass && bypassAllowed
         if (needBypass && (underlayChanged || sameProbeStreak >= HANDOVER_DIRECT_TO_BYPASS_STREAK)) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
         }
@@ -443,13 +443,13 @@ sealed class DeadDirectDecision {
 }
 
 /** Ignore Direct “no rx” during AWG handshake after a cold start. */
-const val DEAD_DIRECT_START_GRACE_MS = 15_000L
+const val DEAD_DIRECT_START_GRACE_MS = 3_000L
 
 /** Direct has been up this long since a cold start with no inbound bytes. */
-const val DEAD_DIRECT_NO_RX_MS = 20_000L
+const val DEAD_DIRECT_NO_RX_MS = 4_000L
 
 /** After Wi‑Fi→LTE rebind, fail Direct faster — handshake already had a chance. */
-const val DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS = 10_000L
+const val DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS = 3_000L
 
 fun shouldTreatDirectAsDeadNoRx(
     nowMs: Long,

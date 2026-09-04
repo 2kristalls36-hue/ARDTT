@@ -1,8 +1,10 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSanitizeDeviceModel(t *testing.T) {
@@ -143,5 +145,37 @@ func TestTouchPresenceUpdatesAppVersion(t *testing.T) {
 	}
 	if u.DeviceAppVersionCodes["dev-abc"] != 219 {
 		t.Fatalf("code: %#v", u.DeviceAppVersionCodes)
+	}
+}
+
+func TestTouchPresenceHeartbeatDoesNotRewriteUsersJson(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "users.json")
+	s := &Store{
+		path: path,
+		Users: []User{{
+			Name:       "alice",
+			DeviceID:   "dev-abc",
+			DeviceIDs:  []string{"dev-abc"},
+			MaxDevices: 1,
+			LastSeenAt: time.Now().Unix(),
+		}},
+	}
+	if _, err := s.TouchPresence("dev-abc", "alice", "", "Pixel 8", "0.5.201", 219); err != nil {
+		t.Fatal(err)
+	}
+	st1, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TouchPresence("dev-abc", "alice", "", "Pixel 8", "0.5.201", 219); err != nil {
+		t.Fatal(err)
+	}
+	st2, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st1.ModTime().Equal(st2.ModTime()) {
+		t.Fatal("heartbeat rewrote users.json")
 	}
 }

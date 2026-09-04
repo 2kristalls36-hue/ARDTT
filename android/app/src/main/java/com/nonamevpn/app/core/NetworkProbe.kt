@@ -26,11 +26,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Classification (fail-fast, no DNS on the internet/БС checks):
  * - **77.88.8.8** (Yandex DNS) — reaches even on operator whitelist (БС).
  * - **1.1.1.1** (Cloudflare) — reaches on open internet, typically blocked on БС.
- * - **VPS provision TCP** — if the user's server is reachable, Auto picks Direct
- *   even on БС (no RAW/call bypass needed).
+ * - **VPS provision TCP** — the VPS IP answers :9100. This is **not** AWG UDP
+ *   :51820. On operator whitelist Auto still picks Bypass (UDP is usually dropped).
  *
- * Path is decided as soon as the VPS result is known; 1.1.1.1 is only a БС label
- * and never blocks Direct.
+ * Path waits for 1.1.1.1 when :9100 is up, so whitelist is not classified as Direct.
  */
 object NetworkProbe {
 

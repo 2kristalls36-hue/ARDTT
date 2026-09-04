@@ -84,7 +84,7 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     environment:
-      GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-400MiB}
+      GOMEMLIMIT: ${NVPN_WARP_GOMEMLIMIT:-256MiB}
       NVPN_DATA: /data
       NVPN_WARP_STATE: /var/lib/nvpn-warp
       NVPN_WARP_MODE: ${NVPN_WARP_MODE:-hideip}
