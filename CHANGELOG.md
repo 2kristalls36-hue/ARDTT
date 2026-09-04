@@ -1,3 +1,11 @@
+# ARDTT v0.5.216
+
+Клиент **0.5.216** (`versionCode` 234). Серверный стек **1.0.29** (`DEPLOY_VERSION`).
+
+## 0.5.216
+
+- Вкладка «Сеть»: карточки VPS 1 → VPS 2 только при реальном каскаде (live `/health` или карточка деплоя). Другой WAN, соседний сервер и устаревший флаг каскада больше не рисуют ложный hop.
+
 # ARDTT v0.5.215
 
 Клиент **0.5.215** (`versionCode` 233). Серверный стек **1.0.29** (`DEPLOY_VERSION`).
@@ -61,7 +69,8 @@
 
 | Релиз | Суть |
 |-------|------|
-| [0.5.213](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.213) · [0.5.214](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.214) | Каскад Hide-IP на выходе, ping-точка с карточки сервера |
+| 0.5.216 | «Сеть»: без ложного каскада VPS 1 → VPS 2 |
+| [0.5.213](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.213) · [0.5.214](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.214) · [0.5.215](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.215) | Каскад Hide-IP на выходе, ping-точка с карточки сервера, пакет `com.ardtt.app` |
 | [0.5.212](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.212) | Docker snapshot bypass на малых VPS |
 | [0.5.211](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.211) | GitHub-обновления → репозиторий ARDTT |
 | [0.5.210](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.210) | Сброс Docker build cache при обновлении VPS |
