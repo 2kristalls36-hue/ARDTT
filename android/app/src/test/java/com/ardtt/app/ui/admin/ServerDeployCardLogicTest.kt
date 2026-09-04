@@ -320,6 +320,15 @@ class ServerDeployCardLogicTest {
             "Обновление деплоя…",
             deployProgressSheetTitle(busy = true, isUpdate = true, status = ""),
         )
+        assertEquals(
+            "Удаление деплоя…",
+            deployProgressSheetTitle(
+                busy = true,
+                isUpdate = false,
+                status = "",
+                isUninstall = true,
+            ),
+        )
     }
 
     @Test
@@ -335,6 +344,38 @@ class ServerDeployCardLogicTest {
         assertEquals(
             "Готово",
             deployProgressSheetTitle(busy = false, isUpdate = false, status = null),
+        )
+    }
+
+    @Test
+    fun deleteConfirmWarnsThatStackIsWipedOnVps() {
+        assertEquals("Удалить сервер?", serverDeleteConfirmTitle())
+        val standalone = serverDeleteConfirmBody("10.0.0.1")
+        assertTrue(standalone.contains("10.0.0.1"))
+        assertTrue(standalone.contains("/opt/ardtt"))
+        assertTrue(standalone.contains("Сервера"))
+        assertTrue(standalone.contains("необратимо"))
+        assertFalse(standalone.contains("останутся без изменений"))
+        val cascade = serverDeleteConfirmBody(
+            host = "10.0.0.1",
+            cascadeEnabled = true,
+            cascadeHost = "2.26.125.160",
+        )
+        assertTrue(cascade.contains("входного сервера 10.0.0.1"))
+        assertTrue(cascade.contains("выходного 2.26.125.160"))
+    }
+
+    @Test
+    fun deleteFinishedLeavesOnlyAfterSuccessfulUninstall() {
+        assertFalse(serverDeleteFinishedShouldLeave(busy = true, status = "Стек снят"))
+        assertFalse(serverDeleteFinishedShouldLeave(busy = false, status = null))
+        assertFalse(serverDeleteFinishedShouldLeave(busy = false, status = "Ошибка: SSH"))
+        assertFalse(serverDeleteFinishedShouldLeave(busy = false, status = "Отменено"))
+        assertTrue(
+            serverDeleteFinishedShouldLeave(
+                busy = false,
+                status = "Стек снят с 10.0.0.1. Карточка удалена.",
+            ),
         )
     }
 }

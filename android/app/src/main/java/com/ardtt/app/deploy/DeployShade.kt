@@ -7,15 +7,20 @@ package com.ardtt.app.deploy
 object DeployShade {
     const val PROGRESS_MAX = 100
 
-    fun title(isUpdate: Boolean): String =
-        if (isUpdate) "Обновление деплоя" else "Установка деплоя"
+    fun title(isUpdate: Boolean, isUninstall: Boolean = false): String = when {
+        isUninstall -> "Удаление деплоя"
+        isUpdate -> "Обновление деплоя"
+        else -> "Установка деплоя"
+    }
 
     fun progressPercent(fraction: Float): Int =
         (fraction.coerceIn(0f, 1f) * PROGRESS_MAX).toInt()
 
-    fun contentText(step: String, hostLabel: String): String {
+    fun contentText(step: String, hostLabel: String, isUninstall: Boolean = false): String {
         val trimmed = step.trim()
-        return trimmed.ifBlank { hostLabel }.ifBlank { "Идёт установка…" }
+        return trimmed.ifBlank { hostLabel }.ifBlank {
+            if (isUninstall) "Идёт удаление…" else "Идёт установка…"
+        }
     }
 
     fun finishedText(success: Boolean, message: String): String {
