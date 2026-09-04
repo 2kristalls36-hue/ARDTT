@@ -1,6 +1,7 @@
 # Сервер ARDTT
 
-Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).
+Продуктовое имя — **ARDTT**. Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
+Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
 Compose-стек из шести сервисов (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
 

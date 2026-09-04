@@ -2,7 +2,7 @@
 
 Легенда имени и смыслов: [LEGEND.md](LEGEND.md).  
 Деплой VPS (приложение / Compose, `install.sh`, версии): [DEPLOY.md](DEPLOY.md).  
-**ARDTT** = Amnezia + RAW Dial via TURN (черновики: nonameVPN → AWDTT).  
+**ARDTT** = Amnezia + RAW Dial via TURN.  
 Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DTLS); см. [LEGEND.md](LEGEND.md).
 
 Клиентский VPN с двумя путями до своего VPS:
@@ -294,15 +294,13 @@ TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9
 - Path B RAW (qWDTT / SpaceNeuroX) ≈ **GPL-3.0** — см. [NOTICE](../NOTICE), [LEGEND.md](LEGEND.md)
 - Классический WDTT (amurcanov) — идейный предок (WG/TURN/DTLS), не источник RAW
 
-**Сделать:**
+Как лицензировано:
 
-1. В репо: `LICENSE` (решение для **всего APK** — практично **GPL-3.0**), `NOTICE` с атрибуцией Amnezia (Apache) и SpaceNeuroX/qWDTT RAW (GPL).
-2. Не удалять copyright headers из форкнутых файлов.
-3. README: откуда код, что продукт — комбинированное произведение под GPL-3.
-4. Play/распространение: готовность отдать corresponding source (GPL).
-5. Не линковать GPL в закрытый proprietary без соблюдения GPL.
-
-Альтернатива позже (дорого): переписать TURN/WRAP без GPL-кода → снова можно Apache-only UI.
+1. В репо: `LICENSE` на **весь APK** — **GPL-3.0**, `NOTICE` с атрибуцией Amnezia (Apache) и SpaceNeuroX/qWDTT RAW (GPL).
+2. Copyright headers из форкнутых файлов не удаляются.
+3. README описывает комбинированное произведение под GPL-3.
+4. Play/распространение: corresponding source отдаётся по GPL.
+5. GPL-код нельзя линковать в закрытый proprietary без соблюдения GPL.
 
 ---
 
@@ -323,14 +321,14 @@ Kernel `wg-quick` на `warp0` не используем: он раздувал 
 
 ## Dual VpnService (#15)
 
-**Предложение:** один `TunnelService` / один `VpnService` binder; два **взаимоисключающих** backend:
+Один `VpnTunnelService` / один `VpnService` binder; два **взаимоисключающих** backend:
 
-- `AwgBackend` (Path A)
-- `RawBackend` (Path B)
+- Path A — AmneziaWG userspace (`libwg-go`)
+- Path B — RAW `go_client` (`libclient.so`)
 
 Смена path = stop backend → start other в том же service (короткий reconnect).  
 Probe **никогда** не держит VpnService up.  
-Не держать два TUN сразу.
+Два TUN сразу не поднимаются.
 
 ---
 
@@ -348,12 +346,13 @@ provision /data — host_id, keys, passwords
 `network_mode: host`, `NET_ADMIN`, `/dev/net/tun`.  
 Create-user: адреса в `10.8` и `10.9` с одним octet; флаг hide-IP — клиентский/сессионный, применяется policy на сервере (mark по IP клиента).
 
-Боевой путь: админ в приложении → SSH → `/opt/nonamevpn` + `install.sh` + Compose.  
+Боевой путь: админ в приложении → SSH → каталог установки ARDTT + `install.sh` + Compose.  
+На диске путь по умолчанию `/opt/nonamevpn` оставлен для совместимости с уже развёрнутыми VPS (`NVPN_INSTALL_DIR`).  
 Версия стека (`DEPLOY_VERSION`) сравнивается с APK через `GET /health`.
 
 ---
 
-## Профиль (черновик)
+## Профиль
 
 ```json
 {
