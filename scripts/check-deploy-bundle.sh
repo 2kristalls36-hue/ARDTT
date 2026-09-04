@@ -55,6 +55,8 @@ if [ -f "$INSTALLER" ]; then
     err "compose still builds split provision image — use the unified Dockerfile"
   fi
   grep -q 'reset_docker_buildkit' "$INSTALLER" || err "installer missing reset_docker_buildkit (wipe /var/lib/docker/buildkit)"
+  grep -q 'wipe_dir_best_effort /var/lib/docker/buildkit' "$INSTALLER" || err "installer must wipe BuildKit via wipe_dir_best_effort (busy overlay)"
+  grep -q 'unmount_tree' "$INSTALLER" || err "installer must unmount BuildKit executor rootfs before rm"
   grep -q 'Подготовка: очистка кэша Docker' "$INSTALLER" || err "installer must clean Docker junk at the start of an update"
   grep -q 'docker buildx prune -af' "$INSTALLER" || err "installer must prune buildx cache, not only builder"
   grep -q 'Мало RAM — останавливаем стек и сбрасываем BuildKit' "$INSTALLER" || err "installer must stop the stack before golang rebuilds on tiny VPS"
@@ -137,6 +139,9 @@ if [ -f "$ROOT/scripts/test-warp-wgcf-parse.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-warp-hideip-prefixes.sh" ]; then
   bash "$ROOT/scripts/test-warp-hideip-prefixes.sh" || err "warp hideIp prefixes"
+fi
+if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
+  bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "install buildkit busy wipe"
 fi
 grep -q 'wireproxy' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing wireproxy"
 grep -q 'tun2socks' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing tun2socks"
