@@ -119,6 +119,7 @@ grep -q '^NVPN_CASCADE_ENABLED=1$' "$INSTALL/stack/.env" || err "cascade flag no
 grep -q '^NVPN_CASCADE_PEER_ENDPOINT=2.26.125.160:51820$' "$INSTALL/stack/.env" || err "cascade peer endpoint not preserved"
 grep -q '^NVPN_CASCADE_PEER_PUBLIC_KEY=abc+DEF/123=$' "$INSTALL/stack/.env" || err "cascade peer key not preserved"
 grep -q '^NVPN_CASCADE_DNS=10.10.0.2$' "$INSTALL/stack/.env" || err "cascade DNS not restored when hop is on"
+grep -q '^NVPN_WARP_MODE=passthrough$' "$INSTALL/stack/.env" || err "cascade entry must not WARP locally"
 
 run_exit() {
   NVPN_INSTALL_DIR="$INSTALL" \
@@ -134,7 +135,8 @@ out4="$(run_exit)" || err "exit-role install.sh exited $?"
 echo "$out4" | grep -q 'NVPN_DONE|dry_run=1' || err "exit dry-run missing NVPN_DONE"
 grep -q 'NVPN_ROLE=exit' "$INSTALL/stack/.env" || err ".env role exit"
 grep -q 'NVPN_CASCADE_ENABLED=1' "$INSTALL/stack/.env" || err "exit forces cascade enabled"
-grep -q 'NVPN_WARP_MODE=cascade' "$INSTALL/stack/.env" || err "exit warp mode cascade"
+grep -q 'NVPN_WARP_MODE=exit-hideip' "$INSTALL/stack/.env" || err "exit warp mode exit-hideip"
+grep -q 'NVPN_WARP_HIDEIP_URL=http://10.10.0.1:9100/v1/hide-ip-prefixes' "$INSTALL/stack/.env" || err "exit hideIp URL"
 grep -Eq 'NVPN_WARP_DNS_IIFACES=.*cascade0' "$INSTALL/stack/.env" || err "exit DNS iif cascade0"
 if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
   err "exit .env must not contain PASSWORD"

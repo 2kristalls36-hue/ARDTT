@@ -5,10 +5,11 @@
 # 2.5.2): userspace WG stays ~110 MiB; Hide-IP is ip rule add/del + conntrack
 # flush — no kernel wg-quick, no client TUN restart.
 #
-# hideip (default, entry standalone and cascade entry): per-user ip rules
-# from users.json hideIp. /32 at prio 300 beats cascade hop (prio 320).
-# cascade (exit VPS): do NOT steal 10.8/10.9/10.10 into the WARP TUN — the exit
-# NATs to its WAN. Hide-IP is applied on the entry hop.
+# hideip (standalone entry): per-user ip rules from local users.json.
+# passthrough / cascade (cascade entry): no client /32 — traffic takes the hop.
+# exit-hideip (exit VPS): same /32 rules, prefixes from the entry provision
+#   (http://10.10.0.1:9100/v1/hide-ip-prefixes). Hide-IP then leaves via
+#   Cloudflare on the exit, not the first VPS.
 #
 # DNS must NOT go through WARP:
 #   priority 100: iif <ingress> udp/tcp dport 53 → main
@@ -48,6 +49,10 @@ echo "[warp] GOMEMLIMIT=${GOMEMLIMIT:-256MiB}; socks=${SOCKS_ADDR}; no docker re
 if [ -w /proc/sys/net/ipv4/ip_forward ]; then
   echo 1 >/proc/sys/net/ipv4/ip_forward || true
 fi
+# Strict rp_filter drops WARP replies whose reverse path is cascade0.
+for rp in /proc/sys/net/ipv4/conf/*/rp_filter; do
+  [ -w "${rp}" ] && echo 2 >"${rp}" || true
+done
 
 ensure_account() {
   if [[ ! -f wgcf-account.toml ]]; then
@@ -398,9 +403,7 @@ flush_client_conntrack() {
   fi
 }
 
-# Cascade exit used to blanket-WARP every client subnet. That made Hide-IP
-# a no-op (browser always saw Cloudflare). Clear those from-rules so the
-# hop NATs to the exit WAN; hideIp /32 lives on the entry warp table.
+# Drop leftover /24 WARP from-rules (old blanket-WARP exit images).
 clear_cascade_from_rules() {
   local net removed=0
   for net in 10.8.0.0/24 10.9.0.0/24 10.10.0.0/30; do
@@ -417,24 +420,64 @@ clear_cascade_from_rules() {
   fi
 }
 
-# Diff-based hideIp sync: add/remove only changed client prefixes.
-# Does NOT tear down DNS→main rules (that caused internet blips on rapid toggles).
-sync_rules() {
-  if [ "${WARP_MODE}" = "cascade" ]; then
-    clear_cascade_from_rules
+warp_passthrough_mode() {
+  case "${WARP_MODE}" in
+    cascade|passthrough) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prefixes currently hiding via WARP. Empty list is valid (all Hide-IP off).
+# Return 2 if the peer/file cannot be read — caller must keep the last rules.
+hideip_desired_prefixes() {
+  if [ "${WARP_MODE}" = "exit-hideip" ]; then
+    local url raw
+    url="${NVPN_WARP_HIDEIP_URL:-http://10.10.0.1:9100/v1/hide-ip-prefixes}"
+    raw="$(curl -fsS --max-time 3 "${url}" 2>/dev/null)" || return 2
+    echo "${raw}" | jq -e '.ok == true' >/dev/null 2>&1 || return 2
+    echo "${raw}" | jq -r '.prefixes[]? // empty'
     return 0
   fi
-  [[ -f "${USERS}" ]] || return 0
-
-  local desired="" count=0
-  desired="$(jq -r '
+  [[ -f "${USERS}" ]] || return 2
+  jq -r '
     (.config.directSubnet // "10.8.0.0/24") as $d
     | (.config.bypassSubnet // "10.9.0.0/24") as $b
     | ($d | split(".") | .[0:3] | join(".")) as $db
     | ($b | split(".") | .[0:3] | join(".")) as $bb
-    | .users[] | select(.hideIp == true)
+    | .users[] | select(.hideIp == true and (.deactivated != true) and (.hostId > 0))
     | "\($db).\(.hostId)/32\n\($bb).\(.hostId)/32"
-  ' "${USERS}" 2>/dev/null || true)"
+  ' "${USERS}" 2>/dev/null || true
+  return 0
+}
+
+LAST_HIDEIP_DESIRED="__unset__"
+
+# Diff-based hideIp sync: add/remove only changed client prefixes.
+# Does NOT tear down DNS→main rules (that caused internet blips on rapid toggles).
+sync_rules() {
+  if warp_passthrough_mode; then
+    # Drop /32 leftover from when this host was a standalone entry.
+    clear_rules_for_table "${TABLE}"
+    clear_cascade_from_rules
+    LAST_HIDEIP_DESIRED="__unset__"
+    return 0
+  fi
+
+  local desired="" fetch_st=0
+  set +e
+  desired="$(hideip_desired_prefixes)"
+  fetch_st=$?
+  set -e
+  if [ "${fetch_st}" -eq 2 ]; then
+    echo "[warp] WARN: hideIp prefix source unavailable — keeping current rules"
+    return 0
+  fi
+  if [ "${desired}" = "${LAST_HIDEIP_DESIRED}" ]; then
+    return 0
+  fi
+  LAST_HIDEIP_DESIRED="${desired}"
+
+  local count=0
 
   # Remove WARP-table rules whose "from" is no longer desired.
   local fr pref from
@@ -529,7 +572,9 @@ while true; do
     echo "[warp] tun2socks dead — restart"
     start_tun2socks
   fi
-  if [[ -f "${USERS}" ]]; then
+  if [ "${WARP_MODE}" = "exit-hideip" ]; then
+    sync_rules
+  elif [[ -f "${USERS}" ]]; then
     now="$(stat -c %Y "${USERS}" 2>/dev/null || echo 0)"
     if [[ "${now}" != "${LAST_MTIME}" ]]; then
       LAST_MTIME="${now}"

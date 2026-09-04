@@ -12,8 +12,8 @@ class GitHubReleaseUpdateTest {
             GitHubReleaseUpdate.latestReleaseApiUrl(),
         )
         assertEquals(
-            "https://api.github.com/repos/2kristalls36-hue/ARDTT/releases/tags/v0.5.212",
-            GitHubReleaseUpdate.releaseByTagApiUrl("v0.5.212"),
+            "https://api.github.com/repos/2kristalls36-hue/ARDTT/releases/tags/v0.5.213",
+            GitHubReleaseUpdate.releaseByTagApiUrl("v0.5.213"),
         )
         assertEquals(
             "https://api.github.com/repos/2kristalls36-hue/ARDTT/releases?per_page=30",
