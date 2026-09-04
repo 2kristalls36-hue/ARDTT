@@ -5,9 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -50,6 +48,8 @@ import com.nonamevpn.app.core.VpnLiveStats
 import com.nonamevpn.app.ui.components.AppSectionCard
 import com.nonamevpn.app.ui.components.NvpnBottomChrome
 import com.nonamevpn.app.ui.components.TabFeedHeader
+import com.nonamevpn.app.ui.components.terminalLogCardColor
+import com.nonamevpn.app.ui.components.terminalLogCardShadow
 import com.nonamevpn.app.ui.theme.NvpnColors
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -66,14 +66,7 @@ fun LogsScreen() {
     val listState = rememberLazyListState()
     val fmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     val isDark = isSystemInDarkTheme()
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    // In light mode blend the dark terminal background toward the theme surface so the
-    // card does not appear as a harsh foreign block on the light page.
-    val terminalBg = if (isDark) {
-        NvpnColors.terminalBgDark
-    } else {
-        lerp(NvpnColors.terminalBg, surfaceColor, 0.35f)
-    }
+    val terminalBg = terminalLogCardColor()
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -177,8 +170,8 @@ fun LogsScreen() {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(0.dp),
             shape = RoundedCornerShape(24.dp),
-            color = terminalBg.copy(alpha = if (isDark) 0.90f else 1.00f),
-            shadowElevation = if (isDark) 4.dp else 2.dp,
+            color = terminalBg,
+            shadowElevation = terminalLogCardShadow(),
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (pinnedStats != null || uptimeText != null) {
