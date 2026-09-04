@@ -214,10 +214,16 @@ object ServerUninstall {
             iptables -t filter -D FORWARD -j DOCKER-FORWARD >/dev/null 2>&1
             iptables -t nat -D PREROUTING -m addrtype --dst-type LOCAL -j DOCKER >/dev/null 2>&1
             iptables -t nat -D OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER >/dev/null 2>&1
+            iptables -t nat -S POSTROUTING 2>/dev/null | grep docker0 | sed 's/^-A POSTROUTING //' | while read -r spec; do
+              [ -n "${'$'}spec" ] || continue
+              eval "iptables -t nat -D POSTROUTING ${'$'}spec" >/dev/null 2>&1
+            done
             for chain in DOCKER DOCKER-BRIDGE DOCKER-CT DOCKER-FORWARD DOCKER-INTERNAL DOCKER-USER DOCKER-ISOLATION-STAGE-1 DOCKER-ISOLATION-STAGE-2 DOCKER-INGRESS; do
               iptables -t filter -F "${'$'}chain" >/dev/null 2>&1
-              iptables -t filter -X "${'$'}chain" >/dev/null 2>&1
               iptables -t nat -F "${'$'}chain" >/dev/null 2>&1
+            done
+            for chain in DOCKER-INGRESS DOCKER-ISOLATION-STAGE-2 DOCKER-ISOLATION-STAGE-1 DOCKER-USER DOCKER-INTERNAL DOCKER-FORWARD DOCKER-CT DOCKER-BRIDGE DOCKER; do
+              iptables -t filter -X "${'$'}chain" >/dev/null 2>&1
               iptables -t nat -X "${'$'}chain" >/dev/null 2>&1
             done
           fi
