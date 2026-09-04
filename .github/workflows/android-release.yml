@@ -182,3 +182,21 @@ jobs:
             gh release create "$tag" dist/* "${args[@]}"
           fi
           echo "Published https://github.com/${{ github.repository }}/releases/tag/${tag}"
+
+      - name: Publish fallback APK to distribution VPS
+        shell: bash
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          NOTES: ${{ github.event.head_commit.message }}
+          ARDTT_SSH_PASSWORD: ${{ secrets.ARDTT_DIST_SSH_PASSWORD }}
+          ARDTT_DIST_HOST: 45.129.2.3
+        run: |
+          apk="dist/ardtt-${VERSION_NAME}-arm64-v8a.apk"
+          test -f "$apk"
+          if [ -z "${ARDTT_SSH_PASSWORD:-}" ]; then
+            echo "::warning::Secret ARDTT_DIST_SSH_PASSWORD is empty. GitHub Release is private and current APKs have no GITHUB_API_TOKEN, so phones will keep seeing the previous version from https://45.129.2.3/update.json"
+            exit 0
+          fi
+          python3 -m pip install --user paramiko
+          bash scripts/publish-vps-update.sh "$apk"

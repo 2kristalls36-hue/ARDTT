@@ -38,6 +38,7 @@ Release (подписанный постоянным keystore):
 1. Собирает подписанный `ardtt-<versionName>.apk`
 2. Публикует GitHub Release с тегом `v<versionName>`
 3. Кладёт рядом `ardtt-update.json` и `SHA256SUMS.txt`
+4. Если задан секрет `ARDTT_DIST_SSH_PASSWORD` — копирует arm64 APK на VPS (`https://45.129.2.3/update.json`). Без этого шага телефон **не увидит** обновление: репозиторий приватный, а в APK нет GitHub-токена.
 
 **Секреты репозитория** (Settings → Secrets → Actions):
 
@@ -48,9 +49,10 @@ Release (подписанный постоянным keystore):
 | `ANDROID_KEY_ALIAS` | `ardtt` |
 | `ANDROID_KEY_PASSWORD` | из `keystore.properties` |
 | `GITHUB_RELEASE_READ_TOKEN` | read-only PAT с `Contents: Read` для приватного репозитория (вшивается в release APK) |
+| `ARDTT_DIST_SSH_PASSWORD` | root-пароль `45.129.2.3` — публикует fallback `update.json` для телефонов без GitHub-токена |
 
 Приложение проверяет обновления через **GitHub Releases API** (как qWDTT),
-с fallback на старый `update.json` на VPS. Для **приватного** репозитория без токена GitHub API недоступен — нужен `GITHUB_RELEASE_READ_TOKEN` в CI или публичный репозиторий.
+с fallback на старый `update.json` на VPS. Для **приватного** репозитория без токена GitHub API отвечает 404 — нужен `GITHUB_RELEASE_READ_TOKEN` в CI **или** актуальный `https://45.129.2.3/update.json`. Вручную: `ARDTT_SSH_PASSWORD='…' ./scripts/publish-vps-update.sh dist/ardtt-<ver>-arm64-v8a.apk`.
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`
@@ -66,8 +68,8 @@ Release (подписанный постоянным keystore):
 - `tunnel` — AmneziaWG userspace (`libwg-go`)
 - `go_client` — Path B RAW (qWDTT / SpaceNeuroX) → `libclient.so`
 - **Режим тестирования:** полная телеметрия, JSONL, upload на VPS — [../docs/TELEMETRY.md](../docs/TELEMETRY.md)
-- **Обновления:** сначала GitHub Releases (`2kristalls36-hue/nonameVPN`), fallback — `https://45.129.2.3/update.json`.
-  скачивает APK внутри приложения, проверяет SHA-256 и запускает системный установщик.
+- **Обновления:** сначала GitHub Releases (`2kristalls36-hue/nonameVPN`, нужен вшитый `GITHUB_API_TOKEN`), иначе fallback — `https://45.129.2.3/update.json`.
+  Телефон показывает карточку только если `versionCode` в манифесте **больше** установленного. Скачивает APK внутри приложения, проверяет SHA-256 и запускает системный установщик.
 
 После деплоя сервера на VPS обычно остаётся `/opt/nonamevpn/stack/` (исторический путь каталога) и рабочие образы.
 
