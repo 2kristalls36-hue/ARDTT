@@ -177,10 +177,27 @@ object ServerUninstall {
           else
             service docker stop >/dev/null 2>&1
           fi
+          wait_apt_lock() {
+            local n=0
+            while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
+              n="${'$'}((n + 1))"
+              [ "${'$'}n" -gt 90 ] && break
+              sleep 2
+            done
+          }
           export DEBIAN_FRONTEND=noninteractive
           if command -v apt-get >/dev/null 2>&1; then
-            apt-get purge -y docker-ce docker-ce-cli docker-ce-rootless-extras docker-compose-plugin docker-buildx-plugin docker-compose containerd.io docker.io docker-doc docker-registry >/dev/null 2>&1
-            apt-get autoremove -y --purge >/dev/null 2>&1
+            wait_apt_lock
+            apt-get purge -y \
+              docker-ce docker-ce-cli docker-ce-rootless-extras docker-compose-plugin \
+              docker-buildx-plugin docker-compose docker-model-plugin containerd.io \
+              docker.io docker-doc docker-registry >/tmp/ardtt-apt-purge.log 2>&1
+            wait_apt_lock
+            apt-get autoremove -y --purge >/tmp/ardtt-apt-autoremove.log 2>&1
+            if dpkg -l 2>/dev/null | grep -E '^ii' | grep -Eq 'docker-ce|containerd.io'; then
+              wait_apt_lock
+              dpkg --purge docker-ce docker-ce-cli docker-ce-rootless-extras docker-compose-plugin docker-buildx-plugin docker-model-plugin containerd.io >/dev/null 2>&1
+            fi
           fi
           if command -v dnf >/dev/null 2>&1; then
             dnf -y remove docker docker-ce docker-ce-cli docker-compose-plugin docker-buildx-plugin containerd.io >/dev/null 2>&1
@@ -192,6 +209,18 @@ object ServerUninstall {
           ip -o link show 2>/dev/null | awk -F': ' '{print ${'$'}2}' | cut -d'@' -f1 | grep -E '^(br-|docker)' | while read -r br; do
             ip link del "${'$'}br" >/dev/null 2>&1
           done
+          if command -v iptables >/dev/null 2>&1; then
+            iptables -t filter -D FORWARD -j DOCKER-USER >/dev/null 2>&1
+            iptables -t filter -D FORWARD -j DOCKER-FORWARD >/dev/null 2>&1
+            iptables -t nat -D PREROUTING -m addrtype --dst-type LOCAL -j DOCKER >/dev/null 2>&1
+            iptables -t nat -D OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER >/dev/null 2>&1
+            for chain in DOCKER DOCKER-BRIDGE DOCKER-CT DOCKER-FORWARD DOCKER-INTERNAL DOCKER-USER DOCKER-ISOLATION-STAGE-1 DOCKER-ISOLATION-STAGE-2 DOCKER-INGRESS; do
+              iptables -t filter -F "${'$'}chain" >/dev/null 2>&1
+              iptables -t filter -X "${'$'}chain" >/dev/null 2>&1
+              iptables -t nat -F "${'$'}chain" >/dev/null 2>&1
+              iptables -t nat -X "${'$'}chain" >/dev/null 2>&1
+            done
+          fi
           echo "ARDTT_PROGRESS|0.88|Снятие swapfile установщика…"
           swapoff /swapfile >/dev/null 2>&1
           rm -f /swapfile
