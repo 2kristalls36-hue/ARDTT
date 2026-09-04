@@ -56,7 +56,6 @@ fun TerminalLogCard(
         shape = RoundedCornerShape(24.dp),
         color = terminalLogCardColor(),
         shadowElevation = terminalLogCardShadow(),
-        showBorder = false,
     ) {
         Text(
             text = text.ifBlank { emptyText },

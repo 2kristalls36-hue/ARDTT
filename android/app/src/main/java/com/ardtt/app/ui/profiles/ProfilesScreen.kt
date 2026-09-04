@@ -66,6 +66,7 @@ import com.ardtt.app.ui.PROFILE_SWITCH_LOCKED_MESSAGE
 import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
 import com.ardtt.app.ui.components.TabPageHeader
 import com.ardtt.app.ui.components.AppSectionCard
+import com.ardtt.app.ui.components.AppSectionCardDefaults
 import com.ardtt.app.ui.components.CompactListCard
 import com.ardtt.app.ui.components.CompactListLeadingIcon
 import com.ardtt.app.ui.components.ArdttDialog
@@ -464,11 +465,10 @@ private fun ProfileCard(
         shape = CompactListCard.Shape,
         shadowElevation = CompactListCard.ShadowElevation,
         tonalElevation = 0.dp,
-        showBorder = false,
         border = if (active) {
-            BorderStroke(2.dp, ArdttColors.connected)
+            BorderStroke(AppSectionCardDefaults.ContourWidth, ArdttColors.connected)
         } else {
-            BorderStroke(1.dp, colors.outlineVariant)
+            null
         },
     ) {
         Row(
