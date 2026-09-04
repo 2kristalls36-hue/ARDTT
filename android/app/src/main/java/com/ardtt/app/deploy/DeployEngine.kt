@@ -43,8 +43,8 @@ class DeployEngine(private val appContext: Context) {
     private val _outcome = MutableStateFlow<String?>(null)
     val outcome: StateFlow<String?> = _outcome.asStateFlow()
 
-    private val _activeTargetId = MutableStateFlow<String?>(null)
-    val activeTargetId: StateFlow<String?> = _activeTargetId.asStateFlow()
+    private val _hopTrack = MutableStateFlow(DeployHopTrack())
+    val hopTrack: StateFlow<DeployHopTrack> = _hopTrack.asStateFlow()
 
     @Volatile private var activeSession: Session? = null
     @Volatile private var activeHost: String = ""
@@ -73,6 +73,7 @@ class DeployEngine(private val appContext: Context) {
         _isUpdate.value = kind == DeployJobKind.Update
         _isUninstall.value = kind == DeployJobKind.Uninstall
         _activeTargetId.value = target.id
+        _hopTrack.value = DeployHopTrack.from(target)
         _busy.value = true
         _progress.value = 0f
         _step.value = "Инициализация…"
@@ -141,13 +142,15 @@ class DeployEngine(private val appContext: Context) {
             val installBytes = appContext.assets.open("deploy/install.sh").use { it.readBytes() }
             val deployVersion = DeployBundle.expectedVersion(appContext)
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
+            val entryHost = target.host.trim()
+            val verb = if (_isUpdate.value) "обновление" else "установка"
 
             var exitPub = ""
             if (target.cascadeEnabled) {
-                emit(0.02f, "Каскад: установка выхода ${target.cascadeHost.trim()}…")
                 val exitHost = target.cascadeHost.trim()
                 if (exitHost.isBlank()) error("Не указан host второго сервера")
-                append("Выход (WARP/DNS): $exitHost")
+                emitOn(exitHost, 0.02f, "Подключение SSH, $verb выходного стека…")
+                append("VPS 2 (выход): $exitHost")
                 val exitSession = SshClient.connect(
                     host = exitHost,
                     user = target.cascadeSshUser(),
@@ -180,16 +183,17 @@ class DeployEngine(private val appContext: Context) {
                     if (exitPub.isBlank()) {
                         error("Выходной VPS не отдал ключ каскада (ARDTT_CASCADE_PUBLIC_KEY)")
                     }
-                    append("Ключ выхода получен")
+                    append("Ключ выхода получен с $exitHost")
+                    markTrackedHostDone(exitHost)
                 } finally {
                     runCatching { exitSession.disconnect() }
                     if (activeSession === exitSession) activeSession = null
                 }
             }
 
-            emit(0.50f, "Подключение SSH к ${target.host.trim()}…")
+            emitOn(entryHost, if (target.cascadeEnabled) 0.50f else 0.08f, "Подключение SSH, $verb входного стека…")
             session = SshClient.connect(
-                host = target.host.trim(),
+                host = entryHost,
                 user = target.sshUser.trim().ifBlank { "root" },
                 port = target.sshPort,
                 auth = target.auth(),
@@ -197,7 +201,7 @@ class DeployEngine(private val appContext: Context) {
             activeSession = session
             val ssh = SshClient(session, target.sudoPassword.ifBlank { target.password })
             client = ssh
-            append("SSH подключено (${target.host.trim()})")
+            append("SSH подключено ($entryHost)")
             TelemetryBridge.deploy("ssh_connected", activeHost)
 
             val entryCmd = DeployInstallEnv.command(
@@ -216,7 +220,7 @@ class DeployEngine(private val appContext: Context) {
             )
             val entryPub = uploadAndInstall(
                 ssh = ssh,
-                hostLabel = target.host.trim(),
+                hostLabel = entryHost,
                 publicHost = publicHost,
                 stackBytes = stackBytes,
                 installBytes = installBytes,
@@ -225,10 +229,11 @@ class DeployEngine(private val appContext: Context) {
                 progressStart = if (target.cascadeEnabled) 0.50f else 0.08f,
                 progressEnd = if (target.cascadeEnabled) 0.92f else 0.96f,
             )
+            markTrackedHostDone(entryHost)
 
             if (target.cascadeEnabled) {
-                emit(0.94f, "Связка ключей на выходном VPS…")
                 val exitHost = target.cascadeHost.trim()
+                emitOn(exitHost, 0.94f, "Запись ключа входа и перезапуск контейнера…")
                 val exitSession = SshClient.connect(
                     host = exitHost,
                     user = target.cascadeSshUser(),
@@ -269,6 +274,7 @@ class DeployEngine(private val appContext: Context) {
                 "Стек установлен на $publicHost (/opt/ardtt)"
             }
             append(msg)
+            finishHopsSuccess()
             emit(1f, msg)
             val deployedAt = System.currentTimeMillis()
             val osInfo = runCatching {
@@ -354,8 +360,8 @@ class DeployEngine(private val appContext: Context) {
             if (target.cascadeEnabled) {
                 val exitHost = target.cascadeHost.trim()
                 if (exitHost.isBlank()) error("Не указан host второго сервера")
-                emit(0.04f, "Каскад: снятие стека на выходе $exitHost…")
-                append("Выход: $exitHost")
+                emitOn(exitHost, 0.04f, "Подключение SSH, снятие выходного стека…")
+                append("VPS 2 (выход): $exitHost")
                 val exitSession = SshClient.connect(
                     host = exitHost,
                     user = target.cascadeSshUser(),
@@ -366,6 +372,7 @@ class DeployEngine(private val appContext: Context) {
                 try {
                     val exitSsh = SshClient(exitSession, target.cascadePassword)
                     wipeRemoteStack(exitSsh, exitHost, 0.06f, 0.48f)
+                    markTrackedHostDone(exitHost)
                 } finally {
                     runCatching { exitSession.disconnect() }
                     if (activeSession === exitSession) activeSession = null
@@ -373,7 +380,11 @@ class DeployEngine(private val appContext: Context) {
             }
 
             val entryHost = target.host.trim()
-            emit(if (target.cascadeEnabled) 0.50f else 0.08f, "Подключение SSH к $entryHost…")
+            emitOn(
+                entryHost,
+                if (target.cascadeEnabled) 0.50f else 0.08f,
+                "Подключение SSH, снятие входного стека…",
+            )
             session = SshClient.connect(
                 host = entryHost,
                 user = target.sshUser.trim().ifBlank { "root" },
@@ -390,6 +401,7 @@ class DeployEngine(private val appContext: Context) {
                 progressStart = if (target.cascadeEnabled) 0.52f else 0.10f,
                 progressEnd = 0.92f,
             )
+            markTrackedHostDone(entryHost)
 
             throwIfCancelled()
             ServersRepository.get(appContext).delete(target.id)
@@ -400,6 +412,7 @@ class DeployEngine(private val appContext: Context) {
                 "Стек снят с $entryHost. Карточка удалена."
             }
             append(msg)
+            finishHopsSuccess()
             emit(1f, msg)
             TelemetryBridge.deploy(
                 "uninstall_succeeded",
@@ -445,8 +458,7 @@ class DeployEngine(private val appContext: Context) {
         progressEnd: Float,
     ) {
         throwIfCancelled()
-        activeHost = hostLabel
-        emit(progressStart, "Удаление стека на $hostLabel…")
+        emitOn(hostLabel, progressStart, "Снятие стека: контейнеры, /opt/ardtt, leftover…")
         var sawDone = false
         var failed: String? = null
         val span = (progressEnd - progressStart).coerceAtLeast(0.05f)
@@ -458,7 +470,7 @@ class DeployEngine(private val appContext: Context) {
                     val frac = parts.getOrNull(1)?.toFloatOrNull() ?: 0f
                     val step = parts.getOrNull(2)?.take(160).orEmpty()
                     val mapped = (progressStart + span * frac.coerceIn(0f, 1f)).coerceIn(0f, 1f)
-                    if (step.isNotBlank()) emit(mapped, "$hostLabel · $step")
+                    if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
                 }
                 line.startsWith("ARDTT_ERROR|") -> failed = line.removePrefix("ARDTT_ERROR|")
                 line.contains(ServerUninstall.DONE_MARKER) -> sawDone = true
@@ -515,19 +527,22 @@ class DeployEngine(private val appContext: Context) {
         progressStart: Float,
         progressEnd: Float,
     ): String {
-        activeHost = hostLabel
-        emit(progressStart, "Подготовка каталога на $hostLabel…")
+        emitOn(hostLabel, progressStart, "Подготовка каталога /opt/ardtt…")
         ssh.exec(
             "if [ -d /opt/nonamevpn ] && [ ! -e /opt/ardtt ]; then mv /opt/nonamevpn /opt/ardtt; fi; " +
                 "mkdir -p /opt/ardtt && chmod 755 /opt/ardtt",
         )
 
         val span = (progressEnd - progressStart).coerceAtLeast(0.05f)
-        emit(progressStart + span * 0.08f, "Загрузка stack.tar.gz ($hostLabel)…")
+        emitOn(
+            hostLabel,
+            progressStart + span * 0.08f,
+            "Загрузка архива стека (${stackBytes.size / 1024} КБ)…",
+        )
         ssh.uploadBytes(stackBytes, "/opt/ardtt/stack.tar.gz")
         append("Загружен stack.tar.gz на $hostLabel (${stackBytes.size / 1024} КБ)")
 
-        emit(progressStart + span * 0.16f, "Загрузка install.sh…")
+        emitOn(hostLabel, progressStart + span * 0.16f, "Загрузка install.sh и метки версии…")
         ssh.uploadBytes(installBytes, "/opt/ardtt/install.sh")
         ssh.exec("chmod +x /opt/ardtt/install.sh")
         runCatching {
@@ -546,7 +561,7 @@ class DeployEngine(private val appContext: Context) {
                 .put("public_host", publicHost),
         )
 
-        emit(progressStart + span * 0.22f, "Запуск установщика на $hostLabel…")
+        emitOn(hostLabel, progressStart + span * 0.22f, "Запуск install.sh…")
         var failed: String? = null
         var cascadePub = ""
         val code = ssh.execStreaming(command, timeoutMs = 45 * 60_000L) { line ->
@@ -558,10 +573,10 @@ class DeployEngine(private val appContext: Context) {
                     val frac = parts.getOrNull(1)?.toFloatOrNull() ?: 0f
                     val step = parts.getOrNull(2)?.take(160).orEmpty()
                     val mapped = (progressStart + span * frac.coerceIn(0f, 1f)).coerceIn(0f, 1f)
-                    if (step.isNotBlank()) emit(mapped, "$hostLabel · $step")
+                    if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
                 }
                 line.startsWith("ARDTT_ERROR|") -> failed = line.removePrefix("ARDTT_ERROR|")
-                line.startsWith("ARDTT_DONE|") -> emit(progressEnd, "Готово · $hostLabel")
+                line.startsWith("ARDTT_DONE|") -> emitOn(hostLabel, progressEnd, "install.sh завершился")
             }
         }
         if (failed != null) {
@@ -634,6 +649,36 @@ class DeployEngine(private val appContext: Context) {
         val out = ByteArrayOutputStream(raw.size / 2)
         GZIPOutputStream(out).use { it.write(raw) }
         return out.toByteArray()
+    }
+
+    private fun emitOn(host: String, fraction: Float, detail: String) {
+        trackHost(host)
+        emit(fraction, DeployProgressCopy.step(_hopTrack.value, host, detail))
+    }
+
+    private fun trackHost(host: String) {
+        val trimmed = host.trim()
+        activeHost = trimmed
+        _hopTrack.value = _hopTrack.value.copy(activeHost = trimmed)
+    }
+
+    private fun markTrackedHostDone(host: String) {
+        val cur = _hopTrack.value
+        val trimmed = host.trim()
+        _hopTrack.value = when {
+            !cur.cascade -> cur.copy(entryDone = true, activeHost = trimmed)
+            DeployHop.same(trimmed, cur.exitHost) -> cur.copy(exitDone = true, activeHost = trimmed)
+            else -> cur.copy(entryDone = true, activeHost = trimmed)
+        }
+    }
+
+    private fun finishHopsSuccess() {
+        val cur = _hopTrack.value
+        _hopTrack.value = cur.copy(
+            entryDone = true,
+            exitDone = cur.cascade,
+            activeHost = "",
+        )
     }
 
     private fun emit(fraction: Float, step: String) {
