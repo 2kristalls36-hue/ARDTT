@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
+import com.ardtt.app.QsProfileSwitch
 import com.ardtt.app.R
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
@@ -66,7 +69,9 @@ import com.ardtt.app.core.VpnPath
 import com.ardtt.app.core.readUnderlayAccessLabel
 import com.ardtt.app.core.underlayIdentity
 import com.ardtt.app.profile.NetworkEndpoint
+import com.ardtt.app.profile.ProfileCatalog
 import com.ardtt.app.profile.ProfileRepository
+import com.ardtt.app.profile.StoredProfile
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.settings.AppSettingsRepository
@@ -75,10 +80,14 @@ import com.ardtt.app.ui.PathModeCopy
 import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.commitHideIp
 import com.ardtt.app.ui.commitPathMode
+import com.ardtt.app.ui.qsProfileTileLabel
 import com.ardtt.app.ui.tunnelConnectionParamsVisible
+import com.ardtt.app.ui.tunnelQuickSettingsProfileHelp
 import com.ardtt.app.ui.tunnelStickyCtaEnabled
 import com.ardtt.app.ui.tunnelStickyCtaIsDestructive
 import com.ardtt.app.ui.tunnelStickyCtaLabel
+import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
+import com.ardtt.app.ui.components.ChoiceChipButton
 import com.ardtt.app.ui.components.TabPageHeader
 import com.ardtt.app.ui.components.AppSectionCard
 import com.ardtt.app.ui.components.HideIpChipRow
@@ -120,6 +129,7 @@ fun TunnelScreen(
     val conn = remember { ConnectionManager.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
+    val profileCatalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = serversRepo.snapshot())
     val profileHost = remember(profile) {
         profile?.let {
@@ -379,18 +389,8 @@ fun TunnelScreen(
                 }
             }
 
-            Text(
-                text = when {
-                    profile == null -> "Профиль не выбран"
-                    profile!!.name.isBlank() -> "Профиль выбран"
-                    else -> "Профиль: ${profile!!.name}"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-
             if (showConnectionParams) {
+                val switchLocked = vpnSessionBlocksProfileSwitch(ui.state)
                 AppSectionCard(
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -401,6 +401,24 @@ fun TunnelScreen(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
+                QuickSettingRow(
+                    title = "Профиль",
+                    subtitle = tunnelQuickSettingsProfileHelp(
+                        count = profileCatalog.items.size,
+                        locked = switchLocked,
+                    ),
+                    compact = true,
+                ) {
+                    TunnelQuickSettingsProfileRow(
+                        items = profileCatalog.items,
+                        activeId = profileCatalog.activeId,
+                        enabled = !switchLocked,
+                        onSelect = { item ->
+                            haptics.tick()
+                            scope.launch { QsProfileSwitch.activate(context, item) }
+                        },
+                    )
+                }
                 QuickSettingRow(
                     title = "Маршрут",
                     subtitle = PathModeCopy.help(pathMode, ui.hasCallHash, compact = true),
@@ -642,12 +660,41 @@ private fun TunnelConnectionHintBanner(
                 quickSettingsHidden ->
                     "Быстрые параметры скрыты. Для отображения откройте «Настройки» и отключите пункт «Скрыть быстрые настройки»."
                 else ->
-                    "Здесь вы управляете маршрутом, исходящим адресом и доверенной Wi‑Fi. " +
+                    "Здесь вы управляете профилем, маршрутом, исходящим адресом и доверенной Wi‑Fi. " +
                         "Код звонка для обхода настраивается на вкладке «Настройки»."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun TunnelQuickSettingsProfileRow(
+    items: List<StoredProfile>,
+    activeId: String?,
+    enabled: Boolean,
+    onSelect: (StoredProfile) -> Unit,
+) {
+    if (items.isEmpty()) return
+    val selectedId = activeId ?: items.first().id
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items.forEach { item ->
+            ChoiceChipButton(
+                label = qsProfileTileLabel(item.profile.name),
+                selected = item.id == selectedId,
+                enabled = enabled,
+                height = 40.dp,
+                onClick = {
+                    if (item.id != selectedId) onSelect(item)
+                },
+            )
+        }
     }
 }
 

@@ -3,6 +3,7 @@ package com.ardtt.app.ui.admin
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.profile.VpnProfileJson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -138,6 +139,49 @@ class ClientPresentationTest {
         assertEquals("", stub.deviceId)
         assertTrue(stub.deviceIds.isEmpty())
         assertEquals("—", clientDeviceSummary(stub))
+    }
+
+    @Test
+    fun addToPhoneKeepsExistingDeviceId() {
+        val profile = VpnProfileJson.parse(
+            """
+            {
+              "name": "alice",
+              "deviceId": "dev-template",
+              "hostId": 2,
+              "direct": {
+                "endpoint": "10.0.0.1:51820",
+                "privateKey": "",
+                "peerPublicKey": "",
+                "address": "10.8.0.2/32",
+                "dns": ["10.8.0.1"],
+                "mtu": 1280,
+                "awg": {}
+              },
+              "bypass": {
+                "peer": "10.0.0.1:56003",
+                "address": "10.9.0.2/32",
+                "password": "",
+                "workers": 9,
+                "transport": "tcp",
+                "mode": "raw",
+                "dial": "auto"
+              }
+            }
+            """.trimIndent(),
+        )
+        assertEquals("dev-template", profileWithBindDeviceId(profile, generated = "dev-gen").deviceId)
+        assertEquals("dev-gen", profileWithBindDeviceId(profile.copy(deviceId = "  "), generated = "dev-gen").deviceId)
+    }
+
+    @Test
+    fun addToPhoneBindMessageDependsOnSlot() {
+        assertEquals("Добавлен в профили", addToPhoneBindMessage(bound = true))
+        assertEquals("Профиль добавлен, устройство не привязалось", addToPhoneBindMessage(bound = false))
+        val bound = user(deviceIds = listOf("dev-template"))
+        assertTrue(userHasDevice(bound, "dev-template"))
+        assertFalse(userHasDevice(bound, "dev-other"))
+        assertFalse(userHasDevice(user(), "dev-template"))
     }
 
     private fun user(
