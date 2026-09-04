@@ -1,5 +1,6 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.ui.graphics.Color
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
@@ -225,20 +226,35 @@ internal fun lastHopProvisionUrls(entry: String?, exit: String?): List<String> =
 
 /**
  * Provider stays on the map even when lookup fails (empty IP / error).
+ * The terminal hop stays too (loading CloudFlare must still be the green card).
  * Other hops need a real address. CloudFlare is omitted if it duplicates a VPS hop.
  */
 internal fun shouldShowFilledHop(
     kind: NetworkMapHopKind,
     ip: String,
     earlierIps: Collection<String>,
+    terminal: Boolean = false,
 ): Boolean {
-    if (kind == NetworkMapHopKind.Provider) return true
-    if (ip.isBlank()) return false
-    if (kind == NetworkMapHopKind.Cloudflare && earlierIps.any { sameHopHost(it, ip) }) {
+    if (kind == NetworkMapHopKind.Cloudflare && ip.isNotBlank() &&
+        earlierIps.any { sameHopHost(it, ip) }
+    ) {
         return false
     }
-    return true
+    if (kind == NetworkMapHopKind.Provider || terminal) return true
+    return ip.isNotBlank()
 }
+
+/**
+ * Green card is the live egress hop from user settings, not "whatever is last on screen".
+ * Hide-IP → CloudFlare; else cascade → VPS 2; else the single VPS. Disconnected: none.
+ */
+internal fun terminalHopKind(hops: List<NetworkMapHop>): NetworkMapHopKind? =
+    hops.lastOrNull()?.kind?.takeUnless { it == NetworkMapHopKind.Provider }
+
+internal fun hopCardHighlighted(
+    kind: NetworkMapHopKind,
+    terminalKind: NetworkMapHopKind?,
+): Boolean = terminalKind != null && kind == terminalKind
 
 /** Headline for a hop card: the address, or a lookup error when the IP is missing. */
 internal fun hopCardPrimaryText(info: IpApiInfo, loading: Boolean = false): String {
@@ -253,16 +269,14 @@ internal data class HopHealthPings(
     val exitMs: Long = -1L,
 )
 
-internal fun isLastFilledHop(index: Int, filledCount: Int): Boolean =
-    filledCount > 0 && index == filledCount - 1
-
-internal enum class HopCardOutline {
-    Last,
-    Other,
+/** Gray rim for unhighlighted hop cards and the stick between them (theme outline is blue-gray). */
+internal fun hopMapGrayStroke(outline: Color): Color {
+    val luma = 0.299f * outline.red + 0.587f * outline.green + 0.114f * outline.blue
+    return Color(red = luma, green = luma, blue = luma, alpha = outline.alpha)
 }
 
-internal fun hopCardOutline(index: Int, filledCount: Int): HopCardOutline =
-    if (isLastFilledHop(index, filledCount)) HopCardOutline.Last else HopCardOutline.Other
+internal fun hopCardStrokeColor(highlighted: Boolean, outline: Color, connected: Color): Color =
+    if (highlighted) connected else hopMapGrayStroke(outline)
 
 /** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */
 internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Long = when (kind) {

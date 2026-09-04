@@ -29,7 +29,6 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -64,6 +63,7 @@ import com.ardtt.app.ui.components.TabFeedHeader
 import com.ardtt.app.ui.components.ArdttBottomChrome
 import com.ardtt.app.ui.components.ArdttDialog
 import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.ArdttLinearProgress
 import com.ardtt.app.ui.components.PullRefreshHost
 import com.ardtt.app.ui.components.StickyPrimaryButton
 import com.ardtt.app.ui.components.rememberPullRefresh
@@ -443,10 +443,7 @@ private fun LogRow(
                 }
             }
             if (uploading) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                ArdttLinearProgress(progress = progress)
                 Text(
                     "${(progress * 100).toInt()}%",
                     style = MaterialTheme.typography.labelSmall,

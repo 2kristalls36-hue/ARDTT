@@ -2,17 +2,20 @@ package com.ardtt.app.ui.admin
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -25,9 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -50,7 +50,6 @@ import com.ardtt.app.ui.components.ArdttBottomChrome
 import com.ardtt.app.ui.components.PingFlashDot
 import com.ardtt.app.ui.components.PullRefreshHost
 import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.illustratedBackdropActive
 import com.ardtt.app.ui.components.rememberPullRefresh
 import com.ardtt.app.ui.theme.ArdttColors
 import kotlin.coroutines.cancellation.CancellationException
@@ -109,10 +108,18 @@ fun NetworkScreen(
 
     val hops = remember(layout, snapshot.hops) { syncNetworkMapHopViews(layout, snapshot.hops) }
     val hopsLatest = rememberUpdatedState(hops)
-    val visibleHops = remember(hops) {
+    val terminalKind = remember(layout) { terminalHopKind(layout.hops) }
+    val visibleHops = remember(hops, terminalKind) {
         val earlier = mutableListOf<String>()
         hops.mapNotNull { view ->
-            if (!shouldShowFilledHop(view.hop.kind, view.info.ip, earlier)) {
+            val kind = view.hop.kind
+            if (!shouldShowFilledHop(
+                    kind = kind,
+                    ip = view.info.ip,
+                    earlierIps = earlier,
+                    terminal = hopCardHighlighted(kind, terminalKind),
+                )
+            ) {
                 null
             } else {
                 if (view.info.ip.isNotBlank()) earlier += view.info.ip
@@ -225,7 +232,7 @@ fun NetworkScreen(
                         kind = view.hop.kind,
                         info = view.info,
                         loading = view.loading,
-                        highlighted = hopCardOutline(index, visibleHops.size) == HopCardOutline.Last,
+                        highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
                         pingLabel = hopPingLabel(view.hop.kind, hopPings),
                     )
                 }
@@ -409,25 +416,19 @@ private suspend fun loadCloudflare(
 
 @Composable
 private fun HopConnector() {
-    val onWallpaper = illustratedBackdropActive()
-    val color = if (onWallpaper) {
-        Color(0xFFD6E2F0)
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
-    Canvas(
+    val color = hopMapGrayStroke(MaterialTheme.colorScheme.outline)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(22.dp)
             .semantics { contentDescription = "связь" },
+        contentAlignment = Alignment.Center,
     ) {
-        val x = size.width / 2f
-        drawLine(
-            color = color,
-            start = Offset(x, 0f),
-            end = Offset(x, size.height),
-            strokeWidth = 3.dp.toPx(),
-            cap = StrokeCap.Round,
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(color, RoundedCornerShape(50)),
         )
     }
 }
@@ -449,7 +450,11 @@ private fun IpInfoCard(
         tonalElevation = 0.dp,
         border = BorderStroke(
             2.dp,
-            if (highlighted) ArdttColors.connected else MaterialTheme.colorScheme.outline,
+            hopCardStrokeColor(
+                highlighted = highlighted,
+                outline = MaterialTheme.colorScheme.outline,
+                connected = ArdttColors.connected,
+            ),
         ),
     ) {
         Row(
