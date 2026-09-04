@@ -10,7 +10,7 @@
 
 </div>
 
-**ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — Android-приложение и self-hosted сервер для защищённого туннеля до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP, без DTLS и без вложенного WireGuard).
+**ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — Android-приложение и self-hosted сервер для защищённого туннеля до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP).
 
 > [!WARNING]
 > **Назначение проекта**
@@ -19,7 +19,7 @@
 > Авторы **не призывают** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.219** (`versionCode` 237), пакет `com.ardtt.app`. Серверный стек **1.0.30** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
+> Клиент **0.5.220** (`versionCode` 238), пакет `com.ardtt.app`. Серверный стек **1.0.31** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
 >
 > Смена пакета с `com.nonamevpn.app` — это **новое приложение** для Android: обновление поверх старого APK не встанет, нужна переустановка.
 >
@@ -31,8 +31,8 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.218** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
-| Стек | **1.0.30** · `/opt/ardtt` · контейнеры `ardtt-*` · переменные `ARDTT_*` |
+| Клиент | **0.5.220** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
+| Стек | **1.0.31** · `/opt/ardtt` · контейнеры `ardtt-*` · переменные `ARDTT_*` |
 | Compose | `provision` `:9100`, `direct`, `bypass`, `dns`, `warp`, `cascade`, `telemetry` `:9200` |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases) |
@@ -93,7 +93,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.218 / стек 1.0.30 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.220 / стек 1.0.31 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS из приложения и Compose |
