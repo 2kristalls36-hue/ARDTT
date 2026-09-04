@@ -48,7 +48,7 @@ class DeployService : Service() {
             runCatching { lock.acquire(4 * 60 * 60 * 1000L) }
         }
         scope.launch {
-            combine(engine.progress, engine.step, engine.isUpdate) { _, _, _ -> }
+            combine(engine.progress, engine.step, engine.isUpdate, engine.isUninstall) { _, _, _, _ -> }
                 .collect {
                     if (fgReady && !finished) publishOngoing()
                 }
@@ -87,7 +87,9 @@ class DeployService : Service() {
         TelemetryBridge.deploy(
             "deploy_fgs_started",
             host,
-            JSONObject().put("is_update", engine.isUpdate.value),
+            JSONObject()
+                .put("is_update", engine.isUpdate.value)
+                .put("is_uninstall", engine.isUninstall.value),
         )
         val result = engine.runFromService()
         val success = result.isSuccess
@@ -135,8 +137,13 @@ class DeployService : Service() {
 
     private fun buildOngoing(): Notification {
         val isUpdate = engine.isUpdate.value
+        val isUninstall = engine.isUninstall.value
         val percent = DeployShade.progressPercent(engine.progress.value)
-        val step = DeployShade.contentText(engine.step.value, engine.pendingHostLabel())
+        val step = DeployShade.contentText(
+            engine.step.value,
+            engine.pendingHostLabel(),
+            isUninstall = isUninstall,
+        )
         val open = openAppIntent()
         val cancel = PendingIntent.getService(
             this,
@@ -146,7 +153,7 @@ class DeployService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_connected)
-            .setContentTitle(DeployShade.title(isUpdate))
+            .setContentTitle(DeployShade.title(isUpdate, isUninstall))
             .setContentText(step)
             .setSubText("$percent%")
             .setStyle(NotificationCompat.BigTextStyle().bigText(step))
@@ -164,10 +171,11 @@ class DeployService : Service() {
 
     private fun buildFinished(success: Boolean, message: String): Notification {
         val isUpdate = engine.isUpdate.value
+        val isUninstall = engine.isUninstall.value
         val text = DeployShade.finishedText(success, message)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_connected)
-            .setContentTitle(DeployShade.title(isUpdate))
+            .setContentTitle(DeployShade.title(isUpdate, isUninstall))
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setProgress(0, 0, false)
@@ -209,7 +217,7 @@ class DeployService : Service() {
                 setShowBadge(false)
                 setSound(null, null)
                 enableVibration(false)
-                description = "Прогресс установки и обновления стека на VPS"
+                description = "Прогресс установки, обновления и удаления стека на VPS"
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             },
         )
