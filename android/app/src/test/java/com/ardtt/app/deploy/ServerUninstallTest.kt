@@ -29,6 +29,8 @@ class ServerUninstallTest {
         assertTrue(cmd.contains("docker image prune -af"))
         assertTrue(cmd.contains("apt-get purge -y docker-ce"))
         assertTrue(cmd.contains("rm -rf /var/lib/docker"))
+        assertTrue(cmd.contains("unmount_tree"))
+        assertTrue(cmd.contains("umount -l"))
         assertTrue(cmd.contains("ip link del docker0"))
         assertTrue(cmd.contains("swapoff /swapfile"))
         assertTrue(cmd.contains("sed -i"))
