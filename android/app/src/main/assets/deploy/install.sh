@@ -3,17 +3,17 @@
 # Android APK gets a copy via scripts/pack-deploy-assets.sh → assets/deploy/install.sh.
 #
 # Product path (from the app): SSH upload of stack.tar.gz + this script, then:
-#   NVPN_PUBLIC_HOST=… bash /opt/nonamevpn/install.sh
-# Cascade: phone SSHs to the exit VPS (NVPN_ROLE=exit) and the entry VPS
-#   (NVPN_ROLE=entry NVPN_CASCADE_ENABLED=1) separately. Do not write SSH passwords
+#   ARDTT_PUBLIC_HOST=… bash /opt/ardtt/install.sh
+# Cascade: phone SSHs to the exit VPS (ARDTT_ROLE=exit) and the entry VPS
+#   (ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1) separately. Do not write SSH passwords
 #   into .env.
 # Ops path: same script; if the tarball is gone, re-run against already unpacked stack/.
 #
 # Protocol lines consumed by the Android DeployEngine:
-#   NVPN_PROGRESS|<0..1>|<step>
-#   NVPN_ERROR|<message>
-#   NVPN_DONE|install_dir=…|public_host=…
-#   NVPN_WARN|<message>
+#   ARDTT_PROGRESS|<0..1>|<step>
+#   ARDTT_ERROR|<message>
+#   ARDTT_DONE|install_dir=…|public_host=…
+#   ARDTT_WARN|<message>
 #
 # On VPS with ≥1.8 GiB RAM, build new images BEFORE stopping the old stack so a
 # mid-build SSH drop does not take the VPN down. On ~1 GiB hosts that order OOMs
@@ -21,73 +21,95 @@
 # the previous stack back if the build fails.
 set -euo pipefail
 
-INSTALL_DIR="${NVPN_INSTALL_DIR:-/opt/nonamevpn}"
-PUBLIC_HOST="${NVPN_PUBLIC_HOST:-}"
-DIRECT_PORT="${NVPN_DIRECT_PORT:-51820}"
-BYPASS_PORT="${NVPN_BYPASS_PORT:-56003}"
-PROVISION_LISTEN="${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}"
-TELEMETRY_PORT="${NVPN_TELEMETRY_PORT:-9200}"
-KEEP_INSTALL_LOG="${NVPN_KEEP_INSTALL_LOG:-0}"
-COMPOSE_PROJECT="${NVPN_COMPOSE_PROJECT:-stack}"
-MIN_SWAP_MB="${NVPN_MIN_SWAP_MB:-2048}"
+# Legacy NVPN_* from pre-rename deploys / .env.
+INSTALL_DIR="${ARDTT_INSTALL_DIR:-${NVPN_INSTALL_DIR:-/opt/ardtt}}"
+PUBLIC_HOST="${ARDTT_PUBLIC_HOST:-${NVPN_PUBLIC_HOST:-}}"
+DIRECT_PORT="${ARDTT_DIRECT_PORT:-${NVPN_DIRECT_PORT:-51820}}"
+BYPASS_PORT="${ARDTT_BYPASS_PORT:-${NVPN_BYPASS_PORT:-56003}}"
+PROVISION_LISTEN="${ARDTT_PROVISION_LISTEN:-${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}}"
+TELEMETRY_PORT="${ARDTT_TELEMETRY_PORT:-${NVPN_TELEMETRY_PORT:-9200}}"
+KEEP_INSTALL_LOG="${ARDTT_KEEP_INSTALL_LOG:-${NVPN_KEEP_INSTALL_LOG:-0}}"
+COMPOSE_PROJECT="${ARDTT_COMPOSE_PROJECT:-${NVPN_COMPOSE_PROJECT:-stack}}"
+MIN_SWAP_MB="${ARDTT_MIN_SWAP_MB:-${NVPN_MIN_SWAP_MB:-2048}}"
 # Sequential one-image builds; do not demand 1.8G free on a 8–10G VPS.
-MIN_DISK_MB="${NVPN_MIN_DISK_MB:-1100}"
-MIN_DISK_UPDATE_MB="${NVPN_MIN_DISK_UPDATE_MB:-500}"
+MIN_DISK_MB="${ARDTT_MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-1100}}"
+MIN_DISK_UPDATE_MB="${ARDTT_MIN_DISK_UPDATE_MB:-${NVPN_MIN_DISK_UPDATE_MB:-500}}"
 # entry = phone-facing stack. exit = hop egress (AWG + DNS + WARP).
-ROLE="${NVPN_ROLE:-entry}"
-CASCADE_ENABLED="${NVPN_CASCADE_ENABLED:-0}"
-CASCADE_LISTEN_PORT="${NVPN_CASCADE_LISTEN_PORT:-51820}"
-CASCADE_PEER_ENDPOINT="${NVPN_CASCADE_PEER_ENDPOINT:-}"
-CASCADE_PEER_PUBLIC_KEY="${NVPN_CASCADE_PEER_PUBLIC_KEY:-}"
-CASCADE_DNS="${NVPN_CASCADE_DNS:-10.10.0.2}"
+ROLE="${ARDTT_ROLE:-${NVPN_ROLE:-entry}}"
+CASCADE_ENABLED="${ARDTT_CASCADE_ENABLED:-${NVPN_CASCADE_ENABLED:-0}}"
+CASCADE_LISTEN_PORT="${ARDTT_CASCADE_LISTEN_PORT:-${NVPN_CASCADE_LISTEN_PORT:-51820}}"
+CASCADE_PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-${NVPN_CASCADE_PEER_ENDPOINT:-}}"
+CASCADE_PEER_PUBLIC_KEY="${ARDTT_CASCADE_PEER_PUBLIC_KEY:-${NVPN_CASCADE_PEER_PUBLIC_KEY:-}}"
+CASCADE_DNS="${ARDTT_CASCADE_DNS:-${NVPN_CASCADE_DNS:-10.10.0.2}}"
 if [ "$ROLE" = "exit" ]; then
   CASCADE_ENABLED=1
 fi
 
 env_file_val() {
-  local file="$1" key="$2"
+  local file="$1" key="$2" v=""
   [ -f "$file" ] || return 0
-  grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'" | tr -d '[:space:]'
+  v="$(grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'" | tr -d '[:space:]')"
+  if [ -z "$v" ] && [[ "$key" == ARDTT_* ]]; then
+    v="$(grep -E "^NVPN_${key#ARDTT_}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"' | tr -d "'" | tr -d '[:space:]')"
+  fi
+  printf '%s' "$v"
+}
+
+migrate_legacy_install_dir() {
+  if [ -d /opt/nonamevpn ] && [ ! -e /opt/ardtt ]; then
+    mv /opt/nonamevpn /opt/ardtt
+    echo "ARDTT_WARN|каталог /opt/nonamevpn перенесён в /opt/ardtt"
+  fi
+  if [ "$INSTALL_DIR" = "/opt/nonamevpn" ]; then
+    INSTALL_DIR=/opt/ardtt
+  fi
+}
+
+drop_legacy_containers() {
+  docker rm -f \
+    nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade \
+    >/dev/null 2>&1 || true
 }
 
 # An in-app "update" of the entry hop often omits cascade flags. Dropping them
-# tears down nvpn-cascade, leaves profiles on 10.10.0.2 DNS, and Hide-IP-off
+# tears down ardtt-cascade, leaves profiles on 10.10.0.2 DNS, and Hide-IP-off
 # traffic can stick on Cloudflare while the app still shows the VPS WAN.
 preserve_live_cascade() {
   [ "$ROLE" = "entry" ] || return 0
-  [ "${NVPN_CASCADE_FORCE_DISABLE:-0}" = "1" ] && return 0
+  [ "${ARDTT_CASCADE_FORCE_DISABLE:-${NVPN_CASCADE_FORCE_DISABLE:-0}}" = "1" ] && return 0
   local envf="$INSTALL_DIR/stack/.env"
   local data="$INSTALL_DIR/stack/data"
   local prev
-  prev="$(env_file_val "$envf" NVPN_CASCADE_ENABLED)"
+  prev="$(env_file_val "$envf" ARDTT_CASCADE_ENABLED)"
   if [ "$prev" = "1" ] && [ "$CASCADE_ENABLED" != "1" ]; then
     CASCADE_ENABLED=1
-    echo "NVPN_WARN|каскад сохранён с прошлого деплоя (NVPN_CASCADE_FORCE_DISABLE=1 чтобы снять)"
+    echo "ARDTT_WARN|каскад сохранён с прошлого деплоя (ARDTT_CASCADE_FORCE_DISABLE=1 чтобы снять)"
   fi
   if [ "$CASCADE_ENABLED" != "1" ]; then
     if [ -s "$data/cascade.priv" ]; then
-      echo "NVPN_WARN|каскадные ключи на диске, hop выключен — включите каскад в приложении чтобы снова связать вход с выходом"
+      echo "ARDTT_WARN|каскадные ключи на диске, hop выключен — включите каскад в приложении чтобы снова связать вход с выходом"
     fi
     CASCADE_DNS=""
     return 0
   fi
   if [ -z "$CASCADE_PEER_ENDPOINT" ]; then
-    CASCADE_PEER_ENDPOINT="$(env_file_val "$envf" NVPN_CASCADE_PEER_ENDPOINT)"
+    CASCADE_PEER_ENDPOINT="$(env_file_val "$envf" ARDTT_CASCADE_PEER_ENDPOINT)"
   fi
   if [ -z "$CASCADE_PEER_ENDPOINT" ] && [ -s "$data/cascade.peer.endpoint" ]; then
     CASCADE_PEER_ENDPOINT="$(tr -d '[:space:]' < "$data/cascade.peer.endpoint")"
   fi
   if [ -z "$CASCADE_PEER_PUBLIC_KEY" ]; then
-    CASCADE_PEER_PUBLIC_KEY="$(env_file_val "$envf" NVPN_CASCADE_PEER_PUBLIC_KEY)"
+    CASCADE_PEER_PUBLIC_KEY="$(env_file_val "$envf" ARDTT_CASCADE_PEER_PUBLIC_KEY)"
   fi
   if [ -z "$CASCADE_PEER_PUBLIC_KEY" ] && [ -s "$data/cascade.peer.pub" ]; then
     CASCADE_PEER_PUBLIC_KEY="$(tr -d '[:space:]' < "$data/cascade.peer.pub")"
   fi
   [ -n "$CASCADE_DNS" ] || CASCADE_DNS="10.10.0.2"
 }
+migrate_legacy_install_dir
 preserve_live_cascade
 
-LOG_FILE="$(mktemp /tmp/nvpn-install.XXXXXX.log)"
+LOG_FILE="$(mktemp /tmp/ardtt-install.XXXXXX.log)"
 STAGING=""
 
 cleanup_host_packages() {
@@ -127,13 +149,13 @@ reset_docker_buildkit() {
   docker builder prune -af >/dev/null 2>&1 || true
   docker buildx prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
-  echo "NVPN_INFO|сброс BuildKit: restart docker и удаление /var/lib/docker/buildkit"
+  echo "ARDTT_INFO|сброс BuildKit: restart docker и удаление /var/lib/docker/buildkit"
   if command -v systemctl >/dev/null 2>&1; then
     systemctl stop docker 2>/dev/null || true
     rm -rf /var/lib/docker/buildkit
     systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
     if ! wait_for_docker; then
-      echo "NVPN_WARN|docker не ответил сразу после сброса BuildKit"
+      echo "ARDTT_WARN|docker не ответил сразу после сброса BuildKit"
     fi
   else
     rm -rf /var/lib/docker/buildkit
@@ -149,7 +171,7 @@ STACK_STOPPED_FOR_BUILD=0
 restore_live_stack_if_needed() {
   [ "${STACK_STOPPED_FOR_BUILD:-0}" = "1" ] || return 0
   [ -f "$INSTALL_DIR/stack/docker-compose.yml" ] || return 0
-  echo "NVPN_WARN|поднимаем прежний стек (сборка не закончена)"
+  echo "ARDTT_WARN|поднимаем прежний стек (сборка не закончена)"
   (
     cd "$INSTALL_DIR/stack" || exit 0
     if [ -f .env ]; then
@@ -158,6 +180,7 @@ restore_live_stack_if_needed() {
       COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose up -d
     fi
   ) >/dev/null 2>&1 || \
+    docker start ardtt-provision ardtt-direct ardtt-bypass ardtt-dns ardtt-warp ardtt-telemetry ardtt-cascade >/dev/null 2>&1 || \
     docker start nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade >/dev/null 2>&1 || true
   STACK_STOPPED_FOR_BUILD=0
 }
@@ -165,17 +188,17 @@ restore_live_stack_if_needed() {
 cleanup_stale_deploy_files() {
   # Leftovers from older installer names, failed SSH drops, and agent probes.
   # Do not delete stack.staging here: it is the in-progress unpack.
-  # Do not glob /tmp/nvpn-install.*.log: that is the live tee for this run.
+  # Do not glob /tmp/ardtt-install.*.log: that is the live tee for this run.
   rm -f "$INSTALL_DIR/install-live.log" "$INSTALL_DIR/install-run.log"
-  rm -f /var/log/nvpn-build*.log /var/log/nvpn-install.log
-  rm -f /tmp/nvpn-entry-* /tmp/nvpn-cascade-* /tmp/nvpn-cascade-probe-*.sh
-  rm -rf /tmp/nvpn-provision /tmp/nvpn-data-bak /var/tmp/nvpn-*
+  rm -f /var/log/ardtt-build*.log /var/log/ardtt-install.log
+  rm -f /tmp/ardtt-entry-* /tmp/ardtt-cascade-* /tmp/ardtt-cascade-probe-*.sh
+  rm -rf /tmp/ardtt-provision /tmp/ardtt-data-bak /var/tmp/ardtt-*
   rm -rf "$INSTALL_DIR/stack.old"
   # Leftover wg-quick conf from kernel-WG WARP. Do not ip-link-del warp0 here:
-  # the live nvpn-warp may still own it until compose replaces the container.
+  # the live ardtt-warp may still own it until compose replaces the container.
   # Do not delete stack/data/warp — that is the live wgcf account.
   rm -f /etc/wireguard/warp0.conf
-  rm -f /tmp/nvpn-warp-* "$INSTALL_DIR"/stack/data/warp/*.conf.tmp 2>/dev/null || true
+  rm -f /tmp/ardtt-warp-* "$INSTALL_DIR"/stack/data/warp/*.conf.tmp 2>/dev/null || true
 }
 
 reclaim_disk() {
@@ -271,7 +294,7 @@ ensure_cascade_keys() {
     return 0
   fi
   if ! docker image inspect stack-direct:latest >/dev/null 2>&1; then
-    echo "NVPN_WARN|нет образа stack-direct — ключи каскада создаст контейнер"
+    echo "ARDTT_WARN|нет образа stack-direct — ключи каскада создаст контейнер"
     return 0
   fi
   if [ ! -s "$data/cascade.priv" ]; then
@@ -289,14 +312,14 @@ ensure_cascade_keys() {
   local pub
   pub="$(tr -d '[:space:]' <"$data/cascade.pub" 2>/dev/null || true)"
   if [ -n "$pub" ]; then
-    echo "NVPN_CASCADE_PUBLIC_KEY|$pub"
+    echo "ARDTT_CASCADE_PUBLIC_KEY|$pub"
   fi
 }
 
 cleanup_install_artifacts() {
   rm -f "$INSTALL_DIR/stack.tar.gz"
-  rm -f /var/log/nvpn-build*.log /var/log/nvpn-install.log
-  rm -rf /tmp/nvpn-data-bak "$INSTALL_DIR/stack.staging" "$INSTALL_DIR/stack.old"
+  rm -f /var/log/ardtt-build*.log /var/log/ardtt-install.log
+  rm -rf /tmp/ardtt-data-bak "$INSTALL_DIR/stack.staging" "$INSTALL_DIR/stack.old"
   cleanup_stale_deploy_files
   if [ "$KEEP_INSTALL_LOG" = "1" ]; then
     mkdir -p "$INSTALL_DIR"
@@ -309,7 +332,7 @@ on_exit() {
   local code=$?
   # Always try to drop temp archive / bak even on failure
   rm -f "$INSTALL_DIR/stack.tar.gz" 2>/dev/null || true
-  rm -rf /tmp/nvpn-data-bak 2>/dev/null || true
+  rm -rf /tmp/ardtt-data-bak 2>/dev/null || true
   # Keep staging on failure for retry/debug; drop only on success via cleanup_install_artifacts.
   if [ "$code" -eq 0 ]; then
     cleanup_install_artifacts
@@ -327,8 +350,8 @@ trap on_exit EXIT
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-prog() { echo "NVPN_PROGRESS|$1|$2"; }
-die() { echo "NVPN_ERROR|$*"; exit 1; }
+prog() { echo "ARDTT_PROGRESS|$1|$2"; }
+die() { echo "ARDTT_ERROR|$*"; exit 1; }
 
 mem_total_mb() {
   awk '/MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0
@@ -374,7 +397,7 @@ ensure_swap() {
   # when the disk is tight and almost none of that swap is actually in use.
   if [ -f /swapfile ] && [ "${file_mb:-0}" -gt $((need_mb + 96)) ] &&
      [ "${avail_mb:-0}" -lt 2200 ] && [ "${used_swap:-0}" -lt 400 ]; then
-    echo "NVPN_INFO|сжимаем swapfile ${file_mb} → ${need_mb} МБ (свободно ${avail_mb} МБ)"
+    echo "ARDTT_INFO|сжимаем swapfile ${file_mb} → ${need_mb} МБ (свободно ${avail_mb} МБ)"
     swapoff /swapfile 2>/dev/null || true
     rm -f /swapfile
     have_mb="$(swap_total_mb)"
@@ -384,7 +407,7 @@ ensure_swap() {
   local min_ok=$((need_mb - 64))
   if [ "$min_ok" -lt 512 ]; then min_ok=512; fi
   if [ "${have_mb:-0}" -ge "$min_ok" ] 2>/dev/null; then
-    echo "NVPN_INFO|swap уже ${have_mb} МБ (цель ≥${need_mb})"
+    echo "ARDTT_INFO|swap уже ${have_mb} МБ (цель ≥${need_mb})"
     return 0
   fi
   avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
@@ -392,11 +415,11 @@ ensure_swap() {
   local reserve_mb="${MIN_DISK_UPDATE_MB:-500}"
   local max_swap=$(( ${avail_mb:-0} - reserve_mb ))
   if [ "$max_swap" -lt 512 ]; then
-    echo "NVPN_WARN|мало места для swap (свободно ${avail_mb:-0} МБ, нужно оставить ≥${reserve_mb}) — без увеличения"
+    echo "ARDTT_WARN|мало места для swap (свободно ${avail_mb:-0} МБ, нужно оставить ≥${reserve_mb}) — без увеличения"
     return 0
   fi
   if [ "$need_mb" -gt "$max_swap" ]; then
-    echo "NVPN_WARN|swap цель ${need_mb} МБ урезана до ${max_swap} МБ (диск ${avail_mb} МБ)"
+    echo "ARDTT_WARN|swap цель ${need_mb} МБ урезана до ${max_swap} МБ (диск ${avail_mb} МБ)"
     need_mb="$max_swap"
   fi
   prog 0.32 "Увеличение swap до ${need_mb} МБ (сейчас ${have_mb:-0})"
@@ -407,14 +430,14 @@ ensure_swap() {
   rm -f "$swapfile"
   if ! fallocate -l "${need_mb}M" "$swapfile" 2>/dev/null; then
     if ! dd if=/dev/zero of="$swapfile" bs=1M count="$need_mb" status=none; then
-      echo "NVPN_WARN|не удалось создать swapfile — продолжаем без swap"
+      echo "ARDTT_WARN|не удалось создать swapfile — продолжаем без swap"
       rm -f "$swapfile"
       return 0
     fi
   fi
   chmod 600 "$swapfile"
   if ! mkswap "$swapfile" >/dev/null 2>&1 || ! swapon "$swapfile" 2>/dev/null; then
-    echo "NVPN_WARN|не удалось включить swap — продолжаем без него"
+    echo "ARDTT_WARN|не удалось включить swap — продолжаем без него"
     rm -f "$swapfile"
     return 0
   fi
@@ -422,7 +445,7 @@ ensure_swap() {
     echo '/swapfile none swap sw 0 0' >> /etc/fstab
   fi
   have_mb="$(swap_total_mb)"
-  echo "NVPN_INFO|swap теперь ${have_mb} МБ"
+  echo "ARDTT_INFO|swap теперь ${have_mb} МБ"
 }
 
 stop_stack() {
@@ -430,7 +453,10 @@ stop_stack() {
   if [ -f "$dir/docker-compose.yml" ]; then
     (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose down) 2>/dev/null || \
       (cd "$dir" && COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker-compose down) 2>/dev/null || \
-      docker rm -f nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade >/dev/null 2>&1 || true
+      docker rm -f \
+        ardtt-provision ardtt-direct ardtt-bypass ardtt-dns ardtt-warp ardtt-telemetry ardtt-cascade \
+        nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade \
+        >/dev/null 2>&1 || true
   fi
 }
 
@@ -438,13 +464,13 @@ PROG_ROLE="вход (клиенты)"
 [ "$ROLE" = "exit" ] && PROG_ROLE="выход (WARP)"
 [ "$CASCADE_ENABLED" = "1" ] && [ "$ROLE" = "entry" ] && PROG_ROLE="вход + каскад на ${CASCADE_PEER_ENDPOINT:-?}"
 prog 0.05 "Проверка прав · ${PROG_ROLE}"
-if [ "${NVPN_SKIP_ROOT_CHECK:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
+if [ "${ARDTT_SKIP_ROOT_CHECK:-${NVPN_SKIP_ROOT_CHECK:-0}}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
   die "Нужен root (или запуск через sudo)"
 fi
 
-[ -n "$PUBLIC_HOST" ] || die "NVPN_PUBLIC_HOST не задан"
+[ -n "$PUBLIC_HOST" ] || die "ARDTT_PUBLIC_HOST не задан"
 if [ "$ROLE" != "entry" ] && [ "$ROLE" != "exit" ]; then
-  die "NVPN_ROLE должен быть entry или exit"
+  die "ARDTT_ROLE должен быть entry или exit"
 fi
 
 prog 0.10 "Подготовка каталога $INSTALL_DIR"
@@ -484,7 +510,7 @@ if [ -n "$missing_contexts" ]; then
   die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Обновите APK или пересоберите архив scripts/pack-deploy-assets.sh"
 fi
 
-if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
+if [ "${ARDTT_DRY_RUN:-${NVPN_DRY_RUN:-0}}" != "1" ]; then
   prog 0.25 "Установка Docker (если нужно)"
   if ! command -v docker >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
@@ -545,7 +571,7 @@ if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
 
   prog 0.28 "Подготовка: очистка кэша Docker"
   reclaim_disk
-  echo "NVPN_INFO|кэш сборки сброшен, свободно $(df -Pm / 2>/dev/null | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
+  echo "ARDTT_INFO|кэш сборки сброшен, свободно $(df -Pm / 2>/dev/null | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
   mem_mb="$(mem_total_mb)"
   if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
     ensure_swap "$(swap_target_mb)"
@@ -553,7 +579,7 @@ if [ "${NVPN_DRY_RUN:-0}" != "1" ]; then
 fi
 
 prog 0.40 "Запись .env (staging)"
-DEPLOY_VERSION="${NVPN_DEPLOY_VERSION:-}"
+DEPLOY_VERSION="${ARDTT_DEPLOY_VERSION:-${NVPN_DEPLOY_VERSION:-}}"
 if [ -z "$DEPLOY_VERSION" ] && [ -f "$STAGING/DEPLOY_VERSION" ]; then
   DEPLOY_VERSION="$(tr -d '[:space:]' < "$STAGING/DEPLOY_VERSION")"
 fi
@@ -572,8 +598,8 @@ if [ "$CASCADE_ENABLED" = "1" ]; then
   BYPASS_DNS="$CASCADE_DNS"
   WARP_MODE="passthrough"
 else
-  # Provision treats a non-empty NVPN_CASCADE_DNS as hop DNS even when
-  # NVPN_CASCADE_ENABLED=0. Keep it blank on a standalone entry.
+  # Provision treats a non-empty ARDTT_CASCADE_DNS as hop DNS even when
+  # ARDTT_CASCADE_ENABLED=0. Keep it blank on a standalone entry.
   CASCADE_DNS=""
 fi
 if [ "$ROLE" = "exit" ]; then
@@ -582,25 +608,25 @@ if [ "$ROLE" = "exit" ]; then
   WARP_HIDEIP_URL="http://10.10.0.1:9100/v1/hide-ip-prefixes"
 fi
 cat > "$STAGING/.env" <<EOF
-NVPN_PUBLIC_HOST=$PUBLIC_HOST
-NVPN_DIRECT_PORT=$DIRECT_PORT
-NVPN_BYPASS_PORT=$BYPASS_PORT
-NVPN_PROVISION_LISTEN=$PROVISION_LISTEN
-NVPN_DEPLOY_VERSION=$DEPLOY_VERSION
-NVPN_WARP_GOMEMLIMIT=256MiB
+ARDTT_PUBLIC_HOST=$PUBLIC_HOST
+ARDTT_DIRECT_PORT=$DIRECT_PORT
+ARDTT_BYPASS_PORT=$BYPASS_PORT
+ARDTT_PROVISION_LISTEN=$PROVISION_LISTEN
+ARDTT_DEPLOY_VERSION=$DEPLOY_VERSION
+ARDTT_WARP_GOMEMLIMIT=256MiB
 TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
-NVPN_TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
-NVPN_TELEMETRY_PORT=${TELEMETRY_PORT}
-NVPN_ROLE=$ROLE
-NVPN_CASCADE_ENABLED=$CASCADE_ENABLED
-NVPN_CASCADE_LISTEN_PORT=$CASCADE_LISTEN_PORT
-NVPN_CASCADE_PEER_ENDPOINT=$CASCADE_PEER_ENDPOINT
-NVPN_CASCADE_PEER_PUBLIC_KEY=$CASCADE_PEER_PUBLIC_KEY
-NVPN_CASCADE_DNS=$CASCADE_DNS
-NVPN_BYPASS_DNS=$BYPASS_DNS
-NVPN_WARP_MODE=$WARP_MODE
-NVPN_WARP_DNS_IIFACES="$WARP_DNS_IFACES"
-NVPN_WARP_HIDEIP_URL=$WARP_HIDEIP_URL
+ARDTT_TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}
+ARDTT_TELEMETRY_PORT=${TELEMETRY_PORT}
+ARDTT_ROLE=$ROLE
+ARDTT_CASCADE_ENABLED=$CASCADE_ENABLED
+ARDTT_CASCADE_LISTEN_PORT=$CASCADE_LISTEN_PORT
+ARDTT_CASCADE_PEER_ENDPOINT=$CASCADE_PEER_ENDPOINT
+ARDTT_CASCADE_PEER_PUBLIC_KEY=$CASCADE_PEER_PUBLIC_KEY
+ARDTT_CASCADE_DNS=$CASCADE_DNS
+ARDTT_BYPASS_DNS=$BYPASS_DNS
+ARDTT_WARP_MODE=$WARP_MODE
+ARDTT_WARP_DNS_IIFACES="$WARP_DNS_IFACES"
+ARDTT_WARP_HIDEIP_URL=$WARP_HIDEIP_URL
 COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT
 EOF
 load_stack_env "$STAGING/.env"
@@ -609,7 +635,7 @@ mkdir -p "$STAGING/data"
 printf '%s\n' "$DEPLOY_VERSION" > "$STAGING/data/DEPLOY_VERSION"
 chmod 700 "$STAGING/data"
 
-if [ "${NVPN_DRY_RUN:-0}" = "1" ]; then
+if [ "${ARDTT_DRY_RUN:-${NVPN_DRY_RUN:-0}}" = "1" ]; then
   STACK="$INSTALL_DIR/stack"
   if [ -d "$STACK/data" ]; then
     mkdir -p "$STAGING/data"
@@ -623,22 +649,22 @@ if [ "${NVPN_DRY_RUN:-0}" = "1" ]; then
   STAGING=""
   rm -rf "$INSTALL_DIR/stack.old"
   prog 1.00 "dry-run: стек подготовлен"
-  echo "NVPN_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION"
+  echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION"
   exit 0
 fi
 
 prog 0.45 "Проверка места перед сборкой образов"
 reclaim_disk
-echo "NVPN_INFO|перед сборкой свободно $(df -Pm / 2>/dev/null | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
+echo "ARDTT_INFO|перед сборкой свободно $(df -Pm / 2>/dev/null | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
 
 avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
 need_mb="$(disk_need_mb)"
-echo "NVPN_INFO|диск: свободно ${avail_mb:-?} МБ, порог обновления ${need_mb} МБ"
+echo "ARDTT_INFO|диск: свободно ${avail_mb:-?} МБ, порог обновления ${need_mb} МБ"
 if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt "$need_mb" ] 2>/dev/null; then
   die "Мало места на диске VPS: свободно ${avail_mb} МБ (нужно ≥${need_mb} МБ). Увеличьте диск или очистите: docker builder prune -af && apt-get clean"
 fi
 if [ -n "${avail_mb:-}" ] && [ "$avail_mb" -lt "$MIN_DISK_MB" ] 2>/dev/null; then
-  echo "NVPN_WARN|на диске ${avail_mb} МБ — пропускаем compose pull, собираем поверх существующих образов"
+  echo "ARDTT_WARN|на диске ${avail_mb} МБ — пропускаем compose pull, собираем поверх существующих образов"
 fi
 
 mem_mb="$(mem_total_mb)"
@@ -651,7 +677,7 @@ if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
   reset_docker_buildkit
   sync
   echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
-  echo "NVPN_INFO|после сброса RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
+  echo "ARDTT_INFO|после сброса RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo '?') МБ"
   prog 0.50 "Сборка образов"
 else
   prog 0.48 "Очистка кэша сборки Docker"
@@ -670,7 +696,7 @@ export DOCKER_BUILDKIT=1
 if [ -z "${avail_mb:-}" ] || [ "$avail_mb" -ge "$MIN_DISK_MB" ] 2>/dev/null; then
   compose pull 2>/dev/null || true
 else
-  echo "NVPN_INFO|compose pull пропущен (мало места)"
+  echo "ARDTT_INFO|compose pull пропущен (мало места)"
 fi
 
 # One service at a time. Do not builder-prune between images: that poisons the
@@ -680,7 +706,7 @@ fi
 export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
 
 BUILD_SERVICES="$(role_build_services)"
-BUILD_LOG="$(mktemp /tmp/nvpn-compose-build.XXXXXX.log)"
+BUILD_LOG="$(mktemp /tmp/ardtt-compose-build.XXXXXX.log)"
 svc_i=0
 svc_n=$(echo "$BUILD_SERVICES" | wc -w | tr -d ' ')
 for svc in $BUILD_SERVICES; do
@@ -692,7 +718,7 @@ for svc in $BUILD_SERVICES; do
   if compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
     build_ok=1
   else
-    echo "NVPN_WARN|сборка $svc не удалась — сброс BuildKit и повтор без кэша"
+    echo "ARDTT_WARN|сборка $svc не удалась — сброс BuildKit и повтор без кэша"
     reset_docker_buildkit
     if compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build --no-cache "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
       build_ok=1
@@ -705,7 +731,7 @@ for svc in $BUILD_SERVICES; do
     die "Сборка Docker ($svc) не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}'), RAM: $(free -h | awk '/Mem:/{print $7}') avail"
   fi
   prepare_docker_build
-  echo "NVPN_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo) МБ"
+  echo "ARDTT_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo) МБ"
 done
 rm -f "$BUILD_LOG"
 
@@ -720,8 +746,8 @@ fi
 
 # Preserve live data from the previous stack.
 if [ -d "$STACK/data" ]; then
-  rm -rf /tmp/nvpn-data-bak
-  cp -a "$STACK/data" /tmp/nvpn-data-bak
+  rm -rf /tmp/ardtt-data-bak
+  cp -a "$STACK/data" /tmp/ardtt-data-bak
 fi
 
 rm -rf "$INSTALL_DIR/stack.old"
@@ -731,10 +757,10 @@ fi
 mv "$STAGING" "$STACK"
 STAGING=""
 
-if [ -d /tmp/nvpn-data-bak ]; then
+if [ -d /tmp/ardtt-data-bak ]; then
   mkdir -p "$STACK/data"
-  cp -a /tmp/nvpn-data-bak/. "$STACK/data/"
-  rm -rf /tmp/nvpn-data-bak
+  cp -a /tmp/ardtt-data-bak/. "$STACK/data/"
+  rm -rf /tmp/ardtt-data-bak
 fi
 # Carry .env we wrote in staging (already inside $STACK after mv).
 chmod 700 "$STACK/data" 2>/dev/null || true
@@ -744,13 +770,14 @@ if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
   ensure_cascade_keys "$STACK/data"
 fi
 
-# Remove only legacy/unmanaged nvpn containers. Compose-managed containers are
+# Remove only legacy/unmanaged ardtt containers. Compose-managed containers are
 # left intact and will be recreated normally.
-for managed_name in nvpn-provision nvpn-direct nvpn-bypass nvpn-dns nvpn-warp nvpn-telemetry nvpn-cascade; do
+drop_legacy_containers
+for managed_name in ardtt-provision ardtt-direct ardtt-bypass ardtt-dns ardtt-warp ardtt-telemetry ardtt-cascade; do
   if docker inspect "$managed_name" >/dev/null 2>&1; then
     compose_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$managed_name" 2>/dev/null || true)"
     if [ -z "$compose_project" ] || [ "$compose_project" = "<no value>" ]; then
-      echo "NVPN_WARN|Удаляется устаревший unmanaged-контейнер $managed_name"
+      echo "ARDTT_WARN|Удаляется устаревший unmanaged-контейнер $managed_name"
       docker rm -f "$managed_name" >/dev/null
     fi
   fi
@@ -761,10 +788,10 @@ cd "$STACK"
 load_stack_env "$STACK/.env"
 UP_SERVICES="$(role_up_services)"
 if tcp_listen_port "$TELEMETRY_PORT"; then
-  echo "NVPN_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — nvpn-telemetry не запускаем. Освободите порт или задайте NVPN_TELEMETRY_PORT"
+  echo "ARDTT_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — ardtt-telemetry не запускаем. Освободите порт или задайте ARDTT_TELEMETRY_PORT"
   UP_SERVICES="$(echo "$UP_SERVICES" | sed 's/ telemetry//')"
 fi
-UP_LOG="$(mktemp /tmp/nvpn-compose-up.XXXXXX.log)"
+UP_LOG="$(mktemp /tmp/ardtt-compose-up.XXXXXX.log)"
 if ! compose -f "$STACK/docker-compose.yml" --project-directory "$STACK" up -d $UP_SERVICES 2>&1 | tee "$UP_LOG"; then
   up_tail="$(tail -n 20 "$UP_LOG" | tr '\n' ' ' | cut -c1-1000)"
   rm -f "$UP_LOG"
@@ -783,26 +810,26 @@ sleep 3
 if curl -fsS "http://127.0.0.1:9100/health" >/dev/null 2>&1; then
   prog 0.92 "provision /health OK"
 else
-  echo "NVPN_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml logs"
+  echo "ARDTT_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml logs"
 fi
 if echo "$UP_SERVICES" | grep -qw telemetry; then
   if curl -fsS --max-time 3 "http://127.0.0.1:${TELEMETRY_PORT}/health" >/dev/null 2>&1; then
     prog 0.93 "telemetry /health OK"
   else
-    echo "NVPN_WARN|telemetry :${TELEMETRY_PORT} не отвечает — логи тестирования не примут. cd $STACK && docker compose --env-file .env up -d --no-deps telemetry"
+    echo "ARDTT_WARN|telemetry :${TELEMETRY_PORT} не отвечает — логи тестирования не примут. cd $STACK && docker compose --env-file .env up -d --no-deps telemetry"
   fi
 fi
 if echo "$UP_SERVICES" | grep -qw warp; then
-  if docker inspect -f '{{.State.Running}}' nvpn-warp 2>/dev/null | grep -qx true; then
-    prog 0.935 "nvpn-warp running"
+  if docker inspect -f '{{.State.Running}}' ardtt-warp 2>/dev/null | grep -qx true; then
+    prog 0.935 "ardtt-warp running"
   else
-    echo "NVPN_WARN|nvpn-warp не запущен — Hide-IP на этом хосте не применится. cd $STACK && docker compose --env-file .env up -d --no-deps --build warp"
+    echo "ARDTT_WARN|ardtt-warp не запущен — Hide-IP на этом хосте не применится. cd $STACK && docker compose --env-file .env up -d --no-deps --build warp"
   fi
 fi
-if docker exec nvpn-provision test -s /data/users.json 2>/dev/null; then
+if docker exec ardtt-provision test -s /data/users.json 2>/dev/null; then
   prog 0.94 "provision видит /data/users.json"
 else
-  echo "NVPN_WARN|provision не видит /data/users.json — контейнер, скорее всего, на старом inode. Выполните: cd $STACK && docker compose up -d --force-recreate"
+  echo "ARDTT_WARN|provision не видит /data/users.json — контейнер, скорее всего, на старом inode. Выполните: cd $STACK && docker compose up -d --force-recreate"
 fi
 
 prog 0.96 "Открытие портов (best-effort)"
@@ -853,5 +880,5 @@ fi
 fi
 
 prog 1.00 "Готово"
-echo "NVPN_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|role=$ROLE|cascade=$CASCADE_ENABLED"
+echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|role=$ROLE|cascade=$CASCADE_ENABLED"
 echo "Создать пользователя: cd $STACK && docker compose exec provision provision -cmd create-user -name USER -data /data"

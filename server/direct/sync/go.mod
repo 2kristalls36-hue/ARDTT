@@ -1,3 +1,3 @@
-module nvpn.local/direct-sync
+module ardtt.local/direct-sync
 
 go 1.22

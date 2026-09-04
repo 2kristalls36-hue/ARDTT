@@ -12,7 +12,7 @@ import (
 // Converts ARDTT users.json → WDTT passwords.json (+ device RawIP by host_id)
 // and writes a provision-readable traffic snapshot to /data/bypass-traffic.json.
 
-type nvpnStore struct {
+type ardttStore struct {
 	Config struct {
 		BypassSubnet string `json:"bypassSubnet"`
 	} `json:"config"`
@@ -64,7 +64,7 @@ type trafficCounters struct {
 }
 
 func main() {
-	usersPath := flag.String("users", "/data/users.json", "nvpn users.json")
+	usersPath := flag.String("users", "/data/users.json", "ardtt users.json")
 	outPath := flag.String("out", "/etc/wdtt/passwords.json", "wdtt passwords.json")
 	trafficPath := flag.String("traffic", "/data/bypass-traffic.json", "provision traffic snapshot")
 	trafficOnly := flag.Bool("traffic-only", false, "only refresh traffic snapshot from passwords.json")
@@ -81,7 +81,7 @@ func main() {
 	if err != nil {
 		fatalf("%v", err)
 	}
-	var s nvpnStore
+	var s ardttStore
 	if err := json.Unmarshal(raw, &s); err != nil {
 		fatalf("%v", err)
 	}
@@ -150,7 +150,7 @@ func main() {
 		}
 	}
 
-	// Drop passwords no longer in nvpn store (keep device history otherwise)
+	// Drop passwords no longer in ardtt store (keep device history otherwise)
 	for pass := range db.Passwords {
 		if !keepPass[pass] {
 			delete(db.Passwords, pass)
@@ -201,7 +201,7 @@ func exportTrafficOnly(usersPath, passwordsPath, trafficPath string) error {
 	if err != nil {
 		return err
 	}
-	var s nvpnStore
+	var s ardttStore
 	if err := json.Unmarshal(rawUsers, &s); err != nil {
 		return err
 	}

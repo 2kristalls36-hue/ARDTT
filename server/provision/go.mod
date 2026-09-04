@@ -1,4 +1,4 @@
-module github.com/2kristalls36-hue/nonameVPN/server/provision
+module github.com/2kristalls36-hue/ARDTT/server/provision
 
 go 1.22
 

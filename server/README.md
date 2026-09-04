@@ -1,6 +1,8 @@
 # Сервер ARDTT
 
-Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).
+Продуктовое имя — **ARDTT**. Стек: **1.0.29** (`DEPLOY_VERSION`).  
+Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
+Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
 Compose-стек из шести сервисов (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
 
@@ -19,11 +21,11 @@ Compose-стек из шести сервисов (см. [архитектуру
 
 ```bash
 cd server
-export NVPN_PUBLIC_HOST=1.2.3.4
+export ARDTT_PUBLIC_HOST=1.2.3.4
 ./scripts/create-user.sh alice
 # → JSON профиля (с ключами) в stdout
 
-cd provision && go run . -cmd serve -data ../data -public-host "$NVPN_PUBLIC_HOST"
+cd provision && go run . -cmd serve -data ../data -public-host "$ARDTT_PUBLIC_HOST"
 curl -s http://127.0.0.1:9100/health
 ```
 
@@ -37,14 +39,14 @@ Call hash звонка на сервер **не** кладётся — толь�
 
 ```bash
 cd server
-cp .env.example .env   # пропишите NVPN_PUBLIC_HOST
+cp .env.example .env   # пропишите ARDTT_PUBLIC_HOST
 docker compose up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh bob
 ```
 
-`direct` слушает UDP `NVPN_DIRECT_PORT` (default 51820).  
-`bypass` слушает UDP `NVPN_BYPASS_PORT` (default 56003) в режиме RAW/WRAP без DTLS для клиентов Path B.
+`direct` слушает UDP `ARDTT_DIRECT_PORT` (default 51820).  
+`bypass` слушает UDP `ARDTT_BYPASS_PORT` (default 56003) в режиме RAW/WRAP без DTLS для клиентов Path B.
 
 ## Механика работы серверной части (деплой)
 
@@ -63,7 +65,7 @@ curl -s http://127.0.0.1:9100/health
 
 ### 2) Как проходит деплой
 
-1. В `.env` задаётся внешний адрес VPS (`NVPN_PUBLIC_HOST`) и порты.
+1. В `.env` задаётся внешний адрес VPS (`ARDTT_PUBLIC_HOST`) и порты.
 2. Compose собирает и запускает контейнеры.
 3. `provision` генерирует/использует серверные ключи и публикует `/health`.
 4. Администратор создаёт пользователя (`./scripts/create-user.sh <name>`), и в `users.json` фиксируется `host_id`.

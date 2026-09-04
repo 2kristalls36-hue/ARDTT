@@ -13,7 +13,7 @@ func setupRawNAT(rawIface string) error {
 	extIface := getDefaultInterface()
 	log.Printf("[RAW-NAT] wan=%s cidr=%s", extIface, rawServerCIDR)
 
-	if os.Getenv("NVPN_CASCADE_ENABLED") == "1" {
+	if os.Getenv("ARDTT_CASCADE_ENABLED") == "1" || os.Getenv("NVPN_CASCADE_ENABLED") == "1" {
 		setupForwardRules(rawIface)
 		setupRawMSSClamping()
 		natType = "cascade (no WAN MASQ)"

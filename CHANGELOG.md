@@ -1,0 +1,75 @@
+# ARDTT v0.5.215
+
+Клиент **0.5.215** (`versionCode` 233). Серверный стек **1.0.29** (`DEPLOY_VERSION`).
+
+## Коротко
+
+- В коде больше нет идентификатора **nonamevpn**: пакет `com.ardtt.app`, VPS `/opt/ardtt`, контейнеры `ardtt-*`, переменные `ARDTT_*`, протокол установщика `ARDTT_PROGRESS|…`.
+- Смена `applicationId` — это **новое приложение** для Android: обновление поверх старого APK не встанет, нужна переустановка.
+- Установщик переносит `/opt/nonamevpn` → `/opt/ardtt` и снимает контейнеры `nvpn-*`. Старые `NVPN_*` в окружении и `.env` ещё читаются.
+- Каскад: Hide-IP WARP ставится на **выходном** VPS; без галочки выход идёт в WAN выхода, не в Cloudflare. После одиночных обновлений входа/выхода починены утечка DNS каскада и ключи WARP.
+- Обход: быстрее failover на белом списке; Hide-IP больше не расходится с фактическим Cloudflare-egress; на малых VPS — Docker 29 snapshot и prune build-cache перед обновлением стека.
+- UI: знак AR/DTT, бейджи Ubuntu (Circle of Friends) и Debian, баннер доната, QS-тайл профиля, карточки hop на «Сети», заблокированные действия профиля при поднятом VPN, терминальный хром логов деплоя; с карточки сервера убрана мигающая ping-точка.
+- Режим тестирования — в общих Настройках, без PIN администратора; вкладка «Тест» в любом режиме UI.
+- In-app обновления смотрят в GitHub Releases репозитория **ARDTT**; APK режутся по ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`, universal).
+
+## Каскад и Hide-IP
+
+- Телефон знает только входной VPS. WAN и Hide-IP WARP — на **выходе** (`GET /v1/hide-ip-prefixes` у входа через `10.10.0.1`). Вход в каскаде — passthrough, свои `/32` на `warp0` не вешает.
+- Hide-IP выкл. → egress с WAN выхода (не pop Cloudflare рядом со входом). Это относится и к Direct, и к Bypass.
+- После standalone-обновления одного из двух VPS: DNS каскада больше не утекает мимо hop; ключи WARP на выходе переживают обновление.
+- DNS `:53` по-прежнему `ip rule` prio 100 → `main`, не через WARP. Hide-IP на лету: `ip rule` + conntrack flush, без рестарта клиентского TUN. WARP-контур — `wireproxy` + `tun2socks`.
+
+## Обход и деплой на VPS
+
+- Медленный Bypass-failover на белом списке (Yandex жив, Cloudflare мёртв): probe не принимает TCP `:9100` за живой Direct; Auto уходит в обход.
+- Несовпадение Hide-IP и фактического Cloudflare-egress устранено вместе с переходом WARP на wireproxy/tun2socks.
+- Docker 29 на малых дисках: snapshot-промахи при пересборке `bypass` больше не роняют обновление; лишние deploy-файлы с хоста убираются.
+- Перед обновлением VPS из приложения сбрасывается Docker build cache, чтобы на маленьком диске сборка доходила до конца.
+- Логи установки/обновления в приложении — тот же терминальный хром, что вкладка «Журналы». С листа обновления сервера нельзя случайно смахнуть в залипший overlay.
+
+## Интерфейс
+
+- Лаунчер, QS и тайлы: белое **AR** над оранжевым **DTT** на `#181E25`.
+- Карточка сервера: знак дистрибутива (Ubuntu CoF / Debian и др.) и версия ОС в бейдже, без пустой заглушки и без мигающей ping-точки.
+- Баннер «Поддержка автора» на туннеле (пока подключено) и карточка в Настройках; ссылка [Спасибо Мир](https://spasibomir.ru/pay/34807).
+- Quick Settings: тайл переключения VPN-профиля (не только старт/стоп).
+- «Сеть»: hop-карточки с серой обводкой до загрузки, затем заливка и ping; карточка провайдера остаётся, даже если underlay lookup не удался.
+- Пока VPN поднят, действия профиля выглядят заблокированными, а не исчезают.
+- Тема оформления остаётся на экране во время записи теста.
+
+## Тестирование и обновления
+
+- Переключатель «Режим тестирования» в общих Настройках (после соглашения). Вкладка «Тест» доступна в любом режиме UI, без PIN администратора.
+- Проверка обновлений: GitHub Releases `2kristalls36-hue/ARDTT`, fallback на старый `update.json` на VPS дистрибуции.
+
+## Поставка
+
+- GitHub Release: `ardtt-0.5.215-{arm64-v8a,armeabi-v7a,x86_64,universal}.apk`, `ardtt-update.json`, `SHA256SUMS.txt`.
+- Сборка: workflow `.github/workflows/android-release.yml` с `main` / тега `v*`.
+- Gradle по-прежнему в `android/`, не в корне репозитория.
+
+## Рекомендации
+
+- На открытой сети, если UDP до VPS проходит, оставляйте **Авто** / прямое — так быстрее.
+- На белом списке ожидайте **обход** (TURN). Один hash на устройство; мёртвый звонок — recreate в настройках или диалог на Туннеле.
+- Hide-IP — это egress, не третий клиентский путь. DNS туннеля не должен идти через WARP.
+- Каскад: сначала ставьте **выход**, затем **вход**. Телефон коннектится только ко входу.
+
+## Предыдущие релизы 0.5.20x
+
+| Релиз | Суть |
+|-------|------|
+| [0.5.213](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.213) · [0.5.214](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.214) | Каскад Hide-IP на выходе, ping-точка с карточки сервера |
+| [0.5.212](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.212) | Docker snapshot bypass на малых VPS |
+| [0.5.211](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.211) | GitHub-обновления → репозиторий ARDTT |
+| [0.5.210](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.210) | Сброс Docker build cache при обновлении VPS |
+| [0.5.209](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.209) | Ubuntu Circle of Friends на карточке сервера |
+| [0.5.208](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.208) | DNS/WARP каскада после standalone-деплоя |
+| [0.5.207](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.207) | Терминал деплоя, бейдж ОС, донат в тёмной теме |
+| [0.5.206](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.206) | Bypass на БС и Hide-IP mismatch |
+| [0.5.205](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.205) | QS-профиль, ABI-split, Hide-IP off = WAN выхода |
+| [0.5.203](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.203) · [0.5.201](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.201) | Знак AR/DTT, hop-карточки, баннер доната |
+| [0.5.200](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.200) | Режим тестирования в общих Настройках |
+
+Полный список: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases).

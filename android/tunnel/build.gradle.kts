@@ -41,14 +41,14 @@ android {
             externalNativeBuild {
                 cmake {
                     // UAPI socket path under our applicationId
-                    arguments("-DANDROID_PACKAGE_NAME=com.nonamevpn.app")
+                    arguments("-DANDROID_PACKAGE_NAME=com.ardtt.app")
                 }
             }
         }
         debug {
             externalNativeBuild {
                 cmake {
-                    arguments("-DANDROID_PACKAGE_NAME=com.nonamevpn.app")
+                    arguments("-DANDROID_PACKAGE_NAME=com.ardtt.app")
                 }
             }
         }
