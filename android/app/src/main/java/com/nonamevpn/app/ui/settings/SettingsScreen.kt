@@ -355,7 +355,8 @@ fun SettingsScreen(
             ),
         ) {
             Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            if (!recordingActive) {
+            val appearance = settingsAppearanceSections(admin = admin, recordingActive = recordingActive)
+            if (appearance.showThemeControls) {
                 ThemeModeChipRow(
                     themeMode = themeMode,
                     onSelect = { mode -> scope.launch { persistThemeMode(settings, mode) } },
@@ -384,7 +385,7 @@ fun SettingsScreen(
                     },
                 )
             }
-            if (!admin) {
+            if (appearance.showClassicLook) {
                 RowSetting(
                     title = "Классический вид",
                     subtitle = if (classicAppearance) {
