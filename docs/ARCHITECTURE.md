@@ -20,7 +20,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 |------|---------|
 | Платформа | Android; форк `amneziawg-android` + RAW bypass из qWDTT / SpaceNeuroX |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
-| Деплой | Compose: `direct` + `bypass` + `dns` + `warp` + `provision` + `telemetry`; `host_id` → IP в подсетях direct/bypass. Из приложения: SSH + `install.sh` — [DEPLOY.md](DEPLOY.md). Bypass-контейнер — RAW-only (`-listen-raw`), без DTLS/WG/бота |
+| Деплой | Compose: `provision` + `direct` + `bypass` + `dns` + `warp` + `cascade` + `telemetry`; `host_id` → IP в подсетях direct/bypass. Из приложения: SSH + `install.sh` — [DEPLOY.md](DEPLOY.md). Bypass-контейнер — RAW-only (`-listen-raw`), без DTLS/WG/бота |
 | WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
 
 | Call hash | **1 hash на устройство** (не на имя профиля): EncryptedSharedPreferences + файл в `noBackupFilesDir`, чтобы код переживал обновление APK |
