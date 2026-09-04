@@ -90,6 +90,7 @@ import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
 import com.ardtt.app.ui.components.ChoiceChipButton
 import com.ardtt.app.ui.components.TabPageHeader
 import com.ardtt.app.ui.components.AppSectionCard
+import com.ardtt.app.ui.components.AppSectionCardDefaults
 import com.ardtt.app.ui.components.HideIpChipRow
 import com.ardtt.app.ui.components.PathModeChipRow
 import com.ardtt.app.ui.components.EdgeFeedColumn
@@ -370,7 +371,7 @@ fun TunnelScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     shape = RoundedCornerShape(24.dp),
                     border = BorderStroke(
-                        2.dp,
+                        AppSectionCardDefaults.ContourWidth,
                         if (active) ArdttColors.connected else MaterialTheme.colorScheme.error,
                     ),
                     shadowElevation = 0.dp,
@@ -613,7 +614,6 @@ private fun TunnelConnectionHintBanner(
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
         shadowElevation = 0.dp,
     ) {
         Row(

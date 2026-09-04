@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.components.AppSectionCard
+import com.ardtt.app.ui.components.AppSectionCardDefaults
 
 private val DonateCardLight = Color(0xFFFFFBE6)
 private val DonateAccentLight = Color(0xFFB8860B)
@@ -88,7 +89,7 @@ fun DonateSupportBanner(
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, colors.border),
+        border = BorderStroke(AppSectionCardDefaults.ContourWidth, colors.border),
         shadowElevation = 0.dp,
     ) {
         Row(

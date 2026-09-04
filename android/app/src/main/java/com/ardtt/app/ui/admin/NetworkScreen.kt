@@ -46,6 +46,7 @@ import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.AppSectionCard
+import com.ardtt.app.ui.components.AppSectionCardDefaults
 import com.ardtt.app.ui.components.ArdttBottomChrome
 import com.ardtt.app.ui.components.PingFlashDot
 import com.ardtt.app.ui.components.PullRefreshHost
@@ -449,7 +450,7 @@ private fun IpInfoCard(
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
         border = BorderStroke(
-            2.dp,
+            AppSectionCardDefaults.ContourWidth,
             hopCardStrokeColor(
                 highlighted = highlighted,
                 outline = MaterialTheme.colorScheme.outline,

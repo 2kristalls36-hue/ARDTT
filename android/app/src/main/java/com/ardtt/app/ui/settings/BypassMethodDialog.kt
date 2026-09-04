@@ -2,7 +2,6 @@ package com.ardtt.app.ui.settings
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.components.ArdttDialog
 import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.AppSectionCardDefaults
+import com.ardtt.app.ui.components.sectionCardContourBorder
 
 @Composable
 fun BypassMethodDialog(
@@ -41,9 +42,8 @@ fun BypassMethodDialog(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(
-                width = 2.dp,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f + 0.52f * highlightAlpha),
+            border = sectionCardContourBorder(
+                alpha = AppSectionCardDefaults.ContourAlpha + 0.52f * highlightAlpha,
             ),
             color = MaterialTheme.colorScheme.surface,
         ) {

@@ -3,7 +3,6 @@ package com.ardtt.app.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -70,6 +69,8 @@ import com.ardtt.app.legal.TestingModeAgreement
 import com.ardtt.app.telemetry.TelemetryRecorder
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.AppSectionCard
+import com.ardtt.app.ui.components.AppSectionCardDefaults
+import com.ardtt.app.ui.components.sectionCardContourBorder
 import com.ardtt.app.ui.components.DialPathChipRow
 import com.ardtt.app.ui.components.HideIpChipRow
 import com.ardtt.app.ui.components.PathModeChipRow
@@ -349,9 +350,8 @@ fun SettingsScreen(
             modifier = Modifier.bringIntoViewRequester(appearanceBringIntoView),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                width = 2.dp,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f + 0.50f * appearanceHighlightAlpha),
+            border = sectionCardContourBorder(
+                alpha = AppSectionCardDefaults.ContourAlpha + 0.50f * appearanceHighlightAlpha,
             ),
         ) {
             Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
