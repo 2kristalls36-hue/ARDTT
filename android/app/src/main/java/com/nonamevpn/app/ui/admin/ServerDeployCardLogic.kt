@@ -54,12 +54,19 @@ internal fun serverCardMetaLine(
     return parts.joinToString(" · ")
 }
 
-/** Pretty OS name, omitted when it would just repeat the badge. */
-internal fun serverOsDetailLine(osId: String, osVersion: String): String? {
+/**
+ * Version fragment for the OS badge, without repeating [serverOsBadgeLabel].
+ * "Ubuntu 24.04.1 LTS" → "24.04.1 LTS"; omitted when empty or equal to the name.
+ */
+internal fun serverOsBadgeVersionText(osId: String, osVersion: String): String? {
     val ver = osVersion.trim()
     if (ver.isEmpty()) return null
-    val label = serverOsBadgeLabel(osId)
-    if (ver.equals(label, ignoreCase = true)) return null
+    val name = serverOsBadgeLabel(osId)
+    if (ver.equals(name, ignoreCase = true)) return null
+    if (name.isNotEmpty() && ver.startsWith(name, ignoreCase = true)) {
+        val rest = ver.substring(name.length).trim().trimStart('-', '·', ':').trim()
+        return rest.ifEmpty { null }
+    }
     return ver
 }
 
