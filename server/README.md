@@ -4,15 +4,16 @@
 Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
-Compose-стек из шести сервисов (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
+Compose-стек из семи сервисов (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
 
 | Сервис | Статус сейчас | Назначение |
 |--------|---------------|------------|
 | **provision** | рабочий | `/health`, пользователи, `host_id`, AWG-ключи, JSON-профиль |
 | **direct** | **AmneziaWG 2.0** | `amneziawg-go` + `awg`, conf из `users.json` |
 | **bypass** | **RAW `-listen-raw`** | `wdtt-server` из **qWDTT / SpaceNeuroX** (не classic WDTT), пароли из `users.json`, подсеть `10.9.0.0/24`, DNS клиентам `10.9.0.1` |
-| **dns** | **dnsmasq** | шлюзы `10.8.0.1` / `10.9.0.1`; upstream `1.1.1.1`/`1.0.0.1` через main |
+| **dns** | **dnsmasq** | шлюзы `10.8.0.1` / `10.9.0.1`; на выходе каскада — `cascade0` |
 | **warp** | **WARP egress** | hideIp `/32` → table `51820`. На каскаде правила ставит **выход**; вход — passthrough |
+| **cascade** | hop AWG | вход ↔ выход (`10.10.0.0/30`); тот же образ, что `direct` |
 | **telemetry** | рабочий | приём debug-логов с Android (`POST /api/upload-log`, порт 9200) |
 
 ## Быстрый старт (без Docker)
@@ -59,7 +60,8 @@ curl -s http://127.0.0.1:9100/health
 3. `bypass` — обходной RAW-контур (`10.9.0.0/24`).
 4. `dns` — DNS-шлюз для клиентов туннелей.
 5. `warp` — опциональный egress через Cloudflare WARP.
-6. `telemetry` — приём клиентских debug-логов.
+6. `cascade` — AmneziaWG-hop между входным и выходным VPS (`10.10.0.0/30`).
+7. `telemetry` — приём клиентских debug-логов.
 
 Все сервисы читают общие данные из `server/data/`, чтобы прямой и обходной пути работали согласованно для одного и того же пользователя.
 

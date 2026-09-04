@@ -9,6 +9,6 @@
 | [DEPLOY.md](DEPLOY.md) | Установка стека **1.0.29** из приложения и Compose |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
 | [android/README.md](../android/README.md) | Сборка клиента 0.5.215, keystore, GitHub Releases |
-| [server/README.md](../server/README.md) | Шесть сервисов Compose |
+| [server/README.md](../server/README.md) | Семь сервисов Compose, включая каскад |
 
 Бренд-исходник иконки: [assets/brand/ardtt-icon-source.png](assets/brand/ardtt-icon-source.png).
