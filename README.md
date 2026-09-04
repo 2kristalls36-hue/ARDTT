@@ -19,7 +19,7 @@
 > Авторы **не призывают** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.221** (`versionCode` 239), пакет `com.ardtt.app`. Серверный стек **1.0.31** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
+> Клиент **0.5.222** (`versionCode` 240), пакет `com.ardtt.app`. Серверный стек **1.0.31** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
 >
 > Смена пакета с `com.nonamevpn.app` — это **новое приложение** для Android: обновление поверх старого APK не встанет, нужна переустановка.
 >
@@ -31,7 +31,7 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.221** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
+| Клиент | **0.5.222** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
 | Стек | **1.0.31** · `/opt/ardtt` · контейнеры `ardtt-*` · переменные `ARDTT_*` |
 | Compose | `provision` `:9100`, `direct`, `bypass`, `dns`, `warp`, `cascade`, `telemetry` `:9200` |
 | Профиль | ссылка `ardtt://config` |
@@ -93,7 +93,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.221 / стек 1.0.31 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.222 / стек 1.0.31 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS из приложения и Compose |
