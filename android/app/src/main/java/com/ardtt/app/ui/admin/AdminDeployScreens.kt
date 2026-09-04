@@ -83,9 +83,7 @@ import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
 import com.ardtt.app.deploy.DeployTarget
-import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServerOsMark
-import com.ardtt.app.deploy.ServerOsProbe
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.deploy.serverOsBadgeLabel
 import com.ardtt.app.deploy.serverOsMark
@@ -203,10 +201,9 @@ private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
 
 private fun healthStatusLine(
     health: HealthUi?,
-    lastDeployedAtMs: Long,
     expectedVersion: String,
 ): Pair<String, Color?> {
-    val text = healthStatusLabel(health, lastDeployedAtMs)
+    val text = healthStatusLabel(health)
     val hint = when (health) {
         is HealthUi.Online ->
             if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
@@ -320,10 +317,7 @@ private fun ServerListScreen(
         coroutineScope {
             snapshot.map { target ->
                 async {
-                    val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target))
-                        .getOrNull()
-                    val status = healthUiOf(info)
-                    ServerOsProbe.refreshStored(serversRepo, target)
+                    val status = probeServerHealthUi(target, serversRepo)
                     healthById = healthById + (target.id to status)
                 }
             }.awaitAll()
@@ -442,10 +436,10 @@ private fun ServerIdentityBody(
     expectedVersion: String,
     extraLines: List<String> = emptyList(),
 ) {
-    val (statusText, statusColorHint) = healthStatusLine(health, server.lastDeployedAtMs, expectedVersion)
+    val (statusText, statusColorHint) = healthStatusLine(health, expectedVersion)
     val statusColor = when {
         statusColorHint != null -> statusColorHint
-        health == HealthUi.Offline -> MaterialTheme.colorScheme.error
+        healthUiIsDown(health) -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
     val title = serverCardTitle(server.name, server.host)
@@ -618,9 +612,7 @@ private fun ServerOverviewHost(
     LaunchedEffect(serverId, server?.host, server?.publicHost) {
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
-        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = healthUiOf(info)
-        ServerOsProbe.refreshStored(serversRepo, target)
+        health = probeServerHealthUi(target, serversRepo)
     }
 
     LaunchedEffect(busy, activeTargetId, serverId) {
@@ -637,8 +629,7 @@ private fun ServerOverviewHost(
         redeployStatus = outcome
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
-        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = healthUiOf(info)
+        health = probeServerHealthUi(target, serversRepo)
     }
 
     fun startRedeploy(target: DeployTarget) {
@@ -652,9 +643,7 @@ private fun ServerOverviewHost(
 
     val pull = rememberPullRefresh {
         val target = server ?: return@rememberPullRefresh
-        val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
-        health = healthUiOf(info)
-        ServerOsProbe.refreshStored(serversRepo, target)
+        health = probeServerHealthUi(target, serversRepo)
     }
 
     if (server == null) {

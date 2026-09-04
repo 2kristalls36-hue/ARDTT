@@ -1,7 +1,10 @@
 package com.ardtt.app.ui.admin
 
 import com.ardtt.app.deploy.DeployBundle
+import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.deploy.ServerOsProbe
+import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.deploy.serverOsBadgeLabel
 
 internal sealed class HealthUi {
@@ -10,12 +13,39 @@ internal sealed class HealthUi {
         val deployVersion: String = "",
         val pingMs: Long = -1L,
     ) : HealthUi()
-    data object Offline : HealthUi()
+    /** SSH/auth failed — host or credentials unreachable. */
+    data object Unreachable : HealthUi()
+    /** SSH/auth succeeded, but provision /health is down — stack not on the VPS. */
+    data object NotInstalled : HealthUi()
 }
 
-internal fun healthUiOf(info: ProvisionAdminApi.HealthInfo?): HealthUi {
-    if (info == null || !info.ok) return HealthUi.Offline
-    return HealthUi.Online(info.deployVersion, info.pingMs)
+internal fun healthUiFromProbes(
+    info: ProvisionAdminApi.HealthInfo?,
+    sshAuthOk: Boolean,
+): HealthUi {
+    if (info != null && info.ok) {
+        return HealthUi.Online(info.deployVersion, info.pingMs)
+    }
+    return if (sshAuthOk) HealthUi.NotInstalled else HealthUi.Unreachable
+}
+
+internal fun healthUiOf(info: ProvisionAdminApi.HealthInfo?): HealthUi =
+    healthUiFromProbes(info, sshAuthOk = false)
+
+internal suspend fun probeServerHealthUi(
+    target: DeployTarget,
+    repo: ServersRepository,
+): HealthUi {
+    val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
+    if (info != null && info.ok) {
+        ServerOsProbe.refreshStored(repo, target)
+        return healthUiFromProbes(info, sshAuthOk = false)
+    }
+    val sshOk = ServerOsProbe.authOk(target)
+    if (sshOk) {
+        ServerOsProbe.refreshStored(repo, target)
+    }
+    return healthUiFromProbes(info, sshOk)
 }
 
 internal fun formatHealthPingMs(pingMs: Long): String {
@@ -72,7 +102,7 @@ internal fun serverOsBadgeVersionText(osId: String, osVersion: String): String? 
 
 /**
  * True unless health is online and [DeployBundle.isCurrent].
- * Checking / offline / unknown count as outdated (needs update or reinstall).
+ * Checking / unreachable / not-installed / unknown count as outdated (needs update or reinstall).
  */
 internal fun isDeployOutdated(health: HealthUi?, expectedVersion: String): Boolean {
     val online = health as? HealthUi.Online ?: return true
@@ -130,11 +160,11 @@ internal fun deployFreshnessChipText(health: HealthUi?, expectedVersion: String)
     return "Требуется обновление · $installed → $expected"
 }
 
+internal fun healthUiIsDown(health: HealthUi?): Boolean =
+    health is HealthUi.Unreachable || health is HealthUi.NotInstalled
+
 /** Status line without repeating “актуален” / “нужно обновить” (that lives on the chip). */
-internal fun healthStatusLabel(
-    health: HealthUi?,
-    lastDeployedAtMs: Long,
-): String {
+internal fun healthStatusLabel(health: HealthUi?): String {
     return when (health) {
         null, HealthUi.Checking -> "● Проверка…"
         is HealthUi.Online -> {
@@ -143,12 +173,7 @@ internal fun healthStatusLabel(
             val ping = formatHealthPingMs(health.pingMs)
             if (ping.isNotEmpty()) "$base · $ping" else base
         }
-        HealthUi.Offline -> {
-            if (lastDeployedAtMs == 0L) {
-                "● Не установлен / нет связи"
-            } else {
-                "● Нет связи"
-            }
-        }
+        HealthUi.NotInstalled -> "● Не установлено"
+        HealthUi.Unreachable -> "● Нет связи"
     }
 }
