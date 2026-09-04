@@ -442,8 +442,21 @@ private fun ServerIdentityBody(
         healthUiIsDown(health) -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
-    val title = serverCardTitle(server.name, server.host)
-    val meta = serverCardMetaLine(server.name, server.host, server.sshPort, server.publicHost)
+    val cascadeSpan = serverCardCascadeIpSpan(
+        host = server.host,
+        publicHost = server.publicHost,
+        cascadeEnabled = server.cascadeEnabled,
+        cascadeHost = server.cascadeHost,
+    )
+    val title = serverCardTitle(server.name, server.host, cascadeSpan)
+    val meta = serverCardMetaLine(
+        name = server.name,
+        host = server.host,
+        sshPort = server.sshPort,
+        publicHost = server.publicHost,
+        cascadeEnabled = server.cascadeEnabled,
+        cascadeHost = server.cascadeHost,
+    )
     val freshnessChip = deployFreshnessChipText(health, expectedVersion)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -604,6 +617,7 @@ private fun ServerOverviewHost(
     val deployLog by engine.log.collectAsStateWithLifecycle()
     val outcome by engine.outcome.collectAsStateWithLifecycle()
     val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
+    val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
 
     LaunchedEffect(servers, serverId) {
         if (servers.isNotEmpty() && server == null) onBack()
@@ -636,7 +650,7 @@ private fun ServerOverviewHost(
         showRedeployConfirm = false
         showRedeployProgress = true
         redeployStatus = null
-        if (!startDeploy(target, true)) {
+        if (!startDeploy(target, serverOverviewDeployIsUpdate(health))) {
             redeployStatus = "Ошибка: деплой уже идёт"
         }
     }
@@ -701,10 +715,10 @@ private fun ServerOverviewHost(
         }
         if (showRedeployConfirm) {
             ArdttDialog(
-                title = "Обновить деплой?",
+                title = serverOverviewDeployConfirmTitle(health),
                 onDismissRequest = { if (!busy) showRedeployConfirm = false },
                 confirmAction = ArdttDialogAction(
-                    text = "Обновить",
+                    text = serverOverviewDeployConfirmAction(health),
                     onClick = { startRedeploy(server) },
                     enabled = !busy,
                 ),
@@ -727,7 +741,7 @@ private fun ServerOverviewHost(
         if (showRedeployProgress) {
             DeployProgressSheet(
                 busy = busy,
-                isUpdate = true,
+                isUpdate = if (busy) engineIsUpdate else serverOverviewDeployIsUpdate(health),
                 status = redeployStatus,
                 step = step,
                 progress = progress,
@@ -782,7 +796,7 @@ private fun ServerOverviewScreen(
                                 onDismissRequest = { onShowActions(false) },
                             ) {
                                 OverflowMenuItem(
-                                    text = "Обновить деплой",
+                                    text = serverOverviewDeployActionLabel(health),
                                     leadingIcon = Icons.Filled.CloudUpload,
                                     onClick = {
                                         onShowActions(false)
@@ -876,7 +890,7 @@ private fun ServerOverviewScreen(
 
         if (showUpdateButton) {
             StickyPrimaryButton(
-                text = "Обновить деплой",
+                text = serverOverviewDeployActionLabel(health),
                 onClick = onUpdateDeploy,
                 containerColor = ArdttColors.warning,
                 icon = Icons.Filled.CloudUpload,
@@ -1378,7 +1392,7 @@ fun DeployScreen(
 
         if (showReinstallConfirm) {
             ArdttDialog(
-                title = "Переустановить сервер?",
+                title = "Переустановить деплой?",
                 onDismissRequest = { if (!busy) showReinstallConfirm = false },
                 confirmAction = ArdttDialogAction(
                     text = "Переустановить",
