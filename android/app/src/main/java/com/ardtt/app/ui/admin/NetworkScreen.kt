@@ -21,10 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -58,16 +56,6 @@ import com.ardtt.app.ui.theme.ArdttColors
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-
-private const val MAP_REFRESH_MS = 8_000L
-
-private data class HopView(
-    val hop: NetworkMapHop,
-    val info: IpApiInfo,
-    val loading: Boolean,
-)
 
 @Composable
 fun NetworkScreen(
@@ -77,7 +65,9 @@ fun NetworkScreen(
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
+    val mapSession = remember { NetworkMapSession.get(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
+    val snapshot by mapSession.snapshot.collectAsStateWithLifecycle()
     val profile by profiles.profile.collectAsStateWithLifecycle(initialValue = null)
     val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = serversRepo.snapshot())
     val hideIp by settings.hideIpEnabled.collectAsStateWithLifecycle(initialValue = false)
@@ -86,8 +76,27 @@ fun NetworkScreen(
     val viaVpn = sessionUp
     val profileHost = activeProfileHost(profile)
     val server = remember(servers, profileHost) { findMatchingDeployServer(servers, profileHost) }
-    var liveCascade by remember { mutableStateOf<ProvisionAdminApi.LiveCascadeInfo?>(null) }
-    var hopPings by remember { mutableStateOf(HopHealthPings()) }
+    val liveCascade = snapshot.liveCascade
+    val hopPings = snapshot.hopPings
+    val cacheKey = remember(
+        sessionUp,
+        profileHost,
+        hideIp,
+        server?.id,
+        server?.cascadeEnabled,
+        server?.cascadeHost,
+        profile?.provisionBaseUrl,
+        profile?.deviceId,
+    ) {
+        networkMapCacheKey(
+            sessionUp = sessionUp,
+            profileHost = profileHost,
+            hideIp = hideIp,
+            server = server,
+            provisionBase = profile?.provisionBaseUrl,
+            deviceId = profile?.deviceId,
+        )
+    }
     val layout = remember(profileHost, server, hideIp, sessionUp, liveCascade) {
         buildNetworkMapLayout(
             profileHost = profileHost,
@@ -98,8 +107,7 @@ fun NetworkScreen(
         )
     }
 
-    var loaded by remember { mutableStateOf<List<HopView>>(emptyList()) }
-    val hops = remember(layout, loaded) { syncHopViews(layout, loaded) }
+    val hops = remember(layout, snapshot.hops) { syncNetworkMapHopViews(layout, snapshot.hops) }
     val hopsLatest = rememberUpdatedState(hops)
     val visibleHops = remember(hops) {
         val earlier = mutableListOf<String>()
@@ -123,15 +131,13 @@ fun NetworkScreen(
             entryProvision = profile?.provisionBaseUrl,
             deviceId = profile?.deviceId,
             viaVpn = viaVpn,
+            cacheKey = cacheKey,
         ),
     )
 
     suspend fun refreshAll() {
         val inputs = refreshInputs.value
-        if (!inputs.sessionUp) {
-            if (liveCascade != null) liveCascade = null
-            if (hopPings != HopHealthPings()) hopPings = HopHealthPings()
-        }
+        val current = mapSession.snapshot.value
         val entryHealth = if (inputs.sessionUp) {
             fetchEntryHealth(inputs.entryProvision)
         } else {
@@ -142,7 +148,6 @@ fun NetworkScreen(
             entryHealth.known -> entryHealth.cascade
             else -> inputs.liveCascade
         }
-        if (live != liveCascade) liveCascade = live
         val resolved = buildNetworkMapLayout(
             profileHost = inputs.profileHost,
             server = inputs.server,
@@ -150,7 +155,7 @@ fun NetworkScreen(
             sessionUp = inputs.sessionUp,
             liveCascade = live,
         )
-        val nextPings = if (inputs.sessionUp) {
+        val pings = if (inputs.sessionUp) {
             val exitUrl = provisionUrlForHost(resolved.vps2Host)
             val exitPing = when {
                 resolved.vps2Host.isNullOrBlank() -> -1L
@@ -161,33 +166,35 @@ fun NetworkScreen(
         } else {
             HopHealthPings()
         }
-        if (nextPings != hopPings) hopPings = nextPings
-        loaded = loadHopViews(
+        mapSession.publish(
+            current.copy(
+                key = inputs.cacheKey,
+                liveCascade = live,
+                hopPings = pings,
+            ),
+        )
+        val loaded = loadHopViews(
             context,
             inputs.copy(layout = resolved, liveCascade = live),
             hopsLatest.value,
-            onHop = { view -> loaded = replaceHopView(loaded, view) },
+            onHop = { view -> mapSession.replaceHop(view) },
+        )
+        mapSession.publish(
+            mapSession.snapshot.value.copy(
+                key = inputs.cacheKey,
+                liveCascade = live,
+                hopPings = pings,
+                hops = loaded,
+            ),
         )
     }
 
-    LaunchedEffect(
-        sessionUp,
-        hideIp,
-        profileHost,
-        server?.id,
-        server?.cascadeEnabled,
-        server?.cascadeHost,
-        profile?.provisionBaseUrl,
-        profile?.deviceId,
-        viaVpn,
-        ui.probe?.elapsedMs,
-        ui.state,
-    ) {
-        refreshAll()
-        while (isActive) {
-            delay(MAP_REFRESH_MS)
-            refreshAll()
+    LaunchedEffect(cacheKey, ui.state) {
+        val snap = mapSession.snapshot.value
+        if (shouldSkipNetworkMapAutoload(ui.state, snap.key, cacheKey, snap.hops)) {
+            return@LaunchedEffect
         }
+        refreshAll()
     }
 
     val pull = rememberPullRefresh { refreshAll() }
@@ -236,6 +243,7 @@ private data class NetworkRefreshInputs(
     val entryProvision: String?,
     val deviceId: String?,
     val viaVpn: Boolean,
+    val cacheKey: NetworkMapCacheKey,
     val layout: NetworkMapLayout = buildNetworkMapLayout(
         profileHost = profileHost,
         server = server,
@@ -278,39 +286,17 @@ private fun sameProvisionBase(a: String?, b: String?): Boolean {
     return left.equals(right, ignoreCase = true)
 }
 
-private fun syncHopViews(layout: NetworkMapLayout, previous: List<HopView>): List<HopView> {
-    return layout.hops.map { hop ->
-        val old = previous.firstOrNull { it.hop.kind == hop.kind }
-        val known = hop.knownHost
-        val sameKnown = known != null && sameHopHost(old?.info?.ip, known)
-        val info = when {
-            known != null && sameKnown -> old?.info ?: IpApiInfo(ip = known, subtitle = "")
-            known != null -> IpApiInfo(
-                ip = known,
-                subtitle = old?.info?.subtitle.orEmpty(),
-            )
-            else -> old?.info ?: IpApiInfo.Empty
-        }
-        HopView(hop = hop, info = info, loading = info.ip.isBlank() && info.error == null)
-    }
-}
-
-private fun replaceHopView(current: List<HopView>, next: HopView): List<HopView> {
-    if (current.none { it.hop.kind == next.hop.kind }) return current + next
-    return current.map { if (it.hop.kind == next.hop.kind) next else it }
-}
-
 private suspend fun loadHopViews(
     context: Context,
     inputs: NetworkRefreshInputs,
-    previous: List<HopView>,
-    onHop: (HopView) -> Unit = {},
-): List<HopView> = coroutineScope {
+    previous: List<NetworkMapHopView>,
+    onHop: (NetworkMapHopView) -> Unit = {},
+): List<NetworkMapHopView> = coroutineScope {
     val jobs = inputs.layout.hops.map { hop ->
         async {
             val old = previous.firstOrNull { it.hop.kind == hop.kind }
             val info = loadHop(context, hop, inputs, old?.info ?: IpApiInfo.Empty)
-            val view = HopView(hop = hop, info = info, loading = false)
+            val view = NetworkMapHopView(hop = hop, info = info, loading = false)
             onHop(view)
             view
         }
