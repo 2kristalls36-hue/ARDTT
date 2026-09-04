@@ -4,6 +4,8 @@
 #
 # Product path (from the app): SSH upload of stack.tar.gz + this script, then:
 #   ARDTT_PUBLIC_HOST=… bash /opt/ardtt/install.sh
+# Git path: clone a release tag, tar server/ into /opt/ardtt/stack.tar.gz,
+#   copy this script, then the same command (see docs/DEPLOY.md Path 2).
 # Cascade: phone SSHs to the exit VPS (ARDTT_ROLE=exit) and the entry VPS
 #   (ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1) separately. Do not write SSH passwords
 #   into .env.
@@ -266,8 +268,88 @@ wait_for_docker() {
   return 1
 }
 
-# Stop dockerd, delete BuildKit metadata+snapshots, start dockerd.
+# Mountpoints under $1 from $2 (default /proc/mounts), deepest first.
+list_mounts_under() {
+  local root="$1"
+  local src="${2:-/proc/mounts}"
+  [ -n "$root" ] || return 0
+  [ -r "$src" ] || return 0
+  awk -v p="$root" '
+    $2 == p || index($2, p "/") == 1 { print length($2) " " $2 }
+  ' "$src" | sort -nr | awk '{ $1=""; sub(/^ /,""); print }'
+}
+
+# Drop overlay/bind mounts that keep rm -rf "Device or resource busy"
+# (BuildKit executor rootfs after an incomplete dockerd stop on tiny VPS).
+unmount_tree() {
+  local root="$1"
+  local tries=0 m any
+  [ -n "$root" ] || return 0
+  while [ "$tries" -lt 10 ]; do
+    tries=$((tries + 1))
+    any=0
+    while IFS= read -r m; do
+      [ -n "$m" ] || continue
+      any=1
+      umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || true
+    done < <(list_mounts_under "$root")
+    [ "$any" = 0 ] && return 0
+    sleep 1
+  done
+}
+
+wipe_dir_best_effort() {
+  local dir="$1"
+  [ -e "$dir" ] || return 0
+  unmount_tree "$dir"
+  rm -rf "$dir" 2>/dev/null && return 0
+  echo "ARDTT_WARN|не удалось удалить $dir — lazy umount и повтор"
+  unmount_tree "$dir"
+  rm -rf "$dir" 2>/dev/null || true
+  if [ -e "$dir" ]; then
+    echo "ARDTT_WARN|$dir всё ещё занят — продолжаем, Docker пересоздаст"
+  fi
+}
+
+kill_pids_of() {
+  local name="$1" pids
+  pids="$(pidof "$name" 2>/dev/null || true)"
+  [ -n "$pids" ] || return 0
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+}
+
+stop_docker_engine() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl stop docker.socket docker.service docker containerd 2>/dev/null || true
+  else
+    service docker stop 2>/dev/null || true
+  fi
+  local i
+  for i in $(seq 1 20); do
+    if ! pidof dockerd >/dev/null 2>&1 && ! pidof containerd >/dev/null 2>&1 && ! pidof buildkitd >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  kill_pids_of buildkitd
+  kill_pids_of dockerd
+  sleep 1
+}
+
+start_docker_engine() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl start containerd 2>/dev/null || true
+    systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
+  else
+    service docker start 2>/dev/null || true
+  fi
+}
+
+# Stop dockerd, unmount leftover executor rootfs, delete BuildKit cache, start dockerd.
 # Callers on tiny VPS must compose-down the VPN stack first.
+# Never abort on "Device or resource busy": a 1 GiB VPS often leaves overlay
+# mounts after `systemctl stop docker`, and `set -e` + bare `rm -rf` killed cascade.
 reset_docker_buildkit() {
   command -v docker >/dev/null 2>&1 || return 0
   if foreign_docker_workloads; then
@@ -278,16 +360,12 @@ reset_docker_buildkit() {
   docker builder prune -af >/dev/null 2>&1 || true
   docker buildx prune -af >/dev/null 2>&1 || true
   docker image prune -f >/dev/null 2>&1 || true
-  echo "ARDTT_INFO|сброс BuildKit: restart docker и удаление /var/lib/docker/buildkit"
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl stop docker 2>/dev/null || true
-    rm -rf /var/lib/docker/buildkit
-    systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
-    if ! wait_for_docker; then
-      echo "ARDTT_WARN|docker не ответил сразу после сброса BuildKit"
-    fi
-  else
-    rm -rf /var/lib/docker/buildkit
+  echo "ARDTT_INFO|сброс BuildKit: stop docker, umount executor, удаление /var/lib/docker/buildkit"
+  stop_docker_engine
+  wipe_dir_best_effort /var/lib/docker/buildkit
+  start_docker_engine
+  if ! wait_for_docker; then
+    echo "ARDTT_WARN|docker не ответил сразу после сброса BuildKit"
   fi
 }
 

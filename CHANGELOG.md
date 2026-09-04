@@ -1,3 +1,11 @@
+# ARDTT v0.5.229
+
+Клиент **0.5.229** (`versionCode` 247). Серверный стек **1.0.34** (`DEPLOY_VERSION`).
+
+## 0.5.229
+
+- Установка на VPS с ~1 ГБ RAM больше не падает на `rm: Device or resource busy` в `/var/lib/docker/buildkit/.../rootfs`. Сброс BuildKit сначала останавливает docker/containerd, снимает overlay executor, и `rm` не обрывает `install.sh`. «Удалить сервер» тоже umount'ит `/var/lib/docker` до wipe — повторная установка каскада после удаления доходит до сборки.
+
 # ARDTT v0.5.228
 
 Клиент **0.5.228** (`versionCode` 246). Серверный стек **1.0.33** (`DEPLOY_VERSION`).
@@ -173,6 +181,7 @@
 
 | Релиз | Суть |
 |-------|------|
+| 0.5.229 | Стек 1.0.34: сброс BuildKit на 1 ГБ VPS не падает на busy overlay; uninstall umount'ит Docker перед wipe |
 | 0.5.228 | Полоса деплоя; каскад двумя рядами; «Сеть» серая линия и зелёный конечный хоп; форма каскада: root, PEM, клавиатура |
 | 0.5.227 | Uninstall: iptables/ip6tables Docker, ufw при inactive, containerd dirs |
 | 0.5.226 | Uninstall полностью снимает Docker/swap, если на VPS нет чужих контейнеров |
