@@ -6,7 +6,7 @@
 
 Каталог на диске по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). При обновлении старый `/opt/nonamevpn` переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.33**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.34**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -94,14 +94,14 @@ WARP — не третий путь подключения, а **egress** выб
 
 ```bash
 ARDTT_PUBLIC_HOST='…' ARDTT_DIRECT_PORT=51820 ARDTT_BYPASS_PORT=56003 \
-ARDTT_DEPLOY_VERSION='1.0.33' bash /opt/ardtt/install.sh
+ARDTT_DEPLOY_VERSION='1.0.34' bash /opt/ardtt/install.sh
 ```
 
 Каскад (два VPS): телефон **отдельно** SSH на выход, потом на вход. Пароль второго сервера в `.env` входа не пишется.
 
 ```bash
 # 1) выход (DNS + WARP)
-ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.33' \
+ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.34' \
   bash /opt/ardtt/install.sh
 # stdout: ARDTT_CASCADE_PUBLIC_KEY|<base64>
 
@@ -109,7 +109,7 @@ ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.33' \
 ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
   ARDTT_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
   ARDTT_CASCADE_PEER_PUBLIC_KEY='…' \
-  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.33' \
+  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.34' \
   bash /opt/ardtt/install.sh
 
 # 3) ключ входа → /opt/ardtt/stack/data/cascade.peer.pub на выходе
@@ -190,10 +190,10 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 
 Тот же стек, что в APK, но исходники берутся с GitHub. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
 
-Клонируйте **тег релиза** (`v0.5.228` = клиент 0.5.228 и стек 1.0.33), не обязательно `main`. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`. Публичный репозиторий клонируется без секретов.
+Клонируйте **тег релиза** (`v0.5.229` = клиент 0.5.229 и стек 1.0.34), не обязательно `main`. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`. Публичный репозиторий клонируется без секретов.
 
 ```bash
-TAG=v0.5.228
+TAG=v0.5.229
 git clone --depth 1 --branch "$TAG" \
   https://github.com/2kristalls36-hue/ARDTT.git /tmp/ardtt
 
@@ -202,7 +202,7 @@ install -d -m 755 /opt/ardtt
 cp /tmp/ardtt/server/install.sh /opt/ardtt/install.sh
 tar -C /tmp/ardtt/server --exclude=data --exclude='*.tmp' --exclude='__pycache__' \
   -czf /opt/ardtt/stack.tar.gz .
-export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS ARDTT_DEPLOY_VERSION=1.0.33
+export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS ARDTT_DEPLOY_VERSION=1.0.34
 bash /opt/ardtt/install.sh
 
 # Вариант B — compose прямо в клоне (без /opt/ardtt)
@@ -235,7 +235,7 @@ Host network (если UDP через Docker DNAT не работает): `ARDTT
 | 0.28 | очистка мусора Docker/apt (`image prune -f`, не builder prune между сервисами), swap если RAM < 1.8 ГБ (существующий swapfile на shared VPS не сжимаем) |
 | 0.40 | `.env`, `DEPLOY_VERSION` на хосте и в `stack/data/` (`COMPOSE_PROFILES=isolated`) |
 | 0.45 | проверка места |
-| 0.48 | на VPS < 1.8 ГБ RAM: `compose down` нашего стека; сброс BuildKit **только если нет чужих контейнеров**; иначе `builder prune -af` тоже только на «пустом» Docker |
+| 0.48 | на VPS < 1.8 ГБ RAM: `compose down` нашего стека; сброс BuildKit (stop docker, umount executor rootfs, `rm` без abort при busy) **только если нет чужих контейнеров** |
 | 0.50 | `compose build ardtt` (один образ; повтор `--no-cache` после сброса BuildKit) → `compose up -d` |
 | 0.74 | leftover TUN/iptables/ip-rule с хоста |
 | 0.80 | снос build-cache и apt-архивов |
@@ -387,14 +387,14 @@ docker compose down          # контейнеры; data/ остаётся
 cd /opt/ardtt/stack
 COMPOSE_PROFILES=isolated docker compose ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.33"
+# ожидается: "ok": true, "deployVersion": "1.0.34"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'
 docker exec ardtt provision -cmd create-user -name smoke -data /data
 ```
 
-С телефона: карточка VPS «Онлайн · деплой 1.0.33 · актуален», создание клиента, импорт профиля, Connect.
+С телефона: карточка VPS «Онлайн · деплой 1.0.34 · актуален», создание клиента, импорт профиля, Connect.
 
 ---
 
@@ -405,6 +405,7 @@ docker exec ardtt provision -cmd create-user -name smoke -data /data
 | «В APK нет deploy/stack.tar.gz» | Собрать APK с Gradle (`packDeployAssets`) или вручную `scripts/pack-deploy-assets.sh`. Либо поставьте стек клоном тега — [Путь 2](#путь-2--git--compose) |
 | `git clone`: Authentication failed | Репозиторий ещё приватный: PAT/SSH с правом `repo`, либо ставьте из приложения |
 | `install.sh` + «Мало места» | На 8–10 ГБ VPS порог обновления ~500–1100 МБ; установщик сожмёт 2 ГБ swap до 1 ГБ и не удаляет неиспользуемые `stack-*` образы. Не делайте `docker image prune -af` вручную. |
+| `install.sh exit=1`, `Device or resource busy` в `/var/lib/docker/buildkit/.../rootfs` | Стек ≥**1.0.34**: umount + повтор, установка не падает. На 1 ГБ VPS старый `rm -rf` после `stop docker` обрывал каскад. Обновите APK и снова «Установить». |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
 | `/health` не отвечает после DONE | `docker compose --profile isolated logs`; `ARDTT_PUBLIC_HOST` и публикация `:9100` |
 | telemetry не принимает логи, `:9200` занят | Порт занят другим процессом. `ARDTT_TELEMETRY_PORT=9210` или освободите 9200; установщик не стартует gunicorn внутри `ardtt` |

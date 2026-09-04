@@ -177,6 +177,23 @@ object ServerUninstall {
           else
             service docker stop >/dev/null 2>&1
           fi
+          unmount_tree() {
+            local root="${'$'}1" tries=0 m any
+            [ -n "${'$'}root" ] || return 0
+            while [ "${'$'}tries" -lt 10 ]; do
+              tries="${'$'}((tries + 1))"
+              any=0
+              while IFS= read -r m; do
+                [ -n "${'$'}m" ] || continue
+                any=1
+                umount "${'$'}m" >/dev/null 2>&1 || umount -l "${'$'}m" >/dev/null 2>&1 || true
+              done <<< "${'$'}(awk -v p="${'$'}root" '${'$'}2 == p || index(${'$'}2, p "/") == 1 { print length(${'$'}2) " " ${'$'}2 }' /proc/mounts 2>/dev/null | sort -nr | awk '{ ${'$'}1=""; sub(/^ /,""); print }')"
+              [ "${'$'}any" = 0 ] && return 0
+              sleep 1
+            done
+          }
+          unmount_tree /var/lib/docker
+          unmount_tree /var/lib/containerd
           wait_apt_lock() {
             local n=0
             while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
@@ -202,6 +219,8 @@ object ServerUninstall {
           if command -v dnf >/dev/null 2>&1; then
             dnf -y remove docker docker-ce docker-ce-cli docker-compose-plugin docker-buildx-plugin containerd.io >/dev/null 2>&1
           fi
+          unmount_tree /var/lib/docker
+          unmount_tree /var/lib/containerd
           rm -rf /var/lib/docker /var/lib/containerd /etc/docker /var/lib/docker-engine
           rm -rf /etc/containerd /opt/containerd /root/.docker /run/docker /run/containerd /usr/libexec/docker
           rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources
