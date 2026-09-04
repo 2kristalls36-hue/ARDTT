@@ -376,6 +376,16 @@ class ServerDeployCardLogicTest {
     }
 
     @Test
+    fun cascadeSshUserDefaultsToRootAndKeyCanReplacePassword() {
+        assertEquals("root", deploySshUserOrRoot(""))
+        assertEquals("root", deploySshUserOrRoot("  "))
+        assertEquals("ubuntu", deploySshUserOrRoot("ubuntu"))
+        assertTrue(deploySshSecretMissing(password = "", privateKeyPem = ""))
+        assertFalse(deploySshSecretMissing(password = "x", privateKeyPem = ""))
+        assertFalse(deploySshSecretMissing(password = "", privateKeyPem = "PEM"))
+    }
+
+    @Test
     fun progressSheetTitleAfterFinish() {
         assertEquals(
             "Готово",

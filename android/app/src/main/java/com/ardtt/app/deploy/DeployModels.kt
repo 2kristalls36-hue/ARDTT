@@ -20,8 +20,11 @@ data class DeployTarget(
     val cascadeEnabled: Boolean = false,
     val cascadeHost: String = "",
     val cascadePort: Int = 22,
-    val cascadeUser: String = "",
+    val cascadeUser: String = "root",
     val cascadePassword: String = "",
+    /** PEM for the exit VPS; empty if that hop uses a password. */
+    val cascadePrivateKeyPem: String = "",
+    val cascadeKeyPassphrase: String = "",
     /** Lowercase linux distro id (e.g. ubuntu/debian), empty when unknown. */
     val osId: String = "",
     /** Human-friendly OS version label (usually PRETTY_NAME). */
@@ -39,7 +42,9 @@ fun DeployTarget.auth(): DeployAuth =
     if (privateKeyPem.isNotBlank()) DeployAuth.Key(privateKeyPem, keyPassphrase)
     else DeployAuth.Password(password)
 
-fun DeployTarget.cascadeAuth(): DeployAuth = DeployAuth.Password(cascadePassword)
+fun DeployTarget.cascadeAuth(): DeployAuth =
+    if (cascadePrivateKeyPem.isNotBlank()) DeployAuth.Key(cascadePrivateKeyPem, cascadeKeyPassphrase)
+    else DeployAuth.Password(cascadePassword)
 
 fun DeployTarget.cascadeSshUser(): String = cascadeUser.trim().ifBlank { "root" }
 
