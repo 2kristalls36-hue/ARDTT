@@ -190,11 +190,49 @@ internal fun serverReinstallConfirmBody(host: String, expectedVersion: String): 
     return "Стек версии $expectedVersion будет заново залит на $target по указанным SSH-данным."
 }
 
-internal fun deployProgressSheetTitle(busy: Boolean, isUpdate: Boolean, status: String?): String = when {
+internal fun deployProgressSheetTitle(
+    busy: Boolean,
+    isUpdate: Boolean,
+    status: String?,
+    isUninstall: Boolean = false,
+): String = when {
+    busy && isUninstall -> "Удаление деплоя…"
     busy && isUpdate -> "Обновление деплоя…"
     busy -> "Установка деплоя…"
     status?.startsWith("Ошибка") == true -> "Ошибка"
     else -> "Готово"
+}
+
+internal fun serverDeleteConfirmTitle(): String = "Удалить сервер?"
+
+internal fun serverDeleteConfirmBody(
+    host: String,
+    cascadeEnabled: Boolean = false,
+    cascadeHost: String = "",
+): String {
+    val entry = host.trim().ifBlank { "VPS" }
+    val where = if (cascadeEnabled) {
+        val exit = cascadeHost.trim()
+        if (exit.isNotEmpty()) {
+            "входного сервера $entry и выходного $exit"
+        } else {
+            "сервера $entry"
+        }
+    } else {
+        "сервера $entry"
+    }
+    return "Стек ARDTT будет удалён с $where: контейнеры Docker, каталог /opt/ardtt и профили клиентов. " +
+        "После успешного снятия стека карточка исчезнет из вкладки «Сервера». Действие необратимо."
+}
+
+/** Leave the overview only after a finished uninstall that actually removed the card. */
+internal fun serverDeleteFinishedShouldLeave(busy: Boolean, status: String?): Boolean {
+    if (busy) return false
+    val text = status?.trim().orEmpty()
+    if (text.isEmpty()) return false
+    if (text.startsWith("Ошибка")) return false
+    if (text == "Отменено") return false
+    return true
 }
 
 /**

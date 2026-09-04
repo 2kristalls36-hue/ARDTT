@@ -43,6 +43,12 @@ fun DeployTarget.cascadeAuth(): DeployAuth = DeployAuth.Password(cascadePassword
 
 fun DeployTarget.cascadeSshUser(): String = cascadeUser.trim().ifBlank { "root" }
 
+enum class DeployJobKind {
+    Install,
+    Update,
+    Uninstall,
+}
+
 sealed class DeployEvent {
     data class Progress(val fraction: Float, val step: String) : DeployEvent()
     data class Log(val line: String) : DeployEvent()
