@@ -38,6 +38,23 @@ internal fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSu
     deactivated = profile.deactivated,
 )
 
+internal fun profileWithBindDeviceId(
+    profile: VpnProfile,
+    generated: String = newLocalDeviceId(),
+): VpnProfile =
+    if (profile.deviceId.isBlank()) profile.copy(deviceId = generated) else profile
+
+internal fun newLocalDeviceId(): String =
+    "dev-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+
+internal fun userHasDevice(user: ProvisionAdminApi.UserSummary, deviceId: String): Boolean {
+    val id = deviceId.trim()
+    return id.isNotEmpty() && user.deviceIds.any { it == id }
+}
+
+internal fun addToPhoneBindMessage(bound: Boolean): String =
+    if (bound) "Добавлен в профили" else "Профиль добавлен, устройство не привязалось"
+
 internal fun clientTrafficLabel(user: ProvisionAdminApi.UserSummary): String {
     val used = formatClientBytes(user.usedBytes)
     return if (user.trafficLimitBytes > 0L) {

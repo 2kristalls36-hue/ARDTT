@@ -4,6 +4,7 @@ import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,6 +75,15 @@ class ConnectionControlsTest {
     fun tunnelParamsHiddenWhenQuickSettingsHidden() {
         assertFalse(tunnelConnectionParamsVisible(hideQuickSettings = true))
         assertTrue(tunnelConnectionParamsVisible(hideQuickSettings = false))
+    }
+
+    @Test
+    fun tunnelQuickSettingsProfileHelpWhenEmptyOrLocked() {
+        assertEquals("Нет сохранённых профилей.", tunnelQuickSettingsProfileHelp(0, locked = false))
+        assertEquals("Нет сохранённых профилей.", tunnelQuickSettingsProfileHelp(0, locked = true))
+        assertEquals(PROFILE_SWITCH_LOCKED_MESSAGE, tunnelQuickSettingsProfileHelp(2, locked = true))
+        assertNull(tunnelQuickSettingsProfileHelp(1, locked = false))
+        assertNull(tunnelQuickSettingsProfileHelp(2, locked = false))
     }
 
     @Test
