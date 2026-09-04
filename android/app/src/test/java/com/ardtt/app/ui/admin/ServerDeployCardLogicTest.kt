@@ -34,6 +34,11 @@ class ServerDeployCardLogicTest {
         assertEquals("Edge", serverCardTitle("Edge", "10.0.0.1"))
         assertEquals("10.0.0.1", serverCardTitle("  ", "10.0.0.1"))
         assertEquals("10.0.0.1", serverCardTitle("10.0.0.1", "10.0.0.1"))
+        assertEquals(
+            "10.0.0.1-2.26.125.160",
+            serverCardTitle("  ", "10.0.0.1", "10.0.0.1-2.26.125.160"),
+        )
+        assertEquals("Edge", serverCardTitle("Edge", "10.0.0.1", "10.0.0.1-2.26.125.160"))
     }
 
     @Test
@@ -53,6 +58,71 @@ class ServerDeployCardLogicTest {
         assertEquals(
             "SSH 2200 · pub 203.0.113.10",
             serverCardMetaLine("10.0.0.1", "10.0.0.1", 2200, "203.0.113.10"),
+        )
+    }
+
+    @Test
+    fun cascadeCardShowsEntryExitIpSpan() {
+        assertNull(
+            serverCardCascadeIpSpan("10.0.0.1", "10.0.0.1", cascadeEnabled = false, cascadeHost = "2.26.125.160"),
+        )
+        assertNull(
+            serverCardCascadeIpSpan("10.0.0.1", "10.0.0.1", cascadeEnabled = true, cascadeHost = ""),
+        )
+        assertEquals(
+            "10.0.0.1-2.26.125.160",
+            serverCardCascadeIpSpan(
+                host = "10.0.0.1",
+                publicHost = "10.0.0.1",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160:51820",
+            ),
+        )
+        assertEquals(
+            "203.0.113.10-2.26.125.160",
+            serverCardCascadeIpSpan(
+                host = "10.0.0.1",
+                publicHost = "203.0.113.10",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+        )
+        assertEquals(
+            "10.0.0.1-2.26.125.160 · SSH 22",
+            serverCardMetaLine(
+                name = "Edge",
+                host = "10.0.0.1",
+                sshPort = 22,
+                publicHost = "10.0.0.1",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+        )
+        assertEquals(
+            "SSH 22",
+            serverCardMetaLine(
+                name = "10.0.0.1",
+                host = "10.0.0.1",
+                sshPort = 22,
+                publicHost = "10.0.0.1",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
+        )
+        assertEquals(
+            "10.0.0.1 · SSH 22",
+            serverCardMetaLine("Edge", "10.0.0.1", 22, "10.0.0.1", cascadeEnabled = true, cascadeHost = ""),
+        )
+        assertEquals(
+            "203.0.113.10-2.26.125.160 · SSH 22",
+            serverCardMetaLine(
+                name = "Edge",
+                host = "10.0.0.1",
+                sshPort = 22,
+                publicHost = "203.0.113.10",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ),
         )
     }
 
@@ -178,8 +248,23 @@ class ServerDeployCardLogicTest {
 
     @Test
     fun savedCardActionIsAlwaysReinstall() {
-        assertEquals("Переустановить сервер", serverDeployActionLabel(saved = true, cascadeEnabled = false))
-        assertEquals("Переустановить сервер", serverDeployActionLabel(saved = true, cascadeEnabled = true))
+        assertEquals("Переустановить деплой", serverDeployActionLabel(saved = true, cascadeEnabled = false))
+        assertEquals("Переустановить деплой", serverDeployActionLabel(saved = true, cascadeEnabled = true))
+    }
+
+    @Test
+    fun overviewDeployActionDependsOnInstallState() {
+        assertEquals("Установить деплой", serverOverviewDeployActionLabel(HealthUi.NotInstalled))
+        assertEquals("Обновить деплой", serverOverviewDeployActionLabel(HealthUi.Unreachable))
+        assertEquals("Обновить деплой", serverOverviewDeployActionLabel(HealthUi.Online("1.0.5")))
+        assertEquals("Обновить деплой", serverOverviewDeployActionLabel(HealthUi.Checking))
+        assertEquals("Установить деплой?", serverOverviewDeployConfirmTitle(HealthUi.NotInstalled))
+        assertEquals("Обновить деплой?", serverOverviewDeployConfirmTitle(HealthUi.Online("1.0.5")))
+        assertEquals("Установить", serverOverviewDeployConfirmAction(HealthUi.NotInstalled))
+        assertEquals("Обновить", serverOverviewDeployConfirmAction(HealthUi.Unreachable))
+        assertFalse(serverOverviewDeployIsUpdate(HealthUi.NotInstalled))
+        assertTrue(serverOverviewDeployIsUpdate(HealthUi.Unreachable))
+        assertTrue(serverOverviewDeployIsUpdate(HealthUi.Checking))
     }
 
     @Test
@@ -201,7 +286,7 @@ class ServerDeployCardLogicTest {
             cascadeEnabled = false,
             expectedVersion = "1.0.29",
         )
-        assertTrue(saved.contains("Переустановить сервер"))
+        assertTrue(saved.contains("Переустановить деплой"))
         assertTrue(saved.contains("1.0.29"))
         assertTrue(saved.contains("снизу"))
         val fresh = serverDeployFormHelp(
