@@ -271,14 +271,14 @@ TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9
 
 **Как в WDTT:** форк API/WebView под текущий VK; при поломке — обновление приложения; Path всегда только через TURN VK; несколько hash/workers как смягчение; captcha/account как запасные ветки.
 
-**Наше предложение:**
+**Как устроено:**
 
-1. Path A (AWG) всегда независим — поломка VK ≠ полный даун продукта.
+1. Path A (AWG) независим — поломка VK ≠ полный даун продукта.
 2. Авто: `vkcalls` → fail → `legacy`.
-3. Изолировать `bypass` модуль (легче чинить VK без трогания AWG).
-4. Версионировать «диалект» VK API в клиенте; remote flag (позже) для принудить legacy.
-5. Честный UX: «Обход временно недоступен» если оба дозвона мертвы; Direct если VPS UDP ок.
-6. Не обещать SLA обхода; один hash — осознанный риск (нет multi-hash failover); тихий recreate и legacy — основные подушки.
+3. Модуль `bypass` изолирован (чинить VK без трогания AWG).
+4. «Диалект» VK API живёт в клиенте; remote flag, чтобы принудить legacy, пока нет.
+5. UX: «Обход временно недоступен», если оба дозвона мертвы; Direct, если VPS UDP ок.
+6. SLA обхода не обещаем; один hash — осознанный риск (нет multi-hash failover); тихий recreate и legacy — основные подушки.
 
 ---
 
@@ -321,10 +321,10 @@ Kernel `wg-quick` на `warp0` не используем: он раздувал 
 
 ## Dual VpnService (#15)
 
-Один `VpnTunnelService` / один `VpnService` binder; два **взаимоисключающих** backend:
+Один `VpnTunnelService` (`VpnService`); два **взаимоисключающих** backend:
 
-- Path A — AmneziaWG userspace (`libwg-go`)
-- Path B — RAW `go_client` (`libclient.so`)
+- `DirectBackend` — Path A, AmneziaWG userspace (`libwg-go`)
+- `BypassBackend` — Path B, RAW `go_client` (`libclient.so`)
 
 Смена path = stop backend → start other в том же service (короткий reconnect).  
 Probe **никогда** не держит VpnService up.  
@@ -353,6 +353,8 @@ Create-user: адреса в `10.8` и `10.9` с одним octet; флаг hide
 ---
 
 ## Профиль
+
+Боевой JSON: клиент `VpnProfile` / `VpnProfileJson`, сервер — `provision`. Один профиль — два endpoint'а и общий `host_id`.
 
 ```json
 {
