@@ -5,12 +5,12 @@
 # Upstream: 1.1.1.1 / 1.0.0.1 via host main routing (not WARP).
 set -euo pipefail
 
-CONF_DIR="${NVPN_DNS_CONF_DIR:-/tmp/nvpn-dnsmasq}"
+CONF_DIR="${ARDTT_DNS_CONF_DIR:-/tmp/ardtt-dnsmasq}"
 CONF="${CONF_DIR}/dnsmasq.conf"
 PID_FILE="${CONF_DIR}/dnsmasq.pid"
-TMPL="${NVPN_DNS_TMPL:-/etc/nvpn/dnsmasq.conf.tmpl}"
-UPSTREAMS="${NVPN_DNS_UPSTREAM:-1.1.1.1 1.0.0.1}"
-POLL_SEC="${NVPN_DNS_POLL_SEC:-5}"
+TMPL="${ARDTT_DNS_TMPL:-/etc/ardtt/dnsmasq.conf.tmpl}"
+UPSTREAMS="${ARDTT_DNS_UPSTREAM:-1.1.1.1 1.0.0.1}"
+POLL_SEC="${ARDTT_DNS_POLL_SEC:-5}"
 
 mkdir -p "${CONF_DIR}"
 

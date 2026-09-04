@@ -28,7 +28,7 @@ chmod +x "$OUT/install.sh"
 
 FALLBACK="$(
   sed -n 's/.*FALLBACK_VERSION = "\(.*\)".*/\1/p' \
-    "$ROOT/android/app/src/main/java/com/nonamevpn/app/deploy/DeployBundle.kt" \
+    "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployBundle.kt" \
     | head -1
 )"
 if [ -n "$FALLBACK" ] && [ "$FALLBACK" != "$VER" ]; then

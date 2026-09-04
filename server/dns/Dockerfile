@@ -5,6 +5,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       dnsmasq iproute2 ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY entrypoint.sh /entrypoint.sh
-COPY dnsmasq.conf.tmpl /etc/nvpn/dnsmasq.conf.tmpl
+COPY dnsmasq.conf.tmpl /etc/ardtt/dnsmasq.conf.tmpl
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]

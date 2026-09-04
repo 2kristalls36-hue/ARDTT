@@ -1,3 +1,3 @@
-module nvpn.local/bypass-sync
+module ardtt.local/bypass-sync
 
 go 1.22

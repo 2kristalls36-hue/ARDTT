@@ -1,12 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-DATA="${NVPN_DATA:-/data}"
+DATA="${ARDTT_DATA:-/data}"
 USERS="${DATA}/users.json"
 CONF_DIR="/etc/amneziawg"
 CONF="${CONF_DIR}/awg0.conf"
-IFACE="${NVPN_DIRECT_IFACE:-awg0}"
-PORT="${NVPN_DIRECT_PORT:-51820}"
+IFACE="${ARDTT_DIRECT_IFACE:-awg0}"
+PORT="${ARDTT_DIRECT_PORT:-51820}"
 
 echo "[direct] AmneziaWG userspace (amneziawg-go) on UDP ${PORT}"
 
@@ -48,7 +48,7 @@ setup_forwarding() {
   iptables -C FORWARD -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT || true
 
-  if [ "${NVPN_CASCADE_ENABLED:-0}" = "1" ]; then
+  if [ "${ARDTT_CASCADE_ENABLED:-0}" = "1" ]; then
     echo "[direct] cascade on — skip WAN MASQ for 10.8.0.0/24 (hop owns egress)"
     return 0
   fi

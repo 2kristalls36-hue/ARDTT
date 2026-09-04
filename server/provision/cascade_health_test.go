@@ -45,7 +45,7 @@ func TestHideIPPrefixes(t *testing.T) {
 }
 
 func TestProvisionPeerBaseURL(t *testing.T) {
-	t.Setenv("NVPN_PROVISION_LISTEN", "0.0.0.0:9100")
+	t.Setenv("ARDTT_PROVISION_LISTEN", "0.0.0.0:9100")
 	if got := provisionPeerBaseURL("2.26.125.160"); got != "http://2.26.125.160:9100" {
 		t.Fatalf("got %q", got)
 	}

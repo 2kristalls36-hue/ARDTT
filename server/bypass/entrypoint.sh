@@ -1,12 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-DATA="${NVPN_DATA:-/data}"
+DATA="${ARDTT_DATA:-/data}"
 USERS="${DATA}/users.json"
-CFG_DIR="${NVPN_WDTT_CONFIG:-/etc/wdtt}"
-PORT="${NVPN_BYPASS_PORT:-56003}"
-# DNS pushed to Path B clients via RAWCONF — gateway dnsmasq (nvpn-dns).
-DNS="${NVPN_BYPASS_DNS:-10.9.0.1}"
+CFG_DIR="${ARDTT_WDTT_CONFIG:-/etc/wdtt}"
+PORT="${ARDTT_BYPASS_PORT:-56003}"
+# DNS pushed to Path B clients via RAWCONF — gateway dnsmasq (ardtt-dns).
+DNS="${ARDTT_BYPASS_DNS:-10.9.0.1}"
 
 echo "[bypass] RAW/WRAP -listen-raw 0.0.0.0:${PORT} (wdtt-server, NoDTLS path) dns=${DNS}"
 
@@ -53,8 +53,8 @@ setup_forwarding() {
   if ! command -v iptables >/dev/null 2>&1; then
     return 0
   fi
-  local wan comment="NVPN_BYPASS_MANAGED"
-  local iface="${NVPN_BYPASS_IFACE:-wdttraw0}"
+  local wan comment="ARDTT_BYPASS_MANAGED"
+  local iface="${ARDTT_BYPASS_IFACE:-wdttraw0}"
   wan="$(ip route show default 0.0.0.0/0 2>/dev/null | awk '{print $5; exit}')"
   [[ -z "${wan}" ]] && wan="eth0"
 
