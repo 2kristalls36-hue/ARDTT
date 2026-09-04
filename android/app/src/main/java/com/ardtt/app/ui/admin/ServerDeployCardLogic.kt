@@ -2,6 +2,7 @@ package com.ardtt.app.ui.admin
 
 import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployHop
+import com.ardtt.app.deploy.DeployHopTrack
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServerOsProbe
@@ -201,6 +202,95 @@ internal fun deployProgressSheetTitle(
     busy -> "Установка деплоя…"
     status?.startsWith("Ошибка") == true -> "Ошибка"
     else -> "Готово"
+}
+
+internal enum class DeploySlotPhase {
+    Pending,
+    Active,
+    Done,
+    Failed,
+}
+
+internal data class DeploySlotView(
+    val title: String,
+    val host: String,
+    val phase: DeploySlotPhase,
+)
+
+internal fun deploySlotStatusText(
+    phase: DeploySlotPhase,
+    isUpdate: Boolean,
+    isUninstall: Boolean,
+): String = when (phase) {
+    DeploySlotPhase.Pending -> "Ожидание"
+    DeploySlotPhase.Active -> when {
+        isUninstall -> "Идёт удаление"
+        isUpdate -> "Идёт обновление"
+        else -> "Идёт установка"
+    }
+    DeploySlotPhase.Done -> "Готово"
+    DeploySlotPhase.Failed -> "Ошибка"
+}
+
+internal fun deployProgressFinishedSuccess(busy: Boolean, status: String?): Boolean {
+    if (busy) return false
+    val text = status?.trim().orEmpty()
+    if (text.isEmpty()) return false
+    if (text.startsWith("Ошибка")) return false
+    if (text == "Отменено") return false
+    return true
+}
+
+internal fun deployProgressFailed(busy: Boolean, status: String?): Boolean =
+    !busy && status?.startsWith("Ошибка") == true
+
+internal fun cascadeDeploySlots(
+    track: DeployHopTrack,
+    failed: Boolean,
+    finishedSuccess: Boolean,
+): List<DeploySlotView> {
+    if (!track.cascade) return emptyList()
+    val entry = DeployHop.host(track.entryHost) ?: track.entryHost.trim()
+    val exit = DeployHop.host(track.exitHost) ?: track.exitHost.trim()
+    if (entry.isBlank() || exit.isBlank()) return emptyList()
+    return listOf(
+        DeploySlotView(
+            title = "VPS 1",
+            host = entry,
+            phase = deploySlotPhase(
+                host = entry,
+                done = track.entryDone,
+                activeHost = track.activeHost,
+                failed = failed,
+                finishedSuccess = finishedSuccess,
+            ),
+        ),
+        DeploySlotView(
+            title = "VPS 2",
+            host = exit,
+            phase = deploySlotPhase(
+                host = exit,
+                done = track.exitDone,
+                activeHost = track.activeHost,
+                failed = failed,
+                finishedSuccess = finishedSuccess,
+            ),
+        ),
+    )
+}
+
+internal fun deploySlotPhase(
+    host: String,
+    done: Boolean,
+    activeHost: String,
+    failed: Boolean,
+    finishedSuccess: Boolean,
+): DeploySlotPhase {
+    if (finishedSuccess || done) return DeploySlotPhase.Done
+    val active = DeployHop.same(host, activeHost)
+    if (failed && active) return DeploySlotPhase.Failed
+    if (active) return DeploySlotPhase.Active
+    return DeploySlotPhase.Pending
 }
 
 internal fun serverDeleteConfirmTitle(): String = "Удалить сервер?"

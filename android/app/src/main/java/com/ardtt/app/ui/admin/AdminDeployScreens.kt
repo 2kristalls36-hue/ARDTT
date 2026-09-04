@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,7 +82,9 @@ import com.ardtt.app.R
 import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
+import com.ardtt.app.deploy.DeployHopTrack
 import com.ardtt.app.deploy.DeployJobKind
+import com.ardtt.app.deploy.DeployProgressCopy
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ServerOsMark
 import com.ardtt.app.deploy.ServersRepository
@@ -558,7 +561,13 @@ private fun DeployProgressSheet(
     onCancel: () -> Unit,
     onClose: () -> Unit,
     isUninstall: Boolean = false,
+    hopTrack: DeployHopTrack = DeployHopTrack(),
 ) {
+    val slots = cascadeDeploySlots(
+        hopTrack,
+        failed = deployProgressFailed(busy, status),
+        finishedSuccess = deployProgressFinishedSuccess(busy, status),
+    )
     ArdttDialog(
         title = deployProgressSheetTitle(busy, isUpdate, status, isUninstall),
         onDismissRequest = {},
@@ -570,11 +579,28 @@ private fun DeployProgressSheet(
         dismissOnBackPress = false,
         dismissOnClickOutside = false,
     ) {
+        if (slots.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                slots.forEach { slot ->
+                    DeployHopSlotCard(
+                        slot = slot,
+                        isUpdate = isUpdate,
+                        isUninstall = isUninstall,
+                    )
+                }
+            }
+        }
         Text(
             step.ifBlank { "…" },
             style = MaterialTheme.typography.bodyMedium,
         )
         ArdttLinearProgress(progress = progress)
+        Text(
+            DeployProgressCopy.percentLabel(progress),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         status?.let {
             Text(
                 it,
@@ -594,7 +620,58 @@ private fun DeployProgressSheet(
         )
         TerminalLogCard(
             text = log.takeLast(24).joinToString("\n"),
-            maxHeight = 240.dp,
+            maxHeight = 200.dp,
+        )
+    }
+}
+
+@Composable
+private fun DeployHopSlotCard(
+    slot: DeploySlotView,
+    isUpdate: Boolean,
+    isUninstall: Boolean,
+) {
+    val outline = MaterialTheme.colorScheme.outline
+    val borderColor = when (slot.phase) {
+        DeploySlotPhase.Done -> ArdttColors.connected
+        DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
+        DeploySlotPhase.Pending, DeploySlotPhase.Active -> hopMapGrayStroke(outline)
+    }
+    val statusColor = when (slot.phase) {
+        DeploySlotPhase.Done -> ArdttColors.connected
+        DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
+        DeploySlotPhase.Active -> MaterialTheme.colorScheme.onSurface
+        DeploySlotPhase.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    AppSectionCard(
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        border = BorderStroke(2.dp, borderColor),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                slot.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                deploySlotStatusText(slot.phase, isUpdate, isUninstall),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = statusColor,
+            )
+        }
+        Text(
+            slot.host,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }
@@ -630,6 +707,7 @@ private fun ServerOverviewHost(
     val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
     val engineIsUninstall by engine.isUninstall.collectAsStateWithLifecycle()
+    val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
 
     LaunchedEffect(servers, serverId, showDeleteProgress) {
         if (showDeleteProgress) return@LaunchedEffect
@@ -794,6 +872,7 @@ private fun ServerOverviewHost(
                 step = step,
                 progress = progress,
                 log = deployLog,
+                hopTrack = hopTrack,
                 onCancel = { engine.cancel() },
                 onClose = {
                     val leave = serverDeleteFinishedShouldLeave(busy, deleteStatus)
@@ -809,6 +888,7 @@ private fun ServerOverviewHost(
                 step = step,
                 progress = progress,
                 log = deployLog,
+                hopTrack = hopTrack,
                 onCancel = { engine.cancel() },
                 onClose = { showRedeployProgress = false },
             )
@@ -1086,6 +1166,7 @@ fun DeployScreen(
     var showDeployProgress by remember { mutableStateOf(false) }
     val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
+    val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
     val saved = initial != null
 
     LaunchedEffect(initial?.id) {
@@ -1488,6 +1569,7 @@ fun DeployScreen(
                 step = step,
                 progress = progress,
                 log = log,
+                hopTrack = hopTrack,
                 onCancel = { engine.cancel() },
                 onClose = { showDeployProgress = false },
             )
