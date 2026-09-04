@@ -451,7 +451,6 @@ private fun ServerIdentityBody(
     }
     val title = serverCardTitle(server.name, server.host)
     val meta = serverCardMetaLine(server.name, server.host, server.sshPort, server.publicHost)
-    val osDetail = serverOsDetailLine(server.osId, server.osVersion)
     val freshnessChip = deployFreshnessChipText(health, expectedVersion)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -485,15 +484,6 @@ private fun ServerIdentityBody(
                 ServerOsBadge(
                     osId = server.osId,
                     osVersion = server.osVersion,
-                )
-            }
-            if (osDetail != null) {
-                Text(
-                    osDetail,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Text(
@@ -1445,8 +1435,10 @@ private fun ServerOsBadge(
 ) {
     val mark = serverOsMark(osId)
     val label = serverOsBadgeLabel(osId)
-    val description = osVersion.trim().ifBlank { label }
+    val version = serverOsBadgeVersionText(osId, osVersion)
+    val description = listOfNotNull(label, version).joinToString(" ")
     Surface(
+        modifier = Modifier.widthIn(max = 200.dp),
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -1468,6 +1460,17 @@ private fun ServerOsBadge(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (version != null) {
+                Text(
+                    version,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
         }
     }
 }
