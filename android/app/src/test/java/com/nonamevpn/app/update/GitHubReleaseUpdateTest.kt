@@ -6,6 +6,22 @@ import org.junit.Test
 
 class GitHubReleaseUpdateTest {
     @Test
+    fun githubApiUrlsUseArdttRepo() {
+        assertEquals(
+            "https://api.github.com/repos/2kristalls36-hue/ARDTT/releases/latest",
+            GitHubReleaseUpdate.latestReleaseApiUrl(),
+        )
+        assertEquals(
+            "https://api.github.com/repos/2kristalls36-hue/ARDTT/releases/tags/v0.5.211",
+            GitHubReleaseUpdate.releaseByTagApiUrl("v0.5.211"),
+        )
+        assertEquals(
+            "https://api.github.com/repos/2kristalls36-hue/ARDTT/releases?per_page=30",
+            GitHubReleaseUpdate.releasesListApiUrl(),
+        )
+    }
+
+    @Test
     fun parsesReleaseWithManifestAsset() {
         val info = GitHubReleaseUpdate.parseRelease(
             """
