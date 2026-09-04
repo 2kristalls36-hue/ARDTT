@@ -99,10 +99,28 @@ class ConnectPathTest {
                 bypassAllowed = true,
             ),
         )
+    }
+
+    @Test
+    fun autoOnWifiIgnoresNeedBypassProbe() {
+        assertTrue(autoUsesDirectOnWifi(ConnPathMode.Auto, UnderlayKind.Wifi))
+        assertFalse(autoUsesDirectOnWifi(ConnPathMode.Auto, UnderlayKind.Cellular))
+        assertFalse(autoUsesDirectOnWifi(ConnPathMode.Bypass, UnderlayKind.Wifi))
         assertEquals(
             VpnPath.Direct,
             resolveConnectPath(
                 mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Bypass,
+                lastGood = needBypass,
+                fresh = needBypass,
+                underlayKind = UnderlayKind.Wifi,
+                bypassAllowed = true,
+            ),
+        )
+        assertEquals(
+            VpnPath.Bypass,
+            resolveConnectPath(
+                mode = ConnPathMode.Bypass,
                 probePreferred = VpnPath.Direct,
                 lastGood = directOk,
                 fresh = directOk,

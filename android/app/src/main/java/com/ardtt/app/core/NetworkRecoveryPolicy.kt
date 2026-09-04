@@ -338,7 +338,8 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
  *   underlay changed, or after [HANDOVER_DIRECT_TO_BYPASS_STREAK] hits.
  *   TCP :9100 is not AmneziaWG UDP — do not keep Direct just because provision
  *   answered. Open LTE with Cloudflare up still stays Direct.
- * - Bypass → Direct immediately on Wi‑Fi + underlay change (no VPS probe).
+ *   **Wi‑Fi Auto never takes Bypass** (probe kept for cellular).
+ * - Bypass → Direct on Wi‑Fi Auto whenever Direct is allowed (no VPS probe).
  *   A cellular underlay change must not yank a working Bypass just because
  *   TCP :9100 answered (AWG UDP may still be dead).
  * - Forced Direct/Bypass only rebind when the underlay actually changed.
@@ -370,6 +371,23 @@ fun decideNetworkHandoverAction(
         } else {
             NetworkHandoverDecision.NoAction
         }
+    }
+    if (underlayKind == UnderlayKind.Wifi) {
+        if (currentPath == VpnPath.Direct) {
+            return if (underlayChanged) {
+                NetworkHandoverDecision.SoftRestartSamePath
+            } else {
+                NetworkHandoverDecision.NoAction
+            }
+        }
+        val canUpgradeToDirect = allowBypassToDirect && !directFailedOnCurrentUnderlay
+        if (canUpgradeToDirect) {
+            return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
+        }
+        if (underlayChanged) {
+            return NetworkHandoverDecision.SoftRestartSamePath
+        }
+        return NetworkHandoverDecision.NoAction
     }
     val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
     if (currentPath == VpnPath.Direct) {
@@ -433,8 +451,8 @@ fun shouldReconnectTunnelAfterWake(
 }
 
 /**
- * Direct Connected with no TUN rx after grace: Auto+hash → Bypass, otherwise
- * stop the VPN so the phone is not a blackhole.
+ * Direct Connected with no TUN rx after grace: Auto+hash on cellular → Bypass.
+ * Auto on Wi‑Fi and forced Direct stop so the phone is not a blackhole.
  */
 sealed class DeadDirectDecision {
     data object KeepWatching : DeadDirectDecision()
@@ -472,7 +490,9 @@ fun shouldTreatDirectAsDeadNoRx(
 fun decideDeadDirectAction(
     pathMode: ConnPathMode,
     bypassAllowed: Boolean,
+    underlayKind: UnderlayKind = UnderlayKind.Other,
 ): DeadDirectDecision = when {
+    autoUsesDirectOnWifi(pathMode, underlayKind) -> DeadDirectDecision.FailSession
     pathMode == ConnPathMode.Auto && bypassAllowed -> DeadDirectDecision.SwitchToBypass
     else -> DeadDirectDecision.FailSession
 }

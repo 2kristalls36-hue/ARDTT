@@ -443,7 +443,7 @@ class NetworkRecoveryPolicyTest {
     @Test
     fun handoverDirectToBypassOnUnderlayChangeFirstNeedBypass() {
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            NetworkHandoverDecision.SoftRestartSamePath,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -521,6 +521,19 @@ class NetworkRecoveryPolicyTest {
                 underlayVpsReachable = false,
                 sameProbeStreak = 1,
                 underlayChanged = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Direct),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayVpsReachable = false,
+                sameProbeStreak = 1,
+                underlayChanged = false,
                 underlayKind = UnderlayKind.Wifi,
             ),
         )
@@ -797,6 +810,14 @@ class NetworkRecoveryPolicyTest {
         assertEquals(
             DeadDirectDecision.SwitchToBypass,
             decideDeadDirectAction(ConnPathMode.Auto, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
         )
         assertEquals(
             DeadDirectDecision.FailSession,
