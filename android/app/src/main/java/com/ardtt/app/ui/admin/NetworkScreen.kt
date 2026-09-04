@@ -26,7 +26,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -50,7 +49,6 @@ import com.ardtt.app.ui.components.ArdttBottomChrome
 import com.ardtt.app.ui.components.PingFlashDot
 import com.ardtt.app.ui.components.PullRefreshHost
 import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.illustratedBackdropActive
 import com.ardtt.app.ui.components.rememberPullRefresh
 import com.ardtt.app.ui.theme.ArdttColors
 import kotlin.coroutines.cancellation.CancellationException
@@ -409,12 +407,7 @@ private suspend fun loadCloudflare(
 
 @Composable
 private fun HopConnector() {
-    val onWallpaper = illustratedBackdropActive()
-    val color = if (onWallpaper) {
-        Color(0xFFD6E2F0)
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
+    val color = MaterialTheme.colorScheme.outline
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
