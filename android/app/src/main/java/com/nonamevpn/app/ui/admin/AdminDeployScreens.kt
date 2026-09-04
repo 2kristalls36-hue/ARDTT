@@ -70,7 +70,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -107,6 +106,7 @@ import com.nonamevpn.app.ui.components.NvpnDialogAction
 import com.nonamevpn.app.ui.components.PingFlashDot
 import com.nonamevpn.app.ui.components.PullRefreshHost
 import com.nonamevpn.app.ui.components.StickyPrimaryButton
+import com.nonamevpn.app.ui.components.TerminalLogCard
 import com.nonamevpn.app.ui.components.rememberPullRefresh
 import com.nonamevpn.app.ui.theme.NvpnColors
 import kotlinx.coroutines.async
@@ -730,14 +730,9 @@ private fun ServerOverviewHost(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                Text(
-                    deployLog.takeLast(24).joinToString("\n").ifBlank { "—" },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 240.dp)
-                        .verticalScroll(rememberScrollState()),
+                TerminalLogCard(
+                    text = deployLog.takeLast(24).joinToString("\n"),
+                    maxHeight = 240.dp,
                 )
             }
         }
@@ -1406,10 +1401,9 @@ fun DeployScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary,
             )
-            Text(
-                log.takeLast(80).joinToString("\n"),
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.fillMaxWidth(),
+            TerminalLogCard(
+                text = log.takeLast(80).joinToString("\n"),
+                maxHeight = 320.dp,
             )
         }
         } // form column
