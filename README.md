@@ -65,21 +65,45 @@ ARDTT/
 
 Клиент и Gradle **не** вынесены в корень: сборка — `cd android && ./gradlew …`.
 
+## Как поставить
+
+Один и тот же стек ставится **из приложения** или **клоном этого репозитория**. Клиенты — APK с [Releases](https://github.com/2kristalls36-hue/ARDTT/releases).
+
+| | Откуда код стека | Когда |
+|---|---|---|
+| **Приложение** | копия `server/` внутри APK, заливка по SSH | удобно с телефона; VPS **не** ходит на GitHub |
+| **Git** | `git clone` тега релиза на VPS | репозиторий доступен с машины (публичный clone или ваш ключ/PAT) |
+
+Пока репозиторий **приватный**, с VPS без токена clone не выйдет — ставьте из приложения. Когда сделаете репозиторий **публичным**, достаточно клона тега: архив в APK для сервера больше не обязателен. Имеет смысл клонировать **тег** `v0.5.228` (стек **1.0.33**), а не скользящий `main`.
+
+Подробности и каскад: [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Быстрый старт
 
-Сервер:
+Клиент:
 
 ```bash
-cd server
-cp .env.example .env          # ARDTT_PUBLIC_HOST
+# готовый APK
+# https://github.com/2kristalls36-hue/ARDTT/releases
+```
+
+Сервер с GitHub (тег релиза):
+
+```bash
+git clone --depth 1 --branch v0.5.228 \
+  https://github.com/2kristalls36-hue/ARDTT.git
+cd ARDTT/server
+cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_этого_VPS
 docker compose --profile isolated up -d --build
 curl -s http://127.0.0.1:9100/health
 ./scripts/create-user.sh alice
 ```
 
-Каскад: `ARDTT_ROLE=entry|exit` и `ARDTT_CASCADE_*` в `.env`. Обычный путь установки — SSH из приложения, см. [docs/DEPLOY.md](docs/DEPLOY.md).
+Каноническая раскладка `/opt/ardtt` (как после деплоя из приложения) — тот же `server/install.sh`, см. [Путь 2 в DEPLOY.md](docs/DEPLOY.md#путь-2--git--compose).
 
-Android:
+Каскад: `ARDTT_ROLE=entry|exit` и `ARDTT_CASCADE_*` в `.env`. С телефона: вкладка «Серверы», SSH, пароль или PEM.
+
+Сборка APK из исходников:
 
 ```bash
 cd android
@@ -96,7 +120,7 @@ cd android
 | [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.228 / стек 1.0.33 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
-| [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS из приложения и Compose |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS: из приложения или клоном репозитория |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
 | [android/README.md](android/README.md) | Сборка клиента, keystore, релизы |
 | [server/README.md](server/README.md) | Compose: provision, direct, bypass, dns, warp, cascade, telemetry |
