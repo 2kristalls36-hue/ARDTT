@@ -15,7 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * Admin deploy: SSH → upload stack.tar.gz + install.sh → run Compose on VPS.
+ * Admin deploy: SSH → upload stack.tar.gz + install.sh → run Compose on VPS,
+ * or SSH uninstall (compose down + rm /opt/ardtt) then drop the local card.
  * Protocol and VPS layout: docs/DEPLOY.md. Canonical installer: server/install.sh.
  */
 class DeployEngine(private val appContext: Context) {
@@ -35,6 +36,9 @@ class DeployEngine(private val appContext: Context) {
 
     private val _isUpdate = MutableStateFlow(false)
     val isUpdate: StateFlow<Boolean> = _isUpdate.asStateFlow()
+
+    private val _isUninstall = MutableStateFlow(false)
+    val isUninstall: StateFlow<Boolean> = _isUninstall.asStateFlow()
 
     private val _outcome = MutableStateFlow<String?>(null)
     val outcome: StateFlow<String?> = _outcome.asStateFlow()
@@ -57,10 +61,17 @@ class DeployEngine(private val appContext: Context) {
      * Start (or update) deploy in a foreground service. Returns false if another
      * deploy is already running.
      */
-    fun enqueue(target: DeployTarget, isUpdate: Boolean): Boolean {
+    fun enqueue(target: DeployTarget, isUpdate: Boolean): Boolean =
+        enqueue(target, if (isUpdate) DeployJobKind.Update else DeployJobKind.Install)
+
+    fun enqueueUninstall(target: DeployTarget): Boolean =
+        enqueue(target, DeployJobKind.Uninstall)
+
+    fun enqueue(target: DeployTarget, kind: DeployJobKind): Boolean {
         if (!running.compareAndSet(false, true)) return false
         pendingTarget = target
-        _isUpdate.value = isUpdate
+        _isUpdate.value = kind == DeployJobKind.Update
+        _isUninstall.value = kind == DeployJobKind.Uninstall
         _activeTargetId.value = target.id
         _busy.value = true
         _progress.value = 0f
@@ -73,7 +84,9 @@ class DeployEngine(private val appContext: Context) {
             activeHost,
             JSONObject()
                 .put("target_id", target.id)
-                .put("is_update", isUpdate)
+                .put("is_update", kind == DeployJobKind.Update)
+                .put("is_uninstall", kind == DeployJobKind.Uninstall)
+                .put("job_kind", kind.name.lowercase())
                 .put("target_name", target.name),
         )
         return try {
@@ -85,7 +98,7 @@ class DeployEngine(private val appContext: Context) {
             _busy.value = false
             pendingTarget = null
             _activeTargetId.value = null
-            _outcome.value = "Ошибка: не удалось запустить фоновую установку"
+            _outcome.value = "Ошибка: не удалось запустить фоновую задачу"
             false
         }
     }
@@ -94,13 +107,14 @@ class DeployEngine(private val appContext: Context) {
     suspend fun runFromService(): Result<String> {
         val target = pendingTarget
             ?: return Result.failure(IllegalStateException("Нет задания деплоя"))
+        val uninstall = _isUninstall.value
         return try {
-            execute(target)
+            if (uninstall) executeUninstall(target) else execute(target)
         } finally {
             running.set(false)
             _busy.value = false
             pendingTarget = null
-            // Keep isUpdate / activeTargetId until the finished notification is built.
+            // Keep isUpdate / isUninstall / activeTargetId until the finished notification is built.
         }
     }
 
@@ -319,6 +333,168 @@ class DeployEngine(private val appContext: Context) {
             activeSession = null
             activeHost = ""
         }
+    }
+
+    private suspend fun executeUninstall(target: DeployTarget): Result<String> = withContext(Dispatchers.IO) {
+        var session: Session? = null
+        try {
+            TelemetryBridge.deploy(
+                action = "uninstall_started",
+                host = activeHost,
+                details = JSONObject()
+                    .put("target_id", target.id)
+                    .put("target_name", target.name)
+                    .put("ssh_port", target.sshPort)
+                    .put("ssh_user", target.sshUser.trim().ifBlank { "root" })
+                    .put("auth_type", if (target.privateKeyPem.isNotBlank()) "key" else "password")
+                    .put("cascade_enabled", target.cascadeEnabled),
+            )
+            append("Старт удаления ${target.name.ifBlank { target.host }}")
+
+            if (target.cascadeEnabled) {
+                val exitHost = target.cascadeHost.trim()
+                if (exitHost.isBlank()) error("Не указан host второго сервера")
+                emit(0.04f, "Каскад: снятие стека на выходе $exitHost…")
+                append("Выход: $exitHost")
+                val exitSession = SshClient.connect(
+                    host = exitHost,
+                    user = target.cascadeSshUser(),
+                    port = target.cascadePort,
+                    auth = target.cascadeAuth(),
+                )
+                activeSession = exitSession
+                try {
+                    val exitSsh = SshClient(exitSession, target.cascadePassword)
+                    wipeRemoteStack(exitSsh, exitHost, 0.06f, 0.48f)
+                } finally {
+                    runCatching { exitSession.disconnect() }
+                    if (activeSession === exitSession) activeSession = null
+                }
+            }
+
+            val entryHost = target.host.trim()
+            emit(if (target.cascadeEnabled) 0.50f else 0.08f, "Подключение SSH к $entryHost…")
+            session = SshClient.connect(
+                host = entryHost,
+                user = target.sshUser.trim().ifBlank { "root" },
+                port = target.sshPort,
+                auth = target.auth(),
+            )
+            activeSession = session
+            val ssh = SshClient(session, target.sudoPassword.ifBlank { target.password })
+            append("SSH подключено ($entryHost)")
+            TelemetryBridge.deploy("ssh_connected", activeHost)
+            wipeRemoteStack(
+                ssh,
+                entryHost,
+                progressStart = if (target.cascadeEnabled) 0.52f else 0.10f,
+                progressEnd = 0.92f,
+            )
+
+            throwIfCancelled()
+            ServersRepository.get(appContext).delete(target.id)
+
+            val msg = if (target.cascadeEnabled) {
+                "Стек снят с $entryHost и ${target.cascadeHost.trim()}. Карточка удалена."
+            } else {
+                "Стек снят с $entryHost. Карточка удалена."
+            }
+            append(msg)
+            emit(1f, msg)
+            TelemetryBridge.deploy(
+                "uninstall_succeeded",
+                activeHost,
+                JSONObject().put("message", msg),
+            )
+            _outcome.value = msg
+            Result.success(msg)
+        } catch (t: Throwable) {
+            AppLog.e(TAG, "uninstall failed: ${t.message ?: t.javaClass.simpleName}")
+            TelemetryBridge.handledError("uninstall", t)
+            val cancelled = _log.value.any { it.contains("Отменено") }
+            val msg = if (cancelled) {
+                "Отменено"
+            } else {
+                t.message?.take(300) ?: t.javaClass.simpleName
+            }
+            append("Ошибка: $msg")
+            emit(_progress.value, if (cancelled) "Отменено" else "Ошибка")
+            TelemetryBridge.deploy(
+                "uninstall_failed",
+                activeHost,
+                JSONObject()
+                    .put("message", msg)
+                    .put("progress", _progress.value.toDouble())
+                    .put("step", _step.value)
+                    .put("log_tail", _log.value.takeLast(20).joinToString("\n")),
+            )
+            val shown = if (cancelled) "Отменено" else "Ошибка: $msg"
+            _outcome.value = shown
+            Result.failure(t)
+        } finally {
+            runCatching { session?.disconnect() }
+            activeSession = null
+            activeHost = ""
+        }
+    }
+
+    private fun wipeRemoteStack(
+        ssh: SshClient,
+        hostLabel: String,
+        progressStart: Float,
+        progressEnd: Float,
+    ) {
+        throwIfCancelled()
+        activeHost = hostLabel
+        emit(progressStart, "Удаление стека на $hostLabel…")
+        var sawDone = false
+        var failed: String? = null
+        val span = (progressEnd - progressStart).coerceAtLeast(0.05f)
+        val code = ssh.execStreaming(ServerUninstall.remoteCommand(), ServerUninstall.TIMEOUT_MS) { line ->
+            append(line)
+            when {
+                line.startsWith("ARDTT_PROGRESS|") -> {
+                    val parts = line.split('|', limit = 3)
+                    val frac = parts.getOrNull(1)?.toFloatOrNull() ?: 0f
+                    val step = parts.getOrNull(2)?.take(160).orEmpty()
+                    val mapped = (progressStart + span * frac.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+                    if (step.isNotBlank()) emit(mapped, "$hostLabel · $step")
+                }
+                line.startsWith("ARDTT_ERROR|") -> failed = line.removePrefix("ARDTT_ERROR|")
+                line.contains(ServerUninstall.DONE_MARKER) -> sawDone = true
+            }
+        }
+        throwIfCancelled()
+        if (failed != null) {
+            TelemetryBridge.deploy(
+                "uninstaller_error",
+                hostLabel,
+                JSONObject().put("message", failed),
+            )
+            error("$hostLabel: $failed")
+        }
+        if (code != 0) {
+            val hint = _log.value.takeLast(8).joinToString(" ")
+            val detail = if (code == -1) {
+                " — SSH-сессия оборвалась во время удаления"
+            } else {
+                ""
+            }
+            TelemetryBridge.deploy(
+                "uninstaller_exit",
+                hostLabel,
+                JSONObject()
+                    .put("exit_code", code)
+                    .put("log_tail", hint),
+            )
+            error("uninstall exit=$code на $hostLabel$detail")
+        }
+        if (!sawDone) error("$hostLabel: сервер не подтвердил снятие стека")
+        append("Стек снят на $hostLabel")
+    }
+
+    private fun throwIfCancelled() {
+        if (_log.value.any { it.contains("Отменено") }) error("Отменено")
     }
 
     fun cancel() {
