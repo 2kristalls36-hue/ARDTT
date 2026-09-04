@@ -1445,7 +1445,7 @@ private fun ServerOsBadge(
             Image(
                 painter = painterResource(serverOsMarkDrawable(mark)),
                 contentDescription = description,
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(16.dp),
             )
             Text(
                 label,
