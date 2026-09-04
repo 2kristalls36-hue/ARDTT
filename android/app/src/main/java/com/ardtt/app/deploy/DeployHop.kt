@@ -19,9 +19,9 @@ object DeployHop {
      * Exact profile-host match only — do not fall back to the latest deploy,
      * or a cascade hop from another server would leak into the map / last-IP probe.
      *
-     * Public host and SSH host are considered together. If several cards match
-     * the profile, a cascade entry wins over a plain VPS card so VPS 2 is not
-     * dropped when an older publicHost-only row is still in the list.
+     * Public host and SSH host are considered together. The newest matching
+     * card wins so a later standalone deploy is not shadowed by an older
+     * cascade row for the same host.
      */
     fun matchingServer(servers: List<DeployTarget>, profileHost: String?): DeployTarget? {
         val host = host(profileHost) ?: return null
@@ -29,8 +29,10 @@ object DeployHop {
             same(server.publicHost, host) || same(server.host, host)
         }
         if (matches.isEmpty()) return null
-        val cascade = matches.filter { isCascadeEntry(it, host) }
-        return (cascade.ifEmpty { matches }).maxByOrNull { it.lastDeployedAtMs }
+        return matches.maxWithOrNull(
+            compareBy<DeployTarget> { it.lastDeployedAtMs }
+                .thenBy { if (isCascadeEntry(it, host)) 1 else 0 },
+        )
     }
 
     fun isCascadeEntry(server: DeployTarget, profileHost: String?): Boolean {

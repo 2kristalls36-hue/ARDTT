@@ -42,7 +42,6 @@ import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.core.IpApiLookup
-import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServersRepository
@@ -89,7 +88,7 @@ fun NetworkScreen(
     val server = remember(servers, profileHost) { findMatchingDeployServer(servers, profileHost) }
     var observedLastHop by remember { mutableStateOf<String?>(null) }
     var liveCascadeHost by remember { mutableStateOf<String?>(null) }
-    var cascadeLive by remember { mutableStateOf(false) }
+    var cascadeLive by remember { mutableStateOf<Boolean?>(null) }
     var hopPings by remember { mutableStateOf(HopHealthPings()) }
     val layout = remember(
         profileHost,
@@ -149,7 +148,7 @@ fun NetworkScreen(
         if (!inputs.sessionUp) {
             if (observedLastHop != null) observedLastHop = null
             if (liveCascadeHost != null) liveCascadeHost = null
-            if (cascadeLive) cascadeLive = false
+            if (cascadeLive != null) cascadeLive = null
             if (hopPings != HopHealthPings()) hopPings = HopHealthPings()
         }
         val entryHealth = if (inputs.sessionUp) {
@@ -158,30 +157,38 @@ fun NetworkScreen(
             EntryHealthSnapshot()
         }
         val live = entryHealth.cascade
-        if (live.host != liveCascadeHost) {
-            liveCascadeHost = live.host
+        val liveFlag: Boolean? = when {
+            !inputs.sessionUp -> null
+            entryHealth.known -> live.enabled
+            else -> inputs.cascadeLive
         }
-        if (live.enabled != cascadeLive) {
-            cascadeLive = live.enabled
+        val liveHost = when {
+            !inputs.sessionUp -> null
+            entryHealth.known -> live.host
+            else -> inputs.liveCascadeHost
         }
-        val lastHop = if (inputs.sessionUp) {
+        if (liveHost != liveCascadeHost) {
+            liveCascadeHost = liveHost
+        }
+        if (liveFlag != cascadeLive) {
+            cascadeLive = liveFlag
+        }
+        val knownExit = resolveCascadeExitHost(
+            servers = inputs.servers,
+            matched = inputs.server,
+            profileHost = inputs.profileHost,
+            vps1 = hopHost(inputs.profileHost),
+            observedLastHop = null,
+            liveCascadeHost = liveHost,
+            cascadeLive = liveFlag,
+        )
+        val lastHop = if (inputs.sessionUp && (liveFlag == true || knownExit != null)) {
             EgressIpProbe.probeLastHopWan(
                 context = context,
-                exitProvisionBaseUrl = DeployHop.exitProvisionUrl(inputs.server)
-                    ?: provisionUrlForHost(
-                        resolveCascadeExitHost(
-                            servers = inputs.servers,
-                            matched = inputs.server,
-                            profileHost = inputs.profileHost,
-                            vps1 = hopHost(inputs.profileHost),
-                            observedLastHop = null,
-                            liveCascadeHost = live.host,
-                            cascadeLive = live.enabled,
-                        ),
-                    ),
+                exitProvisionBaseUrl = provisionUrlForHost(knownExit),
                 deviceId = inputs.deviceId,
                 viaVpn = true,
-                bindVpnIfNoExit = true,
+                bindVpnIfNoExit = knownExit == null,
             )
         } else {
             null
@@ -195,13 +202,12 @@ fun NetworkScreen(
             hideIp = inputs.hideIp,
             sessionUp = inputs.sessionUp,
             observedLastHop = lastHop,
-            liveCascadeHost = live.host,
-            cascadeLive = live.enabled,
+            liveCascadeHost = liveHost,
+            cascadeLive = liveFlag,
             servers = inputs.servers,
         )
         val nextPings = if (inputs.sessionUp) {
-            val exitUrl = DeployHop.exitProvisionUrl(inputs.server)
-                ?: provisionUrlForHost(resolved.vps2Host)
+            val exitUrl = provisionUrlForHost(resolved.vps2Host)
             val exitPing = when {
                 resolved.vps2Host.isNullOrBlank() -> -1L
                 sameProvisionBase(inputs.entryProvision, exitUrl) -> entryHealth.pingMs
@@ -216,8 +222,8 @@ fun NetworkScreen(
             context,
             inputs.copy(
                 layout = resolved,
-                liveCascadeHost = live.host,
-                cascadeLive = live.enabled,
+                liveCascadeHost = liveHost,
+                cascadeLive = liveFlag,
             ),
             hopsLatest.value,
             onHop = { view -> loaded = replaceHopView(loaded, view) },
@@ -288,7 +294,7 @@ private data class NetworkRefreshInputs(
     val sessionUp: Boolean,
     val observedLastHop: String?,
     val liveCascadeHost: String?,
-    val cascadeLive: Boolean,
+    val cascadeLive: Boolean?,
     val servers: List<DeployTarget>,
     val entryProvision: String?,
     val deviceId: String?,
@@ -305,21 +311,24 @@ private data class NetworkRefreshInputs(
     ),
 ) {
     val exitProvision: String?
-        get() = DeployHop.exitProvisionUrl(server) ?: provisionUrlForHost(layout.vps2Host)
+        get() = provisionUrlForHost(layout.vps2Host)
 }
 
 private data class EntryHealthSnapshot(
     val cascade: ProvisionAdminApi.LiveCascadeInfo = ProvisionAdminApi.LiveCascadeInfo(enabled = false),
     val pingMs: Long = -1L,
+    val known: Boolean = false,
 )
 
 private suspend fun fetchEntryHealth(entryProvision: String?): EntryHealthSnapshot {
     val base = entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
         ?: return EntryHealthSnapshot()
     val health = ProvisionAdminApi.health(base).getOrNull() ?: return EntryHealthSnapshot()
+    if (!health.ok) return EntryHealthSnapshot()
     return EntryHealthSnapshot(
         cascade = ProvisionAdminApi.liveCascadeInfo(health),
-        pingMs = if (health.ok) health.pingMs else -1L,
+        pingMs = health.pingMs,
+        known = true,
     )
 }
 
