@@ -1,8 +1,8 @@
-ARDTT (Amnezia + RAW Dial via TURN)
-===================================
+ARDTT (Amnezia & Raw Dial over TURN Tunnel)
+===========================================
 
 Formerly "nonameVPN", briefly "AWDTT". Product name is **ARDTT**
-(Amnezia + RAW Dial via TURN — not WireGuard-in-TURN).
+(Amnezia & Raw Dial over TURN Tunnel — not WireGuard-in-TURN).
 
 This product combines code and ideas from multiple upstream projects.
 Copyright notices in individual source files take precedence where present.
@@ -49,7 +49,7 @@ tree. The RAW TUN uses ARDTT `10.9.0.0/24` (gateway `10.9.0.1`). A small client
 patch allows `-n` workers of 1–9 without forcing multiples of 9.
 
 Directory names may still say `wdtt-*` for historical/vendor reasons; the
-**product** name is ARDTT (Amnezia + RAW Dial via TURN), not WDTT.
+**product** name is ARDTT (Amnezia & Raw Dial over TURN Tunnel), not WDTT.
 
 Copyright (c) WDTT / qWDTT / SpaceNeuroX contributors
 (see upstream repositories for full copyright lists).

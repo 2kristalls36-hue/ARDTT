@@ -10,7 +10,7 @@
 
 </div>
 
-**ARDTT** (Amnezia + RAW Dial via TURN) — Android-приложение и self-hosted сервер для защищённого туннеля до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP, без DTLS и без вложенного WireGuard).
+**ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — Android-приложение и self-hosted сервер для защищённого туннеля до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP, без DTLS и без вложенного WireGuard).
 
 > [!WARNING]
 > **Назначение проекта**
@@ -94,7 +94,7 @@ cd android
 | Документ | Содержание |
 |----------|------------|
 | [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.215 / стек 1.0.29 |
-| [docs/LEGEND.md](docs/LEGEND.md) | Имя ARDTT, Path A/B, знак AR/DTT |
+| [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS из приложения и Compose |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
