@@ -329,12 +329,7 @@ func runServer(store *Store, listen string) error {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusNotFound)
 			return
 		}
-		writeJSON(w, map[string]any{
-			"ok":             true,
-			"name":           u.Name,
-			"lastSeenAt":     u.LastSeenAt,
-			"lastExternalIp": u.LastExternalIP,
-		})
+		writeJSON(w, store.ToPublic(u))
 	})
 	mux.HandleFunc("/v1/profile/", func(w http.ResponseWriter, r *http.Request) {
 		name := profileNameFromPath(r.URL.Path)
