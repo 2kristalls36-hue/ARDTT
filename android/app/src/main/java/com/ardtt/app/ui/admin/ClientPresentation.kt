@@ -2,6 +2,7 @@ package com.ardtt.app.ui.admin
 
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.deviceDisplayLabels
+import com.ardtt.app.profile.VpnProfile
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -23,6 +24,19 @@ internal fun clientModeLabel(
 
 internal fun clientDeviceSummary(user: ProvisionAdminApi.UserSummary): String =
     deviceDisplayLabels(user.deviceIds, user.deviceModels).firstOrNull().orEmpty().ifBlank { "—" }
+
+/** Fresh create: profile JSON may include a template deviceId, but nothing is bound yet. */
+internal fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSummary(
+    name = profile.name,
+    hostId = profile.hostId,
+    deviceId = "",
+    deviceIds = emptyList(),
+    maxDevices = profile.maxDevices,
+    hideIp = profile.hideIp,
+    createdAt = "",
+    expiresAt = profile.expiresAt,
+    deactivated = profile.deactivated,
+)
 
 internal fun clientTrafficLabel(user: ProvisionAdminApi.UserSummary): String {
     val used = formatClientBytes(user.usedBytes)

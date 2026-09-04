@@ -1,7 +1,9 @@
 package com.ardtt.app.ui.admin
 
 import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.profile.VpnProfileJson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ClientPresentationTest {
@@ -99,6 +101,43 @@ class ClientPresentationTest {
         assertEquals(ClientExpiresTone.ExpiringSoon, clientExpiresTone(soonSec, now))
         val laterSec = (now + 30L * 24L * 60L * 60L * 1000L) / 1000L
         assertEquals(ClientExpiresTone.Active, clientExpiresTone(laterSec, now))
+    }
+
+    @Test
+    fun createStubDoesNotBindProfileDevice() {
+        val profile = VpnProfileJson.parse(
+            """
+            {
+              "name": "alice",
+              "deviceId": "dev-template",
+              "hostId": 2,
+              "maxDevices": 1,
+              "direct": {
+                "endpoint": "10.0.0.1:51820",
+                "privateKey": "",
+                "peerPublicKey": "",
+                "address": "10.8.0.2/32",
+                "dns": ["10.8.0.1"],
+                "mtu": 1280,
+                "awg": {}
+              },
+              "bypass": {
+                "peer": "10.0.0.1:56003",
+                "address": "10.9.0.2/32",
+                "password": "",
+                "workers": 9,
+                "transport": "tcp",
+                "mode": "raw",
+                "dial": "auto"
+              }
+            }
+            """.trimIndent(),
+        )
+        val stub = userStubFromProfile(profile)
+        assertEquals("alice", stub.name)
+        assertEquals("", stub.deviceId)
+        assertTrue(stub.deviceIds.isEmpty())
+        assertEquals("—", clientDeviceSummary(stub))
     }
 
     private fun user(

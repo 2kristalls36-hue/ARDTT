@@ -530,6 +530,60 @@ private fun ServerIdentityBody(
 }
 
 @Composable
+private fun DeployProgressSheet(
+    busy: Boolean,
+    isUpdate: Boolean,
+    status: String?,
+    step: String,
+    progress: Float,
+    log: List<String>,
+    onCancel: () -> Unit,
+    onClose: () -> Unit,
+) {
+    ArdttDialog(
+        title = deployProgressSheetTitle(busy, isUpdate, status),
+        onDismissRequest = {},
+        confirmAction = if (busy) {
+            ArdttDialogAction("Отменить", onCancel, destructive = true)
+        } else {
+            ArdttDialogAction("Закрыть", onClose)
+        },
+        dismissOnBackPress = false,
+        dismissOnClickOutside = false,
+    ) {
+        Text(
+            step.ifBlank { "…" },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        status?.let {
+            Text(
+                it,
+                color = if (it.startsWith("Ошибка")) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    ArdttColors.connected
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Text(
+            "Лог",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        TerminalLogCard(
+            text = log.takeLast(24).joinToString("\n"),
+            maxHeight = 240.dp,
+        )
+    }
+}
+
+@Composable
 private fun ServerOverviewHost(
     servers: List<DeployTarget>,
     serversRepo: ServersRepository,
@@ -682,51 +736,16 @@ private fun ServerOverviewHost(
             }
         }
         if (showRedeployProgress) {
-            ArdttDialog(
-                title = when {
-                    busy -> "Обновление деплоя…"
-                    redeployStatus?.startsWith("Ошибка") == true -> "Ошибка"
-                    else -> "Готово"
-                },
-                onDismissRequest = {},
-                confirmAction = if (busy) {
-                    ArdttDialogAction("Отменить", { engine.cancel() }, destructive = true)
-                } else {
-                    ArdttDialogAction("Закрыть", { showRedeployProgress = false })
-                },
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false,
-            ) {
-                Text(
-                    step.ifBlank { "…" },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                redeployStatus?.let {
-                    Text(
-                        it,
-                        color = if (it.startsWith("Ошибка")) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            ArdttColors.connected
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                Text(
-                    "Лог",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                TerminalLogCard(
-                    text = deployLog.takeLast(24).joinToString("\n"),
-                    maxHeight = 240.dp,
-                )
-            }
+            DeployProgressSheet(
+                busy = busy,
+                isUpdate = true,
+                status = redeployStatus,
+                step = step,
+                progress = progress,
+                log = deployLog,
+                onCancel = { engine.cancel() },
+                onClose = { showRedeployProgress = false },
+            )
         }
     }
 }
@@ -996,6 +1015,12 @@ fun DeployScreen(
     var cascadeUser by remember { mutableStateOf(initial?.cascadeUser ?: "") }
     var cascadePassword by remember { mutableStateOf(initial?.cascadePassword ?: "") }
     var status by remember { mutableStateOf<String?>(null) }
+    var deployStatus by remember { mutableStateOf<String?>(null) }
+    var showReinstallConfirm by remember { mutableStateOf(false) }
+    var showDeployProgress by remember { mutableStateOf(false) }
+    val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
+    val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
+    val saved = initial != null
 
     LaunchedEffect(initial?.id) {
         val t = initial ?: return@LaunchedEffect
@@ -1020,12 +1045,20 @@ fun DeployScreen(
         cascadePassword = t.cascadePassword
     }
 
-    LaunchedEffect(busy, outcome) {
-        if (!busy && outcome != null) {
-            status = outcome
-            val deployedAt = serversRepo.snapshot().find { it.id == id }?.lastDeployedAtMs
-            if (deployedAt != null && deployedAt > 0L) lastDeployedAtMs = deployedAt
+    LaunchedEffect(busy, activeTargetId, id) {
+        if (busy && activeTargetId == id) {
+            showDeployProgress = true
+            deployStatus = null
         }
+    }
+
+    LaunchedEffect(busy, outcome, id, activeTargetId) {
+        if (busy || outcome == null) return@LaunchedEffect
+        if (activeTargetId != null && activeTargetId != id) return@LaunchedEffect
+        if (!showDeployProgress) return@LaunchedEffect
+        deployStatus = outcome
+        val deployedAt = serversRepo.snapshot().find { it.id == id }?.lastDeployedAtMs
+        if (deployedAt != null && deployedAt > 0L) lastDeployedAtMs = deployedAt
     }
 
     fun buildTarget(deployedAt: Long = lastDeployedAtMs): DeployTarget = DeployTarget(
@@ -1053,22 +1086,49 @@ fun DeployScreen(
 
     val context = LocalContext.current
     val expectedDeployVersion = remember(context) { DeployBundle.expectedVersion(context) }
-    val isUpdate = initial != null && lastDeployedAtMs > 0L
+    val isUpdate = saved && lastDeployedAtMs > 0L
     val canLeave = deployFormCanLeave(busy)
+
+    fun formValidationError(): String? {
+        if (host.isBlank()) return "Укажите host"
+        if (password.isBlank() && privateKey.isBlank()) return "Нужен пароль или SSH-ключ"
+        if (cascadeEnabled) {
+            if (cascadeHost.isBlank()) return "Укажите host второго сервера"
+            if (cascadeUser.isBlank()) return "Укажите SSH user второго сервера"
+            if (cascadePassword.isBlank()) return "Укажите пароль второго сервера"
+        }
+        return null
+    }
+
+    fun startServerDeploy() {
+        formValidationError()?.let {
+            status = it
+            return
+        }
+        val target = buildTarget()
+        serversRepo.upsert(target)
+        status = null
+        showDeployProgress = true
+        deployStatus = null
+        if (!startDeploy(target, isUpdate)) {
+            deployStatus = "Ошибка: деплой уже идёт"
+        }
+    }
 
     BackHandler(enabled = !canLeave) { }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
             TabFeedHeader(
-                title = if (isUpdate) "Обновить деплой" else "Деплой",
-                subtitle = if (isUpdate) {
+                title = serverDeployScreenTitle(saved),
+                subtitle = if (saved) {
                     "Стек $expectedDeployVersion · SSH · Compose"
                 } else {
                     "SSH · установка Compose-стека ARDTT"
@@ -1077,11 +1137,7 @@ fun DeployScreen(
             )
         }
         Text(
-            if (isUpdate) {
-                "Кнопка «Обновить деплой» заново зальёт стек версии $expectedDeployVersion на VPS."
-            } else {
-                "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «Установить на VPS»."
-            },
+            serverDeployFormHelp(saved, cascadeEnabled, expectedDeployVersion),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
@@ -1266,27 +1322,9 @@ fun DeployScreen(
 
         OutlinedButton(
             onClick = {
-                if (host.isBlank()) {
-                    status = "Укажите host"
+                formValidationError()?.let {
+                    status = it
                     return@OutlinedButton
-                }
-                if (password.isBlank() && privateKey.isBlank()) {
-                    status = "Нужен пароль или SSH-ключ"
-                    return@OutlinedButton
-                }
-                if (cascadeEnabled) {
-                    if (cascadeHost.isBlank()) {
-                        status = "Укажите host второго сервера"
-                        return@OutlinedButton
-                    }
-                    if (cascadeUser.isBlank()) {
-                        status = "Укажите SSH user второго сервера"
-                        return@OutlinedButton
-                    }
-                    if (cascadePassword.isBlank()) {
-                        status = "Укажите пароль второго сервера"
-                        return@OutlinedButton
-                    }
                 }
                 val target = buildTarget()
                 serversRepo.upsert(target)
@@ -1301,33 +1339,15 @@ fun DeployScreen(
 
         Button(
             onClick = {
-                if (host.isBlank()) {
-                    status = "Укажите host"
+                formValidationError()?.let {
+                    status = it
                     return@Button
                 }
-                if (password.isBlank() && privateKey.isBlank()) {
-                    status = "Нужен пароль или SSH-ключ"
-                    return@Button
-                }
-                if (cascadeEnabled) {
-                    if (cascadeHost.isBlank()) {
-                        status = "Укажите host второго сервера"
-                        return@Button
-                    }
-                    if (cascadeUser.isBlank()) {
-                        status = "Укажите SSH user второго сервера"
-                        return@Button
-                    }
-                    if (cascadePassword.isBlank()) {
-                        status = "Укажите пароль второго сервера"
-                        return@Button
-                    }
-                }
-                val target = buildTarget()
-                serversRepo.upsert(target)
-                status = null
-                if (!startDeploy(target, isUpdate)) {
-                    status = "Ошибка: деплой уже идёт"
+                if (saved) {
+                    status = null
+                    showReinstallConfirm = true
+                } else {
+                    startServerDeploy()
                 }
             },
             enabled = !busy,
@@ -1343,13 +1363,7 @@ fun DeployScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                when {
-                    busy && isUpdate -> "Обновление…"
-                    busy -> "Установка…"
-                    isUpdate -> "Обновить деплой ($expectedDeployVersion)"
-                    cascadeEnabled -> "Установить каскад"
-                    else -> "Установить на VPS"
-                },
+                serverDeployActionLabel(saved, cascadeEnabled),
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -1363,21 +1377,6 @@ fun DeployScreen(
             }
         }
 
-        if (busy) {
-            OutlinedButton(
-                onClick = { engine.cancel() },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Отменить SSH") }
-        }
-
-        if (busy || progress > 0f) {
-            Text(step.ifBlank { "…" }, style = MaterialTheme.typography.bodyMedium)
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
         status?.let {
             Text(
                 it,
@@ -1385,20 +1384,48 @@ fun DeployScreen(
                 else MaterialTheme.colorScheme.primary,
             )
         }
+            } // form column
+        }
 
-        if (log.isNotEmpty()) {
-            Text(
-                "Лог",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            TerminalLogCard(
-                text = log.takeLast(80).joinToString("\n"),
-                maxHeight = 320.dp,
+        if (showReinstallConfirm) {
+            ArdttDialog(
+                title = "Переустановить сервер?",
+                onDismissRequest = { if (!busy) showReinstallConfirm = false },
+                confirmAction = ArdttDialogAction(
+                    text = "Переустановить",
+                    onClick = {
+                        showReinstallConfirm = false
+                        startServerDeploy()
+                    },
+                    enabled = !busy,
+                ),
+                dismissAction = ArdttDialogAction(
+                    text = "Отмена",
+                    onClick = { showReinstallConfirm = false },
+                    enabled = !busy,
+                ),
+                dismissOnBackPress = !busy,
+                dismissOnClickOutside = !busy,
+            ) {
+                Text(
+                    serverReinstallConfirmBody(host, expectedDeployVersion),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (showDeployProgress) {
+            DeployProgressSheet(
+                busy = busy,
+                isUpdate = if (busy) engineIsUpdate else isUpdate,
+                status = deployStatus,
+                step = step,
+                progress = progress,
+                log = log,
+                onCancel = { engine.cancel() },
+                onClose = { showDeployProgress = false },
             )
         }
-        } // form column
     }
 }
 
