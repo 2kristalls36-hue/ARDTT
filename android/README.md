@@ -1,6 +1,6 @@
 # Android-клиент ARDTT
 
-Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia + RAW Dial via TURN).  
+Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial over TURN Tunnel).  
 Текущая сборка: **0.5.215** (`versionCode` 233).  
 `applicationId` / namespace — `com.ardtt.app`, minSdk 28. Смена с `com.nonamevpn.app` требует переустановки APK (это уже другое приложение для Android).
 
