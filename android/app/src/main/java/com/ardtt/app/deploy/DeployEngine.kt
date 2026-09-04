@@ -43,6 +43,9 @@ class DeployEngine(private val appContext: Context) {
     private val _outcome = MutableStateFlow<String?>(null)
     val outcome: StateFlow<String?> = _outcome.asStateFlow()
 
+    private val _activeTargetId = MutableStateFlow<String?>(null)
+    val activeTargetId: StateFlow<String?> = _activeTargetId.asStateFlow()
+
     private val _hopTrack = MutableStateFlow(DeployHopTrack())
     val hopTrack: StateFlow<DeployHopTrack> = _hopTrack.asStateFlow()
 
