@@ -41,6 +41,15 @@ internal fun nvpnDialogAllowsHide(
 ): Boolean = dismissOnBackPress || dismissOnClickOutside
 
 /**
+ * Locked sheets drop the drag handle, which otherwise supplies the top inset.
+ * Match the horizontal content padding so the title is not flush with the rim.
+ */
+internal const val NVPN_DIALOG_LOCKED_TITLE_TOP_DP = 24
+
+internal fun nvpnDialogTitleTopPaddingDp(allowsHide: Boolean): Int =
+    if (allowsHide) 0 else NVPN_DIALOG_LOCKED_TITLE_TOP_DP
+
+/**
  * Shared bottom sheet replacing the old opaque modal surface.
  * Actions always live in one footer row:
  * optional secondary action on the left, cancel and primary on the right.
@@ -98,7 +107,11 @@ fun NvpnDialog(
         ) {
             Text(
                 text = title,
-                modifier = Modifier.padding(horizontal = 24.dp),
+                modifier = Modifier.padding(
+                    start = 24.dp,
+                    top = nvpnDialogTitleTopPaddingDp(allowsHide).dp,
+                    end = 24.dp,
+                ),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
