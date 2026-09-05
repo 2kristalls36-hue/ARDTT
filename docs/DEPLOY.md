@@ -68,7 +68,7 @@ WARP — не третий путь подключения, а **egress** выб
 2. Вкладка **Серверы** → «Добавить сервер» (первый раз) или карточка VPS → **Обновить деплой** / **Установить деплой**, если стека ещё нет.
 3. SSH host, порт, user (`root` по умолчанию), пароль **или** PEM. Каскад: те же поля для второго VPS.
 4. Публичный host (`ARDTT_PUBLIC_HOST`) — то, что попадёт в endpoint профиля; обычно = IP VPS.
-5. Порты Direct UDP / Bypass UDP (по умолчанию 51820 / 56003).
+5. Порты: по умолчанию включён **автовыбор** свободных UDP Direct / Bypass на VPS. Выключите переключатель «Автовыбор портов», чтобы задать 51820 / 56003 (или свои) вручную.
 6. «Сохранить сервер» только пишет цель в encrypted prefs. Установка — **«Установить на VPS»**.
 7. **«Удалить»** на карточке не снимает её сразу. Плашка предупреждает, что стек будет стёрт на VPS (контейнеры, `/opt/ardtt`, профили клиентов). После подтверждения `DeployEngine` по SSH делает uninstall (каскад: сначала выход, потом вход). Карточка во вкладке **Сервера** пропадает только если удалённый wipe завершился успешно. Если SSH не проходит, карточка остаётся.
 
@@ -93,24 +93,26 @@ WARP — не третий путь подключения, а **egress** выб
 5. Запуск:
 
 ```bash
-ARDTT_PUBLIC_HOST='…' ARDTT_DIRECT_PORT=51820 ARDTT_BYPASS_PORT=56003 \
-ARDTT_DEPLOY_VERSION='1.0.34' bash /opt/ardtt/install.sh
+ARDTT_PUBLIC_HOST='…' ARDTT_DIRECT_PORT=51820 ARDTT_BYPASS_PORT=56003 ARDTT_AUTO_PORTS=1 \
+ARDTT_DEPLOY_VERSION='1.0.35' bash /opt/ardtt/install.sh
 ```
+
+При `ARDTT_AUTO_PORTS=1` установщик оставляет предпочтительные порты, если они свободны; иначе подбирает ближайшие свободные UDP и пишет фактические значения в `ARDTT_DONE|…|direct_port=…|bypass_port=…`. Приложение сохраняет их в карточке сервера. `ARDTT_AUTO_PORTS=0` — прежнее поведение: занятый порт = ошибка установки.
 
 Каскад (два VPS): телефон **отдельно** SSH на выход, потом на вход. Пароль второго сервера в `.env` входа не пишется.
 
 ```bash
 # 1) выход (DNS + WARP)
-ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.34' \
-  bash /opt/ardtt/install.sh
+ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.35' \
+  ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
 # stdout: ARDTT_CASCADE_PUBLIC_KEY|<base64>
 
 # 2) вход (клиенты), пир = ключ выхода
 ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
   ARDTT_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
   ARDTT_CASCADE_PEER_PUBLIC_KEY='…' \
-  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.34' \
-  bash /opt/ardtt/install.sh
+  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.35' \
+  ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
 
 # 3) ключ входа → /opt/ardtt/stack/data/cascade.peer.pub на выходе
 ```
@@ -124,7 +126,7 @@ ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
 6. Разбор stdout построчно (UTF-8, без ANSI):
    - `ARDTT_PROGRESS|<0..1>|<шаг>` — полоса, процент и подпись в UI (каскад: два ряда VPS 1 / VPS 2 с IP);
    - `ARDTT_ERROR|<текст>` — ошибка даже при exit 0;
-   - `ARDTT_DONE|…` — успех;
+   - `ARDTT_DONE|…` — успех (`direct_port` / `bypass_port` / `cascade_listen_port` — фактические UDP);
    - `ARDTT_WARN|…` — в лог, деплой продолжается.
 7. После успеха: prune образов на хосте, `lastDeployedAtMs` в prefs.
 8. После ошибки: `tail` удалённого `/opt/ardtt/install.log` в телеметрию (если включена запись).
@@ -343,12 +345,12 @@ Hash звонка на сервер **не** кладётся.
 | Порт | Протокол | Кто | Обязательно снаружи |
 |------|----------|-----|---------------------|
 | SSH (22) | TCP | деплой из приложения | да, для админ-деплоя; git-путь можно с локальной машины |
-| 51820 | UDP | direct | да, Path A |
-| 56003 | UDP | bypass RAW | да, Path B (после TURN) |
+| 51820 | UDP | direct (предпочтительно) | да, Path A; при автовыборе может стать другим свободным UDP |
+| 56003 | UDP | bypass RAW (предпочтительно) | да, Path B; то же для автовыбора |
 | 9100 | TCP | provision | да, health / профили / hide-ip |
 | 9200 | TCP | telemetry | если нужен приём логов с телефонов |
 
-Если `:9200` на хосте уже занят (nginx и т.п.), задайте другой порт: `ARDTT_TELEMETRY_PORT=9210`. Установщик пишет его в `TELEMETRY_LISTEN` / `ARDTT_TELEMETRY_LISTEN` и не стартует gunicorn внутри `ardtt`, пока порт занят.
+`ARDTT_AUTO_PORTS=1` (кнопка в форме деплоя по умолчанию): если 51820/56003 заняты другим сервисом, установщик берёт следующие свободные UDP и синхронизирует их в `.env`, `users.json` (через provision из env) и `ARDTT_DONE`. При обновлении с автовыбором сначала пробуются порты прошлого деплоя. `ARDTT_AUTO_PORTS=0` + занятый порт → ошибка, как раньше.
 
 TURN VK — на стороне **клиента**, на VPS отдельного TURN нет.
 

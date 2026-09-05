@@ -33,7 +33,12 @@ if [ -f "$INSTALLER" ]; then
   if grep -q '127.0.0.1:9200/health' "$INSTALLER"; then
     err "installer hardcodes telemetry :9200 health check"
   fi
-  grep -q 'ARDTT_ROLE' "$INSTALLER" || err "installer missing ARDTT_ROLE"
+  grep -q 'ARDTT_AUTO_PORTS' "$INSTALLER" || err "installer missing ARDTT_AUTO_PORTS"
+  grep -q 'find_free_udp_port' "$INSTALLER" || err "installer missing find_free_udp_port"
+  grep -q 'resolve_udp_host_port' "$INSTALLER" || err "installer missing resolve_udp_host_port"
+  grep -q 'direct_port=' "$INSTALLER" || err "installer ARDTT_DONE must report direct_port"
+  grep -q 'envPort("ARDTT_DIRECT_PORT")' "$ROOT/server/provision/main.go" \
+    || err "provision must sync DirectPort from ARDTT_DIRECT_PORT"
   grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
   grep -q 'prepare_docker_build' "$INSTALLER" || err "installer missing prepare_docker_build (dangling image prune)"
   grep -q 'foreign_docker_workloads' "$INSTALLER" || err "installer must detect other Docker workloads on a shared VPS"
@@ -142,6 +147,9 @@ if [ -f "$ROOT/scripts/test-warp-hideip-prefixes.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "install buildkit busy wipe"
+fi
+if [ -f "$ROOT/scripts/test-install-auto-ports.sh" ]; then
+  bash "$ROOT/scripts/test-install-auto-ports.sh" || err "install auto-ports helpers"
 fi
 grep -q 'wireproxy' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing wireproxy"
 grep -q 'tun2socks' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing tun2socks"
