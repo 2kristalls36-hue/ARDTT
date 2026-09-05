@@ -30,7 +30,7 @@
 | | |
 |---|---|
 | Клиент | **0.5.232** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
-| Стек | **1.0.34** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
+| Стек | **1.0.35** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases) |
