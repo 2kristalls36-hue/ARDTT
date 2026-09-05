@@ -73,6 +73,8 @@ import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.util.copyToClipboard
+import com.ardtt.app.ui.util.readClipboardText
 import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -256,10 +258,12 @@ fun ProfilesScreen(
                         onSelect = { applyProfile(item) },
                         onOpen = { applyProfile(item, openTunnel = true) },
                         onCopy = {
-                            val json = VpnProfileJson.encode(item.profile)
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("ARDTT profile", json))
-                            Toast.makeText(context, "JSON скопирован", Toast.LENGTH_SHORT).show()
+                            copyToClipboard(
+                                context = context,
+                                text = VpnProfileJson.encode(item.profile),
+                                clipLabel = "ARDTT profile",
+                                toast = "JSON скопирован",
+                            )
                         },
                         onShare = {
                             scope.launch {
@@ -304,9 +308,8 @@ fun ProfilesScreen(
             onManual = { pasteText = ""; showPaste = true },
             onFromFile = { pickFile.launch(arrayOf("application/json", "text/*", "*/*")) },
             onFromClipboard = {
-                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                if (clip.isBlank()) {
+                val clip = readClipboardText(context)
+                if (clip == null) {
                     Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
                 } else {
                     importResolved(clip)

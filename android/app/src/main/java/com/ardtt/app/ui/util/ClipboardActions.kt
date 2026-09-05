@@ -29,6 +29,14 @@ fun copyToClipboard(
     }
 }
 
+/** Current clipboard text, or null when the buffer is empty or unreadable. */
+fun readClipboardText(context: Context): String? {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    return runCatching {
+        manager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+}
+
 /** Opens the system share sheet; reports failure instead of crashing. */
 fun shareText(
     context: Context,

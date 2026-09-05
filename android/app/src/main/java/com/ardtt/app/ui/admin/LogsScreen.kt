@@ -51,6 +51,8 @@ import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.terminalCardColor
 import com.ardtt.app.ui.components.surface.terminalCardElevation
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.util.copyToClipboard
+import com.ardtt.app.ui.util.shareText
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -125,23 +127,12 @@ fun LogsScreen() {
                     Icon(Icons.Default.Delete, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.primary)
                 }
                 IconButton(
-                    onClick = {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("ARDTT logs", dumpBody()))
-                        Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-                    },
+                    onClick = { copyToClipboard(context, dumpBody(), "ARDTT logs") },
                 ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = "Копировать", tint = MaterialTheme.colorScheme.primary)
                 }
                 IconButton(
-                    onClick = {
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "ARDTT logs")
-                            putExtra(Intent.EXTRA_TEXT, dumpBody())
-                        }
-                        context.startActivity(Intent.createChooser(share, "Экспорт логов"))
-                    },
+                    onClick = { shareText(context, dumpBody(), "ARDTT logs", "Экспорт логов") },
                 ) {
                     Icon(Icons.Default.Share, contentDescription = "Поделиться", tint = MaterialTheme.colorScheme.primary)
                 }

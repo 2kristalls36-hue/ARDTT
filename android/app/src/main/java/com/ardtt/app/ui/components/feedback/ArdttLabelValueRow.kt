@@ -6,7 +6,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttSize
@@ -85,21 +91,67 @@ fun ArdttStackedFactRow(
     value: String,
     modifier: Modifier = Modifier,
     valueColor: Color = Color.Unspecified,
+    maxLines: Int = 2,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        ArdttFactLabel(label)
         Text(
             value,
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.SemiBold,
             color = valueColor,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/** [ArdttStackedFactRow] whose value can be copied and shared. */
+@Composable
+fun ArdttCopyRow(
+    label: String,
+    value: String,
+    onCopy: () -> Unit,
+    modifier: Modifier = Modifier,
+    onShare: (() -> Unit)? = null,
+    maxLines: Int = 2,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+    ) {
+        ArdttFactLabel(label)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+                maxLines = maxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
+            IconButton(onClick = onCopy) {
+                Icon(Icons.Filled.ContentCopy, contentDescription = "Копировать")
+            }
+            if (onShare != null) {
+                IconButton(onClick = onShare) {
+                    Icon(Icons.Filled.Share, contentDescription = "Поделиться")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArdttFactLabel(label: String) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
