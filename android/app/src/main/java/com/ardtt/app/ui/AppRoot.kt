@@ -308,6 +308,13 @@ fun AppRoot(
             navigateTab(AppDestination.Profiles.route)
         }
     }
+    val openServers by PendingUiAction.openServers.collectAsStateWithLifecycle()
+    LaunchedEffect(openServers) {
+        if (!PendingUiAction.consumeOpenServers()) return@LaunchedEffect
+        if (currentRoute != AppDestination.Servers.route) {
+            navigateTab(AppDestination.Servers.route)
+        }
+    }
     val availableUpdateVersion = updateUi.available
         ?.takeIf { it.isNewer }
         ?.versionName

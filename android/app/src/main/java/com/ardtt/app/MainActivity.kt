@@ -17,6 +17,8 @@ import androidx.lifecycle.lifecycleScope
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.deploy.DeployEngine
+import com.ardtt.app.deploy.PendingServerImport
+import com.ardtt.app.deploy.ServerLinkCodec
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.PendingProfileImport
 import com.ardtt.app.profile.ProfileLinkCodec
@@ -84,13 +86,24 @@ class MainActivity : ComponentActivity() {
             }
             Intent.ACTION_VIEW -> {
                 val uri = intent.dataString?.trim().orEmpty()
-                if (ProfileLinkCodec.looksLikeLink(uri)) {
-                    PendingProfileImport.link = uri
-                    Toast.makeText(
-                        this,
-                        "Ссылка профиля — откройте вкладку «Профили»",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                when {
+                    ServerLinkCodec.looksLikeLink(uri) -> {
+                        PendingServerImport.offer(uri)
+                        PendingUiAction.requestOpenServers()
+                        Toast.makeText(
+                            this,
+                            "Ссылка серверов — откройте вкладку «Серверы»",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    ProfileLinkCodec.looksLikeLink(uri) -> {
+                        PendingProfileImport.link = uri
+                        Toast.makeText(
+                            this,
+                            "Ссылка профиля — откройте вкладку «Профили»",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                 }
             }
         }
