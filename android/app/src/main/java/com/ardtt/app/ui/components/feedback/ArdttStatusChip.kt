@@ -25,7 +25,7 @@ private val BadgeVerticalPadding = 3.dp
 /**
  * Tinted label carrying one piece of status: app version, expiry, OS, deploy
  * freshness. Server, client and profile lists each used to inline the same
- * `Surface(RoundedCornerShape(8.dp), color.copy(alpha = 0.18f))` block.
+ * `Surface(ArdttShapes.Badge, color.copy(alpha = 0.18f))` block.
  */
 @Composable
 fun ArdttStatusChip(

@@ -19,11 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +39,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.core.AppLog
@@ -64,6 +61,7 @@ import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.TestingSessionGuard
 import com.ardtt.app.ui.commitHideIp
 import com.ardtt.app.ui.commitPathMode
+import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.control.DialPathChipRow
 import com.ardtt.app.ui.components.control.HideIpChipRow
 import com.ardtt.app.ui.components.control.PathModeChipRow
@@ -75,12 +73,15 @@ import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.components.surface.ArdttSectionTitle
 import com.ardtt.app.ui.components.surface.sectionCardContourBorder
 import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.persistDialPath
 import com.ardtt.app.ui.persistSilentRecreate
 import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.tunnel.DonateSupportBanner
 import com.ardtt.app.update.AppUpdateController
 import com.ardtt.app.update.AppUpdateInfo
@@ -221,10 +222,10 @@ fun SettingsScreen(
         }
 
         ArdttSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(ArdttSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
         ) {
-            Text("Подключение", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            ArdttSectionTitle("Подключение")
             Text(
                 when {
                     !admin && vpnLocked ->
@@ -279,7 +280,7 @@ fun SettingsScreen(
                 },
             )
             if (admin) {
-                RowSetting(
+                ArdttSwitchRow(
                     title = "Скрыть быстрые настройки",
                     subtitle = if (hideTunnelQuickSettings) {
                         "Раздел «Параметры подключения» на вкладке «Туннель» скрыт."
@@ -291,7 +292,7 @@ fun SettingsScreen(
                         scope.launch { settings.setHideTunnelQuickSettings(hidden) }
                     },
                 )
-                RowSetting(
+                ArdttSwitchRow(
                     title = "Кнопки во время соединения",
                     subtitle = if (unlockConnControls) {
                         "Маршрут и исходящий адрес можно изменять без отключения туннеля."
@@ -309,14 +310,10 @@ fun SettingsScreen(
 
         ArdttSectionCard(
             modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(ArdttSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
         ) {
-            Text(
-                "Метод обхода",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            ArdttSectionTitle("Метод обхода")
             Text(
                 if (admin) {
                     "Источник параметров обхода и код звонка. Авто — vkcalls, иначе резерв."
@@ -332,7 +329,7 @@ fun SettingsScreen(
                     onSelect = { path -> scope.launch { persistDialPath(settings, path) } },
                 )
             }
-            RowSetting(
+            ArdttSwitchRow(
                 title = "Обновлять звонок автоматически",
                 subtitle = "Новый код звонка создаётся без подтверждения. Требуется активная сессия ВКонтакте.",
                 checked = silent,
@@ -348,20 +345,20 @@ fun SettingsScreen(
         )
         ArdttSectionCard(
             modifier = Modifier.bringIntoViewRequester(appearanceBringIntoView),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(ArdttSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
             border = sectionCardContourBorder(
                 alpha = ArdttSectionCardDefaults.ContourAlpha + 0.50f * appearanceHighlightAlpha,
             ),
         ) {
-            Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            ArdttSectionTitle("Оформление")
             val appearance = settingsAppearanceSections(admin = admin, recordingActive = recordingActive)
             if (appearance.showThemeControls) {
                 ThemeModeChipRow(
                     themeMode = themeMode,
                     onSelect = { mode -> scope.launch { persistThemeMode(settings, mode) } },
                 )
-                RowSetting(
+                ArdttSwitchRow(
                     title = "Динамические цвета",
                     subtitle = if (dynamicColors) {
                         "Цвета кнопок и акцентов подстраиваются под текущие обои."
@@ -371,7 +368,7 @@ fun SettingsScreen(
                     checked = dynamicColors,
                     onCheckedChange = { scope.launch { settings.setDynamicColors(it) } },
                 )
-                RowSetting(
+                ArdttSwitchRow(
                     title = "Виброотклик",
                     subtitle = if (uiHapticsEnabled) {
                         "Короткая тактильная отдача на ключевых действиях интерфейса."
@@ -386,7 +383,7 @@ fun SettingsScreen(
                 )
             }
             if (appearance.showClassicLook) {
-                RowSetting(
+                ArdttSwitchRow(
                     title = "Классический вид",
                     subtitle = if (classicAppearance) {
                         "Стандартный градиент, без обоев и дронов."
@@ -397,7 +394,7 @@ fun SettingsScreen(
                     onCheckedChange = { scope.launch { settings.setClassicAppearanceEnabled(it) } },
                 )
             }
-            RowSetting(
+            ArdttSwitchRow(
                 title = "Уведомление",
                 subtitle = if (notifVisible) {
                     "Состояние, скорость и остановка в уведомлениях."
@@ -423,16 +420,16 @@ fun SettingsScreen(
         DonateSupportBanner()
 
         ArdttSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(ArdttSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
         ) {
-            Text("Тестирование", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            ArdttSectionTitle("Тестирование")
             Text(
                 "Вкладка «Тест» и запись журналов — после принятия соглашения. Доступно в любом режиме.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            RowSetting(
+            ArdttSwitchRow(
                 title = "Режим тестирования",
                 subtitle = if (testingMode) {
                     "Вкладка «Тест» открыта."
@@ -460,10 +457,10 @@ fun SettingsScreen(
         }
 
         ArdttSectionCard(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(ArdttSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
         ) {
-            Text("Описание и доступ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            ArdttSectionTitle("Описание и доступ")
             Text(
                 "ARDTT представляет собой простой туннельный клиент для постоянного защищённого соединения с упрощённым сценарием touch&GO.",
                 style = MaterialTheme.typography.bodySmall,
@@ -505,7 +502,7 @@ fun SettingsScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
+                    shape = ArdttShapes.Card,
                 ) {
                     Text("Завершить сессию администратора")
                 }
@@ -550,10 +547,10 @@ private fun UpdateSettingsCard(
 ) {
     ArdttSectionCard(
         modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(ArdttSpacing.Large),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
     ) {
-        Text("Обновление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        ArdttSectionTitle("Обновление")
         if (info != null) {
             val copy = updateCardCopy(
                 installedVersionName = BuildConfig.VERSION_NAME,
@@ -564,12 +561,12 @@ private fun UpdateSettingsCard(
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = RoundedCornerShape(18.dp),
+                shape = ArdttShapes.Card,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.SmallPlus),
+                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                 ) {
                     Text(
                         copy.headline,
@@ -623,7 +620,7 @@ private fun UpdateFillButton(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(20.dp)
+    val shape = ArdttShapes.Control
     val animatedProgress by animateFloatAsState(
         targetValue = if (filling) progress.coerceIn(0f, 1f) else 1f,
         label = "update_fill_progress",
@@ -773,16 +770,16 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     }
 
     ArdttSectionCard(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(ArdttSpacing.Large),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
     ) {
-        Text("Доверенная WiFi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        ArdttSectionTitle("Доверенная WiFi")
         Text(
             "В этих сетях туннель приостанавливается. При выходе подключение восстанавливается. Добавляется только текущая сеть.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        RowSetting(
+        ArdttSwitchRow(
             title = "Включить",
             subtitle = when (val p = trustedWifiAccessProblem(context, requireBackground = false)) {
                 TrustedWifiAccessProblem.ForegroundPermission ->
@@ -827,7 +824,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 askTrustedWifiPermissions(wantBackground = false, addAfter = true)
             },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            shape = ArdttShapes.Card,
             enabled = enabled,
         ) {
             Text(
@@ -844,7 +841,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 Text(ssid, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 OutlinedButton(
                     onClick = { scope.launch { settings.removeTrustedWifiSsid(ssid) } },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = ArdttShapes.Icon,
                 ) { Text("Удалить") }
             }
         }
@@ -854,27 +851,3 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     }
 }
 
-@Composable
-private fun RowSetting(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (enabled) Modifier.clickable { onCheckedChange(!checked) } else Modifier,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
-    }
-}

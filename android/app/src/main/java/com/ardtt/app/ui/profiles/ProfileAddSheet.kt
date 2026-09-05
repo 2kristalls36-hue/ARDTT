@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.theme.ArdttSpacing
 
 data class ProfileAddOption(
     val title: String,
@@ -87,15 +88,15 @@ fun ProfileAddSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(horizontal = ArdttSpacing.XLarge)
+                .padding(bottom = ArdttSpacing.XXXLarge),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
         ) {
             Text(
                 "Добавить",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp),
+                modifier = Modifier.padding(bottom = ArdttSpacing.Small),
             )
             options.forEachIndexed { index, option ->
                 if (index > 0) {
@@ -107,9 +108,9 @@ fun ProfileAddSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(onClick = option.onClick)
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = ArdttSpacing.MediumPlus),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Large),
                 ) {
                     Icon(
                         option.icon,
@@ -117,7 +118,7 @@ fun ProfileAddSheet(
                         modifier = Modifier.size(26.dp),
                         tint = MaterialTheme.colorScheme.onSurface,
                     )
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline)) {
                         Text(
                             option.title,
                             style = MaterialTheme.typography.titleMedium,

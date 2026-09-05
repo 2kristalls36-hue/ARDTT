@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Delete
@@ -45,7 +44,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
@@ -60,6 +58,7 @@ import com.ardtt.app.telemetry.TelemetryRecorder
 import com.ardtt.app.telemetry.TelemetryUploadClient
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
+import com.ardtt.app.ui.components.feedback.ArdttStatusPill
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
@@ -67,6 +66,9 @@ import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.ArdttSectionTitle
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSpacing
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -203,9 +205,9 @@ fun TestingScreen(profiles: ProfileRepository) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = ArdttSpacing.Large)
                 .padding(bottom = ArdttBottomChrome.scrollContentPadding(extra = 8.dp)),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
         ) {
             ArdttFeedHeader(
                 title = "Режим тестирования",
@@ -213,14 +215,10 @@ fun TestingScreen(profiles: ProfileRepository) {
             )
 
             ArdttSectionCard(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(ArdttSpacing.Large),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
             ) {
-                Text(
-                    "Статус записи",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                ArdttSectionTitle("Статус записи")
                 StatusPill(
                     text = if (isRecording) "Идёт запись" else "Запись остановлена",
                     accent = isRecording,
@@ -240,14 +238,10 @@ fun TestingScreen(profiles: ProfileRepository) {
             ArdttSectionCard(
                 modifier = Modifier.weight(1f),
                 fillHeight = true,
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(ArdttSpacing.Large),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
             ) {
-                Text(
-                    "Сохранённые логи",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                ArdttSectionTitle("Сохранённые логи")
                 Text(
                     if (logs.isEmpty()) {
                         "Записей пока нет"
@@ -264,7 +258,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
                     ) {
                         items(logs, key = { it.file.name }) { entry ->
                             AnimatedVisibility(
@@ -307,7 +301,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .zIndex(2f)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = ArdttSpacing.Large)
                 .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
         ) {
             ArdttPrimaryButton(
@@ -355,7 +349,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     .height(150.dp),
                 label = { Text("Комментарий пользователя") },
                 placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Chip,
             )
         }
     }
@@ -366,12 +360,12 @@ private fun EmptyLogsBlock() {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        shape = RoundedCornerShape(18.dp),
+        shape = ArdttShapes.Card,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
             "Запись запускается кнопкой внизу экрана. После остановки файл появится здесь.",
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(ArdttSpacing.MediumPlus),
             style = MaterialTheme.typography.bodySmall,
         )
     }
@@ -379,25 +373,12 @@ private fun EmptyLogsBlock() {
 
 @Composable
 private fun StatusPill(text: String, accent: Boolean) {
-    Surface(
-        color = if (accent) {
-            MaterialTheme.colorScheme.errorContainer
-        } else {
-            MaterialTheme.colorScheme.secondaryContainer
-        },
-        contentColor = if (accent) {
-            MaterialTheme.colorScheme.onErrorContainer
-        } else {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        },
-        shape = RoundedCornerShape(999.dp),
-    ) {
-        Text(
-            text,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            style = MaterialTheme.typography.labelLarge,
-        )
-    }
+    val colors = MaterialTheme.colorScheme
+    ArdttStatusPill(
+        text = text,
+        container = if (accent) colors.errorContainer else colors.secondaryContainer,
+        content = if (accent) colors.onErrorContainer else colors.onSecondaryContainer,
+    )
 }
 
 @Composable
@@ -413,9 +394,9 @@ private fun LogRow(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
         contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(18.dp),
+        shape = ArdttShapes.Card,
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(ArdttSpacing.Medium), verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small)) {
             Text(entry.displayName, style = MaterialTheme.typography.bodyMedium)
             Text(
                 "${dateFmt.format(Date(entry.createdAtMs))} · ${formatDuration(entry.durationMs)} · ${formatSize(entry.sizeBytes)}",

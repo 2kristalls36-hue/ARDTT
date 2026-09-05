@@ -131,6 +131,10 @@ internal fun decodeQrFromMatrix(matrix: BitMatrix, scale: Int = QR_MODULE_PX): S
     val source = RGBLuminanceSource(width, height, pixels)
     val hints = mapOf(
         DecodeHintType.TRY_HARDER to true,
+        // The input is a synthetic, perfectly aligned matrix. Without this the
+        // detector occasionally misses the finder pattern on dense payloads,
+        // which made the round-trip test flaky.
+        DecodeHintType.PURE_BARCODE to true,
         DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
         DecodeHintType.CHARACTER_SET to "UTF-8",
     )

@@ -17,21 +17,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -48,8 +44,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -81,9 +75,13 @@ import com.ardtt.app.ui.commitHideIp
 import com.ardtt.app.ui.commitPathMode
 import com.ardtt.app.ui.components.control.ArdttChoiceChip
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttSettingBlock
+import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.control.HideIpChipRow
 import com.ardtt.app.ui.components.control.PathModeChipRow
+import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
+import com.ardtt.app.ui.components.feedback.ArdttInlineFactRow
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
@@ -94,6 +92,10 @@ import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.qsProfileTileLabel
 import com.ardtt.app.ui.settings.BypassMethodDialog
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.tunnelConnectionParamsVisible
 import com.ardtt.app.ui.tunnelQuickSettingsProfileHelp
 import com.ardtt.app.ui.tunnelStickyCtaEnabled
@@ -189,29 +191,10 @@ fun TunnelScreen(
         initialValue = false,
     )
     val haptics = rememberArdttHaptics(uiHapticsEnabled)
-    var previousConnState by remember { mutableStateOf(ui.state) }
-    var connStateInitialized by remember { mutableStateOf(false) }
-    var previousHasCallHash by remember { mutableStateOf(ui.hasCallHash) }
-    var callHashInitialized by remember { mutableStateOf(false) }
     val showConnectionParams = tunnelConnectionParamsVisible(hideTunnelQuickSettings)
     var showConnectionHint by rememberSaveable { mutableStateOf(true) }
-    LaunchedEffect(ui.state) {
-        if (connStateInitialized &&
-            previousConnState != ConnState.Connected &&
-            ui.state == ConnState.Connected
-        ) {
-            haptics.success()
-        }
-        previousConnState = ui.state
-        connStateInitialized = true
-    }
-    LaunchedEffect(ui.hasCallHash) {
-        if (callHashInitialized && !previousHasCallHash && ui.hasCallHash) {
-            haptics.success()
-        }
-        previousHasCallHash = ui.hasCallHash
-        callHashInitialized = true
-    }
+    RisingEdgeSuccessHaptic(haptics, ui.state == ConnState.Connected)
+    RisingEdgeSuccessHaptic(haptics, ui.hasCallHash)
 
     val connecting = ui.state == ConnState.Connecting
     val pausedTrusted = ui.state == ConnState.PausedTrustedWifi
@@ -367,14 +350,14 @@ fun TunnelScreen(
                     }
                 }
                 ArdttSectionCard(
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(horizontal = ArdttSpacing.LargePlus, vertical = ArdttSpacing.Large),
+                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                    shape = ArdttShapes.Panel,
                     border = BorderStroke(
                         ArdttSectionCardDefaults.ContourWidth,
                         if (active) ArdttColors.Connected else MaterialTheme.colorScheme.error,
                     ),
-                    shadowElevation = 0.dp,
+                    shadowElevation = ArdttElevation.None,
                 ) {
                     Text(
                         if (active) "Подписка активна" else "Подписка неактивна",
@@ -393,16 +376,16 @@ fun TunnelScreen(
             if (showConnectionParams) {
                 val switchLocked = vpnSessionBlocksProfileSwitch(ui.state)
                 ArdttSectionCard(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                shape = RoundedCornerShape(22.dp),
+                contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
+                shape = ArdttShapes.Menu,
             ) {
                 Text(
                     "Параметры подключения",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
-                QuickSettingRow(
+                ArdttSettingBlock(
                     title = "Профиль",
                     subtitle = tunnelQuickSettingsProfileHelp(
                         count = profileCatalog.items.size,
@@ -420,7 +403,7 @@ fun TunnelScreen(
                         },
                     )
                 }
-                QuickSettingRow(
+                ArdttSettingBlock(
                     title = "Маршрут",
                     subtitle = PathModeCopy.help(pathMode, ui.hasCallHash, compact = true),
                     compact = true,
@@ -443,7 +426,7 @@ fun TunnelScreen(
                     )
                 }
 
-                QuickSettingRow(
+                ArdttSettingBlock(
                     title = "Исходящий адрес",
                     subtitle = HideIpCopy.subtitle(hideIp),
                     compact = true,
@@ -459,40 +442,21 @@ fun TunnelScreen(
                     )
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(
-                            "Доверенная WiFi",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            if (trustedWifiEnabled) {
-                                "В сохранённых сетях туннель приостанавливается. Список сетей доступен в разделе «Настройки»."
-                            } else {
-                                "Приостановка в Wi‑Fi отключена. Список сетей доступен в разделе «Настройки»."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = trustedWifiEnabled,
-                        onCheckedChange = { on ->
-                            haptics.tick()
-                            scope.launch { settings.setTrustedWifiEnabled(on) }
-                        },
-                    )
-                }
+                ArdttSwitchRow(
+                    title = "Доверенная WiFi",
+                    subtitle = if (trustedWifiEnabled) {
+                        "В сохранённых сетях туннель приостанавливается. " +
+                            "Список сетей доступен в разделе «Настройки»."
+                    } else {
+                        "Приостановка в Wi‑Fi отключена. " +
+                            "Список сетей доступен в разделе «Настройки»."
+                    },
+                    checked = trustedWifiEnabled,
+                    onCheckedChange = { on ->
+                        haptics.tick()
+                        scope.launch { settings.setTrustedWifiEnabled(on) }
+                    },
+                )
             }
             }
 
@@ -519,7 +483,6 @@ fun TunnelScreen(
                     else -> "—"
                 },
                 ipPending = (connecting || connected) && publicIp.isNullOrBlank(),
-                ipFailed = false,
                 onIpClick = if (connecting || connected) {
                     { conn.requestEgressIpRefresh() }
                 } else {
@@ -587,7 +550,7 @@ fun TunnelScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .zIndex(2f)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = ArdttSpacing.Large)
                 .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
         )
     }
@@ -610,10 +573,10 @@ private fun TunnelConnectionHintBanner(
     onDismiss: () -> Unit,
 ) {
     ArdttSectionCard(
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        shape = RoundedCornerShape(20.dp),
-        shadowElevation = 0.dp,
+        contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+        shape = ArdttShapes.Control,
+        shadowElevation = ArdttElevation.None,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -624,8 +587,8 @@ private fun TunnelConnectionHintBanner(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
-                    .padding(end = 8.dp)
-                    .size(18.dp),
+                    .padding(end = ArdttSpacing.Small)
+                    .size(ArdttSize.IconCompact),
             )
             Text(
                 "Информация о подключении",
@@ -681,7 +644,7 @@ private fun TunnelQuickSettingsProfileRow(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
     ) {
         items.forEach { item ->
             ArdttChoiceChip(
@@ -698,30 +661,6 @@ private fun TunnelQuickSettingsProfileRow(
 }
 
 @Composable
-private fun QuickSettingRow(
-    title: String,
-    subtitle: String?,
-    compact: Boolean = false,
-    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        if (!subtitle.isNullOrBlank()) {
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        content()
-    }
-}
-
-@Composable
 private fun TunnelStatusPanel(
     statusText: String,
     statusColor: Color,
@@ -730,7 +669,6 @@ private fun TunnelStatusPanel(
     currentModeColor: Color?,
     publicIp: String,
     ipPending: Boolean = false,
-    ipFailed: Boolean = false,
     onIpClick: (() -> Unit)? = null,
     accessLabel: String,
     providerIp: String,
@@ -750,12 +688,12 @@ private fun TunnelStatusPanel(
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     ArdttSectionCard(
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        shape = RoundedCornerShape(24.dp),
-        shadowElevation = 0.dp,
+        contentPadding = PaddingValues(horizontal = ArdttSpacing.LargePlus, vertical = ArdttSpacing.Large),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
+        shape = ArdttShapes.Panel,
+        shadowElevation = ArdttElevation.None,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
             StatusFactRow(
                 label = "Статус",
                 value = statusText,
@@ -766,7 +704,7 @@ private fun TunnelStatusPanel(
 
         HorizontalDivider(color = dividerColor)
 
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
             StatusFactRow(
                 label = "Текущий режим",
                 value = currentModeLabel,
@@ -784,7 +722,6 @@ private fun TunnelStatusPanel(
                 label = "IP туннеля",
                 value = publicIp,
                 pending = ipPending,
-                valueColor = if (ipFailed) MaterialTheme.colorScheme.error else null,
                 onClick = onIpClick,
                 valueLeadingIcon = if (showWarpIcon) R.drawable.ic_cloudflare else null,
                 valueLeadingContentDescription = if (showWarpIcon) HideIpCopy.STATUS_HIDDEN else null,
@@ -798,7 +735,7 @@ private fun TunnelStatusPanel(
             !provisionLine.isNullOrBlank()
         if (hasEndpoints) {
             HorizontalDivider(color = dividerColor)
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
                 Text(
                     "Узлы",
                     style = MaterialTheme.typography.labelLarge,
@@ -818,7 +755,7 @@ private fun TunnelStatusPanel(
         }
 
         HorizontalDivider(color = dividerColor)
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
             Text(
                 "Проверка сети",
                 style = MaterialTheme.typography.labelLarge,
@@ -867,50 +804,20 @@ private fun StatusFactRow(
     valueLeadingContentDescription: String? = null,
     pending: Boolean = false,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(148.dp),
-        )
-        Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (pending) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            } else {
-                if (valueLeadingIcon != null) {
-                    Image(
-                        painter = painterResource(valueLeadingIcon),
-                        contentDescription = valueLeadingContentDescription,
-                        modifier = Modifier
-                            .padding(end = 6.dp)
-                            .size(16.dp),
-                    )
-                }
-                Text(
-                    value,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = valueColor ?: MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.End,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+    ArdttInlineFactRow(
+        label = label,
+        value = value,
+        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+        valueColor = valueColor ?: MaterialTheme.colorScheme.onSurface,
+        pending = pending,
+        leadingIcon = valueLeadingIcon?.let { icon ->
+            {
+                Image(
+                    painter = painterResource(icon),
+                    contentDescription = valueLeadingContentDescription,
+                    modifier = Modifier.size(ArdttSize.IconSmall),
                 )
             }
-        }
-    }
+        },
+    )
 }

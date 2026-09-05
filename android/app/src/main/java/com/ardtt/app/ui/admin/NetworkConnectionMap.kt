@@ -296,9 +296,6 @@ internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Lo
     NetworkMapHopKind.Provider, NetworkMapHopKind.Cloudflare -> -1L
 }
 
-internal fun hopPingLabel(kind: NetworkMapHopKind, pings: HopHealthPings): String =
-    formatHealthPingMs(hopHealthPingMs(kind, pings))
-
 /** Cloudflare title is split so the WARP mark can sit between «IP» and the name. */
 internal data class HopTitleLayout(
     val leadingText: String,

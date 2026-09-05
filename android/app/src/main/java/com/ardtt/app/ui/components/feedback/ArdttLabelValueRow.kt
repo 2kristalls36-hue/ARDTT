@@ -43,6 +43,7 @@ fun ArdttInlineFactRow(
     valueColor: Color = Color.Unspecified,
     pending: Boolean = false,
     labelWidth: Dp = InlineLabelWidth,
+    maxLines: Int = 2,
     leadingIcon: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -76,6 +77,8 @@ fun ArdttInlineFactRow(
                     fontWeight = FontWeight.SemiBold,
                     color = valueColor,
                     textAlign = TextAlign.End,
+                    maxLines = maxLines,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
