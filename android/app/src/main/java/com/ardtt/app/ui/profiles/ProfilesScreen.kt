@@ -52,30 +52,30 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.profile.PendingProfileImport
 import com.ardtt.app.profile.ProfileCatalog
+import com.ardtt.app.profile.ProfileImportResolver
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
-import com.ardtt.app.profile.ProfileImportResolver
-import com.ardtt.app.profile.PendingProfileImport
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.VpnProfileJson
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.PROFILE_SWITCH_LOCKED_MESSAGE
-import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
-import com.ardtt.app.ui.components.TabPageHeader
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.AppSectionCardDefaults
-import com.ardtt.app.ui.components.CompactListCard
-import com.ardtt.app.ui.components.CompactListLeadingIcon
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.OverflowMenu
-import com.ardtt.app.ui.components.OverflowMenuItem
-import com.ardtt.app.ui.components.StickyBottomScaffold
-import com.ardtt.app.ui.components.StickyPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttOverflowMenu
+import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
+import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
+import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -205,9 +205,9 @@ fun ProfilesScreen(
         }
     }
 
-    StickyBottomScaffold(
+    ArdttFeedScaffold(
         stickyContent = {
-            StickyPrimaryButton(
+            ArdttPrimaryButton(
                 text = if (busy) "Импорт…" else "Добавить",
                 onClick = { showAddSheet = true },
                 enabled = !busy,
@@ -215,7 +215,7 @@ fun ProfilesScreen(
             )
         },
         header = {
-            TabPageHeader(
+            ArdttTabHeader(
                 title = "Профили",
                 subtitle = when {
                     catalog.items.isEmpty() -> "Импортируйте JSON с сервера"
@@ -228,23 +228,13 @@ fun ProfilesScreen(
         },
     ) {
         error?.let {
-            AppSectionCard(
-                contentPadding = CompactListCard.ContentPadding,
-                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-                shape = CompactListCard.Shape,
-                shadowElevation = CompactListCard.ShadowElevation,
-            ) {
+            ArdttCompactCard {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
 
         if (visible.isEmpty()) {
-            AppSectionCard(
-                contentPadding = CompactListCard.ContentPadding,
-                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-                shape = CompactListCard.Shape,
-                shadowElevation = CompactListCard.ShadowElevation,
-            ) {
+            ArdttCompactCard {
                 Text(
                     "Профили не загружены",
                     style = MaterialTheme.typography.titleSmall,
@@ -257,7 +247,7 @@ fun ProfilesScreen(
                 )
             }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing)) {
+            Column(verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing)) {
                 visible.forEach { item ->
                     ProfileCard(
                         item = item,
@@ -454,19 +444,14 @@ private fun ProfileCard(
     val deleteEnabled = !selectionLocked || !active
     val muted = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f)
     val titleColor = when {
-        active -> ArdttColors.connected
+        active -> ArdttColors.Connected
         selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
         else -> colors.onSurface
     }
-    AppSectionCard(
+    ArdttCompactCard(
         modifier = Modifier.clickable(enabled = !selectionLocked, onClick = onSelect),
-        contentPadding = CompactListCard.ContentPadding,
-        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-        shape = CompactListCard.Shape,
-        shadowElevation = CompactListCard.ShadowElevation,
-        tonalElevation = 0.dp,
         border = if (active) {
-            BorderStroke(AppSectionCardDefaults.ContourWidth, ArdttColors.connected)
+            BorderStroke(ArdttSectionCardDefaults.ContourWidth, ArdttColors.Connected)
         } else {
             null
         },
@@ -476,13 +461,13 @@ private fun ProfileCard(
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            CompactListLeadingIcon(
+            ArdttLeadingIcon(
                 painter = painterResource(R.drawable.ic_profile),
                 contentDescription = "Профиль",
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+                verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -509,7 +494,7 @@ private fun ProfileCard(
                         Icon(
                             Icons.Filled.CheckCircle,
                             contentDescription = "Активен",
-                            tint = ArdttColors.connected,
+                            tint = ArdttColors.Connected,
                             modifier = Modifier.size(18.dp),
                         )
                     }
@@ -553,32 +538,32 @@ private fun ProfileCard(
                         modifier = Modifier.size(18.dp),
                     )
                 }
-                OverflowMenu(
+                ArdttOverflowMenu(
                     expanded = menu,
                     onDismissRequest = { menu = false },
                 ) {
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Подключить",
                         enabled = connectEnabled,
                         leadingIcon = Icons.Filled.VpnKey,
                         onClick = { menu = false; onOpen() },
                     )
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Копировать JSON",
                         leadingIcon = Icons.Filled.ContentCopy,
                         onClick = { menu = false; onCopy() },
                     )
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Ссылка / QR",
                         leadingIcon = Icons.Filled.QrCode,
                         onClick = { menu = false; onShare() },
                     )
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Переименовать",
                         leadingIcon = Icons.Filled.Edit,
                         onClick = { menu = false; onRename() },
                     )
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Удалить",
                         enabled = deleteEnabled,
                         destructive = true,

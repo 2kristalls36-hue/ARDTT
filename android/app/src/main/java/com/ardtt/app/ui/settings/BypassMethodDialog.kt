@@ -14,10 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.AppSectionCardDefaults
-import com.ardtt.app.ui.components.sectionCardContourBorder
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.components.surface.sectionCardContourBorder
 
 @Composable
 fun BypassMethodDialog(
@@ -43,7 +43,7 @@ fun BypassMethodDialog(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             border = sectionCardContourBorder(
-                alpha = AppSectionCardDefaults.ContourAlpha + 0.52f * highlightAlpha,
+                alpha = ArdttSectionCardDefaults.ContourAlpha + 0.52f * highlightAlpha,
             ),
             color = MaterialTheme.colorScheme.surface,
         ) {

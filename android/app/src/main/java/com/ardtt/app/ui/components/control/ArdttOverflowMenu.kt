@@ -1,11 +1,10 @@
-package com.ardtt.app.ui.components
+package com.ardtt.app.ui.components.control
 
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -16,16 +15,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 
-private val OverflowMenuWidth = 216.dp
-private val OverflowMenuShape = RoundedCornerShape(22.dp)
-private val OverflowItemMinHeight = 54.dp
-private val OverflowItemPadding = PaddingValues(horizontal = 18.dp)
+private object OverflowMenuDefaults {
+    val ItemPadding = PaddingValues(horizontal = ArdttSpacing.LargePlus)
+
+    /** Disabled label / icon opacity, matching the dialog text buttons. */
+    const val DisabledAlpha = 0.42f
+}
 
 /** Shared ⋮ menu chrome — same sheet on Profiles and Servers. */
 @Composable
-fun OverflowMenu(
+fun ArdttOverflowMenu(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
@@ -35,18 +39,18 @@ fun OverflowMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier
-            .width(OverflowMenuWidth)
-            .padding(vertical = 4.dp),
-        shape = OverflowMenuShape,
+            .width(ArdttSize.MenuWidth)
+            .padding(vertical = ArdttSpacing.Tiny),
+        shape = ArdttShapes.Menu,
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 2.dp,
-        shadowElevation = 6.dp,
+        tonalElevation = ArdttElevation.Low,
+        shadowElevation = ArdttElevation.Raised,
         content = content,
     )
 }
 
 @Composable
-fun OverflowMenuItem(
+fun ArdttOverflowMenuItem(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -55,26 +59,20 @@ fun OverflowMenuItem(
     leadingIcon: ImageVector? = null,
 ) {
     val colors = MaterialTheme.colorScheme
-    val disabled = colors.onSurface.copy(alpha = 0.42f)
+    val disabled = colors.onSurface.copy(alpha = OverflowMenuDefaults.DisabledAlpha)
     val contentColor = when {
         !enabled -> disabled
         destructive -> colors.error
         else -> colors.onSurface
     }
     DropdownMenuItem(
-        modifier = modifier.heightIn(min = OverflowItemMinHeight),
-        contentPadding = OverflowItemPadding,
+        modifier = modifier.heightIn(min = ArdttSize.MenuItem),
+        contentPadding = OverflowMenuDefaults.ItemPadding,
         text = {
-            Text(
-                text,
-                fontWeight = FontWeight.Medium,
-                color = contentColor,
-            )
+            Text(text, fontWeight = FontWeight.Medium, color = contentColor)
         },
         leadingIcon = leadingIcon?.let { icon ->
-            {
-                Icon(icon, contentDescription = null, tint = contentColor)
-            }
+            { Icon(icon, contentDescription = null, tint = contentColor) }
         },
         onClick = onClick,
         enabled = enabled,

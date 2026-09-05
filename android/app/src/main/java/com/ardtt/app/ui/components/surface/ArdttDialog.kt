@@ -1,4 +1,4 @@
-package com.ardtt.app.ui.components
+package com.ardtt.app.ui.components.surface
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,6 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttSpacing
 
 data class ArdttDialogAction(
     val text: String,
@@ -50,9 +53,9 @@ internal fun ardttDialogTitleTopPaddingDp(allowsHide: Boolean): Int =
     if (allowsHide) 0 else ARDTT_DIALOG_LOCKED_TITLE_TOP_DP
 
 /**
- * Shared bottom sheet replacing the old opaque modal surface.
- * Actions always live in one footer row:
- * optional secondary action on the left, cancel and primary on the right.
+ * Shared bottom sheet used for every dialog in the app.
+ * Actions always live in one footer row: optional secondary action on the left,
+ * cancel and primary on the right.
  *
  * When both dismiss flags are false the sheet cannot be swiped, back-pressed,
  * or scrim-tapped away — otherwise a Hidden sheet left in composition blocks
@@ -90,7 +93,7 @@ fun ArdttDialog(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 6.dp,
+        tonalElevation = ArdttElevation.Raised,
         dragHandle = if (allowsHide) {
             { BottomSheetDefaults.DragHandle() }
         } else {
@@ -103,14 +106,14 @@ fun ArdttDialog(
         Column(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(bottom = 24.dp),
+                .padding(bottom = ArdttLayout.DialogPadding),
         ) {
             Text(
                 text = title,
                 modifier = Modifier.padding(
-                    start = 24.dp,
+                    start = ArdttLayout.DialogPadding,
                     top = ardttDialogTitleTopPaddingDp(allowsHide).dp,
-                    end = 24.dp,
+                    end = ArdttLayout.DialogPadding,
                 ),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
@@ -120,48 +123,47 @@ fun ArdttDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(
+                        horizontal = ArdttLayout.DialogPadding,
+                        vertical = ArdttSpacing.Large,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
                 content = content,
             )
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = ArdttSpacing.Large),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                secondaryAction?.let { action ->
-                    DialogTextAction(action)
-                }
+                secondaryAction?.let { action -> DialogTextAction(action) }
                 Spacer(modifier = Modifier.weight(1f))
                 dismissAction?.let { action ->
                     DialogTextAction(action)
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(ArdttSpacing.Tiny))
                 }
-                confirmAction?.let { action ->
-                    if (action.destructive) {
-                        Button(
-                            onClick = action.onClick,
-                            enabled = action.enabled,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError,
-                            ),
-                        ) {
-                            Text(action.text)
-                        }
-                    } else {
-                        Button(
-                            onClick = action.onClick,
-                            enabled = action.enabled,
-                        ) {
-                            Text(action.text)
-                        }
-                    }
-                }
+                confirmAction?.let { action -> DialogConfirmAction(action) }
             }
         }
+    }
+}
+
+@Composable
+private fun DialogConfirmAction(action: ArdttDialogAction) {
+    Button(
+        onClick = action.onClick,
+        enabled = action.enabled,
+        colors = if (action.destructive) {
+            ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            )
+        } else {
+            ButtonDefaults.buttonColors()
+        },
+    ) {
+        Text(action.text)
     }
 }
 

@@ -1,4 +1,4 @@
-package com.ardtt.app.ui.components
+package com.ardtt.app.ui.components.layout
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,14 +25,22 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.backdropMutedTextColor
+import com.ardtt.app.ui.theme.backdropTitleColor
+import com.ardtt.app.ui.theme.illustratedBackdropActive
 
 /** Single anchor for every bottom-tab title row in a scrolling feed. */
-object TabHeaderMetrics {
-    val TitleRowHeight = 44.dp
-    val TopPaddingAfterStatusBar = 8.dp
-    val HorizontalPadding = 16.dp
-    val BottomPaddingBelowTitle = 12.dp
+object ArdttHeaderDefaults {
+    val TitleRowHeight: Dp = ArdttSize.TitleRow
+    val TopPaddingAfterStatusBar: Dp = ArdttSpacing.Small
+    val HorizontalPadding: Dp = ArdttSpacing.Large
+    val BottomPaddingBelowTitle: Dp = ArdttSpacing.Medium
+
+    /** Blur of the title shadow used over the illustrated wallpaper. */
+    const val TitleShadowBlur = 8f
 }
 
 /**
@@ -43,20 +51,20 @@ object TabHeaderMetrics {
  * from tab to tab. This wrapper keeps every tab title on the same baseline.
  */
 @Composable
-fun TabHeaderAnchor(content: @Composable ColumnScope.() -> Unit) {
+fun ArdttHeaderAnchor(content: @Composable ColumnScope.() -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        EdgeFeedTopInset()
+        ArdttStatusBarInset()
         content()
     }
 }
 
 /**
- * Anchored tab title row. Pair with [EdgeFeedTopInset] (or use [TabFeedHeader]).
- * Inside [EdgeFeedColumn] pass only this composable in [header] — the column
- * already applies [EdgeFeedTopInset].
+ * Anchored tab title row. [ArdttFeedScaffold] already applies the status-bar
+ * inset, so pass this composable in its `header` slot; use [ArdttFeedHeader]
+ * only for hand-rolled scroll containers.
  */
 @Composable
-fun TabPageHeader(
+fun ArdttTabHeader(
     title: String,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
@@ -67,22 +75,21 @@ fun TabPageHeader(
         subtitle = subtitle,
         onBack = onBack,
         actions = actions,
-        topPadding = TabHeaderMetrics.TopPaddingAfterStatusBar,
-        titleRowHeight = TabHeaderMetrics.TitleRowHeight,
-        bottomPadding = TabHeaderMetrics.BottomPaddingBelowTitle,
+        topPadding = ArdttHeaderDefaults.TopPaddingAfterStatusBar,
+        titleRowHeight = ArdttHeaderDefaults.TitleRowHeight,
     )
 }
 
-/** Status-bar inset + [TabPageHeader] for manual scroll feeds. */
+/** Status-bar inset + [ArdttTabHeader] for manual scroll feeds. */
 @Composable
-fun TabFeedHeader(
+fun ArdttFeedHeader(
     title: String,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
-    TabHeaderAnchor {
-        TabPageHeader(
+    ArdttHeaderAnchor {
+        ArdttTabHeader(
             title = title,
             subtitle = subtitle,
             onBack = onBack,
@@ -91,9 +98,9 @@ fun TabFeedHeader(
     }
 }
 
-/** Generic page header for dialogs and standalone screens (not bottom-tab anchor). */
+/** Header for dialogs and standalone screens that are not bottom-tab roots. */
 @Composable
-fun AppPageHeader(
+fun ArdttPageHeader(
     title: String,
     subtitle: String? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
@@ -103,9 +110,8 @@ fun AppPageHeader(
         subtitle = subtitle,
         onBack = null,
         actions = actions,
-        topPadding = 8.dp,
+        topPadding = ArdttHeaderDefaults.TopPaddingAfterStatusBar,
         titleRowHeight = null,
-        bottomPadding = TabHeaderMetrics.BottomPaddingBelowTitle,
     )
 }
 
@@ -117,16 +123,12 @@ private fun PageHeaderChrome(
     actions: (@Composable RowScope.() -> Unit)?,
     topPadding: Dp,
     titleRowHeight: Dp?,
-    bottomPadding: Dp,
 ) {
-    val onWallpaper = illustratedBackdropActive()
-    val titleColor = backdropTitleColor()
-    val subtitleColor = backdropMutedTextColor()
-    val titleShadow = if (onWallpaper) {
+    val titleShadow = if (illustratedBackdropActive()) {
         Shadow(
-            color = Color.Black.copy(alpha = 0.42f),
+            color = Color.Black.copy(alpha = ArdttAlpha.Shadow),
             offset = Offset(0f, 1f),
-            blurRadius = 8f,
+            blurRadius = ArdttHeaderDefaults.TitleShadowBlur,
         )
     } else {
         null
@@ -134,8 +136,11 @@ private fun PageHeaderChrome(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = topPadding, bottom = bottomPadding),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(
+                top = topPadding,
+                bottom = ArdttHeaderDefaults.BottomPaddingBelowTitle,
+            ),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
     ) {
         Row(
             modifier = Modifier
@@ -146,7 +151,7 @@ private fun PageHeaderChrome(
             if (onBack != null) {
                 IconButton(
                     onClick = onBack,
-                    modifier = Modifier.size(TabHeaderMetrics.TitleRowHeight),
+                    modifier = Modifier.size(ArdttHeaderDefaults.TitleRowHeight),
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
@@ -162,7 +167,7 @@ private fun PageHeaderChrome(
                     fontWeight = FontWeight.ExtraBold,
                     shadow = titleShadow,
                 ),
-                color = titleColor,
+                color = backdropTitleColor(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -171,17 +176,21 @@ private fun PageHeaderChrome(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (onBack != null) Modifier.padding(start = TabHeaderMetrics.TitleRowHeight) else Modifier),
+                    .then(
+                        if (onBack != null) {
+                            Modifier.padding(start = ArdttHeaderDefaults.TitleRowHeight)
+                        } else {
+                            Modifier
+                        },
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         subtitle,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            shadow = titleShadow,
-                        ),
-                        color = subtitleColor,
+                        style = MaterialTheme.typography.bodyMedium.copy(shadow = titleShadow),
+                        color = backdropMutedTextColor(),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )

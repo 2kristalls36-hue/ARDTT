@@ -17,10 +17,10 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -69,10 +69,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ardtt.app.settings.AppSettingsRepository
-import com.ardtt.app.ui.components.AppBackdrop
-import com.ardtt.app.ui.components.AppPageHeader
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.StickyPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.layout.ArdttBackdrop
+import com.ardtt.app.ui.components.layout.ArdttPageHeader
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.unlock.AlphaGate
 import com.ardtt.app.unlock.AlphaUnlockResult
 import com.ardtt.app.unlock.DeviceUnlockCopy
@@ -95,7 +95,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AppBackdrop(modifier = Modifier.fillMaxSize())
+        ArdttBackdrop(modifier = Modifier.fillMaxSize())
         val hex = challenge
         if (hex == null) {
             CircularProgressIndicator(
@@ -144,11 +144,11 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                     .verticalScroll(scroll),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                AppPageHeader(
+                ArdttPageHeader(
                     title = "ARDTT",
                     subtitle = DeviceUnlockCopy.SUBTITLE,
                 )
-                AppSectionCard {
+                ArdttSectionCard {
                     Text(
                         DeviceUnlockCopy.CONFIRMATION_TITLE,
                         style = MaterialTheme.typography.titleSmall,
@@ -175,7 +175,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                         )
                     }
                 }
-                AppSectionCard(
+                ArdttSectionCard(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Row(
@@ -217,7 +217,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                     )
                 }
                 if (!imeVisible) {
-                    AppSectionCard(
+                    ArdttSectionCard(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
@@ -240,7 +240,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                 }
             }
 
-            StickyPrimaryButton(
+            ArdttPrimaryButton(
                 text = DeviceUnlockCopy.CONFIRM,
                 onClick = { submit() },
                 enabled = !busy && otp.length == AlphaGate.OTP_LEN,

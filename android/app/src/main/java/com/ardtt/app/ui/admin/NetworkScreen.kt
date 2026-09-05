@@ -28,11 +28,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,13 +46,13 @@ import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.AppSectionCardDefaults
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.PingFlashDot
-import com.ardtt.app.ui.components.PullRefreshHost
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.rememberPullRefresh
+import com.ardtt.app.ui.components.feedback.ArdttPingDot
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
@@ -209,7 +209,7 @@ fun NetworkScreen(
 
     val pull = rememberPullRefresh { refreshAll() }
 
-    PullRefreshHost(
+    ArdttPullRefresh(
         refreshing = pull.refreshing,
         onRefresh = pull.onRefresh,
     ) {
@@ -221,7 +221,7 @@ fun NetworkScreen(
                 .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            TabFeedHeader(
+            ArdttFeedHeader(
                 title = "Сеть",
                 subtitle = NetworkMapCopy.SUBTITLE,
             )
@@ -445,23 +445,23 @@ private fun IpInfoCard(
     loading: Boolean = false,
     highlighted: Boolean = false,
     pingMs: Long = -1L,
-    accentColor: Color = ArdttColors.connected,
+    accentColor: Color = ArdttColors.Connected,
 ) {
     val pingLabel = formatHealthPingMs(pingMs)
     val pingColor = when (pingLatencyTier(pingMs)) {
-        PingLatencyTier.Good -> ArdttColors.connected
-        PingLatencyTier.Fair -> ArdttColors.warning
+        PingLatencyTier.Good -> ArdttColors.Connected
+        PingLatencyTier.Fair -> ArdttColors.Warning
         PingLatencyTier.Poor -> MaterialTheme.colorScheme.error
         null -> accentColor
     }
-    AppSectionCard(
+    ArdttSectionCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
         border = BorderStroke(
-            AppSectionCardDefaults.ContourWidth,
+            ArdttSectionCardDefaults.ContourWidth,
             hopCardStrokeColor(
                 highlighted = highlighted,
                 outline = MaterialTheme.colorScheme.outline,
@@ -480,7 +480,7 @@ private fun IpInfoCard(
                 modifier = Modifier.weight(1f),
             )
             if (pingLabel.isNotEmpty()) {
-                PingFlashDot(
+                ArdttPingDot(
                     pingKey = pingLabel,
                     modifier = Modifier.padding(start = 8.dp, end = 4.dp),
                     color = pingColor,

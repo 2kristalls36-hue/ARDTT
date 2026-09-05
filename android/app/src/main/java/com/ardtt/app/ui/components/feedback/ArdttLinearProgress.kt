@@ -1,4 +1,4 @@
-package com.ardtt.app.ui.components
+package com.ardtt.app.ui.components.feedback
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -14,11 +14,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.theme.ArdttMotion
 
 /**
- * Determinate bar for deploy / upload. Material3's default [LinearProgressIndicator]
- * draws a circular stop at the end of the track and a gap before the remaining
- * track — that shows up as a stray blue dot while progress is still low.
+ * Determinate bar for deploy / upload. Material3's default
+ * [LinearProgressIndicator] draws a circular stop at the end of the track and
+ * a gap before the remaining track — a stray blue dot while progress is low.
  */
 @Composable
 fun ArdttLinearProgress(
@@ -29,7 +30,10 @@ fun ArdttLinearProgress(
 ) {
     val animated by animateFloatAsState(
         targetValue = coerceLinearProgress(progress),
-        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        animationSpec = tween(
+            durationMillis = ArdttMotion.Standard,
+            easing = FastOutSlowInEasing,
+        ),
         label = "ardttLinearProgress",
     )
     LinearProgressIndicator(

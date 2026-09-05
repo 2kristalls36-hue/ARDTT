@@ -52,20 +52,19 @@ import com.ardtt.app.deploy.deviceDisplayLabels
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.VpnProfileJson
+import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.latestAppVersionCode
-import com.ardtt.app.update.AppUpdateController
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.CompactListCard
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.TabHeaderMetrics
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.ArdttLinearProgress
-import com.ardtt.app.ui.components.PullRefreshHost
-import com.ardtt.app.ui.components.StickyPrimaryButton
-import com.ardtt.app.ui.components.rememberPullRefresh
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.update.AppUpdateController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -243,13 +242,13 @@ private fun ClientsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = { if (!loading) pull.onRefresh() },
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
-                    TabFeedHeader(
+                Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
+                    ArdttFeedHeader(
                         title = "Клиенты",
                         subtitle = when {
                             loading -> "Загрузка…"
@@ -324,7 +323,7 @@ private fun ClientsScreen(
                                 top = 8.dp,
                                 bottom = ArdttBottomChrome.scrollContentPadding(),
                             ),
-                            verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
+                            verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                         ) {
                             items(users, key = { "${it.name}-${it.hostId}" }) { user ->
                                 ClientCard(
@@ -369,7 +368,7 @@ private fun ClientsScreen(
             }
         }
 
-        StickyPrimaryButton(
+        ArdttPrimaryButton(
             text = "Создать клиента",
             onClick = {
                 createName = ""
@@ -703,10 +702,10 @@ private fun ClientCard(
         else -> (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
     }
     val trafficColor = when {
-        limit <= 0L -> ArdttColors.connected
+        limit <= 0L -> ArdttColors.Connected
         progress >= 0.85f -> MaterialTheme.colorScheme.error
-        progress >= 0.55f -> ArdttColors.warning
-        else -> ArdttColors.connected
+        progress >= 0.55f -> ArdttColors.Warning
+        else -> ArdttColors.Connected
     }
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
@@ -726,22 +725,16 @@ private fun ClientCard(
     }
     val expiresTone = clientExpiresTone(user.expiresAt)
     val expiresColor = when (expiresTone) {
-        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> ArdttColors.connected
-        ClientExpiresTone.ExpiringSoon -> ArdttColors.warning
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> ArdttColors.Connected
+        ClientExpiresTone.ExpiringSoon -> ArdttColors.Warning
         ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
     }
-    AppSectionCard(
-        contentPadding = CompactListCard.ContentPadding,
-        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-        shape = CompactListCard.Shape,
-        shadowElevation = CompactListCard.ShadowElevation,
-        tonalElevation = 0.dp,
-    ) {
+    ArdttCompactCard {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(enabled = !busy, onClick = onOpenProfile),
-            verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+            verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -758,7 +751,7 @@ private fun ClientCard(
                 )
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = if (user.online) ArdttColors.connected else MaterialTheme.colorScheme.outlineVariant,
+                    color = if (user.online) ArdttColors.Connected else MaterialTheme.colorScheme.outlineVariant,
                     modifier = Modifier
                         .padding(end = 6.dp)
                         .size(8.dp),
@@ -795,7 +788,7 @@ private fun ClientCard(
                 ) {
                     val appVer = clientAppVersionView(user, latestVersionCode)
                     val appVerColor = when (appVer.tone) {
-                        ClientAppVersionTone.Current -> ArdttColors.connected
+                        ClientAppVersionTone.Current -> ArdttColors.Connected
                         ClientAppVersionTone.Outdated -> MaterialTheme.colorScheme.error
                         ClientAppVersionTone.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
                     }

@@ -44,16 +44,16 @@ import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.profile.ProfileRepository
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import kotlinx.coroutines.launch
 
 @Composable
 fun CallHashSettingsCard(
     modifier: Modifier = Modifier,
 ) {
-    AppSectionCard(
+    ArdttSectionCard(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),

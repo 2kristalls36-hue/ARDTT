@@ -58,15 +58,15 @@ import com.ardtt.app.telemetry.TelemetryFileManager
 import com.ardtt.app.telemetry.TelemetryLogEntry
 import com.ardtt.app.telemetry.TelemetryRecorder
 import com.ardtt.app.telemetry.TelemetryUploadClient
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.ArdttLinearProgress
-import com.ardtt.app.ui.components.PullRefreshHost
-import com.ardtt.app.ui.components.StickyPrimaryButton
-import com.ardtt.app.ui.components.rememberPullRefresh
+import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -196,7 +196,7 @@ fun TestingScreen(profiles: ProfileRepository) {
     val pull = rememberPullRefresh { refreshLogs() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
         ) {
@@ -207,12 +207,12 @@ fun TestingScreen(profiles: ProfileRepository) {
                 .padding(bottom = ArdttBottomChrome.scrollContentPadding(extra = 8.dp)),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            TabFeedHeader(
+            ArdttFeedHeader(
                 title = "Режим тестирования",
                 subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
             )
 
-            AppSectionCard(
+            ArdttSectionCard(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -237,7 +237,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                 )
             }
 
-            AppSectionCard(
+            ArdttSectionCard(
                 modifier = Modifier.weight(1f),
                 fillHeight = true,
                 contentPadding = PaddingValues(16.dp),
@@ -310,7 +310,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                 .padding(horizontal = 16.dp)
                 .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
         ) {
-            StickyPrimaryButton(
+            ArdttPrimaryButton(
                 text = if (isRecording) "Остановить запись" else "Начать запись",
                 onClick = { toggleRecording() },
                 containerColor = if (isRecording) {
