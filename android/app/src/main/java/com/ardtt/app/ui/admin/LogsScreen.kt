@@ -1,6 +1,5 @@
 package com.ardtt.app.ui.admin
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -48,6 +47,7 @@ import com.ardtt.app.ui.components.surface.terminalCardElevation
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.isDarkSurface
 import com.ardtt.app.ui.util.copyToClipboard
 import com.ardtt.app.ui.util.shareText
 import java.text.SimpleDateFormat
@@ -64,7 +64,7 @@ fun LogsScreen() {
     val entries by AppLog.entries.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val fmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
-    val isDark = isSystemInDarkTheme()
+    val isDark = isDarkSurface()
     val terminalBg = terminalCardColor()
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi

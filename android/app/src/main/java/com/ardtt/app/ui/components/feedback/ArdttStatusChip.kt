@@ -76,7 +76,6 @@ fun ArdttStatusPill(
                 vertical = 7.dp,
             ),
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
         )
     }
 }
