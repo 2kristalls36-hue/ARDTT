@@ -6,7 +6,7 @@
 
 Каталог на диске по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). При обновлении старый `/opt/nonamevpn` переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.34**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.35**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -192,10 +192,10 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 
 Тот же стек, что в APK, но исходники берутся с GitHub. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
 
-Клонируйте **тег релиза** (`v0.5.231` = клиент 0.5.231 и стек 1.0.34), не обязательно `main`. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`. Публичный репозиторий клонируется без секретов.
+Клонируйте **тег релиза** (`v0.5.232` = клиент 0.5.232 и стек 1.0.35), не обязательно `main`. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`. Публичный репозиторий клонируется без секретов.
 
 ```bash
-TAG=v0.5.231
+TAG=v0.5.232
 git clone --depth 1 --branch "$TAG" \
   https://github.com/2kristalls36-hue/ARDTT.git /tmp/ardtt
 
@@ -204,7 +204,7 @@ install -d -m 755 /opt/ardtt
 cp /tmp/ardtt/server/install.sh /opt/ardtt/install.sh
 tar -C /tmp/ardtt/server --exclude=data --exclude='*.tmp' --exclude='__pycache__' \
   -czf /opt/ardtt/stack.tar.gz .
-export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS ARDTT_DEPLOY_VERSION=1.0.34
+export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS ARDTT_DEPLOY_VERSION=1.0.35
 bash /opt/ardtt/install.sh
 
 # Вариант B — compose прямо в клоне (без /opt/ardtt)
@@ -389,14 +389,14 @@ docker compose down          # контейнеры; data/ остаётся
 cd /opt/ardtt/stack
 COMPOSE_PROFILES=isolated docker compose ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.34"
+# ожидается: "ok": true, "deployVersion": "1.0.35"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'
 docker exec ardtt provision -cmd create-user -name smoke -data /data
 ```
 
-С телефона: карточка VPS «Онлайн · деплой 1.0.34 · актуален», создание клиента, импорт профиля, Connect.
+С телефона: карточка VPS «Онлайн · деплой 1.0.35 · актуален», создание клиента, импорт профиля, Connect.
 
 ---
 
