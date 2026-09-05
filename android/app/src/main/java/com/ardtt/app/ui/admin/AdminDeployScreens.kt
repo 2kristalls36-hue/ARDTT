@@ -222,12 +222,28 @@ private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
     },
 )
 
-private fun healthStatusLine(
+private fun pingLatencyColor(
+    pingMs: Long,
+    poor: Color,
+): Color? = when (pingLatencyTier(pingMs)) {
+    PingLatencyTier.Good -> ArdttColors.connected
+    PingLatencyTier.Fair -> ArdttColors.warning
+    PingLatencyTier.Poor -> poor
+    null -> null
+}
+
+@Composable
+private fun ServerHealthStatusRow(
     health: HealthUi?,
     expectedVersion: String,
-): Pair<String, Color?> {
-    val text = healthStatusLabel(health)
-    val hint = when (health) {
+) {
+    val parts = healthStatusParts(health)
+    val presenceColor = when (health) {
+        is HealthUi.Online -> ArdttColors.connected
+        HealthUi.Unreachable, HealthUi.NotInstalled -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val deployColor = when (health) {
         is HealthUi.Online ->
             if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
                 ArdttColors.connected
@@ -236,7 +252,43 @@ private fun healthStatusLine(
             }
         else -> null
     }
-    return text to hint
+    val pingColor = pingLatencyColor(parts.pingMs, MaterialTheme.colorScheme.error)
+    val labelStyle = MaterialTheme.typography.labelSmall
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            parts.presence,
+            style = labelStyle,
+            fontWeight = FontWeight.SemiBold,
+            color = presenceColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Start,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            parts.deploy.orEmpty(),
+            style = labelStyle,
+            fontWeight = FontWeight.SemiBold,
+            color = deployColor ?: Color.Transparent,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            parts.pingLabel,
+            style = labelStyle,
+            fontWeight = FontWeight.SemiBold,
+            color = pingColor ?: Color.Transparent,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
+    }
 }
 
 @Composable
@@ -458,12 +510,6 @@ private fun ServerIdentityBody(
     expectedVersion: String,
     extraLines: List<String> = emptyList(),
 ) {
-    val (statusText, statusColorHint) = healthStatusLine(health, expectedVersion)
-    val statusColor = when {
-        statusColorHint != null -> statusColorHint
-        healthUiIsDown(health) -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
     val cascadeSpan = serverCardCascadeIpSpan(
         host = server.host,
         publicHost = server.publicHost,
@@ -530,13 +576,9 @@ private fun ServerIdentityBody(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                statusText,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = statusColor,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+            ServerHealthStatusRow(
+                health = health,
+                expectedVersion = expectedVersion,
             )
             freshnessChip?.let { chip ->
                 Surface(
