@@ -33,6 +33,7 @@ enum class ServerOsMark {
     Fedora,
     Alpine,
     Arch,
+    Centos,
     Rhel,
     Suse,
     Linux,
@@ -46,7 +47,8 @@ fun serverOsMark(osId: String): ServerOsMark =
         "fedora" -> ServerOsMark.Fedora
         "alpine" -> ServerOsMark.Alpine
         "arch" -> ServerOsMark.Arch
-        "centos", "rhel", "rocky", "almalinux" -> ServerOsMark.Rhel
+        "centos" -> ServerOsMark.Centos
+        "rhel", "rocky", "almalinux" -> ServerOsMark.Rhel
         "opensuse" -> ServerOsMark.Suse
         "" -> ServerOsMark.Unknown
         else -> ServerOsMark.Linux
