@@ -1709,6 +1709,7 @@ private fun serverOsMarkDrawable(mark: ServerOsMark): Int = when (mark) {
     ServerOsMark.Fedora -> R.drawable.ic_os_fedora
     ServerOsMark.Alpine -> R.drawable.ic_os_alpine
     ServerOsMark.Arch -> R.drawable.ic_os_arch
+    ServerOsMark.Centos -> R.drawable.ic_os_centos
     ServerOsMark.Rhel -> R.drawable.ic_os_rhel
     ServerOsMark.Suse -> R.drawable.ic_os_suse
     ServerOsMark.Linux -> R.drawable.ic_os_linux
