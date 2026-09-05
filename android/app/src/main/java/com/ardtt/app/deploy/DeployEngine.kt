@@ -149,6 +149,9 @@ class DeployEngine(private val appContext: Context) {
             val verb = if (_isUpdate.value) "обновление" else "установка"
 
             var exitPub = ""
+            var exitCascadeListen = DeployInstallEnv.CASCADE_LISTEN_PORT
+            var resolvedDirect = target.directPort
+            var resolvedBypass = target.bypassPort
             if (target.cascadeEnabled) {
                 val exitHost = target.cascadeHost.trim()
                 if (exitHost.isBlank()) error("Не указан host второго сервера")
@@ -178,14 +181,17 @@ class DeployEngine(private val appContext: Context) {
                             deployVersion = deployVersion,
                             role = "exit",
                             cascadeEnabled = true,
+                            autoPorts = target.autoPorts,
                         ),
                         progressStart = 0.04f,
                         progressEnd = 0.48f,
                     )
-                    exitPub = installed
+                    exitPub = installed.cascadePublicKey
                     if (exitPub.isBlank()) {
                         error("Выходной VPS не отдал ключ каскада (ARDTT_CASCADE_PUBLIC_KEY)")
                     }
+                    installed.cascadeListenPort?.let { exitCascadeListen = it }
+                        ?: installed.directPort?.let { exitCascadeListen = it }
                     append("Ключ выхода получен с $exitHost")
                     markTrackedHostDone(exitHost)
                 } finally {
@@ -215,13 +221,14 @@ class DeployEngine(private val appContext: Context) {
                 role = "entry",
                 cascadeEnabled = target.cascadeEnabled,
                 cascadePeerEndpoint = if (target.cascadeEnabled) {
-                    DeployInstallEnv.peerEndpoint(target.cascadeHost)
+                    DeployInstallEnv.peerEndpoint(target.cascadeHost, exitCascadeListen)
                 } else {
                     ""
                 },
                 cascadePeerPublicKey = exitPub,
+                autoPorts = target.autoPorts,
             )
-            val entryPub = uploadAndInstall(
+            val entryInstalled = uploadAndInstall(
                 ssh = ssh,
                 hostLabel = entryHost,
                 publicHost = publicHost,
@@ -232,6 +239,9 @@ class DeployEngine(private val appContext: Context) {
                 progressStart = if (target.cascadeEnabled) 0.50f else 0.08f,
                 progressEnd = if (target.cascadeEnabled) 0.92f else 0.96f,
             )
+            val entryPub = entryInstalled.cascadePublicKey
+            entryInstalled.directPort?.let { resolvedDirect = it }
+            entryInstalled.bypassPort?.let { resolvedBypass = it }
             markTrackedHostDone(entryHost)
 
             if (target.cascadeEnabled) {
@@ -289,6 +299,8 @@ class DeployEngine(private val appContext: Context) {
                 repo.upsert(
                     stored.copy(
                         lastDeployedAtMs = deployedAt,
+                        directPort = resolvedDirect,
+                        bypassPort = resolvedBypass,
                         osId = osInfo?.osId?.trim()?.ifBlank { stored.osId } ?: stored.osId,
                         osVersion = osInfo?.osVersionLabel?.trim()?.ifBlank { stored.osVersion }
                             ?: stored.osVersion,
@@ -529,7 +541,7 @@ class DeployEngine(private val appContext: Context) {
         command: String,
         progressStart: Float,
         progressEnd: Float,
-    ): String {
+    ): DeployInstallResult {
         emitOn(hostLabel, progressStart, "Подготовка каталога /opt/ardtt…")
         ssh.exec(
             "if [ -d /opt/nonamevpn ] && [ ! -e /opt/ardtt ]; then mv /opt/nonamevpn /opt/ardtt; fi; " +
@@ -567,6 +579,7 @@ class DeployEngine(private val appContext: Context) {
         emitOn(hostLabel, progressStart + span * 0.22f, "Запуск install.sh…")
         var failed: String? = null
         var cascadePub = ""
+        var doneFields = emptyMap<String, String>()
         val code = ssh.execStreaming(command, timeoutMs = 45 * 60_000L) { line ->
             append(line)
             DeployInstallEnv.publicKeyFromLine(line)?.let { cascadePub = it }
@@ -579,7 +592,10 @@ class DeployEngine(private val appContext: Context) {
                     if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
                 }
                 line.startsWith("ARDTT_ERROR|") -> failed = line.removePrefix("ARDTT_ERROR|")
-                line.startsWith("ARDTT_DONE|") -> emitOn(hostLabel, progressEnd, "install.sh завершился")
+                line.startsWith("ARDTT_DONE|") -> {
+                    doneFields = DeployInstallEnv.doneFields(line)
+                    emitOn(hostLabel, progressEnd, "install.sh завершился")
+                }
             }
         }
         if (failed != null) {
@@ -618,7 +634,12 @@ class DeployEngine(private val appContext: Context) {
                     "docker image prune -f >/dev/null 2>&1 || true",
             )
         }
-        return cascadePub
+        return DeployInstallResult(
+            cascadePublicKey = cascadePub,
+            directPort = DeployInstallEnv.intField(doneFields, "direct_port"),
+            bypassPort = DeployInstallEnv.intField(doneFields, "bypass_port"),
+            cascadeListenPort = DeployInstallEnv.intField(doneFields, "cascade_listen_port"),
+        )
     }
 
     /**

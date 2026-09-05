@@ -1046,7 +1046,11 @@ private fun ServerOverviewScreen(
                         health = health,
                         expectedVersion = expectedVersion,
                         extraLines = listOf(
-                            "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}",
+                            if (server.autoPorts) {
+                                "Автопорты · Direct ${server.directPort}  ·  Bypass ${server.bypassPort}"
+                            } else {
+                                "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}"
+                            },
                         ),
                     )
                 }
@@ -1214,6 +1218,7 @@ fun DeployScreen(
     var privateKey by remember { mutableStateOf(initial?.privateKeyPem ?: "") }
     var keyPass by remember { mutableStateOf(initial?.keyPassphrase ?: "") }
     var publicHost by remember { mutableStateOf(initial?.publicHost ?: "") }
+    var autoPorts by remember { mutableStateOf(initial?.autoPorts != false) }
     var directPort by remember { mutableStateOf((initial?.directPort ?: 51820).toString()) }
     var bypassPort by remember { mutableStateOf((initial?.bypassPort ?: 56003).toString()) }
     var osId by remember { mutableStateOf(initial?.osId ?: "") }
@@ -1246,6 +1251,7 @@ fun DeployScreen(
         privateKey = t.privateKeyPem
         keyPass = t.keyPassphrase
         publicHost = t.publicHost
+        autoPorts = t.autoPorts
         directPort = t.directPort.toString()
         bypassPort = t.bypassPort.toString()
         osId = t.osId
@@ -1272,8 +1278,12 @@ fun DeployScreen(
         if (activeTargetId != null && activeTargetId != id) return@LaunchedEffect
         if (!showDeployProgress) return@LaunchedEffect
         deployStatus = outcome
-        val deployedAt = serversRepo.snapshot().find { it.id == id }?.lastDeployedAtMs
-        if (deployedAt != null && deployedAt > 0L) lastDeployedAtMs = deployedAt
+        val stored = serversRepo.snapshot().find { it.id == id }
+        if (stored != null) {
+            if (stored.lastDeployedAtMs > 0L) lastDeployedAtMs = stored.lastDeployedAtMs
+            directPort = stored.directPort.toString()
+            bypassPort = stored.bypassPort.toString()
+        }
     }
 
     fun buildTarget(deployedAt: Long = lastDeployedAtMs): DeployTarget = DeployTarget(
@@ -1287,6 +1297,7 @@ fun DeployScreen(
         keyPassphrase = keyPass,
         sudoPassword = password,
         publicHost = publicHost.trim().ifBlank { host.trim() },
+        autoPorts = autoPorts,
         directPort = directPort.toIntOrNull() ?: 51820,
         bypassPort = bypassPort.toIntOrNull() ?: 56003,
         cascadeEnabled = cascadeEnabled,
@@ -1456,29 +1467,68 @@ fun DeployScreen(
             singleLine = true,
             enabled = !busy,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = directPort,
-                onValueChange = { directPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("Direct UDP") },
-                modifier = Modifier
-                    .weight(1f)
-                    .bringIntoViewWhenFocused(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                enabled = !busy,
-            )
-            OutlinedTextField(
-                value = bypassPort,
-                onValueChange = { bypassPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("Bypass UDP") },
-                modifier = Modifier
-                    .weight(1f)
-                    .bringIntoViewWhenFocused(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                enabled = !busy,
-            )
+        AppSectionCard(
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        "Автовыбор портов",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Свободные UDP Direct / Bypass на VPS. Выключите, чтобы задать порты вручную.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = autoPorts,
+                    onCheckedChange = { autoPorts = it },
+                    enabled = !busy,
+                )
+            }
+            if (!autoPorts) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedTextField(
+                        value = directPort,
+                        onValueChange = { directPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                        label = { Text("Direct UDP") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .bringIntoViewWhenFocused(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        enabled = !busy,
+                    )
+                    OutlinedTextField(
+                        value = bypassPort,
+                        onValueChange = { bypassPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                        label = { Text("Bypass UDP") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .bringIntoViewWhenFocused(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        enabled = !busy,
+                    )
+                }
+            }
         }
 
         AppSectionCard(
