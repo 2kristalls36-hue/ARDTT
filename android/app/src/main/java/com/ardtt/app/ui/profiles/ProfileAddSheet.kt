@@ -7,35 +7,36 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.RssFeed
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.components.surface.ArdttBottomSheet
+import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttSpacing
 
-data class ProfileAddOption(
+/** Leading glyph of an add-profile option; between the icon and icon-large steps. */
+private val OptionIconSize = 26.dp
+
+private data class ProfileAddOption(
     val title: String,
     val subtitle: String,
     val icon: ImageVector,
     val onClick: () -> Unit,
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileAddSheet(
     onDismissRequest: () -> Unit,
@@ -45,7 +46,6 @@ fun ProfileAddSheet(
     onFromClipboard: () -> Unit,
     onScanQr: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val options = listOf(
         ProfileAddOption(
             title = "Подписка",
@@ -79,58 +79,60 @@ fun ProfileAddSheet(
         ),
     )
 
-    ModalBottomSheet(
+    ArdttBottomSheet(
         onDismissRequest = onDismissRequest,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        modifier = Modifier.padding(horizontal = ArdttSpacing.XLarge),
+        scrollable = false,
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
     ) {
+        Text(
+            "Добавить",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = ArdttSpacing.Small),
+        )
+        options.forEachIndexed { index, option ->
+            if (index > 0) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant
+                        .copy(alpha = ArdttAlpha.Divider),
+                )
+            }
+            ProfileAddRow(option)
+        }
+    }
+}
+
+@Composable
+private fun ProfileAddRow(option: ProfileAddOption) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = option.onClick)
+            .padding(vertical = ArdttSpacing.MediumPlus),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Large),
+    ) {
+        Icon(
+            option.icon,
+            contentDescription = null,
+            modifier = Modifier.size(OptionIconSize),
+            tint = MaterialTheme.colorScheme.onSurface,
+        )
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
         ) {
             Text(
-                "Добавить",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp),
+                option.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
             )
-            options.forEachIndexed { index, option ->
-                if (index > 0) {
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = option.onClick)
-                        .padding(vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Icon(
-                        option.icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(26.dp),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            option.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            option.subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
+            Text(
+                option.subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

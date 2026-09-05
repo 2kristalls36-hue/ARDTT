@@ -1,8 +1,5 @@
 package com.ardtt.app.ui.profiles
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,9 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -30,7 +25,6 @@ import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,30 +46,35 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.profile.PendingProfileImport
 import com.ardtt.app.profile.ProfileCatalog
+import com.ardtt.app.profile.ProfileImportResolver
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
-import com.ardtt.app.profile.ProfileImportResolver
-import com.ardtt.app.profile.PendingProfileImport
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.VpnProfileJson
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.PROFILE_SWITCH_LOCKED_MESSAGE
-import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
-import com.ardtt.app.ui.components.TabPageHeader
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.AppSectionCardDefaults
-import com.ardtt.app.ui.components.CompactListCard
-import com.ardtt.app.ui.components.CompactListLeadingIcon
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.OverflowMenu
-import com.ardtt.app.ui.components.OverflowMenuItem
-import com.ardtt.app.ui.components.StickyBottomScaffold
-import com.ardtt.app.ui.components.StickyPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttOverflowMenu
+import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
+import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
+import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.util.copyToClipboard
+import com.ardtt.app.ui.util.readClipboardText
+import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -205,9 +204,9 @@ fun ProfilesScreen(
         }
     }
 
-    StickyBottomScaffold(
+    ArdttFeedScaffold(
         stickyContent = {
-            StickyPrimaryButton(
+            ArdttPrimaryButton(
                 text = if (busy) "Импорт…" else "Добавить",
                 onClick = { showAddSheet = true },
                 enabled = !busy,
@@ -215,7 +214,7 @@ fun ProfilesScreen(
             )
         },
         header = {
-            TabPageHeader(
+            ArdttTabHeader(
                 title = "Профили",
                 subtitle = when {
                     catalog.items.isEmpty() -> "Импортируйте JSON с сервера"
@@ -228,23 +227,13 @@ fun ProfilesScreen(
         },
     ) {
         error?.let {
-            AppSectionCard(
-                contentPadding = CompactListCard.ContentPadding,
-                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-                shape = CompactListCard.Shape,
-                shadowElevation = CompactListCard.ShadowElevation,
-            ) {
+            ArdttCompactCard {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
 
         if (visible.isEmpty()) {
-            AppSectionCard(
-                contentPadding = CompactListCard.ContentPadding,
-                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-                shape = CompactListCard.Shape,
-                shadowElevation = CompactListCard.ShadowElevation,
-            ) {
+            ArdttCompactCard {
                 Text(
                     "Профили не загружены",
                     style = MaterialTheme.typography.titleSmall,
@@ -257,7 +246,7 @@ fun ProfilesScreen(
                 )
             }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing)) {
+            Column(verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing)) {
                 visible.forEach { item ->
                     ProfileCard(
                         item = item,
@@ -266,10 +255,12 @@ fun ProfilesScreen(
                         onSelect = { applyProfile(item) },
                         onOpen = { applyProfile(item, openTunnel = true) },
                         onCopy = {
-                            val json = VpnProfileJson.encode(item.profile)
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("ARDTT profile", json))
-                            Toast.makeText(context, "JSON скопирован", Toast.LENGTH_SHORT).show()
+                            copyToClipboard(
+                                context = context,
+                                text = VpnProfileJson.encode(item.profile),
+                                clipLabel = "ARDTT profile",
+                                toast = "JSON скопирован",
+                            )
                         },
                         onShare = {
                             scope.launch {
@@ -314,9 +305,8 @@ fun ProfilesScreen(
             onManual = { pasteText = ""; showPaste = true },
             onFromFile = { pickFile.launch(arrayOf("application/json", "text/*", "*/*")) },
             onFromClipboard = {
-                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                if (clip.isBlank()) {
+                val clip = readClipboardText(context)
+                if (clip == null) {
                     Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
                 } else {
                     importResolved(clip)
@@ -367,7 +357,7 @@ fun ProfilesScreen(
                 value = subscriptionUrl,
                 onValueChange = { subscriptionUrl = it },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 placeholder = { Text("https://…/profile.json") },
                 singleLine = true,
             )
@@ -401,7 +391,7 @@ fun ProfilesScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 placeholder = { Text("ardtt://config?… или { \"name\": … }") },
             )
         }
@@ -429,7 +419,7 @@ fun ProfilesScreen(
                 onValueChange = { renameText = it },
                 label = { Text("Имя профиля") },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -454,19 +444,14 @@ private fun ProfileCard(
     val deleteEnabled = !selectionLocked || !active
     val muted = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f)
     val titleColor = when {
-        active -> ArdttColors.connected
+        active -> ArdttColors.Connected
         selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
         else -> colors.onSurface
     }
-    AppSectionCard(
+    ArdttCompactCard(
         modifier = Modifier.clickable(enabled = !selectionLocked, onClick = onSelect),
-        contentPadding = CompactListCard.ContentPadding,
-        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-        shape = CompactListCard.Shape,
-        shadowElevation = CompactListCard.ShadowElevation,
-        tonalElevation = 0.dp,
         border = if (active) {
-            BorderStroke(AppSectionCardDefaults.ContourWidth, ArdttColors.connected)
+            BorderStroke(ArdttSectionCardDefaults.ContourWidth, ArdttColors.Connected)
         } else {
             null
         },
@@ -474,19 +459,19 @@ private fun ProfileCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
-            CompactListLeadingIcon(
+            ArdttLeadingIcon(
                 painter = painterResource(R.drawable.ic_profile),
                 contentDescription = "Профиль",
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+                verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
                 ) {
                     Text(
                         item.profile.name,
@@ -502,15 +487,15 @@ private fun ProfileCard(
                             Icons.Filled.Lock,
                             contentDescription = "Смена профиля недоступна",
                             tint = colors.onSurface.copy(alpha = 0.45f),
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(ArdttSize.IconSmall),
                         )
                     }
                     if (active) {
                         Icon(
                             Icons.Filled.CheckCircle,
                             contentDescription = "Активен",
-                            tint = ArdttColors.connected,
-                            modifier = Modifier.size(18.dp),
+                            tint = ArdttColors.Connected,
+                            modifier = Modifier.size(ArdttSize.IconCompact),
                         )
                     }
                 }
@@ -550,35 +535,35 @@ private fun ProfileCard(
                         } else {
                             colors.onSurfaceVariant
                         },
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(ArdttSize.IconCompact),
                     )
                 }
-                OverflowMenu(
+                ArdttOverflowMenu(
                     expanded = menu,
                     onDismissRequest = { menu = false },
                 ) {
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Подключить",
                         enabled = connectEnabled,
                         leadingIcon = Icons.Filled.VpnKey,
                         onClick = { menu = false; onOpen() },
                     )
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Копировать JSON",
                         leadingIcon = Icons.Filled.ContentCopy,
                         onClick = { menu = false; onCopy() },
                     )
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Ссылка / QR",
                         leadingIcon = Icons.Filled.QrCode,
                         onClick = { menu = false; onShare() },
                     )
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Переименовать",
                         leadingIcon = Icons.Filled.Edit,
                         onClick = { menu = false; onRename() },
                     )
-                    OverflowMenuItem(
+                    ArdttOverflowMenuItem(
                         text = "Удалить",
                         enabled = deleteEnabled,
                         destructive = true,

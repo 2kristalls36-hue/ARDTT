@@ -8,6 +8,7 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP, VpnService |
 | [DEPLOY.md](DEPLOY.md) | Стек **1.0.35**: из приложения (SSH) или `git clone` тега релиза |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
+| [UI.md](UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
 | [android/README.md](../android/README.md) | Сборка клиента 0.5.233, keystore, GitHub Releases |
 | [server/README.md](../server/README.md) | Единый контейнер `ardtt`: provision, direct, bypass, dns, warp, cascade, telemetry |
 

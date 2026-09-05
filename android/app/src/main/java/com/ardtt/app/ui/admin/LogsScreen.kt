@@ -1,11 +1,5 @@
 package com.ardtt.app.ui.admin
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
-import android.widget.Toast
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,19 +32,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.VpnLiveStats
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.terminalLogCardColor
-import com.ardtt.app.ui.components.terminalLogCardShadow
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.terminalCardColor
+import com.ardtt.app.ui.components.surface.terminalCardElevation
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttRadius
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.isDarkSurface
+import com.ardtt.app.ui.util.copyToClipboard
+import com.ardtt.app.ui.util.shareText
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -65,8 +65,8 @@ fun LogsScreen() {
     val entries by AppLog.entries.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val fmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
-    val isDark = isSystemInDarkTheme()
-    val terminalBg = terminalLogCardColor()
+    val isDark = isDarkSurface()
+    val terminalBg = terminalCardColor()
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -110,10 +110,10 @@ fun LogsScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = ArdttBottomChrome.navigationReserve() + 12.dp),
+            .padding(horizontal = ArdttSpacing.Large)
+            .padding(bottom = ArdttBottomChrome.navigationReserve() + ArdttSpacing.Medium),
     ) {
-        TabFeedHeader(
+        ArdttFeedHeader(
             title = "Журнал событий",
             subtitle = if (AppLog.isDetailedEnabled()) {
                 "Подробные события (админ)"
@@ -125,23 +125,12 @@ fun LogsScreen() {
                     Icon(Icons.Default.Delete, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.primary)
                 }
                 IconButton(
-                    onClick = {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("ARDTT logs", dumpBody()))
-                        Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-                    },
+                    onClick = { copyToClipboard(context, dumpBody(), "ARDTT logs") },
                 ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = "Копировать", tint = MaterialTheme.colorScheme.primary)
                 }
                 IconButton(
-                    onClick = {
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "ARDTT logs")
-                            putExtra(Intent.EXTRA_TEXT, dumpBody())
-                        }
-                        context.startActivity(Intent.createChooser(share, "Экспорт логов"))
-                    },
+                    onClick = { shareText(context, dumpBody(), "ARDTT logs", "Экспорт логов") },
                 ) {
                     Icon(Icons.Default.Share, contentDescription = "Поделиться", tint = MaterialTheme.colorScheme.primary)
                 }
@@ -152,13 +141,13 @@ fun LogsScreen() {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
+                    .padding(bottom = ArdttSpacing.Small),
                 color = MaterialTheme.colorScheme.errorContainer,
-                shape = RoundedCornerShape(14.dp),
+                shape = ArdttShapes.Row,
             ) {
                 Text(
                     fatal,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus),
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
@@ -166,31 +155,34 @@ fun LogsScreen() {
             }
         }
 
-        AppSectionCard(
+        ArdttSectionCard(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(0.dp),
-            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(ArdttSpacing.None),
+            shape = ArdttShapes.Panel,
             color = terminalBg,
-            shadowElevation = terminalLogCardShadow(),
+            shadowElevation = terminalCardElevation(),
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (pinnedStats != null || uptimeText != null) {
                     Surface(
-                        color = ArdttColors.terminalBlue.copy(alpha = if (isDark) 0.18f else 0.12f),
-                        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                        color = ArdttColors.TerminalBlue.copy(alpha = if (isDark) ArdttAlpha.Fill else 0.12f),
+                        shape = RoundedCornerShape(
+                            topStart = ArdttRadius.Panel,
+                            topEnd = ArdttRadius.Panel,
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                         ) {
                             if (pinnedStats != null) {
                                 Text(
                                     text = pinnedStats,
-                                    color = ArdttColors.terminalBlue,
+                                    color = ArdttColors.TerminalBlue,
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.SemiBold,
@@ -203,12 +195,12 @@ fun LogsScreen() {
                                 Icon(
                                     Icons.Default.Timer,
                                     contentDescription = null,
-                                    tint = ArdttColors.terminalBlue,
-                                    modifier = Modifier.padding(end = 2.dp),
+                                    tint = ArdttColors.TerminalBlue,
+                                    modifier = Modifier.padding(end = ArdttSpacing.Hairline),
                                 )
                                 Text(
                                     uptimeText,
-                                    color = ArdttColors.terminalBlue,
+                                    color = ArdttColors.TerminalBlue,
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.SemiBold,
@@ -221,8 +213,8 @@ fun LogsScreen() {
                 if (entries.isEmpty()) {
                     Text(
                         "Пока пусто. Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client.",
-                        modifier = Modifier.padding(16.dp),
-                        color = ArdttColors.terminalText.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(ArdttSpacing.Large),
+                        color = ArdttColors.TerminalText.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
@@ -230,14 +222,14 @@ fun LogsScreen() {
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                            .padding(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus),
+                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                     ) {
                         items(entries, key = { it.id }) { e ->
                             val color = when (e.level) {
-                                AppLog.Level.E -> ArdttColors.terminalRed
-                                AppLog.Level.W -> ArdttColors.warning
-                                AppLog.Level.I -> ArdttColors.terminalGreen
+                                AppLog.Level.E -> ArdttColors.TerminalRed
+                                AppLog.Level.W -> ArdttColors.Warning
+                                AppLog.Level.I -> ArdttColors.TerminalGreen
                             }
                             Text(
                                 text = e.displayLine(fmt),
