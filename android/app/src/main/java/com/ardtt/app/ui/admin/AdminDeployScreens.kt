@@ -632,12 +632,15 @@ private fun ServerListScreen(
         ArdttDialog(
             title = "Импорт серверов",
             onDismissRequest = { pendingImport = null },
-            dismissAction = ArdttDialogAction("Отмена") { pendingImport = null },
-            confirmAction = ArdttDialogAction("Импортировать") {
-                serversRepo.upsertAll(imported)
-                Toast.makeText(context, "Импортировано: ${imported.size}", Toast.LENGTH_SHORT).show()
-                pendingImport = null
-            },
+            dismissAction = ArdttDialogAction("Отмена", onClick = { pendingImport = null }),
+            confirmAction = ArdttDialogAction(
+                "Импортировать",
+                onClick = {
+                    serversRepo.upsertAll(imported)
+                    Toast.makeText(context, "Импортировано: ${imported.size}", Toast.LENGTH_SHORT).show()
+                    pendingImport = null
+                },
+            ),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(

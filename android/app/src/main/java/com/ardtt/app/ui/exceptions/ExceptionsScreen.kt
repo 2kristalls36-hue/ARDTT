@@ -110,6 +110,18 @@ private enum class ExceptionsPane { Apps, Sites }
 
 private val CardShape = RoundedCornerShape(24.dp)
 private val AppCardShape = RoundedCornerShape(14.dp)
+/** Keep [AppsLoadingAnimation] stubs in lockstep with [AppExceptionRow]. */
+private val AppRowHorizontalPadding = 12.dp
+private val AppRowVerticalPadding = 3.dp
+private val AppRowContentPadding = PaddingValues(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
+private val AppRowIconSize = 36.dp
+private val AppRowIconCorner = RoundedCornerShape(8.dp)
+private val AppRowIconGap = 10.dp
+/** Material3 Switch track: 52×32. */
+private val AppRowSwitchWidth = 52.dp
+private val AppRowSwitchHeight = 32.dp
+private val AppRowTitleBarHeight = 20.dp
+private val AppRowSubtitleBarHeight = 16.dp
 
 @Stable
 data class ExceptionAppItem(
@@ -758,13 +770,15 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
             top = 8.dp,
             bottom = ArdttBottomChrome.scrollContentPadding(extra = 8.dp),
         ),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(count = 9) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 3.dp),
+                    .padding(
+                        horizontal = AppRowHorizontalPadding,
+                        vertical = AppRowVerticalPadding,
+                    ),
                 shape = AppCardShape,
                 color = colors.surface,
                 border = sectionCardContourBorder(),
@@ -779,41 +793,40 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                        .padding(AppRowContentPadding),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(AppRowIconSize)
+                            .clip(AppRowIconCorner)
                             .background(shimmerBrush),
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(AppRowIconGap))
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .padding(end = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.62f)
-                                .height(13.dp)
+                                .height(AppRowTitleBarHeight)
                                 .clip(RoundedCornerShape(7.dp))
                                 .background(shimmerBrush),
                         )
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.86f)
-                                .height(11.dp)
+                                .height(AppRowSubtitleBarHeight)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(shimmerBrush),
                         )
                     }
                     Box(
                         modifier = Modifier
-                            .size(width = 34.dp, height = 20.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .size(width = AppRowSwitchWidth, height = AppRowSwitchHeight)
+                            .clip(RoundedCornerShape(16.dp))
                             .background(shimmerBrush),
                     )
                 }
@@ -1023,7 +1036,10 @@ private fun AppExceptionRow(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp),
+            .padding(
+                horizontal = AppRowHorizontalPadding,
+                vertical = AppRowVerticalPadding,
+            ),
         shape = AppCardShape,
         color = colors.surface,
         contentColor = colors.onSurface,
@@ -1034,7 +1050,7 @@ private fun AppExceptionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                .padding(AppRowContentPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (app.icon != null) {
@@ -1042,17 +1058,17 @@ private fun AppExceptionRow(
                     bitmap = app.icon,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .size(AppRowIconSize)
+                        .clip(AppRowIconCorner),
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .background(colors.surfaceVariant, RoundedCornerShape(8.dp)),
+                        .size(AppRowIconSize)
+                        .background(colors.surfaceVariant, AppRowIconCorner),
                 )
             }
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(AppRowIconGap))
             Column(
                 modifier = Modifier
                     .weight(1f)
