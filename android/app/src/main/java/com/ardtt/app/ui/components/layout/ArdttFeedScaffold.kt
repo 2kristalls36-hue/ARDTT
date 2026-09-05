@@ -94,12 +94,11 @@ fun ArdttFeedScaffold(
 
     if (stickyContent == null) {
         refreshable(modifier)
-        return
-    }
-
-    Box(modifier = modifier.fillMaxSize()) {
-        refreshable(Modifier)
-        ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = stickyContent)
+    } else {
+        Box(modifier = modifier.fillMaxSize()) {
+            refreshable(Modifier)
+            ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = stickyContent)
+        }
     }
 }
 

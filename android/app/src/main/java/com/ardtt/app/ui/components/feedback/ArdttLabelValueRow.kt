@@ -68,6 +68,7 @@ fun ArdttInlineFactRow(
                 CircularProgressIndicator(
                     modifier = Modifier.size(ArdttSize.SpinnerSmall),
                     strokeWidth = ArdttSize.Stroke,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             } else {
                 leadingIcon?.invoke()
