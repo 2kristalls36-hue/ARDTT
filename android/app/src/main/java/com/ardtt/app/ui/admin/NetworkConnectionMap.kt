@@ -285,8 +285,8 @@ internal fun hopCardStrokeColor(highlighted: Boolean, outline: Color, connected:
  * Falls back to the Direct green when the live path is unknown.
  */
 internal fun hopCardAccentColor(activePath: VpnPath?): Color = when (activePath) {
-    VpnPath.Bypass -> ArdttColors.pathBypass
-    VpnPath.Direct, null -> ArdttColors.connected
+    VpnPath.Bypass -> ArdttColors.PathBypass
+    VpnPath.Direct, null -> ArdttColors.Connected
 }
 
 /** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */
@@ -295,9 +295,6 @@ internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Lo
     NetworkMapHopKind.Vps2 -> pings.exitMs
     NetworkMapHopKind.Provider, NetworkMapHopKind.Cloudflare -> -1L
 }
-
-internal fun hopPingLabel(kind: NetworkMapHopKind, pings: HopHealthPings): String =
-    formatHealthPingMs(hopHealthPingMs(kind, pings))
 
 /** Cloudflare title is split so the WARP mark can sit between «IP» and the name. */
 internal data class HopTitleLayout(

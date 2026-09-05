@@ -1,14 +1,14 @@
 package com.ardtt.app.ui.admin
 
 import android.Manifest
-import android.content.Context
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,7 +24,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,15 +31,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
@@ -51,20 +47,15 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -108,24 +99,31 @@ import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.ui.PendingUiAction
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.TabHeaderMetrics
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.AppSectionCardDefaults
-import com.ardtt.app.ui.components.CompactListCard
-import com.ardtt.app.ui.components.CompactListLeadingIcon
-import com.ardtt.app.ui.components.OverflowMenu
-import com.ardtt.app.ui.components.OverflowMenuItem
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.ArdttLinearProgress
-import com.ardtt.app.ui.components.PullRefreshHost
-import com.ardtt.app.ui.components.StickyPrimaryButton
-import com.ardtt.app.ui.components.TerminalLogCard
-import com.ardtt.app.ui.components.rememberPullRefresh
+import com.ardtt.app.ui.components.control.ArdttOverflowMenu
+import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
+import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttSwitchRow
+import com.ardtt.app.ui.components.feedback.ArdttEmptyState
+import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
+import com.ardtt.app.ui.components.feedback.ArdttStatusChip
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.components.surface.ArdttTerminalCard
 import com.ardtt.app.ui.theme.ArdttColors
-import android.widget.Toast
+import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -235,8 +233,8 @@ private fun pingLatencyColor(
     pingMs: Long,
     poor: Color,
 ): Color? = when (pingLatencyTier(pingMs)) {
-    PingLatencyTier.Good -> ArdttColors.connected
-    PingLatencyTier.Fair -> ArdttColors.warning
+    PingLatencyTier.Good -> ArdttColors.Connected
+    PingLatencyTier.Fair -> ArdttColors.Warning
     PingLatencyTier.Poor -> poor
     null -> null
 }
@@ -248,16 +246,16 @@ private fun ServerHealthStatusRow(
 ) {
     val parts = healthStatusParts(health)
     val presenceColor = when (health) {
-        is HealthUi.Online -> ArdttColors.connected
+        is HealthUi.Online -> ArdttColors.Connected
         HealthUi.Unreachable, HealthUi.NotInstalled -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
     val deployColor = when (health) {
         is HealthUi.Online ->
             if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
-                ArdttColors.connected
+                ArdttColors.Connected
             } else {
-                ArdttColors.warning
+                ArdttColors.Warning
             }
         else -> null
     }
@@ -466,16 +464,16 @@ private fun ServerListScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = ArdttSpacing.Large),
             ) {
-                TabFeedHeader(
+                ArdttFeedHeader(
                     title = if (selectMode) "Экспорт серверов" else "Управление серверами",
                     subtitle = if (selectMode) "Выбрано: ${selectedIds.size}" else null,
                     actions = {
@@ -496,11 +494,11 @@ private fun ServerListScreen(
                                         tint = MaterialTheme.colorScheme.primary,
                                     )
                                 }
-                                OverflowMenu(
+                                ArdttOverflowMenu(
                                     expanded = menuExpanded,
                                     onDismissRequest = { menuExpanded = false },
                                 ) {
-                                    OverflowMenuItem(
+                                    ArdttOverflowMenuItem(
                                         text = "Экспорт",
                                         leadingIcon = Icons.Filled.FileUpload,
                                         enabled = servers.isNotEmpty(),
@@ -510,7 +508,7 @@ private fun ServerListScreen(
                                             selectedIds = emptySet()
                                         },
                                     )
-                                    OverflowMenuItem(
+                                    ArdttOverflowMenuItem(
                                         text = "Импорт из буфера",
                                         leadingIcon = Icons.Filled.FileDownload,
                                         onClick = {
@@ -538,47 +536,27 @@ private fun ServerListScreen(
                 )
 
                 if (servers.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .widthIn(max = 340.dp)
-                                .fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Icon(
-                                Icons.Filled.Dns,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(48.dp),
-                            )
-                            Spacer(modifier = Modifier.height(26.dp))
-                            Text(
-                                "Добавьте первый сервер, чтобы установить стек и управлять пользователями",
-                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
+                    ArdttEmptyState(
+                        title = "Нет серверов",
+                        description = "Добавьте первый сервер, чтобы установить стек " +
+                            "и управлять пользователями.",
+                        icon = Icons.Filled.Dns,
+                    )
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
-                            top = 8.dp,
+                            top = ArdttSpacing.Small,
                             bottom = ArdttBottomChrome.scrollContentPadding(),
                         ),
-                        verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
+                        verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                     ) {
                         items(servers, key = { it.id }) { server ->
                             val selected = server.id in selectedIds
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                             ) {
                                 if (selectMode) {
                                     Checkbox(
@@ -603,19 +581,17 @@ private fun ServerListScreen(
             }
         }
 
-        StickyPrimaryButton(
-            text = if (selectMode) "Экспортировать" else "Добавить сервер",
-            onClick = {
-                if (selectMode) shareTargets = selectedServers
-                else onAddServer()
-            },
-            enabled = !selectMode || selectedServers.isNotEmpty(),
-            icon = if (selectMode) Icons.Filled.FileUpload else Icons.Filled.Add,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-        )
+        ArdttStickyBottomBar {
+            ArdttPrimaryButton(
+                text = if (selectMode) "Экспортировать" else "Добавить сервер",
+                onClick = {
+                    if (selectMode) shareTargets = selectedServers
+                    else onAddServer()
+                },
+                enabled = !selectMode || selectedServers.isNotEmpty(),
+                icon = if (selectMode) Icons.Filled.FileUpload else Icons.Filled.Add,
+            )
+        }
     }
 
     shareTargets?.let { targets ->
@@ -642,7 +618,7 @@ private fun ServerListScreen(
                 },
             ),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small)) {
                 Text(
                     "Будут добавлены или обновлены ${imported.size} сервер(ов). SSH-секреты входят в закрытую ссылку.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -674,14 +650,7 @@ private fun ServerCard(
     onOpenServer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AppSectionCard(
-        modifier = modifier.clickable(onClick = onOpenServer),
-        contentPadding = CompactListCard.ContentPadding,
-        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-        shape = CompactListCard.Shape,
-        shadowElevation = CompactListCard.ShadowElevation,
-        tonalElevation = 0.dp,
-    ) {
+    ArdttCompactCard(modifier = modifier.clickable(onClick = onOpenServer)) {
         ServerIdentityBody(
             server = server,
             health = health,
@@ -718,20 +687,20 @@ private fun ServerIdentityBody(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
     ) {
-        CompactListLeadingIcon(
+        ArdttLeadingIcon(
             imageVector = Icons.Filled.Dns,
             contentDescription = "Сервер",
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+            verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
                 Text(
                     title,
@@ -768,20 +737,10 @@ private fun ServerIdentityBody(
                 expectedVersion = expectedVersion,
             )
             freshnessChip?.let { chip ->
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = ArdttColors.warning.copy(alpha = 0.18f),
-                ) {
-                    Text(
-                        chip,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = ArdttColors.warning,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                ArdttStatusChip(
+                    text = chip,
+                    accent = ArdttColors.Warning,
+                )
             }
         }
     }
@@ -817,7 +776,7 @@ private fun DeployProgressSheet(
         dismissOnClickOutside = false,
     ) {
         if (slots.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small)) {
                 slots.forEach { slot ->
                     DeployHopSlotCard(
                         slot = slot,
@@ -844,7 +803,7 @@ private fun DeployProgressSheet(
                 color = if (it.startsWith("Ошибка")) {
                     MaterialTheme.colorScheme.error
                 } else {
-                    ArdttColors.connected
+                    ArdttColors.Connected
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -855,7 +814,7 @@ private fun DeployProgressSheet(
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
         )
-        TerminalLogCard(
+        ArdttTerminalCard(
             text = log.takeLast(24).joinToString("\n"),
             maxHeight = 200.dp,
         )
@@ -870,23 +829,23 @@ private fun DeployHopSlotCard(
 ) {
     val outline = MaterialTheme.colorScheme.outline
     val borderColor = when (slot.phase) {
-        DeploySlotPhase.Done -> ArdttColors.connected
+        DeploySlotPhase.Done -> ArdttColors.Connected
         DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
         DeploySlotPhase.Pending, DeploySlotPhase.Active -> hopMapGrayStroke(outline)
     }
     val statusColor = when (slot.phase) {
-        DeploySlotPhase.Done -> ArdttColors.connected
+        DeploySlotPhase.Done -> ArdttColors.Connected
         DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
         DeploySlotPhase.Active -> MaterialTheme.colorScheme.onSurface
         DeploySlotPhase.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    AppSectionCard(
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-        shape = RoundedCornerShape(16.dp),
-        shadowElevation = 0.dp,
-        tonalElevation = 0.dp,
-        border = BorderStroke(AppSectionCardDefaults.ContourWidth, borderColor),
+    ArdttSectionCard(
+        contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.SmallPlus),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
+        shape = ArdttShapes.Chip,
+        shadowElevation = ArdttElevation.None,
+        tonalElevation = ArdttElevation.None,
+        border = BorderStroke(ArdttSectionCardDefaults.ContourWidth, borderColor),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1152,13 +1111,13 @@ private fun ServerOverviewScreen(
     val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        ArdttPullRefresh(
             refreshing = refreshing,
             onRefresh = onRefresh,
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
-                    TabFeedHeader(
+                Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
+                    ArdttFeedHeader(
                         title = server.name.ifBlank { server.host },
                         subtitle = "Управление сервером",
                         onBack = onBack,
@@ -1171,11 +1130,11 @@ private fun ServerOverviewScreen(
                                     tint = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            OverflowMenu(
+                            ArdttOverflowMenu(
                                 expanded = showActions,
                                 onDismissRequest = { onShowActions(false) },
                             ) {
-                                OverflowMenuItem(
+                                ArdttOverflowMenuItem(
                                     text = serverOverviewDeployActionLabel(health),
                                     leadingIcon = Icons.Filled.CloudUpload,
                                     onClick = {
@@ -1183,7 +1142,7 @@ private fun ServerOverviewScreen(
                                         onUpdateDeploy()
                                     },
                                 )
-                                OverflowMenuItem(
+                                ArdttOverflowMenuItem(
                                     text = "Переименовать",
                                     leadingIcon = Icons.Filled.Edit,
                                     onClick = {
@@ -1191,7 +1150,7 @@ private fun ServerOverviewScreen(
                                         onRename()
                                     },
                                 )
-                                OverflowMenuItem(
+                                ArdttOverflowMenuItem(
                                     text = "Удалить",
                                     leadingIcon = Icons.Filled.Delete,
                                     destructive = true,
@@ -1209,25 +1168,19 @@ private fun ServerOverviewScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
+                        start = ArdttSpacing.Large,
+                        end = ArdttSpacing.Large,
+                        top = ArdttSpacing.Small,
                         bottom = if (showUpdateButton) {
                             ArdttBottomChrome.scrollContentPadding()
                         } else {
-                            ArdttBottomChrome.navigationReserve() + 16.dp
+                            ArdttBottomChrome.navigationReserve() + ArdttSpacing.Large
                         },
                     ),
-                    verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
+                    verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                 ) {
             item {
-                AppSectionCard(
-                    contentPadding = CompactListCard.ContentPadding,
-                    verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-                    shape = CompactListCard.Shape,
-                    shadowElevation = CompactListCard.ShadowElevation,
-                    tonalElevation = 0.dp,
-                ) {
+                ArdttCompactCard {
                     ServerIdentityBody(
                         server = server,
                         health = health,
@@ -1248,7 +1201,7 @@ private fun ServerOverviewScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
+                    modifier = Modifier.padding(start = ArdttSpacing.Tiny, top = ArdttSpacing.Tiny, bottom = ArdttSpacing.Hairline),
                 )
             }
             item {
@@ -1272,16 +1225,14 @@ private fun ServerOverviewScreen(
         }
 
         if (showUpdateButton) {
-            StickyPrimaryButton(
-                text = serverOverviewDeployActionLabel(health),
-                onClick = onUpdateDeploy,
-                containerColor = ArdttColors.warning,
-                icon = Icons.Filled.CloudUpload,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-            )
+            ArdttStickyBottomBar {
+                ArdttPrimaryButton(
+                    text = serverOverviewDeployActionLabel(health),
+                    onClick = onUpdateDeploy,
+                    containerColor = ArdttColors.Warning,
+                    icon = Icons.Filled.CloudUpload,
+                )
+            }
         }
     }
 }
@@ -1293,29 +1244,28 @@ private fun ServerActionCard(
     description: String,
     onClick: () -> Unit,
 ) {
-    AppSectionCard(
+    ArdttCompactCard(
         modifier = Modifier.clickable(onClick = onClick),
-        contentPadding = CompactListCard.ContentPadding,
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-        shape = CompactListCard.Shape,
-        shadowElevation = CompactListCard.ShadowElevation,
-        tonalElevation = 0.dp,
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.None),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+            Surface(
+                shape = ArdttShapes.Icon,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
                 Icon(
                     icon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier
-                        .padding(8.dp)
-                        .size(18.dp),
+                        .padding(ArdttSpacing.Small)
+                        .size(ArdttSize.IconCompact),
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(ArdttSpacing.Medium))
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
             ) {
                 Text(
                     title,
@@ -1359,7 +1309,7 @@ private fun RenameServerDialog(
             onValueChange = { name = it },
             label = { Text("Имя сервера") },
             singleLine = true,
-            shape = RoundedCornerShape(16.dp),
+            shape = ArdttShapes.Field,
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -1539,11 +1489,11 @@ fun DeployScreen(
                 .fillMaxSize()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(bottom = ArdttBottomChrome.navigationReserve() + ArdttSpacing.XXLarge),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
-        Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
-            TabFeedHeader(
+        Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
+            ArdttFeedHeader(
                 title = serverDeployScreenTitle(saved),
                 subtitle = if (saved) {
                     "Стек $expectedDeployVersion · SSH · Compose"
@@ -1557,12 +1507,12 @@ fun DeployScreen(
             serverDeployFormHelp(saved, cascadeEnabled, expectedDeployVersion),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = ArdttSpacing.Large),
         )
 
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = ArdttSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
         OutlinedTextField(
             value = name,
@@ -1573,7 +1523,7 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
-            shape = RoundedCornerShape(16.dp),
+            shape = ArdttShapes.Field,
         )
         OutlinedTextField(
             value = host,
@@ -1584,8 +1534,9 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
+            shape = ArdttShapes.Field,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small), modifier = Modifier.fillMaxWidth()) {
             OutlinedTextField(
                 value = sshPort,
                 onValueChange = { sshPort = it.filter { ch -> ch.isDigit() }.take(5) },
@@ -1596,6 +1547,7 @@ fun DeployScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 enabled = !busy,
+                shape = ArdttShapes.Field,
             )
             OutlinedTextField(
                 value = sshUser,
@@ -1606,6 +1558,7 @@ fun DeployScreen(
                     .bringIntoViewWhenFocused(),
                 singleLine = true,
                 enabled = !busy,
+                shape = ArdttShapes.Field,
             )
         }
         OutlinedTextField(
@@ -1618,6 +1571,7 @@ fun DeployScreen(
             visualTransformation = PasswordVisualTransformation(),
             singleLine = true,
             enabled = !busy,
+            shape = ArdttShapes.Field,
         )
         OutlinedTextField(
             value = privateKey,
@@ -1629,6 +1583,7 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             minLines = 3,
             enabled = !busy,
+            shape = ArdttShapes.Field,
         )
         if (privateKey.isNotBlank()) {
             OutlinedTextField(
@@ -1641,6 +1596,7 @@ fun DeployScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 enabled = !busy,
+                shape = ArdttShapes.Field,
             )
         }
         OutlinedTextField(
@@ -1653,43 +1609,23 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
+            shape = ArdttShapes.Field,
         )
-        AppSectionCard(
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            shape = RoundedCornerShape(16.dp),
+        ArdttSectionCard(
+            contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
+            shape = ArdttShapes.Chip,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        "Автовыбор портов",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Свободные UDP Direct / Bypass на VPS. Выключите, чтобы задать порты вручную.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = autoPorts,
-                    onCheckedChange = { autoPorts = it },
-                    enabled = !busy,
-                )
-            }
+            ArdttSwitchRow(
+                title = "Автовыбор портов",
+                subtitle = "Свободные UDP Direct / Bypass на VPS. Выключите, чтобы задать порты вручную.",
+                checked = autoPorts,
+                onCheckedChange = { autoPorts = it },
+                enabled = !busy,
+            )
             if (!autoPorts) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     OutlinedTextField(
@@ -1702,6 +1638,7 @@ fun DeployScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         enabled = !busy,
+                        shape = ArdttShapes.Field,
                     )
                     OutlinedTextField(
                         value = bypassPort,
@@ -1713,47 +1650,28 @@ fun DeployScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         enabled = !busy,
+                        shape = ArdttShapes.Field,
                     )
                 }
             }
         }
 
-        AppSectionCard(
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            shape = RoundedCornerShape(16.dp),
+        ArdttSectionCard(
+            contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
+            shape = ArdttShapes.Chip,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        "Каскадное подключение",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Второй сервер — выход в интернет и WARP. Телефон ставит его отдельно; клиенты живут на первом.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = cascadeEnabled,
-                    onCheckedChange = { on ->
-                        cascadeEnabled = on
-                        if (on) cascadeUser = deploySshUserOrRoot(cascadeUser)
-                    },
-                    enabled = !busy,
-                )
-            }
+            ArdttSwitchRow(
+                title = "Каскадное подключение",
+                subtitle = "Второй сервер — выход в интернет и WARP. " +
+                    "Телефон ставит его отдельно; клиенты живут на первом.",
+                checked = cascadeEnabled,
+                onCheckedChange = { on ->
+                    cascadeEnabled = on
+                    if (on) cascadeUser = deploySshUserOrRoot(cascadeUser)
+                },
+                enabled = !busy,
+            )
             if (cascadeEnabled) {
                 OutlinedTextField(
                     value = cascadeHost,
@@ -1765,9 +1683,10 @@ fun DeployScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .bringIntoViewWhenFocused(),
+                    shape = ArdttShapes.Field,
                 )
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     OutlinedTextField(
@@ -1780,6 +1699,7 @@ fun DeployScreen(
                         modifier = Modifier
                             .weight(1f)
                             .bringIntoViewWhenFocused(),
+                        shape = ArdttShapes.Field,
                     )
                     OutlinedTextField(
                         value = cascadeUser,
@@ -1790,6 +1710,7 @@ fun DeployScreen(
                         modifier = Modifier
                             .weight(1f)
                             .bringIntoViewWhenFocused(),
+                        shape = ArdttShapes.Field,
                     )
                 }
                 OutlinedTextField(
@@ -1802,6 +1723,7 @@ fun DeployScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .bringIntoViewWhenFocused(),
+                    shape = ArdttShapes.Field,
                 )
                 OutlinedTextField(
                     value = cascadePrivateKey,
@@ -1813,6 +1735,7 @@ fun DeployScreen(
                         .bringIntoViewWhenFocused(),
                     minLines = 3,
                     enabled = !busy,
+                    shape = ArdttShapes.Field,
                 )
                 if (cascadePrivateKey.isNotBlank()) {
                     OutlinedTextField(
@@ -1825,6 +1748,7 @@ fun DeployScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .bringIntoViewWhenFocused(),
+                        shape = ArdttShapes.Field,
                     )
                 }
             }
@@ -1864,14 +1788,14 @@ fun DeployScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = ArdttShapes.Chip,
         ) {
             Icon(
                 Icons.Filled.CloudUpload,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(ArdttSpacing.XLarge),
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(ArdttSpacing.Small))
             Text(
                 serverDeployActionLabel(saved, cascadeEnabled),
                 fontWeight = FontWeight.SemiBold,
@@ -1964,19 +1888,19 @@ private fun ServerOsBadge(
     val description = listOfNotNull(label, version).joinToString(" ")
     Surface(
         modifier = Modifier.widthIn(max = 200.dp),
-        shape = RoundedCornerShape(8.dp),
+        shape = ArdttShapes.Badge,
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            modifier = Modifier.padding(horizontal = ArdttSpacing.Small, vertical = 3.dp),
         ) {
             Image(
                 painter = painterResource(serverOsMarkDrawable(mark)),
                 contentDescription = description,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(ArdttSize.IconSmall),
             )
             Text(
                 label,

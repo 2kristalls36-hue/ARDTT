@@ -10,15 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,13 +24,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.ConnectionManager
@@ -46,14 +41,17 @@ import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.AppSectionCardDefaults
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.PingFlashDot
-import com.ardtt.app.ui.components.PullRefreshHost
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.rememberPullRefresh
+import com.ardtt.app.ui.components.feedback.ArdttPingDot
+import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -209,37 +207,30 @@ fun NetworkScreen(
 
     val pull = rememberPullRefresh { refreshAll() }
 
-    PullRefreshHost(
+    ArdttFeedScaffold(
         refreshing = pull.refreshing,
         onRefresh = pull.onRefresh,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            TabFeedHeader(
+        header = {
+            ArdttTabHeader(
                 title = "Сеть",
                 subtitle = NetworkMapCopy.SUBTITLE,
             )
-            Column {
-                visibleHops.forEachIndexed { index, view ->
-                    if (index > 0) {
-                        HopConnector()
-                    }
-                    IpInfoCard(
-                        title = view.hop.title,
-                        kind = view.hop.kind,
-                        info = view.info,
-                        loading = view.loading,
-                        highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
-                        pingMs = hopHealthPingMs(view.hop.kind, hopPings),
-                        accentColor = pathAccent,
-                    )
+        },
+    ) {
+        Column {
+            visibleHops.forEachIndexed { index, view ->
+                if (index > 0) {
+                    HopConnector()
                 }
+                IpInfoCard(
+                    title = view.hop.title,
+                    kind = view.hop.kind,
+                    info = view.info,
+                    loading = view.loading,
+                    highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
+                    pingMs = hopHealthPingMs(view.hop.kind, hopPings),
+                    accentColor = pathAccent,
+                )
             }
         }
     }
@@ -424,15 +415,15 @@ private fun HopConnector() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(22.dp)
+            .height(ArdttSize.Icon)
             .semantics { contentDescription = "связь" },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .width(2.dp)
+                .width(ArdttSize.Contour)
                 .fillMaxHeight()
-                .background(color, RoundedCornerShape(50)),
+                .background(color, ArdttShapes.Pill),
         )
     }
 }
@@ -445,23 +436,23 @@ private fun IpInfoCard(
     loading: Boolean = false,
     highlighted: Boolean = false,
     pingMs: Long = -1L,
-    accentColor: Color = ArdttColors.connected,
+    accentColor: Color = ArdttColors.Connected,
 ) {
     val pingLabel = formatHealthPingMs(pingMs)
     val pingColor = when (pingLatencyTier(pingMs)) {
-        PingLatencyTier.Good -> ArdttColors.connected
-        PingLatencyTier.Fair -> ArdttColors.warning
+        PingLatencyTier.Good -> ArdttColors.Connected
+        PingLatencyTier.Fair -> ArdttColors.Warning
         PingLatencyTier.Poor -> MaterialTheme.colorScheme.error
         null -> accentColor
     }
-    AppSectionCard(
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        shape = RoundedCornerShape(24.dp),
-        shadowElevation = 0.dp,
-        tonalElevation = 0.dp,
+    ArdttSectionCard(
+        contentPadding = PaddingValues(horizontal = ArdttSpacing.LargePlus, vertical = ArdttSpacing.Large),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+        shape = ArdttShapes.Panel,
+        shadowElevation = ArdttElevation.None,
+        tonalElevation = ArdttElevation.None,
         border = BorderStroke(
-            AppSectionCardDefaults.ContourWidth,
+            ArdttSectionCardDefaults.ContourWidth,
             hopCardStrokeColor(
                 highlighted = highlighted,
                 outline = MaterialTheme.colorScheme.outline,
@@ -480,9 +471,9 @@ private fun IpInfoCard(
                 modifier = Modifier.weight(1f),
             )
             if (pingLabel.isNotEmpty()) {
-                PingFlashDot(
+                ArdttPingDot(
                     pingKey = pingLabel,
-                    modifier = Modifier.padding(start = 8.dp, end = 4.dp),
+                    modifier = Modifier.padding(start = ArdttSpacing.Small, end = ArdttSpacing.Tiny),
                     color = pingColor,
                 )
                 Text(
@@ -540,8 +531,8 @@ private fun HopCardTitle(
             painter = painterResource(R.drawable.ic_cloudflare),
             contentDescription = null,
             modifier = Modifier
-                .padding(horizontal = 6.dp)
-                .size(16.dp),
+                .padding(horizontal = ArdttSpacing.TinyPlus)
+                .size(ArdttSize.IconSmall),
         )
         Text(
             layout.trailingText,

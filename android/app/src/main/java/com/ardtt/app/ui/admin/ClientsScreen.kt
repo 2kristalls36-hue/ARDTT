@@ -8,25 +8,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,20 +46,27 @@ import com.ardtt.app.deploy.deviceDisplayLabels
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.VpnProfileJson
+import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.feedback.ArdttEmptyState
+import com.ardtt.app.ui.components.feedback.ArdttErrorState
+import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
+import com.ardtt.app.ui.components.feedback.ArdttLoadingState
+import com.ardtt.app.ui.components.feedback.ArdttStatusChip
+import com.ardtt.app.ui.components.feedback.ArdttStatusDot
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.latestAppVersionCode
-import com.ardtt.app.update.AppUpdateController
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.CompactListCard
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.TabHeaderMetrics
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.ArdttLinearProgress
-import com.ardtt.app.ui.components.PullRefreshHost
-import com.ardtt.app.ui.components.StickyPrimaryButton
-import com.ardtt.app.ui.components.rememberPullRefresh
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.update.AppUpdateController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -84,9 +85,7 @@ internal fun ClientsHost(
         if (servers.isNotEmpty() && server == null) onBack()
     }
     if (server == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
+        ArdttLoadingState(modifier = Modifier.fillMaxSize())
     } else {
         ClientsScreen(server = server, profiles = profiles, onBack = onBack)
     }
@@ -243,13 +242,13 @@ private fun ClientsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = { if (!loading) pull.onRefresh() },
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
-                    TabFeedHeader(
+                Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
+                    ArdttFeedHeader(
                         title = "Клиенты",
                         subtitle = when {
                             loading -> "Загрузка…"
@@ -261,70 +260,28 @@ private fun ClientsScreen(
                 }
 
                 when {
-                    loading -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    }
-                    error != null -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.widthIn(max = 360.dp),
-                        ) {
-                            Text(
-                                "Provision недоступен",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                error ?: "",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "Нужен установленный стек (health на :9100).",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            OutlinedButton(onClick = { refresh() }) { Text("Повторить") }
-                        }
-                    }
-                }
-                else -> {
+                    loading -> ArdttLoadingState()
+                    error != null -> ArdttErrorState(
+                        title = "Provision недоступен",
+                        description = error,
+                        hint = "Нужен установленный стек (health на :9100).",
+                        onRetry = { refresh() },
+                    )
+                    else -> {
                     if (users.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                "Пока нет клиентов. Создайте пользователя — приложение сразу выдаст JSON профиля.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
+                        ArdttEmptyState(
+                            title = "Пока нет клиентов",
+                            description = "Создайте пользователя — приложение сразу выдаст JSON профиля.",
+                        )
                     } else {
                         LazyColumn(
                             contentPadding = PaddingValues(
-                                start = 16.dp,
-                                end = 16.dp,
-                                top = 8.dp,
+                                start = ArdttSpacing.Large,
+                                end = ArdttSpacing.Large,
+                                top = ArdttSpacing.Small,
                                 bottom = ArdttBottomChrome.scrollContentPadding(),
                             ),
-                            verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
+                            verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                         ) {
                             items(users, key = { "${it.name}-${it.hostId}" }) { user ->
                                 ClientCard(
@@ -369,20 +326,18 @@ private fun ClientsScreen(
             }
         }
 
-        StickyPrimaryButton(
-            text = "Создать клиента",
-            onClick = {
-                createName = ""
-                createDays = 30
-                createMaxDevices = 1
-                showCreate = true
-            },
-            icon = Icons.Filled.Add,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-        )
+        ArdttStickyBottomBar {
+            ArdttPrimaryButton(
+                text = "Создать клиента",
+                onClick = {
+                    createName = ""
+                    createDays = 30
+                    createMaxDevices = 1
+                    showCreate = true
+                },
+                icon = Icons.Filled.Add,
+            )
+        }
     }
 
     if (showCreate) {
@@ -436,7 +391,7 @@ private fun ClientsScreen(
                 label = { Text("Имя") },
                 singleLine = true,
                 enabled = !creating,
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
@@ -448,7 +403,7 @@ private fun ClientsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
                 createDayOptions.forEach { (days, label) ->
                     FilterChip(
@@ -468,7 +423,7 @@ private fun ClientsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
                 createDeviceOptions.forEach { count ->
                     FilterChip(
@@ -525,7 +480,7 @@ private fun ClientsScreen(
                 label = { Text("Лимит устройств") },
                 singleLine = true,
                 enabled = !editing,
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -534,7 +489,7 @@ private fun ClientsScreen(
                 label = { Text("Продлить на N дней (опц.)") },
                 singleLine = true,
                 enabled = !editing,
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -543,7 +498,7 @@ private fun ClientsScreen(
                 label = { Text("Лимит трафика, ГБ (0 = без лимита)") },
                 singleLine = true,
                 enabled = !editing,
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -646,7 +601,7 @@ private fun ClientsScreen(
                 label = { Text("Имя") },
                 singleLine = true,
                 enabled = !renaming,
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -703,10 +658,10 @@ private fun ClientCard(
         else -> (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
     }
     val trafficColor = when {
-        limit <= 0L -> ArdttColors.connected
+        limit <= 0L -> ArdttColors.Connected
         progress >= 0.85f -> MaterialTheme.colorScheme.error
-        progress >= 0.55f -> ArdttColors.warning
-        else -> ArdttColors.connected
+        progress >= 0.55f -> ArdttColors.Warning
+        else -> ArdttColors.Connected
     }
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
@@ -726,22 +681,16 @@ private fun ClientCard(
     }
     val expiresTone = clientExpiresTone(user.expiresAt)
     val expiresColor = when (expiresTone) {
-        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> ArdttColors.connected
-        ClientExpiresTone.ExpiringSoon -> ArdttColors.warning
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> ArdttColors.Connected
+        ClientExpiresTone.ExpiringSoon -> ArdttColors.Warning
         ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
     }
-    AppSectionCard(
-        contentPadding = CompactListCard.ContentPadding,
-        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-        shape = CompactListCard.Shape,
-        shadowElevation = CompactListCard.ShadowElevation,
-        tonalElevation = 0.dp,
-    ) {
+    ArdttCompactCard {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(enabled = !busy, onClick = onOpenProfile),
-            verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+            verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -756,13 +705,14 @@ private fun ClientCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = if (user.online) ArdttColors.connected else MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier
-                        .padding(end = 6.dp)
-                        .size(8.dp),
-                ) {}
+                ArdttStatusDot(
+                    color = if (user.online) {
+                        ArdttColors.Connected
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant
+                    },
+                    modifier = Modifier.padding(end = ArdttSpacing.TinyPlus),
+                )
                 Text(
                     presence,
                     style = MaterialTheme.typography.labelSmall,
@@ -791,41 +741,22 @@ private fun ClientCard(
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
                 ) {
                     val appVer = clientAppVersionView(user, latestVersionCode)
                     val appVerColor = when (appVer.tone) {
-                        ClientAppVersionTone.Current -> ArdttColors.connected
+                        ClientAppVersionTone.Current -> ArdttColors.Connected
                         ClientAppVersionTone.Outdated -> MaterialTheme.colorScheme.error
                         ClientAppVersionTone.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = appVerColor.copy(alpha = 0.18f),
-                    ) {
-                        Text(
-                            appVer.label,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = appVerColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = expiresColor.copy(alpha = 0.18f),
-                    ) {
-                        Text(
-                            formatClientExpires(user.expiresAt),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = expiresColor,
-                            maxLines = 1,
-                        )
-                    }
+                    ArdttStatusChip(
+                        text = appVer.label,
+                        accent = appVerColor,
+                    )
+                    ArdttStatusChip(
+                        text = formatClientExpires(user.expiresAt),
+                        accent = expiresColor,
+                    )
                 }
             }
             Text(
@@ -838,7 +769,7 @@ private fun ClientCard(
             if (limit > 0L) {
                 ArdttLinearProgress(
                     progress = progress,
-                    modifier = Modifier.height(4.dp),
+                    modifier = Modifier.height(ArdttSpacing.Tiny),
                     color = trafficColor,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
@@ -864,7 +795,7 @@ private fun ClientCard(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
         ) {
             ClientActionButton("Лимит", busy, Modifier.weight(1f), onEditLimits)
             ClientActionButton("Удалить", busy, Modifier.weight(1f), onDelete)
@@ -883,8 +814,8 @@ private fun ClientActionButton(
         onClick = onClick,
         enabled = !busy,
         modifier = modifier.height(36.dp),
-        shape = RoundedCornerShape(12.dp),
-        contentPadding = PaddingValues(horizontal = 8.dp),
+        shape = ArdttShapes.Icon,
+        contentPadding = PaddingValues(horizontal = ArdttSpacing.Small),
     ) {
         Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }

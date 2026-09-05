@@ -382,22 +382,3 @@ internal fun deployFreshnessChipText(health: HealthUi?, expectedVersion: String)
     return "Требуется обновление · $installed → $expected"
 }
 
-internal fun healthUiIsDown(health: HealthUi?): Boolean =
-    health is HealthUi.Unreachable || health is HealthUi.NotInstalled
-
-/** Status line without repeating “актуален” / “нужно обновить” (that lives on the chip). */
-internal fun healthStatusLabel(health: HealthUi?): String {
-    val parts = healthStatusParts(health)
-    return buildString {
-        append(parts.presence)
-        parts.deploy?.let {
-            append(" · ")
-            append(it)
-        }
-        val ping = parts.pingLabel
-        if (ping.isNotEmpty()) {
-            append(" · ")
-            append(ping)
-        }
-    }
-}

@@ -20,8 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.legal.TestingModeAgreement
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.theme.ArdttSpacing
 
 @Composable
 fun TestingModeAgreementDialog(
@@ -45,10 +46,10 @@ fun TestingModeAgreementDialog(
                 .fillMaxWidth()
                 .heightIn(min = 160.dp, max = 380.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
         ) {
             for (section in TestingModeAgreement.sections) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny)) {
                     Text(
                         section.title,
                         style = MaterialTheme.typography.titleSmall,

@@ -6,11 +6,9 @@ import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Button
@@ -33,7 +31,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.bypass.VkCallHashGenerator
 import com.ardtt.app.bypass.VkLoginActivity
@@ -44,23 +41,12 @@ import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.profile.ProfileRepository
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttSectionTitle
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlinx.coroutines.launch
-
-@Composable
-fun CallHashSettingsCard(
-    modifier: Modifier = Modifier,
-) {
-    AppSectionCard(
-        modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        CallHashSettingsContent(showHeader = true)
-    }
-}
 
 @Composable
 fun CallHashSettingsContent(
@@ -91,14 +77,10 @@ fun CallHashSettingsContent(
     }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
     ) {
         if (showHeader) {
-            Text(
-                "Код звонка",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            ArdttSectionTitle("Код звонка")
         }
         Text(
             "Нужен для обхода. Хранится на устройстве отдельно от профиля и не сбрасывается при обновлении.",
@@ -114,7 +96,7 @@ fun CallHashSettingsContent(
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
         ) {
             OutlinedButton(
                 onClick = {
@@ -134,7 +116,7 @@ fun CallHashSettingsContent(
                 },
                 enabled = canEdit && vkLoggedIn,
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Chip,
             ) {
                 Text("Создать код")
             }
@@ -145,7 +127,7 @@ fun CallHashSettingsContent(
                 },
                 enabled = canEdit,
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Chip,
             ) {
                 Text("Ввести вручную")
             }
@@ -185,7 +167,7 @@ fun CallHashSettingsContent(
             },
             enabled = sessionAction.enabled,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = ArdttShapes.Chip,
             colors = if (sessionAction.destructive) {
                 ButtonDefaults.buttonColors(
                     containerColor = colors.error,
@@ -268,7 +250,7 @@ private fun CallHashDialog(
             destructive = true,
         ),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium)) {
             Text(
                 "Укажите ссылку вида vk.com/call/join/… либо сам код.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -278,17 +260,17 @@ private fun CallHashDialog(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Field,
                 singleLine = true,
             )
             OutlinedButton(
                 onClick = onCopy,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Chip,
                 enabled = value.isNotBlank(),
             ) {
                 Icon(Icons.Default.ContentCopy, contentDescription = null)
-                Text("Копировать", modifier = Modifier.padding(start = 8.dp))
+                Text("Копировать", modifier = Modifier.padding(start = ArdttSpacing.Small))
             }
         }
     }
