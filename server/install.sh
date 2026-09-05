@@ -14,8 +14,10 @@
 # Protocol lines consumed by the Android DeployEngine:
 #   ARDTT_PROGRESS|<0..1>|<step>
 #   ARDTT_ERROR|<message>
-#   ARDTT_DONE|install_dir=…|public_host=…
+#   ARDTT_DONE|install_dir=…|public_host=…|direct_port=…|bypass_port=…
 #   ARDTT_WARN|<message>
+# ARDTT_AUTO_PORTS=1 (app default): pick free UDP ports when preferred
+# Direct/Bypass (or cascade listen) ports are already taken on the VPS.
 #
 # On VPS with ≥1.8 GiB RAM, build new images BEFORE stopping the old stack so a
 # mid-build SSH drop does not take the VPN down. On ~1 GiB hosts that order OOMs
@@ -28,6 +30,7 @@ INSTALL_DIR="${ARDTT_INSTALL_DIR:-${NVPN_INSTALL_DIR:-/opt/ardtt}}"
 PUBLIC_HOST="${ARDTT_PUBLIC_HOST:-${NVPN_PUBLIC_HOST:-}}"
 DIRECT_PORT="${ARDTT_DIRECT_PORT:-${NVPN_DIRECT_PORT:-51820}}"
 BYPASS_PORT="${ARDTT_BYPASS_PORT:-${NVPN_BYPASS_PORT:-56003}}"
+AUTO_PORTS="${ARDTT_AUTO_PORTS:-${NVPN_AUTO_PORTS:-0}}"
 PROVISION_LISTEN="${ARDTT_PROVISION_LISTEN:-${NVPN_PROVISION_LISTEN:-0.0.0.0:9100}}"
 TELEMETRY_PORT="${ARDTT_TELEMETRY_PORT:-${NVPN_TELEMETRY_PORT:-9200}}"
 KEEP_INSTALL_LOG="${ARDTT_KEEP_INSTALL_LOG:-${NVPN_KEEP_INSTALL_LOG:-0}}"
@@ -196,6 +199,84 @@ require_host_port() {
   die "Порт ${port}/${proto} занят (${what}) — другой сервис на этом VPS. Освободите порт или задайте другой ARDTT_*_PORT. Сейчас: $(who_owns_port "$port")"
 }
 
+# True if $1 equals any later argument (used so Direct ≠ Bypass ≠ cascade).
+port_in_use_by_us() {
+  local want="$1"
+  shift
+  local p
+  for p in "$@"; do
+    [ -n "$p" ] || continue
+    [ "$p" = "$want" ] && return 0
+  done
+  return 1
+}
+
+find_free_udp_port() {
+  local start="$1"
+  shift
+  local port="$start" tries=0
+  if [ -z "$port" ] || [ "$port" -lt 1024 ] 2>/dev/null; then
+    port=1024
+  fi
+  while [ "$tries" -lt 500 ]; do
+    if ! port_in_use_by_us "$port" "$@" && ! udp_listen_port "$port"; then
+      printf '%s' "$port"
+      return 0
+    fi
+    port=$((port + 1))
+    if [ "$port" -gt 65535 ]; then
+      port=1024
+    fi
+    tries=$((tries + 1))
+  done
+  return 1
+}
+
+# If preferred UDP is free, keep it; with AUTO_PORTS=1 pick the next free port.
+resolve_udp_host_port() {
+  local preferred="$1" what="$2"
+  shift 2
+  if ! udp_listen_port "$preferred" && ! port_in_use_by_us "$preferred" "$@"; then
+    printf '%s' "$preferred"
+    return 0
+  fi
+  if [ "$AUTO_PORTS" != "1" ]; then
+    require_host_port udp "$preferred" "$what"
+    return 1
+  fi
+  local next
+  next="$(find_free_udp_port "$preferred" "$@")" || \
+    die "Не удалось подобрать свободный UDP-порт для ${what} (старт с ${preferred})"
+  if [ "$next" != "$preferred" ]; then
+    # Must not mix with the printf port on stdout (command substitution).
+    echo "ARDTT_WARN|${what}: порт ${preferred}/udp занят — выбран ${next}/udp. Было: $(who_owns_port "$preferred")" >&2
+  fi
+  printf '%s' "$next"
+}
+
+# Prefer ports from a previous deploy when auto-picking (keeps client profiles).
+preserve_previous_ports() {
+  [ "$AUTO_PORTS" = "1" ] || return 0
+  local envf="$INSTALL_DIR/stack/.env" prev=""
+  prev="$(env_file_val "$envf" ARDTT_DIRECT_PORT)"
+  if [ -n "$prev" ]; then DIRECT_PORT="$prev"; fi
+  prev="$(env_file_val "$envf" ARDTT_BYPASS_PORT)"
+  if [ -n "$prev" ]; then BYPASS_PORT="$prev"; fi
+  prev="$(env_file_val "$envf" ARDTT_CASCADE_LISTEN_PORT)"
+  if [ -n "$prev" ]; then CASCADE_LISTEN_PORT="$prev"; fi
+  return 0
+}
+
+env_set_key() {
+  local file="$1" key="$2" val="$3"
+  [ -f "$file" ] || return 0
+  if grep -qE "^${key}=" "$file" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+  else
+    printf '%s=%s\n' "$key" "$val" >> "$file"
+  fi
+}
+
 # An in-app "update" of the entry hop often omits cascade flags. Dropping them
 # tears down ardtt-cascade, leaves profiles on 10.10.0.2 DNS, and Hide-IP-off
 # traffic can stick on Cloudflare while the app still shows the VPS WAN.
@@ -232,6 +313,7 @@ preserve_live_cascade() {
   [ -n "$CASCADE_DNS" ] || CASCADE_DNS="10.10.0.2"
 }
 migrate_legacy_install_dir
+preserve_previous_ports
 preserve_live_cascade
 resolve_network_mode
 
@@ -548,7 +630,7 @@ trap on_exit EXIT
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 prog() { echo "ARDTT_PROGRESS|$1|$2"; }
-die() { echo "ARDTT_ERROR|$*"; exit 1; }
+die() { echo "ARDTT_ERROR|$*" >&2; exit 1; }
 
 mem_total_mb() {
   awk '/MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0
@@ -854,7 +936,7 @@ if [ "${ARDTT_DRY_RUN:-${NVPN_DRY_RUN:-0}}" = "1" ]; then
   STAGING=""
   rm -rf "$INSTALL_DIR/stack.old"
   prog 1.00 "dry-run: стек подготовлен"
-  echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=$NETWORK_MODE"
+  echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=$NETWORK_MODE|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS"
   exit 0
 fi
 
@@ -998,12 +1080,22 @@ if tcp_listen_port "$TELEMETRY_PORT"; then
 fi
 if [ "$ROLE" = "exit" ]; then
   sed -i '/ARDTT_BYPASS_PORT.*udp/d' "$STACK/docker-compose.yml" 2>/dev/null || true
-  require_host_port udp "$CASCADE_LISTEN_PORT" "каскад AmneziaWG"
+  CASCADE_LISTEN_PORT="$(resolve_udp_host_port "$CASCADE_LISTEN_PORT" "каскад AmneziaWG")"
+  DIRECT_PORT="$CASCADE_LISTEN_PORT"
 else
-  require_host_port udp "$DIRECT_PORT" "Direct AmneziaWG"
-  require_host_port udp "$BYPASS_PORT" "Bypass RAW"
+  DIRECT_PORT="$(resolve_udp_host_port "$DIRECT_PORT" "Direct AmneziaWG")"
+  BYPASS_PORT="$(resolve_udp_host_port "$BYPASS_PORT" "Bypass RAW" "$DIRECT_PORT")"
 fi
 require_host_port tcp 9100 "provision /health"
+env_set_key "$STACK/.env" ARDTT_DIRECT_PORT "$DIRECT_PORT"
+env_set_key "$STACK/.env" ARDTT_BYPASS_PORT "$BYPASS_PORT"
+env_set_key "$STACK/.env" ARDTT_CASCADE_LISTEN_PORT "$CASCADE_LISTEN_PORT"
+export ARDTT_DIRECT_PORT="$DIRECT_PORT"
+export ARDTT_BYPASS_PORT="$BYPASS_PORT"
+export ARDTT_CASCADE_LISTEN_PORT="$CASCADE_LISTEN_PORT"
+if [ "$AUTO_PORTS" = "1" ]; then
+  echo "ARDTT_INFO|порты: Direct=${DIRECT_PORT}/udp Bypass=${BYPASS_PORT}/udp cascade_listen=${CASCADE_LISTEN_PORT}/udp (auto=${AUTO_PORTS})"
+fi
 if [ "$SKIP_TELEMETRY" = 1 ]; then
   sed -i 's/^ARDTT_SKIP_TELEMETRY=.*/ARDTT_SKIP_TELEMETRY=1/' "$STACK/.env"
 fi
@@ -1090,6 +1182,6 @@ if command -v firewall-cmd >/dev/null 2>&1; then
 fi
 
 prog 1.00 "Готово"
-echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=$NETWORK_MODE"
+echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=$NETWORK_MODE|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS"
 echo "Создать пользователя: docker exec ardtt provision -cmd create-user -name USER -data /data"
 
