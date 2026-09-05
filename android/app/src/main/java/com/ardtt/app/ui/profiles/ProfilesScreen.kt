@@ -357,7 +357,7 @@ fun ProfilesScreen(
                 value = subscriptionUrl,
                 onValueChange = { subscriptionUrl = it },
                 modifier = Modifier.fillMaxWidth(),
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 placeholder = { Text("https://…/profile.json") },
                 singleLine = true,
             )
@@ -391,7 +391,7 @@ fun ProfilesScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp),
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 placeholder = { Text("ardtt://config?… или { \"name\": … }") },
             )
         }
@@ -419,7 +419,7 @@ fun ProfilesScreen(
                 onValueChange = { renameText = it },
                 label = { Text("Имя профиля") },
                 singleLine = true,
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

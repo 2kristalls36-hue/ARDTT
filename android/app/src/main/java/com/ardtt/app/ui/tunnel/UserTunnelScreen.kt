@@ -77,6 +77,7 @@ import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.nextThemeMode
 import com.ardtt.app.ui.persistThemeMode
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -469,7 +470,7 @@ private fun ProfileSwitcherBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = ArdttBottomChrome.navigationReserve() + 12.dp),
+            .padding(bottom = ArdttBottomChrome.navigationReserve() + ArdttSpacing.Medium),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
     ) {
@@ -490,7 +491,7 @@ private fun ProfileSwitcherBar(
             },
         )
         val lockedBorder = if (sessionLocked) {
-            BorderStroke(ArdttSize.Border, scheme.outline.copy(alpha = 0.55f))
+            BorderStroke(ArdttSize.Border, scheme.outline.copy(alpha = ArdttAlpha.Muted))
         } else {
             null
         }

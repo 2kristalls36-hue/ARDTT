@@ -45,7 +45,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
@@ -68,6 +67,7 @@ import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 import java.text.SimpleDateFormat
@@ -207,7 +207,7 @@ fun TestingScreen(profiles: ProfileRepository) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = ArdttSpacing.Large)
-                .padding(bottom = ArdttBottomChrome.scrollContentPadding(extra = 8.dp)),
+                .padding(bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small)),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
         ) {
             ArdttFeedHeader(
@@ -343,7 +343,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     .height(150.dp),
                 label = { Text("Комментарий пользователя") },
                 placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
             )
         }
     }
@@ -352,7 +352,7 @@ fun TestingScreen(profiles: ProfileRepository) {
 @Composable
 private fun EmptyLogsBlock() {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ArdttAlpha.Disabled),
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         shape = ArdttShapes.Card,
         modifier = Modifier.fillMaxWidth(),
@@ -386,7 +386,7 @@ private fun LogRow(
     val dateFmt = remember { SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = ArdttAlpha.Muted),
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = ArdttShapes.Card,
     ) {

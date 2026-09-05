@@ -95,6 +95,8 @@ object ArdttShapes {
     val Icon: Shape = RoundedCornerShape(ArdttRadius.Icon)
     val Row: Shape = RoundedCornerShape(ArdttRadius.Row)
     val Chip: Shape = RoundedCornerShape(ArdttRadius.Chip)
+    /** Outlined text fields share the chip radius. */
+    val Field: Shape = Chip
     val Card: Shape = RoundedCornerShape(ArdttRadius.Card)
     val Control: Shape = RoundedCornerShape(ArdttRadius.Control)
     val Menu: Shape = RoundedCornerShape(ArdttRadius.Menu)
@@ -134,6 +136,8 @@ object ArdttSize {
     /** Height of a bottom-tab title row and of a choice chip. */
     val TitleRow: Dp = 44.dp
     val Chip: Dp = 44.dp
+    /** Compact chip in tunnel quick-settings, where three rows share a card. */
+    val ChipCompact: Dp = 40.dp
     val MenuWidth: Dp = 216.dp
     val MenuItem: Dp = 54.dp
 

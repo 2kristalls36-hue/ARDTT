@@ -260,7 +260,7 @@ private fun CallHashDialog(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.fillMaxWidth(),
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 singleLine = true,
             )
             OutlinedButton(
