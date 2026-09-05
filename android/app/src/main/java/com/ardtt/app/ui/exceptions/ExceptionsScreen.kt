@@ -47,6 +47,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -78,7 +79,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,6 +90,8 @@ import com.ardtt.app.core.ExceptionAppVisibility
 import com.ardtt.app.core.HostExclusion
 import com.ardtt.app.core.appIconDecodeSize
 import com.ardtt.app.settings.AppSettingsRepository
+import com.ardtt.app.ui.components.control.ArdttSwitchRow
+import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
@@ -116,17 +118,17 @@ private enum class ExceptionsPane { Apps, Sites }
 private val CardShape = ArdttShapes.Panel
 private val AppCardShape = ArdttShapes.Row
 /** Keep [AppsLoadingAnimation] stubs in lockstep with [AppExceptionRow]. */
-private val AppRowHorizontalPadding = 12.dp
+private val AppRowHorizontalPadding = ArdttSpacing.Medium
 private val AppRowVerticalPadding = 3.dp
 private val AppRowContentPadding = PaddingValues(start = ArdttSpacing.Medium, end = ArdttSpacing.Small, top = ArdttSpacing.TinyPlus, bottom = ArdttSpacing.TinyPlus)
 private val AppRowIconSize = 36.dp
 private val AppRowIconCorner = ArdttShapes.Badge
-private val AppRowIconGap = 10.dp
+private val AppRowIconGap = ArdttSpacing.SmallPlus
 /** Material3 Switch track: 52×32. */
 private val AppRowSwitchWidth = 52.dp
 private val AppRowSwitchHeight = 32.dp
-private val AppRowTitleBarHeight = 20.dp
-private val AppRowSubtitleBarHeight = 16.dp
+private val AppRowTitleBarHeight = ArdttSpacing.XLarge
+private val AppRowSubtitleBarHeight = ArdttSpacing.Large
 
 @Stable
 data class ExceptionAppItem(
@@ -350,11 +352,11 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 )
 
                 if (busy) {
-                    androidx.compose.material3.LinearProgressIndicator(
+                    LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = ArdttSpacing.SmallPlus)
-                            .height(2.dp),
+                            .height(ArdttSize.Contour),
                         color = colors.primary,
                         trackColor = colors.surfaceVariant,
                     )
@@ -496,34 +498,38 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             }
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = ArdttSpacing.LargePlus, vertical = ArdttSpacing.Small),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Системные приложения",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Switch(
-                                checked = showSystemApps,
-                                onCheckedChange = { showSystemApps = it },
-                            )
-                        }
+                        ArdttSwitchRow(
+                            title = "Системные приложения",
+                            checked = showSystemApps,
+                            onCheckedChange = { showSystemApps = it },
+                            modifier = Modifier.padding(
+                                horizontal = ArdttSpacing.LargePlus,
+                                vertical = ArdttSpacing.Small,
+                            ),
+                        )
 
                         HorizontalDivider(color = colors.outlineVariant.copy(alpha = ArdttAlpha.Divider))
 
                         if (isLoading) {
                             AppsLoadingAnimation(modifier = Modifier.fillMaxSize())
+                        } else if (filteredApps.isEmpty()) {
+                            ArdttEmptyState(
+                                title = if (searchQuery.isBlank()) {
+                                    "Нет приложений"
+                                } else {
+                                    "Нет совпадений"
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         } else {
                             LazyColumn(
                                 state = rememberLazyListState(),
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(
                                     top = ArdttSpacing.Small,
-                                    bottom = ArdttBottomChrome.scrollContentPadding(extra = 8.dp),
+                                    bottom = ArdttBottomChrome.scrollContentPadding(
+                                        extra = ArdttSpacing.Small,
+                                    ),
                                 ),
                             ) {
                                 items(filteredApps, key = { it.packageName }) { app ->
@@ -552,21 +558,19 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 ExceptionsPane.Sites -> {
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (!sitesEnabled) {
-                            Box(
+                            ArdttEmptyState(
+                                title = if (!sitesSupported) {
+                                    "Нужен Android 13"
+                                } else {
+                                    "Нужен браузер"
+                                },
+                                description = if (!sitesSupported) {
+                                    "Раздел «Сайты» доступен только на Android 13 и выше."
+                                } else {
+                                    "Раздел «Сайты» работает только через браузеры. Установите браузер по умолчанию."
+                                },
                                 modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    if (!sitesSupported) {
-                                        "Раздел «Сайты» доступен только на Android 13 и выше."
-                                    } else {
-                                        "Раздел «Сайты» работает только через браузеры. Установите браузер по умолчанию."
-                                    },
-                                    textAlign = TextAlign.Center,
-                                    color = colors.onSurfaceVariant.copy(alpha = 0.8f),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
+                            )
                             return@Column
                         }
                         Row(
@@ -613,35 +617,24 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         )
 
                         if (orderedSites.isEmpty()) {
-                            Box(
+                            ArdttEmptyState(
+                                title = "Список пуст",
+                                description = "Добавьте домен или IP",
                                 modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    "Список пуст\nДобавьте домен или IP",
-                                    textAlign = TextAlign.Center,
-                                    color = colors.onSurfaceVariant.copy(alpha = 0.7f),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
+                            )
                         } else if (visibleSites.isEmpty()) {
-                            Box(
+                            ArdttEmptyState(
+                                title = "Нет совпадений",
                                 modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    "Нет совпадений",
-                                    textAlign = TextAlign.Center,
-                                    color = colors.onSurfaceVariant.copy(alpha = 0.7f),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
+                            )
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(
                                     top = ArdttSpacing.Small,
-                                    bottom = ArdttBottomChrome.scrollContentPadding(extra = 8.dp),
+                                    bottom = ArdttBottomChrome.scrollContentPadding(
+                                        extra = ArdttSpacing.Small,
+                                    ),
                                 ),
                             ) {
                                 items(visibleSites, key = { it }) { rule ->
@@ -654,7 +647,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                     )
                                     HorizontalDivider(
                                         modifier = Modifier.padding(horizontal = ArdttSpacing.Large),
-                                        color = colors.outlineVariant.copy(alpha = 0.22f),
+                                        color = colors.outlineVariant.copy(alpha = ArdttAlpha.Outline),
                                     )
                                 }
                             }
@@ -668,13 +661,13 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 
         val chromePad = ArdttBottomChrome.stickyBottomPadding()
         val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
-        val keyboardVisible = imePad > 12.dp
+        val keyboardVisible = imePad > ArdttSpacing.Medium
         val floatingBarModifier = Modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth()
             .zIndex(2f)
             .padding(horizontal = ArdttSpacing.Large)
-            .padding(bottom = maxOf(chromePad, imePad + 8.dp))
+            .padding(bottom = maxOf(chromePad, imePad + ArdttSpacing.Small))
         if (pane == ExceptionsPane.Apps) {
             BypassSearchBar(
                 value = searchQuery,
@@ -757,7 +750,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 @Composable
 private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
-    val base = colors.surfaceVariant.copy(alpha = 0.55f)
+    val base = colors.surfaceVariant.copy(alpha = ArdttAlpha.Muted)
     val highlight = colors.surface.copy(alpha = 0.95f)
     val shimmer = rememberInfiniteTransition(label = "apps_loading")
     val shift by shimmer.animateFloat(
@@ -773,7 +766,7 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
         modifier = modifier,
         contentPadding = PaddingValues(
             top = ArdttSpacing.Small,
-            bottom = ArdttBottomChrome.scrollContentPadding(extra = 8.dp),
+            bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small),
         ),
     ) {
         items(count = 9) {
@@ -1003,7 +996,7 @@ private fun BypassRuleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
+            .heightIn(min = ArdttSize.IconHero)
             .padding(start = ArdttSpacing.LargePlus, end = ArdttSpacing.Tiny),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1024,7 +1017,7 @@ private fun BypassRuleRow(
                 Icons.Filled.Close,
                 contentDescription = "Удалить",
                 modifier = Modifier.size(ArdttSize.IconSmall),
-                tint = colors.onSurfaceVariant.copy(alpha = 0.55f),
+                tint = colors.onSurfaceVariant.copy(alpha = ArdttAlpha.Muted),
             )
         }
     }

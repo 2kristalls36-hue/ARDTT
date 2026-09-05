@@ -32,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.core.AppLog
@@ -44,7 +43,9 @@ import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.terminalCardColor
 import com.ardtt.app.ui.components.surface.terminalCardElevation
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttRadius
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.isDarkSurface
@@ -110,7 +111,7 @@ fun LogsScreen() {
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = ArdttSpacing.Large)
-            .padding(bottom = ArdttBottomChrome.navigationReserve() + 12.dp),
+            .padding(bottom = ArdttBottomChrome.navigationReserve() + ArdttSpacing.Medium),
     ) {
         ArdttFeedHeader(
             title = "Журнал событий",
@@ -164,8 +165,11 @@ fun LogsScreen() {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (pinnedStats != null || uptimeText != null) {
                     Surface(
-                        color = ArdttColors.TerminalBlue.copy(alpha = if (isDark) 0.18f else 0.12f),
-                        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                        color = ArdttColors.TerminalBlue.copy(alpha = if (isDark) ArdttAlpha.Fill else 0.12f),
+                        shape = RoundedCornerShape(
+                            topStart = ArdttRadius.Panel,
+                            topEnd = ArdttRadius.Panel,
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(

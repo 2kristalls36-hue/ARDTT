@@ -10,14 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +30,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.ConnectionManager
@@ -46,9 +42,8 @@ import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.feedback.ArdttPingDot
-import com.ardtt.app.ui.components.layout.ArdttBottomChrome
-import com.ardtt.app.ui.components.layout.ArdttFeedHeader
-import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
@@ -212,37 +207,30 @@ fun NetworkScreen(
 
     val pull = rememberPullRefresh { refreshAll() }
 
-    ArdttPullRefresh(
+    ArdttFeedScaffold(
         refreshing = pull.refreshing,
         onRefresh = pull.onRefresh,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = ArdttSpacing.Large)
-                .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
-        ) {
-            ArdttFeedHeader(
+        header = {
+            ArdttTabHeader(
                 title = "Сеть",
                 subtitle = NetworkMapCopy.SUBTITLE,
             )
-            Column {
-                visibleHops.forEachIndexed { index, view ->
-                    if (index > 0) {
-                        HopConnector()
-                    }
-                    IpInfoCard(
-                        title = view.hop.title,
-                        kind = view.hop.kind,
-                        info = view.info,
-                        loading = view.loading,
-                        highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
-                        pingMs = hopHealthPingMs(view.hop.kind, hopPings),
-                        accentColor = pathAccent,
-                    )
+        },
+    ) {
+        Column {
+            visibleHops.forEachIndexed { index, view ->
+                if (index > 0) {
+                    HopConnector()
                 }
+                IpInfoCard(
+                    title = view.hop.title,
+                    kind = view.hop.kind,
+                    info = view.info,
+                    loading = view.loading,
+                    highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
+                    pingMs = hopHealthPingMs(view.hop.kind, hopPings),
+                    accentColor = pathAccent,
+                )
             }
         }
     }
@@ -427,13 +415,13 @@ private fun HopConnector() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(22.dp)
+            .height(ArdttSize.Icon)
             .semantics { contentDescription = "связь" },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .width(2.dp)
+                .width(ArdttSize.Contour)
                 .fillMaxHeight()
                 .background(color, ArdttShapes.Pill),
         )

@@ -55,7 +55,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -1175,7 +1174,7 @@ private fun ServerOverviewScreen(
                         bottom = if (showUpdateButton) {
                             ArdttBottomChrome.scrollContentPadding()
                         } else {
-                            ArdttBottomChrome.navigationReserve() + 16.dp
+                            ArdttBottomChrome.navigationReserve() + ArdttSpacing.Large
                         },
                     ),
                     verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
@@ -1310,7 +1309,7 @@ private fun RenameServerDialog(
             onValueChange = { name = it },
             label = { Text("Имя сервера") },
             singleLine = true,
-            shape = ArdttShapes.Chip,
+            shape = ArdttShapes.Field,
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -1490,7 +1489,7 @@ fun DeployScreen(
                 .fillMaxSize()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
+                .padding(bottom = ArdttBottomChrome.navigationReserve() + ArdttSpacing.XXLarge),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
         Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
@@ -1524,7 +1523,7 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
-            shape = ArdttShapes.Chip,
+            shape = ArdttShapes.Field,
         )
         OutlinedTextField(
             value = host,
@@ -1535,6 +1534,7 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
+            shape = ArdttShapes.Field,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small), modifier = Modifier.fillMaxWidth()) {
             OutlinedTextField(
@@ -1547,6 +1547,7 @@ fun DeployScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 enabled = !busy,
+                shape = ArdttShapes.Field,
             )
             OutlinedTextField(
                 value = sshUser,
@@ -1557,6 +1558,7 @@ fun DeployScreen(
                     .bringIntoViewWhenFocused(),
                 singleLine = true,
                 enabled = !busy,
+                shape = ArdttShapes.Field,
             )
         }
         OutlinedTextField(
@@ -1569,6 +1571,7 @@ fun DeployScreen(
             visualTransformation = PasswordVisualTransformation(),
             singleLine = true,
             enabled = !busy,
+            shape = ArdttShapes.Field,
         )
         OutlinedTextField(
             value = privateKey,
@@ -1580,6 +1583,7 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             minLines = 3,
             enabled = !busy,
+            shape = ArdttShapes.Field,
         )
         if (privateKey.isNotBlank()) {
             OutlinedTextField(
@@ -1592,6 +1596,7 @@ fun DeployScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 enabled = !busy,
+                shape = ArdttShapes.Field,
             )
         }
         OutlinedTextField(
@@ -1604,6 +1609,7 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
+            shape = ArdttShapes.Field,
         )
         ArdttSectionCard(
             contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
@@ -1632,6 +1638,7 @@ fun DeployScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         enabled = !busy,
+                        shape = ArdttShapes.Field,
                     )
                     OutlinedTextField(
                         value = bypassPort,
@@ -1643,6 +1650,7 @@ fun DeployScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         enabled = !busy,
+                        shape = ArdttShapes.Field,
                     )
                 }
             }
@@ -1675,6 +1683,7 @@ fun DeployScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .bringIntoViewWhenFocused(),
+                    shape = ArdttShapes.Field,
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
@@ -1690,6 +1699,7 @@ fun DeployScreen(
                         modifier = Modifier
                             .weight(1f)
                             .bringIntoViewWhenFocused(),
+                        shape = ArdttShapes.Field,
                     )
                     OutlinedTextField(
                         value = cascadeUser,
@@ -1700,6 +1710,7 @@ fun DeployScreen(
                         modifier = Modifier
                             .weight(1f)
                             .bringIntoViewWhenFocused(),
+                        shape = ArdttShapes.Field,
                     )
                 }
                 OutlinedTextField(
@@ -1712,6 +1723,7 @@ fun DeployScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .bringIntoViewWhenFocused(),
+                    shape = ArdttShapes.Field,
                 )
                 OutlinedTextField(
                     value = cascadePrivateKey,
@@ -1723,6 +1735,7 @@ fun DeployScreen(
                         .bringIntoViewWhenFocused(),
                     minLines = 3,
                     enabled = !busy,
+                    shape = ArdttShapes.Field,
                 )
                 if (cascadePrivateKey.isNotBlank()) {
                     OutlinedTextField(
@@ -1735,6 +1748,7 @@ fun DeployScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .bringIntoViewWhenFocused(),
+                        shape = ArdttShapes.Field,
                     )
                 }
             }
@@ -1779,7 +1793,7 @@ fun DeployScreen(
             Icon(
                 Icons.Filled.CloudUpload,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(ArdttSpacing.XLarge),
             )
             Spacer(modifier = Modifier.width(ArdttSpacing.Small))
             Text(

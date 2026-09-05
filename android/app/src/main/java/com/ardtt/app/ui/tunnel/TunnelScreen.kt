@@ -9,7 +9,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -44,8 +43,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.QsProfileSwitch
@@ -82,9 +79,7 @@ import com.ardtt.app.ui.components.control.PathModeChipRow
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.feedback.ArdttInlineFactRow
-import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
-import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
@@ -316,16 +311,39 @@ fun TunnelScreen(
         refreshNetcheck(force = true)
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        ArdttFeedScaffold(
-            scrollBottomPadding = ArdttBottomChrome.scrollContentPadding(),
-            refreshing = pull.refreshing,
-            onRefresh = pull.onRefresh,
-            modifier = Modifier.fillMaxSize(),
-            header = {
-                ArdttTabHeader(title = "Подключение")
-            },
-        ) {
+    ArdttFeedScaffold(
+        refreshing = pull.refreshing,
+        onRefresh = pull.onRefresh,
+        modifier = Modifier.fillMaxSize(),
+        header = {
+            ArdttTabHeader(title = "Подключение")
+        },
+        stickyContent = {
+            // Sticky «Подключить» / «Отменить» (same button) above tab bar.
+            // Idle Probing is not Cancel — that was flashing red Stop on tab open.
+            ArdttPrimaryButton(
+                text = tunnelStickyCtaLabel(ui.state),
+                onClick = {
+                    haptics.tick()
+                    when {
+                        tunnelStickyCtaIsDestructive(ui.state) -> conn.disconnect()
+                        else -> onRequestConnect()
+                    }
+                },
+                enabled = tunnelStickyCtaEnabled(ui.state, ui.connectEnabled),
+                containerColor = when {
+                    tunnelStickyCtaIsDestructive(ui.state) -> MaterialTheme.colorScheme.error
+                    else -> buttonColor
+                },
+                icon = when {
+                    ui.state == ConnState.Connecting -> Icons.Default.Stop
+                    pausedTrusted -> Icons.Default.Pause
+                    sessionUp -> Icons.Default.Stop
+                    else -> Icons.Default.PowerSettingsNew
+                },
+            )
+        },
+    ) {
             val missingCallHashHint = !ui.hasCallHash
             if (missingCallHashHint || showConnectionHint) {
                 TunnelConnectionHintBanner(
@@ -414,7 +432,7 @@ fun TunnelScreen(
                         pathMode = pathMode,
                         hasCallHash = ui.hasCallHash,
                         enabled = !vpnLocked,
-                        chipHeight = 40.dp,
+                        chipHeight = ArdttSize.ChipCompact,
                         coloredSelection = true,
                         onSelect = { mode ->
                             haptics.tick()
@@ -436,7 +454,7 @@ fun TunnelScreen(
                     HideIpChipRow(
                         hideIp = hideIp,
                         enabled = !vpnLocked,
-                        chipHeight = 40.dp,
+                        chipHeight = ArdttSize.ChipCompact,
                         onSelect = { enabled ->
                             haptics.tick()
                             scope.launch { commitHideIp(settings, conn, enabled) }
@@ -524,33 +542,6 @@ fun TunnelScreen(
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
-        }
-
-        // Sticky «Подключить» / «Отменить» (same button) above tab bar.
-        // Idle Probing is not Cancel — that was flashing red Stop on tab open.
-        ArdttStickyBottomBar {
-            ArdttPrimaryButton(
-                text = tunnelStickyCtaLabel(ui.state),
-                onClick = {
-                    haptics.tick()
-                    when {
-                        tunnelStickyCtaIsDestructive(ui.state) -> conn.disconnect()
-                        else -> onRequestConnect()
-                    }
-                },
-                enabled = tunnelStickyCtaEnabled(ui.state, ui.connectEnabled),
-                containerColor = when {
-                    tunnelStickyCtaIsDestructive(ui.state) -> MaterialTheme.colorScheme.error
-                    else -> buttonColor
-                },
-                icon = when {
-                    ui.state == ConnState.Connecting -> Icons.Default.Stop
-                    pausedTrusted -> Icons.Default.Pause
-                    sessionUp -> Icons.Default.Stop
-                    else -> Icons.Default.PowerSettingsNew
-                },
-            )
-        }
     }
     BypassMethodDialog(
         visible = showBypassMethodDialog,
@@ -597,7 +588,7 @@ private fun TunnelConnectionHintBanner(
             if (!missingCallHashHint) {
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(ArdttSpacing.XXXLarge),
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Close,
@@ -649,7 +640,7 @@ private fun TunnelQuickSettingsProfileRow(
                 label = qsProfileTileLabel(item.profile.name),
                 selected = item.id == selectedId,
                 enabled = enabled,
-                height = 40.dp,
+                height = ArdttSize.ChipCompact,
                 onClick = {
                     if (item.id != selectedId) onSelect(item)
                 },

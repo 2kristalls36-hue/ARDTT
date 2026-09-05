@@ -131,7 +131,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
             Toast.makeText(context, DeviceUnlockCopy.CODE_COPIED, Toast.LENGTH_SHORT).show()
         }
 
-        val imeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 8.dp
+        val imeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > ArdttSpacing.Small
         Column(
             modifier = Modifier
                 .fillMaxSize()

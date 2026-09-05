@@ -23,7 +23,6 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttElevation
@@ -116,7 +115,7 @@ fun DonateSupportBanner(
             if (onDismiss != null) {
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(ArdttSpacing.XXXLarge),
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Close,

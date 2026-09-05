@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -22,7 +21,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +52,7 @@ import com.ardtt.app.ui.components.feedback.ArdttErrorState
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttLoadingState
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
+import com.ardtt.app.ui.components.feedback.ArdttStatusDot
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
@@ -66,7 +65,6 @@ import com.ardtt.app.ui.latestAppVersionCode
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
-import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.update.AppUpdateController
 import kotlinx.coroutines.delay
@@ -393,7 +391,7 @@ private fun ClientsScreen(
                 label = { Text("Имя") },
                 singleLine = true,
                 enabled = !creating,
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
@@ -482,7 +480,7 @@ private fun ClientsScreen(
                 label = { Text("Лимит устройств") },
                 singleLine = true,
                 enabled = !editing,
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -491,7 +489,7 @@ private fun ClientsScreen(
                 label = { Text("Продлить на N дней (опц.)") },
                 singleLine = true,
                 enabled = !editing,
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -500,7 +498,7 @@ private fun ClientsScreen(
                 label = { Text("Лимит трафика, ГБ (0 = без лимита)") },
                 singleLine = true,
                 enabled = !editing,
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -603,7 +601,7 @@ private fun ClientsScreen(
                 label = { Text("Имя") },
                 singleLine = true,
                 enabled = !renaming,
-                shape = ArdttShapes.Chip,
+                shape = ArdttShapes.Field,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -707,17 +705,14 @@ private fun ClientCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Surface(
-                    shape = ArdttShapes.Pill,
+                ArdttStatusDot(
                     color = if (user.online) {
                         ArdttColors.Connected
                     } else {
                         MaterialTheme.colorScheme.outlineVariant
                     },
-                    modifier = Modifier
-                        .padding(end = ArdttSpacing.TinyPlus)
-                        .size(ArdttSize.Dot),
-                ) {}
+                    modifier = Modifier.padding(end = ArdttSpacing.TinyPlus),
+                )
                 Text(
                     presence,
                     style = MaterialTheme.typography.labelSmall,
@@ -774,7 +769,7 @@ private fun ClientCard(
             if (limit > 0L) {
                 ArdttLinearProgress(
                     progress = progress,
-                    modifier = Modifier.height(4.dp),
+                    modifier = Modifier.height(ArdttSpacing.Tiny),
                     color = trafficColor,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
