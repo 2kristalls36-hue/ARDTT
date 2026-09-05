@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -486,10 +487,15 @@ func loadOrInitStore(dataDir, publicHost string) (*Store, error) {
 	if s.Config.BypassSubnet == "" {
 		s.Config.BypassSubnet = defaultBypassCIDR
 	}
-	if s.Config.DirectPort == 0 {
+	// Compose publishes ARDTT_*_PORT; AmneziaWG listens on users.json. Keep them aligned.
+	if v := envPort("ARDTT_DIRECT_PORT"); v > 0 {
+		s.Config.DirectPort = v
+	} else if s.Config.DirectPort == 0 {
 		s.Config.DirectPort = defaultDirectPort
 	}
-	if s.Config.BypassPort == 0 {
+	if v := envPort("ARDTT_BYPASS_PORT"); v > 0 {
+		s.Config.BypassPort = v
+	} else if s.Config.BypassPort == 0 {
 		s.Config.BypassPort = defaultBypassPort
 	}
 	if s.Config.Workers == 0 {
@@ -1289,6 +1295,18 @@ func envOr(k, def string) string {
 		}
 	}
 	return def
+}
+
+func envPort(k string) int {
+	v := strings.TrimSpace(envOr(k, ""))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > 65535 {
+		return 0
+	}
+	return n
 }
 
 func resolveDeployVersion() string {
