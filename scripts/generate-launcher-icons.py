@@ -5,16 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAND = ROOT / "docs/assets/brand"
 RES = ROOT / "android/app/src/main/res"
 COLOR_SRC = BRAND / "ardtt-icon-source.png"
 
-# Inner field of the supplied mark (not the black corner padding).
-CHARCOAL = (24, 30, 37)
-CHARCOAL_A = (*CHARCOAL, 255)
+# Inner field of the supplied mark (not the black corner padding / silver rim).
+FIELD = (3, 29, 59)
 
 LAUNCHER_SIZES = {
     "mdpi": 48,
@@ -46,31 +45,138 @@ GLYPH_SIZES = {
 }
 
 
-def luma_of(rgb: np.ndarray) -> np.ndarray:
-    r = rgb[:, :, 0].astype(np.float32)
-    g = rgb[:, :, 1].astype(np.float32)
-    b = rgb[:, :, 2].astype(np.float32)
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
 def load_color_master() -> Image.Image:
-    return Image.open(COLOR_SRC).convert("RGB")
+    return Image.open(COLOR_SRC).convert("RGBA")
 
 
-def fill_pad_with_charcoal(master: Image.Image) -> Image.Image:
-    """Turn the black corner padding of the squircle into the charcoal field."""
-    arr = np.array(master.convert("RGBA"))
-    pad = luma_of(arr) < 10.0
-    arr[pad, 0] = CHARCOAL[0]
-    arr[pad, 1] = CHARCOAL[1]
-    arr[pad, 2] = CHARCOAL[2]
-    arr[pad, 3] = 255
-    return Image.fromarray(arr, "RGBA")
+def _as_rgba(master: Image.Image) -> np.ndarray:
+    return np.array(master.convert("RGBA"), dtype=np.float32)
+
+
+def _rgb(rgba: np.ndarray) -> np.ndarray:
+    return rgba[:, :, :3]
+
+
+def _alpha(rgba: np.ndarray) -> np.ndarray:
+    return rgba[:, :, 3]
+
+
+def _luma(rgb: np.ndarray) -> np.ndarray:
+    return 0.2126 * rgb[:, :, 0] + 0.7152 * rgb[:, :, 1] + 0.0722 * rgb[:, :, 2]
+
+
+def _chroma(rgb: np.ndarray) -> np.ndarray:
+    mx = np.maximum(np.maximum(rgb[:, :, 0], rgb[:, :, 1]), rgb[:, :, 2])
+    mn = np.minimum(np.minimum(rgb[:, :, 0], rgb[:, :, 1]), rgb[:, :, 2])
+    return mx - mn
+
+
+def morph(mask: np.ndarray, radius: int, *, erode: bool) -> np.ndarray:
+    if radius <= 0:
+        return mask
+    pad = int(radius) + 2
+    h, w = mask.shape
+    padded = np.zeros((h + 2 * pad, w + 2 * pad), dtype=np.uint8)
+    padded[pad : pad + h, pad : pad + w] = mask.astype(np.uint8) * 255
+    img = Image.fromarray(padded, mode="L")
+    remaining = int(radius)
+    filt = ImageFilter.MinFilter if erode else ImageFilter.MaxFilter
+    while remaining > 0:
+        step = min(5, remaining)
+        img = img.filter(filt(size=step * 2 + 1))
+        remaining -= step
+    out = np.array(img)[pad : pad + h, pad : pad + w]
+    return out > 0
+
+
+def blur_mask(mask: np.ndarray, radius: float) -> np.ndarray:
+    u8 = np.clip(mask.astype(np.float32) * 255.0, 0, 255).astype(np.uint8)
+    return (
+        np.array(
+            Image.fromarray(u8, "L").filter(ImageFilter.GaussianBlur(radius=radius)),
+            dtype=np.float32,
+        )
+        / 255.0
+    )
+
+
+def content_mask(rgba: np.ndarray) -> np.ndarray:
+    return _alpha(rgba) > 8.0
+
+
+def rim_erode_radius(rgba: np.ndarray) -> int:
+    return max(24, int(round(0.028 * max(rgba.shape[:2]))))
+
+
+def inner_field_mask(rgba: np.ndarray) -> np.ndarray:
+    """Navy plate inside the silver squircle rim, using the master alpha."""
+    return morph(content_mask(rgba), rim_erode_radius(rgba), erode=True)
+
+
+def letter_seed(rgb: np.ndarray, inner: np.ndarray) -> np.ndarray:
+    """Solid AR (white) + DTT (cyan→teal) cores; excludes the silver rim."""
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    luma = _luma(rgb)
+    chroma = _chroma(rgb)
+    gb = np.maximum(g, b)
+    white = inner & (luma > 165.0) & (chroma < 55.0)
+    cyan = inner & (gb > 130.0) & (gb > r + 25.0) & (luma > 70.0)
+    seed = white | cyan
+    return morph(morph(seed, 2, erode=True), 2, erode=False)
+
+
+def letter_alpha(rgba: np.ndarray) -> np.ndarray:
+    rgb = _rgb(rgba)
+    inner = inner_field_mask(rgba)
+    seed = letter_seed(rgb, inner)
+    halo = morph(seed, 3, erode=False)
+    luma = _luma(rgb)
+    gb = np.maximum(rgb[:, :, 1], rgb[:, :, 2])
+    alpha = np.zeros(luma.shape, dtype=np.float32)
+    alpha[seed] = 1.0
+    fringe = halo & ~seed
+    a_white = np.clip((luma - 45.0) / 130.0, 0, 1)
+    a_cyan = np.clip((gb - 75.0) / 110.0, 0, 1)
+    alpha[fringe] = np.maximum(a_white[fringe], a_cyan[fringe])
+    alpha = np.clip(blur_mask(alpha, 0.45), 0, 1)
+    alpha[~halo] = 0.0
+    alpha[seed] = np.maximum(alpha[seed], 0.92)
+    return alpha
+
+
+def pad_to_square_rgba(rgba: np.ndarray) -> np.ndarray:
+    h, w = rgba.shape[:2]
+    side = max(h, w)
+    out = np.zeros((side, side, 4), dtype=np.float32)
+    y = (side - h) // 2
+    x = (side - w) // 2
+    out[y : y + h, x : x + w] = rgba
+    return out
+
+
+def composite_on_field(rgba: np.ndarray) -> np.ndarray:
+    a = (_alpha(rgba) / 255.0)[:, :, None]
+    field = np.array(FIELD, dtype=np.float32)
+    return _rgb(rgba) * a + field * (1.0 - a)
 
 
 def square_color_icon(master: Image.Image, size: int) -> Image.Image:
-    filled = fill_pad_with_charcoal(master)
-    return filled.resize((size, size), Image.Resampling.LANCZOS)
+    """Opaque launcher tile: master alpha composited onto the navy field."""
+    rgba = pad_to_square_rgba(_as_rgba(master))
+    rgb = composite_on_field(rgba)
+    return Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8), "RGB").resize(
+        (size, size),
+        Image.Resampling.LANCZOS,
+    )
+
+
+def plate_rgba_icon(master: Image.Image, size: int) -> Image.Image:
+    """Widget mark: keep the squircle and transparent corners."""
+    rgba = pad_to_square_rgba(_as_rgba(master))
+    return Image.fromarray(np.clip(rgba, 0, 255).astype(np.uint8), "RGBA").resize(
+        (size, size),
+        Image.Resampling.LANCZOS,
+    )
 
 
 def round_icon(square_rgba: Image.Image, size: int) -> Image.Image:
@@ -85,52 +191,30 @@ def round_icon(square_rgba: Image.Image, size: int) -> Image.Image:
     return Image.fromarray(arr, "RGBA")
 
 
-def rounded_square(square_rgba: Image.Image, size: int, radius_frac: float = 0.22) -> Image.Image:
-    im = square_rgba.resize((size, size), Image.Resampling.LANCZOS).convert("RGBA")
-    mask = Image.new("L", (size, size), 0)
-    radius = max(1, int(round(size * radius_frac)))
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=255)
-    arr = np.array(im)
-    arr[:, :, 3] = np.minimum(arr[:, :, 3], np.array(mask))
-    return Image.fromarray(arr, "RGBA")
-
-
 def extract_mark(master: Image.Image, white_only: bool = False) -> Image.Image:
-    """Keep AR (white) + DTT (orange) with a transparent charcoal field."""
-    rgb = np.array(master.convert("RGB"))
+    """Keep AR + DTT with a transparent field; crop to the letter block."""
+    rgba = _as_rgba(master)
+    rgb = _rgb(rgba)
     h, w = rgb.shape[:2]
-    r = rgb[:, :, 0].astype(np.float32)
-    g = rgb[:, :, 1].astype(np.float32)
-    b = rgb[:, :, 2].astype(np.float32)
-    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    orange = (r > 150) & (b < 90) & (g > 20) & (g < 220)
-    soft = np.clip((luma - 48.0) * (255.0 / 60.0), 0, 255)
-    alpha = np.maximum(np.where(orange, 255.0, 0.0), soft).astype(np.uint8)
-    rgba = np.zeros((h, w, 4), dtype=np.uint8)
-    if white_only:
-        rgba[:, :, 0] = 255
-        rgba[:, :, 1] = 255
-        rgba[:, :, 2] = 255
-    else:
-        rgba[:, :, 0] = rgb[:, :, 0]
-        rgba[:, :, 1] = rgb[:, :, 1]
-        rgba[:, :, 2] = rgb[:, :, 2]
-    rgba[:, :, 3] = alpha
-    mark = Image.fromarray(rgba, "RGBA")
-    hard = mark.getchannel("A").point(lambda p: 255 if p > 40 else 0)
-    bbox = hard.getbbox()
-    if bbox is None:
+    alpha = letter_alpha(rgba)
+    seed = letter_seed(rgb, inner_field_mask(rgba))
+    ys, xs = np.where(seed)
+    if ys.size == 0:
         raise SystemExit("could not extract ARDTT mark from color icon")
-    left, top, right, bottom = bbox
-    pad_px = max(8, int(round(0.02 * max(w, h))))
-    return mark.crop(
-        (
-            max(0, left - pad_px),
-            max(0, top - pad_px),
-            min(w, right + pad_px),
-            min(h, bottom + pad_px),
-        )
-    )
+    pad_px = max(12, int(round(0.03 * max(w, h))))
+    left = max(0, int(xs.min()) - pad_px)
+    top = max(0, int(ys.min()) - pad_px)
+    right = min(w, int(xs.max()) + pad_px + 1)
+    bottom = min(h, int(ys.max()) + pad_px + 1)
+    out = np.zeros((bottom - top, right - left, 4), dtype=np.uint8)
+    if white_only:
+        out[:, :, 0] = 255
+        out[:, :, 1] = 255
+        out[:, :, 2] = 255
+    else:
+        out[:, :, :3] = np.clip(rgb[top:bottom, left:right], 0, 255).astype(np.uint8)
+    out[:, :, 3] = np.clip(alpha[top:bottom, left:right] * 255.0, 0, 255).astype(np.uint8)
+    return Image.fromarray(out, "RGBA")
 
 
 def fit_on_canvas(mark: Image.Image, canvas: int, safe_frac: float) -> Image.Image:
@@ -181,7 +265,7 @@ def main() -> None:
 
     for density, size in FOREGROUND_SIZES.items():
         save_png(
-            fit_on_canvas(color_mark, size, safe_frac=0.62),
+            fit_on_canvas(color_mark, size, safe_frac=0.66),
             RES / f"mipmap-{density}" / "ic_launcher_foreground.png",
         )
 
@@ -189,12 +273,12 @@ def main() -> None:
 
     for density, size in LOGO_FULL_SIZES.items():
         save_png(
-            rounded_square(square_color_icon(master, size), size),
+            plate_rgba_icon(master, size),
             RES / f"drawable-{density}" / "ic_logo_full.png",
         )
 
     for density, size in GLYPH_SIZES.items():
-        # QS tiles are tinted by SystemUI. An opaque charcoal square becomes a
+        # QS tiles are tinted by SystemUI. An opaque navy square becomes a
         # solid blob, so the tile stays on the old silhouette. Use the AR/DTT
         # mark on a transparent field so the new letterforms stay visible.
         save_png(
