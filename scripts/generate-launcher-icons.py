@@ -5,16 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAND = ROOT / "docs/assets/brand"
 RES = ROOT / "android/app/src/main/res"
 COLOR_SRC = BRAND / "ardtt-icon-source.png"
 
-# Inner field of the supplied mark (not the black corner padding).
-CHARCOAL = (24, 30, 37)
-CHARCOAL_A = (*CHARCOAL, 255)
+# Inner field of the supplied mark (not the black corner padding / silver rim).
+FIELD = (3, 29, 59)
 
 LAUNCHER_SIZES = {
     "mdpi": 48,
@@ -46,30 +45,48 @@ GLYPH_SIZES = {
 }
 
 
-def luma_of(rgb: np.ndarray) -> np.ndarray:
-    r = rgb[:, :, 0].astype(np.float32)
-    g = rgb[:, :, 1].astype(np.float32)
-    b = rgb[:, :, 2].astype(np.float32)
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
 def load_color_master() -> Image.Image:
     return Image.open(COLOR_SRC).convert("RGB")
 
 
-def fill_pad_with_charcoal(master: Image.Image) -> Image.Image:
-    """Turn the black corner padding of the squircle into the charcoal field."""
+def dilate_bool(mask: np.ndarray, radius: int) -> np.ndarray:
+    """Expand a boolean mask by `radius` pixels."""
+    if radius <= 0:
+        return mask
+    img = Image.fromarray((mask.astype(np.uint8) * 255), mode="L")
+    remaining = radius
+    while remaining > 0:
+        step = min(5, remaining)
+        img = img.filter(ImageFilter.MaxFilter(size=step * 2 + 1))
+        remaining -= step
+    return np.array(img) > 0
+
+
+def fill_pad_with_field(master: Image.Image) -> Image.Image:
+    """Turn black corner padding and the silver squircle rim into the navy field.
+
+    Android launchers apply their own mask, so the export's iOS-style rim would
+    otherwise show as a second inner frame.
+    """
     arr = np.array(master.convert("RGBA"))
-    pad = luma_of(arr) < 10.0
-    arr[pad, 0] = CHARCOAL[0]
-    arr[pad, 1] = CHARCOAL[1]
-    arr[pad, 2] = CHARCOAL[2]
-    arr[pad, 3] = 255
+    rgb = arr[:, :, :3].astype(np.float32)
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    chroma = np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b)
+    pad = luma < 10.0
+    radius = max(12, int(round(0.018 * max(arr.shape[:2]))))
+    near_pad = dilate_bool(pad, radius)
+    silver_rim = near_pad & (chroma < 32.0) & (luma >= 10.0) & (luma < 220.0)
+    fill = pad | silver_rim
+    arr[fill, 0] = FIELD[0]
+    arr[fill, 1] = FIELD[1]
+    arr[fill, 2] = FIELD[2]
+    arr[fill, 3] = 255
     return Image.fromarray(arr, "RGBA")
 
 
 def square_color_icon(master: Image.Image, size: int) -> Image.Image:
-    filled = fill_pad_with_charcoal(master)
+    filled = fill_pad_with_field(master)
     return filled.resize((size, size), Image.Resampling.LANCZOS)
 
 
@@ -96,16 +113,18 @@ def rounded_square(square_rgba: Image.Image, size: int, radius_frac: float = 0.2
 
 
 def extract_mark(master: Image.Image, white_only: bool = False) -> Image.Image:
-    """Keep AR (white) + DTT (orange) with a transparent charcoal field."""
-    rgb = np.array(master.convert("RGB"))
+    """Keep AR (white) + DTT (cyan→teal) with a transparent navy field."""
+    filled = fill_pad_with_field(master)
+    rgb = np.array(filled.convert("RGB"))
     h, w = rgb.shape[:2]
     r = rgb[:, :, 0].astype(np.float32)
     g = rgb[:, :, 1].astype(np.float32)
     b = rgb[:, :, 2].astype(np.float32)
     luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    orange = (r > 150) & (b < 90) & (g > 20) & (g < 220)
-    soft = np.clip((luma - 48.0) * (255.0 / 60.0), 0, 255)
-    alpha = np.maximum(np.where(orange, 255.0, 0.0), soft).astype(np.uint8)
+    gb = np.maximum(g, b)
+    accent = (gb > 110.0) & (gb > r + 18.0) & (luma > 55.0)
+    soft = np.clip((luma - 52.0) * (255.0 / 70.0), 0, 255)
+    alpha = np.maximum(np.where(accent, 255.0, 0.0), soft).astype(np.uint8)
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
     if white_only:
         rgba[:, :, 0] = 255
@@ -194,7 +213,7 @@ def main() -> None:
         )
 
     for density, size in GLYPH_SIZES.items():
-        # QS tiles are tinted by SystemUI. An opaque charcoal square becomes a
+        # QS tiles are tinted by SystemUI. An opaque navy square becomes a
         # solid blob, so the tile stays on the old silhouette. Use the AR/DTT
         # mark on a transparent field so the new letterforms stay visible.
         save_png(
