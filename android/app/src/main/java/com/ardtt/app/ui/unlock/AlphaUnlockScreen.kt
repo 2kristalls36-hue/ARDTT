@@ -73,6 +73,7 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.layout.ArdttBackdrop
 import com.ardtt.app.ui.components.layout.ArdttPageHeader
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.util.readClipboardText
 import com.ardtt.app.unlock.AlphaGate
 import com.ardtt.app.unlock.AlphaUnlockResult
 import com.ardtt.app.unlock.DeviceUnlockCopy
@@ -363,13 +364,8 @@ private class ImmediatePasteTextToolbar(
     }
 }
 
-private fun clipboardText(context: Context, clipboard: ClipboardManager): String? {
-    clipboard.getText()?.text?.let { return it }
-    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-    return runCatching {
-        cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
-    }.getOrNull()
-}
+private fun clipboardText(context: Context, clipboard: ClipboardManager): String? =
+    clipboard.getText()?.text?.toString() ?: readClipboardText(context)
 
 private suspend fun submitUnlock(
     settings: AppSettingsRepository,

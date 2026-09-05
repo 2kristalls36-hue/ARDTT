@@ -1,4 +1,4 @@
-package com.ardtt.app.ui.profiles
+package com.ardtt.app.ui.components.surface
 
 import com.ardtt.app.profile.ProfileLinkCodec
 import com.ardtt.app.profile.VpnProfileJson
@@ -6,7 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class QrCodeBitmapTest {
+class ArdttQrCodeTest {
     @Test
     fun matrixRoundTripDecodesPayload() {
         val payload = "ardtt://config?v=1&n=test&p=" + "A".repeat(400)
