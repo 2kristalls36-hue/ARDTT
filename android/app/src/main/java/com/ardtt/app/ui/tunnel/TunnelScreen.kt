@@ -84,6 +84,7 @@ import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.feedback.ArdttInlineFactRow
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
@@ -91,6 +92,7 @@ import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.qsProfileTileLabel
 import com.ardtt.app.ui.settings.BypassMethodDialog
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
@@ -526,33 +528,29 @@ fun TunnelScreen(
 
         // Sticky «Подключить» / «Отменить» (same button) above tab bar.
         // Idle Probing is not Cancel — that was flashing red Stop on tab open.
-        ArdttPrimaryButton(
-            text = tunnelStickyCtaLabel(ui.state),
-            onClick = {
-                haptics.tick()
-                when {
-                    tunnelStickyCtaIsDestructive(ui.state) -> conn.disconnect()
-                    else -> onRequestConnect()
-                }
-            },
-            enabled = tunnelStickyCtaEnabled(ui.state, ui.connectEnabled),
-            containerColor = when {
-                tunnelStickyCtaIsDestructive(ui.state) -> MaterialTheme.colorScheme.error
-                else -> buttonColor
-            },
-            icon = when {
-                ui.state == ConnState.Connecting -> Icons.Default.Stop
-                pausedTrusted -> Icons.Default.Pause
-                sessionUp -> Icons.Default.Stop
-                else -> Icons.Default.PowerSettingsNew
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .zIndex(2f)
-                .padding(horizontal = ArdttSpacing.Large)
-                .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-        )
+        ArdttStickyBottomBar {
+            ArdttPrimaryButton(
+                text = tunnelStickyCtaLabel(ui.state),
+                onClick = {
+                    haptics.tick()
+                    when {
+                        tunnelStickyCtaIsDestructive(ui.state) -> conn.disconnect()
+                        else -> onRequestConnect()
+                    }
+                },
+                enabled = tunnelStickyCtaEnabled(ui.state, ui.connectEnabled),
+                containerColor = when {
+                    tunnelStickyCtaIsDestructive(ui.state) -> MaterialTheme.colorScheme.error
+                    else -> buttonColor
+                },
+                icon = when {
+                    ui.state == ConnState.Connecting -> Icons.Default.Stop
+                    pausedTrusted -> Icons.Default.Pause
+                    sessionUp -> Icons.Default.Stop
+                    else -> Icons.Default.PowerSettingsNew
+                },
+            )
+        }
     }
     BypassMethodDialog(
         visible = showBypassMethodDialog,
@@ -686,7 +684,7 @@ private fun TunnelStatusPanel(
     errorText: String?,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = ArdttAlpha.Divider)
     ArdttSectionCard(
         contentPadding = PaddingValues(horizontal = ArdttSpacing.LargePlus, vertical = ArdttSpacing.Large),
         verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),

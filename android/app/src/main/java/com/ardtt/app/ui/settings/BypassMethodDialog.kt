@@ -16,6 +16,7 @@ import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.components.surface.sectionCardContourBorder
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 
@@ -51,7 +52,7 @@ fun BypassMethodDialog(
                 CallHashSettingsContent(showHeader = false)
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = ArdttAlpha.Divider))
         Text(
             "В этом окне можно выполнить авторизацию, создать код звонка через ВКонтакте или ввести его вручную.",
             style = MaterialTheme.typography.bodySmall,

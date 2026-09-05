@@ -99,6 +99,7 @@ import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.sectionCardContourBorder
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
@@ -512,7 +513,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                             )
                         }
 
-                        HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.35f))
+                        HorizontalDivider(color = colors.outlineVariant.copy(alpha = ArdttAlpha.Divider))
 
                         if (isLoading) {
                             AppsLoadingAnimation(modifier = Modifier.fillMaxSize())
@@ -608,7 +609,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
 
                         HorizontalDivider(
                             modifier = Modifier.padding(top = ArdttSpacing.Tiny),
-                            color = colors.outlineVariant.copy(alpha = 0.35f),
+                            color = colors.outlineVariant.copy(alpha = ArdttAlpha.Divider),
                         )
 
                         if (orderedSites.isEmpty()) {

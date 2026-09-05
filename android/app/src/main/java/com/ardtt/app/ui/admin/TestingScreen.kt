@@ -62,6 +62,7 @@ import com.ardtt.app.ui.components.feedback.ArdttStatusPill
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
@@ -296,14 +297,7 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .zIndex(2f)
-                .padding(horizontal = ArdttSpacing.Large)
-                .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-        ) {
+        ArdttStickyBottomBar {
             ArdttPrimaryButton(
                 text = if (isRecording) "Остановить запись" else "Начать запись",
                 onClick = { toggleRecording() },

@@ -99,17 +99,33 @@ fun ArdttFeedScaffold(
 
     Box(modifier = modifier.fillMaxSize()) {
         refreshable(Modifier)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .zIndex(StickyZIndex)
-                .padding(horizontal = horizontalPadding)
-                .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-            content = stickyContent,
-        )
+        ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = stickyContent)
     }
 }
 
+/**
+ * Pins [content] above the floating tab pill.
+ *
+ * Screens that scroll with a `LazyColumn` cannot use [ArdttFeedScaffold], but
+ * their CTA must line up with the ones that can — this is the shared placement
+ * those screens used to spell out modifier by modifier.
+ */
+@Composable
+fun BoxScope.ArdttStickyBottomBar(
+    modifier: Modifier = Modifier,
+    horizontalPadding: Dp = ArdttLayout.ScreenPadding,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .zIndex(StickyZIndex)
+            .padding(horizontal = horizontalPadding)
+            .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
+        content = content,
+    )
+}
+
 /** Sticky chrome must paint above feed content and its refresh indicator. */
-internal const val StickyZIndex = 2f
+private const val StickyZIndex = 2f

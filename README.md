@@ -120,6 +120,7 @@ cd android
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS: из приложения или клоном репозитория |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
+| [docs/UI.md](docs/UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
 | [android/README.md](android/README.md) | Сборка клиента, keystore, релизы |
 | [server/README.md](server/README.md) | Compose: provision, direct, bypass, dns, warp, cascade, telemetry |
 
