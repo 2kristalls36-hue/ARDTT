@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -76,7 +75,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -120,15 +122,18 @@ private val AppCardShape = ArdttShapes.Row
 /** Keep [AppsLoadingAnimation] stubs in lockstep with [AppExceptionRow]. */
 private val AppRowHorizontalPadding = ArdttSpacing.Medium
 private val AppRowVerticalPadding = 3.dp
-private val AppRowContentPadding = PaddingValues(start = ArdttSpacing.Medium, end = ArdttSpacing.Small, top = ArdttSpacing.TinyPlus, bottom = ArdttSpacing.TinyPlus)
+private val AppRowContentPadding = PaddingValues(
+    start = ArdttSpacing.Medium,
+    end = ArdttSpacing.Small,
+    top = ArdttSpacing.TinyPlus,
+    bottom = ArdttSpacing.TinyPlus,
+)
 private val AppRowIconSize = 36.dp
 private val AppRowIconCorner = ArdttShapes.Badge
 private val AppRowIconGap = ArdttSpacing.SmallPlus
-/** Material3 Switch track: 52×32. */
-private val AppRowSwitchWidth = 52.dp
-private val AppRowSwitchHeight = 32.dp
-private val AppRowTitleBarHeight = ArdttSpacing.XLarge
-private val AppRowSubtitleBarHeight = ArdttSpacing.Large
+private val AppRowShadow = 1.dp
+private const val AppRowTitleBarWidth = 0.62f
+private const val AppRowSubtitleBarWidth = 0.86f
 
 @Stable
 data class ExceptionAppItem(
@@ -761,6 +766,8 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
         ),
         label = "apps_loading_shift",
     )
+    val titleStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+    val subtitleStyle = MaterialTheme.typography.labelSmall
 
     LazyColumn(
         modifier = modifier,
@@ -770,66 +777,66 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
         ),
     ) {
         items(count = 9) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = AppRowHorizontalPadding,
-                        vertical = AppRowVerticalPadding,
-                    ),
-                shape = AppCardShape,
-                color = colors.surface,
-                border = sectionCardContourBorder(),
-                shadowElevation = 1.dp,
-                tonalElevation = ArdttElevation.None,
-            ) {
-                val shimmerBrush = Brush.horizontalGradient(
-                    colors = listOf(base, highlight, base),
-                    startX = shift,
-                    endX = shift + 380f,
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(AppRowContentPadding),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            val shimmerBrush = Brush.horizontalGradient(
+                colors = listOf(base, highlight, base),
+                startX = shift,
+                endX = shift + 380f,
+            )
+            AppExceptionRowFrame(
+                icon = {
                     Box(
                         modifier = Modifier
                             .size(AppRowIconSize)
                             .clip(AppRowIconCorner)
                             .background(shimmerBrush),
                     )
-                    Spacer(modifier = Modifier.width(AppRowIconGap))
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = ArdttSpacing.Small),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(0.62f)
-                                .height(AppRowTitleBarHeight)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(shimmerBrush),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(0.86f)
-                                .height(AppRowSubtitleBarHeight)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(shimmerBrush),
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(width = AppRowSwitchWidth, height = AppRowSwitchHeight)
-                            .clip(ArdttShapes.Chip)
-                            .background(shimmerBrush),
+                },
+                title = {
+                    AppRowShimmerBar(
+                        brush = shimmerBrush,
+                        widthFraction = AppRowTitleBarWidth,
+                        textStyle = titleStyle,
                     )
-                }
-            }
+                },
+                subtitle = {
+                    AppRowShimmerBar(
+                        brush = shimmerBrush,
+                        widthFraction = AppRowSubtitleBarWidth,
+                        textStyle = subtitleStyle,
+                    )
+                },
+                trailing = {
+                    Box(modifier = Modifier.clearAndSetSemantics {}) {
+                        Switch(checked = false, onCheckedChange = null)
+                    }
+                },
+            )
         }
+    }
+}
+
+@Composable
+private fun AppRowShimmerBar(
+    brush: Brush,
+    widthFraction: Float,
+    textStyle: TextStyle,
+) {
+    val density = LocalDensity.current
+    val slotHeight = with(density) { textStyle.lineHeight.toDp() }
+    val barHeight = with(density) { textStyle.fontSize.toDp() }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(slotHeight),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(widthFraction)
+                .height(barHeight)
+                .clip(ArdttShapes.Pill)
+                .background(brush),
+        )
     }
 }
 
@@ -1030,27 +1037,9 @@ private fun AppExceptionRow(
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    Surface(
+    AppExceptionRowFrame(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = AppRowHorizontalPadding,
-                vertical = AppRowVerticalPadding,
-            ),
-        shape = AppCardShape,
-        color = colors.surface,
-        contentColor = colors.onSurface,
-        shadowElevation = 1.dp,
-        tonalElevation = ArdttElevation.None,
-        border = sectionCardContourBorder(),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(AppRowContentPadding),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        icon = {
             if (app.icon != null) {
                 Image(
                     bitmap = app.icon,
@@ -1066,31 +1055,91 @@ private fun AppExceptionRow(
                         .background(colors.surfaceVariant, AppRowIconCorner),
                 )
             }
+        },
+        title = {
+            Text(
+                text = app.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        subtitle = {
+            Text(
+                text = app.packageName,
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        trailing = {
+            Switch(
+                checked = isSelected,
+                onCheckedChange = { onClick() },
+            )
+        },
+    )
+}
+
+@Composable
+private fun AppExceptionRowFrame(
+    icon: @Composable () -> Unit,
+    title: @Composable () -> Unit,
+    subtitle: @Composable () -> Unit,
+    trailing: @Composable () -> Unit,
+    onClick: (() -> Unit)? = null,
+) {
+    val colors = MaterialTheme.colorScheme
+    val modifier = Modifier
+        .fillMaxWidth()
+        .padding(
+            horizontal = AppRowHorizontalPadding,
+            vertical = AppRowVerticalPadding,
+        )
+    val content: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(AppRowContentPadding),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            icon()
             Spacer(modifier = Modifier.width(AppRowIconGap))
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = ArdttSpacing.Small),
             ) {
-                Text(
-                    text = app.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = app.packageName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                title()
+                subtitle()
             }
-            Switch(
-                checked = isSelected,
-                onCheckedChange = { onClick() },
-            )
+            trailing()
         }
+    }
+    if (onClick != null) {
+        Surface(
+            onClick = onClick,
+            modifier = modifier,
+            shape = AppCardShape,
+            color = colors.surface,
+            contentColor = colors.onSurface,
+            shadowElevation = AppRowShadow,
+            tonalElevation = ArdttElevation.None,
+            border = sectionCardContourBorder(),
+            content = { content() },
+        )
+    } else {
+        Surface(
+            modifier = modifier,
+            shape = AppCardShape,
+            color = colors.surface,
+            contentColor = colors.onSurface,
+            shadowElevation = AppRowShadow,
+            tonalElevation = ArdttElevation.None,
+            border = sectionCardContourBorder(),
+            content = { content() },
+        )
     }
 }
