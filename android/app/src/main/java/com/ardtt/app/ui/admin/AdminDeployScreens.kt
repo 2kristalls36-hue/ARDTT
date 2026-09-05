@@ -41,14 +41,18 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -60,6 +64,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,6 +79,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +98,8 @@ import com.ardtt.app.deploy.DeployHopTrack
 import com.ardtt.app.deploy.DeployJobKind
 import com.ardtt.app.deploy.DeployProgressCopy
 import com.ardtt.app.deploy.DeployTarget
+import com.ardtt.app.deploy.PendingServerImport
+import com.ardtt.app.deploy.ServerLinkCodec
 import com.ardtt.app.deploy.ServerOsMark
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.deploy.serverOsBadgeLabel
@@ -117,6 +125,7 @@ import com.ardtt.app.ui.components.StickyPrimaryButton
 import com.ardtt.app.ui.components.TerminalLogCard
 import com.ardtt.app.ui.components.rememberPullRefresh
 import com.ardtt.app.ui.theme.ArdttColors
+import android.widget.Toast
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -379,8 +388,40 @@ private fun ServerListScreen(
     onAddServer: () -> Unit,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
     var healthById by remember { mutableStateOf<Map<String, HealthUi>>(emptyMap()) }
+    var selectMode by rememberSaveable { mutableStateOf(false) }
+    var selectedIds by rememberSaveable { mutableStateOf(setOf<String>()) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var shareTargets by remember { mutableStateOf<List<DeployTarget>?>(null) }
+    var pendingImport by remember { mutableStateOf<List<DeployTarget>?>(null) }
+    var importError by remember { mutableStateOf<String?>(null) }
+
+    fun exitSelectMode() {
+        selectMode = false
+        selectedIds = emptySet()
+    }
+
+    fun toggleSelected(id: String) {
+        selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
+    }
+
+    fun tryParseImport(raw: String): Boolean {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) {
+            importError = "Буфер обмена пуст"
+            return false
+        }
+        return runCatching {
+            pendingImport = ServerLinkCodec.parseLink(trimmed)
+            importError = null
+            true
+        }.getOrElse { t ->
+            importError = t.message ?: "Не удалось разобрать ссылку"
+            false
+        }
+    }
 
     suspend fun probeAll() {
         val snapshot = serversRepo.snapshot()
@@ -402,10 +443,24 @@ private fun ServerListScreen(
     val serverIds = remember(servers) { servers.map { it.id }.joinToString(",") }
     LaunchedEffect(serverIds) {
         probeAll()
+        val known = servers.map { it.id }.toSet()
+        selectedIds = selectedIds.filter { it in known }.toSet()
+    }
+
+    LaunchedEffect(Unit) {
+        PendingServerImport.take()?.let { tryParseImport(it) }
+    }
+
+    BackHandler(enabled = selectMode) {
+        exitSelectMode()
     }
 
     val pull = rememberPullRefresh {
         if (servers.isNotEmpty()) probeAll()
+    }
+
+    val selectedServers = remember(servers, selectedIds) {
+        servers.filter { it.id in selectedIds }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -419,7 +474,65 @@ private fun ServerListScreen(
                     .padding(horizontal = 16.dp),
             ) {
                 TabFeedHeader(
-                    title = "Управление серверами",
+                    title = if (selectMode) "Экспорт серверов" else "Управление серверами",
+                    subtitle = if (selectMode) "Выбрано: ${selectedIds.size}" else null,
+                    actions = {
+                        if (selectMode) {
+                            IconButton(onClick = { exitSelectMode() }) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "Отменить экспорт",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        } else {
+                            Box {
+                                IconButton(onClick = { menuExpanded = true }) {
+                                    Icon(
+                                        Icons.Filled.MoreVert,
+                                        contentDescription = "Меню серверов",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                OverflowMenu(
+                                    expanded = menuExpanded,
+                                    onDismissRequest = { menuExpanded = false },
+                                ) {
+                                    OverflowMenuItem(
+                                        text = "Экспорт",
+                                        leadingIcon = Icons.Filled.FileUpload,
+                                        enabled = servers.isNotEmpty(),
+                                        onClick = {
+                                            menuExpanded = false
+                                            selectMode = true
+                                            selectedIds = emptySet()
+                                        },
+                                    )
+                                    OverflowMenuItem(
+                                        text = "Импорт из буфера",
+                                        leadingIcon = Icons.Filled.FileDownload,
+                                        onClick = {
+                                            menuExpanded = false
+                                            val clip = clipboard.getText()?.text.orEmpty()
+                                            if (tryParseImport(clip)) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Найдено серверов: ${pendingImport?.size ?: 0}",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    importError ?: "Импорт не удался",
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    },
                 )
 
                 if (servers.isEmpty()) {
@@ -452,16 +565,36 @@ private fun ServerListScreen(
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = ArdttBottomChrome.scrollContentPadding()),
+                        contentPadding = PaddingValues(
+                            top = 8.dp,
+                            bottom = ArdttBottomChrome.scrollContentPadding(),
+                        ),
                         verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
                     ) {
                         items(servers, key = { it.id }) { server ->
-                            ServerCard(
-                                server = server,
-                                health = healthById[server.id],
-                                expectedVersion = expectedVersion,
-                                onOpenServer = { onOpenServer(server.id) },
-                            )
+                            val selected = server.id in selectedIds
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                if (selectMode) {
+                                    Checkbox(
+                                        checked = selected,
+                                        onCheckedChange = { toggleSelected(server.id) },
+                                    )
+                                }
+                                ServerCard(
+                                    server = server,
+                                    health = healthById[server.id],
+                                    expectedVersion = expectedVersion,
+                                    modifier = Modifier.weight(1f),
+                                    onOpenServer = {
+                                        if (selectMode) toggleSelected(server.id)
+                                        else onOpenServer(server.id)
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -469,14 +602,62 @@ private fun ServerListScreen(
         }
 
         StickyPrimaryButton(
-            text = "Добавить сервер",
-            onClick = onAddServer,
-            icon = Icons.Filled.Add,
+            text = if (selectMode) "Экспортировать" else "Добавить сервер",
+            onClick = {
+                if (selectMode) shareTargets = selectedServers
+                else onAddServer()
+            },
+            enabled = !selectMode || selectedServers.isNotEmpty(),
+            icon = if (selectMode) Icons.Filled.FileUpload else Icons.Filled.Add,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
         )
+    }
+
+    shareTargets?.let { targets ->
+        ServerShareDialog(
+            servers = targets,
+            onDismissRequest = {
+                shareTargets = null
+                exitSelectMode()
+            },
+        )
+    }
+
+    pendingImport?.let { imported ->
+        ArdttDialog(
+            title = "Импорт серверов",
+            onDismissRequest = { pendingImport = null },
+            dismissAction = ArdttDialogAction("Отмена") { pendingImport = null },
+            confirmAction = ArdttDialogAction("Импортировать") {
+                serversRepo.upsertAll(imported)
+                Toast.makeText(context, "Импортировано: ${imported.size}", Toast.LENGTH_SHORT).show()
+                pendingImport = null
+            },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Будут добавлены или обновлены ${imported.size} сервер(ов). SSH-секреты входят в закрытую ссылку.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                imported.take(8).forEach { s ->
+                    Text(
+                        "• ${s.name.ifBlank { s.host }} (${s.host})",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (imported.size > 8) {
+                    Text(
+                        "…и ещё ${imported.size - 8}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -486,9 +667,10 @@ private fun ServerCard(
     health: HealthUi?,
     expectedVersion: String,
     onOpenServer: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     AppSectionCard(
-        modifier = Modifier.clickable(onClick = onOpenServer),
+        modifier = modifier.clickable(onClick = onOpenServer),
         contentPadding = CompactListCard.ContentPadding,
         verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
         shape = CompactListCard.Shape,
