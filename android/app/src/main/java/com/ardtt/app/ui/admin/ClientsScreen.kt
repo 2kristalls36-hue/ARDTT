@@ -57,6 +57,7 @@ import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
@@ -327,20 +328,18 @@ private fun ClientsScreen(
             }
         }
 
-        ArdttPrimaryButton(
-            text = "Создать клиента",
-            onClick = {
-                createName = ""
-                createDays = 30
-                createMaxDevices = 1
-                showCreate = true
-            },
-            icon = Icons.Filled.Add,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = ArdttSpacing.Large)
-                .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-        )
+        ArdttStickyBottomBar {
+            ArdttPrimaryButton(
+                text = "Создать клиента",
+                onClick = {
+                    createName = ""
+                    createDays = 30
+                    createMaxDevices = 1
+                    showCreate = true
+                },
+                icon = Icons.Filled.Add,
+            )
+        }
     }
 
     if (showCreate) {

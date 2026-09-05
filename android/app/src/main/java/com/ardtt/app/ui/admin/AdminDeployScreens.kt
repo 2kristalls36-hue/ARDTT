@@ -103,11 +103,14 @@ import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttSwitchRow
+import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
@@ -534,32 +537,12 @@ private fun ServerListScreen(
                 )
 
                 if (servers.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .widthIn(max = 340.dp)
-                                .fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Icon(
-                                Icons.Filled.Dns,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(ArdttSize.IconHero),
-                            )
-                            Spacer(modifier = Modifier.height(26.dp))
-                            Text(
-                                "Добавьте первый сервер, чтобы установить стек и управлять пользователями",
-                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
+                    ArdttEmptyState(
+                        title = "Нет серверов",
+                        description = "Добавьте первый сервер, чтобы установить стек " +
+                            "и управлять пользователями.",
+                        icon = Icons.Filled.Dns,
+                    )
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
@@ -599,19 +582,17 @@ private fun ServerListScreen(
             }
         }
 
-        ArdttPrimaryButton(
-            text = if (selectMode) "Экспортировать" else "Добавить сервер",
-            onClick = {
-                if (selectMode) shareTargets = selectedServers
-                else onAddServer()
-            },
-            enabled = !selectMode || selectedServers.isNotEmpty(),
-            icon = if (selectMode) Icons.Filled.FileUpload else Icons.Filled.Add,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = ArdttSpacing.Large)
-                .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-        )
+        ArdttStickyBottomBar {
+            ArdttPrimaryButton(
+                text = if (selectMode) "Экспортировать" else "Добавить сервер",
+                onClick = {
+                    if (selectMode) shareTargets = selectedServers
+                    else onAddServer()
+                },
+                enabled = !selectMode || selectedServers.isNotEmpty(),
+                icon = if (selectMode) Icons.Filled.FileUpload else Icons.Filled.Add,
+            )
+        }
     }
 
     shareTargets?.let { targets ->
@@ -1245,16 +1226,14 @@ private fun ServerOverviewScreen(
         }
 
         if (showUpdateButton) {
-            ArdttPrimaryButton(
-                text = serverOverviewDeployActionLabel(health),
-                onClick = onUpdateDeploy,
-                containerColor = ArdttColors.Warning,
-                icon = Icons.Filled.CloudUpload,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = ArdttSpacing.Large)
-                    .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
-            )
+            ArdttStickyBottomBar {
+                ArdttPrimaryButton(
+                    text = serverOverviewDeployActionLabel(health),
+                    onClick = onUpdateDeploy,
+                    containerColor = ArdttColors.Warning,
+                    icon = Icons.Filled.CloudUpload,
+                )
+            }
         }
     }
 }
@@ -1631,34 +1610,13 @@ fun DeployScreen(
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
             shape = ArdttShapes.Chip,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = ArdttSpacing.Medium),
-                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
-                ) {
-                    Text(
-                        "Автовыбор портов",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Свободные UDP Direct / Bypass на VPS. Выключите, чтобы задать порты вручную.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = autoPorts,
-                    onCheckedChange = { autoPorts = it },
-                    enabled = !busy,
-                )
-            }
+            ArdttSwitchRow(
+                title = "Автовыбор портов",
+                subtitle = "Свободные UDP Direct / Bypass на VPS. Выключите, чтобы задать порты вручную.",
+                checked = autoPorts,
+                onCheckedChange = { autoPorts = it },
+                enabled = !busy,
+            )
             if (!autoPorts) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
@@ -1695,37 +1653,17 @@ fun DeployScreen(
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
             shape = ArdttShapes.Chip,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = ArdttSpacing.Medium),
-                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
-                ) {
-                    Text(
-                        "Каскадное подключение",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Второй сервер — выход в интернет и WARP. Телефон ставит его отдельно; клиенты живут на первом.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = cascadeEnabled,
-                    onCheckedChange = { on ->
-                        cascadeEnabled = on
-                        if (on) cascadeUser = deploySshUserOrRoot(cascadeUser)
-                    },
-                    enabled = !busy,
-                )
-            }
+            ArdttSwitchRow(
+                title = "Каскадное подключение",
+                subtitle = "Второй сервер — выход в интернет и WARP. " +
+                    "Телефон ставит его отдельно; клиенты живут на первом.",
+                checked = cascadeEnabled,
+                onCheckedChange = { on ->
+                    cascadeEnabled = on
+                    if (on) cascadeUser = deploySshUserOrRoot(cascadeUser)
+                },
+                enabled = !busy,
+            )
             if (cascadeEnabled) {
                 OutlinedTextField(
                     value = cascadeHost,
