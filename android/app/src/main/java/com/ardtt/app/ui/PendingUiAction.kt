@@ -24,6 +24,9 @@ object PendingUiAction {
     private val _openProfiles = MutableStateFlow(false)
     val openProfiles: StateFlow<Boolean> = _openProfiles.asStateFlow()
 
+    private val _openServers = MutableStateFlow(false)
+    val openServers: StateFlow<Boolean> = _openServers.asStateFlow()
+
     fun requestCallHashSettings() {
         _openCallHashSettings.value = true
     }
@@ -73,6 +76,16 @@ object PendingUiAction {
     fun consumeOpenProfiles(): Boolean {
         if (!_openProfiles.value) return false
         _openProfiles.value = false
+        return true
+    }
+
+    fun requestOpenServers() {
+        _openServers.value = true
+    }
+
+    fun consumeOpenServers(): Boolean {
+        if (!_openServers.value) return false
+        _openServers.value = false
         return true
     }
 }
