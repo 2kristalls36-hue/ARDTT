@@ -432,4 +432,30 @@ class ServerDeployCardLogicTest {
             ),
         )
     }
+
+    @Test
+    fun pingLatencyTierBands() {
+        assertNull(pingLatencyTier(-1L))
+        assertNull(pingLatencyTier(0L))
+        assertEquals(PingLatencyTier.Good, pingLatencyTier(1L))
+        assertEquals(PingLatencyTier.Good, pingLatencyTier(80L))
+        assertEquals(PingLatencyTier.Fair, pingLatencyTier(81L))
+        assertEquals(PingLatencyTier.Fair, pingLatencyTier(200L))
+        assertEquals(PingLatencyTier.Poor, pingLatencyTier(201L))
+    }
+
+    @Test
+    fun healthStatusPartsSplitOnlineLine() {
+        val parts = healthStatusParts(HealthUi.Online("1.0.12", pingMs = 42L))
+        assertEquals("● Онлайн", parts.presence)
+        assertEquals("деплой 1.0.12", parts.deploy)
+        assertEquals("42 мс", parts.pingLabel)
+        assertEquals(
+            "● Онлайн · деплой 1.0.12 · 42 мс",
+            healthStatusLabel(HealthUi.Online("1.0.12", pingMs = 42L)),
+        )
+        assertEquals("● Нет связи", healthStatusParts(HealthUi.Unreachable).presence)
+        assertNull(healthStatusParts(HealthUi.Unreachable).deploy)
+    }
+
 }

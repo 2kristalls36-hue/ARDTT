@@ -236,7 +236,7 @@ fun NetworkScreen(
                         info = view.info,
                         loading = view.loading,
                         highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
-                        pingLabel = hopPingLabel(view.hop.kind, hopPings),
+                        pingMs = hopHealthPingMs(view.hop.kind, hopPings),
                         accentColor = pathAccent,
                     )
                 }
@@ -444,9 +444,16 @@ private fun IpInfoCard(
     info: IpApiInfo,
     loading: Boolean = false,
     highlighted: Boolean = false,
-    pingLabel: String = "",
+    pingMs: Long = -1L,
     accentColor: Color = ArdttColors.connected,
 ) {
+    val pingLabel = formatHealthPingMs(pingMs)
+    val pingColor = when (pingLatencyTier(pingMs)) {
+        PingLatencyTier.Good -> ArdttColors.connected
+        PingLatencyTier.Fair -> ArdttColors.warning
+        PingLatencyTier.Poor -> MaterialTheme.colorScheme.error
+        null -> accentColor
+    }
     AppSectionCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -476,13 +483,13 @@ private fun IpInfoCard(
                 PingFlashDot(
                     pingKey = pingLabel,
                     modifier = Modifier.padding(start = 8.dp, end = 4.dp),
-                    color = accentColor,
+                    color = pingColor,
                 )
                 Text(
                     pingLabel,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = accentColor,
+                    color = pingColor,
                 )
             }
         }
