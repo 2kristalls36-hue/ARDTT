@@ -55,6 +55,45 @@ internal fun formatHealthPingMs(pingMs: Long): String {
     return "$pingMs мс"
 }
 
+/** Latency bands for ping coloring (servers card + Network tab). */
+internal enum class PingLatencyTier {
+    Good,
+    Fair,
+    Poor,
+}
+
+internal fun pingLatencyTier(pingMs: Long): PingLatencyTier? {
+    if (pingMs <= 0L) return null
+    return when {
+        pingMs <= 80L -> PingLatencyTier.Good
+        pingMs <= 200L -> PingLatencyTier.Fair
+        else -> PingLatencyTier.Poor
+    }
+}
+
+/**
+ * Split status line: presence · deploy · ping.
+ * UI lays these out left / center / right with their own colors.
+ */
+internal data class HealthStatusParts(
+    val presence: String,
+    val deploy: String? = null,
+    val pingMs: Long = -1L,
+) {
+    val pingLabel: String get() = formatHealthPingMs(pingMs)
+}
+
+internal fun healthStatusParts(health: HealthUi?): HealthStatusParts = when (health) {
+    null, HealthUi.Checking -> HealthStatusParts("● Проверка…")
+    is HealthUi.Online -> HealthStatusParts(
+        presence = "● Онлайн",
+        deploy = "деплой ${health.deployVersion.ifBlank { "—" }}",
+        pingMs = health.pingMs,
+    )
+    HealthUi.NotInstalled -> HealthStatusParts("● Не установлено")
+    HealthUi.Unreachable -> HealthStatusParts("● Нет связи")
+}
+
 /**
  * Public VPN host to show next to SSH identity — only when it actually differs.
  */
@@ -348,15 +387,17 @@ internal fun healthUiIsDown(health: HealthUi?): Boolean =
 
 /** Status line without repeating “актуален” / “нужно обновить” (that lives on the chip). */
 internal fun healthStatusLabel(health: HealthUi?): String {
-    return when (health) {
-        null, HealthUi.Checking -> "● Проверка…"
-        is HealthUi.Online -> {
-            val ver = health.deployVersion.ifBlank { "—" }
-            val base = "● Онлайн · деплой $ver"
-            val ping = formatHealthPingMs(health.pingMs)
-            if (ping.isNotEmpty()) "$base · $ping" else base
+    val parts = healthStatusParts(health)
+    return buildString {
+        append(parts.presence)
+        parts.deploy?.let {
+            append(" · ")
+            append(it)
         }
-        HealthUi.NotInstalled -> "● Не установлено"
-        HealthUi.Unreachable -> "● Нет связи"
+        val ping = parts.pingLabel
+        if (ping.isNotEmpty()) {
+            append(" · ")
+            append(ping)
+        }
     }
 }

@@ -4,9 +4,11 @@ import androidx.compose.ui.graphics.Color
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
+import com.ardtt.app.core.VpnPath
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.ui.theme.ArdttColors
 
 /** Labels for the Network tab connection map. */
 internal object NetworkMapCopy {
@@ -277,6 +279,15 @@ internal fun hopMapGrayStroke(outline: Color): Color {
 
 internal fun hopCardStrokeColor(highlighted: Boolean, outline: Color, connected: Color): Color =
     if (highlighted) connected else hopMapGrayStroke(outline)
+
+/**
+ * Terminal hop rim: green for Direct, blue for Bypass.
+ * Falls back to the Direct green when the live path is unknown.
+ */
+internal fun hopCardAccentColor(activePath: VpnPath?): Color = when (activePath) {
+    VpnPath.Bypass -> ArdttColors.pathBypass
+    VpnPath.Direct, null -> ArdttColors.connected
+}
 
 /** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */
 internal fun hopHealthPingMs(kind: NetworkMapHopKind, pings: HopHealthPings): Long = when (kind) {

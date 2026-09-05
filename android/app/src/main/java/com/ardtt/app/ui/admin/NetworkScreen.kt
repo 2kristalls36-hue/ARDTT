@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -110,6 +111,7 @@ fun NetworkScreen(
     val hops = remember(layout, snapshot.hops) { syncNetworkMapHopViews(layout, snapshot.hops) }
     val hopsLatest = rememberUpdatedState(hops)
     val terminalKind = remember(layout) { terminalHopKind(layout.hops) }
+    val pathAccent = remember(ui.activePath) { hopCardAccentColor(ui.activePath) }
     val visibleHops = remember(hops, terminalKind) {
         val earlier = mutableListOf<String>()
         hops.mapNotNull { view ->
@@ -234,7 +236,8 @@ fun NetworkScreen(
                         info = view.info,
                         loading = view.loading,
                         highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
-                        pingLabel = hopPingLabel(view.hop.kind, hopPings),
+                        pingMs = hopHealthPingMs(view.hop.kind, hopPings),
+                        accentColor = pathAccent,
                     )
                 }
             }
@@ -441,8 +444,16 @@ private fun IpInfoCard(
     info: IpApiInfo,
     loading: Boolean = false,
     highlighted: Boolean = false,
-    pingLabel: String = "",
+    pingMs: Long = -1L,
+    accentColor: Color = ArdttColors.connected,
 ) {
+    val pingLabel = formatHealthPingMs(pingMs)
+    val pingColor = when (pingLatencyTier(pingMs)) {
+        PingLatencyTier.Good -> ArdttColors.connected
+        PingLatencyTier.Fair -> ArdttColors.warning
+        PingLatencyTier.Poor -> MaterialTheme.colorScheme.error
+        null -> accentColor
+    }
     AppSectionCard(
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -454,7 +465,7 @@ private fun IpInfoCard(
             hopCardStrokeColor(
                 highlighted = highlighted,
                 outline = MaterialTheme.colorScheme.outline,
-                connected = ArdttColors.connected,
+                connected = accentColor,
             ),
         ),
     ) {
@@ -472,12 +483,13 @@ private fun IpInfoCard(
                 PingFlashDot(
                     pingKey = pingLabel,
                     modifier = Modifier.padding(start = 8.dp, end = 4.dp),
+                    color = pingColor,
                 )
                 Text(
                     pingLabel,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = ArdttColors.connected,
+                    color = pingColor,
                 )
             }
         }
