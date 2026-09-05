@@ -1,7 +1,6 @@
 package com.ardtt.app.ui.admin
 
 import android.Manifest
-import android.content.Context
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,7 +24,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,11 +31,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -52,11 +47,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,7 +57,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -113,6 +104,7 @@ import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
+import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
@@ -125,6 +117,7 @@ import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.components.surface.ArdttTerminalCard
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
@@ -476,7 +469,7 @@ private fun ServerListScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = ArdttSpacing.Large),
             ) {
                 ArdttFeedHeader(
                     title = if (selectMode) "Экспорт серверов" else "Управление серверами",
@@ -555,7 +548,7 @@ private fun ServerListScreen(
                                 Icons.Filled.Dns,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(48.dp),
+                                modifier = Modifier.size(ArdttSize.IconHero),
                             )
                             Spacer(modifier = Modifier.height(26.dp))
                             Text(
@@ -571,7 +564,7 @@ private fun ServerListScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
-                            top = 8.dp,
+                            top = ArdttSpacing.Small,
                             bottom = ArdttBottomChrome.scrollContentPadding(),
                         ),
                         verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
@@ -581,7 +574,7 @@ private fun ServerListScreen(
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                             ) {
                                 if (selectMode) {
                                     Checkbox(
@@ -616,7 +609,7 @@ private fun ServerListScreen(
             icon = if (selectMode) Icons.Filled.FileUpload else Icons.Filled.Add,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = ArdttSpacing.Large)
                 .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
         )
     }
@@ -645,7 +638,7 @@ private fun ServerListScreen(
                 },
             ),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small)) {
                 Text(
                     "Будут добавлены или обновлены ${imported.size} сервер(ов). SSH-секреты входят в закрытую ссылку.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -714,7 +707,7 @@ private fun ServerIdentityBody(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
     ) {
         ArdttLeadingIcon(
             imageVector = Icons.Filled.Dns,
@@ -727,7 +720,7 @@ private fun ServerIdentityBody(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
                 Text(
                     title,
@@ -764,20 +757,10 @@ private fun ServerIdentityBody(
                 expectedVersion = expectedVersion,
             )
             freshnessChip?.let { chip ->
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = ArdttColors.Warning.copy(alpha = 0.18f),
-                ) {
-                    Text(
-                        chip,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = ArdttColors.Warning,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                ArdttStatusChip(
+                    text = chip,
+                    accent = ArdttColors.Warning,
+                )
             }
         }
     }
@@ -813,7 +796,7 @@ private fun DeployProgressSheet(
         dismissOnClickOutside = false,
     ) {
         if (slots.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small)) {
                 slots.forEach { slot ->
                     DeployHopSlotCard(
                         slot = slot,
@@ -877,11 +860,11 @@ private fun DeployHopSlotCard(
         DeploySlotPhase.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     ArdttSectionCard(
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-        shape = RoundedCornerShape(16.dp),
-        shadowElevation = 0.dp,
-        tonalElevation = 0.dp,
+        contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.SmallPlus),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
+        shape = ArdttShapes.Chip,
+        shadowElevation = ArdttElevation.None,
+        tonalElevation = ArdttElevation.None,
         border = BorderStroke(ArdttSectionCardDefaults.ContourWidth, borderColor),
     ) {
         Row(
@@ -1205,9 +1188,9 @@ private fun ServerOverviewScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
+                        start = ArdttSpacing.Large,
+                        end = ArdttSpacing.Large,
+                        top = ArdttSpacing.Small,
                         bottom = if (showUpdateButton) {
                             ArdttBottomChrome.scrollContentPadding()
                         } else {
@@ -1238,7 +1221,7 @@ private fun ServerOverviewScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
+                    modifier = Modifier.padding(start = ArdttSpacing.Tiny, top = ArdttSpacing.Tiny, bottom = ArdttSpacing.Hairline),
                 )
             }
             item {
@@ -1269,7 +1252,7 @@ private fun ServerOverviewScreen(
                 icon = Icons.Filled.CloudUpload,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = ArdttSpacing.Large)
                     .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
             )
         }
@@ -1348,7 +1331,7 @@ private fun RenameServerDialog(
             onValueChange = { name = it },
             label = { Text("Имя сервера") },
             singleLine = true,
-            shape = RoundedCornerShape(16.dp),
+            shape = ArdttShapes.Chip,
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -1529,7 +1512,7 @@ fun DeployScreen(
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
         Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
             ArdttFeedHeader(
@@ -1546,12 +1529,12 @@ fun DeployScreen(
             serverDeployFormHelp(saved, cascadeEnabled, expectedDeployVersion),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = ArdttSpacing.Large),
         )
 
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = ArdttSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
         OutlinedTextField(
             value = name,
@@ -1562,7 +1545,7 @@ fun DeployScreen(
                 .bringIntoViewWhenFocused(),
             singleLine = true,
             enabled = !busy,
-            shape = RoundedCornerShape(16.dp),
+            shape = ArdttShapes.Chip,
         )
         OutlinedTextField(
             value = host,
@@ -1574,7 +1557,7 @@ fun DeployScreen(
             singleLine = true,
             enabled = !busy,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small), modifier = Modifier.fillMaxWidth()) {
             OutlinedTextField(
                 value = sshPort,
                 onValueChange = { sshPort = it.filter { ch -> ch.isDigit() }.take(5) },
@@ -1644,9 +1627,9 @@ fun DeployScreen(
             enabled = !busy,
         )
         ArdttSectionCard(
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            shape = RoundedCornerShape(16.dp),
+            contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
+            shape = ArdttShapes.Chip,
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1656,8 +1639,8 @@ fun DeployScreen(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                        .padding(end = ArdttSpacing.Medium),
+                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                 ) {
                     Text(
                         "Автовыбор портов",
@@ -1678,7 +1661,7 @@ fun DeployScreen(
             }
             if (!autoPorts) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     OutlinedTextField(
@@ -1708,9 +1691,9 @@ fun DeployScreen(
         }
 
         ArdttSectionCard(
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            shape = RoundedCornerShape(16.dp),
+            contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
+            shape = ArdttShapes.Chip,
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1720,8 +1703,8 @@ fun DeployScreen(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                        .padding(end = ArdttSpacing.Medium),
+                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                 ) {
                     Text(
                         "Каскадное подключение",
@@ -1756,7 +1739,7 @@ fun DeployScreen(
                         .bringIntoViewWhenFocused(),
                 )
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     OutlinedTextField(
@@ -1853,14 +1836,14 @@ fun DeployScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = ArdttShapes.Chip,
         ) {
             Icon(
                 Icons.Filled.CloudUpload,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(ArdttSpacing.Small))
             Text(
                 serverDeployActionLabel(saved, cascadeEnabled),
                 fontWeight = FontWeight.SemiBold,
@@ -1953,19 +1936,19 @@ private fun ServerOsBadge(
     val description = listOfNotNull(label, version).joinToString(" ")
     Surface(
         modifier = Modifier.widthIn(max = 200.dp),
-        shape = RoundedCornerShape(8.dp),
+        shape = ArdttShapes.Badge,
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            modifier = Modifier.padding(horizontal = ArdttSpacing.Small, vertical = 3.dp),
         ) {
             Image(
                 painter = painterResource(serverOsMarkDrawable(mark)),
                 contentDescription = description,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(ArdttSize.IconSmall),
             )
             Text(
                 label,

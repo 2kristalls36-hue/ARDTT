@@ -1,10 +1,5 @@
 package com.ardtt.app.ui.admin
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,6 +46,8 @@ import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.terminalCardColor
 import com.ardtt.app.ui.components.surface.terminalCardElevation
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.util.copyToClipboard
 import com.ardtt.app.ui.util.shareText
 import java.text.SimpleDateFormat
@@ -112,7 +109,7 @@ fun LogsScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = ArdttSpacing.Large)
             .padding(bottom = ArdttBottomChrome.navigationReserve() + 12.dp),
     ) {
         ArdttFeedHeader(
@@ -143,13 +140,13 @@ fun LogsScreen() {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
+                    .padding(bottom = ArdttSpacing.Small),
                 color = MaterialTheme.colorScheme.errorContainer,
-                shape = RoundedCornerShape(14.dp),
+                shape = ArdttShapes.Row,
             ) {
                 Text(
                     fatal,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus),
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
@@ -159,8 +156,8 @@ fun LogsScreen() {
 
         ArdttSectionCard(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(0.dp),
-            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(ArdttSpacing.None),
+            shape = ArdttShapes.Panel,
             color = terminalBg,
             shadowElevation = terminalCardElevation(),
         ) {
@@ -174,9 +171,9 @@ fun LogsScreen() {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                         ) {
                             if (pinnedStats != null) {
                                 Text(
@@ -195,7 +192,7 @@ fun LogsScreen() {
                                     Icons.Default.Timer,
                                     contentDescription = null,
                                     tint = ArdttColors.TerminalBlue,
-                                    modifier = Modifier.padding(end = 2.dp),
+                                    modifier = Modifier.padding(end = ArdttSpacing.Hairline),
                                 )
                                 Text(
                                     uptimeText,
@@ -212,7 +209,7 @@ fun LogsScreen() {
                 if (entries.isEmpty()) {
                     Text(
                         "Пока пусто. Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client.",
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(ArdttSpacing.Large),
                         color = ArdttColors.TerminalText.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -221,8 +218,8 @@ fun LogsScreen() {
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                            .padding(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus),
+                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                     ) {
                         items(entries, key = { it.id }) { e ->
                             val color = when (e.level) {

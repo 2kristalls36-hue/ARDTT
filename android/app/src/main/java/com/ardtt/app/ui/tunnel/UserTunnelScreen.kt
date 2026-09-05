@@ -71,11 +71,15 @@ import com.ardtt.app.profile.ProfileCatalog
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
 import com.ardtt.app.settings.AppSettingsRepository
+import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.nextThemeMode
 import com.ardtt.app.ui.persistThemeMode
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.themeModeVisualKey
 import com.ardtt.app.ui.tunnelPowerBusy
 import com.ardtt.app.ui.tunnelPowerClickDisconnects
@@ -105,33 +109,14 @@ fun UserTunnelScreen(
         initialValue = false,
     )
     val haptics = rememberArdttHaptics(uiHapticsEnabled)
-    var previousConnState by remember { mutableStateOf(ui.state) }
-    var connStateInitialized by remember { mutableStateOf(false) }
-    var previousHasCallHash by remember { mutableStateOf(ui.hasCallHash) }
-    var callHashInitialized by remember { mutableStateOf(false) }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
         settings.setProfileName(profile?.name.orEmpty())
         conn.startInitialProbe()
     }
-    LaunchedEffect(ui.state) {
-        if (connStateInitialized &&
-            previousConnState != ConnState.Connected &&
-            ui.state == ConnState.Connected
-        ) {
-            haptics.success()
-        }
-        previousConnState = ui.state
-        connStateInitialized = true
-    }
-    LaunchedEffect(ui.hasCallHash) {
-        if (callHashInitialized && !previousHasCallHash && ui.hasCallHash) {
-            haptics.success()
-        }
-        previousHasCallHash = ui.hasCallHash
-        callHashInitialized = true
-    }
+    RisingEdgeSuccessHaptic(haptics, ui.state == ConnState.Connected)
+    RisingEdgeSuccessHaptic(haptics, ui.hasCallHash)
 
     val bypassActive = wallpaperBypassActive(
         pathMode = ConnPathMode.fromSetting(pathMode),
@@ -144,7 +129,6 @@ fun UserTunnelScreen(
         catalogItems = catalog.items,
         activeProfileId = catalog.activeId,
         bypassActive = bypassActive,
-        showIllustratedWallpaper = true,
         themeMode = themeMode,
         onSwitchThemeMode = {
             scope.launch { persistThemeMode(settings, nextThemeMode(themeMode)) }
@@ -195,7 +179,6 @@ private fun UserTunnelSimpleScreen(
     catalogItems: List<StoredProfile>,
     activeProfileId: String?,
     bypassActive: Boolean,
-    showIllustratedWallpaper: Boolean,
     themeMode: String,
     onSwitchThemeMode: () -> Unit,
     onToggleTunnel: () -> Unit,
@@ -207,7 +190,7 @@ private fun UserTunnelSimpleScreen(
     val droneExitDurationMs = 980L
     val lifecycleOwner = LocalLifecycleOwner.current
     var animationRestartToken by remember { mutableStateOf(0) }
-    var showingBypassScene by remember { mutableStateOf(bypassActive && showIllustratedWallpaper) }
+    var showingBypassScene by remember { mutableStateOf(bypassActive) }
     var dronesBlowAway by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -220,12 +203,7 @@ private fun UserTunnelSimpleScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
-    LaunchedEffect(bypassActive, showIllustratedWallpaper) {
-        if (!showIllustratedWallpaper) {
-            dronesBlowAway = false
-            showingBypassScene = false
-            return@LaunchedEffect
-        }
+    LaunchedEffect(bypassActive) {
         if (bypassActive) {
             dronesBlowAway = false
             showingBypassScene = true
@@ -243,7 +221,7 @@ private fun UserTunnelSimpleScreen(
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
     val modeBadge = themeModeVisualKey(themeMode)
     Box(modifier = Modifier.fillMaxSize()) {
-        if (showingBypassScene && showIllustratedWallpaper) {
+        if (showingBypassScene) {
             WhitelistSkyAnimation(
                 restartToken = animationRestartToken,
                 blowAway = dronesBlowAway,
@@ -258,7 +236,7 @@ private fun UserTunnelSimpleScreen(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(top = 8.dp, end = 12.dp)
+                .padding(top = ArdttSpacing.Small, end = ArdttSpacing.Medium)
                 .size(38.dp)
                 .combinedClickable(onClick = onSwitchThemeMode),
             shape = RoundedCornerShape(19.dp),
@@ -272,13 +250,13 @@ private fun UserTunnelSimpleScreen(
                         imageVector = Icons.Outlined.WbSunny,
                         contentDescription = "Светлая тема",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(ArdttSize.IconCompact),
                     )
                     "dark" -> Icon(
                         imageVector = Icons.Outlined.DarkMode,
                         contentDescription = "Тёмная тема",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(ArdttSize.IconCompact),
                     )
                     else -> Text(
                         "A",
@@ -292,8 +270,8 @@ private fun UserTunnelSimpleScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = ArdttSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
             Spacer(modifier = Modifier.weight(1f))
             TunnelPowerToggle(
@@ -319,7 +297,7 @@ private fun UserTunnelSimpleScreen(
             if (showDonateBanner) {
                 DonateSupportBanner(onDismiss = onDismissDonate)
             }
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(ArdttSpacing.MediumPlus))
             ProfileSwitcherBar(
                 activeItem = activeItem,
                 canSwitch = catalogItems.size > 1,
@@ -368,9 +346,9 @@ private fun UserConnectStatusBlock(
     Column(
         modifier = modifier
             .widthIn(max = 320.dp)
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = ArdttSpacing.SmallPlus),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
     ) {
         Text(
             text = primaryLine,
@@ -451,7 +429,7 @@ private fun TunnelPowerToggle(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (paused) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
@@ -493,7 +471,7 @@ private fun ProfileSwitcherBar(
             .fillMaxWidth()
             .padding(bottom = ArdttBottomChrome.navigationReserve() + 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
     ) {
         val scheme = MaterialTheme.colorScheme
         val sessionLocked = canSwitch && !switchEnabled
@@ -512,7 +490,7 @@ private fun ProfileSwitcherBar(
             },
         )
         val lockedBorder = if (sessionLocked) {
-            BorderStroke(1.dp, scheme.outline.copy(alpha = 0.55f))
+            BorderStroke(ArdttSize.Border, scheme.outline.copy(alpha = 0.55f))
         } else {
             null
         }
@@ -520,13 +498,13 @@ private fun ProfileSwitcherBar(
             Button(
                 onClick = onPrev,
                 enabled = switchEnabled,
-                shape = RoundedCornerShape(20.dp),
+                shape = ArdttShapes.Control,
                 modifier = Modifier
                     .height(ArdttBottomChrome.ButtonHeight)
                     .width(62.dp),
                 colors = commonButtonColors,
                 border = lockedBorder,
-                contentPadding = PaddingValues(0.dp),
+                contentPadding = PaddingValues(ArdttSpacing.None),
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий профиль")
             }
@@ -534,7 +512,7 @@ private fun ProfileSwitcherBar(
         Button(
             onClick = { if (switchEnabled) onNext() },
             enabled = activeItem != null && (!canSwitch || switchEnabled),
-            shape = RoundedCornerShape(20.dp),
+            shape = ArdttShapes.Control,
             modifier = Modifier
                 .weight(1f)
                 .height(ArdttBottomChrome.ButtonHeight),
@@ -545,9 +523,9 @@ private fun ProfileSwitcherBar(
                 Icon(
                     Icons.Filled.Lock,
                     contentDescription = "Смена профиля недоступна",
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(ArdttSize.IconSmall),
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(ArdttSpacing.Small))
             }
             Text(
                 activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль",
@@ -560,13 +538,13 @@ private fun ProfileSwitcherBar(
             Button(
                 onClick = onNext,
                 enabled = switchEnabled,
-                shape = RoundedCornerShape(20.dp),
+                shape = ArdttShapes.Control,
                 modifier = Modifier
                     .height(ArdttBottomChrome.ButtonHeight)
                     .width(62.dp),
                 colors = commonButtonColors,
                 border = lockedBorder,
-                contentPadding = PaddingValues(0.dp),
+                contentPadding = PaddingValues(ArdttSpacing.None),
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий профиль")
             }

@@ -551,11 +551,16 @@ class NetworkConnectionMapTest {
         assertEquals(40L, hopHealthPingMs(NetworkMapHopKind.Vps2, pings))
         assertEquals(-1L, hopHealthPingMs(NetworkMapHopKind.Provider, pings))
         assertEquals(-1L, hopHealthPingMs(NetworkMapHopKind.Cloudflare, pings))
-        assertEquals("12 мс", hopPingLabel(NetworkMapHopKind.Vps, pings))
-        assertEquals("40 мс", hopPingLabel(NetworkMapHopKind.Vps2, pings))
-        assertEquals("", hopPingLabel(NetworkMapHopKind.Provider, pings))
-        assertEquals("", hopPingLabel(NetworkMapHopKind.Vps, HopHealthPings()))
-        assertEquals("", hopPingLabel(NetworkMapHopKind.Vps2, HopHealthPings(entryMs = 12L)))
+        assertEquals("12 мс", formatHealthPingMs(hopHealthPingMs(NetworkMapHopKind.Vps, pings)))
+        assertEquals("40 мс", formatHealthPingMs(hopHealthPingMs(NetworkMapHopKind.Vps2, pings)))
+        assertEquals("", formatHealthPingMs(hopHealthPingMs(NetworkMapHopKind.Provider, pings)))
+        assertEquals("", formatHealthPingMs(hopHealthPingMs(NetworkMapHopKind.Vps, HopHealthPings())))
+        assertEquals(
+            "",
+            formatHealthPingMs(
+                hopHealthPingMs(NetworkMapHopKind.Vps2, HopHealthPings(entryMs = 12L)),
+            ),
+        )
     }
 
     @Test

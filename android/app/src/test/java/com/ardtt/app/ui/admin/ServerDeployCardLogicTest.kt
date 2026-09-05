@@ -170,25 +170,25 @@ class ServerDeployCardLogicTest {
 
     @Test
     fun statusLineDoesNotRepeatFreshnessWords() {
-        val current = healthStatusLabel(HealthUi.Online("1.0.6"))
-        assertEquals("● Онлайн · деплой 1.0.6", current)
-        assertFalse(current.contains("актуален"))
-        assertFalse(current.contains("нужно обновить"))
+        val current = healthStatusParts(HealthUi.Online("1.0.6"))
+        assertEquals("● Онлайн", current.presence)
+        assertEquals("деплой 1.0.6", current.deploy)
+        assertFalse(current.deploy.orEmpty().contains("актуален"))
+        assertFalse(current.deploy.orEmpty().contains("нужно обновить"))
 
-        val outdated = healthStatusLabel(HealthUi.Online("1.0.5"))
-        assertEquals("● Онлайн · деплой 1.0.5", outdated)
-        assertFalse(outdated.contains("актуален"))
-        assertFalse(outdated.contains("нужно обновить"))
+        val outdated = healthStatusParts(HealthUi.Online("1.0.5"))
+        assertEquals("деплой 1.0.5", outdated.deploy)
+        assertFalse(outdated.deploy.orEmpty().contains("актуален"))
+        assertFalse(outdated.deploy.orEmpty().contains("нужно обновить"))
     }
 
     @Test
     fun statusLineShowsPingInsteadOfDeployAge() {
-        val withPing = healthStatusLabel(
-            HealthUi.Online("1.0.12", pingMs = 42L),
-        )
-        assertEquals("● Онлайн · деплой 1.0.12 · 42 мс", withPing)
-        assertFalse(withPing.contains("назад"))
-        assertFalse(withPing.contains("мин"))
+        val withPing = healthStatusParts(HealthUi.Online("1.0.12", pingMs = 42L))
+        assertEquals("деплой 1.0.12", withPing.deploy)
+        assertEquals("42 мс", withPing.pingLabel)
+        assertFalse(withPing.deploy.orEmpty().contains("назад"))
+        assertFalse(withPing.deploy.orEmpty().contains("мин"))
     }
 
     @Test
@@ -233,18 +233,16 @@ class ServerDeployCardLogicTest {
             sshAuthOk = false,
         )
         assertEquals(HealthUi.Online("1.0.12", 18L), online)
-        assertTrue(healthUiIsDown(HealthUi.Unreachable))
-        assertTrue(healthUiIsDown(HealthUi.NotInstalled))
-        assertFalse(healthUiIsDown(HealthUi.Online("1.0.12")))
-        assertFalse(healthUiIsDown(HealthUi.Checking))
     }
 
     @Test
     fun statusLineSplitsNotInstalledAndNoConnection() {
-        assertEquals("● Не установлено", healthStatusLabel(HealthUi.NotInstalled))
-        assertEquals("● Нет связи", healthStatusLabel(HealthUi.Unreachable))
-        assertFalse(healthStatusLabel(HealthUi.NotInstalled).contains("нет связи", ignoreCase = true))
-        assertFalse(healthStatusLabel(HealthUi.Unreachable).contains("установ", ignoreCase = true))
+        val notInstalled = healthStatusParts(HealthUi.NotInstalled).presence
+        val unreachable = healthStatusParts(HealthUi.Unreachable).presence
+        assertEquals("● Не установлено", notInstalled)
+        assertEquals("● Нет связи", unreachable)
+        assertFalse(notInstalled.contains("нет связи", ignoreCase = true))
+        assertFalse(unreachable.contains("установ", ignoreCase = true))
     }
 
     @Test
@@ -450,10 +448,6 @@ class ServerDeployCardLogicTest {
         assertEquals("● Онлайн", parts.presence)
         assertEquals("деплой 1.0.12", parts.deploy)
         assertEquals("42 мс", parts.pingLabel)
-        assertEquals(
-            "● Онлайн · деплой 1.0.12 · 42 мс",
-            healthStatusLabel(HealthUi.Online("1.0.12", pingMs = 42L)),
-        )
         assertEquals("● Нет связи", healthStatusParts(HealthUi.Unreachable).presence)
         assertNull(healthStatusParts(HealthUi.Unreachable).deploy)
     }

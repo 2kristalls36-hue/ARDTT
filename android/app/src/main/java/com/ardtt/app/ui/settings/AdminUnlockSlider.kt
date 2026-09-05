@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material3.Icon
@@ -40,6 +39,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.theme.ArdttShapes
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -74,7 +74,7 @@ fun AdminUnlockSlider(
         modifier = modifier
             .fillMaxWidth()
             .height(trackHeight)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(ArdttShapes.Card)
             .background(colors.primaryContainer)
             .semantics {
                 contentDescription = "Ползунок режима администратора. Перетащите вправо до конца."
@@ -97,7 +97,7 @@ fun AdminUnlockSlider(
                 .align(Alignment.CenterStart)
                 .fillMaxHeight()
                 .width(with(density) { fillPx.toDp() })
-                .clip(RoundedCornerShape(18.dp))
+                .clip(ArdttShapes.Card)
                 .background(
                     brush = Brush.horizontalGradient(
                         colors = listOf(

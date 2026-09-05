@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.LocalCafe
@@ -27,6 +26,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 
 private val DonateCardLight = Color(0xFFFFFBE6)
 private val DonateAccentLight = Color(0xFFB8860B)
@@ -86,11 +89,11 @@ fun DonateSupportBanner(
     ArdttSectionCard(
         modifier = modifier,
         color = colors.card,
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        shape = RoundedCornerShape(20.dp),
+        contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+        shape = ArdttShapes.Control,
         border = BorderStroke(ArdttSectionCardDefaults.ContourWidth, colors.border),
-        shadowElevation = 0.dp,
+        shadowElevation = ArdttElevation.None,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -101,8 +104,8 @@ fun DonateSupportBanner(
                 contentDescription = null,
                 tint = colors.icon,
                 modifier = Modifier
-                    .padding(end = 8.dp)
-                    .size(18.dp),
+                    .padding(end = ArdttSpacing.Small)
+                    .size(ArdttSize.IconCompact),
             )
             Text(
                 DonateSupport.TITLE,
@@ -130,7 +133,7 @@ fun DonateSupportBanner(
         )
         TextButton(
             onClick = { DonateSupport.openPage(context) },
-            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+            contentPadding = PaddingValues(horizontal = ArdttSpacing.None, vertical = ArdttSpacing.None),
         ) {
             Text(DonateSupport.ACTION, color = colors.accent, fontWeight = FontWeight.SemiBold)
         }

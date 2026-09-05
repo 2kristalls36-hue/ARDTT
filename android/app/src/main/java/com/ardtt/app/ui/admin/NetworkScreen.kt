@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -54,6 +53,10 @@ import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -217,9 +220,9 @@ fun NetworkScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = ArdttSpacing.Large)
                 .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
         ) {
             ArdttFeedHeader(
                 title = "Сеть",
@@ -432,7 +435,7 @@ private fun HopConnector() {
             modifier = Modifier
                 .width(2.dp)
                 .fillMaxHeight()
-                .background(color, RoundedCornerShape(50)),
+                .background(color, ArdttShapes.Pill),
         )
     }
 }
@@ -455,11 +458,11 @@ private fun IpInfoCard(
         null -> accentColor
     }
     ArdttSectionCard(
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        shape = RoundedCornerShape(24.dp),
-        shadowElevation = 0.dp,
-        tonalElevation = 0.dp,
+        contentPadding = PaddingValues(horizontal = ArdttSpacing.LargePlus, vertical = ArdttSpacing.Large),
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+        shape = ArdttShapes.Panel,
+        shadowElevation = ArdttElevation.None,
+        tonalElevation = ArdttElevation.None,
         border = BorderStroke(
             ArdttSectionCardDefaults.ContourWidth,
             hopCardStrokeColor(
@@ -482,7 +485,7 @@ private fun IpInfoCard(
             if (pingLabel.isNotEmpty()) {
                 ArdttPingDot(
                     pingKey = pingLabel,
-                    modifier = Modifier.padding(start = 8.dp, end = 4.dp),
+                    modifier = Modifier.padding(start = ArdttSpacing.Small, end = ArdttSpacing.Tiny),
                     color = pingColor,
                 )
                 Text(
@@ -540,8 +543,8 @@ private fun HopCardTitle(
             painter = painterResource(R.drawable.ic_cloudflare),
             contentDescription = null,
             modifier = Modifier
-                .padding(horizontal = 6.dp)
-                .size(16.dp),
+                .padding(horizontal = ArdttSpacing.TinyPlus)
+                .size(ArdttSize.IconSmall),
         )
         Text(
             layout.trailingText,

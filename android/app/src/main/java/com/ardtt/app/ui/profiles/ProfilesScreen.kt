@@ -1,8 +1,5 @@
 package com.ardtt.app.ui.profiles
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,9 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -30,7 +25,6 @@ import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,6 +67,9 @@ import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.util.copyToClipboard
 import com.ardtt.app.ui.util.readClipboardText
 import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
@@ -360,7 +357,7 @@ fun ProfilesScreen(
                 value = subscriptionUrl,
                 onValueChange = { subscriptionUrl = it },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Chip,
                 placeholder = { Text("https://…/profile.json") },
                 singleLine = true,
             )
@@ -394,7 +391,7 @@ fun ProfilesScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Chip,
                 placeholder = { Text("ardtt://config?… или { \"name\": … }") },
             )
         }
@@ -422,7 +419,7 @@ fun ProfilesScreen(
                 onValueChange = { renameText = it },
                 label = { Text("Имя профиля") },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = ArdttShapes.Chip,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -462,7 +459,7 @@ private fun ProfileCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
             ArdttLeadingIcon(
                 painter = painterResource(R.drawable.ic_profile),
@@ -474,7 +471,7 @@ private fun ProfileCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
                 ) {
                     Text(
                         item.profile.name,
@@ -490,7 +487,7 @@ private fun ProfileCard(
                             Icons.Filled.Lock,
                             contentDescription = "Смена профиля недоступна",
                             tint = colors.onSurface.copy(alpha = 0.45f),
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(ArdttSize.IconSmall),
                         )
                     }
                     if (active) {
@@ -498,7 +495,7 @@ private fun ProfileCard(
                             Icons.Filled.CheckCircle,
                             contentDescription = "Активен",
                             tint = ArdttColors.Connected,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(ArdttSize.IconCompact),
                         )
                     }
                 }
@@ -538,7 +535,7 @@ private fun ProfileCard(
                         } else {
                             colors.onSurfaceVariant
                         },
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(ArdttSize.IconCompact),
                     )
                 }
                 ArdttOverflowMenu(

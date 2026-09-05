@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -73,6 +72,9 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.layout.ArdttBackdrop
 import com.ardtt.app.ui.components.layout.ArdttPageHeader
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.util.readClipboardText
 import com.ardtt.app.unlock.AlphaGate
 import com.ardtt.app.unlock.AlphaUnlockResult
@@ -136,14 +138,14 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                 .windowInsetsPadding(
                     WindowInsets.statusBars.union(WindowInsets.navigationBars).union(WindowInsets.ime),
                 )
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = ArdttSpacing.Large),
         ) {
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .verticalScroll(scroll),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
             ) {
                 ArdttPageHeader(
                     title = "ARDTT",
@@ -177,7 +179,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                     }
                 }
                 ArdttSectionCard(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -187,18 +189,18 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                             DeviceUnlockCopy.DEVICE_CODE_TITLE,
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(end = 8.dp),
+                                .padding(end = ArdttSpacing.Small),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                         )
                         IconButton(
                             onClick = { copyDeviceCode() },
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier.size(ArdttSize.PullIndicator),
                         ) {
                             Icon(
                                 Icons.Outlined.ContentCopy,
                                 contentDescription = DeviceUnlockCopy.COPY_CODE,
-                                modifier = Modifier.size(22.dp),
+                                modifier = Modifier.size(ArdttSize.Icon),
                             )
                         }
                     }
@@ -219,7 +221,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                 }
                 if (!imeVisible) {
                     ArdttSectionCard(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
                     ) {
                         Text(
                             DeviceUnlockCopy.INTRO,
@@ -246,7 +248,7 @@ fun AlphaUnlockScreen(settings: AppSettingsRepository) {
                 onClick = { submit() },
                 enabled = !busy && otp.length == AlphaGate.OTP_LEN,
                 busy = busy,
-                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+                modifier = Modifier.padding(top = ArdttSpacing.Small, bottom = ArdttSpacing.Medium),
             )
         }
     }
@@ -267,7 +269,7 @@ private fun SixDigitCodeField(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val colors = MaterialTheme.colorScheme
-    val cellShape = RoundedCornerShape(16.dp)
+    val cellShape = ArdttShapes.Chip
     val pasteToolbar = remember(clipboard, onPaste) {
         ImmediatePasteTextToolbar(onPaste)
     }
@@ -300,7 +302,7 @@ private fun SixDigitCodeField(
                             onClick = { focusRequester.requestFocus() },
                             onLongClick = onPaste,
                         ),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                 ) {
                     repeat(AlphaGate.OTP_LEN) { index ->
                         val filled = index < value.length
