@@ -447,8 +447,10 @@ private fun ServerListScreen(
         selectedIds = selectedIds.filter { it in known }.toSet()
     }
 
-    LaunchedEffect(Unit) {
-        PendingServerImport.take()?.let { tryParseImport(it) }
+    val pendingImportLink by PendingServerImport.link.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingImportLink) {
+        val link = PendingServerImport.take() ?: return@LaunchedEffect
+        tryParseImport(link)
     }
 
     BackHandler(enabled = selectMode) {
