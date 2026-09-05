@@ -54,6 +54,7 @@ class ServersRepository(context: Context) {
                     .put("keyPassphrase", t.keyPassphrase)
                     .put("sudoPassword", t.sudoPassword)
                     .put("publicHost", t.publicHost.ifBlank { t.host })
+                    .put("autoPorts", t.autoPorts)
                     .put("directPort", t.directPort)
                     .put("bypassPort", t.bypassPort)
                     .put("cascadeEnabled", t.cascadeEnabled)
@@ -91,6 +92,7 @@ class ServersRepository(context: Context) {
                             keyPassphrase = o.optString("keyPassphrase", ""),
                             sudoPassword = o.optString("sudoPassword", ""),
                             publicHost = o.optString("publicHost", ""),
+                            autoPorts = o.optBoolean("autoPorts", true),
                             directPort = o.optInt("directPort", 51820),
                             bypassPort = o.optInt("bypassPort", 56003),
                             cascadeEnabled = o.optBoolean("cascadeEnabled", false),
