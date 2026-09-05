@@ -6,6 +6,7 @@ import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.core.VpnPath
 import com.ardtt.app.ui.theme.ArdttColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -524,6 +525,22 @@ class NetworkConnectionMapTest {
         assertEquals(
             ArdttColors.connected,
             hopCardStrokeColor(highlighted = true, outline = outline, connected = ArdttColors.connected),
+        )
+    }
+
+
+    @Test
+    fun hopCardAccentFollowsLiveVpnPath() {
+        assertEquals(ArdttColors.connected, hopCardAccentColor(VpnPath.Direct))
+        assertEquals(ArdttColors.connected, hopCardAccentColor(null))
+        assertEquals(ArdttColors.pathBypass, hopCardAccentColor(VpnPath.Bypass))
+        assertEquals(
+            ArdttColors.pathBypass,
+            hopCardStrokeColor(
+                highlighted = true,
+                outline = Color(0xFFB2C2D7),
+                connected = hopCardAccentColor(VpnPath.Bypass),
+            ),
         )
     }
 

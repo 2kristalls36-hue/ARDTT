@@ -30,7 +30,7 @@ fun PingFlashDot(
     modifier: Modifier = Modifier,
     size: Dp = 8.dp,
     color: Color = ArdttColors.connected,
-    holdMs: Int = 500,
+    holdMs: Int = 1000,
     fadeMs: Int = 700,
 ) {
     val alpha = remember { Animatable(0f) }
