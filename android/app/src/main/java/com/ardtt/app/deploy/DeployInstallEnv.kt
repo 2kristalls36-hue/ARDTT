@@ -16,10 +16,12 @@ object DeployInstallEnv {
         cascadePeerEndpoint: String = "",
         cascadePeerPublicKey: String = "",
         cascadeDns: String = CASCADE_DNS,
+        autoPorts: Boolean = true,
     ): String = buildString {
         append("ARDTT_PUBLIC_HOST="); append(SshClient.shellQuote(publicHost)); append(' ')
         append("ARDTT_DIRECT_PORT="); append(directPort); append(' ')
         append("ARDTT_BYPASS_PORT="); append(bypassPort); append(' ')
+        append("ARDTT_AUTO_PORTS="); append(if (autoPorts) "1" else "0"); append(' ')
         append("ARDTT_DEPLOY_VERSION="); append(SshClient.shellQuote(deployVersion)); append(' ')
         append("ARDTT_ROLE="); append(SshClient.shellQuote(role)); append(' ')
         append("ARDTT_CASCADE_ENABLED="); append(if (cascadeEnabled) "1" else "0"); append(' ')
@@ -50,4 +52,21 @@ object DeployInstallEnv {
         if (!line.startsWith("ARDTT_CASCADE_PUBLIC_KEY|")) return null
         return line.removePrefix("ARDTT_CASCADE_PUBLIC_KEY|").trim().takeIf { it.isNotEmpty() }
     }
+
+    /** Key/value fields from an `ARDTT_DONE|a=1|b=2` protocol line. */
+    fun doneFields(line: String): Map<String, String> {
+        if (!line.startsWith("ARDTT_DONE|")) return emptyMap()
+        return line.removePrefix("ARDTT_DONE|")
+            .split('|')
+            .mapNotNull { part ->
+                val i = part.indexOf('=')
+                if (i <= 0) return@mapNotNull null
+                part.substring(0, i).trim() to part.substring(i + 1).trim()
+            }
+            .filter { it.first.isNotEmpty() }
+            .toMap()
+    }
+
+    fun intField(fields: Map<String, String>, key: String): Int? =
+        fields[key]?.toIntOrNull()?.takeIf { it in 1..65535 }
 }

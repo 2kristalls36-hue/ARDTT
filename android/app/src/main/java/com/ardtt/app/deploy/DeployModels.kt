@@ -14,6 +14,8 @@ data class DeployTarget(
     /** sudo password when user is not root (often same as password). */
     val sudoPassword: String = "",
     val publicHost: String = "",
+    /** When true, install.sh picks free UDP ports on the VPS (defaults as preferred). */
+    val autoPorts: Boolean = true,
     val directPort: Int = 51820,
     val bypassPort: Int = 56003,
     /** Second VPS: egress hop (AWG + DNS + WARP). Phone deploys it over SSH separately. */
@@ -60,3 +62,11 @@ sealed class DeployEvent {
     data class Success(val message: String) : DeployEvent()
     data class Failure(val message: String) : DeployEvent()
 }
+
+/** Result of a single-hop install.sh run (cascade key + resolved UDP ports). */
+data class DeployInstallResult(
+    val cascadePublicKey: String = "",
+    val directPort: Int? = null,
+    val bypassPort: Int? = null,
+    val cascadeListenPort: Int? = null,
+)
