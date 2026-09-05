@@ -92,6 +92,16 @@ class ServerOsProbeTest {
     }
 
     @Test
+    fun centosUsesOwnMarkWhileRhelFamilyStaysRhel() {
+        assertEquals(ServerOsMark.Centos, serverOsMark("centos"))
+        assertEquals(ServerOsMark.Rhel, serverOsMark("rhel"))
+        assertEquals(ServerOsMark.Rhel, serverOsMark("rocky"))
+        assertEquals(ServerOsMark.Rhel, serverOsMark("almalinux"))
+        assertEquals(ServerOsMark.Arch, serverOsMark("arch"))
+        assertEquals(ServerOsMark.Fedora, serverOsMark("fedora"))
+    }
+
+    @Test
     fun appliedToSkipsUnchangedAndEmpty() {
         val target = DeployTarget(id = "1", name = "s", host = "10.0.0.1")
         assertNull(ServerOsInfo("", "").appliedTo(target))
