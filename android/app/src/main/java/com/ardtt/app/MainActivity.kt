@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
                 val uri = intent.dataString?.trim().orEmpty()
                 when {
                     ServerLinkCodec.looksLikeLink(uri) -> {
-                        PendingServerImport.link = uri
+                        PendingServerImport.offer(uri)
                         PendingUiAction.requestOpenServers()
                         Toast.makeText(
                             this,
