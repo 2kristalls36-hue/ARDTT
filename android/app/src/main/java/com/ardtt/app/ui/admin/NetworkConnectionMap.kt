@@ -285,8 +285,8 @@ internal fun hopCardStrokeColor(highlighted: Boolean, outline: Color, connected:
  * Falls back to the Direct green when the live path is unknown.
  */
 internal fun hopCardAccentColor(activePath: VpnPath?): Color = when (activePath) {
-    VpnPath.Bypass -> ArdttColors.pathBypass
-    VpnPath.Direct, null -> ArdttColors.connected
+    VpnPath.Bypass -> ArdttColors.PathBypass
+    VpnPath.Direct, null -> ArdttColors.Connected
 }
 
 /** VPS / VPS 1 use entry health; VPS 2 uses exit health. Provider / CloudFlare have no provision ping. */

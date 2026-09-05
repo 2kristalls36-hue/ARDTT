@@ -1,5 +1,8 @@
 package com.ardtt.app.ui.settings
 
+import android.Manifest
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
@@ -38,50 +41,47 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import android.widget.Toast
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.Manifest
-import android.os.Build
-import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.core.TrustedWifiAccessProblem
+import com.ardtt.app.core.TrustedWifiPermissionAsk
 import com.ardtt.app.core.hasTrustedWifiBackgroundPermission
 import com.ardtt.app.core.hasTrustedWifiLocationPermission
+import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.core.nextTrustedWifiPermissionAsk
 import com.ardtt.app.core.readConnectedWifiState
 import com.ardtt.app.core.trustedWifiAccessProblem
-import com.ardtt.app.core.TrustedWifiAccessProblem
-import com.ardtt.app.core.TrustedWifiPermissionAsk
+import com.ardtt.app.legal.TestingModeAgreement
+import com.ardtt.app.settings.AppSettingsRepository
+import com.ardtt.app.telemetry.TelemetryRecorder
 import com.ardtt.app.ui.HideIpCopy
 import com.ardtt.app.ui.PathModeCopy
 import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.TestingSessionGuard
-import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.commitHideIp
 import com.ardtt.app.ui.commitPathMode
+import com.ardtt.app.ui.components.control.DialPathChipRow
+import com.ardtt.app.ui.components.control.HideIpChipRow
+import com.ardtt.app.ui.components.control.PathModeChipRow
+import com.ardtt.app.ui.components.control.ThemeModeChipRow
+import com.ardtt.app.ui.components.control.rememberArdttHaptics
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.components.surface.sectionCardContourBorder
+import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.persistDialPath
 import com.ardtt.app.ui.persistSilentRecreate
 import com.ardtt.app.ui.persistThemeMode
-import com.ardtt.app.legal.TestingModeAgreement
-import com.ardtt.app.telemetry.TelemetryRecorder
-import com.ardtt.app.settings.AppSettingsRepository
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.AppSectionCardDefaults
-import com.ardtt.app.ui.components.sectionCardContourBorder
-import com.ardtt.app.ui.components.DialPathChipRow
-import com.ardtt.app.ui.components.HideIpChipRow
-import com.ardtt.app.ui.components.PathModeChipRow
-import com.ardtt.app.ui.components.TabPageHeader
-import com.ardtt.app.ui.components.ThemeModeChipRow
-import com.ardtt.app.ui.components.EdgeFeedColumn
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.rememberPullRefresh
-import com.ardtt.app.ui.tunnel.DonateSupportBanner
-import com.ardtt.app.ui.components.rememberSmartHaptics
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.tunnel.DonateSupportBanner
 import com.ardtt.app.update.AppUpdateController
 import com.ardtt.app.update.AppUpdateInfo
 import com.ardtt.app.update.updateCardCopy
@@ -115,7 +115,7 @@ fun SettingsScreen(
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
     val connUi by conn.ui.collectAsStateWithLifecycle()
-    val haptics = rememberSmartHaptics(uiHapticsEnabled)
+    val haptics = rememberArdttHaptics(uiHapticsEnabled)
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
@@ -195,12 +195,12 @@ fun SettingsScreen(
         }
     }
 
-    EdgeFeedColumn(
+    ArdttFeedScaffold(
         scrollState = scrollState,
         refreshing = pull.refreshing,
         onRefresh = pull.onRefresh,
         header = {
-            TabPageHeader(
+            ArdttTabHeader(
                 title = "Настройки приложения",
                 subtitle = "Режим: ${if (admin) "администратор" else "пользователь"}",
             )
@@ -220,7 +220,7 @@ fun SettingsScreen(
             )
         }
 
-        AppSectionCard(
+        ArdttSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -307,7 +307,7 @@ fun SettingsScreen(
         // User-facing WiFi pause controls should always be available in Settings.
         TrustedWifiSettingsCard(settings = settings)
 
-        AppSectionCard(
+        ArdttSectionCard(
             modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -346,12 +346,12 @@ fun SettingsScreen(
             animationSpec = androidx.compose.animation.core.tween(durationMillis = 420),
             label = "appearance_card_highlight",
         )
-        AppSectionCard(
+        ArdttSectionCard(
             modifier = Modifier.bringIntoViewRequester(appearanceBringIntoView),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             border = sectionCardContourBorder(
-                alpha = AppSectionCardDefaults.ContourAlpha + 0.50f * appearanceHighlightAlpha,
+                alpha = ArdttSectionCardDefaults.ContourAlpha + 0.50f * appearanceHighlightAlpha,
             ),
         ) {
             Text("Оформление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -422,7 +422,7 @@ fun SettingsScreen(
 
         DonateSupportBanner()
 
-        AppSectionCard(
+        ArdttSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -459,7 +459,7 @@ fun SettingsScreen(
             }
         }
 
-        AppSectionCard(
+        ArdttSectionCard(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -512,7 +512,7 @@ fun SettingsScreen(
             }
             adminHint?.let {
                 val hintColor = if (it == "Режим администратора активирован") {
-                    ArdttColors.connected
+                    ArdttColors.Connected
                 } else {
                     MaterialTheme.colorScheme.primary
                 }
@@ -548,7 +548,7 @@ private fun UpdateSettingsCard(
     onCancel: () -> Unit,
     onInstall: () -> Unit,
 ) {
-    AppSectionCard(
+    ArdttSectionCard(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -628,7 +628,7 @@ private fun UpdateFillButton(
         targetValue = if (filling) progress.coerceIn(0f, 1f) else 1f,
         label = "update_fill_progress",
     )
-    val fillColor = if (installReady) ArdttColors.connected else colors.primary
+    val fillColor = if (installReady) ArdttColors.Connected else colors.primary
     val trackColor = lerp(colors.surface, fillColor, 0.42f)
     val textColor = if (installReady) Color.White else colors.onPrimary
     Box(
@@ -772,7 +772,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         }
     }
 
-    AppSectionCard(
+    ArdttSectionCard(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

@@ -40,8 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ServerLinkCodec
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.profiles.rememberQrBitmap
 
 @Composable

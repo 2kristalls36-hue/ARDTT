@@ -45,11 +45,11 @@ import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.VpnLiveStats
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.terminalLogCardColor
-import com.ardtt.app.ui.components.terminalLogCardShadow
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.terminalCardColor
+import com.ardtt.app.ui.components.surface.terminalCardElevation
 import com.ardtt.app.ui.theme.ArdttColors
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -66,7 +66,7 @@ fun LogsScreen() {
     val listState = rememberLazyListState()
     val fmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     val isDark = isSystemInDarkTheme()
-    val terminalBg = terminalLogCardColor()
+    val terminalBg = terminalCardColor()
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -113,7 +113,7 @@ fun LogsScreen() {
             .padding(horizontal = 16.dp)
             .padding(bottom = ArdttBottomChrome.navigationReserve() + 12.dp),
     ) {
-        TabFeedHeader(
+        ArdttFeedHeader(
             title = "Журнал событий",
             subtitle = if (AppLog.isDetailedEnabled()) {
                 "Подробные события (админ)"
@@ -166,17 +166,17 @@ fun LogsScreen() {
             }
         }
 
-        AppSectionCard(
+        ArdttSectionCard(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(0.dp),
             shape = RoundedCornerShape(24.dp),
             color = terminalBg,
-            shadowElevation = terminalLogCardShadow(),
+            shadowElevation = terminalCardElevation(),
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (pinnedStats != null || uptimeText != null) {
                     Surface(
-                        color = ArdttColors.terminalBlue.copy(alpha = if (isDark) 0.18f else 0.12f),
+                        color = ArdttColors.TerminalBlue.copy(alpha = if (isDark) 0.18f else 0.12f),
                         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -190,7 +190,7 @@ fun LogsScreen() {
                             if (pinnedStats != null) {
                                 Text(
                                     text = pinnedStats,
-                                    color = ArdttColors.terminalBlue,
+                                    color = ArdttColors.TerminalBlue,
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.SemiBold,
@@ -203,12 +203,12 @@ fun LogsScreen() {
                                 Icon(
                                     Icons.Default.Timer,
                                     contentDescription = null,
-                                    tint = ArdttColors.terminalBlue,
+                                    tint = ArdttColors.TerminalBlue,
                                     modifier = Modifier.padding(end = 2.dp),
                                 )
                                 Text(
                                     uptimeText,
-                                    color = ArdttColors.terminalBlue,
+                                    color = ArdttColors.TerminalBlue,
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.SemiBold,
@@ -222,7 +222,7 @@ fun LogsScreen() {
                     Text(
                         "Пока пусто. Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client.",
                         modifier = Modifier.padding(16.dp),
-                        color = ArdttColors.terminalText.copy(alpha = 0.7f),
+                        color = ArdttColors.TerminalText.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
@@ -235,9 +235,9 @@ fun LogsScreen() {
                     ) {
                         items(entries, key = { it.id }) { e ->
                             val color = when (e.level) {
-                                AppLog.Level.E -> ArdttColors.terminalRed
-                                AppLog.Level.W -> ArdttColors.warning
-                                AppLog.Level.I -> ArdttColors.terminalGreen
+                                AppLog.Level.E -> ArdttColors.TerminalRed
+                                AppLog.Level.W -> ArdttColors.Warning
+                                AppLog.Level.I -> ArdttColors.TerminalGreen
                             }
                             Text(
                                 text = e.displayLine(fmt),

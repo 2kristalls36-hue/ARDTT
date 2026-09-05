@@ -1,9 +1,9 @@
-package com.ardtt.app.ui.components
+package com.ardtt.app.ui.components.layout
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-class PullRefreshHostTest {
+class ArdttPullRefreshTest {
     @Test
     fun holdKeepsSpinnerVisibleForFastRefresh() {
         assertEquals(450L, pullRefreshHoldMs(0L))
@@ -14,7 +14,7 @@ class PullRefreshHostTest {
 
     @Test
     fun indicatorAndTravelAreFixedAcrossTabs() {
-        assertEquals(52, PULL_REFRESH_INDICATOR_TOP.value.toInt())
-        assertEquals(80, PULL_REFRESH_FEED_TRAVEL.value.toInt())
+        assertEquals(52, ArdttPullRefreshDefaults.IndicatorTop.value.toInt())
+        assertEquals(80, ArdttPullRefreshDefaults.FeedTravel.value.toInt())
     }
 }

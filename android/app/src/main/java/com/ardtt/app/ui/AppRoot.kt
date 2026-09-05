@@ -44,22 +44,23 @@ import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.telemetry.TelemetryRecorder
+import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.admin.LogsScreen
 import com.ardtt.app.ui.admin.NetworkScreen
 import com.ardtt.app.ui.admin.ServersScreen
 import com.ardtt.app.ui.admin.TestingScreen
-import com.ardtt.app.ui.components.AppBackdrop
-import com.ardtt.app.ui.components.NavBarItem
-import com.ardtt.app.ui.components.LocalOpaqueSectionCards
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.ArdttNavigationBar
-import com.ardtt.app.ui.PendingUiAction
-import com.ardtt.app.ui.components.rememberSmartHaptics
+import com.ardtt.app.ui.components.control.rememberArdttHaptics
+import com.ardtt.app.ui.components.layout.ArdttBackdrop
+import com.ardtt.app.ui.components.layout.ArdttNavItem
+import com.ardtt.app.ui.components.layout.ArdttNavigationBar
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.exceptions.ExceptionsScreen
 import com.ardtt.app.ui.profiles.ProfilesScreen
 import com.ardtt.app.ui.settings.SettingsScreen
 import com.ardtt.app.ui.telemetry.TelemetryRecordingOverlay
+import com.ardtt.app.ui.theme.LocalIllustratedBackdrop
+import com.ardtt.app.ui.theme.wallpaperAdaptedColorScheme
 import com.ardtt.app.ui.tunnel.TunnelScreen
 import com.ardtt.app.ui.tunnel.TunnelWallpaperBackdrop
 import com.ardtt.app.ui.tunnel.TunnelWallpaperCache
@@ -68,7 +69,6 @@ import com.ardtt.app.ui.tunnel.resolveTunnelWallpaper
 import com.ardtt.app.ui.tunnel.tunnelWallpaperVisible
 import com.ardtt.app.ui.tunnel.wallpaperBypassActive
 import com.ardtt.app.ui.unlock.AlphaUnlockScreen
-import com.ardtt.app.ui.theme.wallpaperAdaptedColorScheme
 import com.ardtt.app.update.AppUpdateController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -107,7 +107,7 @@ fun AppRoot(
     val flags = session
     if (flags == null) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AppBackdrop(modifier = Modifier.fillMaxSize())
+            ArdttBackdrop(modifier = Modifier.fillMaxSize())
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
         return
@@ -124,7 +124,7 @@ fun AppRoot(
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
-    val haptics = rememberSmartHaptics(uiHapticsEnabled)
+    val haptics = rememberArdttHaptics(uiHapticsEnabled)
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -202,7 +202,7 @@ fun AppRoot(
         }
     }
     val navItems = tabs.map { dest ->
-        NavBarItem(route = dest.route, label = dest.navLabel, icon = dest.navIcon())
+        ArdttNavItem(route = dest.route, label = dest.navLabel, icon = dest.navIcon())
     }
     val tabReselectSignal = remember { mutableStateMapOf<String, Int>() }
     tabs.forEach { tab ->
@@ -376,7 +376,7 @@ fun AppRoot(
             colorScheme = adaptedColorScheme,
             typography = MaterialTheme.typography,
         ) {
-            CompositionLocalProvider(LocalOpaqueSectionCards provides showUserWallpaper) {
+            CompositionLocalProvider(LocalIllustratedBackdrop provides showUserWallpaper) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     // One scene × time-of-day for every user-mode tab, including Tunnel.
                     // Keep the Image composed so tab switches do not flash Field.
@@ -388,7 +388,7 @@ fun AppRoot(
                             )
                         }
                     } else {
-                        AppBackdrop(modifier = Modifier.fillMaxSize())
+                        ArdttBackdrop(modifier = Modifier.fillMaxSize())
                     }
 
                     NavHost(

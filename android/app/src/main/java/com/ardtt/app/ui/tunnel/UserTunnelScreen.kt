@@ -71,6 +71,9 @@ import com.ardtt.app.profile.ProfileCatalog
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
 import com.ardtt.app.settings.AppSettingsRepository
+import com.ardtt.app.ui.components.control.rememberArdttHaptics
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.nextThemeMode
 import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.themeModeVisualKey
@@ -79,9 +82,6 @@ import com.ardtt.app.ui.tunnelPowerClickDisconnects
 import com.ardtt.app.ui.tunnelPowerSessionLit
 import com.ardtt.app.ui.tunnelPowerToggleEnabled
 import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.ArdttFloatingShell
-import com.ardtt.app.ui.components.rememberSmartHaptics
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -104,7 +104,7 @@ fun UserTunnelScreen(
     val donateBannerDismissed by settings.donateBannerDismissedFlow.collectAsStateWithLifecycle(
         initialValue = false,
     )
-    val haptics = rememberSmartHaptics(uiHapticsEnabled)
+    val haptics = rememberArdttHaptics(uiHapticsEnabled)
     var previousConnState by remember { mutableStateOf(ui.state) }
     var connStateInitialized by remember { mutableStateOf(false) }
     var previousHasCallHash by remember { mutableStateOf(ui.hasCallHash) }

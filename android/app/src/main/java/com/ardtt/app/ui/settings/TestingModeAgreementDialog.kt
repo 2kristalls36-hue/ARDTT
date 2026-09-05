@@ -20,8 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.legal.TestingModeAgreement
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
 
 @Composable
 fun TestingModeAgreementDialog(

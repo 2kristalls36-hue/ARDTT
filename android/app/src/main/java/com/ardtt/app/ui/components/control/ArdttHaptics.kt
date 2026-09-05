@@ -1,4 +1,4 @@
-package com.ardtt.app.ui.components
+package com.ardtt.app.ui.components.control
 
 import android.os.Build
 import android.view.HapticFeedbackConstants
@@ -7,7 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 
-class SmartHaptics(
+/** Opt-in haptic feedback; a disabled instance is a no-op, not a null check. */
+class ArdttHaptics(
     private val view: View,
     private val enabled: Boolean,
 ) {
@@ -28,7 +29,7 @@ class SmartHaptics(
 }
 
 @Composable
-fun rememberSmartHaptics(enabled: Boolean): SmartHaptics {
+fun rememberArdttHaptics(enabled: Boolean): ArdttHaptics {
     val view = LocalView.current
-    return remember(view, enabled) { SmartHaptics(view, enabled) }
+    return remember(view, enabled) { ArdttHaptics(view, enabled) }
 }

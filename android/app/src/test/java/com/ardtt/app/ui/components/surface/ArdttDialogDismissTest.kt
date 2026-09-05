@@ -1,4 +1,4 @@
-package com.ardtt.app.ui.components
+package com.ardtt.app.ui.components.surface
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

@@ -1,11 +1,11 @@
-package com.ardtt.app.ui.components
+package com.ardtt.app.ui.components.layout
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -23,34 +23,42 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-const val PULL_REFRESH_MIN_MS = 450L
+object ArdttPullRefreshDefaults {
+    /** Extra hold so the top spinner is visible even when the refresh is instant. */
+    const val MinVisibleMs = 450L
 
-/**
- * Absolute spinner Y under the status bar on every tab
- * (title row is ~44.dp + 8.dp top pad).
- */
-val PULL_REFRESH_INDICATOR_TOP: Dp = 52.dp
+    /**
+     * Absolute spinner Y under the status bar on every tab: the title row is
+     * [ArdttSize.TitleRow] tall and sits below the header top padding.
+     */
+    val IndicatorTop: Dp =
+        ArdttSize.TitleRow + ArdttHeaderDefaults.TopPaddingAfterStatusBar
 
-/** Material pull threshold / feed travel — same on every tab. */
-val PULL_REFRESH_FEED_TRAVEL: Dp = 80.dp
+    /** Material pull threshold / feed travel — same on every tab. */
+    val FeedTravel: Dp = 80.dp
+}
 
-/** Extra hold so the top spinner is visible even when the refresh is instant. */
-fun pullRefreshHoldMs(elapsedMs: Long, minMs: Long = PULL_REFRESH_MIN_MS): Long =
-    (minMs - elapsedMs).coerceAtLeast(0L)
+fun pullRefreshHoldMs(
+    elapsedMs: Long,
+    minMs: Long = ArdttPullRefreshDefaults.MinVisibleMs,
+): Long = (minMs - elapsedMs).coerceAtLeast(0L)
 
 /**
  * Full-screen pull-down refresh.
  *
- * Host must wrap the whole tab feed (including [TabFeedHeader]) so the spinner
- * sits at [PULL_REFRESH_INDICATOR_TOP] and the feed slides by the same Material
- * threshold everywhere. Sticky CTA / search / tab bar stay outside.
+ * The host must wrap the whole tab feed (header included) so the spinner sits
+ * at [ArdttPullRefreshDefaults.IndicatorTop] and the feed slides by the same
+ * threshold everywhere. Sticky CTA, search and tab bar stay outside.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PullRefreshHost(
+fun ArdttPullRefresh(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
@@ -63,28 +71,28 @@ fun PullRefreshHost(
         modifier = modifier.fillMaxSize(),
         state = state,
         indicator = {
-            // Use a fixed circular shell while refreshing to avoid partial clipping
-            // seen with the default indicator on some vendor builds.
+            // Fixed circular shell while refreshing: the default indicator is
+            // partially clipped on some vendor builds.
             if (refreshing) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .statusBarsPadding()
-                        .padding(top = PULL_REFRESH_INDICATOR_TOP)
-                        .size(40.dp),
-                    shape = CircleShape,
+                        .padding(top = ArdttPullRefreshDefaults.IndicatorTop)
+                        .size(ArdttSize.PullIndicator),
+                    shape = ArdttShapes.Pill,
                     color = MaterialTheme.colorScheme.surface,
                     contentColor = MaterialTheme.colorScheme.primary,
-                    shadowElevation = 2.dp,
-                    tonalElevation = 0.dp,
+                    shadowElevation = ArdttElevation.Low,
+                    tonalElevation = ArdttElevation.None,
                 ) {
-                    androidx.compose.foundation.layout.Box(
+                    Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.5.dp,
+                            modifier = Modifier.size(ArdttSize.Spinner),
+                            strokeWidth = ArdttSize.StrokeThick,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
@@ -95,30 +103,31 @@ fun PullRefreshHost(
     )
 }
 
+data class ArdttPullRefreshState(
+    val refreshing: Boolean,
+    val onRefresh: () -> Unit,
+)
+
 @Composable
-fun rememberPullRefresh(block: suspend () -> Unit): PullRefreshController {
+fun rememberPullRefresh(block: suspend () -> Unit): ArdttPullRefreshState {
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val latest = rememberUpdatedState(block)
-    return PullRefreshController(
+    return ArdttPullRefreshState(
         refreshing = refreshing,
         onRefresh = {
-            if (refreshing) return@PullRefreshController
-            scope.launch {
-                refreshing = true
-                val started = System.currentTimeMillis()
-                try {
-                    latest.value()
-                } finally {
-                    delay(pullRefreshHoldMs(System.currentTimeMillis() - started))
-                    refreshing = false
+            if (!refreshing) {
+                scope.launch {
+                    refreshing = true
+                    val started = System.currentTimeMillis()
+                    try {
+                        latest.value()
+                    } finally {
+                        delay(pullRefreshHoldMs(System.currentTimeMillis() - started))
+                        refreshing = false
+                    }
                 }
             }
         },
     )
 }
-
-data class PullRefreshController(
-    val refreshing: Boolean,
-    val onRefresh: () -> Unit,
-)

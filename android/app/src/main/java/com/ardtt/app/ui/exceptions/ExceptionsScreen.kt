@@ -6,6 +6,11 @@ import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Build
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,10 +21,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
@@ -33,15 +38,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.ArdttFloatingShell
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
@@ -70,9 +66,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -93,14 +89,18 @@ import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.ExceptionAppVisibility
 import com.ardtt.app.core.HostExclusion
 import com.ardtt.app.core.appIconDecodeSize
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.sectionCardContourBorder
-import com.ardtt.app.ui.components.PullRefreshHost
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.backdropSegmentInactiveContainer
-import com.ardtt.app.ui.components.backdropSegmentInactiveContent
-import com.ardtt.app.ui.components.rememberPullRefresh
 import com.ardtt.app.settings.AppSettingsRepository
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttFloatingShell
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.sectionCardContourBorder
+import com.ardtt.app.ui.theme.backdropSegmentInactiveContainer
+import com.ardtt.app.ui.theme.backdropSegmentInactiveContent
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -330,7 +330,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
         ) {
@@ -339,7 +339,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
             ) {
-                TabFeedHeader(
+                ArdttFeedHeader(
                     title = "Исключения",
                     subtitle = "Приложения и сайты вне туннеля",
                 )
@@ -405,7 +405,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                     }
                 }
 
-                AppSectionCard(
+                ArdttSectionCard(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),

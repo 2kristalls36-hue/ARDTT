@@ -3,12 +3,13 @@ package com.ardtt.app.ui.admin
 import android.Manifest
 import android.content.Context
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,8 +41,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
@@ -108,24 +109,26 @@ import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.ui.PendingUiAction
-import com.ardtt.app.ui.components.TabFeedHeader
-import com.ardtt.app.ui.components.TabHeaderMetrics
-import com.ardtt.app.ui.components.AppSectionCard
-import com.ardtt.app.ui.components.AppSectionCardDefaults
-import com.ardtt.app.ui.components.CompactListCard
-import com.ardtt.app.ui.components.CompactListLeadingIcon
-import com.ardtt.app.ui.components.OverflowMenu
-import com.ardtt.app.ui.components.OverflowMenuItem
-import com.ardtt.app.ui.components.ArdttBottomChrome
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
-import com.ardtt.app.ui.components.ArdttLinearProgress
-import com.ardtt.app.ui.components.PullRefreshHost
-import com.ardtt.app.ui.components.StickyPrimaryButton
-import com.ardtt.app.ui.components.TerminalLogCard
-import com.ardtt.app.ui.components.rememberPullRefresh
+import com.ardtt.app.ui.components.control.ArdttOverflowMenu
+import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
+import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
+import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttFeedHeader
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
+import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.components.surface.ArdttTerminalCard
 import com.ardtt.app.ui.theme.ArdttColors
-import android.widget.Toast
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -235,8 +238,8 @@ private fun pingLatencyColor(
     pingMs: Long,
     poor: Color,
 ): Color? = when (pingLatencyTier(pingMs)) {
-    PingLatencyTier.Good -> ArdttColors.connected
-    PingLatencyTier.Fair -> ArdttColors.warning
+    PingLatencyTier.Good -> ArdttColors.Connected
+    PingLatencyTier.Fair -> ArdttColors.Warning
     PingLatencyTier.Poor -> poor
     null -> null
 }
@@ -248,16 +251,16 @@ private fun ServerHealthStatusRow(
 ) {
     val parts = healthStatusParts(health)
     val presenceColor = when (health) {
-        is HealthUi.Online -> ArdttColors.connected
+        is HealthUi.Online -> ArdttColors.Connected
         HealthUi.Unreachable, HealthUi.NotInstalled -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
     val deployColor = when (health) {
         is HealthUi.Online ->
             if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
-                ArdttColors.connected
+                ArdttColors.Connected
             } else {
-                ArdttColors.warning
+                ArdttColors.Warning
             }
         else -> null
     }
@@ -466,7 +469,7 @@ private fun ServerListScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
         ) {
@@ -475,7 +478,7 @@ private fun ServerListScreen(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
             ) {
-                TabFeedHeader(
+                ArdttFeedHeader(
                     title = if (selectMode) "Экспорт серверов" else "Управление серверами",
                     subtitle = if (selectMode) "Выбрано: ${selectedIds.size}" else null,
                     actions = {
@@ -496,11 +499,11 @@ private fun ServerListScreen(
                                         tint = MaterialTheme.colorScheme.primary,
                                     )
                                 }
-                                OverflowMenu(
+                                ArdttOverflowMenu(
                                     expanded = menuExpanded,
                                     onDismissRequest = { menuExpanded = false },
                                 ) {
-                                    OverflowMenuItem(
+                                    ArdttOverflowMenuItem(
                                         text = "Экспорт",
                                         leadingIcon = Icons.Filled.FileUpload,
                                         enabled = servers.isNotEmpty(),
@@ -510,7 +513,7 @@ private fun ServerListScreen(
                                             selectedIds = emptySet()
                                         },
                                     )
-                                    OverflowMenuItem(
+                                    ArdttOverflowMenuItem(
                                         text = "Импорт из буфера",
                                         leadingIcon = Icons.Filled.FileDownload,
                                         onClick = {
@@ -571,7 +574,7 @@ private fun ServerListScreen(
                             top = 8.dp,
                             bottom = ArdttBottomChrome.scrollContentPadding(),
                         ),
-                        verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
+                        verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                     ) {
                         items(servers, key = { it.id }) { server ->
                             val selected = server.id in selectedIds
@@ -603,7 +606,7 @@ private fun ServerListScreen(
             }
         }
 
-        StickyPrimaryButton(
+        ArdttPrimaryButton(
             text = if (selectMode) "Экспортировать" else "Добавить сервер",
             onClick = {
                 if (selectMode) shareTargets = selectedServers
@@ -674,14 +677,7 @@ private fun ServerCard(
     onOpenServer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AppSectionCard(
-        modifier = modifier.clickable(onClick = onOpenServer),
-        contentPadding = CompactListCard.ContentPadding,
-        verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-        shape = CompactListCard.Shape,
-        shadowElevation = CompactListCard.ShadowElevation,
-        tonalElevation = 0.dp,
-    ) {
+    ArdttCompactCard(modifier = modifier.clickable(onClick = onOpenServer)) {
         ServerIdentityBody(
             server = server,
             health = health,
@@ -720,13 +716,13 @@ private fun ServerIdentityBody(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CompactListLeadingIcon(
+        ArdttLeadingIcon(
             imageVector = Icons.Filled.Dns,
             contentDescription = "Сервер",
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
+            verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -770,14 +766,14 @@ private fun ServerIdentityBody(
             freshnessChip?.let { chip ->
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = ArdttColors.warning.copy(alpha = 0.18f),
+                    color = ArdttColors.Warning.copy(alpha = 0.18f),
                 ) {
                     Text(
                         chip,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = ArdttColors.warning,
+                        color = ArdttColors.Warning,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -844,7 +840,7 @@ private fun DeployProgressSheet(
                 color = if (it.startsWith("Ошибка")) {
                     MaterialTheme.colorScheme.error
                 } else {
-                    ArdttColors.connected
+                    ArdttColors.Connected
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -855,7 +851,7 @@ private fun DeployProgressSheet(
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
         )
-        TerminalLogCard(
+        ArdttTerminalCard(
             text = log.takeLast(24).joinToString("\n"),
             maxHeight = 200.dp,
         )
@@ -870,23 +866,23 @@ private fun DeployHopSlotCard(
 ) {
     val outline = MaterialTheme.colorScheme.outline
     val borderColor = when (slot.phase) {
-        DeploySlotPhase.Done -> ArdttColors.connected
+        DeploySlotPhase.Done -> ArdttColors.Connected
         DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
         DeploySlotPhase.Pending, DeploySlotPhase.Active -> hopMapGrayStroke(outline)
     }
     val statusColor = when (slot.phase) {
-        DeploySlotPhase.Done -> ArdttColors.connected
+        DeploySlotPhase.Done -> ArdttColors.Connected
         DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
         DeploySlotPhase.Active -> MaterialTheme.colorScheme.onSurface
         DeploySlotPhase.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    AppSectionCard(
+    ArdttSectionCard(
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
         shape = RoundedCornerShape(16.dp),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
-        border = BorderStroke(AppSectionCardDefaults.ContourWidth, borderColor),
+        border = BorderStroke(ArdttSectionCardDefaults.ContourWidth, borderColor),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1152,13 +1148,13 @@ private fun ServerOverviewScreen(
     val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PullRefreshHost(
+        ArdttPullRefresh(
             refreshing = refreshing,
             onRefresh = onRefresh,
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
-                    TabFeedHeader(
+                Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
+                    ArdttFeedHeader(
                         title = server.name.ifBlank { server.host },
                         subtitle = "Управление сервером",
                         onBack = onBack,
@@ -1171,11 +1167,11 @@ private fun ServerOverviewScreen(
                                     tint = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            OverflowMenu(
+                            ArdttOverflowMenu(
                                 expanded = showActions,
                                 onDismissRequest = { onShowActions(false) },
                             ) {
-                                OverflowMenuItem(
+                                ArdttOverflowMenuItem(
                                     text = serverOverviewDeployActionLabel(health),
                                     leadingIcon = Icons.Filled.CloudUpload,
                                     onClick = {
@@ -1183,7 +1179,7 @@ private fun ServerOverviewScreen(
                                         onUpdateDeploy()
                                     },
                                 )
-                                OverflowMenuItem(
+                                ArdttOverflowMenuItem(
                                     text = "Переименовать",
                                     leadingIcon = Icons.Filled.Edit,
                                     onClick = {
@@ -1191,7 +1187,7 @@ private fun ServerOverviewScreen(
                                         onRename()
                                     },
                                 )
-                                OverflowMenuItem(
+                                ArdttOverflowMenuItem(
                                     text = "Удалить",
                                     leadingIcon = Icons.Filled.Delete,
                                     destructive = true,
@@ -1218,16 +1214,10 @@ private fun ServerOverviewScreen(
                             ArdttBottomChrome.navigationReserve() + 16.dp
                         },
                     ),
-                    verticalArrangement = Arrangement.spacedBy(CompactListCard.ListSpacing),
+                    verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                 ) {
             item {
-                AppSectionCard(
-                    contentPadding = CompactListCard.ContentPadding,
-                    verticalArrangement = Arrangement.spacedBy(CompactListCard.ItemSpacing),
-                    shape = CompactListCard.Shape,
-                    shadowElevation = CompactListCard.ShadowElevation,
-                    tonalElevation = 0.dp,
-                ) {
+                ArdttCompactCard {
                     ServerIdentityBody(
                         server = server,
                         health = health,
@@ -1272,10 +1262,10 @@ private fun ServerOverviewScreen(
         }
 
         if (showUpdateButton) {
-            StickyPrimaryButton(
+            ArdttPrimaryButton(
                 text = serverOverviewDeployActionLabel(health),
                 onClick = onUpdateDeploy,
-                containerColor = ArdttColors.warning,
+                containerColor = ArdttColors.Warning,
                 icon = Icons.Filled.CloudUpload,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -1293,29 +1283,28 @@ private fun ServerActionCard(
     description: String,
     onClick: () -> Unit,
 ) {
-    AppSectionCard(
+    ArdttCompactCard(
         modifier = Modifier.clickable(onClick = onClick),
-        contentPadding = CompactListCard.ContentPadding,
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-        shape = CompactListCard.Shape,
-        shadowElevation = CompactListCard.ShadowElevation,
-        tonalElevation = 0.dp,
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.None),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+            Surface(
+                shape = ArdttShapes.Icon,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
                 Icon(
                     icon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier
-                        .padding(8.dp)
-                        .size(18.dp),
+                        .padding(ArdttSpacing.Small)
+                        .size(ArdttSize.IconCompact),
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(ArdttSpacing.Medium))
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
             ) {
                 Text(
                     title,
@@ -1542,8 +1531,8 @@ fun DeployScreen(
                 .padding(bottom = ArdttBottomChrome.navigationReserve() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-        Column(Modifier.padding(horizontal = TabHeaderMetrics.HorizontalPadding)) {
-            TabFeedHeader(
+        Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
+            ArdttFeedHeader(
                 title = serverDeployScreenTitle(saved),
                 subtitle = if (saved) {
                     "Стек $expectedDeployVersion · SSH · Compose"
@@ -1654,7 +1643,7 @@ fun DeployScreen(
             singleLine = true,
             enabled = !busy,
         )
-        AppSectionCard(
+        ArdttSectionCard(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             shape = RoundedCornerShape(16.dp),
@@ -1718,7 +1707,7 @@ fun DeployScreen(
             }
         }
 
-        AppSectionCard(
+        ArdttSectionCard(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             shape = RoundedCornerShape(16.dp),

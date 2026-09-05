@@ -40,8 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.profile.ProfileLinkCodec
 import com.ardtt.app.profile.VpnProfile
-import com.ardtt.app.ui.components.ArdttDialog
-import com.ardtt.app.ui.components.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
 
 @Composable
 fun ProfileShareDialog(
