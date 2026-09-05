@@ -60,6 +60,7 @@ private object NavBarDefaults {
     val Easing = CubicBezierEasing(0.2f, 0.9f, 0.24f, 1f)
     val OuterPadding = ArdttSpacing.SmallPlus
     val TrackPadding = ArdttSpacing.Small
+    val IndicatorInset = ArdttSpacing.TinyPlus
     val LabelSize = 10.sp
 
     /** Emphasis above which a tab label turns semibold / fully opaque. */
@@ -138,7 +139,7 @@ fun ArdttNavigationBar(
                     color = indicatorColor,
                     modifier = Modifier
                         .offset { IntOffset(x = indicatorOffset.roundToPx(), y = 0) }
-                        .padding(vertical = NavBarDefaults.TrackPadding)
+                        .padding(vertical = NavBarDefaults.IndicatorInset)
                         .width(itemWidth)
                         .fillMaxHeight(),
                 ) {}
@@ -148,7 +149,7 @@ fun ArdttNavigationBar(
                         .fillMaxSize()
                         .padding(
                             horizontal = NavBarDefaults.TrackPadding,
-                            vertical = ArdttSpacing.TinyPlus,
+                            vertical = ArdttSpacing.Tiny,
                         ),
                 ) {
                     items.forEachIndexed { index, item ->
