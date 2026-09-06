@@ -7,6 +7,10 @@ package com.ardtt.app.core
 fun autoUsesDirectOnWifi(mode: ConnPathMode, underlayKind: UnderlayKind): Boolean =
     mode == ConnPathMode.Auto && underlayKind == UnderlayKind.Wifi
 
+/** Auto may start or fall back to Path B only on cellular (and unknown). */
+fun autoMayUseBypass(mode: ConnPathMode, underlayKind: UnderlayKind, hasCallHash: Boolean): Boolean =
+    mode == ConnPathMode.Auto && hasCallHash && !autoUsesDirectOnWifi(mode, underlayKind)
+
 fun wifiAutoDirectProbe(elapsedMs: Long = 0): ProbeResult = ProbeResult(
     networkClass = NetworkClass.DirectOk,
     preselectedPath = VpnPath.Direct,
