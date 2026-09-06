@@ -166,14 +166,14 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun thirdLaunchAfterFieldAndCityIsRefinery() {
+    fun nextAfterFieldIsRefinery() {
         val (scene, seen) = nextTunnelWallpaperScene(
-            previousName = "City",
-            seenNames = setOf("Field", "City"),
+            previousName = "Field",
+            seenNames = setOf("Field"),
             randomInt = { 0 },
         )
         assertEquals(TunnelWallpaperScene.Refinery, scene)
-        assertEquals(setOf("Field", "City", "Refinery"), seen)
+        assertEquals(setOf("Field", "Refinery"), seen)
     }
 
     @Test

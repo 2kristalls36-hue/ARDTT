@@ -8,13 +8,12 @@ import kotlin.random.Random
 /**
  * One illustrated scene for the whole process (cold start).
  *
- * Field = поле, City = киберпанк-город, Refinery = НПЗ,
+ * Field = поле, Refinery = НПЗ,
  * Port = порт, River = набережная, Lake = озеро, Coast = маяк, Dam = ГЭС.
  * Every user-mode tab draws this same scene — Tunnel included.
  */
 enum class TunnelWallpaperScene {
     Field,
-    City,
     Refinery,
     Port,
     River,
