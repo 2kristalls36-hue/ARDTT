@@ -35,6 +35,52 @@ class TestingTicketStoreTest {
     }
 
     @Test
+    fun registerOrReuseKeepsNumberForTheSameLog() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        val first = store.registerOrReuse("первый раз", "log-a.json")
+        val retry = store.registerOrReuse("повтор с правкой", "log-a.json")
+        val other = store.registerOrReuse("другой файл", "log-b.json")
+        assertEquals(1, first.number)
+        assertEquals(1, retry.number)
+        assertEquals("повтор с правкой", retry.comment)
+        assertEquals(2, other.number)
+        val loaded = store.load()
+        assertEquals(listOf(2, 1), loaded.tickets.map { it.number })
+        assertEquals("повтор с правкой", loaded.tickets.single { it.number == 1 }.comment)
+        assertEquals(3, loaded.nextNumber)
+    }
+
+    @Test
+    fun parseRepairsNextNumberAndDropsDuplicateIds() {
+        val restored = TestingTicketStore.parse(
+            """
+            {"draftComment":"","nextNumber":1,"tickets":[
+              {"number":3,"comment":"a","createdAtMs":1,"logName":""},
+              {"number":3,"comment":"dup","createdAtMs":2,"logName":""},
+              {"number":1,"comment":"b","createdAtMs":3,"logName":""}
+            ]}
+            """.trimIndent(),
+        )
+        assertEquals(listOf(3, 1), restored.tickets.map { it.number })
+        assertEquals("a", restored.tickets.first().comment)
+        assertEquals(4, restored.nextNumber)
+        assertEquals(4, testingTicketNextNumber(1, restored.tickets))
+    }
+
+    @Test
+    fun registerSkipsOccupiedNumbersFromCorruptFile() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val file = File(dir, "testing_tickets.json")
+        file.writeText(
+            """{"draftComment":"","nextNumber":1,"tickets":[{"number":5,"comment":"old","createdAtMs":1,"logName":""}]}""",
+        )
+        val store = TestingTicketStore(file)
+        assertEquals(6, store.register("новое").number)
+        assertEquals(7, store.load().nextNumber)
+    }
+
+    @Test
     fun jsonRoundTripKeepsDraftAndHistory() {
         val state = TestingTicketState(
             draftComment = "ожидал reconnect",

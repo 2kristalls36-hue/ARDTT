@@ -27,6 +27,11 @@ internal fun testingUploadNeedsCommentPrompt(draft: String): Boolean =
 
 internal fun testingTicketTitle(number: Int): String = "Обращение №$number"
 
+internal fun testingTicketNextNumber(nextNumber: Int, tickets: List<TestingTicket>): Int {
+    val maxExisting = tickets.maxOfOrNull { it.number } ?: 0
+    return maxOf(nextNumber, maxExisting + 1, 1)
+}
+
 internal fun formatTestingTicketTime(ms: Long): String {
     if (ms <= 0L) return ""
     return SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru")).format(Date(ms))
@@ -51,15 +56,40 @@ class TestingTicketStore(private val file: File) {
     }
 
     @Synchronized
-    fun register(comment: String, logName: String = ""): TestingTicket {
+    fun register(comment: String, logName: String = ""): TestingTicket =
+        registerInternal(comment, logName, reuseLog = false)
+
+    /** Keep the same number when the same log file is sent again after a failed upload. */
+    @Synchronized
+    fun registerOrReuse(comment: String, logName: String): TestingTicket =
+        registerInternal(comment, logName, reuseLog = true)
+
+    private fun registerInternal(comment: String, logName: String, reuseLog: Boolean): TestingTicket {
         val cleaned = comment.trim()
         require(cleaned.isNotBlank()) { "Введите комментарий" }
+        val name = logName.trim()
         val state = load()
+        if (reuseLog && name.isNotEmpty()) {
+            val existing = state.tickets.firstOrNull { it.logName == name }
+            if (existing != null) {
+                val updated = existing.copy(comment = cleaned.take(MAX_COMMENT))
+                if (updated != existing) {
+                    persist(
+                        state.copy(
+                            tickets = state.tickets.map { ticket ->
+                                if (ticket.number == existing.number) updated else ticket
+                            },
+                        ),
+                    )
+                }
+                return updated
+            }
+        }
         val ticket = TestingTicket(
-            number = state.nextNumber.coerceAtLeast(1),
+            number = testingTicketNextNumber(state.nextNumber, state.tickets),
             comment = cleaned.take(MAX_COMMENT),
             createdAtMs = System.currentTimeMillis(),
-            logName = logName.trim(),
+            logName = name,
         )
         persist(
             state.copy(
@@ -87,12 +117,13 @@ class TestingTicketStore(private val file: File) {
         internal fun parse(raw: String): TestingTicketState {
             val o = JSONObject(raw)
             val tickets = mutableListOf<TestingTicket>()
+            val seen = mutableSetOf<Int>()
             o.optJSONArray("tickets")?.let { arr ->
                 for (i in 0 until arr.length()) {
                     val t = arr.optJSONObject(i) ?: continue
                     val number = t.optInt("number")
                     val comment = t.optString("comment").trim()
-                    if (number <= 0 || comment.isEmpty()) continue
+                    if (number <= 0 || comment.isEmpty() || !seen.add(number)) continue
                     tickets += TestingTicket(
                         number = number,
                         comment = comment,
@@ -101,10 +132,11 @@ class TestingTicketStore(private val file: File) {
                     )
                 }
             }
+            val ordered = tickets.sortedByDescending { it.number }
             return TestingTicketState(
                 draftComment = o.optString("draftComment"),
-                nextNumber = o.optInt("nextNumber", 1).coerceAtLeast(1),
-                tickets = tickets.sortedByDescending { it.number },
+                nextNumber = testingTicketNextNumber(o.optInt("nextNumber", 1), ordered),
+                tickets = ordered,
             )
         }
 

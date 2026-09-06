@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,13 +77,16 @@ import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun TestingScreen(profiles: ProfileRepository) {
@@ -102,7 +106,9 @@ fun TestingScreen(profiles: ProfileRepository) {
     var uploadTarget by remember { mutableStateOf<TelemetryLogEntry?>(null) }
     var uploadComment by remember { mutableStateOf("") }
     var draftComment by remember { mutableStateOf("") }
+    var draftReady by remember { mutableStateOf(false) }
     var tickets by remember { mutableStateOf<List<TestingTicket>>(emptyList()) }
+    val latestDraft = rememberUpdatedState(draftComment)
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -130,18 +136,18 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
     }
 
-    fun refreshLogs() {
+    suspend fun refreshLogs() {
         val animating = logs.filter { it.file.name in dismissingNames }
-        val fromDisk = fileManager.listLogs()
+        val fromDisk = withContext(Dispatchers.IO) { fileManager.listLogs() }
             .filter { disk -> animating.none { it.file.name == disk.file.name } }
         logs.clear()
         logs.addAll(fromDisk)
         logs.addAll(animating)
     }
 
-    fun refreshTickets() {
-        val state = ticketStore.load()
-        draftComment = state.draftComment
+    suspend fun refreshTickets(overwriteDraft: Boolean = false) {
+        val state = withContext(Dispatchers.IO) { ticketStore.load() }
+        if (overwriteDraft) draftComment = state.draftComment
         tickets = state.tickets
     }
 
@@ -151,7 +157,20 @@ fun TestingScreen(profiles: ProfileRepository) {
 
     LaunchedEffect(Unit) {
         refreshLogs()
-        refreshTickets()
+        refreshTickets(overwriteDraft = true)
+        draftReady = true
+    }
+
+    LaunchedEffect(draftComment, draftReady) {
+        if (!draftReady) return@LaunchedEffect
+        delay(DRAFT_PERSIST_MS)
+        withContext(Dispatchers.IO) { ticketStore.saveDraft(draftComment) }
+    }
+
+    DisposableEffect(ticketStore) {
+        onDispose {
+            runCatching { ticketStore.saveDraft(latestDraft.value) }
+        }
     }
 
     val serverIp = remember(profile) {
@@ -173,7 +192,7 @@ fun TestingScreen(profiles: ProfileRepository) {
     fun toggleRecording() {
         if (isRecording) {
             recorder.stop()
-            refreshLogs()
+            scope.launch { refreshLogs() }
         } else {
             recorder.start(serverIp)
         }
@@ -181,22 +200,26 @@ fun TestingScreen(profiles: ProfileRepository) {
 
     fun persistDraft(value: String) {
         draftComment = value.take(TestingTicketStore.MAX_COMMENT)
-        ticketStore.saveDraft(draftComment)
     }
 
     fun registerCommentOnly() {
         val comment = draftComment.trim()
         if (comment.isBlank()) return
-        runCatching { ticketStore.register(comment) }
-            .onSuccess { ticket ->
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    ticketStore.saveDraft(draftComment)
+                    ticketStore.register(comment)
+                }
+            }.onSuccess { ticket ->
                 refreshTickets()
                 Toast.makeText(
                     context.applicationContext,
                     "${testingTicketTitle(ticket.number)} зарегистрировано",
                     Toast.LENGTH_SHORT,
                 ).show()
-            }
-            .onFailure { notifyError(it.message ?: "Не удалось зарегистрировать обращение") }
+            }.onFailure { notifyError(it.message ?: "Не удалось зарегистрировать обращение") }
+        }
     }
 
     fun beginSubmit(entry: TelemetryLogEntry, comment: String) {
@@ -212,14 +235,21 @@ fun TestingScreen(profiles: ProfileRepository) {
         scope.launch {
             uploadingFile = entry.file.name
             uploadProgress = 0f
-            val ticket = runCatching { ticketStore.register(comment, entry.file.name) }.getOrElse {
+            val ticket = runCatching {
+                withContext(Dispatchers.IO) {
+                    ticketStore.saveDraft(comment.take(TestingTicketStore.MAX_COMMENT))
+                    ticketStore.registerOrReuse(comment, entry.file.name)
+                }
+            }.getOrElse {
                 uploadingFile = null
                 notifyError(it.message ?: "Не удалось зарегистрировать обращение")
                 return@launch
             }
             refreshTickets()
             val embedded = runCatching {
-                TelemetryFileManager.embedUserComment(entry.file, comment, ticket.number)
+                withContext(Dispatchers.IO) {
+                    TelemetryFileManager.embedUserComment(entry.file, comment, ticket.number)
+                }
             }
             if (embedded.isFailure) {
                 uploadingFile = null
@@ -245,7 +275,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     ).show()
                     dismissingNames = dismissingNames + entry.file.name
                     delay(LOG_DISMISS_MS + 40L)
-                    fileManager.delete(entry.file)
+                    withContext(Dispatchers.IO) { fileManager.delete(entry.file) }
                     logs.removeAll { it.file.name == entry.file.name }
                     dismissingNames = dismissingNames - entry.file.name
                 },
@@ -263,146 +293,136 @@ fun TestingScreen(profiles: ProfileRepository) {
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
         ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = ArdttSpacing.Large)
-                .padding(bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small)),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = ArdttLayout.ScreenPadding,
+                end = ArdttLayout.ScreenPadding,
+                bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small),
+            ),
+            verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
         ) {
-            ArdttFeedHeader(
-                title = "Режим тестирования",
-                subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
-            )
-
-            ArdttSectionCard(
-                contentPadding = PaddingValues(ArdttSpacing.Large),
-                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-            ) {
-                ArdttSectionTitle("Статус записи")
-                StatusPill(
-                    text = if (isRecording) "Идёт запись" else "Запись остановлена",
-                    accent = isRecording,
-                )
-                Text(
-                    "Во время записи весь интерфейс подсвечивается пульсирующей тёмно-красной рамкой.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Сервер: ${uploadUrl.ifBlank { "не задан" }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            item(key = "header") {
+                ArdttFeedHeader(
+                    title = "Режим тестирования",
+                    subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
                 )
             }
 
-            ArdttSectionCard(
-                contentPadding = PaddingValues(ArdttSpacing.Large),
-                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-            ) {
-                ArdttSectionTitle("Комментарий")
-                Text(
-                    "Можно заполнить заранее, без отправки файла. Если поле уже заполнено, окно перед отправкой лога не появится.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = draftComment,
-                    onValueChange = { persistDraft(it) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    label = { Text("Что произошло") },
-                    placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
-                    shape = ArdttShapes.Field,
-                )
-                OutlinedButton(
-                    onClick = { registerCommentOnly() },
-                    enabled = draftComment.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = ArdttShapes.Chip,
-                ) {
-                    Text("Зарегистрировать без файла")
-                }
-            }
-
-            ArdttSectionCard(
-                modifier = Modifier.weight(1f),
-                fillHeight = true,
-                contentPadding = PaddingValues(ArdttSpacing.Large),
-                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-            ) {
-                ArdttSectionTitle("Сохранённые логи")
-                Text(
-                    if (logs.isEmpty()) {
-                        "Записей пока нет"
-                    } else {
-                        "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (logs.isEmpty()) {
-                    EmptyLogsBlock()
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-                    ) {
-                        items(logs, key = { it.file.name }) { entry ->
-                            AnimatedVisibility(
-                                visible = entry.file.name !in dismissingNames,
-                                modifier = Modifier.fillMaxWidth(),
-                                enter = EnterTransition.None,
-                                exit = fadeOut(
-                                    animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
-                                ) + slideOutVertically(
-                                    animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
-                                ) { -it } + shrinkVertically(
-                                    animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
-                                ),
-                            ) {
-                                LogRow(
-                                    entry = entry,
-                                    uploading = uploadingFile == entry.file.name,
-                                    progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
-                                    onDelete = {
-                                        scope.launch {
-                                            fileManager.delete(entry.file)
-                                            refreshLogs()
-                                        }
-                                    },
-                                    onUpload = { beginSubmit(entry, draftComment) },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (tickets.isNotEmpty()) {
+            item(key = "status") {
                 ArdttSectionCard(
                     contentPadding = PaddingValues(ArdttSpacing.Large),
                     verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
                 ) {
-                    ArdttSectionTitle("История обращений")
+                    ArdttSectionTitle("Статус записи")
+                    StatusPill(
+                        text = if (isRecording) "Идёт запись" else "Запись остановлена",
+                        accent = isRecording,
+                    )
                     Text(
-                        "${tickets.size} зарегистрированных",
+                        "Во время записи весь интерфейс подсвечивается пульсирующей тёмно-красной рамкой.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    LazyColumn(
+                    Text(
+                        "Сервер: ${uploadUrl.ifBlank { "не задан" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            item(key = "comment") {
+                ArdttSectionCard(
+                    contentPadding = PaddingValues(ArdttSpacing.Large),
+                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
+                ) {
+                    ArdttSectionTitle("Комментарий")
+                    Text(
+                        "Можно заполнить заранее, без отправки файла. Если поле уже заполнено, окно перед отправкой лога не появится.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = draftComment,
+                        onValueChange = { persistDraft(it) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 220.dp),
-                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
+                            .height(120.dp),
+                        label = { Text("Что произошло") },
+                        placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
+                        shape = ArdttShapes.Field,
+                    )
+                    OutlinedButton(
+                        onClick = { registerCommentOnly() },
+                        enabled = draftComment.trim().isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = ArdttShapes.Chip,
                     ) {
-                        items(tickets, key = { it.number }) { ticket ->
-                            TicketRow(ticket)
-                        }
+                        Text("Зарегистрировать без файла")
                     }
+                }
+            }
+
+            item(key = "logs-header") {
+                Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
+                    ArdttSectionTitle("Сохранённые логи")
+                    Text(
+                        if (logs.isEmpty()) {
+                            "Записей пока нет"
+                        } else {
+                            "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (logs.isEmpty()) {
+                        EmptyLogsBlock()
+                    }
+                }
+            }
+
+            items(logs, key = { it.file.name }) { entry ->
+                AnimatedVisibility(
+                    visible = entry.file.name !in dismissingNames,
+                    modifier = Modifier.fillMaxWidth(),
+                    enter = EnterTransition.None,
+                    exit = fadeOut(
+                        animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                    ) + slideOutVertically(
+                        animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                    ) { -it } + shrinkVertically(
+                        animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
+                    ),
+                ) {
+                    LogRow(
+                        entry = entry,
+                        uploading = uploadingFile == entry.file.name,
+                        progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
+                        onDelete = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { fileManager.delete(entry.file) }
+                                refreshLogs()
+                            }
+                        },
+                        onUpload = { beginSubmit(entry, draftComment) },
+                    )
+                }
+            }
+
+            if (tickets.isNotEmpty()) {
+                item(key = "tickets-header") {
+                    Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
+                        ArdttSectionTitle("История обращений")
+                        Text(
+                            "${tickets.size} зарегистрированных",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                items(tickets, key = { it.number }) { ticket ->
+                    TicketRow(ticket)
                 }
             }
         }
@@ -589,3 +609,4 @@ private fun formatDuration(ms: Long): String {
 }
 
 private const val LOG_DISMISS_MS = 480L
+private const val DRAFT_PERSIST_MS = 400L
