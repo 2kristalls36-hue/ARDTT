@@ -41,7 +41,7 @@
 |---|---|
 | Клиент | **0.5.246** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
 | Стек | **1.0.38** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
-| Откуда стек | GitHub Releases `ardtt-stack-1.0.37.tar.gz` или архив тега `v0.5.245` — **не** APK |
+| Откуда стек | GitHub Releases `ardtt-stack-1.0.38.tar.gz` или архив тега `v0.5.246` — **не** APK |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, архив стека — без PAT. Только стабильные `versionName` (без `test`). Тестовые APK — [Actions → Artifacts](https://github.com/2kristalls36-hue/ARDTT/actions) |
