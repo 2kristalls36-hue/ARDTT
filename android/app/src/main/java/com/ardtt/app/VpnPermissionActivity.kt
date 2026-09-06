@@ -18,7 +18,7 @@ class VpnPermissionActivity : Activity() {
         if (prep != null) {
             startActivityForResult(prep, REQ)
         } else {
-            ConnectionManager.get(applicationContext).connect()
+            ConnectionManager.get(applicationContext).connectWhenReady()
             finish()
         }
     }
@@ -28,7 +28,7 @@ class VpnPermissionActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ) {
             if (resultCode == RESULT_OK) {
-                ConnectionManager.get(applicationContext).connect()
+                ConnectionManager.get(applicationContext).connectWhenReady()
             } else {
                 Toast.makeText(this, vpnPermissionDeniedHint(this), Toast.LENGTH_LONG).show()
             }
