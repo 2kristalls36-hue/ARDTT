@@ -179,16 +179,44 @@ def plate_rgba_icon(master: Image.Image, size: int) -> Image.Image:
     )
 
 
-def round_icon(square_rgba: Image.Image, size: int) -> Image.Image:
-    im = square_rgba.resize((size, size), Image.Resampling.LANCZOS).convert("RGBA")
-    y, x = np.ogrid[:size, :size]
-    cx = cy = (size - 1) / 2.0
-    radius = size / 2.0
+# Navy disc: slightly lighter center, matching the master's radial field.
+ROUND_CENTER = (8, 42, 82)
+ROUND_RIM = (166, 172, 188)
+# Letter block as a fraction of the circle diameter. 0.66 matches the adaptive
+# foreground safe zone; wider than that clips AR/DTT corners on a circular mask.
+ROUND_LETTER_FRAC = 0.66
+ROUND_RIM_FRAC = 0.016
+
+
+def round_color_icon(mark: Image.Image, size: int) -> Image.Image:
+    """Dedicated circular launcher: navy disc, circular silver rim, inset letters.
+
+    Do not punch a circle through the squircle master — that clips the square
+    rim into grey chords and crowds the letterforms against the round edge.
+    """
+    ss = max(size * 4, 768)
+    y, x = np.ogrid[:ss, :ss]
+    cx = cy = (ss - 1) / 2.0
+    radius = ss / 2.0
     dist = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-    alpha = np.clip((radius - dist) * 255.0, 0, 255).astype(np.uint8)
-    arr = np.array(im)
-    arr[:, :, 3] = np.minimum(arr[:, :, 3], alpha)
-    return Image.fromarray(arr, "RGBA")
+    t = np.clip(dist / radius, 0.0, 1.0) ** 1.35
+    center = np.array(ROUND_CENTER, dtype=np.float32)
+    edge = np.array(FIELD, dtype=np.float32)
+    rgb = center * (1.0 - t[..., None]) + edge * t[..., None]
+    rim_w = max(2.0, ss * ROUND_RIM_FRAC)
+    d_in = radius - rim_w * 2.0
+    d_out = radius - 0.75
+    rise = np.clip((dist - d_in) / max(1e-6, rim_w * 0.45), 0.0, 1.0)
+    fall = np.clip((d_out - dist) / max(1e-6, rim_w * 0.45), 0.0, 1.0)
+    ring = np.minimum(rise, fall)
+    rgb = rgb * (1.0 - ring[..., None]) + np.array(ROUND_RIM, dtype=np.float32) * ring[..., None]
+    aa = np.clip((radius - dist) * 255.0, 0, 255)
+    plate = np.zeros((ss, ss, 4), dtype=np.float32)
+    plate[:, :, :3] = rgb
+    plate[:, :, 3] = aa
+    disc = Image.fromarray(np.clip(plate, 0, 255).astype(np.uint8), "RGBA")
+    disc.alpha_composite(fit_on_canvas(mark, ss, safe_frac=ROUND_LETTER_FRAC))
+    return disc.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def extract_mark(master: Image.Image, white_only: bool = False) -> Image.Image:
@@ -257,11 +285,12 @@ def main() -> None:
     save_png(square_1024, BRAND / "ar-icon-red.png")
     save_png(cap_side(color_mark), BRAND / "ardtt-mark-source.png")
     save_png(cap_side(white_mark), BRAND / "ar-mark-white.png")
+    save_png(round_color_icon(color_mark, 1024), BRAND / "ardtt-icon-round-source.png")
 
     for density, size in LAUNCHER_SIZES.items():
         square = square_color_icon(master, size)
         save_png(square.convert("RGB"), RES / f"mipmap-{density}" / "ic_launcher.png")
-        save_png(round_icon(square, size), RES / f"mipmap-{density}" / "ic_launcher_round.png")
+        save_png(round_color_icon(color_mark, size), RES / f"mipmap-{density}" / "ic_launcher_round.png")
 
     for density, size in FOREGROUND_SIZES.items():
         save_png(
