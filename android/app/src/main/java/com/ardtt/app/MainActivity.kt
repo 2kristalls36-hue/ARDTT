@@ -111,14 +111,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startTunnelFromShortcut() {
-        val settings = AppSettingsRepository(applicationContext)
-        lifecycleScope.launch {
-            if (!settings.alphaUnlockedSnapshot()) return@launch
-            startTunnelFromShortcutUnlocked()
-        }
-    }
-
-    private fun startTunnelFromShortcutUnlocked() {
         lifecycleScope.launch {
             val app = applicationContext
             val settings = AppSettingsRepository(app)

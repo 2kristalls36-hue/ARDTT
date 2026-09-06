@@ -11,7 +11,6 @@ import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.vpnPermissionDeniedHint
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
-import com.ardtt.app.unlock.DeviceUnlockCopy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,12 +58,6 @@ class WidgetToggleActivity : Activity() {
     private suspend fun toggle() {
         val app = applicationContext
         val settings = AppSettingsRepository(app)
-        if (!settings.alphaUnlockedSnapshot()) {
-            Toast.makeText(app, DeviceUnlockCopy.CONNECT_BLOCKED, Toast.LENGTH_LONG).show()
-            openApp()
-            finish()
-            return
-        }
         val catalog = ProfileRepository(app).snapshot()
         val profile = catalog.active
         if (profile == null) {
