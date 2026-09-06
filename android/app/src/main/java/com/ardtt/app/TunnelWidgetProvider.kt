@@ -6,10 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.VpnService
 import android.widget.RemoteViews
-import android.widget.Toast
-import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.VpnLiveStats
 
@@ -26,26 +23,7 @@ class TunnelWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action != ACTION_TOGGLE) return
-        val app = context.applicationContext
-        val conn = ConnectionManager.get(app)
-        if (isRunning(app)) {
-            conn.disconnect()
-            updateWidgetState(app, running = false, statsText = null)
-            QuickToggleTileService.requestTileUpdate(app)
-        } else {
-            val prep = runCatching { VpnService.prepare(app) }.getOrNull()
-            if (prep != null) {
-                Toast.makeText(
-                    app,
-                    "Разрешите ARDTT создать туннель",
-                    Toast.LENGTH_LONG,
-                ).show()
-                openVpnPermission(app)
-            } else {
-                conn.connect()
-                QuickToggleTileService.requestTileUpdate(app)
-            }
-        }
+        openToggle(context.applicationContext)
     }
 
     companion object {
@@ -71,9 +49,7 @@ class TunnelWidgetProvider : AppWidgetProvider() {
         private fun isRunning(context: Context): Boolean {
             val state = ConnectionManager.getOrNull()?.ui?.value?.state
                 ?: return false
-            return state == ConnState.Connected ||
-                state == ConnState.Connecting ||
-                state == ConnState.PausedTrustedWifi
+            return widgetTunnelIsRunning(state)
         }
 
         private fun widgetStatsText(): String {
@@ -113,30 +89,30 @@ class TunnelWidgetProvider : AppWidgetProvider() {
                     android.graphics.Color.parseColor("#3DDC84"),
                 )
             }
-            val intent = Intent(context, TunnelWidgetProvider::class.java).apply {
-                action = ACTION_TOGGLE
+            val pi = togglePendingIntent(context)
+            views.setOnClickPendingIntent(R.id.widget_root, pi)
+            views.setOnClickPendingIntent(R.id.widget_logo, pi)
+            views.setOnClickPendingIntent(R.id.widget_status_title, pi)
+            views.setOnClickPendingIntent(R.id.widget_stats_text, pi)
+            views.setOnClickPendingIntent(R.id.widget_toggle_button, pi)
+            return views
+        }
+
+        private fun togglePendingIntent(context: Context): PendingIntent {
+            val intent = Intent(context, WidgetToggleActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            val pi = PendingIntent.getBroadcast(
+            return PendingIntent.getActivity(
                 context,
                 0,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            views.setOnClickPendingIntent(R.id.widget_toggle_button, pi)
-            return views
         }
 
-        private fun openVpnPermission(context: Context) {
-            val intent = Intent(context, VpnPermissionActivity::class.java).addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK,
-            )
+        private fun openToggle(context: Context) {
             runCatching {
-                PendingIntent.getActivity(
-                    context,
-                    201,
-                    intent,
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-                ).send()
+                togglePendingIntent(context).send()
             }
         }
     }
