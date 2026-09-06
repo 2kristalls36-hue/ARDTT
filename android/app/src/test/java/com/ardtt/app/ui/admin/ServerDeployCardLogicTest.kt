@@ -169,6 +169,23 @@ class ServerDeployCardLogicTest {
     }
 
     @Test
+    fun deployLineUsesVersionWhenCurrentAndUpdateSentenceWhenBehind() {
+        assertEquals("деплой 1.0.6", serverCardDeployText(HealthUi.Online("1.0.6"), "1.0.6"))
+        assertEquals(
+            "Требуется обновление · 1.0.5 → 1.0.6",
+            serverCardDeployText(HealthUi.Online("1.0.5"), "1.0.6"),
+        )
+        assertNull(serverCardDeployText(HealthUi.Unreachable, "1.0.6"))
+        assertNull(serverCardDeployText(HealthUi.NotInstalled, "1.0.6"))
+        val current = healthStatusParts(HealthUi.Online("1.0.6"), "1.0.6")
+        assertEquals("● Онлайн", current.presence)
+        assertEquals("деплой 1.0.6", current.deploy)
+        val outdated = healthStatusParts(HealthUi.Online("1.0.5"), "1.0.6")
+        assertEquals("Требуется обновление · 1.0.5 → 1.0.6", outdated.deploy)
+        assertEquals("● Онлайн", outdated.presence)
+    }
+
+    @Test
     fun statusLineDoesNotRepeatFreshnessWords() {
         val current = healthStatusParts(HealthUi.Online("1.0.6"))
         assertEquals("● Онлайн", current.presence)
