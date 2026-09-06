@@ -1865,6 +1865,7 @@ fun DeployScreen(
 }
 
 private fun serverOsMarkDrawable(mark: ServerOsMark): Int = when (mark) {
+    // Named OS art stays on its own mark. Do not reuse these files for another distro.
     ServerOsMark.Ubuntu -> R.drawable.ic_os_ubuntu
     ServerOsMark.Debian -> R.drawable.ic_os_debian
     ServerOsMark.Fedora -> R.drawable.ic_os_fedora

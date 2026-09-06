@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Alpine mountains on a transparent field. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="16dp"
     android:height="16dp"
@@ -6,8 +7,5 @@
     android:viewportHeight="24">
     <path
         android:fillColor="#0D597F"
-        android:pathData="M12,2A10,10 0,1,0 12,22A10,10 0,1,0 12,2Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,6.2L16.8,17.2h-2.2l-1.1,-2.5H10.5l-1.1,2.5H7.2L12,6.2zM12,9.4l-1.4,3.3h2.8L12,9.4z" />
+        android:pathData="M2.8,19.2L7.4,11.6L10.4,15.4L14.6,7.2L21.2,19.2Z" />
 </vector>
