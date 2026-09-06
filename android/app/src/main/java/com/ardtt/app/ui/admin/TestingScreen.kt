@@ -107,6 +107,7 @@ fun TestingScreen(profiles: ProfileRepository) {
     var uploadComment by remember { mutableStateOf("") }
     var draftComment by remember { mutableStateOf("") }
     var draftReady by remember { mutableStateOf(false) }
+    var registering by remember { mutableStateOf(false) }
     var tickets by remember { mutableStateOf<List<TestingTicket>>(emptyList()) }
     val latestDraft = rememberUpdatedState(draftComment)
 
@@ -204,8 +205,9 @@ fun TestingScreen(profiles: ProfileRepository) {
 
     fun registerCommentOnly() {
         val comment = draftComment.trim()
-        if (comment.isBlank()) return
+        if (comment.isBlank() || registering) return
         scope.launch {
+            registering = true
             runCatching {
                 withContext(Dispatchers.IO) {
                     ticketStore.saveDraft(draftComment)
@@ -219,6 +221,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     Toast.LENGTH_SHORT,
                 ).show()
             }.onFailure { notifyError(it.message ?: "Не удалось зарегистрировать обращение") }
+            registering = false
         }
     }
 
@@ -232,9 +235,10 @@ fun TestingScreen(profiles: ProfileRepository) {
     }
 
     fun uploadWithComment(entry: TelemetryLogEntry, comment: String) {
+        if (uploadingFile != null) return
+        uploadingFile = entry.file.name
+        uploadProgress = 0f
         scope.launch {
-            uploadingFile = entry.file.name
-            uploadProgress = 0f
             val ticket = runCatching {
                 withContext(Dispatchers.IO) {
                     ticketStore.saveDraft(comment.take(TestingTicketStore.MAX_COMMENT))
@@ -355,7 +359,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     )
                     OutlinedButton(
                         onClick = { registerCommentOnly() },
-                        enabled = draftComment.trim().isNotBlank(),
+                        enabled = draftComment.trim().isNotBlank() && !registering,
                         modifier = Modifier.fillMaxWidth(),
                         shape = ArdttShapes.Chip,
                     ) {
