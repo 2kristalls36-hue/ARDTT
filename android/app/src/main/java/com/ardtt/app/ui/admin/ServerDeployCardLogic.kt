@@ -72,8 +72,8 @@ internal fun pingLatencyTier(pingMs: Long): PingLatencyTier? {
 }
 
 /**
- * Split status line: presence · deploy · ping.
- * UI lays these out left / center / right with their own colors.
+ * Card status: presence sits under the OS badge; deploy is left, ping is right.
+ * An outdated online host replaces the version with the update sentence.
  */
 internal data class HealthStatusParts(
     val presence: String,
@@ -83,15 +83,25 @@ internal data class HealthStatusParts(
     val pingLabel: String get() = formatHealthPingMs(pingMs)
 }
 
-internal fun healthStatusParts(health: HealthUi?): HealthStatusParts = when (health) {
+internal fun healthStatusParts(
+    health: HealthUi?,
+    expectedVersion: String = "",
+): HealthStatusParts = when (health) {
     null, HealthUi.Checking -> HealthStatusParts("● Проверка…")
     is HealthUi.Online -> HealthStatusParts(
         presence = "● Онлайн",
-        deploy = "деплой ${health.deployVersion.ifBlank { "—" }}",
+        deploy = serverCardDeployText(health, expectedVersion),
         pingMs = health.pingMs,
     )
     HealthUi.NotInstalled -> HealthStatusParts("● Не установлено")
     HealthUi.Unreachable -> HealthStatusParts("● Нет связи")
+}
+
+/** Version when current; the update sentence when the stack is behind. */
+internal fun serverCardDeployText(health: HealthUi?, expectedVersion: String): String? {
+    val online = health as? HealthUi.Online ?: return null
+    return deployFreshnessChipText(online, expectedVersion)
+        ?: "деплой ${online.deployVersion.ifBlank { "—" }}"
 }
 
 /**
@@ -116,23 +126,87 @@ internal fun serverCardTitle(
 }
 
 /** Entry → exit hosts when the card is a cascade with two distinct addresses. */
-internal fun serverCardCascadeIpSpan(
+internal fun serverCardCascadeHosts(
     host: String,
     publicHost: String,
     cascadeEnabled: Boolean,
     cascadeHost: String,
-): String? {
-    if (!cascadeEnabled) return null
+): List<String> {
+    if (!cascadeEnabled) return emptyList()
     val entry = (
         DeployHop.host(publicHost)
             ?: publicHost.trim().ifBlank { null }
             ?: DeployHop.host(host)
             ?: host.trim().ifBlank { null }
-        ) ?: return null
-    val exit = DeployHop.host(cascadeHost)?.takeIf { it.isNotBlank() } ?: return null
-    if (entry.equals(exit, ignoreCase = true)) return null
-    return "$entry → $exit"
+        ) ?: return emptyList()
+    val exit = DeployHop.host(cascadeHost)?.takeIf { it.isNotBlank() } ?: return emptyList()
+    if (entry.equals(exit, ignoreCase = true)) return emptyList()
+    return listOf(entry, exit)
 }
+
+internal fun serverCardCascadeIpSpan(
+    host: String,
+    publicHost: String,
+    cascadeEnabled: Boolean,
+    cascadeHost: String,
+): String? = serverCardCascadeHosts(host, publicHost, cascadeEnabled, cascadeHost)
+    .takeIf { it.size >= 2 }
+    ?.joinToString(" → ")
+
+/** IPs painted as gray chips in the title when the card has no custom name. */
+internal fun serverCardTitleHosts(
+    name: String,
+    host: String,
+    cascadeHosts: List<String>,
+): List<String> {
+    val trimmed = name.trim()
+    val ssh = host.trim()
+    if (trimmed.isNotEmpty() && !trimmed.equals(ssh, ignoreCase = true)) return emptyList()
+    return cascadeHosts.takeIf { it.size >= 2 } ?: listOfNotNull(ssh.ifBlank { null })
+}
+
+internal data class ServerCardMetaParts(
+    val hosts: List<String>,
+    val sshPort: Int,
+    val pubHost: String? = null,
+)
+
+/** SSH / pub facts under the title — never repeats the title IP. Cascade is `ip → ip`. */
+internal fun serverCardMetaParts(
+    name: String,
+    host: String,
+    sshPort: Int,
+    publicHost: String,
+    cascadeEnabled: Boolean = false,
+    cascadeHost: String = "",
+): ServerCardMetaParts {
+    val cascade = serverCardCascadeHosts(host, publicHost, cascadeEnabled, cascadeHost)
+    val title = serverCardTitle(name, host, cascade.takeIf { it.size >= 2 }?.joinToString(" → "))
+    val ssh = host.trim()
+    if (cascade.isNotEmpty()) {
+        val hosts = if (cascade.joinToString(" → ").equals(title, ignoreCase = true)) {
+            emptyList()
+        } else {
+            cascade
+        }
+        return ServerCardMetaParts(hosts = hosts, sshPort = sshPort)
+    }
+    val showSshHost = ssh.isNotEmpty() && !ssh.equals(title, ignoreCase = true)
+    return ServerCardMetaParts(
+        hosts = if (showSshHost) listOf(ssh) else emptyList(),
+        sshPort = sshPort,
+        pubHost = distinctPublicHost(ssh, publicHost),
+    )
+}
+
+internal fun ServerCardMetaParts.asLine(): String = buildList {
+    when {
+        hosts.size >= 2 -> add(hosts.joinToString(" → "))
+        hosts.size == 1 -> add(hosts[0])
+    }
+    add("SSH $sshPort")
+    pubHost?.let { add("pub $it") }
+}.joinToString(" · ")
 
 /** SSH / pub facts under the title — never repeats the title IP. Cascade shows `ip → ip`. */
 internal fun serverCardMetaLine(
@@ -142,23 +216,14 @@ internal fun serverCardMetaLine(
     publicHost: String,
     cascadeEnabled: Boolean = false,
     cascadeHost: String = "",
-): String {
-    val span = serverCardCascadeIpSpan(host, publicHost, cascadeEnabled, cascadeHost)
-    val title = serverCardTitle(name, host, span)
-    val ssh = host.trim()
-    val parts = mutableListOf<String>()
-    if (span != null) {
-        if (!span.equals(title, ignoreCase = true)) parts.add(span)
-        parts.add("SSH $sshPort")
-        return parts.joinToString(" · ")
-    }
-    if (ssh.isNotEmpty() && !ssh.equals(title, ignoreCase = true)) {
-        parts.add(ssh)
-    }
-    parts.add("SSH $sshPort")
-    distinctPublicHost(ssh, publicHost)?.let { parts.add("pub $it") }
-    return parts.joinToString(" · ")
-}
+): String = serverCardMetaParts(
+    name = name,
+    host = host,
+    sshPort = sshPort,
+    publicHost = publicHost,
+    cascadeEnabled = cascadeEnabled,
+    cascadeHost = cascadeHost,
+).asLine()
 
 /**
  * Version fragment for the OS badge, without repeating [serverOsBadgeLabel].
@@ -338,14 +403,27 @@ internal fun deploySlotPhase(
     return DeploySlotPhase.Pending
 }
 
-internal fun serverDeleteConfirmTitle(): String = "Удалить сервер?"
+internal fun serverDeleteIsOffline(health: HealthUi?): Boolean =
+    health is HealthUi.Unreachable
+
+internal fun serverDeleteConfirmTitle(offline: Boolean = false): String =
+    if (offline) "Нет связи с сервером" else "Удалить сервер?"
+
+internal fun serverDeleteConfirmAction(offline: Boolean = false): String =
+    if (offline) "Удалить карточку" else "Удалить"
 
 internal fun serverDeleteConfirmBody(
     host: String,
     cascadeEnabled: Boolean = false,
     cascadeHost: String = "",
+    offline: Boolean = false,
 ): String {
     val entry = host.trim().ifBlank { "VPS" }
+    if (offline) {
+        return "Удаление деплоя не будет выполнено: нет соединения с сервером $entry. " +
+            "Стек на VPS останется установленным. Удалить только карточку из приложения, " +
+            "без деинсталляции самого деплоя?"
+    }
     val where = if (cascadeEnabled) {
         val exit = cascadeHost.trim()
         if (exit.isNotEmpty()) {
@@ -371,8 +449,8 @@ internal fun serverDeleteFinishedShouldLeave(busy: Boolean, status: String?): Bo
 }
 
 /**
- * Orange freshness bar: only when online but not current.
- * Current deploys use the status line; no second “актуален” chip.
+ * Update sentence for an online host that is not current.
+ * Shown in place of the deploy version — not as a fourth card line.
  */
 internal fun deployFreshnessChipText(health: HealthUi?, expectedVersion: String): String? {
     val online = health as? HealthUi.Online ?: return null

@@ -12,4 +12,4 @@
 | [android/README.md](../android/README.md) | Сборка клиента 0.5.238, keystore, GitHub Releases |
 | [server/README.md](../server/README.md) | Единый контейнер `ardtt`: provision, direct, bypass, dns, warp, cascade, telemetry |
 
-Бренд-исходник иконки: [assets/brand/ardtt-icon-source.png](assets/brand/ardtt-icon-source.png).
+Бренд-исходник иконки: квадрат [assets/brand/ardtt-icon-source.png](assets/brand/ardtt-icon-source.png), круг [assets/brand/ardtt-icon-round-source.png](assets/brand/ardtt-icon-round-source.png).

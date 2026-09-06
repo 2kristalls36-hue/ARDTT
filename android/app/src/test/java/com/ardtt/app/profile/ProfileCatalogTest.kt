@@ -52,6 +52,37 @@ class ProfileCatalogTest {
         assertEquals("old", restored.active?.name)
     }
 
+    @Test
+    fun profileJsonKeepsTrafficQuota() {
+        val raw = """
+        {
+          "name": "alice",
+          "deviceId": "dev-a",
+          "hostId": 5,
+          "expiresAt": 99,
+          "trafficLimitBytes": 8000,
+          "usedBytes": 1500,
+          "direct": {
+            "endpoint": "1.2.3.4:51820",
+            "privateKey": "priv",
+            "peerPublicKey": "pub",
+            "address": "10.8.0.5/32"
+          },
+          "bypass": {
+            "peer": "1.2.3.4:56003",
+            "address": "10.9.0.5/32",
+            "password": "pw"
+          }
+        }
+        """.trimIndent()
+        val parsed = VpnProfileJson.parse(raw)
+        assertEquals(8000L, parsed.trafficLimitBytes)
+        assertEquals(1500L, parsed.usedBytes)
+        val again = VpnProfileJson.parse(VpnProfileJson.encode(parsed))
+        assertEquals(8000L, again.trafficLimitBytes)
+        assertEquals(1500L, again.usedBytes)
+    }
+
     private fun sample(name: String, deviceId: String) = VpnProfileJson.parse(
         """
         {

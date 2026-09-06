@@ -27,6 +27,26 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun deviceCountLabelIsUsedOverMax() {
+        assertEquals("Устройства: 1/1", clientDeviceCountLabel(1, 1))
+        assertEquals("Устройства: 0/3", clientDeviceCountLabel(0, 3))
+        assertEquals("Устройства: 2/0", clientDeviceCountLabel(2, 0))
+    }
+
+    @Test
+    fun enableActionFlipsDeactivatedAndLabel() {
+        val turnOff = clientEnableAction(deactivated = false)
+        assertEquals("Выключить", turnOff.label)
+        assertTrue(turnOff.nextDeactivated)
+
+        val turnOn = clientEnableAction(deactivated = true)
+        assertEquals("Включить", turnOn.label)
+        assertFalse(turnOn.nextDeactivated)
+        assertEquals("Выключить", clientEnableActionLabel(deactivated = false))
+        assertEquals("Включить", clientEnableActionLabel(deactivated = true))
+    }
+
+    @Test
     fun deviceSummaryPrefersPhoneModel() {
         val summary = clientDeviceSummary(
             user(

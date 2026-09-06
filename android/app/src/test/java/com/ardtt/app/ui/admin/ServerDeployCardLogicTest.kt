@@ -125,6 +125,34 @@ class ServerDeployCardLogicTest {
                 cascadeHost = "2.26.125.160",
             ),
         )
+        assertEquals(
+            listOf("10.0.0.1", "2.26.125.160"),
+            serverCardCascadeHosts(
+                host = "10.0.0.1",
+                publicHost = "10.0.0.1",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160:22",
+            ),
+        )
+        assertEquals(
+            emptyList<String>(),
+            serverCardTitleHosts("Edge", "10.0.0.1", listOf("10.0.0.1", "2.26.125.160")),
+        )
+        assertEquals(
+            listOf("10.0.0.1", "2.26.125.160"),
+            serverCardTitleHosts("  ", "10.0.0.1", listOf("10.0.0.1", "2.26.125.160")),
+        )
+        assertEquals(
+            listOf("10.0.0.1", "2.26.125.160"),
+            serverCardMetaParts(
+                name = "Edge",
+                host = "10.0.0.1",
+                sshPort = 22,
+                publicHost = "10.0.0.1",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ).hosts,
+        )
     }
 
     @Test
@@ -166,6 +194,23 @@ class ServerDeployCardLogicTest {
         assertNull(deployFreshnessChipText(HealthUi.NotInstalled, "1.0.6"))
         assertNull(deployFreshnessChipText(HealthUi.Checking, "1.0.6"))
         assertNull(deployFreshnessChipText(null, "1.0.6"))
+    }
+
+    @Test
+    fun deployLineUsesVersionWhenCurrentAndUpdateSentenceWhenBehind() {
+        assertEquals("деплой 1.0.6", serverCardDeployText(HealthUi.Online("1.0.6"), "1.0.6"))
+        assertEquals(
+            "Требуется обновление · 1.0.5 → 1.0.6",
+            serverCardDeployText(HealthUi.Online("1.0.5"), "1.0.6"),
+        )
+        assertNull(serverCardDeployText(HealthUi.Unreachable, "1.0.6"))
+        assertNull(serverCardDeployText(HealthUi.NotInstalled, "1.0.6"))
+        val current = healthStatusParts(HealthUi.Online("1.0.6"), "1.0.6")
+        assertEquals("● Онлайн", current.presence)
+        assertEquals("деплой 1.0.6", current.deploy)
+        val outdated = healthStatusParts(HealthUi.Online("1.0.5"), "1.0.6")
+        assertEquals("Требуется обновление · 1.0.5 → 1.0.6", outdated.deploy)
+        assertEquals("● Онлайн", outdated.presence)
     }
 
     @Test
@@ -402,6 +447,7 @@ class ServerDeployCardLogicTest {
     @Test
     fun deleteConfirmWarnsThatStackIsWipedOnVps() {
         assertEquals("Удалить сервер?", serverDeleteConfirmTitle())
+        assertEquals("Удалить", serverDeleteConfirmAction())
         val standalone = serverDeleteConfirmBody("10.0.0.1")
         assertTrue(standalone.contains("10.0.0.1"))
         assertTrue(standalone.contains("/opt/ardtt"))
@@ -415,6 +461,22 @@ class ServerDeployCardLogicTest {
         )
         assertTrue(cascade.contains("входного сервера 10.0.0.1"))
         assertTrue(cascade.contains("выходного 2.26.125.160"))
+    }
+
+    @Test
+    fun deleteConfirmWhenOfflineRemovesCardOnly() {
+        assertFalse(serverDeleteIsOffline(HealthUi.Online("1.0.35")))
+        assertFalse(serverDeleteIsOffline(HealthUi.NotInstalled))
+        assertFalse(serverDeleteIsOffline(HealthUi.Checking))
+        assertTrue(serverDeleteIsOffline(HealthUi.Unreachable))
+        assertEquals("Нет связи с сервером", serverDeleteConfirmTitle(offline = true))
+        assertEquals("Удалить карточку", serverDeleteConfirmAction(offline = true))
+        val offline = serverDeleteConfirmBody("10.0.0.1", offline = true)
+        assertTrue(offline.contains("не будет выполнено"))
+        assertTrue(offline.contains("нет соединения"))
+        assertTrue(offline.contains("10.0.0.1"))
+        assertTrue(offline.contains("без деинсталляции"))
+        assertFalse(offline.contains("/opt/ardtt"))
     }
 
     @Test

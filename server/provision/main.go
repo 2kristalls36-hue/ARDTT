@@ -85,10 +85,12 @@ type Profile struct {
 	HostID      int    `json:"hostId"`
 	Prefer      string `json:"prefer"`
 	HideIP      bool   `json:"hideIp"`
-	ExpiresAt   int64  `json:"expiresAt"`
-	Deactivated bool   `json:"deactivated"`
-	MaxDevices  int    `json:"maxDevices"`
-	Direct      struct {
+	ExpiresAt         int64 `json:"expiresAt"`
+	Deactivated       bool  `json:"deactivated"`
+	MaxDevices        int   `json:"maxDevices"`
+	TrafficLimitBytes int64 `json:"trafficLimitBytes,omitempty"`
+	UsedBytes         int64 `json:"usedBytes,omitempty"`
+	Direct            struct {
 		Endpoint      string         `json:"endpoint"`
 		PrivateKey    string         `json:"privateKey"`
 		PeerPublicKey string         `json:"peerPublicKey"`
@@ -1211,6 +1213,13 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.ExpiresAt = u.ExpiresAt
 	p.Deactivated = u.Deactivated
 	p.MaxDevices = maxInt(u.MaxDevices, 1)
+	p.TrafficLimitBytes = u.TrafficLimitBytes
+	if t, ok := loadBypassTrafficLocked(filepath.Dir(s.path))[u.Name]; ok {
+		used := t.DownBytes + t.UpBytes
+		if used > 0 {
+			p.UsedBytes = used
+		}
+	}
 	p.Direct.Endpoint = fmt.Sprintf("%s:%d", host, cfg.DirectPort)
 	p.Direct.PrivateKey = u.DirectPrivateKey
 	p.Direct.PeerPublicKey = cfg.ServerPublicKey
