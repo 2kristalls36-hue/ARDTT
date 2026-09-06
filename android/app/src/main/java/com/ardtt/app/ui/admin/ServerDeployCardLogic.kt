@@ -403,14 +403,27 @@ internal fun deploySlotPhase(
     return DeploySlotPhase.Pending
 }
 
-internal fun serverDeleteConfirmTitle(): String = "Удалить сервер?"
+internal fun serverDeleteIsOffline(health: HealthUi?): Boolean =
+    health is HealthUi.Unreachable
+
+internal fun serverDeleteConfirmTitle(offline: Boolean = false): String =
+    if (offline) "Нет связи с сервером" else "Удалить сервер?"
+
+internal fun serverDeleteConfirmAction(offline: Boolean = false): String =
+    if (offline) "Удалить карточку" else "Удалить"
 
 internal fun serverDeleteConfirmBody(
     host: String,
     cascadeEnabled: Boolean = false,
     cascadeHost: String = "",
+    offline: Boolean = false,
 ): String {
     val entry = host.trim().ifBlank { "VPS" }
+    if (offline) {
+        return "Удаление деплоя не будет выполнено: нет соединения с сервером $entry. " +
+            "Стек на VPS останется установленным. Удалить только карточку из приложения, " +
+            "без деинсталляции самого деплоя?"
+    }
     val where = if (cascadeEnabled) {
         val exit = cascadeHost.trim()
         if (exit.isNotEmpty()) {
