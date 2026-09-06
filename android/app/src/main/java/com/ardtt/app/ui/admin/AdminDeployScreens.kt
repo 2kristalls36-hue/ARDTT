@@ -930,6 +930,8 @@ private fun ServerOverviewHost(
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
     val engineIsUninstall by engine.isUninstall.collectAsStateWithLifecycle()
     val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var deleteConfirmOffline by remember { mutableStateOf(false) }
 
     LaunchedEffect(servers, serverId, showDeleteProgress) {
         if (showDeleteProgress) return@LaunchedEffect
@@ -991,6 +993,27 @@ private fun ServerOverviewHost(
         }
     }
 
+    fun startLocalCardDelete(target: DeployTarget) {
+        showDeleteConfirm = false
+        serversRepo.delete(target.id)
+        onBack()
+    }
+
+    fun openDeleteConfirm(target: DeployTarget) {
+        val current = health
+        if (current is HealthUi.Online || current is HealthUi.NotInstalled) {
+            deleteConfirmOffline = false
+            showDeleteConfirm = true
+            return
+        }
+        scope.launch {
+            health = HealthUi.Checking
+            health = probeServerHealthUi(target, serversRepo)
+            deleteConfirmOffline = serverDeleteIsOffline(health)
+            showDeleteConfirm = true
+        }
+    }
+
     val pull = rememberPullRefresh {
         val target = server ?: return@rememberPullRefresh
         health = probeServerHealthUi(target, serversRepo)
@@ -1013,7 +1036,7 @@ private fun ServerOverviewHost(
                 showActions = showActions,
                 onShowActions = { showActions = it },
                 onRename = { showRename = true },
-                onDelete = { showDeleteConfirm = true },
+                onDelete = { openDeleteConfirm(server) },
                 refreshing = pull.refreshing,
                 onRefresh = pull.onRefresh,
             )
@@ -1029,11 +1052,17 @@ private fun ServerOverviewHost(
             }
             if (showDeleteConfirm) {
                 ArdttDialog(
-                    title = serverDeleteConfirmTitle(),
+                    title = serverDeleteConfirmTitle(deleteConfirmOffline),
                     onDismissRequest = { if (!busy) showDeleteConfirm = false },
                     confirmAction = ArdttDialogAction(
-                        text = "Удалить",
-                        onClick = { startUninstall(server) },
+                        text = serverDeleteConfirmAction(deleteConfirmOffline),
+                        onClick = {
+                            if (deleteConfirmOffline) {
+                                startLocalCardDelete(server)
+                            } else {
+                                startUninstall(server)
+                            }
+                        },
                         destructive = true,
                         enabled = !busy,
                     ),
@@ -1050,6 +1079,7 @@ private fun ServerOverviewHost(
                             host = server.host,
                             cascadeEnabled = server.cascadeEnabled,
                             cascadeHost = server.cascadeHost,
+                            offline = deleteConfirmOffline,
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
