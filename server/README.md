@@ -1,6 +1,6 @@
 # Сервер ARDTT
 
-Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.37** (`DEPLOY_VERSION`).  
+Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.38** (`DEPLOY_VERSION`).  
 Исходники — `server/` **этого** репозитория (в APK копии нет). Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
@@ -14,7 +14,7 @@
 | **dns** | **dnsmasq** | шлюзы `10.8.0.1` / `10.9.0.1`; на выходе каскада — `cascade0` |
 | **warp** | **WARP egress** | hideIp `/32` → table `51820`. На каскаде правила ставит **выход**; вход — passthrough |
 | **cascade** | hop AWG | вход ↔ выход (`10.10.0.0/30`); тот же образ, что `direct` |
-| **telemetry** | рабочий | приём debug-логов с Android (`POST /api/upload-log`, порт 9200) |
+| **telemetry** | рабочий | приём debug-логов (`POST /api/upload-log`, номер обращения, inbox `GET /api/logs/{client_id}/status`, порт 9200) |
 
 ## Быстрый старт (без Docker)
 

@@ -16,9 +16,19 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.Response
 import okio.Buffer
 import okio.BufferedSink
 import okio.source
+import org.json.JSONObject
+
+data class TelemetryUploadResult(
+    val ticket: Int,
+    val filename: String,
+    val bytes: Long = 0,
+    val read: Boolean = false,
+    val comment: String = "",
+)
 
 class TelemetryUploadClient {
     suspend fun upload(
@@ -27,7 +37,7 @@ class TelemetryUploadClient {
         clientId: String,
         uploadUrl: String,
         onProgress: (Float) -> Unit,
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<TelemetryUploadResult> = withContext(Dispatchers.IO) {
         if (uploadUrl.isBlank()) {
             return@withContext Result.failure(IllegalStateException("URL загрузки не задан"))
         }
@@ -50,13 +60,56 @@ class TelemetryUploadClient {
         )
     }
 
+    suspend fun fetchInbox(
+        context: Context,
+        clientId: String,
+        uploadUrl: String,
+    ): Result<List<TestingTicketStatus>> = withContext(Dispatchers.IO) {
+        if (uploadUrl.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("URL загрузки не задан"))
+        }
+        val url = telemetryClientStatusUrl(uploadUrl, clientId)
+        if (url.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("URL статуса логов не задан"))
+        }
+        runCatching {
+            val request = Request.Builder().url(url).get().build()
+            execute(context, request).use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw IllegalStateException(
+                        "Сервер логов вернул ${response.code}" +
+                            if (body.isNotBlank()) ": ${body.take(200)}" else "",
+                    )
+                }
+                parseClientInbox(body)
+            }
+        }.recoverCatching { first ->
+            if (!isNetworkFailure(first)) throw first
+            val request = Request.Builder().url(url).get().build()
+            defaultClient().newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw IllegalStateException(
+                        "Сервер логов вернул ${response.code}" +
+                            if (body.isNotBlank()) ": ${body.take(200)}" else "",
+                    )
+                }
+                parseClientInbox(body)
+            }
+        }.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { Result.failure(IllegalStateException(friendlyError(it), it)) },
+        )
+    }
+
     private fun uploadOnce(
         context: Context,
         file: File,
         clientId: String,
         uploadUrl: String,
         onProgress: (Float) -> Unit,
-    ) {
+    ): TelemetryUploadResult {
         val total = file.length().coerceAtLeast(1)
         val fileBody = ProgressRequestBody(file, "application/json".toMediaType(), total, onProgress)
         val multipart = MultipartBody.Builder()
@@ -71,53 +124,51 @@ class TelemetryUploadClient {
             .build()
 
         onProgress(0.05f)
-        // Prefer underlay so upload works while the tunnel is up / broken.
-        val underlay = pickBestUnderlayNetwork(context)
-        val clientBuilder = OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
-        if (underlay != null) {
-            clientBuilder.socketFactory(underlay.socketFactory)
-        }
-        val client = clientBuilder.build()
-
-        try {
-            client.newCall(request).execute().use { response ->
-                onProgress(1f)
-                if (!response.isSuccessful) {
-                    val body = response.body?.string().orEmpty().take(200)
-                    throw IllegalStateException(
-                        "Сервер логов вернул ${response.code}" +
-                            if (body.isNotBlank()) ": $body" else "",
-                    )
-                }
-            }
+        return try {
+            readUpload(execute(context, request), file.name, onProgress)
         } catch (t: Throwable) {
-            // Retry once on default route if underlay bind failed.
-            if (underlay != null && isNetworkFailure(t)) {
-                OkHttpClient.Builder()
-                    .connectTimeout(20, TimeUnit.SECONDS)
-                    .readTimeout(120, TimeUnit.SECONDS)
-                    .writeTimeout(120, TimeUnit.SECONDS)
-                    .build()
-                    .newCall(request)
-                    .execute()
-                    .use { response ->
-                        onProgress(1f)
-                        if (!response.isSuccessful) {
-                            val body = response.body?.string().orEmpty().take(200)
-                            throw IllegalStateException(
-                                "Сервер логов вернул ${response.code}" +
-                                    if (body.isNotBlank()) ": $body" else "",
-                            )
-                        }
-                    }
+            if (pickBestUnderlayNetwork(context) != null && isNetworkFailure(t)) {
+                readUpload(defaultClient().newCall(request).execute(), file.name, onProgress)
             } else {
                 throw t
             }
         }
     }
+
+    private fun readUpload(
+        response: Response,
+        fallbackName: String,
+        onProgress: (Float) -> Unit,
+    ): TelemetryUploadResult = response.use {
+        onProgress(1f)
+        val body = it.body?.string().orEmpty()
+        if (!it.isSuccessful) {
+            throw IllegalStateException(
+                "Сервер логов вернул ${it.code}" +
+                    if (body.isNotBlank()) ": ${body.take(200)}" else "",
+            )
+        }
+        parseUploadResponse(body, fallbackName)
+    }
+
+    private fun execute(context: Context, request: Request): Response {
+        val underlay = pickBestUnderlayNetwork(context)
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+        if (underlay != null) {
+            builder.socketFactory(underlay.socketFactory)
+        }
+        return builder.build().newCall(request).execute()
+    }
+
+    private fun defaultClient(): OkHttpClient =
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .build()
 
     private fun isNetworkFailure(t: Throwable): Boolean {
         var cur: Throwable? = t
@@ -150,6 +201,62 @@ class TelemetryUploadClient {
         private const val MAX_RETRIES = 3
         private const val RETRY_DELAY_MS = 2_000L
     }
+}
+
+internal fun telemetryApiBase(uploadUrl: String): String {
+    val trimmed = uploadUrl.trim().trimEnd('/')
+    if (trimmed.isEmpty()) return ""
+    return when {
+        trimmed.endsWith("/api/upload-log") -> trimmed.removeSuffix("/api/upload-log")
+        "/api/" in trimmed -> trimmed.substringBefore("/api/")
+        else -> trimmed
+    }
+}
+
+internal fun telemetryClientStatusUrl(uploadUrl: String, clientId: String): String {
+    val base = telemetryApiBase(uploadUrl)
+    val id = clientId.trim()
+    if (base.isEmpty() || id.isEmpty()) return ""
+    return "$base/api/logs/$id/status"
+}
+
+internal fun parseUploadResponse(raw: String, fallbackName: String): TelemetryUploadResult {
+    val json = runCatching { JSONObject(raw) }.getOrNull()
+    if (json == null) {
+        return TelemetryUploadResult(ticket = 0, filename = fallbackName)
+    }
+    return TelemetryUploadResult(
+        ticket = json.optInt("ticket"),
+        filename = json.optString("filename").ifBlank { fallbackName },
+        bytes = json.optLong("bytes"),
+        read = json.optBoolean("read"),
+        comment = json.optString("comment"),
+    )
+}
+
+internal fun parseClientInbox(raw: String): List<TestingTicketStatus> {
+    val json = runCatching { JSONObject(raw) }.getOrNull() ?: return emptyList()
+    val arr = json.optJSONArray("logs") ?: return emptyList()
+    val out = ArrayList<TestingTicketStatus>(arr.length())
+    for (i in 0 until arr.length()) {
+        val item = arr.optJSONObject(i) ?: continue
+        val name = item.optString("filename").trim()
+        if (name.isEmpty()) continue
+        val review = item.optJSONObject("review")
+        out += TestingTicketStatus(
+            logName = name,
+            number = item.optInt("ticket"),
+            read = item.optBoolean("read") || review?.optBoolean("read") == true,
+            comment = item.optString("comment"),
+            processedAt = review?.optString("processed_at").orEmpty()
+                .ifBlank { item.optString("processed_at") },
+            processedBy = review?.optString("processed_by").orEmpty()
+                .ifBlank { item.optString("processed_by") },
+            reviewNote = review?.optString("note").orEmpty(),
+            uploadedAtMs = parseTelemetryTimeMs(item.optString("uploaded_at")),
+        )
+    }
+    return out
 }
 
 private class ProgressRequestBody(
