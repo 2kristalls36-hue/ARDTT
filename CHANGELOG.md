@@ -1,3 +1,11 @@
+# ARDTT v0.5.247
+
+Клиент **0.5.247** (`versionCode` 265). Серверный стек **1.0.38** (`DEPLOY_VERSION`).
+
+## 0.5.247
+
+- Логи тестирования на VPS дистрибуции: если nginx уже слушает `:9200`, а socat — `:9199`, установщик больше не ставит `ARDTT_SKIP_TELEMETRY=1`. Gunicorn поднимается внутри контейнера, без publish на хост, и nginx проксирует `POST /api/upload-log` как раньше.
+
 # ARDTT v0.5.246
 
 Клиент **0.5.246** (`versionCode` 264). Серверный стек **1.0.37** (`DEPLOY_VERSION`).
@@ -379,4 +387,4 @@
 | 0.5.203 · 0.5.201 | Знак AR/DTT, hop-карточки, баннер доната |
 | 0.5.200 | Режим тестирования в общих Настройках |
 
-Живые сборки: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) (`v0.5.246` latest, `v0.5.245`).
+Живые сборки: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) (`v0.5.247` latest, `v0.5.246`).
