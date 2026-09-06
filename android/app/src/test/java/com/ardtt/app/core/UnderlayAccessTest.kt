@@ -229,6 +229,34 @@ class UnderlayAccessTest {
     }
 
     @Test
+    fun labPreferCellularBeatsLiveWifi() {
+        val wifi = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = true,
+            cellularTransport = false,
+            wifiActuallyConnected = true,
+            networkSubId = -1,
+            activeDataSubId = 2,
+            preferCellular = true,
+        )
+        val cell = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = false,
+            networkSubId = 2,
+            activeDataSubId = 2,
+            preferCellular = true,
+        )
+        assertTrue(cell > wifi)
+        assertTrue(cell > 0)
+    }
+
+    @Test
     fun subscriptionIdFromSpecifierUsesReflection() {
         class FakeSpec {
             fun getSubscriptionId(): Int = 42

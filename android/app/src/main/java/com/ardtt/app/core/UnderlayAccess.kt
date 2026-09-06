@@ -94,6 +94,11 @@ fun scoreUnderlayCandidate(
     wifiActuallyConnected: Boolean,
     networkSubId: Int,
     activeDataSubId: Int,
+    /**
+     * Lab / companion C2: Wi‑Fi is only the control plane. ARDTT must keep
+     * scoring LTE first, or Auto treats the AP as underlay and skips Bypass.
+     */
+    preferCellular: Boolean = false,
 ): Int {
     if (!hasInternet || !notVpn) return -1
     var s = 1
@@ -113,6 +118,10 @@ fun scoreUnderlayCandidate(
             }
         }
         cellularTransport -> s += 2
+    }
+    if (preferCellular) {
+        if (cellularTransport) s += 40
+        if (wifiTransport) s -= 30
     }
     return s
 }
