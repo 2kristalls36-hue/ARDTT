@@ -88,7 +88,7 @@ ARDTT/
 | **Приложение** | GitHub Releases `ardtt-stack-*.tar.gz` или архив тега; заливка по SSH | удобно с телефона |
 | **Git** | `ARDTT_GIT_REF` / `git clone` тега релиза на VPS | shell на машине с Docker |
 
-Клонируйте **тег** `v0.5.245` (стек **1.0.37**), а не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и Releases **не требуют** секретов.
+Клонируйте **тег** `v0.5.246` (стек **1.0.37**), а не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и Releases **не требуют** секретов.
 
 Подробности, каскад и **повторный деплой**: [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -103,7 +103,7 @@ ARDTT/
 Сервер с GitHub (тег релиза):
 
 ```bash
-git clone --depth 1 --branch v0.5.245 \
+git clone --depth 1 --branch v0.5.246 \
   https://github.com/2kristalls36-hue/ARDTT.git
 cd ARDTT/server
 cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_этого_VPS
