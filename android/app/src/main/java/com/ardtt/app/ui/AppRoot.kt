@@ -68,7 +68,6 @@ import com.ardtt.app.ui.tunnel.TunnelWallpaperSession
 import com.ardtt.app.ui.tunnel.resolveTunnelWallpaper
 import com.ardtt.app.ui.tunnel.tunnelWallpaperVisible
 import com.ardtt.app.ui.tunnel.wallpaperBypassActive
-import com.ardtt.app.ui.unlock.AlphaUnlockScreen
 import com.ardtt.app.update.AppUpdateController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -77,7 +76,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private data class SessionChromeFlags(
-    val alphaUnlocked: Boolean,
     val admin: Boolean,
     val classicAppearance: Boolean,
 )
@@ -93,12 +91,10 @@ fun AppRoot(
     var session by remember { mutableStateOf<SessionChromeFlags?>(null) }
     LaunchedEffect(settings) {
         combine(
-            settings.alphaUnlockedFlow,
             settings.isAdminUnlocked,
             settings.classicAppearanceEnabled,
-        ) { alpha, admin, classic ->
+        ) { admin, classic ->
             SessionChromeFlags(
-                alphaUnlocked = alpha,
                 admin = admin,
                 classicAppearance = classic,
             )
@@ -110,10 +106,6 @@ fun AppRoot(
             ArdttBackdrop(modifier = Modifier.fillMaxSize())
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
-        return
-    }
-    if (!flags.alphaUnlocked) {
-        AlphaUnlockScreen(settings = settings)
         return
     }
     val admin = flags.admin

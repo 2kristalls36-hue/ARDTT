@@ -7,7 +7,6 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
-import android.widget.Toast
 import com.ardtt.app.bypass.CallHashStore
 import com.ardtt.app.bypass.CallRecreatePrompt
 import com.ardtt.app.bypass.DeadCallAction
@@ -22,7 +21,6 @@ import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.settings.AppSettingsRepository
-import com.ardtt.app.unlock.DeviceUnlockCopy
 import com.ardtt.app.tunnel.TunnelSessionConfig
 import com.ardtt.app.tunnel.TunnelSessionHolder
 import kotlinx.coroutines.CancellationException
@@ -70,8 +68,6 @@ class ConnectionManager(
     val ui: StateFlow<ConnUiState> = _ui.asStateFlow()
     private val hashStore = CallHashStore(appContext)
     private val settingsRepo = AppSettingsRepository(appContext)
-    @Volatile private var alphaUnlockedCached: Boolean? = null
-
     private var probeJob: Job? = null
     private var connectJob: Job? = null
     private var presenceJob: Job? = null
@@ -100,21 +96,6 @@ class ConnectionManager(
      */
     private var deadDirectBindHandle: Long? = null
     private var blockBypassToDirectUntilUnderlayChange: Boolean = false
-
-    init {
-        scope.launch {
-            settingsRepo.alphaUnlockedFlow.collect { alphaUnlockedCached = it }
-        }
-    }
-
-    private fun rejectLockedConnect() {
-        AppLog.w(TAG, "Connect ignored — device not confirmed")
-        Toast.makeText(
-            appContext,
-            DeviceUnlockCopy.CONNECT_BLOCKED,
-            Toast.LENGTH_LONG,
-        ).show()
-    }
 
     fun updateProfile(profile: VpnProfile?) {
         this.profile = profile
@@ -493,10 +474,6 @@ class ConnectionManager(
      * for the Auto probe that [connect] would otherwise ignore.
      */
     fun connectWhenReady() {
-        if (alphaUnlockedCached == false) {
-            rejectLockedConnect()
-            return
-        }
         if (profile == null) {
             AppLog.w(TAG, "Connect ignored — no profile")
             return
@@ -528,10 +505,6 @@ class ConnectionManager(
     }
 
     fun connect() {
-        if (alphaUnlockedCached == false) {
-            rejectLockedConnect()
-            return
-        }
         val current = _ui.value
         val mode = pathMode
         val probePreferred = current.probe?.preselectedPath
@@ -571,10 +544,6 @@ class ConnectionManager(
 
         connectJob?.cancel()
         connectJob = scope.launch {
-            if (!settingsRepo.alphaUnlockedSnapshot()) {
-                rejectLockedConnect()
-                return@launch
-            }
             try {
                 val snap = _ui.value
                 val lastGood = snap.probe
