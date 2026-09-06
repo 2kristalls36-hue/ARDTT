@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hmac
 import json
 import os
@@ -15,11 +16,17 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-LOG_ROOT = Path(os.environ.get("TELEMETRY_LOG_ROOT", "/var/logs/app"))
 MAX_CONTENT_LENGTH = 120 * 1024 * 1024  # 120 MB
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 CLIENT_ID_RE = re.compile(r"^[a-zA-Z0-9._-]{1,128}$")
-REVIEW_TOKEN = os.environ.get("TELEMETRY_REVIEW_TOKEN", "").strip()
+
+
+def log_root() -> Path:
+    return Path(os.environ.get("TELEMETRY_LOG_ROOT", "/var/logs/app"))
+
+
+def review_token() -> str:
+    return os.environ.get("TELEMETRY_REVIEW_TOKEN", "").strip()
 
 
 def utc_now() -> str:
@@ -30,11 +37,16 @@ def read_marker(log_path: Path) -> Path:
     return log_path.with_name(f".{log_path.name}.read.json")
 
 
+def ticket_marker(log_path: Path) -> Path:
+    return log_path.with_name(f".{log_path.name}.ticket.json")
+
+
 def review_authorized() -> bool:
-    if REVIEW_TOKEN:
+    token = review_token()
+    if token:
         header = request.headers.get("Authorization", "")
         supplied = header.removeprefix("Bearer ").strip()
-        return hmac.compare_digest(supplied, REVIEW_TOKEN)
+        return hmac.compare_digest(supplied, token)
     # Without an explicit token, review operations stay local to the VPS.
     return request.remote_addr in {"127.0.0.1", "::1"}
 
@@ -51,7 +63,7 @@ def validated_log_path(client_id: str, filename: str) -> Path | None:
     safe_name = secure_filename(filename)
     if safe_name != filename or not safe_name.endswith(".json"):
         return None
-    path = LOG_ROOT / client_id / safe_name
+    path = log_root() / client_id / safe_name
     if not path.is_file():
         return None
     return path
@@ -75,6 +87,202 @@ def embedded_user_comment(path: Path) -> str | None:
     return None
 
 
+def read_ticket(path: Path) -> int:
+    marker = ticket_marker(path)
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        number = int(data.get("ticket") or 0)
+        return number if number > 0 else 0
+    except (OSError, ValueError, TypeError):
+        return 0
+
+
+def max_ticket_in_sidecars(root: Path) -> int:
+    highest = 0
+    if not root.is_dir():
+        return 0
+    for marker in root.glob("*/*.ticket.json"):
+        if not marker.name.startswith("."):
+            continue
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            highest = max(highest, int(data.get("ticket") or 0))
+        except (OSError, ValueError, TypeError):
+            continue
+    return highest
+
+
+def next_ticket_number() -> int:
+    """Atomically allocate the next global appeal number."""
+    root = log_root()
+    root.mkdir(parents=True, exist_ok=True)
+    seq_path = root / ".ticket_seq"
+    with seq_path.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            handle.seek(0)
+            raw = handle.read().strip()
+            current = int(raw) if raw.isdigit() else 0
+            if current <= 0:
+                current = max_ticket_in_sidecars(root)
+            nxt = current + 1
+            handle.seek(0)
+            handle.truncate()
+            handle.write(str(nxt))
+            handle.flush()
+            os.fsync(handle.fileno())
+            return nxt
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def write_json(path: Path, payload: dict) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def assign_ticket(client_id: str, dest_path: Path) -> int:
+    marker = ticket_marker(dest_path)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = marker.with_name(marker.name + ".lock")
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            existing = read_ticket(dest_path)
+            if existing > 0:
+                return existing
+            number = next_ticket_number()
+            write_json(
+                marker,
+                {
+                    "ticket": number,
+                    "client_id": client_id,
+                    "filename": dest_path.name,
+                    "assigned_at": utc_now(),
+                },
+            )
+            return number
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def review_payload(path: Path) -> dict | None:
+    marker = read_marker(path)
+    if not marker.is_file():
+        return None
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {"read": True}
+
+
+def author_reply_text(review: dict | None) -> str:
+    if not review:
+        return ""
+    for key in ("reply", "note"):
+        value = review.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def log_path_from_ticket_marker(marker: Path) -> Path | None:
+    name = marker.name
+    if not (name.startswith(".") and name.endswith(".ticket.json")):
+        return None
+    filename = name[1 : -len(".ticket.json")]
+    candidate = marker.parent / filename
+    return candidate if candidate.is_file() else None
+
+
+def find_by_ticket(number: int) -> tuple[str, Path] | None:
+    if number <= 0:
+        return None
+    root = log_root()
+    if not root.is_dir():
+        return None
+    for marker in root.glob("*/*.ticket.json"):
+        if not marker.name.startswith("."):
+            continue
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            if int(data.get("ticket") or 0) != number:
+                continue
+        except (OSError, ValueError, TypeError):
+            continue
+        filename = str(data.get("filename") or "").strip()
+        path = marker.parent / filename if filename else None
+        if path is None or not path.is_file():
+            path = log_path_from_ticket_marker(marker)
+        if path is None:
+            continue
+        return marker.parent.name, path
+    return None
+
+
+def upsert_review(
+    path: Path,
+    *,
+    processed_by: str,
+    reply: str | None = None,
+    set_reply: bool = False,
+) -> dict:
+    existing = review_payload(path) or {}
+    now = utc_now()
+    already_read = bool(existing.get("read"))
+    current_reply = author_reply_text(existing)
+    if set_reply:
+        current_reply = (reply or "").strip()
+    payload = {
+        "read": True,
+        "processed_at": existing.get("processed_at") if already_read else now,
+        "processed_by": processed_by or existing.get("processed_by") or "cursor-agent",
+        "note": current_reply,
+        "reply": current_reply,
+        "log": str(path),
+        "ticket": read_ticket(path) or existing.get("ticket"),
+    }
+    if not payload["processed_at"]:
+        payload["processed_at"] = now
+    if set_reply:
+        payload["replied_at"] = now
+    elif existing.get("replied_at"):
+        payload["replied_at"] = existing["replied_at"]
+    write_json(read_marker(path), payload)
+    return payload
+
+
+def log_public_fields(path: Path, client_id: str) -> dict:
+    review = review_payload(path)
+    is_read = review is not None
+    reply = author_reply_text(review)
+    return {
+        "client_id": client_id,
+        "filename": path.name,
+        "bytes": path.stat().st_size,
+        "uploaded_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+        "comment": embedded_user_comment(path),
+        "ticket": read_ticket(path) or None,
+        "read": is_read,
+        "reply": reply or None,
+        "replied_at": (review or {}).get("replied_at"),
+        "review": review,
+    }
+
+
+def iter_client_logs(client_id: str):
+    folder = log_root() / client_id
+    if not folder.is_dir():
+        return
+    paths = [path for path in folder.glob("*.json") if path.is_file() and not path.name.startswith(".")]
+    for path in sorted(paths, key=lambda item: item.stat().st_mtime, reverse=True):
+        yield path
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"ok": True})
@@ -94,19 +302,22 @@ def upload_log():
     if not filename.endswith(".json"):
         return jsonify({"error": "only .json log files are accepted"}), 400
 
-    dest_dir = LOG_ROOT / client_id
+    dest_dir = log_root() / client_id
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / filename
     uploaded.save(dest_path)
-    # A replacement upload is a new review revision.
+    # A replacement upload is a new review revision, but keeps the ticket number.
     read_marker(dest_path).unlink(missing_ok=True)
+    ticket = assign_ticket(client_id, dest_path)
 
     return jsonify({
         "ok": True,
         "client_id": client_id,
+        "filename": filename,
         "path": str(dest_path),
         "bytes": dest_path.stat().st_size,
         "comment": embedded_user_comment(dest_path),
+        "ticket": ticket,
         "read": False,
     })
 
@@ -119,35 +330,61 @@ def list_logs():
     status = (request.args.get("status") or "all").strip().lower()
     if status not in {"all", "read", "unread"}:
         return jsonify({"error": "status must be all, read or unread"}), 400
+    ticket_raw = (request.args.get("ticket") or "").strip()
+    ticket_filter = int(ticket_raw) if ticket_raw.isdigit() else 0
 
     items = []
-    if LOG_ROOT.is_dir():
-        for path in sorted(LOG_ROOT.glob("*/*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+    root = log_root()
+    if root.is_dir():
+        for path in sorted(root.glob("*/*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
             if path.name.startswith("."):
                 continue
-            marker = read_marker(path)
-            is_read = marker.is_file()
-            if status == "read" and not is_read:
+            fields = log_public_fields(path, path.parent.name)
+            if ticket_filter and fields.get("ticket") != ticket_filter:
                 continue
-            if status == "unread" and is_read:
+            if status == "read" and not fields["read"]:
                 continue
-            review = None
-            if is_read:
-                try:
-                    review = json.loads(marker.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    review = {"read": True}
+            if status == "unread" and fields["read"]:
+                continue
             items.append({
-                "client_id": path.parent.name,
-                "filename": path.name,
+                **fields,
                 "path": str(path),
-                "bytes": path.stat().st_size,
-                "uploaded_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
-                "comment": embedded_user_comment(path),
-                "read": is_read,
-                "review": review,
             })
     return jsonify({"ok": True, "count": len(items), "logs": items})
+
+
+@app.route("/api/logs/ticket/<int:ticket>", methods=["GET"])
+def log_by_ticket(ticket: int):
+    denied = require_review_auth()
+    if denied:
+        return denied
+    found = find_by_ticket(ticket)
+    if found is None:
+        return jsonify({"error": "log not found"}), 404
+    client_id, path = found
+    return jsonify({"ok": True, **log_public_fields(path, client_id), "path": str(path)})
+
+
+@app.route("/api/logs/<client_id>/status", methods=["GET"])
+def client_inbox(client_id: str):
+    """Public-to-the-device inbox: ticket numbers and author-read flags."""
+    if not CLIENT_ID_RE.match(client_id):
+        return jsonify({"error": "invalid client_id"}), 400
+    items = [log_public_fields(path, client_id) for path in iter_client_logs(client_id)]
+    return jsonify({
+        "ok": True,
+        "client_id": client_id,
+        "count": len(items),
+        "logs": items,
+    })
+
+
+@app.route("/api/logs/<client_id>/<filename>/status", methods=["GET"])
+def log_status(client_id: str, filename: str):
+    path = validated_log_path(client_id, filename)
+    if path is None:
+        return jsonify({"error": "log not found"}), 404
+    return jsonify({"ok": True, **log_public_fields(path, client_id)})
 
 
 @app.route("/api/logs/<client_id>/<filename>/read", methods=["POST"])
@@ -161,18 +398,45 @@ def mark_log_read(client_id: str, filename: str):
 
     body = request.get_json(silent=True) or {}
     processed_by = str(body.get("processed_by") or "cursor-agent").strip()[:128]
-    note = str(body.get("note") or "").strip()[:2048]
-    marker = read_marker(path)
-    payload = {
-        "read": True,
-        "processed_at": utc_now(),
-        "processed_by": processed_by or "cursor-agent",
-        "note": note,
-        "log": str(path),
-    }
-    tmp = marker.with_suffix(marker.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(marker)
+    reply = None
+    set_reply = False
+    if "reply" in body:
+        reply = str(body.get("reply") or "").strip()[:2048]
+        set_reply = True
+    elif "note" in body:
+        note = str(body.get("note") or "").strip()[:2048]
+        if note:
+            reply = note
+            set_reply = True
+    payload = upsert_review(
+        path,
+        processed_by=processed_by or "cursor-agent",
+        reply=reply,
+        set_reply=set_reply,
+    )
+    return jsonify({"ok": True, **payload})
+
+
+@app.route("/api/logs/<client_id>/<filename>/comment", methods=["POST"])
+def mark_log_comment(client_id: str, filename: str):
+    denied = require_review_auth()
+    if denied:
+        return denied
+    path = validated_log_path(client_id, filename)
+    if path is None:
+        return jsonify({"error": "log not found"}), 404
+
+    body = request.get_json(silent=True) or {}
+    processed_by = str(body.get("processed_by") or "cursor-agent").strip()[:128]
+    reply = str(body.get("reply") or body.get("note") or "").strip()[:2048]
+    if not reply:
+        return jsonify({"error": "reply is required"}), 400
+    payload = upsert_review(
+        path,
+        processed_by=processed_by or "cursor-agent",
+        reply=reply,
+        set_reply=True,
+    )
     return jsonify({"ok": True, **payload})
 
 
