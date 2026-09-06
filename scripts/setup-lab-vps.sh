@@ -20,6 +20,7 @@ git --git-dir="$REPO_BARE" update-server-info
 install -m 0755 /dev/stdin /usr/local/bin/ardtt-lab-post-receive <<'HOOK'
 #!/usr/bin/env bash
 set -euo pipefail
+unset GIT_DIR
 REPO_BARE=/opt/repos/ARDTT.git
 WORK_TREE=/opt/ardtt-lab
 if [[ ! -d "$WORK_TREE/.git" ]]; then
