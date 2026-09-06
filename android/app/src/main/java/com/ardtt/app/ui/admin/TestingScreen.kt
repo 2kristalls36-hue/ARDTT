@@ -5,13 +5,6 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,16 +15,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,7 +33,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,17 +43,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.profile.ProfileRepository
+import com.ardtt.app.telemetry.TESTING_AUTHOR_REPLY_TITLE
+import com.ardtt.app.telemetry.TESTING_USER_COMMENT_TITLE
 import com.ardtt.app.telemetry.TelemetryClientId
 import com.ardtt.app.telemetry.TelemetryFileManager
 import com.ardtt.app.telemetry.TelemetryLogEntry
@@ -74,20 +64,25 @@ import com.ardtt.app.telemetry.TestingTicket
 import com.ardtt.app.telemetry.TestingTicketStore
 import com.ardtt.app.telemetry.formatTestingTicketTime
 import com.ardtt.app.telemetry.testingCommentPreview
+import com.ardtt.app.telemetry.testingTicketReadLabel
 import com.ardtt.app.telemetry.testingTicketTitle
 import com.ardtt.app.telemetry.testingUploadNeedsCommentPrompt
+import com.ardtt.app.ui.components.control.ArdttChoice
+import com.ardtt.app.ui.components.control.ArdttChoiceChipRow
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
+import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.feedback.ArdttStatusPill
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
 import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
 import com.ardtt.app.ui.theme.ArdttAlpha
-import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
@@ -98,7 +93,11 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+private enum class TestingPane { Storage, History }
 
 @Composable
 fun TestingScreen(profiles: ProfileRepository) {
@@ -112,14 +111,16 @@ fun TestingScreen(profiles: ProfileRepository) {
     val isRecording by recorder.isRecording.collectAsStateWithLifecycle()
 
     val logs = remember { mutableStateListOf<TelemetryLogEntry>() }
-    var dismissingNames by remember { mutableStateOf(setOf<String>()) }
+    var pane by remember { mutableStateOf(TestingPane.Storage) }
     var uploadingFile by remember { mutableStateOf<String?>(null) }
     var uploadProgress by remember { mutableFloatStateOf(0f) }
     var comments by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var editingLog by remember { mutableStateOf<String?>(null) }
+    var editingSubmit by remember { mutableStateOf(false) }
     var draftsReady by remember { mutableStateOf(false) }
     var tickets by remember { mutableStateOf<List<TestingTicket>>(emptyList()) }
     val latestComments = rememberUpdatedState(comments)
+    val inboxLock = remember { Mutex() }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -148,40 +149,15 @@ fun TestingScreen(profiles: ProfileRepository) {
     }
 
     suspend fun refreshLogs() {
-        val animating = logs.filter { it.file.name in dismissingNames }
         val fromDisk = withContext(Dispatchers.IO) { fileManager.listLogs() }
-            .filter { disk -> animating.none { it.file.name == disk.file.name } }
         logs.clear()
         logs.addAll(fromDisk)
-        logs.addAll(animating)
     }
 
     suspend fun refreshTickets(loadDrafts: Boolean = false) {
         val state = withContext(Dispatchers.IO) { ticketStore.load() }
         if (loadDrafts) comments = state.drafts
         tickets = state.tickets
-    }
-
-    LaunchedEffect(isRecording) {
-        if (!isRecording) refreshLogs()
-    }
-
-    LaunchedEffect(Unit) {
-        refreshLogs()
-        refreshTickets(loadDrafts = true)
-        draftsReady = true
-    }
-
-    LaunchedEffect(comments, draftsReady) {
-        if (!draftsReady) return@LaunchedEffect
-        delay(DRAFT_PERSIST_MS)
-        withContext(Dispatchers.IO) { ticketStore.saveDrafts(comments) }
-    }
-
-    DisposableEffect(ticketStore) {
-        onDispose {
-            runCatching { ticketStore.saveDrafts(latestComments.value) }
-        }
     }
 
     val serverIp = remember(profile) {
@@ -200,6 +176,58 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
     }
 
+    suspend fun refreshInbox(notify: Boolean = false) {
+        inboxLock.withLock {
+            refreshTickets()
+            if (uploadUrl.isBlank()) return@withLock
+            val clientId = TelemetryClientId.getAsync(context)
+            val result = uploadClient.fetchInbox(
+                context = context,
+                clientId = clientId,
+                uploadUrl = uploadUrl,
+            )
+            result.fold(
+                onSuccess = { items ->
+                    withContext(Dispatchers.IO) { ticketStore.applyServerStatuses(items) }
+                    refreshTickets()
+                },
+                onFailure = {
+                    if (notify) notifyError(it.message ?: "Не удалось обновить историю")
+                },
+            )
+        }
+    }
+
+    LaunchedEffect(isRecording) {
+        if (!isRecording) refreshLogs()
+    }
+
+    LaunchedEffect(Unit) {
+        refreshLogs()
+        refreshTickets(loadDrafts = true)
+        draftsReady = true
+    }
+
+    LaunchedEffect(pane, uploadUrl) {
+        if (pane != TestingPane.History) return@LaunchedEffect
+        while (true) {
+            refreshInbox()
+            delay(INBOX_POLL_MS)
+        }
+    }
+
+    LaunchedEffect(comments, draftsReady) {
+        if (!draftsReady) return@LaunchedEffect
+        delay(DRAFT_PERSIST_MS)
+        withContext(Dispatchers.IO) { ticketStore.saveDrafts(comments) }
+    }
+
+    DisposableEffect(ticketStore) {
+        onDispose {
+            runCatching { ticketStore.saveDrafts(latestComments.value) }
+        }
+    }
+
     fun toggleRecording() {
         if (isRecording) {
             recorder.stop()
@@ -215,28 +243,26 @@ fun TestingScreen(profiles: ProfileRepository) {
 
     fun dropLogComment(logName: String) {
         if (logName in comments) comments = comments - logName
-        if (editingLog == logName) editingLog = null
+        if (editingLog == logName) {
+            editingLog = null
+            editingSubmit = false
+        }
     }
 
     fun uploadWithComment(entry: TelemetryLogEntry, comment: String) {
         if (uploadingFile != null) return
+        val cleaned = comment.trim()
+        if (testingUploadNeedsCommentPrompt(cleaned)) {
+            editingLog = entry.file.name
+            editingSubmit = true
+            return
+        }
         uploadingFile = entry.file.name
         uploadProgress = 0f
         scope.launch {
-            val ticket = runCatching {
-                withContext(Dispatchers.IO) {
-                    ticketStore.saveDrafts(comments)
-                    ticketStore.registerOrReuse(comment, entry.file.name)
-                }
-            }.getOrElse {
-                uploadingFile = null
-                notifyError(it.message ?: "Не удалось зарегистрировать обращение")
-                return@launch
-            }
-            refreshTickets()
             val embedded = runCatching {
                 withContext(Dispatchers.IO) {
-                    TelemetryFileManager.embedUserComment(entry.file, comment, ticket.number)
+                    TelemetryFileManager.embedUserComment(entry.file, cleaned)
                 }
             }
             if (embedded.isFailure) {
@@ -244,7 +270,6 @@ fun TestingScreen(profiles: ProfileRepository) {
                 notifyError(embedded.exceptionOrNull()?.message ?: "Не удалось добавить комментарий")
                 return@launch
             }
-            refreshLogs()
             val clientId = TelemetryClientId.getAsync(context)
             val result = uploadClient.upload(
                 context = context,
@@ -253,25 +278,40 @@ fun TestingScreen(profiles: ProfileRepository) {
                 uploadUrl = uploadUrl,
                 onProgress = { uploadProgress = it },
             )
-            uploadingFile = null
             result.fold(
-                onSuccess = {
+                onSuccess = { uploaded ->
+                    val ticket = runCatching {
+                        withContext(Dispatchers.IO) {
+                            ticketStore.saveDrafts(comments - entry.file.name)
+                            val saved = ticketStore.rememberUpload(
+                                comment = cleaned,
+                                logName = entry.file.name,
+                                serverNumber = uploaded.ticket,
+                                read = uploaded.read,
+                            )
+                            fileManager.delete(entry.file)
+                            saved
+                        }
+                    }.getOrElse {
+                        uploadingFile = null
+                        notifyError(it.message ?: "Не удалось сохранить обращение")
+                        return@fold
+                    }
+                    dropLogComment(entry.file.name)
+                    logs.removeAll { it.file.name == entry.file.name }
+                    refreshTickets()
+                    pane = TestingPane.History
                     Toast.makeText(
                         context.applicationContext,
                         "${testingTicketTitle(ticket.number)} отправлено",
                         Toast.LENGTH_SHORT,
                     ).show()
-                    dismissingNames = dismissingNames + entry.file.name
-                    delay(LOG_DISMISS_MS + 40L)
-                    withContext(Dispatchers.IO) { fileManager.delete(entry.file) }
-                    logs.removeAll { it.file.name == entry.file.name }
-                    dropLogComment(entry.file.name)
-                    dismissingNames = dismissingNames - entry.file.name
                 },
                 onFailure = {
                     notifyError(it.message ?: "Ошибка отправки")
                 },
             )
+            uploadingFile = null
         }
     }
 
@@ -279,13 +319,19 @@ fun TestingScreen(profiles: ProfileRepository) {
         val comment = comments[entry.file.name].orEmpty()
         if (testingUploadNeedsCommentPrompt(comment)) {
             editingLog = entry.file.name
+            editingSubmit = true
             return
         }
-        if (editingLog == entry.file.name) editingLog = null
+        if (editingLog == entry.file.name) {
+            editingLog = null
+            editingSubmit = false
+        }
         uploadWithComment(entry, comment)
     }
 
-    val pull = rememberPullRefresh { refreshLogs() }
+    val pull = rememberPullRefresh {
+        if (pane == TestingPane.History) refreshInbox(notify = true) else refreshLogs()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         ArdttPullRefresh(
@@ -331,48 +377,47 @@ fun TestingScreen(profiles: ProfileRepository) {
                 }
             }
 
-            item(key = "logs-header") {
-                Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
-                    ArdttSectionTitle("Сохранённые логи")
-                    Text(
-                        if (logs.isEmpty()) {
-                            "Записей пока нет"
-                        } else {
-                            "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (logs.isEmpty()) {
-                        EmptyLogsBlock()
-                    }
-                }
+            item(key = "pane") {
+                ArdttChoiceChipRow(
+                    choices = listOf(
+                        ArdttChoice(TestingPane.Storage, "Хранилище"),
+                        ArdttChoice(TestingPane.History, "История"),
+                    ),
+                    selected = pane,
+                    onSelect = { pane = it },
+                    chipHeight = ArdttSize.ChipCompact,
+                )
             }
 
-            items(logs, key = { it.file.name }) { entry ->
-                AnimatedVisibility(
-                    visible = entry.file.name !in dismissingNames,
-                    modifier = Modifier.fillMaxWidth(),
-                    enter = EnterTransition.None,
-                    exit = fadeOut(
-                        animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
-                    ) + slideOutVertically(
-                        animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
-                    ) { -it } + shrinkVertically(
-                        animationSpec = tween(LOG_DISMISS_MS.toInt(), easing = FastOutSlowInEasing),
-                    ),
-                ) {
+            if (pane == TestingPane.Storage) {
+                item(key = "logs-header") {
+                    Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
+                        ArdttSectionTitle("Локальное хранилище")
+                        Text(
+                            if (logs.isEmpty()) {
+                                "Записей пока нет"
+                            } else {
+                                "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (logs.isEmpty()) {
+                            EmptyLogsBlock()
+                        }
+                    }
+                }
+
+                items(logs, key = { it.file.name }) { entry ->
                     LogRow(
                         entry = entry,
                         comment = comments[entry.file.name].orEmpty(),
-                        editorOpen = editingLog == entry.file.name,
                         uploading = uploadingFile == entry.file.name,
                         progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
-                        onOpenEditor = { editingLog = entry.file.name },
-                        onDismissEditor = {
-                            if (editingLog == entry.file.name) editingLog = null
+                        onOpenEditor = {
+                            editingLog = entry.file.name
+                            editingSubmit = false
                         },
-                        onCommentChange = { persistLogComment(entry.file.name, it) },
                         onDelete = {
                             scope.launch {
                                 withContext(Dispatchers.IO) { fileManager.delete(entry.file) }
@@ -383,20 +428,30 @@ fun TestingScreen(profiles: ProfileRepository) {
                         onUpload = { beginSubmit(entry) },
                     )
                 }
-            }
-
-            if (tickets.isNotEmpty()) {
+            } else {
                 item(key = "tickets-header") {
                     Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
                         ArdttSectionTitle("История обращений")
                         Text(
-                            "${tickets.size} зарегистрированных",
+                            if (tickets.isEmpty()) {
+                                "Отправленных файлов пока нет"
+                            } else {
+                                val unread = tickets.count { !it.read }
+                                if (unread > 0) {
+                                    "${tickets.size} обращений · $unread ждут разбора"
+                                } else {
+                                    "${tickets.size} обращений"
+                                }
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (tickets.isEmpty()) {
+                            EmptyHistoryBlock()
+                        }
                     }
                 }
-                items(tickets, key = { it.number }) { ticket ->
+                items(tickets, key = { "ticket-${it.number}-${it.logName}" }) { ticket ->
                     TicketRow(ticket)
                 }
             }
@@ -420,11 +475,80 @@ fun TestingScreen(profiles: ProfileRepository) {
             )
         }
     }
+
+    val sheetLog = editingLog
+    if (sheetLog != null) {
+        val comment = comments[sheetLog].orEmpty()
+        LogCommentSheet(
+            comment = comment,
+            submit = editingSubmit,
+            onCommentChange = { persistLogComment(sheetLog, it) },
+            onDismiss = {
+                editingLog = null
+                editingSubmit = false
+            },
+            onConfirm = {
+                val text = comments[sheetLog].orEmpty()
+                val shouldSubmit = editingSubmit
+                editingLog = null
+                editingSubmit = false
+                if (shouldSubmit) {
+                    logs.firstOrNull { it.file.name == sheetLog }?.let { uploadWithComment(it, text) }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LogCommentSheet(
+    comment: String,
+    submit: Boolean,
+    onCommentChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
+    }
+    ArdttDialog(
+        title = "Комментарий к логу",
+        onDismissRequest = onDismiss,
+        confirmAction = ArdttDialogAction(
+            text = if (submit) "Отправить" else "Готово",
+            onClick = onConfirm,
+            enabled = !submit || comment.trim().isNotEmpty(),
+        ),
+        dismissAction = ArdttDialogAction("Отмена", onDismiss),
+    ) {
+        Text(
+            "Коротко опишите, что произошло. Комментарий уйдёт вместе с файлом.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = comment,
+            onValueChange = { onCommentChange(it.take(TestingTicketStore.MAX_COMMENT)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
+            label = { Text("Что произошло") },
+            placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
+            minLines = 3,
+            maxLines = 8,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Sentences,
+            ),
+            shape = ArdttShapes.Field,
+        )
+    }
 }
 
 @Composable
 private fun TicketRow(ticket: TestingTicket) {
     val whenText = formatTestingTicketTime(ticket.createdAtMs)
+    val colors = MaterialTheme.colorScheme
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface.copy(alpha = ArdttAlpha.Muted),
@@ -435,20 +559,72 @@ private fun TicketRow(ticket: TestingTicket) {
             modifier = Modifier.padding(ArdttSpacing.Medium),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    buildString {
+                        append(testingTicketTitle(ticket.number))
+                        if (whenText.isNotBlank()) append(" · ").append(whenText)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = ArdttSpacing.Small),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                ArdttStatusChip(
+                    text = testingTicketReadLabel(ticket.read),
+                    accent = if (ticket.read) colors.tertiary else colors.primary,
+                )
+            }
             Text(
-                buildString {
-                    append(testingTicketTitle(ticket.number))
-                    if (whenText.isNotBlank()) append(" · ").append(whenText)
-                },
-                style = MaterialTheme.typography.bodyMedium,
+                TESTING_USER_COMMENT_TITLE,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 ticket.comment,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (ticket.logName.isNotBlank()) {
+                Text(
+                    ticket.logName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (ticket.reviewNote.isNotBlank()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = colors.primary.copy(alpha = ArdttAlpha.Fill),
+                    contentColor = colors.onSurface,
+                    shape = ArdttShapes.Card,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(ArdttSpacing.SmallPlus),
+                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+                    ) {
+                        Text(
+                            TESTING_AUTHOR_REPLY_TITLE,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.primary,
+                        )
+                        Text(
+                            ticket.reviewNote,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -462,7 +638,23 @@ private fun EmptyLogsBlock() {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            "Запись запускается кнопкой внизу экрана. После остановки файл появится здесь.",
+            "Запись запускается кнопкой внизу экрана. После остановки файл появится здесь — его можно отправить или удалить.",
+            modifier = Modifier.padding(ArdttSpacing.MediumPlus),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun EmptyHistoryBlock() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ArdttAlpha.Disabled),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = ArdttShapes.Card,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            "После отправки файл пропадает из хранилища и попадает сюда с номером, который выдаёт сервер. Когда автор откроет лог, обращение помечается как прочитанное. Когда разбор закончится, здесь появится ответ автора.",
             modifier = Modifier.padding(ArdttSpacing.MediumPlus),
             style = MaterialTheme.typography.bodySmall,
         )
@@ -483,12 +675,9 @@ private fun StatusPill(text: String, accent: Boolean) {
 private fun LogRow(
     entry: TelemetryLogEntry,
     comment: String,
-    editorOpen: Boolean,
     uploading: Boolean,
     progress: Float,
     onOpenEditor: () -> Unit,
-    onDismissEditor: () -> Unit,
-    onCommentChange: (String) -> Unit,
     onDelete: () -> Unit,
     onUpload: () -> Unit,
 ) {
@@ -514,10 +703,7 @@ private fun LogRow(
                 LogCommentField(
                     comment = comment,
                     enabled = !uploading,
-                    expanded = editorOpen,
                     onOpen = onOpenEditor,
-                    onDismiss = onDismissEditor,
-                    onCommentChange = onCommentChange,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onUpload, enabled = !uploading) {
@@ -550,92 +736,38 @@ private fun LogRow(
 private fun LogCommentField(
     comment: String,
     enabled: Boolean,
-    expanded: Boolean,
     onOpen: () -> Unit,
-    onDismiss: () -> Unit,
-    onCommentChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val preview = testingCommentPreview(comment)
     val colors = MaterialTheme.colorScheme
-    val density = LocalDensity.current
-    val focusRequester = remember { FocusRequester() }
-    var fieldWidthPx by remember { mutableIntStateOf(0) }
-    val menuWidth = with(density) {
-        fieldWidthPx.toDp().coerceAtLeast(ArdttSize.MenuWidth)
-    }
-
-    LaunchedEffect(expanded) {
-        if (expanded) {
-            runCatching { focusRequester.requestFocus() }
-        }
-    }
-
-    Box(modifier = modifier.onSizeChanged { fieldWidthPx = it.width }) {
-        Surface(
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(ArdttSize.ChipCompact)
+            .semantics { contentDescription = "Комментарий" }
+            .clickable(enabled = enabled, onClick = onOpen),
+        shape = ArdttShapes.Field,
+        color = colors.surface,
+        contentColor = if (preview.isBlank()) {
+            colors.onSurfaceVariant
+        } else {
+            colors.onSurface
+        },
+        border = BorderStroke(ArdttSize.Border, colors.outline),
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(ArdttSize.ChipCompact)
-                .semantics { contentDescription = "Комментарий" }
-                .clickable(enabled = enabled, onClick = onOpen),
-            shape = ArdttShapes.Field,
-            color = colors.surface,
-            contentColor = if (preview.isBlank()) {
-                colors.onSurfaceVariant
-            } else {
-                colors.onSurface
-            },
-            border = BorderStroke(ArdttSize.Border, colors.outline),
+                .fillMaxSize()
+                .padding(horizontal = ArdttSpacing.Medium),
+            contentAlignment = Alignment.CenterStart,
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = ArdttSpacing.Medium),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Text(
-                    text = preview.ifBlank { "Комментарий" },
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = onDismiss,
-            modifier = Modifier
-                .width(menuWidth)
-                .widthIn(max = menuWidth)
-                .padding(ArdttSpacing.Small),
-            shape = ArdttShapes.Menu,
-            containerColor = colors.surfaceVariant,
-            tonalElevation = ArdttElevation.Low,
-            shadowElevation = ArdttElevation.Raised,
-        ) {
-            Column(
-                modifier = Modifier
-                    .width(menuWidth)
-                    .padding(ArdttSpacing.Medium),
-                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-            ) {
-                Text(
-                    "Комментарий к логу",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                OutlinedTextField(
-                    value = comment,
-                    onValueChange = { onCommentChange(it.take(TestingTicketStore.MAX_COMMENT)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = ArdttSize.Button)
-                        .focusRequester(focusRequester),
-                    enabled = enabled,
-                    label = { Text("Что произошло") },
-                    placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
-                    shape = ArdttShapes.Field,
-                )
-            }
+            Text(
+                text = preview.ifBlank { "Комментарий" },
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -657,5 +789,5 @@ private fun formatDuration(ms: Long): String {
     }
 }
 
-private const val LOG_DISMISS_MS = 480L
 private const val DRAFT_PERSIST_MS = 400L
+private const val INBOX_POLL_MS = 20_000L
