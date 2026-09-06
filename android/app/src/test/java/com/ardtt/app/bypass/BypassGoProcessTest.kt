@@ -7,6 +7,17 @@ import org.junit.Test
 
 class BypassGoProcessTest {
     @Test
+    fun rawBoxMissingMtuDefaultsToCascadeSafe() {
+        val box = """
+            IP = 10.9.0.3
+            DNS = 1.1.1.1
+        """.trimIndent()
+        val conf = BypassGoProcess.parseRawBox(box)
+        assertNotNull(conf)
+        assertEquals(1280, conf!!.mtu)
+    }
+
+    @Test
     fun parsesRawBox() {
         val box = """
             IP = 10.9.0.3

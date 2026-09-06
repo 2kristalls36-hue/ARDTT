@@ -15,6 +15,11 @@ DATA="${ARDTT_DATA:-/data}"
 ROLE="${ARDTT_CASCADE_ROLE:-${ARDTT_ROLE:-entry}}"
 IFACE="${ARDTT_CASCADE_IFACE:-cascade0}"
 TABLE="${ARDTT_CASCADE_TABLE:-51821}"
+# Entry policy prefs: above DNS (100) and below WARP hideIp (300).
+# 320/321 used to sit inside warp's leftover sweep (300–364).
+ENTRY_FROM_DIRECT_PRIO="${ARDTT_CASCADE_RULE_PRIO_DIRECT:-220}"
+ENTRY_FROM_BYPASS_PRIO="${ARDTT_CASCADE_RULE_PRIO_BYPASS:-221}"
+ENTRY_FROM_PRIO_MAX=235
 LISTEN="${ARDTT_CASCADE_LISTEN_PORT:-51820}"
 PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-}"
 if [ -z "${PEER_ENDPOINT}" ] && [ -s "${DATA}/cascade.peer.endpoint" ]; then
@@ -220,13 +225,13 @@ strip_entry_wan_masq() {
 
 setup_entry_policy() {
   local prio
-  for prio in $(seq 320 335); do
+  for prio in $(seq "${ENTRY_FROM_DIRECT_PRIO}" "${ENTRY_FROM_PRIO_MAX}"); do
     ip rule del pref "${prio}" 2>/dev/null || true
   done
   ip route replace default dev "${IFACE}" table "${TABLE}" 2>/dev/null || \
     ip route add default dev "${IFACE}" table "${TABLE}" 2>/dev/null || true
-  ip rule add from 10.8.0.0/24 lookup "${TABLE}" priority 320 2>/dev/null || true
-  ip rule add from 10.9.0.0/24 lookup "${TABLE}" priority 321 2>/dev/null || true
+  ip rule add from 10.8.0.0/24 lookup "${TABLE}" priority "${ENTRY_FROM_DIRECT_PRIO}" 2>/dev/null || true
+  ip rule add from 10.9.0.0/24 lookup "${TABLE}" priority "${ENTRY_FROM_BYPASS_PRIO}" 2>/dev/null || true
   # On-link hop DNS (10.10.0.2) uses cascade0 without stealing host default.
   ip route replace "${DNS_DST}" dev "${IFACE}" 2>/dev/null || \
     ip route add "${DNS_DST}" dev "${IFACE}" 2>/dev/null || true
@@ -354,7 +359,7 @@ cleanup() {
   echo "[cascade] exit"
   if [ "${ROLE}" = "entry" ]; then
     local prio
-    for prio in $(seq 320 335); do
+    for prio in $(seq "${ENTRY_FROM_DIRECT_PRIO}" "${ENTRY_FROM_PRIO_MAX}"); do
       ip rule del pref "${prio}" 2>/dev/null || true
     done
     ip route flush table "${TABLE}" 2>/dev/null || true

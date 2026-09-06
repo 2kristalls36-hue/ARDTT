@@ -1,3 +1,14 @@
+# ARDTT v0.5.243
+
+Клиент **0.5.243** (`versionCode` 261). Серверный стек **1.0.37** (`DEPLOY_VERSION`).
+
+## 0.5.243
+
+- Обход на каскаде: Path B больше не «оживает keepalive’ами и встаёт на страницах». На входе WARP при каждом heartbeat `users.json` сносил `ip rule` 320/321 (тот же диапазон, что hideIp) — трафик `10.9.0.0/24` на секунды уходил в `eth0` без MASQ. Правила hop теперь 220/221, numeric wipe WARP убран.
+- RAW MTU 1280, как `cascade0` и Direct; 1300 не пролезал в hop.
+- SIGHUP обхода только при смене паролей, не на LastSeen. Повторный `SetPasswords` с теми же ключами больше не evict’ит AEAD.
+- Логи тестирования: если host `:9200` занят nginx дистрибуции, backend публикуется на `:9199` (как ждёт nginx), а не `ARDTT_SKIP_TELEMETRY=1`.
+
 # ARDTT v0.5.242
 
 Клиент **0.5.242** (`versionCode` 260). Серверный стек **1.0.36** (`DEPLOY_VERSION`).

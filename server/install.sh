@@ -1189,9 +1189,14 @@ drop_legacy_containers
 prog 0.77 "Проверка портов на хосте"
 SKIP_TELEMETRY=0
 if tcp_listen_port "$TELEMETRY_PORT"; then
-  echo "ARDTT_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — внутри контейнера telemetry не стартуем. Задайте ARDTT_TELEMETRY_PORT"
-  SKIP_TELEMETRY=1
-  sed -i '/ARDTT_TELEMETRY_PORT.*9200\/tcp/d' "$STACK/docker-compose.yml" 2>/dev/null || true
+  # Distribution nginx typically owns :9200 TLS and proxies /api to :9199.
+  if [ "$TELEMETRY_PORT" = "9200" ] && ! tcp_listen_port 9199; then
+    TELEMETRY_PORT=9199
+    echo "ARDTT_INFO|host :9200 занят (nginx) — telemetry backend на :9199"
+  else
+    echo "ARDTT_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — внутри контейнера telemetry не стартуем. Задайте ARDTT_TELEMETRY_PORT"
+    SKIP_TELEMETRY=1
+  fi
 fi
 if [ "$ROLE" = "exit" ]; then
   sed -i '/ARDTT_BYPASS_PORT.*udp/d' "$STACK/docker-compose.yml" 2>/dev/null || true
@@ -1205,9 +1210,11 @@ require_host_port tcp 9100 "provision /health"
 env_set_key "$STACK/.env" ARDTT_DIRECT_PORT "$DIRECT_PORT"
 env_set_key "$STACK/.env" ARDTT_BYPASS_PORT "$BYPASS_PORT"
 env_set_key "$STACK/.env" ARDTT_CASCADE_LISTEN_PORT "$CASCADE_LISTEN_PORT"
+env_set_key "$STACK/.env" ARDTT_TELEMETRY_PORT "$TELEMETRY_PORT"
 export ARDTT_DIRECT_PORT="$DIRECT_PORT"
 export ARDTT_BYPASS_PORT="$BYPASS_PORT"
 export ARDTT_CASCADE_LISTEN_PORT="$CASCADE_LISTEN_PORT"
+export ARDTT_TELEMETRY_PORT="$TELEMETRY_PORT"
 if [ "$AUTO_PORTS" = "1" ]; then
   echo "ARDTT_INFO|порты: Direct=${DIRECT_PORT}/udp Bypass=${BYPASS_PORT}/udp cascade_listen=${CASCADE_LISTEN_PORT}/udp (auto=${AUTO_PORTS})"
 fi
