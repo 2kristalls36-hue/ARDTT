@@ -33,8 +33,8 @@ android {
         applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 262
-        versionName = "0.5.244"
+        versionCode = 263
+        versionName = "0.5.245"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -96,7 +96,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
