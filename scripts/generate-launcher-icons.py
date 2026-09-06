@@ -188,19 +188,17 @@ def plate_rgba_icon(master: Image.Image, size: int) -> Image.Image:
 # Navy disc: slightly lighter center, matching the master's radial field.
 ROUND_CENTER = (8, 42, 82)
 ROUND_RIM = (166, 172, 188)
-# Letter block as a fraction of the circle diameter. 0.66 matches the adaptive
-# foreground safe zone; wider than that clips AR/DTT corners on a circular mask.
-ROUND_LETTER_FRAC = 0.66
+# Letter block as a fraction of the circle diameter. ~0.96 sits almost on
+# the silver rim; a thin navy gap remains so DTT does not eat the ring.
+ROUND_LETTER_FRAC = 0.96
 ROUND_RIM_FRAC = 0.016
 # AdaptiveIconDrawable draws each 108dp layer at 1.5× bounds; the launcher
 # only shows the inner 72dp. A rim at the 108dp edge is cropped away.
 ADAPTIVE_VIEWPORT = 2.0 / 3.0
-# Square adaptive keeps letters-only: baking the silver squircle into the
-# 72dp viewport is clipped by the OEM mask into grey chords (the old round bug).
-# 0.82 of the viewport keeps DTT inside a typical squircle (n≈4).
-SQUARE_ADAPTIVE_LETTER_FRAC = 0.82
-# Themed icons reuse this layer for both masks; size it for a circle.
-MONO_ADAPTIVE_LETTER_FRAC = ROUND_LETTER_FRAC
+# Square / themed layers fill the 72dp viewport. The OEM mask provides the
+# shape; baking a silver plate into this layer clips into grey chords.
+SQUARE_ADAPTIVE_LETTER_FRAC = 1.0
+MONO_ADAPTIVE_LETTER_FRAC = 1.0
 
 
 def adaptive_safe_frac(viewport_content_frac: float) -> float:
