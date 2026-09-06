@@ -209,6 +209,51 @@ class TestingTicketStoreTest {
     }
 
     @Test
+    fun rememberUploadDoesNotMergeDifferentFilesWithTheSameNumber() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        store.rememberUpload("старое локальное", "log-a.json", serverNumber = 1)
+        store.rememberUpload("новое с сервера", "log-b.json", serverNumber = 1)
+        val loaded = store.load()
+        assertEquals(2, loaded.tickets.size)
+        assertEquals("старое локальное", loaded.tickets.single { it.logName == "log-a.json" }.comment)
+        assertEquals("новое с сервера", loaded.tickets.single { it.logName == "log-b.json" }.comment)
+        val restored = TestingTicketStore.parse(TestingTicketStore.encode(loaded))
+        assertEquals(2, restored.tickets.size)
+    }
+
+    @Test
+    fun applyServerStatusesTrustsEmptyReviewMetadata() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        store.rememberUpload(
+            comment = "ждёт разбора",
+            logName = "log-a.json",
+            serverNumber = 4,
+            read = true,
+            processedAt = "2026-09-06T12:00:00Z",
+            processedBy = "author",
+            reviewNote = "старый ответ",
+        )
+        store.applyServerStatuses(
+            listOf(
+                TestingTicketStatus(
+                    logName = "log-a.json",
+                    number = 4,
+                    read = true,
+                    processedAt = "2026-09-06T13:00:00Z",
+                    processedBy = "cursor-agent",
+                ),
+            ),
+        )
+        val ticket = store.load().tickets.single()
+        assertTrue(ticket.read)
+        assertEquals("", ticket.reviewNote)
+        assertEquals("cursor-agent", ticket.processedBy)
+        assertEquals("2026-09-06T13:00:00Z", ticket.processedAt)
+    }
+
+    @Test
     fun jsonRoundTripKeepsReadMarker() {
         val state = TestingTicketState(
             nextNumber = 5,

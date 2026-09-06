@@ -8,11 +8,12 @@ import json
 import os
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 os.environ.setdefault("TELEMETRY_LOG_ROOT", tempfile.mkdtemp(prefix="ardtt-telemetry-"))
 
-from app import app, log_root  # noqa: E402
+from app import assign_ticket, app, log_root, read_ticket, ticket_marker  # noqa: E402
 
 
 def _log_file(name: str, comment: str) -> tuple[str, io.BytesIO]:
@@ -159,6 +160,15 @@ class TelemetryUploadTest(unittest.TestCase):
         )
         inbox = self.client.get("/api/logs/client_aaa/status").get_json()
         self.assertEqual(inbox["logs"][0]["reply"], "уже ответили")
+
+    def test_concurrent_assign_same_file_keeps_one_ticket(self):
+        self.upload("client_aaa", "race.json")
+        path = log_root() / "client_aaa" / "race.json"
+        ticket_marker(path).unlink()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            numbers = list(pool.map(lambda _: assign_ticket("client_aaa", path), range(8)))
+        self.assertEqual(len(set(numbers)), 1)
+        self.assertEqual(read_ticket(path), numbers[0])
 
 
 if __name__ == "__main__":
