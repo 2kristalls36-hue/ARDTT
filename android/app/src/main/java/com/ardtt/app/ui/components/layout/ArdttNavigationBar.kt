@@ -82,10 +82,10 @@ private object NavBarDefaults {
  */
 internal fun fitNavLabelSp(
     maxWidthPx: Int,
-    widthAt: (Float) -> Int,
     maxSp: Float = NavBarDefaults.LabelSize.value,
     minSp: Float = NavBarDefaults.LabelMinSize.value,
     stepSp: Float = NavBarDefaults.LabelSizeStep,
+    widthAt: (Float) -> Int,
 ): Float {
     if (maxWidthPx <= 0) return minSp
     var size = maxSp
