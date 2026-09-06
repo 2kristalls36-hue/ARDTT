@@ -8,19 +8,27 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,6 +53,8 @@ import com.ardtt.app.deploy.deviceDisplayLabels
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.VpnProfileJson
+import com.ardtt.app.ui.components.control.ArdttOverflowMenu
+import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttErrorState
@@ -65,6 +74,7 @@ import com.ardtt.app.ui.latestAppVersionCode
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.update.AppUpdateController
 import kotlinx.coroutines.delay
@@ -317,6 +327,21 @@ private fun ClientsScreen(
                                         }
                                     },
                                     onDelete = { deleteUser = user },
+                                    onSetEnabled = { enabled ->
+                                        busyUser = user.name
+                                        scope.launch {
+                                            val result = ProvisionAdminApi.updateUser(
+                                                base,
+                                                user.name,
+                                                deactivated = !enabled,
+                                            )
+                                            busyUser = null
+                                            result.fold(
+                                                onSuccess = { applyUser(it) },
+                                                onFailure = { toast(it.message ?: "Ошибка") },
+                                            )
+                                        }
+                                    },
                                 )
                             }
                         }
@@ -649,7 +674,9 @@ private fun ClientCard(
     onOpenProfile: () -> Unit,
     onEditLimits: () -> Unit,
     onDelete: () -> Unit,
+    onSetEnabled: (Boolean) -> Unit,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     val subActive = clientSubscriptionActive(user)
     val used = user.usedBytes
     val limit = user.trafficLimitBytes
@@ -666,8 +693,6 @@ private fun ClientCard(
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
         .ifBlank { "" }
-    val usedDevices = user.deviceIds.size
-    val availableDevices = (user.maxDevices - usedDevices).coerceAtLeast(0)
     val presence = when {
         user.deactivated -> "отключён"
         !subActive -> "истекла"
@@ -685,120 +710,191 @@ private fun ClientCard(
         ClientExpiresTone.ExpiringSoon -> ArdttColors.Warning
         ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
     }
+    val appVer = clientAppVersionView(user, latestVersionCode)
+    val appVerColor = when (appVer.tone) {
+        ClientAppVersionTone.Current -> ArdttColors.Connected
+        ClientAppVersionTone.Outdated -> MaterialTheme.colorScheme.error
+        ClientAppVersionTone.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val externalIp = user.lastExternalIp.trim()
     ArdttCompactCard {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = !busy, onClick = onOpenProfile),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    user.name.ifBlank { "user" },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                ArdttStatusDot(
-                    color = if (user.online) {
-                        ArdttColors.Connected
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant
-                    },
-                    modifier = Modifier.padding(end = ArdttSpacing.TinyPlus),
-                )
-                Text(
-                    presence,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = presenceColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = !busy, onClick = onOpenProfile),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        user.name.ifBlank { "user" },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    ArdttStatusDot(
+                        color = if (user.online) {
+                            ArdttColors.Connected
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        },
+                        modifier = Modifier.padding(end = ArdttSpacing.TinyPlus),
+                    )
+                    Text(
+                        presence,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = presenceColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        enabled = !busy,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "Действия",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(ArdttSize.IconCompact),
+                        )
+                    }
+                    ArdttOverflowMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        ArdttOverflowMenuItem(
+                            text = "Удалить",
+                            enabled = !busy,
+                            destructive = true,
+                            leadingIcon = Icons.Filled.Delete,
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            },
+                        )
+                    }
+                }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !busy, onClick = onOpenProfile),
+                verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
             ) {
-                Text(
-                    if (limit > 0L) {
-                        "${formatClientBytes(used)} / ${formatClientBytes(limit)}"
-                    } else {
-                        formatClientBytes(used)
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = trafficColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
                 ) {
-                    val appVer = clientAppVersionView(user, latestVersionCode)
-                    val appVerColor = when (appVer.tone) {
-                        ClientAppVersionTone.Current -> ArdttColors.Connected
-                        ClientAppVersionTone.Outdated -> MaterialTheme.colorScheme.error
-                        ClientAppVersionTone.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
-                    }
+                    Text(
+                        if (limit > 0L) {
+                            "${formatClientBytes(used)} / ${formatClientBytes(limit)}"
+                        } else {
+                            formatClientBytes(used)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = trafficColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     ArdttStatusChip(
                         text = appVer.label,
                         accent = appVerColor,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                ) {
+                    Text(
+                        clientDeviceCountLabel(user.deviceIds.size, user.maxDevices),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
                     ArdttStatusChip(
                         text = formatClientExpires(user.expiresAt),
                         accent = expiresColor,
                     )
                 }
-            }
-            Text(
-                "Устройства: занято $usedDevices · доступно $availableDevices",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (limit > 0L) {
-                ArdttLinearProgress(
-                    progress = progress,
-                    modifier = Modifier.height(ArdttSpacing.Tiny),
-                    color = trafficColor,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
+                if (limit > 0L) {
+                    ArdttLinearProgress(
+                        progress = progress,
+                        modifier = Modifier.height(ArdttSpacing.Tiny),
+                        color = trafficColor,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                }
+                if (deviceLine.isNotBlank() || externalIp.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                    ) {
+                        if (deviceLine.isNotBlank()) {
+                            Text(
+                                deviceLine,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                        if (externalIp.isNotBlank()) {
+                            Surface(
+                                shape = ArdttShapes.Badge,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                            ) {
+                                Text(
+                                    externalIp,
+                                    modifier = Modifier.padding(
+                                        horizontal = ArdttSpacing.Small,
+                                        vertical = 3.dp,
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
-            val externalIp = user.lastExternalIp.trim()
-            val detail = listOfNotNull(
-                externalIp.takeIf { it.isNotBlank() },
-                deviceLine.takeIf { it.isNotBlank() },
-            ).joinToString(" ")
-            if (detail.isNotBlank()) {
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Start,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ClientActionButton("Лимит", busy, Modifier.weight(1f), onEditLimits)
+                Switch(
+                    checked = !user.deactivated,
+                    onCheckedChange = onSetEnabled,
+                    enabled = !busy,
                 )
             }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-        ) {
-            ClientActionButton("Лимит", busy, Modifier.weight(1f), onEditLimits)
-            ClientActionButton("Удалить", busy, Modifier.weight(1f), onDelete)
         }
     }
 }

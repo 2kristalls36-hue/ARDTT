@@ -25,6 +25,9 @@ internal fun clientModeLabel(
 internal fun clientDeviceSummary(user: ProvisionAdminApi.UserSummary): String =
     deviceDisplayLabels(user.deviceIds, user.deviceModels).firstOrNull().orEmpty().ifBlank { "—" }
 
+internal fun clientDeviceCountLabel(used: Int, max: Int): String =
+    "Устройства: $used/${max.coerceAtLeast(0)}"
+
 /** Fresh create: profile JSON may include a template deviceId, but nothing is bound yet. */
 internal fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSummary(
     name = profile.name,

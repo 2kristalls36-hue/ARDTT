@@ -27,6 +27,13 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun deviceCountLabelIsUsedOverMax() {
+        assertEquals("Устройства: 1/1", clientDeviceCountLabel(1, 1))
+        assertEquals("Устройства: 0/3", clientDeviceCountLabel(0, 3))
+        assertEquals("Устройства: 2/0", clientDeviceCountLabel(2, 0))
+    }
+
+    @Test
     fun deviceSummaryPrefersPhoneModel() {
         val summary = clientDeviceSummary(
             user(
