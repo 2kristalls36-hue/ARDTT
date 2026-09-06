@@ -22,11 +22,16 @@ import kotlinx.coroutines.launch
 /**
  * Widget tap target. A broadcast cannot start the VPN consent UI or wait
  * for a profile after a cold start; this activity can.
+ *
+ * It must not join the app task or show a window: otherwise a tap brings
+ * MainActivity (or the last recents snapshot) up for a few seconds and
+ * [finish] sends the whole task back to the launcher.
  */
 class WidgetToggleActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        overridePendingTransition(0, 0)
         super.onCreate(savedInstanceState)
         scope.launch {
             runCatching { toggle() }
@@ -39,6 +44,11 @@ class WidgetToggleActivity : Activity() {
                     finish()
                 }
         }
+    }
+
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(0, 0)
     }
 
     override fun onDestroy() {
@@ -105,6 +115,11 @@ class WidgetToggleActivity : Activity() {
         private const val REQ = 42
     }
 }
+
+internal fun widgetToggleLaunchFlags(): Int =
+    Intent.FLAG_ACTIVITY_NEW_TASK or
+        Intent.FLAG_ACTIVITY_NO_ANIMATION or
+        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
 
 internal fun widgetTunnelIsRunning(state: ConnState): Boolean =
     state == ConnState.Connected ||
