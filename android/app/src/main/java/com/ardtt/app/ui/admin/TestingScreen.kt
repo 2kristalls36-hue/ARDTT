@@ -12,6 +12,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,16 +22,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,6 +43,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,9 +52,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
@@ -62,6 +73,7 @@ import com.ardtt.app.telemetry.TelemetryUploadClient
 import com.ardtt.app.telemetry.TestingTicket
 import com.ardtt.app.telemetry.TestingTicketStore
 import com.ardtt.app.telemetry.formatTestingTicketTime
+import com.ardtt.app.telemetry.testingCommentPreview
 import com.ardtt.app.telemetry.testingTicketTitle
 import com.ardtt.app.telemetry.testingUploadNeedsCommentPrompt
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
@@ -72,13 +84,13 @@ import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
 import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
-import com.ardtt.app.ui.components.surface.ArdttDialog
-import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -103,13 +115,11 @@ fun TestingScreen(profiles: ProfileRepository) {
     var dismissingNames by remember { mutableStateOf(setOf<String>()) }
     var uploadingFile by remember { mutableStateOf<String?>(null) }
     var uploadProgress by remember { mutableFloatStateOf(0f) }
-    var uploadTarget by remember { mutableStateOf<TelemetryLogEntry?>(null) }
-    var uploadComment by remember { mutableStateOf("") }
-    var draftComment by remember { mutableStateOf("") }
-    var draftReady by remember { mutableStateOf(false) }
-    var registering by remember { mutableStateOf(false) }
+    var comments by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var editingLog by remember { mutableStateOf<String?>(null) }
+    var draftsReady by remember { mutableStateOf(false) }
     var tickets by remember { mutableStateOf<List<TestingTicket>>(emptyList()) }
-    val latestDraft = rememberUpdatedState(draftComment)
+    val latestComments = rememberUpdatedState(comments)
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -146,9 +156,9 @@ fun TestingScreen(profiles: ProfileRepository) {
         logs.addAll(animating)
     }
 
-    suspend fun refreshTickets(overwriteDraft: Boolean = false) {
+    suspend fun refreshTickets(loadDrafts: Boolean = false) {
         val state = withContext(Dispatchers.IO) { ticketStore.load() }
-        if (overwriteDraft) draftComment = state.draftComment
+        if (loadDrafts) comments = state.drafts
         tickets = state.tickets
     }
 
@@ -158,19 +168,19 @@ fun TestingScreen(profiles: ProfileRepository) {
 
     LaunchedEffect(Unit) {
         refreshLogs()
-        refreshTickets(overwriteDraft = true)
-        draftReady = true
+        refreshTickets(loadDrafts = true)
+        draftsReady = true
     }
 
-    LaunchedEffect(draftComment, draftReady) {
-        if (!draftReady) return@LaunchedEffect
+    LaunchedEffect(comments, draftsReady) {
+        if (!draftsReady) return@LaunchedEffect
         delay(DRAFT_PERSIST_MS)
-        withContext(Dispatchers.IO) { ticketStore.saveDraft(draftComment) }
+        withContext(Dispatchers.IO) { ticketStore.saveDrafts(comments) }
     }
 
     DisposableEffect(ticketStore) {
         onDispose {
-            runCatching { ticketStore.saveDraft(latestDraft.value) }
+            runCatching { ticketStore.saveDrafts(latestComments.value) }
         }
     }
 
@@ -199,30 +209,13 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
     }
 
-    fun persistDraft(value: String) {
-        draftComment = value.take(TestingTicketStore.MAX_COMMENT)
+    fun persistLogComment(logName: String, value: String) {
+        comments = comments + (logName to value.take(TestingTicketStore.MAX_COMMENT))
     }
 
-    fun registerCommentOnly() {
-        val comment = draftComment.trim()
-        if (comment.isBlank() || registering) return
-        scope.launch {
-            registering = true
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    ticketStore.saveDraft(draftComment)
-                    ticketStore.register(comment)
-                }
-            }.onSuccess { ticket ->
-                refreshTickets()
-                Toast.makeText(
-                    context.applicationContext,
-                    "${testingTicketTitle(ticket.number)} зарегистрировано",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }.onFailure { notifyError(it.message ?: "Не удалось зарегистрировать обращение") }
-            registering = false
-        }
+    fun dropLogComment(logName: String) {
+        if (logName in comments) comments = comments - logName
+        if (editingLog == logName) editingLog = null
     }
 
     fun uploadWithComment(entry: TelemetryLogEntry, comment: String) {
@@ -232,7 +225,7 @@ fun TestingScreen(profiles: ProfileRepository) {
         scope.launch {
             val ticket = runCatching {
                 withContext(Dispatchers.IO) {
-                    ticketStore.saveDraft(comment.take(TestingTicketStore.MAX_COMMENT))
+                    ticketStore.saveDrafts(comments)
                     ticketStore.registerOrReuse(comment, entry.file.name)
                 }
             }.getOrElse {
@@ -272,6 +265,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                     delay(LOG_DISMISS_MS + 40L)
                     withContext(Dispatchers.IO) { fileManager.delete(entry.file) }
                     logs.removeAll { it.file.name == entry.file.name }
+                    dropLogComment(entry.file.name)
                     dismissingNames = dismissingNames - entry.file.name
                 },
                 onFailure = {
@@ -281,12 +275,13 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
     }
 
-    fun beginSubmit(entry: TelemetryLogEntry, comment: String) {
+    fun beginSubmit(entry: TelemetryLogEntry) {
+        val comment = comments[entry.file.name].orEmpty()
         if (testingUploadNeedsCommentPrompt(comment)) {
-            uploadTarget = entry
-            uploadComment = comment
+            editingLog = entry.file.name
             return
         }
+        if (editingLog == entry.file.name) editingLog = null
         uploadWithComment(entry, comment)
     }
 
@@ -336,38 +331,6 @@ fun TestingScreen(profiles: ProfileRepository) {
                 }
             }
 
-            item(key = "comment") {
-                ArdttSectionCard(
-                    contentPadding = PaddingValues(ArdttSpacing.Large),
-                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-                ) {
-                    ArdttSectionTitle("Комментарий")
-                    Text(
-                        "Можно заполнить заранее, без отправки файла. Если поле уже заполнено, окно перед отправкой лога не появится.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedTextField(
-                        value = draftComment,
-                        onValueChange = { persistDraft(it) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                        label = { Text("Что произошло") },
-                        placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
-                        shape = ArdttShapes.Field,
-                    )
-                    OutlinedButton(
-                        onClick = { registerCommentOnly() },
-                        enabled = draftComment.trim().isNotBlank() && !registering,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = ArdttShapes.Chip,
-                    ) {
-                        Text("Зарегистрировать без файла")
-                    }
-                }
-            }
-
             item(key = "logs-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
                     ArdttSectionTitle("Сохранённые логи")
@@ -401,15 +364,23 @@ fun TestingScreen(profiles: ProfileRepository) {
                 ) {
                     LogRow(
                         entry = entry,
+                        comment = comments[entry.file.name].orEmpty(),
+                        editorOpen = editingLog == entry.file.name,
                         uploading = uploadingFile == entry.file.name,
                         progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
+                        onOpenEditor = { editingLog = entry.file.name },
+                        onDismissEditor = {
+                            if (editingLog == entry.file.name) editingLog = null
+                        },
+                        onCommentChange = { persistLogComment(entry.file.name, it) },
                         onDelete = {
                             scope.launch {
                                 withContext(Dispatchers.IO) { fileManager.delete(entry.file) }
+                                dropLogComment(entry.file.name)
                                 refreshLogs()
                             }
                         },
-                        onUpload = { beginSubmit(entry, draftComment) },
+                        onUpload = { beginSubmit(entry) },
                     )
                 }
             }
@@ -446,40 +417,6 @@ fun TestingScreen(profiles: ProfileRepository) {
                 } else {
                     MaterialTheme.colorScheme.onPrimary
                 },
-            )
-        }
-    }
-
-    uploadTarget?.let { entry ->
-        ArdttDialog(
-            title = "Комментарий к логу",
-            onDismissRequest = { uploadTarget = null },
-            confirmAction = ArdttDialogAction(
-                text = "Встроить и отправить",
-                onClick = {
-                    val comment = uploadComment
-                    persistDraft(comment)
-                    uploadTarget = null
-                    uploadWithComment(entry, comment)
-                },
-                enabled = uploadComment.isNotBlank(),
-            ),
-            dismissAction = ArdttDialogAction("Отмена", { uploadTarget = null }),
-        ) {
-            Text(
-                "Опишите, что произошло и что ожидалось. Комментарий станет частью JSONL-файла и будет учтён при разборе.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = uploadComment,
-                onValueChange = { uploadComment = it.take(TestingTicketStore.MAX_COMMENT) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(150.dp),
-                label = { Text("Комментарий пользователя") },
-                placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
-                shape = ArdttShapes.Field,
             )
         }
     }
@@ -545,8 +482,13 @@ private fun StatusPill(text: String, accent: Boolean) {
 @Composable
 private fun LogRow(
     entry: TelemetryLogEntry,
+    comment: String,
+    editorOpen: Boolean,
     uploading: Boolean,
     progress: Float,
+    onOpenEditor: () -> Unit,
+    onDismissEditor: () -> Unit,
+    onCommentChange: (String) -> Unit,
     onDelete: () -> Unit,
     onUpload: () -> Unit,
 ) {
@@ -566,9 +508,18 @@ private fun LogRow(
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                LogCommentField(
+                    comment = comment,
+                    enabled = !uploading,
+                    expanded = editorOpen,
+                    onOpen = onOpenEditor,
+                    onDismiss = onDismissEditor,
+                    onCommentChange = onCommentChange,
+                    modifier = Modifier.weight(1f),
+                )
                 IconButton(onClick = onUpload, enabled = !uploading) {
                     Icon(
                         Icons.AutoMirrored.Outlined.Send,
@@ -589,6 +540,100 @@ private fun LogRow(
                 Text(
                     "${(progress * 100).toInt()}%",
                     style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LogCommentField(
+    comment: String,
+    enabled: Boolean,
+    expanded: Boolean,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit,
+    onCommentChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val preview = testingCommentPreview(comment)
+    val colors = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    val focusRequester = remember { FocusRequester() }
+    var fieldWidthPx by remember { mutableIntStateOf(0) }
+    val menuWidth = with(density) {
+        fieldWidthPx.toDp().coerceAtLeast(ArdttSize.MenuWidth)
+    }
+
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
+    Box(modifier = modifier.onSizeChanged { fieldWidthPx = it.width }) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ArdttSize.ChipCompact)
+                .semantics { contentDescription = "Комментарий" }
+                .clickable(enabled = enabled, onClick = onOpen),
+            shape = ArdttShapes.Field,
+            color = colors.surface,
+            contentColor = if (preview.isBlank()) {
+                colors.onSurfaceVariant
+            } else {
+                colors.onSurface
+            },
+            border = BorderStroke(ArdttSize.Border, colors.outline),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = ArdttSpacing.Medium),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    text = preview.ifBlank { "Комментарий" },
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismiss,
+            modifier = Modifier
+                .width(menuWidth)
+                .widthIn(max = menuWidth)
+                .padding(ArdttSpacing.Small),
+            shape = ArdttShapes.Menu,
+            containerColor = colors.surfaceVariant,
+            tonalElevation = ArdttElevation.Low,
+            shadowElevation = ArdttElevation.Raised,
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(menuWidth)
+                    .padding(ArdttSpacing.Medium),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+            ) {
+                Text(
+                    "Комментарий к логу",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { onCommentChange(it.take(TestingTicketStore.MAX_COMMENT)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = ArdttSize.Button)
+                        .focusRequester(focusRequester),
+                    enabled = enabled,
+                    label = { Text("Что произошло") },
+                    placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
+                    shape = ArdttShapes.Field,
                 )
             }
         }

@@ -17,13 +17,29 @@ data class TestingTicket(
 
 data class TestingTicketState(
     val draftComment: String = "",
+    val drafts: Map<String, String> = emptyMap(),
     val nextNumber: Int = 1,
     val tickets: List<TestingTicket> = emptyList(),
 )
 
-/** Ask for a comment only when the testing-screen draft is still empty. */
+/** Ask for a comment only when the log-row draft is still empty. */
 internal fun testingUploadNeedsCommentPrompt(draft: String): Boolean =
     draft.trim().isBlank()
+
+internal const val TESTING_COMMENT_PREVIEW_CHARS = 48
+
+/** One-line snippet shown in the log row before the send/delete icons. */
+internal fun testingCommentPreview(
+    comment: String,
+    maxChars: Int = TESTING_COMMENT_PREVIEW_CHARS,
+): String {
+    val cleaned = comment.trim().replace(WHITESPACE, " ")
+    if (cleaned.isEmpty()) return ""
+    if (cleaned.length <= maxChars) return cleaned
+    return cleaned.take(maxChars).trimEnd() + "…"
+}
+
+private val WHITESPACE = Regex("\\s+")
 
 internal fun testingTicketTitle(number: Int): String = "Обращение №$number"
 
@@ -51,6 +67,19 @@ class TestingTicketStore(private val file: File) {
     @Synchronized
     fun saveDraft(comment: String): TestingTicketState {
         val state = load().copy(draftComment = comment.take(MAX_COMMENT))
+        persist(state)
+        return state
+    }
+
+    @Synchronized
+    fun saveDrafts(drafts: Map<String, String>): TestingTicketState {
+        val cleaned = linkedMapOf<String, String>()
+        drafts.forEach { (name, comment) ->
+            val key = name.trim()
+            val text = comment.take(MAX_COMMENT)
+            if (key.isNotEmpty() && text.isNotBlank()) cleaned[key] = text
+        }
+        val state = load().copy(drafts = cleaned)
         persist(state)
         return state
     }
@@ -133,8 +162,18 @@ class TestingTicketStore(private val file: File) {
                 }
             }
             val ordered = tickets.sortedByDescending { it.number }
+            val drafts = linkedMapOf<String, String>()
+            o.optJSONObject("drafts")?.let { obj ->
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next().trim()
+                    val text = obj.optString(key).take(MAX_COMMENT)
+                    if (key.isNotEmpty() && text.isNotBlank()) drafts[key] = text
+                }
+            }
             return TestingTicketState(
                 draftComment = o.optString("draftComment"),
+                drafts = drafts,
                 nextNumber = testingTicketNextNumber(o.optInt("nextNumber", 1), ordered),
                 tickets = ordered,
             )
@@ -151,8 +190,15 @@ class TestingTicketStore(private val file: File) {
                         .put("logName", ticket.logName),
                 )
             }
+            val drafts = JSONObject()
+            state.drafts.forEach { (name, comment) ->
+                val key = name.trim()
+                val text = comment.take(MAX_COMMENT)
+                if (key.isNotEmpty() && text.isNotBlank()) drafts.put(key, text)
+            }
             return JSONObject()
                 .put("draftComment", state.draftComment)
+                .put("drafts", drafts)
                 .put("nextNumber", state.nextNumber.coerceAtLeast(1))
                 .put("tickets", tickets)
                 .toString()
