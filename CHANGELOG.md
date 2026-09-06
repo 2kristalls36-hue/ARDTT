@@ -1,3 +1,11 @@
+# ARDTT v0.5.242
+
+Клиент **0.5.242** (`versionCode` 260). Серверный стек **1.0.36** (`DEPLOY_VERSION`).
+
+## 0.5.242
+
+- Репозиторий открыт: главная страница, деплой и обновления рассчитаны на публичный GitHub. Clone, Releases и API — без PAT. В release APK больше не вшивается `GITHUB_RELEASE_READ_TOKEN`.
+
 # ARDTT v0.5.241
 
 Клиент **0.5.241** (`versionCode` 259). Серверный стек **1.0.36** (`DEPLOY_VERSION`).

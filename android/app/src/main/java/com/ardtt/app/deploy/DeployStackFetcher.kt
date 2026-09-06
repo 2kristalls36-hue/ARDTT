@@ -62,8 +62,7 @@ class DeployStackFetcher(
         val hint = errors.takeLast(4).joinToString("; ").ifBlank { "нет ответа" }
         error(
             "Не удалось скачать стек $expectedVersion из GitHub ($hint). " +
-                "Нужен доступ с телефона к github.com. Пока репозиторий приватный — задайте " +
-                "GITHUB_RELEASE_READ_TOKEN при сборке APK.",
+                "Нужен доступ с телефона к github.com. Репозиторий публичный, PAT не требуется.",
         )
     }
 

@@ -4,24 +4,29 @@
 
 # ARDTT
 
-[Релизы](https://github.com/2kristalls36-hue/ARDTT/releases)
+[![Latest release](https://img.shields.io/github/v/release/2kristalls36-hue/ARDTT?label=release)](https://github.com/2kristalls36-hue/ARDTT/releases/latest)
+[![License: GPL-3.0](https://img.shields.io/github/license/2kristalls36-hue/ARDTT)](LICENSE)
+
+[Скачать APK](https://github.com/2kristalls36-hue/ARDTT/releases/latest)
+·
+[Документация](docs/README.md)
 ·
 [Поддержка автора](https://spasibomir.ru/pay/34807)
 
 </div>
 
-**ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — Android-клиент и self-hosted стек **в этом репозитории**: туннель до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP).
+**ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — открытый Android-клиент и self-hosted стек **в этом репозитории**: туннель до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP).
 
-Клиент — `android/`, сервер — `server/`. Стек **не** вшит в APK: телефон скачивает `install.sh` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из GitHub Releases (запас — архив тега `v{versionName}` / `main`) и заливает на VPS по SSH.
+Клиент — `android/`, сервер — `server/`. Репозиторий **публичный**: clone, архивы тегов и GitHub Releases читаются **без токена**. Стек **не** вшит в APK: телефон скачивает `install.sh` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из Releases (запас — архив тега `v{versionName}` / `main`) и заливает на VPS по SSH.
 
 > [!WARNING]
 > **Назначение проекта**
 > ARDTT — технический инструмент для туннелирования трафика через **ваш** сервер (VPS). Проект распространяется в ознакомительных и исследовательских целях, в том числе для изучения сетевых протоколов и self-hosted VPN.
 >
-> Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
+> Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несёт ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.241** (`versionCode` 259), пакет `com.ardtt.app`. Серверный стек **1.0.36** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — этот репозиторий, не `assets/` APK.
+> Клиент **0.5.242** (`versionCode` 260), пакет `com.ardtt.app`. Серверный стек **1.0.36** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — этот репозиторий, не `assets/` APK.
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -31,12 +36,12 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.241** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
+| Клиент | **0.5.242** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
 | Стек | **1.0.36** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
-| Откуда стек | GitHub Releases `ardtt-stack-1.0.36.tar.gz` или архив тега `v0.5.241` — **не** APK |
+| Откуда стек | GitHub Releases `ardtt-stack-1.0.36.tar.gz` или архив тега `v0.5.242` — **не** APK |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
-| Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, архив стека |
+| Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, архив стека — без PAT |
 
 ## Два пути до VPS
 
@@ -53,7 +58,7 @@
 
 ## Репозиторий
 
-Канонический источник **клиента и стека**. Push в `main` публикует GitHub Release: подписанные APK, `ardtt-update.json` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz`. В APK остаётся только метка `deploy/DEPLOY_VERSION` — карточка сервера сравнивает её с `/health`.
+Публичный канонический источник **клиента и стека**. Push в `main` публикует GitHub Release: подписанные APK, `ardtt-update.json` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz`. В APK остаётся только метка `deploy/DEPLOY_VERSION` — карточка сервера сравнивает её с `/health`.
 
 ```
 ARDTT/
@@ -71,30 +76,29 @@ ARDTT/
 
 ## Как поставить
 
-Один и тот же стек ставится **из приложения** (телефон скачивает `server/` с GitHub) или **клоном этого репозитория**. Клиенты — APK с [Releases](https://github.com/2kristalls36-hue/ARDTT/releases).
+Один и тот же стек ставится **из приложения** (телефон скачивает `server/` с GitHub) или **клоном этого репозитория**. Клиенты — APK с [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest).
 
 | | Откуда код стека | Когда |
 |---|---|---|
 | **Приложение** | GitHub Releases `ardtt-stack-*.tar.gz` или архив тега; заливка по SSH | удобно с телефона |
 | **Git** | `ARDTT_GIT_REF` / `git clone` тега релиза на VPS | shell на машине с Docker |
 
-Имеет смысл клонировать **тег** `v0.5.241` (стек **1.0.36**), а не скользящий `main`. Пока репозиторий приватный, clone с VPS без токена не выйдет — с телефона достаточно `GITHUB_RELEASE_READ_TOKEN` во вшитом APK. Публичный репозиторий читается без секретов.
+Клонируйте **тег** `v0.5.242` (стек **1.0.36**), а не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и Releases **не требуют** секретов.
 
 Подробности, каскад и **повторный деплой**: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Быстрый старт
 
-Клиент:
+Клиент — готовый APK:
 
 ```bash
-# готовый APK
-# https://github.com/2kristalls36-hue/ARDTT/releases
+# https://github.com/2kristalls36-hue/ARDTT/releases/latest
 ```
 
 Сервер с GitHub (тег релиза):
 
 ```bash
-git clone --depth 1 --branch v0.5.241 \
+git clone --depth 1 --branch v0.5.242 \
   https://github.com/2kristalls36-hue/ARDTT.git
 cd ARDTT/server
 cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_этого_VPS
@@ -115,13 +119,13 @@ cd android
 # app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Подписанные APK — [GitHub Releases](https://github.com/2kristalls36-hue/ARDTT/releases). Подробнее: [android/README.md](android/README.md), [server/README.md](server/README.md).
+Подписанные APK — [GitHub Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest). Подробнее: [android/README.md](android/README.md), [server/README.md](server/README.md).
 
 ## Документация
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.241 / стек 1.0.36 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.242 / стек 1.0.36 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка и повторный деплой: из приложения (GitHub) или клоном репозитория |

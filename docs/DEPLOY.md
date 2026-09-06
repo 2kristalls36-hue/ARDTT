@@ -27,7 +27,7 @@
   SSH (пароль или PEM)
       │  upload  /opt/ardtt/stack.tar.gz
       │  upload  /opt/ardtt/install.sh
-      │  env ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=v0.5.241 bash install.sh
+      │  env ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=v0.5.242 bash install.sh
       ▼
     VPS  /opt/ardtt/stack/     ← compose + исходники + Dockerfile
          /opt/ardtt/stack/data ← users.json, ключи, warp state
@@ -96,7 +96,7 @@ WARP — не третий путь подключения, а **egress** выб
 
 ```bash
 ARDTT_PUBLIC_HOST='…' ARDTT_DIRECT_PORT=51820 ARDTT_BYPASS_PORT=56003 ARDTT_AUTO_PORTS=1 \
-ARDTT_DEPLOY_VERSION='1.0.36' ARDTT_GIT_REF='v0.5.241' \
+ARDTT_DEPLOY_VERSION='1.0.36' ARDTT_GIT_REF='v0.5.242' \
 ARDTT_GIT_REPO='https://github.com/2kristalls36-hue/ARDTT.git' \
 bash /opt/ardtt/install.sh
 ```
@@ -108,7 +108,7 @@ bash /opt/ardtt/install.sh
 ```bash
 # 1) выход (DNS + WARP)
 ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.36' \
-  ARDTT_GIT_REF='v0.5.241' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
+  ARDTT_GIT_REF='v0.5.242' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
 # stdout: ARDTT_CASCADE_PUBLIC_KEY|<base64>
 
 # 2) вход (клиенты), пир = ключ выхода
@@ -116,7 +116,7 @@ ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
   ARDTT_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
   ARDTT_CASCADE_PEER_PUBLIC_KEY='…' \
   ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.36' \
-  ARDTT_GIT_REF='v0.5.241' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
+  ARDTT_GIT_REF='v0.5.242' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
 
 # 3) ключ входа → /opt/ardtt/stack/data/cascade.peer.pub на выходе
 ```
@@ -205,7 +205,7 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 **С shell на VPS**
 
 ```bash
-TAG=v0.5.241
+TAG=v0.5.242
 install -d -m 755 /opt/ardtt
 curl -fsSL "https://raw.githubusercontent.com/2kristalls36-hue/ARDTT/${TAG}/server/install.sh" \
   -o /opt/ardtt/install.sh
@@ -227,10 +227,10 @@ curl -s http://127.0.0.1:9100/health
 
 Тот же стек, что ставит приложение. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
 
-Клонируйте **тег релиза** (`v0.5.241` = клиент 0.5.241 и стек 1.0.36), не скользящий `main`. Публичный репозиторий клонируется без секретов. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`; с телефона достаточно `GITHUB_RELEASE_READ_TOKEN` во вшитом APK.
+Клонируйте **тег релиза** (`v0.5.242` = клиент 0.5.242 и стек 1.0.36), не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и GitHub Releases читаются без PAT.
 
 ```bash
-TAG=v0.5.241
+TAG=v0.5.242
 
 # Вариант A — тот же install.sh, что из приложения (/opt/ardtt, data/ сохраняется)
 install -d -m 755 /opt/ardtt
@@ -438,8 +438,8 @@ docker exec ardtt provision -cmd create-user -name smoke -data /data
 
 | Симптом | Что проверить |
 |---------|----------------|
-| «Не удалось скачать стек … из GitHub» | Сеть на телефоне до github.com. Публичный репозиторий токен не нужен. Приватный — `GITHUB_RELEASE_READ_TOKEN` при сборке APK. Запас: [Путь 2](#путь-2--git--compose) с PAT на VPS |
-| `git clone`: Authentication failed | Репозиторий ещё приватный: PAT/SSH с правом `repo`, либо деплой из приложения (телефон качает через API-токен) |
+| «Не удалось скачать стек … из GitHub» | Сеть на телефоне до github.com. Репозиторий публичный, PAT не нужен. Запас: [Путь 2](#путь-2--git--compose) |
+| `git clone`: Authentication failed | Проверьте URL `https://github.com/2kristalls36-hue/ARDTT.git` и тег релиза. PAT не требуется |
 | `install.sh` + «Мало места» | На 8–10 ГБ VPS порог обновления ~500–1100 МБ; установщик сожмёт 2 ГБ swap до 1 ГБ и не удаляет неиспользуемые `stack-*` образы. Не делайте `docker image prune -af` вручную. |
 | `install.sh exit=1`, `Device or resource busy` в `/var/lib/docker/buildkit/.../rootfs` | Стек ≥**1.0.34**: umount + повтор, установка не падает. На 1 ГБ VPS старый `rm -rf` после `stop docker` обрывал каскад. Обновите APK и снова «Установить». |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
