@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -27,7 +26,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,7 +37,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +64,7 @@ import com.ardtt.app.ui.admin.formatClientExpires
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
@@ -536,7 +534,11 @@ private fun ProfileCard(
                         )
                     }
                 }
-                ProfileAddressHosts(hosts = addressHosts, muted = muted)
+                ArdttIpHostRow(
+                    hosts = addressHosts,
+                    modifier = Modifier.fillMaxWidth(),
+                    muted = muted,
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -607,50 +609,5 @@ private fun ProfileCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ProfileAddressHosts(
-    hosts: List<String>,
-    muted: Color,
-) {
-    if (hosts.isEmpty()) return
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
-    ) {
-        hosts.forEachIndexed { index, host ->
-            if (index > 0) {
-                Text(
-                    "→",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                )
-            }
-            ProfileIpChip(host)
-        }
-    }
-}
-
-@Composable
-private fun ProfileIpChip(ip: String) {
-    Surface(
-        shape = ArdttShapes.Badge,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Text(
-            ip,
-            modifier = Modifier.padding(
-                horizontal = ArdttSpacing.Small,
-                vertical = 3.dp,
-            ),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
