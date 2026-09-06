@@ -50,7 +50,7 @@ for ABI in "${ABIS[@]}"; do
   (
     cd "$GO_DIR"
     GOOS=android GOARCH="$GOARCH" CGO_ENABLED=1 CC="$CC" \
-      go build -trimpath -ldflags=-checklinkname=0 -o "$OUT_DIR/libclient.so" .
+      go build -trimpath -ldflags="-s -w -checklinkname=0" -o "$OUT_DIR/libclient.so" .
   )
   ls -lh "$OUT_DIR/libclient.so"
 done
