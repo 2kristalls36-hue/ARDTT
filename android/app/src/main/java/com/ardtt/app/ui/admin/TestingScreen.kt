@@ -225,15 +225,6 @@ fun TestingScreen(profiles: ProfileRepository) {
         }
     }
 
-    fun beginSubmit(entry: TelemetryLogEntry, comment: String) {
-        if (testingUploadNeedsCommentPrompt(comment)) {
-            uploadTarget = entry
-            uploadComment = comment
-            return
-        }
-        uploadWithComment(entry, comment)
-    }
-
     fun uploadWithComment(entry: TelemetryLogEntry, comment: String) {
         if (uploadingFile != null) return
         uploadingFile = entry.file.name
@@ -288,6 +279,15 @@ fun TestingScreen(profiles: ProfileRepository) {
                 },
             )
         }
+    }
+
+    fun beginSubmit(entry: TelemetryLogEntry, comment: String) {
+        if (testingUploadNeedsCommentPrompt(comment)) {
+            uploadTarget = entry
+            uploadComment = comment
+            return
+        }
+        uploadWithComment(entry, comment)
     }
 
     val pull = rememberPullRefresh { refreshLogs() }
