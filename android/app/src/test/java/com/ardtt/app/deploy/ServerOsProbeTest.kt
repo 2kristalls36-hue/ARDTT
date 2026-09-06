@@ -101,6 +101,16 @@ class ServerOsProbeTest {
     }
 
     @Test
+    fun alpineArchRhelAndSuseKeepDistinctMarks() {
+        assertEquals(ServerOsMark.Alpine, serverOsMark("alpine"))
+        assertEquals(ServerOsMark.Arch, serverOsMark("arch"))
+        assertEquals(ServerOsMark.Rhel, serverOsMark("rhel"))
+        assertEquals(ServerOsMark.Suse, serverOsMark("opensuse"))
+        assertEquals(ServerOsMark.Fedora, serverOsMark("fedora"))
+        assertEquals(ServerOsMark.Centos, serverOsMark("centos"))
+    }
+
+    @Test
     fun centosUsesOwnMarkWhileRhelFamilyStaysRhel() {
         assertEquals(ServerOsMark.Centos, serverOsMark("centos"))
         assertEquals(ServerOsMark.Rhel, serverOsMark("rhel"))
