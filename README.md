@@ -19,7 +19,7 @@
 > Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.237** (`versionCode` 255), пакет `com.ardtt.app`. Серверный стек **1.0.35** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
+> Клиент **0.5.238** (`versionCode` 256), пакет `com.ardtt.app`. Серверный стек **1.0.36** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -29,8 +29,8 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.237** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
-| Стек | **1.0.35** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
+| Клиент | **0.5.238** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
+| Стек | **1.0.36** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases) |
@@ -54,7 +54,7 @@
 ARDTT/
 ├── android/      # Jetpack Compose-клиент (Gradle живёт здесь)
 ├── server/       # единый Docker-образ ardtt (compose profile isolated)
-├── scripts/      # APK, иконки, deploy-бандл
+├── scripts/      # APK, иконки, pack-stack (релизный архив server/)
 ├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
 ├── CHANGELOG.md
 ├── LICENSE       # GNU GPL v3
@@ -65,16 +65,16 @@ ARDTT/
 
 ## Как поставить
 
-Один и тот же стек ставится **из приложения** или **клоном этого репозитория**. Клиенты — APK с [Releases](https://github.com/2kristalls36-hue/ARDTT/releases).
+Один и тот же стек ставится **из приложения** (телефон скачивает `server/` с GitHub) или **клоном этого репозитория**. Клиенты — APK с [Releases](https://github.com/2kristalls36-hue/ARDTT/releases).
 
 | | Откуда код стека | Когда |
 |---|---|---|
-| **Приложение** | копия `server/` внутри APK, заливка по SSH | удобно с телефона; VPS **не** ходит на GitHub |
-| **Git** | `git clone` тега релиза на VPS | репозиторий доступен с машины (публичный clone или ваш ключ/PAT) |
+| **Приложение** | GitHub Releases `ardtt-stack-*.tar.gz` или архив тега; заливка по SSH | удобно с телефона |
+| **Git** | `ARDTT_GIT_REF` / `git clone` тега релиза на VPS | shell на машине с Docker |
 
-Пока репозиторий **приватный**, с VPS без токена clone не выйдет — ставьте из приложения. Когда сделаете репозиторий **публичным**, достаточно клона тега: архив в APK для сервера больше не обязателен. Имеет смысл клонировать **тег** `v0.5.237` (стек **1.0.35**), а не скользящий `main`.
+Имеет смысл клонировать **тег** `v0.5.238` (стек **1.0.36**), а не скользящий `main`. Пока репозиторий приватный, clone с VPS без токена не выйдет — с телефона достаточно `GITHUB_RELEASE_READ_TOKEN` во вшитом APK. Публичный репозиторий читается без секретов.
 
-Подробности и каскад: [docs/DEPLOY.md](docs/DEPLOY.md).
+Подробности, каскад и **повторный деплой**: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Быстрый старт
 
@@ -88,7 +88,7 @@ ARDTT/
 Сервер с GitHub (тег релиза):
 
 ```bash
-git clone --depth 1 --branch v0.5.237 \
+git clone --depth 1 --branch v0.5.238 \
   https://github.com/2kristalls36-hue/ARDTT.git
 cd ARDTT/server
 cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_этого_VPS
@@ -115,10 +115,10 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.237 / стек 1.0.35 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.238 / стек 1.0.36 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
-| [docs/DEPLOY.md](docs/DEPLOY.md) | Установка на VPS: из приложения или клоном репозитория |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Установка и повторный деплой: из приложения (GitHub) или клоном репозитория |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
 | [docs/UI.md](docs/UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
 | [android/README.md](android/README.md) | Сборка клиента, keystore, релизы |

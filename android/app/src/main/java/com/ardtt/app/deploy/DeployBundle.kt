@@ -6,12 +6,14 @@ import android.content.Context
  * Stack / provision deploy version — independent from the app [versionName].
  * Series starts at **1.0.1** and is bumped only when the VPS install bundle changes.
  * Written to the VPS on deploy and compared via provision `GET /health`.
+ * The stack tarball itself is downloaded from GitHub at deploy time,
+ * not packed into the APK.
  */
 object DeployBundle {
     const val ASSET_VERSION_FILE = "deploy/DEPLOY_VERSION"
 
     /** Fallback when the asset is missing (must match assets/deploy/DEPLOY_VERSION). */
-    const val FALLBACK_VERSION = "1.0.35"
+    const val FALLBACK_VERSION = "1.0.36"
 
     fun expectedVersion(context: Context): String =
         runCatching {

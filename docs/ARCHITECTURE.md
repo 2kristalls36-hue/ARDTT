@@ -346,7 +346,7 @@ provision /data — host_id, keys, passwords
 `NET_ADMIN`, `/dev/net/tun`, по умолчанию **своя netns** (не host).  
 Create-user: адреса в `10.8` и `10.9` с одним octet; флаг hide-IP — клиентский/сессионный, применяется policy на сервере (mark по IP клиента).
 
-Боевой путь: админ в приложении → SSH → каталог установки ARDTT + `install.sh` + Compose.  
+Боевой путь: админ в приложении → GitHub (`server/`) → SSH → каталог установки ARDTT + `install.sh` + Compose.  
 На диске путь по умолчанию `/opt/ardtt` оставлен для совместимости с уже развёрнутыми VPS (`ARDTT_INSTALL_DIR`).  
 Версия стека (`DEPLOY_VERSION`) сравнивается с APK через `GET /health`.
 

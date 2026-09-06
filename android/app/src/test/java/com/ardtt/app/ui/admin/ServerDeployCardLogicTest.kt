@@ -285,7 +285,7 @@ class ServerDeployCardLogicTest {
             cascadeEnabled = false,
             expectedVersion = "1.0.29",
         )
-        assertTrue(saved.contains("Переустановить деплой"))
+        assertTrue(saved.contains("репозитория"))
         assertTrue(saved.contains("1.0.29"))
         assertTrue(saved.contains("снизу"))
         val fresh = serverDeployFormHelp(
@@ -300,11 +300,11 @@ class ServerDeployCardLogicTest {
     @Test
     fun reinstallConfirmNamesHostAndVersion() {
         assertEquals(
-            "Стек версии 1.0.29 будет заново залит на 10.0.0.1 по указанным SSH-данным.",
+            "Стек версии 1.0.29 будет снова скачан из репозитория и залит на 10.0.0.1 по указанным SSH-данным.",
             serverReinstallConfirmBody("10.0.0.1", "1.0.29"),
         )
         assertEquals(
-            "Стек версии 1.0.29 будет заново залит на VPS по указанным SSH-данным.",
+            "Стек версии 1.0.29 будет снова скачан из репозитория и залит на VPS по указанным SSH-данным.",
             serverReinstallConfirmBody("  ", "1.0.29"),
         )
     }
