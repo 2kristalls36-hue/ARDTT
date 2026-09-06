@@ -72,6 +72,12 @@
             android:excludeFromRecents="true"
             android:theme="@style/Theme.Ardtt.VpnPermission" />
 
+        <activity
+            android:name=".WidgetToggleActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Ardtt.VpnPermission" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

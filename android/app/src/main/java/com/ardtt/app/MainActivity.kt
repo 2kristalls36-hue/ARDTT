@@ -14,7 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import com.ardtt.app.core.ConnState
+import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.deploy.DeployEngine
 import com.ardtt.app.deploy.PendingServerImport
@@ -29,6 +29,7 @@ import com.ardtt.app.ui.AppRoot
 import com.ardtt.app.ui.telemetry.RecordingBorderOverlay
 import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.theme.ArdttTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -118,25 +119,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startTunnelFromShortcutUnlocked() {
-        val conn = ConnectionManager.get(applicationContext)
-        val state = conn.ui.value.state
-        if (
-            state == ConnState.Connected ||
-            state == ConnState.Connecting ||
-            state == ConnState.PausedTrustedWifi
-        ) {
-            return
-        }
-        val prep = runCatching { VpnService.prepare(this) }.getOrNull()
-        if (prep != null) {
-            Toast.makeText(
-                this,
-                "Разрешите ARDTT создать туннель",
-                Toast.LENGTH_LONG,
-            ).show()
-            startActivity(Intent(this, VpnPermissionActivity::class.java))
-        } else {
-            conn.connect()
+        lifecycleScope.launch {
+            val app = applicationContext
+            val settings = AppSettingsRepository(app)
+            val catalog = ProfileRepository(app).snapshot()
+            val conn = ConnectionManager.get(app)
+            conn.updateProfile(catalog.active)
+            conn.setPathMode(ConnPathMode.fromSetting(settings.pathModeName.first()))
+            if (widgetTunnelIsRunning(conn.ui.value.state)) return@launch
+            val prep = runCatching { VpnService.prepare(this@MainActivity) }.getOrNull()
+            if (prep != null) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Разрешите ARDTT создать туннель",
+                    Toast.LENGTH_LONG,
+                ).show()
+                startActivity(Intent(this@MainActivity, VpnPermissionActivity::class.java))
+            } else {
+                conn.connectWhenReady()
+            }
         }
     }
 
