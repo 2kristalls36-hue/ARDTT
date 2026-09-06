@@ -1,5 +1,10 @@
 #!/bin/bash
 # ARDTT VPS installer — canonical copy lives here (server/install.sh).
+# Protocol (must stay in the first 400 chars: APK ≤0.5.245 sniffs only that window):
+#   ARDTT_PROGRESS|<0..1>|<step>
+#   ARDTT_ERROR|<message>
+#   ARDTT_DONE|install_dir=…|public_host=…|direct_port=…|bypass_port=…
+#   ARDTT_WARN|<message>
 #
 # Product path (from the app): the phone downloads server/ from GitHub
 #   (release asset ardtt-stack-*.tar.gz or a source tarball) and uploads it
@@ -13,12 +18,6 @@
 #   (ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1) separately. Do not write SSH passwords
 #   into .env.
 # Ops path: same script; if the tarball is gone, re-run against already unpacked stack/.
-#
-# Protocol lines consumed by the Android DeployEngine:
-#   ARDTT_PROGRESS|<0..1>|<step>
-#   ARDTT_ERROR|<message>
-#   ARDTT_DONE|install_dir=…|public_host=…|direct_port=…|bypass_port=…
-#   ARDTT_WARN|<message>
 # ARDTT_AUTO_PORTS=1 (app default): pick free UDP ports when preferred
 # Direct/Bypass (or cascade listen) ports are already taken on the VPS.
 #

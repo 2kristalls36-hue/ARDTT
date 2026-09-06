@@ -27,6 +27,15 @@ if [ -f "$INSTALLER" ]; then
   grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
   grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
   grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
+  if ! python3 - "$INSTALLER" <<'PY'
+import pathlib, sys
+head = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")[:400]
+if "ARDTT_PROGRESS|" not in head or "ARDTT_DONE|" not in head:
+    raise SystemExit(1)
+PY
+  then
+    err "ARDTT_PROGRESS| and ARDTT_DONE| must appear in the first 400 chars of install.sh (APK ≤0.5.245 sniff)"
+  fi
   grep -q 'find_server_tree' "$INSTALLER" || err "installer missing find_server_tree (GitHub archive layout)"
   grep -q 'extract_archive_to_staging' "$INSTALLER" || err "installer missing extract_archive_to_staging"
   grep -q 'fetch_stack_from_git' "$INSTALLER" || err "installer missing fetch_stack_from_git"
@@ -114,6 +123,10 @@ fi
 if [ -f "$STACK_SOURCE_KT" ]; then
   grep -q 'ardtt-stack-' "$STACK_SOURCE_KT" || err "DeployStackSource must name ardtt-stack-*.tar.gz"
   grep -q 'raw.githubusercontent.com' "$STACK_SOURCE_KT" || err "DeployStackSource must fetch install.sh from GitHub"
+  grep -q 'extractInstallScript' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackFetcher.kt" \
+    || err "DeployStackFetcher must extract install.sh from the downloaded tarball"
+  grep -q 'SNIFF_CHARS' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackFetcher.kt" \
+    || err "DeployStackFetcher must sniff more than a 400-char install.sh prefix"
 fi
 
 if [ -f "$ROOT/android/app/src/main/assets/deploy/install.sh" ]; then
