@@ -176,6 +176,6 @@ jobs:
             case "$tag" in
               *-alpha*|*-beta*|*-rc*|*-verify*|*-github*) args+=(--prerelease) ;;
             esac
-            gh release create "$tag" dist/* "${args[@]}"
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" "${args[@]}"
           fi
           echo "Published https://github.com/${{ github.repository }}/releases/tag/${tag}"
