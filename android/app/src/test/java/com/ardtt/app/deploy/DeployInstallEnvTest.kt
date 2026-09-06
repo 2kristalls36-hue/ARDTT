@@ -21,6 +21,7 @@ class DeployInstallEnvTest {
         assertTrue(cmd.contains("ARDTT_AUTO_PORTS=1"))
         assertFalse(cmd.contains("ARDTT_CASCADE_PEER_PUBLIC_KEY"))
         assertFalse(cmd.contains("password"))
+        assertFalse(cmd.contains("ARDTT_GIT_REF"))
         assertTrue(cmd.endsWith("bash /opt/ardtt/install.sh"))
     }
 
@@ -70,6 +71,21 @@ class DeployInstallEnvTest {
         assertTrue(cmd.contains("ARDTT_CASCADE_PEER_ENDPOINT='2.26.125.160:51820'"))
         assertTrue(cmd.contains("ARDTT_CASCADE_PEER_PUBLIC_KEY='abc+DEF/123='"))
         assertTrue(cmd.contains("ARDTT_CASCADE_DNS='10.10.0.2'"))
+    }
+
+    @Test
+    fun gitRefPassedForRepoFetch() {
+        val cmd = DeployInstallEnv.command(
+            publicHost = "45.129.2.3",
+            directPort = 51820,
+            bypassPort = 56003,
+            deployVersion = "1.0.36",
+            role = "entry",
+            gitRepo = "https://github.com/2kristalls36-hue/ARDTT.git",
+            gitRef = "v0.5.238",
+        )
+        assertTrue(cmd.contains("ARDTT_GIT_REPO='https://github.com/2kristalls36-hue/ARDTT.git'"))
+        assertTrue(cmd.contains("ARDTT_GIT_REF='v0.5.238'"))
     }
 
     @Test

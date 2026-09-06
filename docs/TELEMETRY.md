@@ -51,7 +51,7 @@
 | **lifecycle** | onCreate/onResume/onPause/onDestroy, фон/передний план |
 | **error** | Исключения + stack trace |
 | **app_log** | Внутренние события VPN, подключения, trusted Wi‑Fi, WARP и фоновых сервисов |
-| **deploy** | Старт, SSH, версия архива, прогресс, полный вывод install/Compose/uninstall, exit code, итог и удалённый install.log при ошибке установки |
+| **deploy** | Старт, загрузка стека с GitHub, SSH, версия архива, прогресс, полный вывод install/Compose/uninstall, exit code, итог и удалённый install.log при ошибке установки |
 
 Пароли, приватные ключи, токены, Cookie/Authorization и PEM-блоки
 маскируются до записи. Длинные строки и stack trace ограничиваются по размеру.

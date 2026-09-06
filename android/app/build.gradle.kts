@@ -32,8 +32,8 @@ android {
         applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 255
-        versionName = "0.5.237"
+        versionCode = 256
+        versionName = "0.5.238"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -133,18 +133,8 @@ val buildBypassClient = tasks.register<Exec>("buildBypassClient") {
     commandLine("bash", "scripts/build-bypass-client.sh")
 }
 
-val packDeployAssets = tasks.register<Exec>("packDeployAssets") {
-    workingDir = repoRoot
-    commandLine("bash", "scripts/pack-deploy-assets.sh")
-    inputs.dir(repoRoot.resolve("server"))
-    inputs.file(repoRoot.resolve("scripts/pack-deploy-assets.sh"))
-    outputs.file(file("src/main/assets/deploy/stack.tar.gz.bin"))
-    outputs.file(file("src/main/assets/deploy/install.sh"))
-    outputs.file(file("src/main/assets/deploy/DEPLOY_VERSION"))
-}
-
 tasks.named("preBuild") {
-    dependsOn(buildBypassClient, packDeployAssets)
+    dependsOn(buildBypassClient)
 }
 
 dependencies {
