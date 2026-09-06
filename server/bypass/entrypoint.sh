@@ -66,11 +66,16 @@ setup_forwarding() {
   iptables -C FORWARD -o "${iface}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -o "${iface}" -m comment --comment "${comment}" -j ACCEPT || true
 
-  iptables -t nat -C POSTROUTING -s 10.9.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null \
-    || iptables -t nat -A POSTROUTING -s 10.9.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE || true
+  if [ "${ARDTT_CASCADE_ENABLED:-0}" = "1" ]; then
+    echo "[bypass] cascade on — skip WAN MASQ for 10.9.0.0/24 (hop owns egress)"
+  else
+    iptables -t nat -C POSTROUTING -s 10.9.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE 2>/dev/null \
+      || iptables -t nat -A POSTROUTING -s 10.9.0.0/24 -o "${wan}" -m comment --comment "${comment}" -j MASQUERADE || true
+  fi
 
-  # Inner TCP over RAW (MTU 1300) plus TURN overhead black-holes HTTPS
-  # without MSS clamp — small keepalives work, pages stall (~0.09 MB).
+  # Inner TCP over RAW plus TURN overhead black-holes HTTPS without MSS
+  # clamp — small keepalives work, pages stall (~0.09 MB). MTU matches
+  # cascade0 / Direct (1280); 1300 did not fit the hop.
   iptables -t mangle -C FORWARD -o "${iface}" -p tcp --tcp-flags SYN,RST SYN \
     -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
     || iptables -t mangle -A FORWARD -o "${iface}" -p tcp --tcp-flags SYN,RST SYN \
@@ -90,17 +95,29 @@ setup_forwarding
   -dns "${DNS}" &
 SERVER_PID=$!
 
+users_cred_fp() {
+  jq -c '[.users[] | {p:.password,h:.hostId,d:(.deactivated==true)}] | sort_by(.p)' \
+    "${USERS}" 2>/dev/null || echo "unreadable"
+}
+
 (
   last=$(stat -c %Y "${USERS}" 2>/dev/null || echo 0)
+  last_fp="$(users_cred_fp)"
   ticks=0
   while kill -0 "${SERVER_PID}" 2>/dev/null; do
     sleep 5
     ticks=$((ticks + 1))
     now=$(stat -c %Y "${USERS}" 2>/dev/null || echo 0)
     if [[ "${now}" != "${last}" ]]; then
-      echo "[bypass] users.json changed — sync + SIGHUP"
+      new_fp="$(users_cred_fp)"
       sync_passwords
-      kill -HUP "${SERVER_PID}" 2>/dev/null || true
+      if [[ "${new_fp}" != "${last_fp}" ]]; then
+        echo "[bypass] users.json credentials changed — sync + SIGHUP"
+        kill -HUP "${SERVER_PID}" 2>/dev/null || true
+        last_fp="${new_fp}"
+      else
+        echo "[bypass] users.json mtime only (heartbeat) — skip SIGHUP"
+      fi
       last="${now}"
     elif [[ $((ticks % 6)) -eq 0 ]]; then
       # Refresh traffic snapshot ~every 30s for provision admin UI.

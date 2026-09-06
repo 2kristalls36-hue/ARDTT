@@ -6,8 +6,9 @@ const (
 	rawServerAddr = "10.9.0.1"
 	rawServerCIDR = rawServerAddr + "/24"
 	// Raw path carries RTP-obfs (12 B header + 16 B AEAD tag + optional
-	// padding) plus TURN framing. MTU 1300 stays under Ethernet 1500.
-	rawMTU = 1300
+	// padding) plus TURN framing. 1280 matches cascade0 and Direct; 1300
+	// black-holed large inner packets on the hop (keepalives lived, pages stalled).
+	rawMTU = 1280
 
 	wrapKeyLen = 32
 )

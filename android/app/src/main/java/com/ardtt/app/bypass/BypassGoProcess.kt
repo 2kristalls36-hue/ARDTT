@@ -192,7 +192,7 @@ class BypassGoProcess(
             return RawConf(
                 ip = ip,
                 dnsCsv = fields["DNS"].orEmpty().ifBlank { "10.9.0.1" },
-                mtu = fields["MTU"]?.toIntOrNull() ?: 1300,
+                mtu = fields["MTU"]?.toIntOrNull() ?: 1280,
             )
         }
 
