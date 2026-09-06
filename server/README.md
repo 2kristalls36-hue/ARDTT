@@ -38,12 +38,12 @@ Call hash звонка на сервер **не** кладётся — толь�
 `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B (GPL-3, `bypass/wdtt-server/` —
 линия [SpaceNeuroX/qWDTT](https://github.com/SpaceNeuroX/proxy-turn-vk-android)).
 
-На VPS клонируйте **тег релиза**, не скользящий `main` (сейчас `v0.5.238` = стек **1.0.36**).
-Публичный репозиторий клонируется без PAT; приватный — SSH-ключ или token. Каноническая
+На VPS клонируйте **тег релиза**, не скользящий `main` (сейчас `v0.5.242` = стек **1.0.36**).
+Репозиторий публичный — HTTPS clone без PAT. Каноническая
 раскладка `/opt/ardtt` через `install.sh`: [Путь 2 в DEPLOY.md](../docs/DEPLOY.md#путь-2--git--compose).
 
 ```bash
-git clone --depth 1 --branch v0.5.238 \
+git clone --depth 1 --branch v0.5.242 \
   https://github.com/2kristalls36-hue/ARDTT.git
 cd ARDTT/server
 cp .env.example .env   # пропишите ARDTT_PUBLIC_HOST; COMPOSE_PROFILES=isolated

@@ -227,7 +227,7 @@ curl -s http://127.0.0.1:9100/health
 
 Тот же стек, что ставит приложение. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
 
-Клонируйте **тег релиза** (`v0.5.242` = клиент 0.5.242 и стек 1.0.36), не скользящий `main`. Публичный репозиторий клонируется без секретов. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`; с телефона достаточно `GITHUB_RELEASE_READ_TOKEN` во вшитом APK.
+Клонируйте **тег релиза** (`v0.5.242` = клиент 0.5.242 и стек 1.0.36), не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и GitHub Releases читаются без PAT.
 
 ```bash
 TAG=v0.5.242
@@ -438,8 +438,8 @@ docker exec ardtt provision -cmd create-user -name smoke -data /data
 
 | Симптом | Что проверить |
 |---------|----------------|
-| «Не удалось скачать стек … из GitHub» | Сеть на телефоне до github.com. Публичный репозиторий токен не нужен. Приватный — `GITHUB_RELEASE_READ_TOKEN` при сборке APK. Запас: [Путь 2](#путь-2--git--compose) с PAT на VPS |
-| `git clone`: Authentication failed | Репозиторий ещё приватный: PAT/SSH с правом `repo`, либо деплой из приложения (телефон качает через API-токен) |
+| «Не удалось скачать стек … из GitHub» | Сеть на телефоне до github.com. Репозиторий публичный, PAT не нужен. Запас: [Путь 2](#путь-2--git--compose) |
+| `git clone`: Authentication failed | Проверьте URL `https://github.com/2kristalls36-hue/ARDTT.git` и тег релиза. PAT не требуется |
 | `install.sh` + «Мало места» | На 8–10 ГБ VPS порог обновления ~500–1100 МБ; установщик сожмёт 2 ГБ swap до 1 ГБ и не удаляет неиспользуемые `stack-*` образы. Не делайте `docker image prune -af` вручную. |
 | `install.sh exit=1`, `Device or resource busy` в `/var/lib/docker/buildkit/.../rootfs` | Стек ≥**1.0.34**: umount + повтор, установка не падает. На 1 ГБ VPS старый `rm -rf` после `stop docker` обрывал каскад. Обновите APK и снова «Установить». |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
