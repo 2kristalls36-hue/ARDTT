@@ -58,7 +58,7 @@
 
 ## Репозиторий
 
-Публичный канонический источник **клиента и стека**. Push в `main` публикует GitHub Release: подписанные APK, `ardtt-update.json` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz`. В APK остаётся только метка `deploy/DEPLOY_VERSION` — карточка сервера сравнивает её с `/health`.
+Публичный канонический источник **клиента и стека**. GitHub Actions нет: подписанные APK, `ardtt-update.json` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz` публикуются в Releases вручную. В APK остаётся только метка `deploy/DEPLOY_VERSION` — карточка сервера сравнивает её с `/health`.
 
 ```
 ARDTT/
@@ -66,7 +66,7 @@ ARDTT/
 ├── server/       # единый Docker-образ ardtt (compose profile isolated)
 ├── scripts/      # APK, иконки, pack-stack (релизный архив server/)
 ├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
-├── .github/      # релиз APK + архив стека
+├── .github/      # FUNDING
 ├── CHANGELOG.md
 ├── LICENSE       # GNU GPL v3
 └── NOTICE        # Amnezia Apache-2.0 + SpaceNeuroX/qWDTT GPL RAW

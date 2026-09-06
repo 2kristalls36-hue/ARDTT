@@ -153,7 +153,7 @@ ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
 
 Порядок загрузки (`DeployStackFetcher`):
 
-1. GitHub Release тега `v<versionName>` — актив `ardtt-stack-<DEPLOY_VERSION>.tar.gz` (кладёт [android-release.yml](../.github/workflows/android-release.yml) через `scripts/pack-stack.sh`).
+1. GitHub Release тега `v<versionName>` — актив `ardtt-stack-<DEPLOY_VERSION>.tar.gz` (кладёт `scripts/pack-stack.sh`).
 2. Тот же актив в списке релизов, если имя совпадает с ожидаемой версией стека.
 3. Source-tarball GitHub (`/repos/…/tarball/<ref>` или `archive/refs/tags/…`) — `install.sh` сам находит `server/` внутри префикса `ARDTT-<tag>/`.
 4. Ветка `main`, если тега ещё нет (debug-сборка).
