@@ -44,9 +44,10 @@ Release (подписанный постоянным keystore):
 Каждый push в `main` (и тег `v*`) запускает workflow
 [`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml):
 
-1. Собирает подписанный `ardtt-<versionName>.apk`
-2. Публикует GitHub Release с тегом `v<versionName>`
-3. Кладёт рядом `ardtt-update.json` и `SHA256SUMS.txt`
+1. Собирает подписанные `ardtt-<versionName>-*.apk`
+2. Пакует `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из `server/` (`scripts/pack-stack.sh`)
+3. Публикует GitHub Release с тегом `v<versionName>`
+4. Кладёт рядом `ardtt-update.json` и `SHA256SUMS.txt`
 
 **Секреты репозитория** (Settings → Secrets → Actions):
 
