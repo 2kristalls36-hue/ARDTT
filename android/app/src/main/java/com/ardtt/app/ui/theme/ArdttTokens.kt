@@ -144,7 +144,8 @@ object ArdttSize {
     /** Height of every primary (sticky / full-width) button. */
     val Button: Dp = 58.dp
 
-    /** Inner height of the floating tab pill. */
+    /** Inner height of the floating tab pill.
+     *  Icon + trimmed 10 sp caption must fit; do not grow this to hide clip. */
     val NavTrack: Dp = 48.dp
 
     /** Screen space the floating tab pill occupies, insets excluded.
