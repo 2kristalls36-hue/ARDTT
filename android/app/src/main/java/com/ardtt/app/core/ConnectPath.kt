@@ -33,8 +33,8 @@ fun resolveConnectPath(
 }
 
 /**
- * Forced Bypass starts RAW without waiting on TCP :9100. Auto on cellular
- * always probes: open LTE (VPS up) must not skip into Bypass. Auto on Wi‑Fi
+ * Forced Bypass starts RAW without waiting on VPS /health. Auto on cellular
+ * always probes: open LTE (Cloudflare TLS + /health) must not skip into Bypass. Auto on Wi‑Fi
  * does not skip here either — [autoUsesDirectOnWifi] takes Direct without
  * using this Bypass-only shortcut.
  */
