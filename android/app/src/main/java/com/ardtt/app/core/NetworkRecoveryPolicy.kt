@@ -429,11 +429,12 @@ const val WARM_CALL_HOLD_MS = 5 * 60 * 1000L
 fun shouldParkBypassCall(from: VpnPath, to: VpnPath): Boolean =
     from == VpnPath.Bypass && to == VpnPath.Direct
 
-/** VALIDATED Wi‑Fi wins over LTE even if SSID APIs are blank. */
+/** VALIDATED or actually-connected Wi‑Fi wins over LTE even if SSID APIs are blank. */
 fun preferWifiUnderlayKind(
     hasValidatedWifi: Boolean,
     pickBestKind: UnderlayKind,
-): UnderlayKind = if (hasValidatedWifi) UnderlayKind.Wifi else pickBestKind
+    wifiConnected: Boolean = false,
+): UnderlayKind = if (hasValidatedWifi || wifiConnected) UnderlayKind.Wifi else pickBestKind
 
 fun shouldReconnectTunnelAfterWake(
     activeWorkers: Int,

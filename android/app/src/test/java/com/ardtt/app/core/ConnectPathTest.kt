@@ -128,6 +128,13 @@ class ConnectPathTest {
                 bypassAllowed = true,
             ),
         )
+        val shown = displayedAutoProbe(ConnPathMode.Auto, UnderlayKind.Wifi, needBypass)
+        assertEquals(VpnPath.Direct, shown.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, shown.networkClass)
+        assertEquals(
+            VpnPath.Bypass,
+            displayedAutoProbe(ConnPathMode.Auto, UnderlayKind.Cellular, needBypass).preselectedPath,
+        )
     }
 
     @Test

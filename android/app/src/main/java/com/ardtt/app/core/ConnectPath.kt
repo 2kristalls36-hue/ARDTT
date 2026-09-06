@@ -7,6 +7,27 @@ package com.ardtt.app.core
 fun autoUsesDirectOnWifi(mode: ConnPathMode, underlayKind: UnderlayKind): Boolean =
     mode == ConnPathMode.Auto && underlayKind == UnderlayKind.Wifi
 
+fun wifiAutoDirectProbe(elapsedMs: Long = 0): ProbeResult = ProbeResult(
+    networkClass = NetworkClass.DirectOk,
+    preselectedPath = VpnPath.Direct,
+    systemOnline = true,
+    yandexOk = true,
+    bigtechOk = true,
+    captive = false,
+    awgUdpOk = true,
+    provisionOk = true,
+    message = "Авто на Wi‑Fi: прямое подключение",
+    elapsedMs = elapsedMs,
+)
+
+/** Auto on Wi‑Fi never shows or follows a Bypass probe. */
+fun displayedAutoProbe(
+    mode: ConnPathMode,
+    underlayKind: UnderlayKind,
+    measured: ProbeResult,
+): ProbeResult =
+    if (autoUsesDirectOnWifi(mode, underlayKind)) wifiAutoDirectProbe(measured.elapsedMs) else measured
+
 /**
  * Initial Connect path. Auto on Wi‑Fi is always Direct. On cellular (and
  * unknown underlay) Auto follows the probe: open internet + VPS :9100 → Direct;

@@ -150,6 +150,20 @@ fun underlayIdentity(context: Context): String {
     }
 }
 
+fun hasValidatedWifiUnderlay(context: Context): Boolean {
+    val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+        as? ConnectivityManager ?: return false
+    return runCatching {
+        cm.allNetworks.any { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@any false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+    }.getOrDefault(false)
+}
+
 fun pickBestUnderlayNetwork(context: Context): android.net.Network? {
     val app = context.applicationContext
     val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
