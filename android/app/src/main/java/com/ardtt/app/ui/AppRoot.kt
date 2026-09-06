@@ -423,6 +423,7 @@ fun AppRoot(
                             ProfilesScreen(
                                 settings = settings,
                                 profiles = profiles,
+                                serversRepo = serversRepo,
                                 onApplied = { navigateTab(AppDestination.Tunnel.route) },
                             )
                         }

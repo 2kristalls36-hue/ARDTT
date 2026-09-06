@@ -46,6 +46,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.deploy.DeployTarget
+import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.PendingProfileImport
 import com.ardtt.app.profile.ProfileCatalog
 import com.ardtt.app.profile.ProfileImportResolver
@@ -55,9 +58,14 @@ import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.VpnProfileJson
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.PROFILE_SWITCH_LOCKED_MESSAGE
+import com.ardtt.app.ui.admin.ClientExpiresTone
+import com.ardtt.app.ui.admin.clientExpiresTone
+import com.ardtt.app.ui.admin.formatClientExpires
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
+import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
@@ -82,12 +90,15 @@ import kotlinx.coroutines.launch
 fun ProfilesScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
+    serversRepo: ServersRepository,
     onApplied: () -> Unit,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
     val connUi by conn.ui.collectAsStateWithLifecycle()
     val catalog by profiles.catalog.collectAsStateWithLifecycle(initialValue = ProfileCatalog())
+    val servers by serversRepo.servers.collectAsStateWithLifecycle(initialValue = emptyList())
+    var liveFacts by remember { mutableStateOf<Map<String, ProfileLiveFacts>>(emptyMap()) }
     val profileSwitchLocked = vpnSessionBlocksProfileSwitch(connUi.state)
     val switchLocked = rememberUpdatedState(profileSwitchLocked)
     val scope = rememberCoroutineScope()
@@ -163,6 +174,18 @@ fun ProfilesScreen(
 
     LaunchedEffect(Unit) {
         PendingProfileImport.take()?.let { importResolved(it, "Профиль из ссылки импортирован") }
+    }
+
+    LaunchedEffect(catalog.items) {
+        val next = linkedMapOf<String, ProfileLiveFacts>()
+        catalog.items.groupBy { it.profile.provisionBaseUrl }.forEach { (base, items) ->
+            if (base.isNullOrBlank()) return@forEach
+            val users = ProvisionAdminApi.listUsers(base).getOrNull() ?: return@forEach
+            items.forEach { item ->
+                profileLiveFactsFromUsers(item.profile.name, users)?.let { next[item.id] = it }
+            }
+        }
+        liveFacts = next
     }
 
     val scanQr = rememberLauncherForActivityResult(ScanContract()) { result ->
@@ -252,6 +275,8 @@ fun ProfilesScreen(
                         item = item,
                         active = item.id == catalog.activeId,
                         selectionLocked = profileSwitchLocked,
+                        servers = servers,
+                        liveFacts = liveFacts[item.id],
                         onSelect = { applyProfile(item) },
                         onOpen = { applyProfile(item, openTunnel = true) },
                         onCopy = {
@@ -431,6 +456,8 @@ private fun ProfileCard(
     item: StoredProfile,
     active: Boolean,
     selectionLocked: Boolean,
+    servers: List<DeployTarget>,
+    liveFacts: ProfileLiveFacts?,
     onSelect: () -> Unit,
     onOpen: () -> Unit,
     onCopy: () -> Unit,
@@ -447,6 +474,14 @@ private fun ProfileCard(
         active -> ArdttColors.Connected
         selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
         else -> colors.onSurface
+    }
+    val facts = profileCardFacts(item.profile, liveFacts)
+    val addressHosts = profileCardAddressHosts(item.profile, servers)
+    val expiresTone = clientExpiresTone(facts.expiresAt)
+    val expiresColor = when (expiresTone) {
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> ArdttColors.Connected
+        ClientExpiresTone.ExpiringSoon -> ArdttColors.Warning
+        ClientExpiresTone.Expired -> colors.error
     }
     ArdttCompactCard(
         modifier = Modifier.clickable(enabled = !selectionLocked, onClick = onSelect),
@@ -499,26 +534,27 @@ private fun ProfileCard(
                         )
                     }
                 }
-                Text(
-                    item.profile.direct.endpoint.ifBlank { item.profile.bypass.peer },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                ArdttIpHostRow(
+                    hosts = addressHosts,
+                    modifier = Modifier.fillMaxWidth(),
+                    muted = muted,
                 )
-                if (item.profile.hostId > 0 || active) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                ) {
                     Text(
-                        buildString {
-                            if (item.profile.hostId > 0) append("host ${item.profile.hostId}")
-                            if (active) {
-                                if (item.profile.hostId > 0) append(" · ")
-                                append("выбран")
-                            }
-                        },
+                        profileTrafficRemainingLabel(facts.trafficLimitBytes, facts.usedBytes),
                         style = MaterialTheme.typography.labelSmall,
                         color = muted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ArdttStatusChip(
+                        text = formatClientExpires(facts.expiresAt),
+                        accent = expiresColor,
                     )
                 }
             }

@@ -104,8 +104,9 @@ import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
+import com.ardtt.app.ui.components.feedback.ArdttIpChip
+import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
-import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
@@ -240,16 +241,32 @@ private fun pingLatencyColor(
 }
 
 @Composable
+private fun serverPresenceColor(health: HealthUi?): Color = when (health) {
+    is HealthUi.Online -> ArdttColors.Connected
+    HealthUi.Unreachable, HealthUi.NotInstalled -> MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.primary
+}
+
+@Composable
+private fun ServerPresenceLabel(health: HealthUi?) {
+    val parts = healthStatusParts(health)
+    Text(
+        parts.presence,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = serverPresenceColor(health),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
 private fun ServerHealthStatusRow(
     health: HealthUi?,
     expectedVersion: String,
 ) {
-    val parts = healthStatusParts(health)
-    val presenceColor = when (health) {
-        is HealthUi.Online -> ArdttColors.Connected
-        HealthUi.Unreachable, HealthUi.NotInstalled -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
+    val parts = healthStatusParts(health, expectedVersion)
+    if (parts.deploy.isNullOrEmpty() && parts.pingLabel.isEmpty()) return
     val deployColor = when (health) {
         is HealthUi.Online ->
             if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
@@ -264,17 +281,8 @@ private fun ServerHealthStatusRow(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
     ) {
-        Text(
-            parts.presence,
-            style = labelStyle,
-            fontWeight = FontWeight.SemiBold,
-            color = presenceColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Start,
-            modifier = Modifier.weight(1f),
-        )
         Text(
             parts.deploy.orEmpty(),
             style = labelStyle,
@@ -282,7 +290,7 @@ private fun ServerHealthStatusRow(
             color = deployColor ?: Color.Transparent,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
+            textAlign = TextAlign.Start,
             modifier = Modifier.weight(1f),
         )
         Text(
@@ -293,7 +301,6 @@ private fun ServerHealthStatusRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f),
         )
     }
 }
@@ -647,10 +654,16 @@ private fun ServerCard(
     server: DeployTarget,
     health: HealthUi?,
     expectedVersion: String,
-    onOpenServer: () -> Unit,
+    onOpenServer: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    ArdttCompactCard(modifier = modifier.clickable(onClick = onOpenServer)) {
+    ArdttCompactCard(
+        modifier = if (onOpenServer != null) {
+            modifier.clickable(onClick = onOpenServer)
+        } else {
+            modifier
+        },
+    ) {
         ServerIdentityBody(
             server = server,
             health = health,
@@ -664,16 +677,17 @@ private fun ServerIdentityBody(
     server: DeployTarget,
     health: HealthUi?,
     expectedVersion: String,
-    extraLines: List<String> = emptyList(),
 ) {
-    val cascadeSpan = serverCardCascadeIpSpan(
+    val cascadeHosts = serverCardCascadeHosts(
         host = server.host,
         publicHost = server.publicHost,
         cascadeEnabled = server.cascadeEnabled,
         cascadeHost = server.cascadeHost,
     )
+    val cascadeSpan = cascadeHosts.takeIf { it.size >= 2 }?.joinToString(" → ")
     val title = serverCardTitle(server.name, server.host, cascadeSpan)
-    val meta = serverCardMetaLine(
+    val titleHosts = serverCardTitleHosts(server.name, server.host, cascadeHosts)
+    val meta = serverCardMetaParts(
         name = server.name,
         host = server.host,
         sshPort = server.sshPort,
@@ -681,7 +695,6 @@ private fun ServerIdentityBody(
         cascadeEnabled = server.cascadeEnabled,
         cascadeHost = server.cascadeHost,
     )
-    val freshnessChip = deployFreshnessChipText(health, expectedVersion)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(
@@ -702,46 +715,59 @@ private fun ServerIdentityBody(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (titleHosts.isNotEmpty()) {
+                    ArdttIpHostRow(
+                        hosts = titleHosts,
+                        modifier = Modifier.weight(1f),
+                        muted = muted,
+                    )
+                } else {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 ServerOsBadge(
                     osId = server.osId,
                     osVersion = server.osVersion,
                 )
             }
-            Text(
-                meta,
-                style = MaterialTheme.typography.labelSmall,
-                color = muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            extraLines.forEach { line ->
-                Text(
-                    line,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                ) {
+                    if (meta.hosts.isNotEmpty()) {
+                        ArdttIpHostRow(hosts = meta.hosts, muted = muted)
+                        Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
+                    }
+                    Text(
+                        "SSH ${meta.sshPort}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = muted,
+                        maxLines = 1,
+                    )
+                    meta.pubHost?.let { pub ->
+                        Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
+                        ArdttIpChip(pub)
+                    }
+                }
+                ServerPresenceLabel(health)
             }
             ServerHealthStatusRow(
                 health = health,
                 expectedVersion = expectedVersion,
             )
-            freshnessChip?.let { chip ->
-                ArdttStatusChip(
-                    text = chip,
-                    accent = ArdttColors.Warning,
-                )
-            }
         }
     }
 }
@@ -904,6 +930,8 @@ private fun ServerOverviewHost(
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
     val engineIsUninstall by engine.isUninstall.collectAsStateWithLifecycle()
     val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var deleteConfirmOffline by remember { mutableStateOf(false) }
 
     LaunchedEffect(servers, serverId, showDeleteProgress) {
         if (showDeleteProgress) return@LaunchedEffect
@@ -965,6 +993,27 @@ private fun ServerOverviewHost(
         }
     }
 
+    fun startLocalCardDelete(target: DeployTarget) {
+        showDeleteConfirm = false
+        serversRepo.delete(target.id)
+        onBack()
+    }
+
+    fun openDeleteConfirm(target: DeployTarget) {
+        val current = health
+        if (current is HealthUi.Online || current is HealthUi.NotInstalled) {
+            deleteConfirmOffline = false
+            showDeleteConfirm = true
+            return
+        }
+        scope.launch {
+            health = HealthUi.Checking
+            health = probeServerHealthUi(target, serversRepo)
+            deleteConfirmOffline = serverDeleteIsOffline(health)
+            showDeleteConfirm = true
+        }
+    }
+
     val pull = rememberPullRefresh {
         val target = server ?: return@rememberPullRefresh
         health = probeServerHealthUi(target, serversRepo)
@@ -987,7 +1036,7 @@ private fun ServerOverviewHost(
                 showActions = showActions,
                 onShowActions = { showActions = it },
                 onRename = { showRename = true },
-                onDelete = { showDeleteConfirm = true },
+                onDelete = { openDeleteConfirm(server) },
                 refreshing = pull.refreshing,
                 onRefresh = pull.onRefresh,
             )
@@ -1003,11 +1052,17 @@ private fun ServerOverviewHost(
             }
             if (showDeleteConfirm) {
                 ArdttDialog(
-                    title = serverDeleteConfirmTitle(),
+                    title = serverDeleteConfirmTitle(deleteConfirmOffline),
                     onDismissRequest = { if (!busy) showDeleteConfirm = false },
                     confirmAction = ArdttDialogAction(
-                        text = "Удалить",
-                        onClick = { startUninstall(server) },
+                        text = serverDeleteConfirmAction(deleteConfirmOffline),
+                        onClick = {
+                            if (deleteConfirmOffline) {
+                                startLocalCardDelete(server)
+                            } else {
+                                startUninstall(server)
+                            }
+                        },
                         destructive = true,
                         enabled = !busy,
                     ),
@@ -1024,6 +1079,7 @@ private fun ServerOverviewHost(
                             host = server.host,
                             cascadeEnabled = server.cascadeEnabled,
                             cascadeHost = server.cascadeHost,
+                            offline = deleteConfirmOffline,
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1180,20 +1236,11 @@ private fun ServerOverviewScreen(
                     verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                 ) {
             item {
-                ArdttCompactCard {
-                    ServerIdentityBody(
-                        server = server,
-                        health = health,
-                        expectedVersion = expectedVersion,
-                        extraLines = listOf(
-                            if (server.autoPorts) {
-                                "Автопорты · Direct ${server.directPort}  ·  Bypass ${server.bypassPort}"
-                            } else {
-                                "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}"
-                            },
-                        ),
-                    )
-                }
+                ServerCard(
+                    server = server,
+                    health = health,
+                    expectedVersion = expectedVersion,
+                )
             }
             item {
                 Text(

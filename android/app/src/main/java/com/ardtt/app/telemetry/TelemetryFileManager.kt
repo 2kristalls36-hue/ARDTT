@@ -80,7 +80,7 @@ class TelemetryFileManager(private val context: Context) {
     companion object {
         const val MAX_FILE_BYTES = 100L * 1024 * 1024
 
-        fun embedUserComment(file: File, comment: String) {
+        fun embedUserComment(file: File, comment: String, ticketNumber: Int = 0) {
             require(file.isFile) { "Лог-файл не найден" }
             val cleaned = TelemetryRedactor.redact(comment.trim())
             require(cleaned.isNotBlank()) { "Введите комментарий" }
@@ -88,23 +88,27 @@ class TelemetryFileManager(private val context: Context) {
                 if (file.length() > 0L && !fileEndsWithNewline(file)) {
                     writer.newLine()
                 }
-                writer.write(buildUserCommentLine(cleaned))
+                writer.write(buildUserCommentLine(cleaned, ticketNumber = ticketNumber))
                 writer.newLine()
             }
         }
 
-        internal fun buildUserCommentLine(comment: String, timestamp: Long = System.currentTimeMillis()): String =
-            JSONObject()
+        internal fun buildUserCommentLine(
+            comment: String,
+            timestamp: Long = System.currentTimeMillis(),
+            ticketNumber: Int = 0,
+        ): String {
+            val data = JSONObject()
+                .put("comment", TelemetryRedactor.redact(comment.trim()))
+                .put("source", "testing_screen")
+            if (ticketNumber > 0) data.put("ticket", ticketNumber)
+            return JSONObject()
                 .put("timestamp", timestamp)
                 .put("event_type", TelemetryEventType.UserComment.wire)
                 .put("session_id", "user-comment")
-                .put(
-                    "data",
-                    JSONObject()
-                        .put("comment", TelemetryRedactor.redact(comment.trim()))
-                        .put("source", "testing_screen"),
-                )
+                .put("data", data)
                 .toString()
+        }
 
         private fun fileEndsWithNewline(file: File): Boolean =
             file.inputStream().use { stream ->

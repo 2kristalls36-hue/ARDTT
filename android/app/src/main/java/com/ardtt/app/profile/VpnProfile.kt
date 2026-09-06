@@ -19,6 +19,8 @@ data class VpnProfile(
     val maxDevices: Int = 1,
     val direct: DirectConfig,
     val bypass: BypassConfig,
+    val trafficLimitBytes: Long = 0L,
+    val usedBytes: Long = 0L,
 ) {
     val provisionBaseUrl: String?
         get() {
@@ -92,6 +94,8 @@ object VpnProfileJson {
             expiresAt = o.optLong("expiresAt", 0L),
             deactivated = o.optBoolean("deactivated", false),
             maxDevices = o.optInt("maxDevices", 1).coerceAtLeast(1),
+            trafficLimitBytes = o.optLong("trafficLimitBytes", 0L),
+            usedBytes = o.optLong("usedBytes", 0L),
             direct = DirectConfig(
                 endpoint = direct.optString("endpoint", ""),
                 privateKey = direct.optString("privateKey", ""),
@@ -127,6 +131,8 @@ object VpnProfileJson {
             .put("expiresAt", profile.expiresAt)
             .put("deactivated", profile.deactivated)
             .put("maxDevices", profile.maxDevices)
+            .put("trafficLimitBytes", profile.trafficLimitBytes)
+            .put("usedBytes", profile.usedBytes)
             .put(
                 "direct",
                 JSONObject()
