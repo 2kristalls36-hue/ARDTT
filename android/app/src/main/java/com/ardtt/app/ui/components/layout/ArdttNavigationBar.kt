@@ -31,11 +31,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
@@ -62,12 +65,34 @@ private object NavBarDefaults {
     val TrackPadding = ArdttSpacing.Small
     val IndicatorInset = ArdttSpacing.TinyPlus
     val LabelSize = 10.sp
+    val LabelMinSize = 7.5.sp
+    val LabelLineHeight = 11.sp
+    const val LabelSizeStep = 0.5f
 
     /** Emphasis above which a tab label turns semibold / fully opaque. */
     const val BoldEmphasis = 0.55f
     const val OpaqueEmphasis = 0.4f
     const val FadedLabelAlpha = 0.5f
     const val MaxBadgeCount = 99
+}
+
+/**
+ * Shrink a tab caption until it fits [maxWidthPx]. Eight admin tabs share a
+ * phone-width pill; 10 sp clips «Туннель» / «Сервера» / «Профили».
+ */
+internal fun fitNavLabelSp(
+    maxWidthPx: Int,
+    maxSp: Float = NavBarDefaults.LabelSize.value,
+    minSp: Float = NavBarDefaults.LabelMinSize.value,
+    stepSp: Float = NavBarDefaults.LabelSizeStep,
+    widthAt: (Float) -> Int,
+): Float {
+    if (maxWidthPx <= 0) return minSp
+    var size = maxSp
+    while (size > minSp && widthAt(size) > maxWidthPx) {
+        size = ((size - stepSp) * 10f).toInt() / 10f
+    }
+    return size.coerceAtLeast(minSp)
 }
 
 /** Floating pill bottom bar with a sliding selection indicator. */
@@ -179,7 +204,6 @@ private fun NavBarTab(
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .clip(ArdttShapes.Menu)
             .clickable(onClick = onSelect),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -202,18 +226,10 @@ private fun NavBarTab(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(ArdttSpacing.Tiny))
-        Text(
+        Spacer(modifier = Modifier.height(ArdttSpacing.Hairline))
+        NavBarLabel(
             text = item.label,
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = NavBarDefaults.LabelSize,
-                letterSpacing = 0.sp,
-            ),
-            fontWeight = if (emphasis > NavBarDefaults.BoldEmphasis) {
-                FontWeight.SemiBold
-            } else {
-                FontWeight.Normal
-            },
+            emphasis = emphasis,
             color = iconColor.copy(
                 alpha = if (emphasis > NavBarDefaults.OpaqueEmphasis) {
                     1f
@@ -221,8 +237,53 @@ private fun NavBarTab(
                     NavBarDefaults.FadedLabelAlpha
                 },
             ),
+        )
+    }
+}
+
+@Composable
+private fun NavBarLabel(
+    text: String,
+    emphasis: Float,
+    color: Color,
+) {
+    val measurer = rememberTextMeasurer()
+    val weight = if (emphasis > NavBarDefaults.BoldEmphasis) {
+        FontWeight.SemiBold
+    } else {
+        FontWeight.Normal
+    }
+    val baseStyle = MaterialTheme.typography.labelSmall.copy(
+        letterSpacing = 0.sp,
+        lineHeight = NavBarDefaults.LabelLineHeight,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.Both,
+        ),
+    )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val maxWidthPx = constraints.maxWidth
+        val fontSize = fitNavLabelSp(maxWidthPx) { sizeSp ->
+            measurer.measure(
+                text = text,
+                style = baseStyle.copy(
+                    fontSize = sizeSp.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                maxLines = 1,
+                softWrap = false,
+            ).size.width
+        }
+        Text(
+            text = text,
+            modifier = Modifier.fillMaxWidth(),
+            style = baseStyle.copy(fontSize = fontSize.sp),
+            fontWeight = weight,
+            color = color,
+            textAlign = TextAlign.Center,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Clip,
             softWrap = false,
         )
     }
