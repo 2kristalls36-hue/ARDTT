@@ -34,6 +34,12 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun enableActionLabelInvertsCurrentState() {
+        assertEquals("Выключить", clientEnableActionLabel(deactivated = false))
+        assertEquals("Включить", clientEnableActionLabel(deactivated = true))
+    }
+
+    @Test
     fun deviceSummaryPrefersPhoneModel() {
         val summary = clientDeviceSummary(
             user(
