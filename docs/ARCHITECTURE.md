@@ -397,5 +397,5 @@ Call hash — **локально на устройстве**, не обязан 
 | WRAP без DTLS | Пароль как секрет; сильный Path A |
 | GPL | GPL-3 на APK + NOTICE |
 | warp RAM | GOMEMLIMIT, без restart контейнера |
-| Ложный VPS probe | TCP :9100 ≠ AWG UDP; БС (Yandex↑ CF↓) → обход, даже если provision отвечает |
+| Ложный VPS probe | TCP :9100 и TCP 1.1.1.1 ≠ открытый интернет; Cloudflare = TLS/UDP; БС (Yandex↑ CF TLS↓) → обход |
 | Скорость RAW | workers default 3, не 1 |

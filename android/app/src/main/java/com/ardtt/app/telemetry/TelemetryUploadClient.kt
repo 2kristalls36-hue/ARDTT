@@ -77,10 +77,7 @@ class TelemetryUploadClient {
             execute(context, request).use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    throw IllegalStateException(
-                        "Сервер логов вернул ${response.code}" +
-                            if (body.isNotBlank()) ": ${body.take(200)}" else "",
-                    )
+                    throw IllegalStateException(telemetryHttpError(response.code, body))
                 }
                 parseClientInbox(body)
             }
@@ -90,10 +87,7 @@ class TelemetryUploadClient {
             defaultClient().newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    throw IllegalStateException(
-                        "Сервер логов вернул ${response.code}" +
-                            if (body.isNotBlank()) ": ${body.take(200)}" else "",
-                    )
+                    throw IllegalStateException(telemetryHttpError(response.code, body))
                 }
                 parseClientInbox(body)
             }
@@ -143,10 +137,7 @@ class TelemetryUploadClient {
         onProgress(1f)
         val body = it.body?.string().orEmpty()
         if (!it.isSuccessful) {
-            throw IllegalStateException(
-                "Сервер логов вернул ${it.code}" +
-                    if (body.isNotBlank()) ": ${body.take(200)}" else "",
-            )
+            throw IllegalStateException(telemetryHttpError(it.code, body))
         }
         parseUploadResponse(body, fallbackName)
     }
@@ -192,6 +183,8 @@ class TelemetryUploadClient {
                 "Таймаут отправки лога. Повторите при стабильной сети."
             t is UnknownHostException ->
                 "Не удалось разрешить адрес сервера логов."
+            telemetryLooksLikeHtml(msg) ->
+                "Сервер логов вернул ошибку (HTML вместо JSON). Проверьте приёмник логов на VPS."
             msg.isNotBlank() -> msg
             else -> "Не удалось отправить лог"
         }
@@ -211,6 +204,25 @@ internal fun telemetryApiBase(uploadUrl: String): String {
         "/api/" in trimmed -> trimmed.substringBefore("/api/")
         else -> trimmed
     }
+}
+
+internal fun telemetryLooksLikeHtml(body: String): Boolean {
+    val trimmed = body.trimStart().lowercase()
+    return trimmed.startsWith("<!doctype") ||
+        trimmed.startsWith("<html") ||
+        "<html" in trimmed
+}
+
+internal fun telemetryHttpError(code: Int, body: String): String {
+    val trimmed = body.trim()
+    if (telemetryLooksLikeHtml(trimmed)) {
+        return if (code == 404) {
+            "Сервер логов не знает маршрут истории (404). Приёмник логов на VPS нужно обновить."
+        } else {
+            "Сервер логов вернул $code (страница HTML вместо JSON)."
+        }
+    }
+    return "Сервер логов вернул $code" + if (trimmed.isNotBlank()) ": ${trimmed.take(200)}" else ""
 }
 
 internal fun telemetryClientStatusUrl(uploadUrl: String, clientId: String): String {

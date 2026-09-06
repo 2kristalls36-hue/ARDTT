@@ -11,10 +11,14 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
+import kotlin.coroutines.coroutineContext
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.job
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -24,12 +28,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Does NOT bring up VpnService.
  *
  * Classification (fail-fast, no DNS on the internet/БС checks):
- * - **77.88.8.8** (Yandex DNS) — reaches even on operator whitelist (БС).
- * - **1.1.1.1** (Cloudflare) — reaches on open internet, typically blocked on БС.
- * - **VPS provision TCP** — the VPS IP answers :9100. This is **not** AWG UDP
- *   :51820. On operator whitelist Auto still picks Bypass (UDP is usually dropped).
+ * - **77.88.8.8** (Yandex DNS) — TCP :443/:53 even on operator whitelist (БС).
+ * - **1.1.1.1** (Cloudflare) — open internet only after TLS :443 or UDP :53.
+ *   TCP connect is not enough (MTS: SYN/ACK, TLS dead, AWG UDP dropped).
+ * - **VPS /health** — HTTP, not TCP :9100 (MTS: connect works, GET times out).
+ *   That TCP path is **not** AWG UDP :51820.
  *
- * Path waits for 1.1.1.1 when :9100 is up, so whitelist is not classified as Direct.
+ * Direct only when Cloudflare is actually open. Yandex-up + Cloudflare-down
+ * is Bypass without waiting for :9100.
  */
 object NetworkProbe {
 
@@ -48,12 +54,14 @@ object NetworkProbe {
         val tcpMs = if (quick) 450 else 700
         val captiveMs = if (quick) 400 else 600
         val healthMs = if (quick) 600 else 900
+        val tlsMs = if (quick) 800 else 1200
+        val udpMs = if (quick) 500 else 700
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
                 val systemOnline = isSystemOnline(context, bindNetwork)
                 val yandexDef = async { ipReachable(YANDEX_DNS_IP, tcpMs, bindNetwork) }
-                val cloudflareDef = async { ipReachable(CLOUDFLARE_IP, tcpMs, bindNetwork) }
+                val cloudflareDef = async { cloudflareOpen(tlsMs, udpMs, bindNetwork) }
                 val provisionDef = async { provisionReachable(provisionBaseUrl, healthMs, bindNetwork) }
 
                 var yandexOk: Boolean? = null
@@ -215,6 +223,98 @@ object NetworkProbe {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
+    /**
+     * Open-internet check for 1.1.1.1. TLS or UDP DNS — not TCP connect.
+     * T-Mobile textbook БС fails both quickly; MTS accepts TCP and fails here.
+     */
+    internal suspend fun cloudflareOpen(
+        tlsMs: Int,
+        udpMs: Int,
+        bindNetwork: Network?,
+    ): Boolean = coroutineScope {
+        val tls = async { tlsReachable(CLOUDFLARE_IP, 443, tlsMs, bindNetwork) }
+        val udp = async { udpDnsReachable(CLOUDFLARE_IP, udpMs, bindNetwork) }
+        try {
+            select {
+                tls.onAwait { ok -> if (ok) true else udp.await() }
+                udp.onAwait { ok -> if (ok) true else tls.await() }
+            }
+        } finally {
+            tls.cancel()
+            udp.cancel()
+        }
+    }
+
+    internal suspend fun tlsReachable(
+        host: String,
+        port: Int,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
+        val raw = Socket()
+        var ssl: SSLSocket? = null
+        val closeAll = {
+            runCatching { ssl?.close() }
+            runCatching { raw.close() }
+        }
+        val cancelHook = coroutineContext.job.invokeOnCompletion { closeAll() }
+        return try {
+            val addr = numericIpv4(host)
+            raw.tcpNoDelay = true
+            bindNetwork?.bindSocket(raw)
+            if (addr != null) {
+                raw.connect(InetSocketAddress(addr, port), timeoutMs)
+            } else {
+                raw.connect(InetSocketAddress(host, port), timeoutMs)
+            }
+            raw.soTimeout = timeoutMs
+            ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(raw, host, port, true) as SSLSocket
+            applyHttpsEndpointIdentification(ssl)
+            ssl.soTimeout = timeoutMs
+            ssl.startHandshake()
+            ssl.session != null && ssl.session.isValid
+        } catch (_: Exception) {
+            false
+        } finally {
+            cancelHook.dispose()
+            closeAll()
+        }
+    }
+
+    internal fun applyHttpsEndpointIdentification(ssl: SSLSocket) {
+        val params = ssl.sslParameters
+        params.endpointIdentificationAlgorithm = "HTTPS"
+        ssl.sslParameters = params
+    }
+
+    internal suspend fun udpDnsReachable(
+        ip: String,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): Boolean {
+        val socket = DatagramSocket()
+        val cancelHook = coroutineContext.job.invokeOnCompletion {
+            runCatching { socket.close() }
+        }
+        return try {
+            bindNetwork?.bindSocket(socket)
+            socket.soTimeout = timeoutMs
+            val query = buildDnsQuery()
+            val addr = numericIpv4(ip) ?: InetAddress.getByName(ip)
+            socket.send(DatagramPacket(query, query.size, addr, 53))
+            val buf = ByteArray(512)
+            val reply = DatagramPacket(buf, buf.size)
+            socket.receive(reply)
+            reply.length > 0
+        } catch (_: Exception) {
+            false
+        } finally {
+            cancelHook.dispose()
+            runCatching { socket.close() }
+        }
+    }
+
     /** TCP 443 and 53 in parallel — first success wins. Literal IPs, no DNS. */
     internal suspend fun ipReachable(
         ip: String,
@@ -338,15 +438,36 @@ object NetworkProbe {
         }
     }
 
-    /** TCP to provision host:port — faster than HTTP GET, enough to know the VPS IP is reachable. */
+    internal fun provisionHealthUrl(baseUrl: String?): String? {
+        val base = baseUrl?.trim()?.trimEnd('/') ?: return null
+        if (base.isEmpty()) return null
+        return if (base.endsWith("/health")) base else "$base/health"
+    }
+
+    /** HTTP GET /health — TCP :9100 is not a working Direct path. */
     internal fun provisionReachable(
         baseUrl: String?,
         timeoutMs: Int,
         bindNetwork: Network?,
     ): Boolean {
-        val endpoint = parseProvisionEndpoint(baseUrl) ?: return false
-        return tcpReachable(endpoint.first, endpoint.second, timeoutMs, bindNetwork)
+        val healthUrl = provisionHealthUrl(baseUrl) ?: return false
+        return try {
+            val conn = openHttp(URL(healthUrl), bindNetwork).apply {
+                instanceFollowRedirects = false
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+                requestMethod = "GET"
+            }
+            val code = conn.responseCode
+            conn.disconnect()
+            provisionHealthAccepted(code)
+        } catch (_: Exception) {
+            false
+        }
     }
+
+    /** Only the VPS /health 200. Redirects and 3xx/204 look like a portal. */
+    internal fun provisionHealthAccepted(code: Int): Boolean = code == 200
 
     internal fun parseProvisionEndpoint(baseUrl: String?): Pair<String, Int>? =
         NetworkProbePolicy.parseProvisionEndpoint(baseUrl)
