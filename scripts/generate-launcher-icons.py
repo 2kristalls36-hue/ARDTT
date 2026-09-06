@@ -189,6 +189,16 @@ ROUND_RIM_FRAC = 0.016
 # AdaptiveIconDrawable draws each 108dp layer at 1.5× bounds; the launcher
 # only shows the inner 72dp. A rim at the 108dp edge is cropped away.
 ADAPTIVE_VIEWPORT = 2.0 / 3.0
+# Square adaptive keeps letters-only: baking the silver squircle into the
+# 72dp viewport is clipped by the OEM mask into grey chords (the old round bug).
+# 0.82 of the viewport keeps DTT inside a typical squircle (n≈4).
+SQUARE_ADAPTIVE_LETTER_FRAC = 0.82
+# Themed icons reuse this layer for both masks; size it for a circle.
+MONO_ADAPTIVE_LETTER_FRAC = ROUND_LETTER_FRAC
+
+
+def adaptive_safe_frac(viewport_content_frac: float) -> float:
+    return ADAPTIVE_VIEWPORT * viewport_content_frac
 
 
 def round_color_icon(mark: Image.Image, size: int) -> Image.Image:
@@ -312,7 +322,11 @@ def main() -> None:
 
     for density, size in FOREGROUND_SIZES.items():
         save_png(
-            fit_on_canvas(color_mark, size, safe_frac=0.66),
+            fit_on_canvas(
+                color_mark,
+                size,
+                safe_frac=adaptive_safe_frac(SQUARE_ADAPTIVE_LETTER_FRAC),
+            ),
             RES / f"mipmap-{density}" / "ic_launcher_foreground.png",
         )
         save_png(
@@ -320,7 +334,14 @@ def main() -> None:
             RES / f"mipmap-{density}" / "ic_launcher_round_foreground.png",
         )
 
-    save_png(fit_on_canvas(white_mark, 256, safe_frac=0.72), RES / "drawable" / "ic_launcher_monochrome.png")
+    save_png(
+        fit_on_canvas(
+            white_mark,
+            256,
+            safe_frac=adaptive_safe_frac(MONO_ADAPTIVE_LETTER_FRAC),
+        ),
+        RES / "drawable" / "ic_launcher_monochrome.png",
+    )
 
     for density, size in LOGO_FULL_SIZES.items():
         save_png(
