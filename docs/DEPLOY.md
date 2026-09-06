@@ -27,7 +27,7 @@
   SSH (пароль или PEM)
       │  upload  /opt/ardtt/stack.tar.gz
       │  upload  /opt/ardtt/install.sh
-      │  env ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=v0.5.243 bash install.sh
+      │  env ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=v0.5.244 bash install.sh
       ▼
     VPS  /opt/ardtt/stack/     ← compose + исходники + Dockerfile
          /opt/ardtt/stack/data ← users.json, ключи, warp state
@@ -96,7 +96,7 @@ WARP — не третий путь подключения, а **egress** выб
 
 ```bash
 ARDTT_PUBLIC_HOST='…' ARDTT_DIRECT_PORT=51820 ARDTT_BYPASS_PORT=56003 ARDTT_AUTO_PORTS=1 \
-ARDTT_DEPLOY_VERSION='1.0.37' ARDTT_GIT_REF='v0.5.243' \
+ARDTT_DEPLOY_VERSION='1.0.37' ARDTT_GIT_REF='v0.5.244' \
 ARDTT_GIT_REPO='https://github.com/2kristalls36-hue/ARDTT.git' \
 bash /opt/ardtt/install.sh
 ```
@@ -108,7 +108,7 @@ bash /opt/ardtt/install.sh
 ```bash
 # 1) выход (DNS + WARP)
 ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.37' \
-  ARDTT_GIT_REF='v0.5.243' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
+  ARDTT_GIT_REF='v0.5.244' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
 # stdout: ARDTT_CASCADE_PUBLIC_KEY|<base64>
 
 # 2) вход (клиенты), пир = ключ выхода
@@ -116,7 +116,7 @@ ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
   ARDTT_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
   ARDTT_CASCADE_PEER_PUBLIC_KEY='…' \
   ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.37' \
-  ARDTT_GIT_REF='v0.5.243' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
+  ARDTT_GIT_REF='v0.5.244' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
 
 # 3) ключ входа → /opt/ardtt/stack/data/cascade.peer.pub на выходе
 ```
@@ -205,7 +205,7 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 **С shell на VPS**
 
 ```bash
-TAG=v0.5.243
+TAG=v0.5.244
 install -d -m 755 /opt/ardtt
 curl -fsSL "https://raw.githubusercontent.com/2kristalls36-hue/ARDTT/${TAG}/server/install.sh" \
   -o /opt/ardtt/install.sh
@@ -227,10 +227,10 @@ curl -s http://127.0.0.1:9100/health
 
 Тот же стек, что ставит приложение. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
 
-Клонируйте **тег релиза** (`v0.5.243` = клиент 0.5.243 и стек 1.0.37), не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и GitHub Releases читаются без PAT.
+Клонируйте **тег релиза** (`v0.5.244` = клиент 0.5.244 и стек 1.0.37), не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и GitHub Releases читаются без PAT.
 
 ```bash
-TAG=v0.5.243
+TAG=v0.5.244
 
 # Вариант A — тот же install.sh, что из приложения (/opt/ardtt, data/ сохраняется)
 install -d -m 755 /opt/ardtt
