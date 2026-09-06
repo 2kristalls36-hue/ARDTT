@@ -30,7 +30,7 @@ ui/
 │                   ErrorState, ArdttInlineFactRow, ArdttStackedFactRow, ArdttCopyRow,
 │                   ArdttLinearProgress, ArdttPingDot
 ├── util/           ClipboardActions.kt — копирование, вставка, «Поделиться»
-└── admin · settings · tunnel · profiles · exceptions · unlock · telemetry   # экраны
+└── admin · settings · tunnel · profiles · exceptions · telemetry   # экраны
 ```
 
 ## Нейминг
