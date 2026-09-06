@@ -6,6 +6,7 @@ REPO_BARE="${LAB_REPO_BARE:-/opt/repos/ARDTT.git}"
 WORK_TREE="${LAB_WORK_TREE:-/opt/ardtt-lab}"
 DIST_LAB="${LAB_DIST_DIR:-/opt/ardtt-distribution/dist/lab}"
 REMOTE_PORT="${LAB_REMOTE_PORT:-7422}"
+HOST_IP="$(hostname -I | awk '{print $1}')"
 
 mkdir -p /opt/repos "$DIST_LAB"
 
@@ -21,8 +22,13 @@ install -m 0755 /dev/stdin /usr/local/bin/ardtt-lab-post-receive <<'HOOK'
 set -euo pipefail
 REPO_BARE=/opt/repos/ARDTT.git
 WORK_TREE=/opt/ardtt-lab
-mkdir -p "$WORK_TREE"
-git --git-dir="$REPO_BARE" --work-tree="$WORK_TREE" checkout -f lab
+if [[ ! -d "$WORK_TREE/.git" ]]; then
+  rm -rf "$WORK_TREE"
+  git clone --branch lab "$REPO_BARE" "$WORK_TREE"
+else
+  git -C "$WORK_TREE" fetch origin lab
+  git -C "$WORK_TREE" reset --hard origin/lab
+fi
 if [[ -x "$WORK_TREE/scripts/ardtt-lab" ]]; then
   install -m 0755 "$WORK_TREE/scripts/ardtt-lab" /usr/local/bin/ardtt-lab
 fi
@@ -40,9 +46,9 @@ cat >"$DIST_LAB/index.html" <<EOF
 <ul>
 <li>SSH: <code>root@$(hostname -I | awk '{print $1}')</code> порт 22</li>
 <li>Реверс телефона: <code>127.0.0.1:$REMOTE_PORT</code></li>
-<li>Репозиторий: <code>ssh://root@HOST$REPO_BARE</code></li>
+<li>Репозиторий: <code>ssh://root@${HOST_IP}${REPO_BARE}</code></li>
 <li>Рабочая копия: <code>$WORK_TREE</code></li>
-<li>Агент: <code>ardtt-lab status</code> (уже на сервере) или <code>./scripts/ardtt-lab --ssh root@HOST status</code></li>
+<li>Агент: <code>ardtt-lab status</code> (уже на сервере) или <code>./scripts/ardtt-lab --ssh root@${HOST_IP} status</code></li>
 </ul>
 <p>В приложении Lab на телефоне: тот же хост и пользователь, пароль вводится на устройстве, Wi‑Fi выкл.</p>
 </body>
