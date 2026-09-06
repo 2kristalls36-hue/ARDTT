@@ -168,4 +168,40 @@ class ConnectPathTest {
             ),
         )
     }
+
+    @Test
+    fun coldStartAutoOnCellularNeedsProbe() {
+        assertTrue(
+            connectNeedsInitialProbe(
+                mode = ConnPathMode.Auto,
+                probePreferred = null,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+            ),
+        )
+        assertFalse(
+            connectNeedsInitialProbe(
+                mode = ConnPathMode.Auto,
+                probePreferred = null,
+                underlayKind = UnderlayKind.Wifi,
+                bypassAllowed = true,
+            ),
+        )
+        assertFalse(
+            connectNeedsInitialProbe(
+                mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Direct,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+            ),
+        )
+        assertFalse(
+            connectNeedsInitialProbe(
+                mode = ConnPathMode.Direct,
+                probePreferred = null,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+            ),
+        )
+    }
 }

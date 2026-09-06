@@ -25,6 +25,7 @@ class ArdttApp : Application() {
         AppLog.i("TunnelWallpaper", "scene=$scene")
         TelemetryBootstrap.install(this)
         ConnectionManager.get(this)
+        TunnelWidgetProvider.pushFromConnection(this)
         AppUpdateController.get(this).checkInBackground()
         AppShortcuts.refreshAsync(this)
         appScope.launch {

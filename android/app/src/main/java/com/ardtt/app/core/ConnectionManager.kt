@@ -487,6 +487,46 @@ class ConnectionManager(
         }
     }
 
+    /**
+     * Connect from a widget / shortcut after the process was cold.
+     * Loads nothing itself — caller must [updateProfile] first — but waits
+     * for the Auto probe that [connect] would otherwise ignore.
+     */
+    fun connectWhenReady() {
+        if (alphaUnlockedCached == false) {
+            rejectLockedConnect()
+            return
+        }
+        if (profile == null) {
+            AppLog.w(TAG, "Connect ignored — no profile")
+            return
+        }
+        val state = _ui.value.state
+        if (
+            state == ConnState.Connected ||
+            state == ConnState.Connecting ||
+            state == ConnState.PausedTrustedWifi
+        ) {
+            return
+        }
+        val mode = pathMode
+        if (connectNeedsInitialProbe(
+                mode,
+                _ui.value.probe?.preselectedPath,
+                underlayKindOf(pickBestUnderlayNetwork(appContext)),
+                callHashOrNull() != null,
+            )
+        ) {
+            startInitialProbe()
+            scope.launch {
+                probeJob?.join()
+                connect()
+            }
+            return
+        }
+        connect()
+    }
+
     fun connect() {
         if (alphaUnlockedCached == false) {
             rejectLockedConnect()
@@ -504,15 +544,15 @@ class ConnectionManager(
             AppLog.i(TAG, "Connect ignored — paused on trusted Wi‑Fi (leave network or disable feature)")
             return
         }
-        if (mode == ConnPathMode.Auto && probePreferred == null) {
-            val kind = underlayKindOf(pickBestUnderlayNetwork(appContext))
-            val bypassAllowed = callHashOrNull() != null
-            if (!autoUsesDirectOnWifi(mode, kind) &&
-                !shouldSkipConnectProbe(mode, bypassAllowed, kind)
-            ) {
-                AppLog.w(TAG, "Connect ignored (auto, no probe path)")
-                return
-            }
+        if (connectNeedsInitialProbe(
+                mode,
+                probePreferred,
+                underlayKindOf(pickBestUnderlayNetwork(appContext)),
+                callHashOrNull() != null,
+            )
+        ) {
+            AppLog.w(TAG, "Connect ignored (auto, no probe path)")
+            return
         }
         if (profile == null) {
             AppLog.w(TAG, "Connect ignored — no profile")

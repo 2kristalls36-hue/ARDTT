@@ -47,3 +47,15 @@ fun shouldSkipConnectProbe(
     ConnPathMode.Bypass -> bypassAllowed
     ConnPathMode.Auto -> false
 }
+
+/** Widget / shortcut: Auto on cellular needs a probe before [ConnectionManager.connect]. */
+internal fun connectNeedsInitialProbe(
+    mode: ConnPathMode,
+    probePreferred: VpnPath?,
+    underlayKind: UnderlayKind,
+    bypassAllowed: Boolean,
+): Boolean {
+    if (mode != ConnPathMode.Auto || probePreferred != null) return false
+    return !autoUsesDirectOnWifi(mode, underlayKind) &&
+        !shouldSkipConnectProbe(mode, bypassAllowed, underlayKind)
+}
