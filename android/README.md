@@ -1,14 +1,22 @@
 # Android-клиент ARDTT
 
 Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial over TURN Tunnel).  
-Текущая сборка: **0.5.238** (`versionCode` 256).  
+Текущая сборка: **0.5.239** (`versionCode` 257).  
 `applicationId` / namespace — `com.ardtt.app`, minSdk 28. Смена с `com.nonamevpn.app` требует переустановки APK (это уже другое приложение для Android).
 
 Лендинг репозитория: [../README.md](../README.md). Легенда: [../docs/LEGEND.md](../docs/LEGEND.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
 ## Иконка
 
-Круглый и квадратный знак: белое **AR** над бирюзовым **DTT** (градиент cyan→teal) на тёмно-синем поле (`#031D3B`). Квадрат — сквиркл из `docs/assets/brand/ardtt-icon-source.png`. Круглый (`ic_launcher_round`) — отдельный диск: буквы вписаны в окружность, без обрезки квадратной рамки. Пересборка: `python3 scripts/generate-launcher-icons.py`.
+Белое **AR** над бирюзовым **DTT** на `#031D3B`. На minSdk 28 лаунчер берёт `mipmap-anydpi-v26/*.xml`, не density-PNG.
+
+- Квадрат: `ic_launcher.xml` + буквы в `ic_launcher_foreground` (форму даёт маска OEM). Пластину со сквирклом в adaptive не кладём — маска обрежет серебряную рамку.
+- Круг: `ic_launcher_round.xml` + `ic_launcher_round_foreground` (диск во внутренних 72 dp).
+- Виджет: `ic_logo_full` — сквиркл с прозрачными углами.
+- QS / уведомление: `ic_tile_custom` и `ic_stat_connected` — только буквы, SystemUI красит по альфе.
+- Тема: `ic_launcher_monochrome` — белые буквы в mipmap 108 dp (как foreground), не один PNG 256 px.
+
+Исходники: `docs/assets/brand/ardtt-icon-source.png`, `ardtt-icon-round-source.png`. Пересборка: `python3 scripts/generate-launcher-icons.py`.
 
 ## Сборка
 
