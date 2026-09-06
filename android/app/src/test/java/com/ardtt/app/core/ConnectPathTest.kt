@@ -106,6 +106,11 @@ class ConnectPathTest {
         assertTrue(autoUsesDirectOnWifi(ConnPathMode.Auto, UnderlayKind.Wifi))
         assertFalse(autoUsesDirectOnWifi(ConnPathMode.Auto, UnderlayKind.Cellular))
         assertFalse(autoUsesDirectOnWifi(ConnPathMode.Bypass, UnderlayKind.Wifi))
+        assertFalse(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Wifi, hasCallHash = true))
+        assertTrue(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Cellular, hasCallHash = true))
+        assertFalse(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Cellular, hasCallHash = false))
+        assertFalse(autoMayUseBypass(ConnPathMode.Direct, UnderlayKind.Cellular, hasCallHash = true))
+        assertTrue(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Other, hasCallHash = true))
         assertEquals(
             VpnPath.Direct,
             resolveConnectPath(

@@ -1281,9 +1281,12 @@ class ConnectionManager(
             return onDeadCallFailed(message)
         }
         val canFallback =
-            pathMode == ConnPathMode.Auto &&
+            autoMayUseBypass(
+                pathMode,
+                currentAutoUnderlayKind(),
+                callHashOrNull() != null,
+            ) &&
                 failedPath == VpnPath.Direct &&
-                callHashOrNull() != null &&
                 _ui.value.state != ConnState.Disconnecting &&
                 _ui.value.state != ConnState.Ready
         if (canFallback) {
