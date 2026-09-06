@@ -140,8 +140,8 @@ internal fun WhitelistSkyAnimation(
                 compensationStrength = 0.18f,
                 dragLimitXFrac = 0.09f,
                 dragLimitYFrac = 0.06f,
-                centerBiasX = 0.009f,
-                centerBiasY = 0.028f,
+                centerBiasX = 0.011f,
+                centerBiasY = -0.010f,
             ),
             FlightAssetSpec(
                 resId = R.drawable.tunnel_drone_mid,
@@ -161,8 +161,8 @@ internal fun WhitelistSkyAnimation(
                 compensationStrength = 0.26f,
                 dragLimitXFrac = 0.08f,
                 dragLimitYFrac = 0.055f,
-                centerBiasX = 0.023f,
-                centerBiasY = -0.033f,
+                centerBiasX = -0.039f,
+                centerBiasY = -0.017f,
             ),
             FlightAssetSpec(
                 resId = R.drawable.tunnel_drone_near,
@@ -182,8 +182,8 @@ internal fun WhitelistSkyAnimation(
                 compensationStrength = 0.34f,
                 dragLimitXFrac = 0.065f,
                 dragLimitYFrac = 0.05f,
-                centerBiasX = 0.000f,
-                centerBiasY = -0.008f,
+                centerBiasX = 0.040f,
+                centerBiasY = 0.047f,
             ),
         )
     }
