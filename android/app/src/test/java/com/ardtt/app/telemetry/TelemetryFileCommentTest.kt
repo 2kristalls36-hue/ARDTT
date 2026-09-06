@@ -18,6 +18,12 @@ class TelemetryFileCommentTest {
         assertEquals("user_comment", json.getString("event_type"))
         assertEquals("user-comment", json.getString("session_id"))
         assertEquals("testing_screen", json.getJSONObject("data").getString("source"))
+        assertFalse(json.getJSONObject("data").has("ticket"))
         assertFalse(json.getJSONObject("data").getString("comment").contains("secret"))
+
+        val numbered = JSONObject(
+            TelemetryFileManager.buildUserCommentLine("коротко", timestamp = 1L, ticketNumber = 7),
+        )
+        assertEquals(7, numbered.getJSONObject("data").getInt("ticket"))
     }
 }
