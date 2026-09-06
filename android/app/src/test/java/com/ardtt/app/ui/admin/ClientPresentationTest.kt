@@ -1,9 +1,12 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.ui.graphics.Color
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.profile.VpnProfileJson
+import com.ardtt.app.ui.theme.ArdttAlpha
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,6 +47,24 @@ class ClientPresentationTest {
         assertFalse(turnOn.nextDeactivated)
         assertEquals("Выключить", clientEnableActionLabel(deactivated = false))
         assertEquals("Включить", clientEnableActionLabel(deactivated = true))
+    }
+
+    @Test
+    fun actionButtonKeepsOutlineWhenAccentIsMissing() {
+        val outline = Color(0xFFB2C2D7)
+        val limit = clientActionButtonStroke(accent = null, outline = outline, busy = false)
+        val enable = clientActionButtonStroke(
+            accent = Color(0xFFE53935),
+            outline = outline,
+            busy = false,
+        )
+        assertEquals(outline, limit)
+        assertNotEquals(Color.Transparent, limit)
+        assertEquals(Color(0xFFE53935), enable)
+        assertEquals(
+            outline.copy(alpha = ArdttAlpha.Disabled),
+            clientActionButtonStroke(accent = null, outline = outline, busy = true),
+        )
     }
 
     @Test

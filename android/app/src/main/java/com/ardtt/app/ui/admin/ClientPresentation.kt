@@ -1,8 +1,10 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.ui.graphics.Color
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.deviceDisplayLabels
 import com.ardtt.app.profile.VpnProfile
+import com.ardtt.app.ui.theme.ArdttAlpha
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,6 +43,16 @@ internal fun clientEnableAction(deactivated: Boolean) = ClientEnableAction(
 
 internal fun clientEnableActionLabel(deactivated: Boolean): String =
     clientEnableAction(deactivated).label
+
+/** Stroke for Limit / enable so the default action never drops the outline. */
+internal fun clientActionButtonStroke(
+    accent: Color?,
+    outline: Color,
+    busy: Boolean,
+): Color {
+    val color = accent ?: outline
+    return if (busy) color.copy(alpha = ArdttAlpha.Disabled) else color
+}
 
 /** Fresh create: profile JSON may include a template deviceId, but nothing is bound yet. */
 internal fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSummary(

@@ -917,6 +917,11 @@ private fun ClientActionButton(
     accent: Color? = null,
     onClick: () -> Unit,
 ) {
+    val stroke = clientActionButtonStroke(
+        accent = accent,
+        outline = MaterialTheme.colorScheme.outline,
+        busy = busy,
+    )
     OutlinedButton(
         onClick = onClick,
         enabled = !busy,
@@ -931,12 +936,7 @@ private fun ClientActionButton(
         } else {
             ButtonDefaults.outlinedButtonColors()
         },
-        border = accent?.let { color ->
-            BorderStroke(
-                ArdttSize.Border,
-                if (busy) color.copy(alpha = ArdttAlpha.Disabled) else color,
-            )
-        },
+        border = BorderStroke(ArdttSize.Border, stroke),
     ) {
         Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
