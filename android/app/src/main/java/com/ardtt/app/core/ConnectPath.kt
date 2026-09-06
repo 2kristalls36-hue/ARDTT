@@ -7,6 +7,31 @@ package com.ardtt.app.core
 fun autoUsesDirectOnWifi(mode: ConnPathMode, underlayKind: UnderlayKind): Boolean =
     mode == ConnPathMode.Auto && underlayKind == UnderlayKind.Wifi
 
+/** Auto may start or fall back to Path B only on cellular (and unknown). */
+fun autoMayUseBypass(mode: ConnPathMode, underlayKind: UnderlayKind, hasCallHash: Boolean): Boolean =
+    mode == ConnPathMode.Auto && hasCallHash && !autoUsesDirectOnWifi(mode, underlayKind)
+
+fun wifiAutoDirectProbe(elapsedMs: Long = 0): ProbeResult = ProbeResult(
+    networkClass = NetworkClass.DirectOk,
+    preselectedPath = VpnPath.Direct,
+    systemOnline = true,
+    yandexOk = true,
+    bigtechOk = true,
+    captive = false,
+    awgUdpOk = true,
+    provisionOk = true,
+    message = "Авто на Wi‑Fi: прямое подключение",
+    elapsedMs = elapsedMs,
+)
+
+/** Auto on Wi‑Fi never shows or follows a Bypass probe. */
+fun displayedAutoProbe(
+    mode: ConnPathMode,
+    underlayKind: UnderlayKind,
+    measured: ProbeResult,
+): ProbeResult =
+    if (autoUsesDirectOnWifi(mode, underlayKind)) wifiAutoDirectProbe(measured.elapsedMs) else measured
+
 /**
  * Initial Connect path. Auto on Wi‑Fi is always Direct. On cellular (and
  * unknown underlay) Auto follows the probe: open internet + VPS :9100 → Direct;
@@ -33,8 +58,8 @@ fun resolveConnectPath(
 }
 
 /**
- * Forced Bypass starts RAW without waiting on TCP :9100. Auto on cellular
- * always probes: open LTE (VPS up) must not skip into Bypass. Auto on Wi‑Fi
+ * Forced Bypass starts RAW without waiting on VPS /health. Auto on cellular
+ * always probes: open LTE (Cloudflare TLS + /health) must not skip into Bypass. Auto on Wi‑Fi
  * does not skip here either — [autoUsesDirectOnWifi] takes Direct without
  * using this Bypass-only shortcut.
  */

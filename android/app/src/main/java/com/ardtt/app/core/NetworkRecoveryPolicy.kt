@@ -296,7 +296,7 @@ const val HANDOVER_DIRECT_TO_BYPASS_STREAK = 2
 
 /**
  * Bypass → Direct used to require this many consecutive “VPS IP up” probes.
- * Stall recovery on a whitelist LTE (TCP :9100 up, AWG UDP dead) hit this
+ * Stall recovery on a whitelist LTE (TCP :9100 or 1.1.1.1 SYN up, AWG UDP dead) hit this
  * without an underlay change and yanked a working Bypass. Upgrade now only
  * on a confirmed underlay change — the constant remains for tests / docs.
  */
@@ -429,11 +429,12 @@ const val WARM_CALL_HOLD_MS = 5 * 60 * 1000L
 fun shouldParkBypassCall(from: VpnPath, to: VpnPath): Boolean =
     from == VpnPath.Bypass && to == VpnPath.Direct
 
-/** VALIDATED Wi‑Fi wins over LTE even if SSID APIs are blank. */
+/** VALIDATED or actually-connected Wi‑Fi wins over LTE even if SSID APIs are blank. */
 fun preferWifiUnderlayKind(
     hasValidatedWifi: Boolean,
     pickBestKind: UnderlayKind,
-): UnderlayKind = if (hasValidatedWifi) UnderlayKind.Wifi else pickBestKind
+    wifiConnected: Boolean = false,
+): UnderlayKind = if (hasValidatedWifi || wifiConnected) UnderlayKind.Wifi else pickBestKind
 
 fun shouldReconnectTunnelAfterWake(
     activeWorkers: Int,

@@ -33,8 +33,8 @@ android {
         applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 265
-        versionName = "0.5.247"
+        versionCode = 266
+        versionName = "0.5.248"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",

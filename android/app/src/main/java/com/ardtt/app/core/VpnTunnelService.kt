@@ -1485,6 +1485,21 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 )
             }
         }
+        if (pfd == null) {
+            repeat(2) { attempt ->
+                AppLog.w(TAG, "TUN establish null — retry ${attempt + 1}/2")
+                android.os.SystemClock.sleep(300)
+                pfd = establishVpnInterface(
+                    ipAddr = ipAddr,
+                    wantMtu = wantMtu,
+                    dnsCsv = dnsCsv,
+                    bypassTun = bypassTun,
+                    plan = plan,
+                    excludedHosts = excludedHosts,
+                )
+                if (pfd != null) return@repeat
+            }
+        }
         tun = pfd
         if (pfd != null) {
             lastTunIp = ipAddr
@@ -1615,18 +1630,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
             )
         }
-        return preferWifiUnderlayKind(hasValidatedWifi = hasValidatedWifi(), pickBestKind = pick)
-    }
-
-    private fun hasValidatedWifi(): Boolean {
-        val cm = connectivityManager ?: return false
-        return activeNetworks.any { network ->
-            val caps = cm.getNetworkCapabilities(network) ?: return@any false
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        }
+        return preferWifiUnderlayKind(
+            hasValidatedWifi = hasValidatedWifiUnderlay(this),
+            pickBestKind = pick,
+            wifiConnected = readConnectedWifiState(this, requireBackground = false).connected,
+        )
     }
 
     private fun parkBypassCall(backend: BypassBackend) {

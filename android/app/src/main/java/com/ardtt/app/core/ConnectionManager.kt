@@ -92,7 +92,8 @@ class ConnectionManager(
     private var lastHandoverBindHandle: Long? = null
     /**
      * Direct died (no TUN rx) on this underlay handle. Do not Auto-upgrade
-     * Bypass→Direct on the same network: TCP :9100 can still look DirectOk.
+     * Bypass→Direct on the same network: TCP :9100 / a SYN to 1.1.1.1 can
+     * still look open while AWG UDP is dead.
      */
     private var deadDirectBindHandle: Long? = null
     private var blockBypassToDirectUntilUnderlayChange: Boolean = false
@@ -369,7 +370,7 @@ class ConnectionManager(
             currentPath = current,
             probePath = _ui.value.probe?.preselectedPath,
             hasCallHash = hasHash,
-            underlayKind = underlayKindOf(pickBestUnderlayNetwork(appContext)),
+            underlayKind = currentAutoUnderlayKind(),
         )
         if (target == null) {
             AppLog.w(TAG, "Live path switch skipped — Bypass needs call hash")
@@ -448,16 +449,23 @@ class ConnectionManager(
                 connectEnabled = false,
                 lastError = null,
             )
-            val result = NetworkProbe.probe(
-                appContext,
-                provisionUrl,
-                directEndpoint = directEndpoint,
-                quick = true,
-            )
+            val kind = currentAutoUnderlayKind()
+            val result = if (autoUsesDirectOnWifi(pathMode, kind)) {
+                AppLog.v(TAG, "Probe skipped — Auto on Wi-Fi always Direct kind=$kind")
+                wifiAutoDirectProbe()
+            } else {
+                NetworkProbe.probe(
+                    appContext,
+                    provisionUrl,
+                    directEndpoint = directEndpoint,
+                    quick = true,
+                )
+            }
             AppLog.v(
                 TAG,
                 "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
-                    "yandex=${result.yandexOk} vps=${result.provisionOk} ${result.elapsedMs}ms",
+                    "yandex=${result.yandexOk} cloudflare=${result.bigtechOk} " +
+                    "vps=${result.provisionOk} ${result.elapsedMs}ms kind=$kind",
             )
             // Don't clobber an in-flight Connect started while we probed.
             if (_ui.value.state == ConnState.Connecting || _ui.value.state == ConnState.Connected) {
@@ -490,7 +498,7 @@ class ConnectionManager(
         if (connectNeedsInitialProbe(
                 mode,
                 _ui.value.probe?.preselectedPath,
-                underlayKindOf(pickBestUnderlayNetwork(appContext)),
+                currentAutoUnderlayKind(),
                 callHashOrNull() != null,
             )
         ) {
@@ -520,7 +528,7 @@ class ConnectionManager(
         if (connectNeedsInitialProbe(
                 mode,
                 probePreferred,
-                underlayKindOf(pickBestUnderlayNetwork(appContext)),
+                currentAutoUnderlayKind(),
                 callHashOrNull() != null,
             )
         ) {
@@ -548,7 +556,7 @@ class ConnectionManager(
                 val snap = _ui.value
                 val lastGood = snap.probe
                 val liveMode = pathMode
-                val kind = underlayKindOf(pickBestUnderlayNetwork(appContext))
+                val kind = currentAutoUnderlayKind()
                 val bypassAllowed = callHashOrNull() != null
                 val skipProbe = shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
                 val wifiAutoDirect = autoUsesDirectOnWifi(liveMode, kind)
@@ -627,18 +635,7 @@ class ConnectionManager(
                     )
                 } else if (wifiAutoDirect) {
                     AppLog.v(TAG, "Connect: skip VPS probe — Auto on Wi-Fi always Direct")
-                    fresh = ProbeResult(
-                        networkClass = NetworkClass.DirectOk,
-                        preselectedPath = VpnPath.Direct,
-                        systemOnline = true,
-                        yandexOk = true,
-                        bigtechOk = true,
-                        captive = false,
-                        awgUdpOk = true,
-                        provisionOk = true,
-                        message = "Авто на Wi‑Fi: прямое подключение",
-                        elapsedMs = 0,
-                    )
+                    fresh = wifiAutoDirectProbe()
                     usePath = VpnPath.Direct
                     AppLog.v(
                         TAG,
@@ -664,7 +661,8 @@ class ConnectionManager(
                     AppLog.v(
                         TAG,
                         "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
-                            "mode=$pathMode yandex=${fresh.yandexOk} vps=${fresh.provisionOk} " +
+                            "mode=$pathMode yandex=${fresh.yandexOk} " +
+                            "cloudflare=${fresh.bigtechOk} vps=${fresh.provisionOk} " +
                             "kind=$kind " +
                             "whitelist=$whitelistOn apps=${selectedApps.size} " +
                             SplitTunnel.logSample(selectedApps),
@@ -871,8 +869,9 @@ class ConnectionManager(
 
     /**
      * After Wi‑Fi↔LTE / SIM settle: re-classify underlay.
-     * Open internet + VPS TCP → Direct. Operator whitelist (Yandex up,
-     * Cloudflare down) → Bypass even if TCP :9100 answers (AWG is UDP).
+     * Open internet (Cloudflare TLS or UDP :53) + VPS /health → Direct.
+     * Operator whitelist (Yandex up, Cloudflare TLS/UDP down) → Bypass
+     * even if TCP :9100 answers (AWG is UDP).
      * NoNetwork → hold (do not restart into a dead SIM gap).
      *
      * [bindNetwork] must be the real underlay (NOT_VPN); probing through the
@@ -1077,6 +1076,13 @@ class ConnectionManager(
         )
     }
 
+    /** Auto must treat live Wi‑Fi as Wi‑Fi even if pickBest scored LTE higher. */
+    private fun currentAutoUnderlayKind(): UnderlayKind = preferWifiUnderlayKind(
+        hasValidatedWifi = hasValidatedWifiUnderlay(appContext),
+        pickBestKind = underlayKindOf(pickBestUnderlayNetwork(appContext)),
+        wifiConnected = readConnectedWifiState(appContext, requireBackground = false).connected,
+    )
+
     /** Rewrite [TunnelSessionHolder] for a path switch mid-session (Auto handover). */
     fun applySessionPath(path: VpnPath) {
         val existing = TunnelSessionHolder.config ?: return
@@ -1112,7 +1118,7 @@ class ConnectionManager(
             decideDeadDirectAction(
                 pathMode = pathMode,
                 bypassAllowed = callHashOrNull() != null,
-                underlayKind = underlayKindOf(pickBestUnderlayNetwork(appContext)),
+                underlayKind = currentAutoUnderlayKind(),
             )
         ) {
             DeadDirectDecision.KeepWatching -> Unit
@@ -1275,9 +1281,12 @@ class ConnectionManager(
             return onDeadCallFailed(message)
         }
         val canFallback =
-            pathMode == ConnPathMode.Auto &&
+            autoMayUseBypass(
+                pathMode,
+                currentAutoUnderlayKind(),
+                callHashOrNull() != null,
+            ) &&
                 failedPath == VpnPath.Direct &&
-                callHashOrNull() != null &&
                 _ui.value.state != ConnState.Disconnecting &&
                 _ui.value.state != ConnState.Ready
         if (canFallback) {
@@ -1471,31 +1480,32 @@ class ConnectionManager(
         return when (pathMode) {
             ConnPathMode.Direct, ConnPathMode.Bypass -> true
             ConnPathMode.Auto -> {
-                val kind = underlayKindOf(pickBestUnderlayNetwork(appContext))
+                val kind = currentAutoUnderlayKind()
                 autoUsesDirectOnWifi(pathMode, kind) || probe?.preselectedPath != null
             }
         }
     }
 
     private fun applyProbe(result: ProbeResult) {
+        val shown = displayedAutoProbe(pathMode, currentAutoUnderlayKind(), result)
         _ui.value = _ui.value.copy(
             state = ConnState.Ready,
-            probe = result,
+            probe = shown,
             pathMode = pathMode,
-            statusText = result.message,
-            softInfo = softInfoFor(result),
-            connectEnabled = connectAllowed(result),
-            lastError = if (!connectAllowed(result)) result.message else null,
+            statusText = shown.message,
+            softInfo = softInfoFor(shown),
+            connectEnabled = connectAllowed(shown),
+            lastError = if (!connectAllowed(shown)) shown.message else null,
         )
         refreshHashFlag()
-        Log.i(TAG, "probe class=${result.networkClass} path=${result.preselectedPath} ${result.elapsedMs}ms")
+        Log.i(TAG, "probe class=${shown.networkClass} path=${shown.preselectedPath} ${shown.elapsedMs}ms")
     }
 
     private fun softInfoFor(result: ProbeResult?): String? {
         val parts = mutableListOf<String>()
         val wifiAuto = autoUsesDirectOnWifi(
             pathMode,
-            underlayKindOf(pickBestUnderlayNetwork(appContext)),
+            currentAutoUnderlayKind(),
         )
         when (pathMode) {
             ConnPathMode.Direct -> parts += "Режим: только прямое подключение."
