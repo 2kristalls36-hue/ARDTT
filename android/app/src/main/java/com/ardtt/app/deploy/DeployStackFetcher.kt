@@ -59,7 +59,7 @@ class DeployStackFetcher(
 
         loadBundledFallback()?.let { return it }
 
-        val hint = errors.takeLast(4).joinToString("; ").ifBlank { "нет ответа" }
+        val hint = errors.take(5).joinToString("; ").ifBlank { "нет ответа" }
         error(
             "Не удалось скачать стек $expectedVersion из GitHub ($hint). " +
                 "Нужен доступ с телефона к github.com. Репозиторий публичный, PAT не требуется.",
@@ -80,7 +80,8 @@ class DeployStackFetcher(
         if (stack.size < 256) error("архив стека слишком короткий (${stack.size} B)")
         if (!looksLikeGzip(stack)) error("ответ GitHub не gzip (не архив стека)")
         onProgress(0.88f)
-        val install = downloadInstallScript(gitRef)
+        val install = DeployStackArchive.extractInstallScript(stack)
+            ?: downloadInstallScript(gitRef)
         onProgress(1f)
         return DeployPayload(
             stackBytes = stack,
@@ -97,7 +98,12 @@ class DeployStackFetcher(
             val bytes = runCatching {
                 downloadBytes(DeployStackSource.rawInstallUrl(ref), githubDownload = true)
             }.onFailure { lastError = it }.getOrNull()
-            if (bytes != null && looksLikeInstaller(bytes)) return bytes
+            if (bytes != null) {
+                if (looksLikeInstaller(bytes)) return bytes
+                lastError = IllegalStateException(
+                    "server/install.sh с $ref не похож на установщик (${bytes.size} B)",
+                )
+            }
         }
         loadAsset("deploy/install.sh")?.takeIf { looksLikeInstaller(it) }?.let { return it }
         throw lastError ?: IllegalStateException("Не удалось скачать server/install.sh из GitHub")
@@ -287,9 +293,12 @@ class DeployStackFetcher(
 
     companion object {
         fun looksLikeInstaller(bytes: ByteArray): Boolean {
-            val text = bytes.decodeToString().take(400)
+            val text = bytes.decodeToString().take(SNIFF_CHARS)
             return text.contains("ARDTT_PROGRESS|") && text.contains("ARDTT_DONE|")
         }
+
+        /** APK ≤0.5.245 used 400; keep protocol markers near the top of install.sh. */
+        const val SNIFF_CHARS = 64 * 1024
 
         fun looksLikeGzip(bytes: ByteArray): Boolean =
             bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
