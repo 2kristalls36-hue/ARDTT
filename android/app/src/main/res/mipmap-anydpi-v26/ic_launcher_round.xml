@@ -3,5 +3,5 @@
     <background android:drawable="@color/ic_launcher_bg" />
     <!-- Distinct from ic_launcher: circular rim + letters in the 72dp viewport. -->
     <foreground android:drawable="@mipmap/ic_launcher_round_foreground" />
-    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
 </adaptive-icon>
