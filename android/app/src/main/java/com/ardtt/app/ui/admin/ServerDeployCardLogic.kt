@@ -72,8 +72,8 @@ internal fun pingLatencyTier(pingMs: Long): PingLatencyTier? {
 }
 
 /**
- * Split status line: presence · deploy · ping.
- * UI lays these out left / center / right with their own colors.
+ * Card status: presence sits under the OS badge; deploy is left, ping is right.
+ * An outdated online host replaces the version with the update sentence.
  */
 internal data class HealthStatusParts(
     val presence: String,
@@ -83,15 +83,25 @@ internal data class HealthStatusParts(
     val pingLabel: String get() = formatHealthPingMs(pingMs)
 }
 
-internal fun healthStatusParts(health: HealthUi?): HealthStatusParts = when (health) {
+internal fun healthStatusParts(
+    health: HealthUi?,
+    expectedVersion: String = "",
+): HealthStatusParts = when (health) {
     null, HealthUi.Checking -> HealthStatusParts("● Проверка…")
     is HealthUi.Online -> HealthStatusParts(
         presence = "● Онлайн",
-        deploy = "деплой ${health.deployVersion.ifBlank { "—" }}",
+        deploy = serverCardDeployText(health, expectedVersion),
         pingMs = health.pingMs,
     )
     HealthUi.NotInstalled -> HealthStatusParts("● Не установлено")
     HealthUi.Unreachable -> HealthStatusParts("● Нет связи")
+}
+
+/** Version when current; the update sentence when the stack is behind. */
+internal fun serverCardDeployText(health: HealthUi?, expectedVersion: String): String? {
+    val online = health as? HealthUi.Online ?: return null
+    return deployFreshnessChipText(online, expectedVersion)
+        ?: "деплой ${online.deployVersion.ifBlank { "—" }}"
 }
 
 /**
@@ -371,8 +381,8 @@ internal fun serverDeleteFinishedShouldLeave(busy: Boolean, status: String?): Bo
 }
 
 /**
- * Orange freshness bar: only when online but not current.
- * Current deploys use the status line; no second “актуален” chip.
+ * Update sentence for an online host that is not current.
+ * Shown in place of the deploy version — not as a fourth card line.
  */
 internal fun deployFreshnessChipText(health: HealthUi?, expectedVersion: String): String? {
     val online = health as? HealthUi.Online ?: return null
