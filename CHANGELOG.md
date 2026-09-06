@@ -1,3 +1,11 @@
+# ARDTT v0.5.245
+
+Клиент **0.5.245** (`versionCode` 263). Серверный стек **1.0.37** (`DEPLOY_VERSION`).
+
+## 0.5.245
+
+- Меньше APK: включены R8 и сжатие ресурсов (деплойный стек в APK и раньше не входил — только 7 байт `DEPLOY_VERSION`). У `libclient.so` и `libwg-go.so` срезаны символы (`-s -w`). Ожидаемый arm64 — заметно легче прежних ~62 МБ.
+
 # ARDTT v0.5.244
 
 Клиент **0.5.244** (`versionCode` 262). Серверный стек **1.0.37** (`DEPLOY_VERSION`).
@@ -363,4 +371,4 @@
 | 0.5.203 · 0.5.201 | Знак AR/DTT, hop-карточки, баннер доната |
 | 0.5.200 | Режим тестирования в общих Настройках |
 
-Живые сборки: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) (`v0.5.244` latest, `v0.5.243`).
+Живые сборки: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) (`v0.5.245` latest, `v0.5.244`).
