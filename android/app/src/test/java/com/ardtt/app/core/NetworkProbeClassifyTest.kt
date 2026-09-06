@@ -275,6 +275,11 @@ class NetworkProbeClassifyTest {
         assertEquals("http://10.1.2.3:9100/health", NetworkProbe.provisionHealthUrl("http://10.1.2.3:9100/"))
         assertEquals("http://10.1.2.3:9100/health", NetworkProbe.provisionHealthUrl("http://10.1.2.3:9100/health"))
         assertEquals(null, NetworkProbe.provisionHealthUrl(null))
+        assertTrue(NetworkProbe.provisionHealthAccepted(200))
+        assertTrue(!NetworkProbe.provisionHealthAccepted(204))
+        assertTrue(!NetworkProbe.provisionHealthAccepted(301))
+        assertTrue(!NetworkProbe.provisionHealthAccepted(302))
+        assertTrue(!NetworkProbe.provisionHealthAccepted(404))
         assertTrue(!NetworkProbe.provisionReachable(null, 200, bindNetwork = null))
     }
 }
