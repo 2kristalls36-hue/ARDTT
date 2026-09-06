@@ -16,6 +16,17 @@
         <item name="android:colorAccent">@color/seed</item>
     </style>
 
+    <!-- Widget tap host: no splash, no recents thumbnail, no dim. -->
+    <style name="Theme.Ardtt.WidgetToggle" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:colorAccent">@color/seed</item>
+    </style>
+
     <style name="Theme.Ardtt.QsDialog" parent="android:Theme.Material.Light.Dialog.NoActionBar">
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsTranslucent">true</item>
