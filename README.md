@@ -10,7 +10,9 @@
 
 </div>
 
-**ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — Android-приложение и self-hosted сервер для защищённого туннеля до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP).
+**ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — Android-клиент и self-hosted стек **в этом репозитории**: туннель до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP).
+
+Клиент — `android/`, сервер — `server/`. Стек **не** вшит в APK: телефон скачивает `install.sh` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из GitHub Releases (запас — архив тега `v{versionName}` / `main`) и заливает на VPS по SSH.
 
 > [!WARNING]
 > **Назначение проекта**
@@ -19,7 +21,7 @@
 > Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.239** (`versionCode` 257), пакет `com.ardtt.app`. Серверный стек **1.0.36** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
+> Клиент **0.5.239** (`versionCode` 257), пакет `com.ardtt.app`. Серверный стек **1.0.36** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — этот репозиторий, не `assets/` APK.
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -31,9 +33,10 @@
 |---|---|
 | Клиент | **0.5.239** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
 | Стек | **1.0.36** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
+| Откуда стек | GitHub Releases `ardtt-stack-1.0.36.tar.gz` или архив тега `v0.5.239` — **не** APK |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
-| Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases) |
+| Обновления | GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, архив стека |
 
 ## Два пути до VPS
 
@@ -50,12 +53,15 @@
 
 ## Репозиторий
 
+Канонический источник **клиента и стека**. Push в `main` публикует GitHub Release: подписанные APK, `ardtt-update.json` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz`. В APK остаётся только метка `deploy/DEPLOY_VERSION` — карточка сервера сравнивает её с `/health`.
+
 ```
 ARDTT/
 ├── android/      # Jetpack Compose-клиент (Gradle живёт здесь)
 ├── server/       # единый Docker-образ ardtt (compose profile isolated)
 ├── scripts/      # APK, иконки, pack-stack (релизный архив server/)
 ├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
+├── .github/      # релиз APK + архив стека
 ├── CHANGELOG.md
 ├── LICENSE       # GNU GPL v3
 └── NOTICE        # Amnezia Apache-2.0 + SpaceNeuroX/qWDTT GPL RAW
