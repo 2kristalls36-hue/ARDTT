@@ -57,12 +57,11 @@ Release (подписанный постоянным keystore):
 | `ANDROID_KEYSTORE_PASSWORD` | из `keystore.properties` |
 | `ANDROID_KEY_ALIAS` | `ardtt` |
 | `ANDROID_KEY_PASSWORD` | из `keystore.properties` |
-| `GITHUB_RELEASE_READ_TOKEN` | нужен **только пока репозиторий приватный**: read-only PAT с `Contents: Read`, вшивается в release APK |
 
-Приложение проверяет обновления через **GitHub Releases API** (как qWDTT),
-с fallback на старый `update.json` на VPS. Пока репозиторий **приватный**, без токена API релизов недоступен — задайте `GITHUB_RELEASE_READ_TOKEN` в CI. Когда репозиторий **публичный**, секрет можно не задавать: клиент читает Releases без PAT.
+Приложение проверяет обновления через **публичный GitHub Releases API** (как qWDTT),
+с fallback на старый `update.json` на VPS. PAT не нужен и в APK не вшивается.
 
-Стек на VPS ставится из вкладки **Серверы**: телефон скачивает `server/` с GitHub и заливает по SSH. Тот же стек — клоном тега релиза на машине с Docker — [docs/DEPLOY.md](../docs/DEPLOY.md). Публичный clone с VPS токен не требует.
+Стек на VPS ставится из вкладки **Серверы**: телефон скачивает `server/` с GitHub и заливает по SSH. Тот же стек — клоном тега релиза на машине с Docker — [docs/DEPLOY.md](../docs/DEPLOY.md). Clone с VPS токен не требует.
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`
@@ -78,7 +77,7 @@ Release (подписанный постоянным keystore):
 - `tunnel` — AmneziaWG userspace (`libwg-go`)
 - `go_client` — Path B RAW (qWDTT / SpaceNeuroX) → `libclient.so`
 - **Режим тестирования:** полная телеметрия, JSONL, upload на VPS — [../docs/TELEMETRY.md](../docs/TELEMETRY.md)
-- **Обновления:** GitHub Releases (`2kristalls36-hue/ARDTT`), fallback — `https://45.129.2.3/update.json`. Клиент скачивает APK, проверяет SHA-256 и запускает системный установщик. Публичный репозиторий не требует `GITHUB_RELEASE_READ_TOKEN`.
+- **Обновления:** GitHub Releases (`2kristalls36-hue/ARDTT`), fallback — `https://45.129.2.3/update.json`. Клиент скачивает APK, проверяет SHA-256 и запускает системный установщик. Публичный репозиторий читается без PAT.
 
 После деплоя сервера на VPS стек лежит в `/opt/ardtt/stack/` и рабочие образы.
 

@@ -17,6 +17,7 @@ val targetAbis = providers.gradleProperty("targetAbis")
     .map { value -> value.split(',').map(String::trim).filter { it.isNotEmpty() } }
     .orElse(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
 
+// Public Releases need no PAT. Optional override for private forks only.
 val githubReleaseToken = providers.gradleProperty("githubReleaseToken")
     .orElse(providers.environmentVariable("GITHUB_RELEASE_READ_TOKEN"))
     .orElse("")
