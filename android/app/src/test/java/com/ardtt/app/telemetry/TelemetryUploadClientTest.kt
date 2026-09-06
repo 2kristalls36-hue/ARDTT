@@ -84,4 +84,21 @@ class TelemetryUploadClientTest {
         assertEquals("обход падает на смене сети", items.single().reviewNote)
         assertTrue(items.single().read)
     }
+
+    @Test
+    fun httpErrorHidesHtmlBody() {
+        assertTrue(telemetryLooksLikeHtml("<!doctype html> <html lang=en>"))
+        assertEquals(
+            "Сервер логов не знает маршрут истории (404). Приёмник логов на VPS нужно обновить.",
+            telemetryHttpError(404, "<!doctype html>\n<html lang=en><title>404 Not Found</title>"),
+        )
+        assertEquals(
+            "Сервер логов вернул 502 (страница HTML вместо JSON).",
+            telemetryHttpError(502, "<html><body>bad gateway</body></html>"),
+        )
+        assertEquals(
+            "Сервер логов вернул 500: boom",
+            telemetryHttpError(500, "boom"),
+        )
+    }
 }
