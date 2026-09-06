@@ -76,7 +76,9 @@
             android:name=".WidgetToggleActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@style/Theme.Ardtt.VpnPermission" />
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Ardtt.WidgetToggle" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
