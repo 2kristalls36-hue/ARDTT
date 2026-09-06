@@ -1,6 +1,7 @@
 package com.ardtt.app.ui.admin
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +41,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,6 +73,7 @@ import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.latestAppVersionCode
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
@@ -888,11 +891,17 @@ private fun ClientCard(
                 horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ClientActionButton("Лимит", busy, Modifier.weight(1f), onEditLimits)
-                Switch(
-                    checked = !user.deactivated,
-                    onCheckedChange = onSetEnabled,
-                    enabled = !busy,
+                ClientActionButton("Лимит", busy, Modifier.weight(1f), onClick = onEditLimits)
+                ClientActionButton(
+                    label = clientEnableActionLabel(user.deactivated),
+                    busy = busy,
+                    modifier = Modifier.weight(1f),
+                    accent = if (user.deactivated) {
+                        ArdttColors.Connected
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                    onClick = { onSetEnabled(user.deactivated) },
                 )
             }
         }
@@ -904,6 +913,7 @@ private fun ClientActionButton(
     label: String,
     busy: Boolean,
     modifier: Modifier = Modifier,
+    accent: Color? = null,
     onClick: () -> Unit,
 ) {
     OutlinedButton(
@@ -912,6 +922,20 @@ private fun ClientActionButton(
         modifier = modifier.height(36.dp),
         shape = ArdttShapes.Icon,
         contentPadding = PaddingValues(horizontal = ArdttSpacing.Small),
+        colors = if (accent != null) {
+            ButtonDefaults.outlinedButtonColors(
+                contentColor = accent,
+                disabledContentColor = accent.copy(alpha = ArdttAlpha.Disabled),
+            )
+        } else {
+            ButtonDefaults.outlinedButtonColors()
+        },
+        border = accent?.let { color ->
+            BorderStroke(
+                ArdttSize.Border,
+                if (busy) color.copy(alpha = ArdttAlpha.Disabled) else color,
+            )
+        },
     ) {
         Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
