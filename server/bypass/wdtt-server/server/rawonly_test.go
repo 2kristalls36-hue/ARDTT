@@ -55,6 +55,56 @@ func TestWrapKeyDerivationIsStable(t *testing.T) {
 	}
 }
 
+func TestRawMTUFitsCascadeHop(t *testing.T) {
+	if rawMTU > 1280 {
+		t.Fatalf("rawMTU=%d exceeds cascade0 MTU 1280", rawMTU)
+	}
+}
+
+func TestSetPasswordsIdenticalSkipsAEADEvict(t *testing.T) {
+	keys := newWrapKeyStore()
+	if err := keys.SetPasswords("secret", []string{"keep"}); err != nil {
+		t.Fatal(err)
+	}
+	key, err := deriveWrapKey("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := getAEAD(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.SetPasswords("secret", []string{"keep"}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := getAEAD(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatal("identical SetPasswords evicted the live AEAD cache")
+	}
+	if keys.Count() != 2 {
+		t.Fatalf("count=%d want 2", keys.Count())
+	}
+}
+
+func TestSetPasswordsRemovedCredentialDropsKey(t *testing.T) {
+	keys := newWrapKeyStore()
+	if err := keys.SetPasswords("secret", []string{"keep", "gone"}); err != nil {
+		t.Fatal(err)
+	}
+	if keys.Count() != 3 {
+		t.Fatalf("before=%d", keys.Count())
+	}
+	if err := keys.SetPasswords("secret", []string{"keep"}); err != nil {
+		t.Fatal(err)
+	}
+	if keys.Count() != 2 {
+		t.Fatalf("after=%d want 2", keys.Count())
+	}
+}
+
 func TestObfsWrapUnwrapRoundtrip(t *testing.T) {
 	key, err := deriveWrapKey("secret")
 	if err != nil {
@@ -456,7 +506,7 @@ func TestWrapListenerRoundTripAndClose(t *testing.T) {
 		t.Fatalf("got %q", plain[:n])
 	}
 
-	reply := []byte("RAWCONF:10.9.0.2|8.8.8.8|1300")
+	reply := []byte("RAWCONF:10.9.0.2|8.8.8.8|1280")
 	if _, err := pc.WriteTo(reply, addr); err != nil {
 		t.Fatal(err)
 	}
