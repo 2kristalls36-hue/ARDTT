@@ -69,4 +69,19 @@ class TelemetryUploadClientTest {
         assertEquals("разобрано", item.reviewNote)
         assertTrue(item.uploadedAtMs > 0L)
     }
+
+    @Test
+    fun parseClientInboxPrefersTopLevelReply() {
+        val items = parseClientInbox(
+            """
+            {"ok":true,"logs":[
+              {"filename":"a.json","ticket":4,"read":true,"comment":"после Wi‑Fi",
+               "reply":"обход падает на смене сети",
+               "review":{"read":true,"note":"старая заметка"}}
+            ]}
+            """.trimIndent(),
+        )
+        assertEquals("обход падает на смене сети", items.single().reviewNote)
+        assertTrue(items.single().read)
+    }
 }

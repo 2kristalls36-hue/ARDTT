@@ -97,6 +97,69 @@ class TelemetryUploadTest(unittest.TestCase):
         missing_file = self.client.get("/api/logs/client_aaa/nope.json/status")
         self.assertEqual(missing_file.status_code, 404)
 
+    def test_mark_read_then_comment_is_visible_in_inbox(self):
+        self.upload("client_aaa", "a.json")
+        marked = self.client.post(
+            "/api/logs/client_aaa/a.json/read",
+            json={"processed_by": "cursor-agent"},
+        )
+        self.assertEqual(marked.status_code, 200)
+        inbox = self.client.get("/api/logs/client_aaa/status").get_json()
+        item = inbox["logs"][0]
+        self.assertTrue(item["read"])
+        self.assertIsNone(item["reply"])
+        again = self.client.post(
+            "/api/logs/client_aaa/a.json/read",
+            json={"processed_by": "cursor-agent"},
+        )
+        self.assertEqual(again.status_code, 200)
+        commented = self.client.post(
+            "/api/logs/client_aaa/a.json/comment",
+            json={"processed_by": "cursor-agent", "reply": "обход падает на смене Wi‑Fi"},
+        )
+        self.assertEqual(commented.status_code, 200)
+        self.assertEqual(commented.get_json()["reply"], "обход падает на смене Wi‑Fi")
+        inbox = self.client.get("/api/logs/client_aaa/status").get_json()
+        item = inbox["logs"][0]
+        self.assertTrue(item["read"])
+        self.assertEqual(item["reply"], "обход падает на смене Wi‑Fi")
+        blank = self.client.post(
+            "/api/logs/client_aaa/a.json/comment",
+            json={"processed_by": "cursor-agent", "reply": "  "},
+        )
+        self.assertEqual(blank.status_code, 400)
+
+    def test_lookup_by_ticket_number(self):
+        self.upload("client_aaa", "a.json")
+        self.upload("client_bbb", "b.json")
+        found = self.client.get("/api/logs/ticket/2")
+        self.assertEqual(found.status_code, 200)
+        self.assertEqual(found.get_json()["client_id"], "client_bbb")
+        listed = self.client.get("/api/logs?ticket=1")
+        self.assertEqual(listed.status_code, 200)
+        payload = listed.get_json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["logs"][0]["ticket"], 1)
+        missing = self.client.get("/api/logs/ticket/99")
+        self.assertEqual(missing.status_code, 404)
+
+    def test_read_without_note_does_not_wipe_reply(self):
+        self.upload("client_aaa", "a.json")
+        self.client.post(
+            "/api/logs/client_aaa/a.json/comment",
+            json={"reply": "уже ответили"},
+        )
+        self.client.post("/api/logs/client_aaa/a.json/read", json={"processed_by": "cursor-agent"})
+        inbox = self.client.get("/api/logs/client_aaa/status").get_json()
+        self.assertEqual(inbox["logs"][0]["reply"], "уже ответили")
+        self.assertTrue(inbox["logs"][0]["read"])
+        self.client.post(
+            "/api/logs/client_aaa/a.json/read",
+            json={"processed_by": "cursor-agent", "note": "   "},
+        )
+        inbox = self.client.get("/api/logs/client_aaa/status").get_json()
+        self.assertEqual(inbox["logs"][0]["reply"], "уже ответили")
+
 
 if __name__ == "__main__":
     unittest.main()

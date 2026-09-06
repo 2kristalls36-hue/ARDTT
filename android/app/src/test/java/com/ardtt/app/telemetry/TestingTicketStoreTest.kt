@@ -188,6 +188,27 @@ class TestingTicketStoreTest {
     }
 
     @Test
+    fun unreadServerStatusClearsAuthorReply() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        store.rememberUpload(
+            comment = "ждёт разбора",
+            logName = "log-a.json",
+            serverNumber = 4,
+            read = true,
+            reviewNote = "старый ответ",
+        )
+        store.applyServerStatuses(
+            listOf(
+                TestingTicketStatus(logName = "log-a.json", number = 4, read = false),
+            ),
+        )
+        val ticket = store.load().tickets.single()
+        assertFalse(ticket.read)
+        assertEquals("", ticket.reviewNote)
+    }
+
+    @Test
     fun jsonRoundTripKeepsReadMarker() {
         val state = TestingTicketState(
             nextNumber = 5,

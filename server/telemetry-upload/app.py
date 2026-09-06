@@ -172,9 +172,86 @@ def review_payload(path: Path) -> dict | None:
     return {"read": True}
 
 
+def author_reply_text(review: dict | None) -> str:
+    if not review:
+        return ""
+    for key in ("reply", "note"):
+        value = review.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def log_path_from_ticket_marker(marker: Path) -> Path | None:
+    name = marker.name
+    if not (name.startswith(".") and name.endswith(".ticket.json")):
+        return None
+    filename = name[1 : -len(".ticket.json")]
+    candidate = marker.parent / filename
+    return candidate if candidate.is_file() else None
+
+
+def find_by_ticket(number: int) -> tuple[str, Path] | None:
+    if number <= 0:
+        return None
+    root = log_root()
+    if not root.is_dir():
+        return None
+    for marker in root.glob("*/*.ticket.json"):
+        if not marker.name.startswith("."):
+            continue
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            if int(data.get("ticket") or 0) != number:
+                continue
+        except (OSError, ValueError, TypeError):
+            continue
+        filename = str(data.get("filename") or "").strip()
+        path = marker.parent / filename if filename else None
+        if path is None or not path.is_file():
+            path = log_path_from_ticket_marker(marker)
+        if path is None:
+            continue
+        return marker.parent.name, path
+    return None
+
+
+def upsert_review(
+    path: Path,
+    *,
+    processed_by: str,
+    reply: str | None = None,
+    set_reply: bool = False,
+) -> dict:
+    existing = review_payload(path) or {}
+    now = utc_now()
+    already_read = bool(existing.get("read"))
+    current_reply = author_reply_text(existing)
+    if set_reply:
+        current_reply = (reply or "").strip()
+    payload = {
+        "read": True,
+        "processed_at": existing.get("processed_at") if already_read else now,
+        "processed_by": processed_by or existing.get("processed_by") or "cursor-agent",
+        "note": current_reply,
+        "reply": current_reply,
+        "log": str(path),
+        "ticket": read_ticket(path) or existing.get("ticket"),
+    }
+    if not payload["processed_at"]:
+        payload["processed_at"] = now
+    if set_reply:
+        payload["replied_at"] = now
+    elif existing.get("replied_at"):
+        payload["replied_at"] = existing["replied_at"]
+    write_json(read_marker(path), payload)
+    return payload
+
+
 def log_public_fields(path: Path, client_id: str) -> dict:
     review = review_payload(path)
     is_read = review is not None
+    reply = author_reply_text(review)
     return {
         "client_id": client_id,
         "filename": path.name,
@@ -183,6 +260,8 @@ def log_public_fields(path: Path, client_id: str) -> dict:
         "comment": embedded_user_comment(path),
         "ticket": read_ticket(path) or None,
         "read": is_read,
+        "reply": reply or None,
+        "replied_at": (review or {}).get("replied_at"),
         "review": review,
     }
 
@@ -243,6 +322,8 @@ def list_logs():
     status = (request.args.get("status") or "all").strip().lower()
     if status not in {"all", "read", "unread"}:
         return jsonify({"error": "status must be all, read or unread"}), 400
+    ticket_raw = (request.args.get("ticket") or "").strip()
+    ticket_filter = int(ticket_raw) if ticket_raw.isdigit() else 0
 
     items = []
     root = log_root()
@@ -251,6 +332,8 @@ def list_logs():
             if path.name.startswith("."):
                 continue
             fields = log_public_fields(path, path.parent.name)
+            if ticket_filter and fields.get("ticket") != ticket_filter:
+                continue
             if status == "read" and not fields["read"]:
                 continue
             if status == "unread" and fields["read"]:
@@ -260,6 +343,18 @@ def list_logs():
                 "path": str(path),
             })
     return jsonify({"ok": True, "count": len(items), "logs": items})
+
+
+@app.route("/api/logs/ticket/<int:ticket>", methods=["GET"])
+def log_by_ticket(ticket: int):
+    denied = require_review_auth()
+    if denied:
+        return denied
+    found = find_by_ticket(ticket)
+    if found is None:
+        return jsonify({"error": "log not found"}), 404
+    client_id, path = found
+    return jsonify({"ok": True, **log_public_fields(path, client_id), "path": str(path)})
 
 
 @app.route("/api/logs/<client_id>/status", methods=["GET"])
@@ -295,16 +390,45 @@ def mark_log_read(client_id: str, filename: str):
 
     body = request.get_json(silent=True) or {}
     processed_by = str(body.get("processed_by") or "cursor-agent").strip()[:128]
-    note = str(body.get("note") or "").strip()[:2048]
-    payload = {
-        "read": True,
-        "processed_at": utc_now(),
-        "processed_by": processed_by or "cursor-agent",
-        "note": note,
-        "log": str(path),
-        "ticket": read_ticket(path) or None,
-    }
-    write_json(read_marker(path), payload)
+    reply = None
+    set_reply = False
+    if "reply" in body:
+        reply = str(body.get("reply") or "").strip()[:2048]
+        set_reply = True
+    elif "note" in body:
+        note = str(body.get("note") or "").strip()[:2048]
+        if note:
+            reply = note
+            set_reply = True
+    payload = upsert_review(
+        path,
+        processed_by=processed_by or "cursor-agent",
+        reply=reply,
+        set_reply=set_reply,
+    )
+    return jsonify({"ok": True, **payload})
+
+
+@app.route("/api/logs/<client_id>/<filename>/comment", methods=["POST"])
+def mark_log_comment(client_id: str, filename: str):
+    denied = require_review_auth()
+    if denied:
+        return denied
+    path = validated_log_path(client_id, filename)
+    if path is None:
+        return jsonify({"error": "log not found"}), 404
+
+    body = request.get_json(silent=True) or {}
+    processed_by = str(body.get("processed_by") or "cursor-agent").strip()[:128]
+    reply = str(body.get("reply") or body.get("note") or "").strip()[:2048]
+    if not reply:
+        return jsonify({"error": "reply is required"}), 400
+    payload = upsert_review(
+        path,
+        processed_by=processed_by or "cursor-agent",
+        reply=reply,
+        set_reply=True,
+    )
     return jsonify({"ok": True, **payload})
 
 

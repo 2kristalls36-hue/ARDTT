@@ -64,6 +64,9 @@ internal fun testingTicketTitle(number: Int): String =
 internal fun testingTicketReadLabel(read: Boolean): String =
     if (read) "Прочитано" else "Ожидает разбора"
 
+internal const val TESTING_AUTHOR_REPLY_TITLE = "Ответ автора"
+internal const val TESTING_USER_COMMENT_TITLE = "Ваш комментарий"
+
 internal fun testingTicketNextNumber(nextNumber: Int, tickets: List<TestingTicket>): Int {
     val maxExisting = tickets.maxOfOrNull { it.number } ?: 0
     return maxOf(nextNumber, maxExisting + 1, 1)
@@ -202,9 +205,21 @@ class TestingTicketStore(private val file: File) {
                 },
                 logName = name.ifEmpty { existing?.logName.orEmpty() },
                 read = item.read,
-                processedAt = item.processedAt.ifBlank { existing?.processedAt.orEmpty() },
-                processedBy = item.processedBy.ifBlank { existing?.processedBy.orEmpty() },
-                reviewNote = item.reviewNote.ifBlank { existing?.reviewNote.orEmpty() },
+                processedAt = if (item.read) {
+                    item.processedAt.ifBlank { existing?.processedAt.orEmpty() }
+                } else {
+                    ""
+                },
+                processedBy = if (item.read) {
+                    item.processedBy.ifBlank { existing?.processedBy.orEmpty() }
+                } else {
+                    ""
+                },
+                reviewNote = if (item.read) {
+                    item.reviewNote.ifBlank { existing?.reviewNote.orEmpty() }
+                } else {
+                    ""
+                },
             )
             val tickets = listOf(ticket) + state.tickets.filterNot { other ->
                 other.number == ticket.number ||
