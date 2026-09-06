@@ -62,10 +62,10 @@
 
 ```
 ARDTT/
-├── android/      # клиент (`:app`) и Lab (`:lab`); Gradle здесь
+├── android/      # Jetpack Compose-клиент (Gradle живёт здесь)
 ├── server/       # единый Docker-образ ardtt (compose profile isolated)
-├── scripts/      # APK, иконки, pack-stack, ardtt-lab
-├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY, LAB
+├── scripts/      # APK, иконки, pack-stack
+├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
 ├── .github/      # релиз APK + архив стека
 ├── CHANGELOG.md
 ├── LICENSE       # GNU GPL v3
@@ -131,7 +131,6 @@ cd android
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка и повторный деплой: из приложения (GitHub) или клоном репозитория |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
 | [docs/DEVICE-TEST.md](docs/DEVICE-TEST.md) | Проверка на белом списке |
-| [docs/LAB.md](docs/LAB.md) | ARDTT Lab: агент по SSH, телефон сам выходит на сервер |
 | [docs/UI.md](docs/UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
 | [android/README.md](android/README.md) | Сборка клиента, keystore, релизы |
 | [server/README.md](server/README.md) | Compose: provision, direct, bypass, dns, warp, cascade, telemetry |

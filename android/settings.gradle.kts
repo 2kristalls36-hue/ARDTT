@@ -17,4 +17,3 @@ dependencyResolutionManagement {
 rootProject.name = "ARDTT"
 include(":app")
 include(":tunnel")
-include(":lab")

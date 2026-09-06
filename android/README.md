@@ -74,11 +74,9 @@ Release (подписанный постоянным keystore):
 ## Модули
 
 - `app` — UI, ConnectionManager, VpnTunnelService, bypass session
-- `lab` — отдельный APK `com.ardtt.lab`: SSH-реверс на VPS, команды агента; ARDTT не меняет
 - `tunnel` — AmneziaWG userspace (`libwg-go`)
 - `go_client` — Path B RAW (qWDTT / SpaceNeuroX) → `libclient.so`
 - **Режим тестирования:** полная телеметрия, JSONL, upload на VPS — [../docs/TELEMETRY.md](../docs/TELEMETRY.md).
-- **ARDTT Lab** (отдельный APK `:lab`): живое управление с облачного агента через SSH, без перестройки ARDTT — [../docs/LAB.md](../docs/LAB.md).
 - **Обновления:** GitHub Releases (`2kristalls36-hue/ARDTT`), fallback — `https://45.129.2.3/update.json`. Клиент скачивает APK, проверяет SHA-256 и запускает системный установщик. Публичный репозиторий читается без PAT.
 
 После деплоя сервера на VPS стек лежит в `/opt/ardtt/stack/` и рабочие образы.
