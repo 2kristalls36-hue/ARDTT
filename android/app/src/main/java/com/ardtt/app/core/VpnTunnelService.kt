@@ -1485,6 +1485,21 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 )
             }
         }
+        if (pfd == null) {
+            repeat(2) { attempt ->
+                AppLog.w(TAG, "TUN establish null — retry ${attempt + 1}/2")
+                android.os.SystemClock.sleep(300)
+                pfd = establishVpnInterface(
+                    ipAddr = ipAddr,
+                    wantMtu = wantMtu,
+                    dnsCsv = dnsCsv,
+                    bypassTun = bypassTun,
+                    plan = plan,
+                    excludedHosts = excludedHosts,
+                )
+                if (pfd != null) return@repeat
+            }
+        }
         tun = pfd
         if (pfd != null) {
             lastTunIp = ipAddr
