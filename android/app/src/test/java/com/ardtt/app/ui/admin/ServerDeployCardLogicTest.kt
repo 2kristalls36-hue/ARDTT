@@ -447,6 +447,7 @@ class ServerDeployCardLogicTest {
     @Test
     fun deleteConfirmWarnsThatStackIsWipedOnVps() {
         assertEquals("Удалить сервер?", serverDeleteConfirmTitle())
+        assertEquals("Удалить", serverDeleteConfirmAction())
         val standalone = serverDeleteConfirmBody("10.0.0.1")
         assertTrue(standalone.contains("10.0.0.1"))
         assertTrue(standalone.contains("/opt/ardtt"))
@@ -460,6 +461,22 @@ class ServerDeployCardLogicTest {
         )
         assertTrue(cascade.contains("входного сервера 10.0.0.1"))
         assertTrue(cascade.contains("выходного 2.26.125.160"))
+    }
+
+    @Test
+    fun deleteConfirmWhenOfflineRemovesCardOnly() {
+        assertFalse(serverDeleteIsOffline(HealthUi.Online("1.0.35")))
+        assertFalse(serverDeleteIsOffline(HealthUi.NotInstalled))
+        assertFalse(serverDeleteIsOffline(HealthUi.Checking))
+        assertTrue(serverDeleteIsOffline(HealthUi.Unreachable))
+        assertEquals("Нет связи с сервером", serverDeleteConfirmTitle(offline = true))
+        assertEquals("Удалить карточку", serverDeleteConfirmAction(offline = true))
+        val offline = serverDeleteConfirmBody("10.0.0.1", offline = true)
+        assertTrue(offline.contains("не будет выполнено"))
+        assertTrue(offline.contains("нет соединения"))
+        assertTrue(offline.contains("10.0.0.1"))
+        assertTrue(offline.contains("без деинсталляции"))
+        assertFalse(offline.contains("/opt/ardtt"))
     }
 
     @Test
