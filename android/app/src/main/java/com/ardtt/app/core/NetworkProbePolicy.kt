@@ -12,8 +12,13 @@ internal enum class ProbePathHint {
 
 /**
  * Pure Auto-path classifier (no Android).
- * 77.88.8.8 = internet even on operator whitelist; 1.1.1.1 = open internet.
- * TCP :9100 is not AmneziaWG UDP :51820 — whitelist still picks Bypass.
+ *
+ * 77.88.8.8 = internet even on operator whitelist.
+ * 1.1.1.1 counts as open only after TLS or UDP :53 — a TCP connect to
+ * :443 is not enough (MTS: TCP up, TLS dead, AmneziaWG UDP dead).
+ * VPS [provisionOk] is HTTP /health, not TCP :9100 (MTS: connect works,
+ * GET times out). Direct requires open Cloudflare. Reaching the VPS
+ * alone is not Direct: that UDP :51820 path is what the whitelist drops.
  */
 internal object NetworkProbePolicy {
 
@@ -24,19 +29,18 @@ internal object NetworkProbePolicy {
         captive: Boolean?,
     ): ProbePathHint {
         if (captive == true) return ProbePathHint.Captive
-        if (provisionOk == true) {
-            // TCP :9100 is not AmneziaWG UDP :51820. On operator whitelist
-            // (Yandex up, Cloudflare down) UDP to the VPS is typically dropped,
-            // so wait for 1.1.1.1 and pick Bypass instead of a dead Direct.
-            if (cloudflareOk == true) return ProbePathHint.Direct
-            if (cloudflareOk == false && yandexOk == true) return ProbePathHint.Bypass
-            if (cloudflareOk == false && yandexOk == false) return ProbePathHint.Direct
-            return ProbePathHint.Wait
-        }
+        if (cloudflareOk == true && provisionOk == true) return ProbePathHint.Direct
+        if (cloudflareOk == true && provisionOk == false) return ProbePathHint.Bypass
+        // Yandex lives and Cloudflare is not actually open → Bypass now.
+        // Do not wait for TCP :9100: that is not AmneziaWG UDP :51820.
+        if (yandexOk == true && cloudflareOk == false) return ProbePathHint.Bypass
         val anyInternet = yandexOk == true || cloudflareOk == true
         val internetDead = yandexOk == false && cloudflareOk == false
         if (provisionOk == false && anyInternet) return ProbePathHint.Bypass
         if (provisionOk == false && internetDead) return ProbePathHint.NoNetwork
+        if (provisionOk == true && cloudflareOk == false && yandexOk == false) {
+            return ProbePathHint.Bypass
+        }
         return ProbePathHint.Wait
     }
 
@@ -73,7 +77,20 @@ internal object NetworkProbePolicy {
                 elapsedMs = 0,
             )
         }
-        if (provisionOk && yandexOk && !bigtechOk) {
+        if (provisionOk && bigtechOk) {
+            return ProbeResult(
+                networkClass = NetworkClass.DirectOk,
+                preselectedPath = VpnPath.Direct,
+                systemOnline = systemOnline,
+                yandexOk = yandexOk,
+                bigtechOk = true,
+                captive = false,
+                provisionOk = true,
+                message = "Готово: прямое",
+                elapsedMs = 0,
+            )
+        }
+        if (yandexOk && !bigtechOk) {
             return ProbeResult(
                 networkClass = NetworkClass.NeedBypass,
                 preselectedPath = VpnPath.Bypass,
@@ -81,21 +98,25 @@ internal object NetworkProbePolicy {
                 yandexOk = true,
                 bigtechOk = false,
                 captive = false,
-                provisionOk = true,
-                message = "Готово: обход (белый список — UDP до VPS, скорее всего, закрыт)",
+                provisionOk = provisionOk,
+                message = if (provisionOk) {
+                    "Готово: обход (белый список — UDP до VPS, скорее всего, закрыт)"
+                } else {
+                    "Готово: обход (белый список, VPS недоступен)"
+                },
                 elapsedMs = 0,
             )
         }
-        if (provisionOk) {
+        if (provisionOk && !bigtechOk) {
             return ProbeResult(
-                networkClass = NetworkClass.DirectOk,
-                preselectedPath = VpnPath.Direct,
+                networkClass = NetworkClass.NeedBypass,
+                preselectedPath = VpnPath.Bypass,
                 systemOnline = systemOnline,
                 yandexOk = yandexOk,
-                bigtechOk = bigtechOk,
+                bigtechOk = false,
                 captive = false,
                 provisionOk = true,
-                message = "Готово: прямое",
+                message = "Готово: обход (VPS отвечает, открытого интернета нет)",
                 elapsedMs = 0,
             )
         }

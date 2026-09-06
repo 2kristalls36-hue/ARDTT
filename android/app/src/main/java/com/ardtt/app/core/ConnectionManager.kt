@@ -92,7 +92,8 @@ class ConnectionManager(
     private var lastHandoverBindHandle: Long? = null
     /**
      * Direct died (no TUN rx) on this underlay handle. Do not Auto-upgrade
-     * Bypass→Direct on the same network: TCP :9100 can still look DirectOk.
+     * Bypass→Direct on the same network: TCP :9100 / a SYN to 1.1.1.1 can
+     * still look open while AWG UDP is dead.
      */
     private var deadDirectBindHandle: Long? = null
     private var blockBypassToDirectUntilUnderlayChange: Boolean = false
@@ -457,7 +458,8 @@ class ConnectionManager(
             AppLog.v(
                 TAG,
                 "Probe done path=${result.preselectedPath} class=${result.networkClass} " +
-                    "yandex=${result.yandexOk} vps=${result.provisionOk} ${result.elapsedMs}ms",
+                    "yandex=${result.yandexOk} cloudflare=${result.bigtechOk} " +
+                    "vps=${result.provisionOk} ${result.elapsedMs}ms",
             )
             // Don't clobber an in-flight Connect started while we probed.
             if (_ui.value.state == ConnState.Connecting || _ui.value.state == ConnState.Connected) {
@@ -664,7 +666,8 @@ class ConnectionManager(
                     AppLog.v(
                         TAG,
                         "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
-                            "mode=$pathMode yandex=${fresh.yandexOk} vps=${fresh.provisionOk} " +
+                            "mode=$pathMode yandex=${fresh.yandexOk} " +
+                            "cloudflare=${fresh.bigtechOk} vps=${fresh.provisionOk} " +
                             "kind=$kind " +
                             "whitelist=$whitelistOn apps=${selectedApps.size} " +
                             SplitTunnel.logSample(selectedApps),
@@ -871,8 +874,9 @@ class ConnectionManager(
 
     /**
      * After Wi‑Fi↔LTE / SIM settle: re-classify underlay.
-     * Open internet + VPS TCP → Direct. Operator whitelist (Yandex up,
-     * Cloudflare down) → Bypass even if TCP :9100 answers (AWG is UDP).
+     * Open internet (Cloudflare TLS or UDP :53) + VPS /health → Direct.
+     * Operator whitelist (Yandex up, Cloudflare TLS/UDP down) → Bypass
+     * even if TCP :9100 answers (AWG is UDP).
      * NoNetwork → hold (do not restart into a dead SIM gap).
      *
      * [bindNetwork] must be the real underlay (NOT_VPN); probing through the

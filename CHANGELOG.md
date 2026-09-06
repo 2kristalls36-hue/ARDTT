@@ -1,3 +1,11 @@
+# ARDTT v0.5.247
+
+Клиент **0.5.247** (`versionCode` 265). Серверный стек **1.0.38** (`DEPLOY_VERSION`).
+
+## 0.5.247
+
+- Auto на сотовой: Cloudflare считается живым только после TLS или UDP :53, не после TCP `1.1.1.1:443`. VPS — HTTP `/health`, не TCP `:9100`. Direct только при открытом Cloudflare. На МТС (Яндекс жив, TCP до Cloudflare и `:9100` есть, TLS и Direct UDP нет) Auto берёт обход, а не мёртвый Direct.
+
 # ARDTT v0.5.246
 
 Клиент **0.5.246** (`versionCode` 264). Серверный стек **1.0.38** (`DEPLOY_VERSION`).

@@ -296,7 +296,7 @@ const val HANDOVER_DIRECT_TO_BYPASS_STREAK = 2
 
 /**
  * Bypass → Direct used to require this many consecutive “VPS IP up” probes.
- * Stall recovery on a whitelist LTE (TCP :9100 up, AWG UDP dead) hit this
+ * Stall recovery on a whitelist LTE (TCP :9100 or 1.1.1.1 SYN up, AWG UDP dead) hit this
  * without an underlay change and yanked a working Bypass. Upgrade now only
  * on a confirmed underlay change — the constant remains for tests / docs.
  */
