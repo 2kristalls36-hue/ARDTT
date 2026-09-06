@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print base64 keystore for GitHub Actions secret ANDROID_KEYSTORE_BASE64.
+# Print base64 of the release keystore (for a one-off secret, if needed).
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KEYSTORE="$ROOT_DIR/android/keystore/ardtt-release.keystore"
