@@ -143,20 +143,28 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def assign_ticket(client_id: str, dest_path: Path) -> int:
-    existing = read_ticket(dest_path)
-    if existing > 0:
-        return existing
-    number = next_ticket_number()
-    write_json(
-        ticket_marker(dest_path),
-        {
-            "ticket": number,
-            "client_id": client_id,
-            "filename": dest_path.name,
-            "assigned_at": utc_now(),
-        },
-    )
-    return number
+    marker = ticket_marker(dest_path)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = marker.with_name(marker.name + ".lock")
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            existing = read_ticket(dest_path)
+            if existing > 0:
+                return existing
+            number = next_ticket_number()
+            write_json(
+                marker,
+                {
+                    "ticket": number,
+                    "client_id": client_id,
+                    "filename": dest_path.name,
+                    "assigned_at": utc_now(),
+                },
+            )
+            return number
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def review_payload(path: Path) -> dict | None:

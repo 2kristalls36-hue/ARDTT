@@ -67,6 +67,16 @@ internal fun testingTicketReadLabel(read: Boolean): String =
 internal const val TESTING_AUTHOR_REPLY_TITLE = "Ответ автора"
 internal const val TESTING_USER_COMMENT_TITLE = "Ваш комментарий"
 
+internal fun testingTicketSameIdentity(
+    ticket: TestingTicket,
+    logName: String,
+    number: Int,
+): Boolean {
+    val name = logName.trim()
+    if (name.isNotEmpty()) return ticket.logName == name
+    return number > 0 && ticket.number == number && ticket.logName.isEmpty()
+}
+
 internal fun testingTicketNextNumber(nextNumber: Int, tickets: List<TestingTicket>): Int {
     val maxExisting = tickets.maxOfOrNull { it.number } ?: 0
     return maxOf(nextNumber, maxExisting + 1, 1)
@@ -143,8 +153,7 @@ class TestingTicketStore(private val file: File) {
         val name = logName.trim()
         val state = load()
         val existing = state.tickets.firstOrNull { ticket ->
-            (name.isNotEmpty() && ticket.logName == name) ||
-                (serverNumber > 0 && ticket.number == serverNumber)
+            testingTicketSameIdentity(ticket, name, serverNumber)
         }
         val number = when {
             serverNumber > 0 -> serverNumber
@@ -166,8 +175,7 @@ class TestingTicketStore(private val file: File) {
             reviewNote = reviewNote,
         )
         val tickets = listOf(ticket) + state.tickets.filterNot { other ->
-            other.number == ticket.number ||
-                (ticket.logName.isNotEmpty() && other.logName == ticket.logName)
+            testingTicketSameIdentity(other, ticket.logName, ticket.number)
         }
         persist(
             state.copy(
@@ -185,8 +193,7 @@ class TestingTicketStore(private val file: File) {
             val name = item.logName.trim()
             if (name.isEmpty() && item.number <= 0) return@forEach
             val existing = state.tickets.firstOrNull { ticket ->
-                (name.isNotEmpty() && ticket.logName == name) ||
-                    (item.number > 0 && ticket.number == item.number)
+                testingTicketSameIdentity(ticket, name, item.number)
             }
             val comment = item.comment.trim().ifBlank {
                 existing?.comment.orEmpty().ifBlank { name.ifBlank { "Лог" } }
@@ -205,25 +212,12 @@ class TestingTicketStore(private val file: File) {
                 },
                 logName = name.ifEmpty { existing?.logName.orEmpty() },
                 read = item.read,
-                processedAt = if (item.read) {
-                    item.processedAt.ifBlank { existing?.processedAt.orEmpty() }
-                } else {
-                    ""
-                },
-                processedBy = if (item.read) {
-                    item.processedBy.ifBlank { existing?.processedBy.orEmpty() }
-                } else {
-                    ""
-                },
-                reviewNote = if (item.read) {
-                    item.reviewNote.ifBlank { existing?.reviewNote.orEmpty() }
-                } else {
-                    ""
-                },
+                processedAt = item.processedAt,
+                processedBy = item.processedBy,
+                reviewNote = item.reviewNote,
             )
             val tickets = listOf(ticket) + state.tickets.filterNot { other ->
-                other.number == ticket.number ||
-                    (ticket.logName.isNotEmpty() && other.logName == ticket.logName)
+                testingTicketSameIdentity(other, ticket.logName, ticket.number)
             }
             state = state.copy(
                 nextNumber = testingTicketNextNumber(ticket.number + 1, tickets),
@@ -251,18 +245,19 @@ class TestingTicketStore(private val file: File) {
         internal fun parse(raw: String): TestingTicketState {
             val o = JSONObject(raw)
             val tickets = mutableListOf<TestingTicket>()
-            val seen = mutableSetOf<Int>()
+            val seen = mutableSetOf<Pair<Int, String>>()
             o.optJSONArray("tickets")?.let { arr ->
                 for (i in 0 until arr.length()) {
                     val t = arr.optJSONObject(i) ?: continue
                     val number = t.optInt("number")
                     val comment = t.optString("comment").trim()
-                    if (number <= 0 || comment.isEmpty() || !seen.add(number)) continue
+                    val logName = t.optString("logName")
+                    if (number <= 0 || comment.isEmpty() || !seen.add(number to logName)) continue
                     tickets += TestingTicket(
                         number = number,
                         comment = comment,
                         createdAtMs = t.optLong("createdAtMs"),
-                        logName = t.optString("logName"),
+                        logName = logName,
                         read = t.optBoolean("read"),
                         processedAt = t.optString("processedAt"),
                         processedBy = t.optString("processedBy"),

@@ -93,6 +93,8 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private enum class TestingPane { Storage, History }
@@ -118,6 +120,7 @@ fun TestingScreen(profiles: ProfileRepository) {
     var draftsReady by remember { mutableStateOf(false) }
     var tickets by remember { mutableStateOf<List<TestingTicket>>(emptyList()) }
     val latestComments = rememberUpdatedState(comments)
+    val inboxLock = remember { Mutex() }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -174,23 +177,25 @@ fun TestingScreen(profiles: ProfileRepository) {
     }
 
     suspend fun refreshInbox(notify: Boolean = false) {
-        refreshTickets()
-        if (uploadUrl.isBlank()) return
-        val clientId = TelemetryClientId.getAsync(context)
-        val result = uploadClient.fetchInbox(
-            context = context,
-            clientId = clientId,
-            uploadUrl = uploadUrl,
-        )
-        result.fold(
-            onSuccess = { items ->
-                withContext(Dispatchers.IO) { ticketStore.applyServerStatuses(items) }
-                refreshTickets()
-            },
-            onFailure = {
-                if (notify) notifyError(it.message ?: "Не удалось обновить историю")
-            },
-        )
+        inboxLock.withLock {
+            refreshTickets()
+            if (uploadUrl.isBlank()) return@withLock
+            val clientId = TelemetryClientId.getAsync(context)
+            val result = uploadClient.fetchInbox(
+                context = context,
+                clientId = clientId,
+                uploadUrl = uploadUrl,
+            )
+            result.fold(
+                onSuccess = { items ->
+                    withContext(Dispatchers.IO) { ticketStore.applyServerStatuses(items) }
+                    refreshTickets()
+                },
+                onFailure = {
+                    if (notify) notifyError(it.message ?: "Не удалось обновить историю")
+                },
+            )
+        }
     }
 
     LaunchedEffect(isRecording) {
