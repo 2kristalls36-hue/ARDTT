@@ -5,9 +5,7 @@ import com.jcraft.jsch.Session
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.telemetry.TelemetryBridge
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,8 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * Admin deploy: SSH → upload stack.tar.gz + install.sh → run Compose on VPS,
- * or SSH uninstall (compose down + rm /opt/ardtt) then drop the local card.
+ * Admin deploy: phone downloads server/ from GitHub, SSH-uploads it with
+ * install.sh, runs Compose on the VPS; or SSH uninstall then drops the card.
  * Protocol and VPS layout: docs/DEPLOY.md. Canonical installer: server/install.sh.
  */
 class DeployEngine(private val appContext: Context) {
@@ -141,9 +139,25 @@ class DeployEngine(private val appContext: Context) {
                     .put("cascade_enabled", target.cascadeEnabled),
             )
             append("Старт деплоя ${target.name.ifBlank { target.host }}")
-            val stackBytes = loadStackArchiveBytes()
-            val installBytes = appContext.assets.open("deploy/install.sh").use { it.readBytes() }
             val deployVersion = DeployBundle.expectedVersion(appContext)
+            emit(0.02f, "Загрузка стека $deployVersion из GitHub…")
+            val payload = DeployStackFetcher(appContext, deployVersion).fetch { frac ->
+                emit(0.02f + frac * 0.06f, "Загрузка стека из GitHub…")
+            }
+            append("Стек $deployVersion ← ${payload.sourceLabel} (${payload.stackBytes.size / 1024} КБ)")
+            TelemetryBridge.deploy(
+                "bundle_downloaded",
+                activeHost,
+                JSONObject()
+                    .put("deploy_version", deployVersion)
+                    .put("source", payload.sourceLabel)
+                    .put("git_ref", payload.gitRef)
+                    .put("archive_bytes", payload.stackBytes.size),
+            )
+            val stackBytes = payload.stackBytes
+            val installBytes = payload.installBytes
+            val gitRepo = DeployStackSource.gitRepoHttps()
+            val gitRef = payload.gitRef
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
             val entryHost = target.host.trim()
             val verb = if (_isUpdate.value) "обновление" else "установка"
@@ -155,7 +169,7 @@ class DeployEngine(private val appContext: Context) {
             if (target.cascadeEnabled) {
                 val exitHost = target.cascadeHost.trim()
                 if (exitHost.isBlank()) error("Не указан host второго сервера")
-                emitOn(exitHost, 0.02f, "Подключение SSH, $verb выходного стека…")
+                emitOn(exitHost, 0.08f, "Подключение SSH, $verb выходного стека…")
                 append("VPS 2 (выход): $exitHost")
                 val exitSession = SshClient.connect(
                     host = exitHost,
@@ -182,8 +196,10 @@ class DeployEngine(private val appContext: Context) {
                             role = "exit",
                             cascadeEnabled = true,
                             autoPorts = target.autoPorts,
+                            gitRepo = gitRepo,
+                            gitRef = gitRef,
                         ),
-                        progressStart = 0.04f,
+                        progressStart = 0.10f,
                         progressEnd = 0.48f,
                     )
                     exitPub = installed.cascadePublicKey
@@ -227,6 +243,8 @@ class DeployEngine(private val appContext: Context) {
                 },
                 cascadePeerPublicKey = exitPub,
                 autoPorts = target.autoPorts,
+                gitRepo = gitRepo,
+                gitRef = gitRef,
             )
             val entryInstalled = uploadAndInstall(
                 ssh = ssh,
@@ -552,7 +570,7 @@ class DeployEngine(private val appContext: Context) {
         emitOn(
             hostLabel,
             progressStart + span * 0.08f,
-            "Загрузка архива стека (${stackBytes.size / 1024} КБ)…",
+            "Загрузка архива стека на VPS (${stackBytes.size / 1024} КБ)…",
         )
         ssh.uploadBytes(stackBytes, "/opt/ardtt/stack.tar.gz")
         append("Загружен stack.tar.gz на $hostLabel (${stackBytes.size / 1024} КБ)")
@@ -640,39 +658,6 @@ class DeployEngine(private val appContext: Context) {
             bypassPort = DeployInstallEnv.intField(doneFields, "bypass_port"),
             cascadeListenPort = DeployInstallEnv.intField(doneFields, "cascade_listen_port"),
         )
-    }
-
-    /**
-     * aapt/aapt2 may unpack `*.gz` assets and drop the `.gz` suffix (leaving `stack.tar`).
-     * Prefer the opaque `.bin` name; fall back to gz / uncompressed tar (re-gzipped).
-     */
-    private fun loadStackArchiveBytes(): ByteArray {
-        val assets = appContext.assets
-        val names = listOf(
-            "deploy/stack.tar.gz.bin",
-            "deploy/stack.tar.gz",
-            "deploy/stack.tar",
-        )
-        for (name in names) {
-            val bytes = runCatching { assets.open(name).use { it.readBytes() } }.getOrNull()
-                ?: continue
-            if (bytes.isEmpty()) continue
-            return if (name.endsWith(".tar") && !name.endsWith(".tar.gz") && !name.endsWith(".tar.gz.bin")) {
-                gzipBytes(bytes)
-            } else {
-                bytes
-            }
-        }
-        error(
-            "В APK нет deploy/stack.tar.gz (aapt мог переименовать в stack.tar). " +
-                "Выполните scripts/pack-deploy-assets.sh и пересоберите приложение.",
-        )
-    }
-
-    private fun gzipBytes(raw: ByteArray): ByteArray {
-        val out = ByteArrayOutputStream(raw.size / 2)
-        GZIPOutputStream(out).use { it.write(raw) }
-        return out.toByteArray()
     }
 
     private fun emitOn(host: String, fraction: Float, detail: String) {
