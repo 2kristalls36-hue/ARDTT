@@ -92,6 +92,15 @@ class ServerOsProbeTest {
     }
 
     @Test
+    fun ubuntuStaysUbuntuAndDoesNotFallBackToGenericLinux() {
+        assertEquals(ServerOsMark.Ubuntu, serverOsMark("ubuntu"))
+        assertEquals(ServerOsMark.Ubuntu, serverOsMark("Ubuntu"))
+        assertEquals(ServerOsMark.Debian, serverOsMark("debian"))
+        assertEquals(ServerOsMark.Linux, serverOsMark("nixos"))
+        assertEquals(ServerOsMark.Unknown, serverOsMark(""))
+    }
+
+    @Test
     fun centosUsesOwnMarkWhileRhelFamilyStaysRhel() {
         assertEquals(ServerOsMark.Centos, serverOsMark("centos"))
         assertEquals(ServerOsMark.Rhel, serverOsMark("rhel"))

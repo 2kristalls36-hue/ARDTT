@@ -1865,6 +1865,7 @@ fun DeployScreen(
 }
 
 private fun serverOsMarkDrawable(mark: ServerOsMark): Int = when (mark) {
+    // Ubuntu density PNGs are Circle of Friends — keep this name off other distro art.
     ServerOsMark.Ubuntu -> R.drawable.ic_os_ubuntu
     ServerOsMark.Debian -> R.drawable.ic_os_debian
     ServerOsMark.Fedora -> R.drawable.ic_os_fedora
