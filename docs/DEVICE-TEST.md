@@ -2,7 +2,7 @@
 
 Белый список здесь — **сеть оператора** (Yandex `77.88.8.8` жив, Cloudflare `1.1.1.1` режется), не список приложений split-tunnel. Классификация Auto: [ARCHITECTURE.md](ARCHITECTURE.md).
 
-ARDTT для живой проверки **не перенастраивается**. Отдельный APK и SSH-контур лежат в приватном репозитории Lab, не в этом дереве.
+ARDTT для живой проверки **не перенастраивается**. Отдельный APK и SSH-контур — в приватном [2kristalls36-hue/ardtt-lab](https://github.com/2kristalls36-hue/ardtt-lab), не в этом дереве. Зеркало на прыжке: `ssh://root@45.129.2.3/opt/repos/ardtt-lab.git`.
 
 ## Без телефона
 
