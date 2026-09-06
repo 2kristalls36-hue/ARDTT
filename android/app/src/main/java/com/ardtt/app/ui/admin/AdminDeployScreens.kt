@@ -105,7 +105,6 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
-import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
@@ -240,16 +239,32 @@ private fun pingLatencyColor(
 }
 
 @Composable
+private fun serverPresenceColor(health: HealthUi?): Color = when (health) {
+    is HealthUi.Online -> ArdttColors.Connected
+    HealthUi.Unreachable, HealthUi.NotInstalled -> MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.primary
+}
+
+@Composable
+private fun ServerPresenceLabel(health: HealthUi?) {
+    val parts = healthStatusParts(health)
+    Text(
+        parts.presence,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = serverPresenceColor(health),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
 private fun ServerHealthStatusRow(
     health: HealthUi?,
     expectedVersion: String,
 ) {
-    val parts = healthStatusParts(health)
-    val presenceColor = when (health) {
-        is HealthUi.Online -> ArdttColors.Connected
-        HealthUi.Unreachable, HealthUi.NotInstalled -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
+    val parts = healthStatusParts(health, expectedVersion)
+    if (parts.deploy.isNullOrEmpty() && parts.pingLabel.isEmpty()) return
     val deployColor = when (health) {
         is HealthUi.Online ->
             if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
@@ -264,17 +279,8 @@ private fun ServerHealthStatusRow(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
     ) {
-        Text(
-            parts.presence,
-            style = labelStyle,
-            fontWeight = FontWeight.SemiBold,
-            color = presenceColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Start,
-            modifier = Modifier.weight(1f),
-        )
         Text(
             parts.deploy.orEmpty(),
             style = labelStyle,
@@ -282,7 +288,7 @@ private fun ServerHealthStatusRow(
             color = deployColor ?: Color.Transparent,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
+            textAlign = TextAlign.Start,
             modifier = Modifier.weight(1f),
         )
         Text(
@@ -293,7 +299,6 @@ private fun ServerHealthStatusRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f),
         )
     }
 }
@@ -681,7 +686,6 @@ private fun ServerIdentityBody(
         cascadeEnabled = server.cascadeEnabled,
         cascadeHost = server.cascadeHost,
     )
-    val freshnessChip = deployFreshnessChipText(health, expectedVersion)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(
@@ -716,13 +720,21 @@ private fun ServerIdentityBody(
                     osVersion = server.osVersion,
                 )
             }
-            Text(
-                meta,
-                style = MaterialTheme.typography.labelSmall,
-                color = muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+            ) {
+                Text(
+                    meta,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                ServerPresenceLabel(health)
+            }
             extraLines.forEach { line ->
                 Text(
                     line,
@@ -736,12 +748,6 @@ private fun ServerIdentityBody(
                 health = health,
                 expectedVersion = expectedVersion,
             )
-            freshnessChip?.let { chip ->
-                ArdttStatusChip(
-                    text = chip,
-                    accent = ArdttColors.Warning,
-                )
-            }
         }
     }
 }
