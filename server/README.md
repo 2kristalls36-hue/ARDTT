@@ -1,7 +1,7 @@
 # Сервер ARDTT
 
 Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.36** (`DEPLOY_VERSION`).  
-Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
+Исходники — `server/` **этого** репозитория (в APK копии нет). Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
 Боевой контур — **один контейнер** `ardtt` (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)). Процессы внутри те же:
