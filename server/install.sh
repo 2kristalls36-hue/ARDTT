@@ -281,6 +281,22 @@ env_set_key() {
   fi
 }
 
+# Isolated compose publishes host TELEMETRY_PORT → container :9200. When nginx
+# already owns :9200 and socat owns :9199, that publish would fail `compose up`
+# and ARDTT_SKIP_TELEMETRY=1 would leave gunicorn off (Android upload → 502).
+drop_telemetry_host_publish() {
+  local compose="$1" tmp
+  [ -f "$compose" ] || return 0
+  tmp="$(mktemp)"
+  grep -v 'ARDTT_TELEMETRY_PORT.*9200/tcp' "$compose" >"$tmp"
+  if cmp -s "$compose" "$tmp"; then
+    rm -f "$tmp"
+    echo "ARDTT_WARN|в compose нет publish telemetry — оставляю как есть"
+    return 0
+  fi
+  mv "$tmp" "$compose"
+}
+
 # An in-app "update" of the entry hop often omits cascade flags. Dropping them
 # tears down ardtt-cascade, leaves profiles on 10.10.0.2 DNS, and Hide-IP-off
 # traffic can stick on Cloudflare while the app still shows the VPS WAN.
@@ -1187,14 +1203,16 @@ drop_legacy_containers
 
 prog 0.77 "Проверка портов на хосте"
 SKIP_TELEMETRY=0
+TELEMETRY_HOST_PUBLISH=1
 if tcp_listen_port "$TELEMETRY_PORT"; then
   # Distribution nginx typically owns :9200 TLS and proxies /api to :9199.
   if [ "$TELEMETRY_PORT" = "9200" ] && ! tcp_listen_port 9199; then
     TELEMETRY_PORT=9199
     echo "ARDTT_INFO|host :9200 занят (nginx) — telemetry backend на :9199"
   else
-    echo "ARDTT_WARN|порт telemetry :${TELEMETRY_PORT} уже занят — внутри контейнера telemetry не стартуем. Задайте ARDTT_TELEMETRY_PORT"
-    SKIP_TELEMETRY=1
+    echo "ARDTT_INFO|host :9200 и :9199 заняты — telemetry только внутри контейнера (nginx/socat)"
+    drop_telemetry_host_publish "$STACK/docker-compose.yml"
+    TELEMETRY_HOST_PUBLISH=0
   fi
 fi
 if [ "$ROLE" = "exit" ]; then
@@ -1250,10 +1268,16 @@ else
   echo "ARDTT_WARN|provision /health пока не ответил — проверьте: docker compose -f $STACK/docker-compose.yml --profile ${COMPOSE_PROFILES} logs"
 fi
 if [ "$SKIP_TELEMETRY" != 1 ]; then
-  if curl -fsS --max-time 3 "http://127.0.0.1:${TELEMETRY_PORT}/health" >/dev/null 2>&1; then
+  inner_telemetry_port="$(env_file_val "$STACK/.env" TELEMETRY_LISTEN)"
+  inner_telemetry_port="${inner_telemetry_port##*:}"
+  [ -n "$inner_telemetry_port" ] || inner_telemetry_port="$TELEMETRY_PORT"
+  if [ "$TELEMETRY_HOST_PUBLISH" = 1 ] && \
+     curl -fsS --max-time 3 "http://127.0.0.1:${TELEMETRY_PORT}/health" >/dev/null 2>&1; then
     prog 0.93 "telemetry /health OK"
+  elif docker exec ardtt curl -fsS --max-time 3 "http://127.0.0.1:${inner_telemetry_port}/health" >/dev/null 2>&1; then
+    prog 0.93 "telemetry /health OK (внутри контейнера)"
   else
-    echo "ARDTT_WARN|telemetry :${TELEMETRY_PORT} не отвечает — логи тестирования не примут"
+    echo "ARDTT_WARN|telemetry не отвечает — логи тестирования не примут"
   fi
 fi
 if docker inspect -f '{{.State.Running}}' ardtt 2>/dev/null | grep -qx true; then
@@ -1295,7 +1319,7 @@ else
   host_allow_port udp "$BYPASS_PORT"
 fi
 host_allow_port tcp 9100
-if [ "$SKIP_TELEMETRY" != 1 ]; then
+if [ "$SKIP_TELEMETRY" != 1 ] && [ "${TELEMETRY_HOST_PUBLISH:-1}" = 1 ]; then
   host_allow_port tcp "$TELEMETRY_PORT"
 fi
 if command -v firewall-cmd >/dev/null 2>&1; then

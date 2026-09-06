@@ -1,7 +1,7 @@
 # Android-клиент ARDTT
 
 Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial over TURN Tunnel).  
-Текущая сборка: **0.5.246** (`versionCode` 264).  
+Текущая сборка: **0.5.247** (`versionCode` 265).  
 `applicationId` / namespace — `com.ardtt.app`, minSdk 28. Смена с `com.nonamevpn.app` требует переустановки APK (это уже другое приложение для Android).
 
 Лендинг репозитория: [../README.md](../README.md). Легенда: [../docs/LEGEND.md](../docs/LEGEND.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
@@ -45,8 +45,8 @@ Release (подписанный постоянным keystore):
 
 | `versionName` | Куда кладётся сборка |
 |---|---|
-| есть `test` (например `0.5.246-test`) | только **Actions → Artifacts** (30 дней), GitHub Release **не** создаётся |
-| без `test` (например `0.5.246`) | GitHub Release `v<versionName>` + копия в Artifacts |
+| есть `test` (например `0.5.247-test`) | только **Actions → Artifacts** (30 дней), GitHub Release **не** создаётся |
+| без `test` (например `0.5.247`) | GitHub Release `v<versionName>` + копия в Artifacts |
 
 PR всегда собирает Preview APK в артефакты (`.github/workflows/android-branch-apk.yml`), без Releases.
 

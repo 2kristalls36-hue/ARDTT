@@ -9,7 +9,7 @@
 
 Каталог на диске по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). При обновлении старый `/opt/nonamevpn` переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.38**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.39**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -30,7 +30,7 @@
   SSH (пароль или PEM)
       │  upload  /opt/ardtt/stack.tar.gz
       │  upload  /opt/ardtt/install.sh
-      │  env ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=v0.5.246 bash install.sh
+      │  env ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=v0.5.247 bash install.sh
       ▼
     VPS  /opt/ardtt/stack/     ← compose + исходники + Dockerfile
          /opt/ardtt/stack/data ← users.json, ключи, warp state
@@ -99,7 +99,7 @@ WARP — не третий путь подключения, а **egress** выб
 
 ```bash
 ARDTT_PUBLIC_HOST='…' ARDTT_DIRECT_PORT=51820 ARDTT_BYPASS_PORT=56003 ARDTT_AUTO_PORTS=1 \
-ARDTT_DEPLOY_VERSION='1.0.37' ARDTT_GIT_REF='v0.5.246' \
+ARDTT_DEPLOY_VERSION='1.0.39' ARDTT_GIT_REF='v0.5.247' \
 ARDTT_GIT_REPO='https://github.com/2kristalls36-hue/ARDTT.git' \
 bash /opt/ardtt/install.sh
 ```
@@ -110,16 +110,16 @@ bash /opt/ardtt/install.sh
 
 ```bash
 # 1) выход (DNS + WARP)
-ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.37' \
-  ARDTT_GIT_REF='v0.5.246' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
+ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.39' \
+  ARDTT_GIT_REF='v0.5.247' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
 # stdout: ARDTT_CASCADE_PUBLIC_KEY|<base64>
 
 # 2) вход (клиенты), пир = ключ выхода
 ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
   ARDTT_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
   ARDTT_CASCADE_PEER_PUBLIC_KEY='…' \
-  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.37' \
-  ARDTT_GIT_REF='v0.5.246' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
+  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.39' \
+  ARDTT_GIT_REF='v0.5.247' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
 
 # 3) ключ входа → /opt/ardtt/stack/data/cascade.peer.pub на выходе
 ```
@@ -176,7 +176,7 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 ```bash
 ./scripts/check-deploy-bundle.sh
 ./scripts/test-install-unpack.sh   # распаковка, GitHub-layout, сохранение data/, повтор без tar
-./scripts/pack-stack.sh            # dist/ardtt-stack-1.0.37.tar.gz
+./scripts/pack-stack.sh            # dist/ardtt-stack-1.0.39.tar.gz
 ```
 
 ### Обновление vs первая установка
@@ -208,13 +208,13 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 **С shell на VPS**
 
 ```bash
-TAG=v0.5.246
+TAG=v0.5.247
 install -d -m 755 /opt/ardtt
 curl -fsSL "https://raw.githubusercontent.com/2kristalls36-hue/ARDTT/${TAG}/server/install.sh" \
   -o /opt/ardtt/install.sh
 chmod +x /opt/ardtt/install.sh
 export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS
-export ARDTT_DEPLOY_VERSION=1.0.37
+export ARDTT_DEPLOY_VERSION=1.0.39
 export ARDTT_GIT_REF="$TAG"
 export ARDTT_GIT_REPO=https://github.com/2kristalls36-hue/ARDTT.git
 # каскад: на выходе ARDTT_ROLE=exit; на входе не опускайте ARDTT_CASCADE_ENABLED=1
@@ -230,16 +230,16 @@ curl -s http://127.0.0.1:9100/health
 
 Тот же стек, что ставит приложение. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
 
-Клонируйте **тег релиза** (`v0.5.246` = клиент 0.5.246 и стек 1.0.37), не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и GitHub Releases читаются без PAT.
+Клонируйте **тег релиза** (`v0.5.247` = клиент 0.5.247 и стек 1.0.39), не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и GitHub Releases читаются без PAT.
 
 ```bash
-TAG=v0.5.246
+TAG=v0.5.247
 
 # Вариант A — тот же install.sh, что из приложения (/opt/ardtt, data/ сохраняется)
 install -d -m 755 /opt/ardtt
 curl -fsSL "https://raw.githubusercontent.com/2kristalls36-hue/ARDTT/${TAG}/server/install.sh" \
   -o /opt/ardtt/install.sh
-export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS ARDTT_DEPLOY_VERSION=1.0.37 ARDTT_GIT_REF="$TAG"
+export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS ARDTT_DEPLOY_VERSION=1.0.39 ARDTT_GIT_REF="$TAG"
 bash /opt/ardtt/install.sh
 
 # Вариант B — compose прямо в клоне (без /opt/ardtt)
@@ -426,14 +426,14 @@ docker compose down          # контейнеры; data/ остаётся
 cd /opt/ardtt/stack
 COMPOSE_PROFILES=isolated docker compose ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.37"
+# ожидается: "ok": true, "deployVersion": "1.0.39"
 
 ss -ulnp | grep -E '51820|56003'
 ss -tlnp | grep -E '9100|9200'
 docker exec ardtt provision -cmd create-user -name smoke -data /data
 ```
 
-С телефона: карточка VPS — ОС справа, «Онлайн» под ней, деплой 1.0.37 слева (или «Требуется обновление · …»), создание клиента, импорт профиля, Connect.
+С телефона: карточка VPS — ОС справа, «Онлайн» под ней, деплой 1.0.39 слева (или «Требуется обновление · …»), создание клиента, импорт профиля, Connect.
 
 ---
 
@@ -447,7 +447,7 @@ docker exec ardtt provision -cmd create-user -name smoke -data /data
 | `install.sh exit=1`, `Device or resource busy` в `/var/lib/docker/buildkit/.../rootfs` | Стек ≥**1.0.34**: umount + повтор, установка не падает. На 1 ГБ VPS старый `rm -rf` после `stop docker` обрывал каскад. Обновите APK и снова «Установить». |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
 | `/health` не отвечает после DONE | `docker compose --profile isolated logs`; `ARDTT_PUBLIC_HOST` и публикация `:9100` |
-| telemetry не принимает логи, `:9200` занят | Стек ≥**1.0.37**: если `:9200` занят nginx дистрибуции, установщик публикует backend как `9199:9200`, а не `ARDTT_SKIP_TELEMETRY=1`. Иначе `ARDTT_TELEMETRY_PORT` или освободите 9200 |
+| telemetry не принимает логи, `:9200` занят | Стек ≥**1.0.39**: `:9200` busy → publish `:9199`; если заняты и `:9200`, и `:9199` (nginx + socat), gunicorn всё равно стартует внутри контейнера, без `ARDTT_SKIP_TELEMETRY=1` |
 | Чужие сайты/контейнеры на VPS отвалились после деплоя | Нужен стек ≥1.0.32 (isolated). Обновите деплой из приложения. Запасной `ARDTT_NETWORK_MODE=hostnet` снова шарит host netns |
 | UDP Direct не коннектится, TCP :9100 жив | Docker UDP DNAT. Попробуйте `ARDTT_NETWORK_MODE=hostnet` |
 | Карточка «нужно обновить» | APK новее стека на VPS — «Обновить деплой» (телефон снова скачает стек с GitHub); или рассинхрон `DEPLOY_VERSION` |

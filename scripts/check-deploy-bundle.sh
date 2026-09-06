@@ -44,6 +44,11 @@ PY
   grep -q 'github_source_tarball_url' "$INSTALLER" || err "installer missing github_source_tarball_url"
   grep -q 'уже распакованный стек' "$INSTALLER" || err "installer missing re-run-without-tar path"
   grep -q 'ARDTT_TELEMETRY_PORT' "$INSTALLER" || err "installer missing telemetry port"
+  grep -q 'telemetry только внутри контейнера (nginx/socat)' "$INSTALLER" \
+    || err "installer must keep telemetry inside the container when nginx and socat own 9200/9199"
+  if grep -q 'внутри контейнера telemetry не стартуем' "$INSTALLER"; then
+    err "installer must not skip gunicorn because host telemetry ports are busy"
+  fi
   grep -q 'TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing TELEMETRY_LISTEN in .env"
   grep -q 'ARDTT_TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing ARDTT_TELEMETRY_LISTEN alias in .env"
   grep -q '127.0.0.1:\${TELEMETRY_PORT}/health' "$INSTALLER" || err "installer telemetry health must use TELEMETRY_PORT"
