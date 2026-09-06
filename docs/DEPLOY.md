@@ -192,10 +192,10 @@ provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
 
 Тот же стек, что в APK, но исходники берутся с GitHub. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
 
-Клонируйте **тег релиза** (`v0.5.238` = клиент 0.5.238 и стек 1.0.35), не обязательно `main`. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`. Публичный репозиторий клонируется без секретов.
+Клонируйте **тег релиза** (`v0.5.239` = клиент 0.5.239 и стек 1.0.35), не обязательно `main`. Пока репозиторий приватный — HTTPS clone с VPS нужен PAT либо SSH-ключ с правом `repo`. Публичный репозиторий клонируется без секретов.
 
 ```bash
-TAG=v0.5.238
+TAG=v0.5.239
 git clone --depth 1 --branch "$TAG" \
   https://github.com/2kristalls36-hue/ARDTT.git /tmp/ardtt
 
