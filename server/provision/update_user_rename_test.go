@@ -98,3 +98,29 @@ func TestUpdateUserToggleDeactivatedAndLimits(t *testing.T) {
 		t.Fatal("deleted user still present")
 	}
 }
+
+func TestBuildProfileIncludesRemainingTraffic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "users.json")
+	s := &Store{
+		path: path,
+		Users: []User{
+			{Name: "alice", HostID: 2, MaxDevices: 1, TrafficLimitBytes: 2000},
+		},
+		Config: Config{PublicHost: "1.2.3.4", DirectPort: 51820, BypassPort: 56003},
+	}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	traffic := []byte(`{"byName":{"alice":{"downBytes":400,"upBytes":100}}}`)
+	if err := os.WriteFile(filepath.Join(dir, "bypass-traffic.json"), traffic, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := s.BuildProfile(s.Users[0])
+	if p.TrafficLimitBytes != 2000 {
+		t.Fatalf("limit: %d", p.TrafficLimitBytes)
+	}
+	if p.UsedBytes != 500 {
+		t.Fatalf("used: %d", p.UsedBytes)
+	}
+}
