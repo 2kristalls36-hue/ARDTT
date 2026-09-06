@@ -330,13 +330,13 @@ private fun ClientsScreen(
                                         }
                                     },
                                     onDelete = { deleteUser = user },
-                                    onSetEnabled = { enabled ->
+                                    onSetDeactivated = { deactivated ->
                                         busyUser = user.name
                                         scope.launch {
                                             val result = ProvisionAdminApi.updateUser(
                                                 base,
                                                 user.name,
-                                                deactivated = !enabled,
+                                                deactivated = deactivated,
                                             )
                                             busyUser = null
                                             result.fold(
@@ -677,7 +677,7 @@ private fun ClientCard(
     onOpenProfile: () -> Unit,
     onEditLimits: () -> Unit,
     onDelete: () -> Unit,
-    onSetEnabled: (Boolean) -> Unit,
+    onSetDeactivated: (Boolean) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val subActive = clientSubscriptionActive(user)
@@ -892,16 +892,17 @@ private fun ClientCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ClientActionButton("Лимит", busy, Modifier.weight(1f), onClick = onEditLimits)
+                val enableAction = clientEnableAction(user.deactivated)
                 ClientActionButton(
-                    label = clientEnableActionLabel(user.deactivated),
+                    label = enableAction.label,
                     busy = busy,
                     modifier = Modifier.weight(1f),
-                    accent = if (user.deactivated) {
-                        ArdttColors.Connected
-                    } else {
+                    accent = if (enableAction.nextDeactivated) {
                         MaterialTheme.colorScheme.error
+                    } else {
+                        ArdttColors.Connected
                     },
-                    onClick = { onSetEnabled(user.deactivated) },
+                    onClick = { onSetDeactivated(enableAction.nextDeactivated) },
                 )
             }
         }

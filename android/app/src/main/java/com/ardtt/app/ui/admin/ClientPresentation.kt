@@ -29,8 +29,18 @@ internal fun clientDeviceCountLabel(used: Int, max: Int): String =
     "Устройства: $used/${max.coerceAtLeast(0)}"
 
 /** One action: offer to turn off an active client, or turn on a deactivated one. */
+internal data class ClientEnableAction(
+    val label: String,
+    val nextDeactivated: Boolean,
+)
+
+internal fun clientEnableAction(deactivated: Boolean) = ClientEnableAction(
+    label = if (deactivated) "Включить" else "Выключить",
+    nextDeactivated = !deactivated,
+)
+
 internal fun clientEnableActionLabel(deactivated: Boolean): String =
-    if (deactivated) "Включить" else "Выключить"
+    clientEnableAction(deactivated).label
 
 /** Fresh create: profile JSON may include a template deviceId, but nothing is bound yet. */
 internal fun userStubFromProfile(profile: VpnProfile) = ProvisionAdminApi.UserSummary(

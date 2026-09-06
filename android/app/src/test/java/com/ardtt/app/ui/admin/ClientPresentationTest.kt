@@ -34,7 +34,14 @@ class ClientPresentationTest {
     }
 
     @Test
-    fun enableActionLabelInvertsCurrentState() {
+    fun enableActionFlipsDeactivatedAndLabel() {
+        val turnOff = clientEnableAction(deactivated = false)
+        assertEquals("Выключить", turnOff.label)
+        assertTrue(turnOff.nextDeactivated)
+
+        val turnOn = clientEnableAction(deactivated = true)
+        assertEquals("Включить", turnOn.label)
+        assertFalse(turnOn.nextDeactivated)
         assertEquals("Выключить", clientEnableActionLabel(deactivated = false))
         assertEquals("Включить", clientEnableActionLabel(deactivated = true))
     }
