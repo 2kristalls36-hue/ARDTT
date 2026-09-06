@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Tux silhouette on a transparent field. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="16dp"
     android:height="16dp"
@@ -6,14 +7,14 @@
     android:viewportHeight="24">
     <path
         android:fillColor="#333333"
-        android:pathData="M12,2A10,10 0,1,0 12,22A10,10 0,1,0 12,2Z" />
+        android:pathData="M12,3.2c-2.8,0 -5.1,2.8 -5.1,6.8 0,2.7 1.0,4.8 2.4,6.2l-1.8,1.4c0.7,1.1 3.0,2.3 4.5,2.3s3.8,-1.2 4.5,-2.3l-1.8,-1.4c1.4,-1.4 2.4,-3.5 2.4,-6.2 0,-4 -2.3,-6.8 -5.1,-6.8z" />
     <path
         android:fillColor="#EDEDED"
-        android:pathData="M12,5.4c-2.3,0 -4.1,2.3 -4.1,5.6 0,2.2 0.8,3.9 1.9,5.1l-1.5,1.1c0.6,0.9 2.4,1.9 3.7,1.9s3.1,-1 3.7,-1.9l-1.5,-1.1c1.1,-1.2 1.9,-2.9 1.9,-5.1 0,-3.3 -1.8,-5.6 -4.1,-5.6z" />
+        android:pathData="M12,8.2c-1.15,0 -2.05,1.35 -2.05,3.2 0,1.15 0.35,2.05 0.9,2.7l-0.15,0.2c0.35,0.35 0.85,0.55 1.3,0.55s0.95,-0.2 1.3,-0.55l-0.15,-0.2c0.55,-0.65 0.9,-1.55 0.9,-2.7 0,-1.85 -0.9,-3.2 -2.05,-3.2z" />
     <path
         android:fillColor="#222222"
-        android:pathData="M10.3,9.3A0.9,0.9 0,1,0 10.3,11.1A0.9,0.9 0,1,0 10.3,9.3Z" />
+        android:pathData="M10.15,7.85A0.95,0.95 0,1,0 10.15,9.75A0.95,0.95 0,1,0 10.15,7.85Z" />
     <path
         android:fillColor="#222222"
-        android:pathData="M13.7,9.3A0.9,0.9 0,1,0 13.7,11.1A0.9,0.9 0,1,0 13.7,9.3Z" />
+        android:pathData="M13.85,7.85A0.95,0.95 0,1,0 13.85,9.75A0.95,0.95 0,1,0 13.85,7.85Z" />
 </vector>
