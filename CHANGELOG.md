@@ -1,6 +1,6 @@
 # ARDTT v0.5.248
 
-Клиент **0.5.248** (`versionCode` 266). Серверный стек **1.0.38** (`DEPLOY_VERSION`).
+Клиент **0.5.248** (`versionCode` 266). Серверный стек **1.0.39** (`DEPLOY_VERSION`).
 
 ## 0.5.248
 
@@ -11,6 +11,7 @@
 
 - Auto на сотовой: Cloudflare считается живым только после TLS или UDP :53, не после TCP `1.1.1.1:443`. VPS — HTTP `/health` 200 без редиректа, не TCP `:9100`. Direct только при открытом Cloudflare. На МТС (Яндекс жив, TCP до Cloudflare и `:9100` есть, TLS и Direct UDP нет) Auto берёт обход, а не мёртвый Direct. TLS-зонд проверяет имя в сертификате; параллельный UDP закрывается, когда TLS уже ответил.
 - Auto на Wi‑Fi никогда не берёт обход: живой Wi‑Fi важнее оценки LTE, стартовый зонд и UI не показывают Bypass.
+- Логи тестирования на VPS дистрибуции: если nginx уже слушает `:9200`, а socat — `:9199`, установщик больше не ставит `ARDTT_SKIP_TELEMETRY=1`. Gunicorn поднимается внутри контейнера, без publish на хост, и nginx проксирует `POST /api/upload-log` как раньше.
 
 # ARDTT v0.5.246
 
@@ -394,4 +395,4 @@
 | 0.5.203 · 0.5.201 | Знак AR/DTT, hop-карточки, баннер доната |
 | 0.5.200 | Режим тестирования в общих Настройках |
 
-Живые сборки: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) (`v0.5.246` latest, `v0.5.245`).
+Живые сборки: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) (`v0.5.247` latest, `v0.5.246`).

@@ -92,7 +92,7 @@ client_a1b2c3d4e5f6_1.0.0_4_192.168.1.100_1712345678_1712345987.json
 **POST** `multipart/form-data` на:
 
 - **POST** `multipart/form-data` на `https://45.129.2.3/api/upload-log` (или явно через `BuildConfig.TELEMETRY_UPLOAD_URL` в `android/app/build.gradle.kts`).
-  На VPS дистрибуции nginx слушает `:9200` TLS и проксирует `/api/` на `127.0.0.1:9199`. Если `:9200` уже занят, `install.sh` публикует telemetry как `9199:9200`, а не ставит `ARDTT_SKIP_TELEMETRY=1`.
+  На VPS дистрибуции nginx слушает `:9200` TLS и проксирует `/api/` на `127.0.0.1:9199`. Если `:9200` уже занят, `install.sh` публикует backend как `9199:9200`. Если заняты и `:9200`, и `:9199` (nginx + socat), gunicorn всё равно стартует внутри контейнера, без `ARDTT_SKIP_TELEMETRY=1`.
 
 Поля формы:
 
