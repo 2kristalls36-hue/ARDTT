@@ -72,15 +72,14 @@ import com.ardtt.app.ui.components.control.ArdttChoiceChipRow
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
-import com.ardtt.app.ui.components.feedback.ArdttStatusPill
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
 import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
-import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttLayout
@@ -354,29 +353,6 @@ fun TestingScreen(profiles: ProfileRepository) {
                 )
             }
 
-            item(key = "status") {
-                ArdttSectionCard(
-                    contentPadding = PaddingValues(ArdttSpacing.Large),
-                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-                ) {
-                    ArdttSectionTitle("Статус записи")
-                    StatusPill(
-                        text = if (isRecording) "Идёт запись" else "Запись остановлена",
-                        accent = isRecording,
-                    )
-                    Text(
-                        "Во время записи весь интерфейс подсвечивается пульсирующей тёмно-красной рамкой.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        "Сервер: ${uploadUrl.ifBlank { "не задан" }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
             item(key = "pane") {
                 ArdttChoiceChipRow(
                     choices = listOf(
@@ -549,80 +525,72 @@ private fun LogCommentSheet(
 private fun TicketRow(ticket: TestingTicket) {
     val whenText = formatTestingTicketTime(ticket.createdAtMs)
     val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = ArdttAlpha.Muted),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = ArdttShapes.Card,
+    ArdttCompactCard(
+        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
     ) {
-        Column(
-            modifier = Modifier.padding(ArdttSpacing.Medium),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    buildString {
-                        append(testingTicketTitle(ticket.number))
-                        if (whenText.isNotBlank()) append(" · ").append(whenText)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = ArdttSpacing.Small),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                ArdttStatusChip(
-                    text = testingTicketReadLabel(ticket.read),
-                    accent = if (ticket.read) colors.tertiary else colors.primary,
-                )
-            }
             Text(
-                TESTING_USER_COMMENT_TITLE,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                ticket.comment,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 4,
+                buildString {
+                    append(testingTicketTitle(ticket.number))
+                    if (whenText.isNotBlank()) append(" · ").append(whenText)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = ArdttSpacing.Small),
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (ticket.logName.isNotBlank()) {
-                Text(
-                    ticket.logName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (ticket.reviewNote.isNotBlank()) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = colors.primary.copy(alpha = ArdttAlpha.Fill),
-                    contentColor = colors.onSurface,
-                    shape = ArdttShapes.Card,
+            ArdttStatusChip(
+                text = testingTicketReadLabel(ticket.read),
+                accent = if (ticket.read) colors.tertiary else colors.primary,
+            )
+        }
+        Text(
+            TESTING_USER_COMMENT_TITLE,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            ticket.comment,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (ticket.logName.isNotBlank()) {
+            Text(
+                ticket.logName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (ticket.reviewNote.isNotBlank()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = colors.primary.copy(alpha = ArdttAlpha.Fill),
+                contentColor = colors.onSurface,
+                shape = ArdttShapes.Card,
+            ) {
+                Column(
+                    modifier = Modifier.padding(ArdttSpacing.SmallPlus),
+                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                 ) {
-                    Column(
-                        modifier = Modifier.padding(ArdttSpacing.SmallPlus),
-                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
-                    ) {
-                        Text(
-                            TESTING_AUTHOR_REPLY_TITLE,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.primary,
-                        )
-                        Text(
-                            ticket.reviewNote,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
+                    Text(
+                        TESTING_AUTHOR_REPLY_TITLE,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.primary,
+                    )
+                    Text(
+                        ticket.reviewNote,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }
@@ -631,44 +599,24 @@ private fun TicketRow(ticket: TestingTicket) {
 
 @Composable
 private fun EmptyLogsBlock() {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ArdttAlpha.Disabled),
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        shape = ArdttShapes.Card,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    ArdttCompactCard {
         Text(
             "Запись запускается кнопкой внизу экрана. После остановки файл появится здесь — его можно отправить или удалить.",
-            modifier = Modifier.padding(ArdttSpacing.MediumPlus),
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
 @Composable
 private fun EmptyHistoryBlock() {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = ArdttAlpha.Disabled),
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        shape = ArdttShapes.Card,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    ArdttCompactCard {
         Text(
             "После отправки файл пропадает из хранилища и попадает сюда с номером, который выдаёт сервер. Когда автор откроет лог, обращение помечается как прочитанное. Когда разбор закончится, здесь появится ответ автора.",
-            modifier = Modifier.padding(ArdttSpacing.MediumPlus),
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-@Composable
-private fun StatusPill(text: String, accent: Boolean) {
-    val colors = MaterialTheme.colorScheme
-    ArdttStatusPill(
-        text = text,
-        container = if (accent) colors.errorContainer else colors.secondaryContainer,
-        content = if (accent) colors.onErrorContainer else colors.onSecondaryContainer,
-    )
 }
 
 @Composable
@@ -682,52 +630,45 @@ private fun LogRow(
     onUpload: () -> Unit,
 ) {
     val dateFmt = remember { SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()) }
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = ArdttAlpha.Muted),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = ArdttShapes.Card,
-    ) {
-        Column(modifier = Modifier.padding(ArdttSpacing.Medium), verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small)) {
-            Text(entry.displayName, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "${dateFmt.format(Date(entry.createdAtMs))} · ${formatDuration(entry.durationMs)} · ${formatSize(entry.sizeBytes)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    ArdttCompactCard {
+        Text(entry.displayName, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "${dateFmt.format(Date(entry.createdAtMs))} · ${formatDuration(entry.durationMs)} · ${formatSize(entry.sizeBytes)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LogCommentField(
+                comment = comment,
+                enabled = !uploading,
+                onOpen = onOpenEditor,
+                modifier = Modifier.weight(1f),
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                LogCommentField(
-                    comment = comment,
-                    enabled = !uploading,
-                    onOpen = onOpenEditor,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onUpload, enabled = !uploading) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.Send,
-                        contentDescription = "Отправить",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                IconButton(onClick = onDelete, enabled = !uploading) {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = "Удалить",
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-            if (uploading) {
-                ArdttLinearProgress(progress = progress)
-                Text(
-                    "${(progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
+            IconButton(onClick = onUpload, enabled = !uploading) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.Send,
+                    contentDescription = "Отправить",
+                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
+            IconButton(onClick = onDelete, enabled = !uploading) {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = "Удалить",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        if (uploading) {
+            ArdttLinearProgress(progress = progress)
+            Text(
+                "${(progress * 100).toInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }
