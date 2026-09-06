@@ -46,3 +46,55 @@ func TestUpdateUserRename(t *testing.T) {
 		t.Fatal("expected duplicate name error")
 	}
 }
+
+func TestUpdateUserToggleDeactivatedAndLimits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "users.json")
+	s := &Store{
+		path: path,
+		Users: []User{
+			{Name: "alice", HostID: 2, MaxDevices: 1},
+		},
+	}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	off := true
+	u, err := s.UpdateUser("alice", nil, nil, &off, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !u.Deactivated {
+		t.Fatal("expected deactivated after turn-off")
+	}
+
+	on := false
+	u, err = s.UpdateUser("alice", nil, nil, &on, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Deactivated {
+		t.Fatal("expected active after turn-on")
+	}
+
+	maxDevices := 3
+	limit := int64(2 * 1024 * 1024 * 1024)
+	u, err = s.UpdateUser("alice", &maxDevices, nil, nil, false, &limit, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.MaxDevices != 3 {
+		t.Fatalf("maxDevices: %d", u.MaxDevices)
+	}
+	if u.TrafficLimitBytes != limit {
+		t.Fatalf("traffic: %d", u.TrafficLimitBytes)
+	}
+
+	if err := s.DeleteUser("alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FindUser("alice"); err == nil {
+		t.Fatal("deleted user still present")
+	}
+}
