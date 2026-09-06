@@ -11,6 +11,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -310,6 +312,21 @@ func zeroBytes(b []byte) {
 	}
 }
 
+func discardWrapEntries(entries []wrapKeyEntry) {
+	for _, entry := range entries {
+		zeroBytes(entry.key)
+	}
+}
+
+func wrapKeyIDSet(entries []wrapKeyEntry) string {
+	ids := make([]string, len(entries))
+	for i, e := range entries {
+		ids[i] = e.id
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, ",")
+}
+
 func (s *wrapKeyStore) SetPasswords(mainPassword string, generated []string) error {
 	next := make([]wrapKeyEntry, 0, len(generated)+1)
 	seen := make(map[string]struct{}, len(generated)+1)
@@ -334,9 +351,7 @@ func (s *wrapKeyStore) SetPasswords(mainPassword string, generated []string) err
 		}
 		key, err := deriveWrapKey(password)
 		if err != nil {
-			for _, entry := range next {
-				zeroBytes(entry.key)
-			}
+			discardWrapEntries(next)
 			return err
 		}
 		next = append(next, wrapKeyEntry{id: id, key: key})
@@ -344,6 +359,13 @@ func (s *wrapKeyStore) SetPasswords(mainPassword string, generated []string) err
 	}
 
 	s.mu.Lock()
+	if wrapKeyIDSet(s.entries) == wrapKeyIDSet(next) {
+		s.mu.Unlock()
+		// Heartbeat SIGHUP used to evict live AEAD and zero the old slices
+		// while Path B was forwarding — TURN workers stayed up, inner traffic died.
+		discardWrapEntries(next)
+		return nil
+	}
 	old := s.entries
 	s.entries = next
 	s.mu.Unlock()

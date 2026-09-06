@@ -185,8 +185,8 @@ bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n failed for warp/entryp
 if [ -f "$ROOT/scripts/test-warp-wgcf-parse.sh" ]; then
   bash "$ROOT/scripts/test-warp-wgcf-parse.sh" || err "warp wgcf parse"
 fi
-if [ -f "$ROOT/scripts/test-warp-hideip-prefixes.sh" ]; then
-  bash "$ROOT/scripts/test-warp-hideip-prefixes.sh" || err "warp hideIp prefixes"
+if [ -f "$ROOT/scripts/test-cascade-warp-prefs.sh" ]; then
+  bash "$ROOT/scripts/test-cascade-warp-prefs.sh" || err "cascade/warp prefs"
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "install buildkit busy wipe"

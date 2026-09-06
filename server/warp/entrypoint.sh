@@ -278,11 +278,10 @@ clear_rules_for_table() {
     guard=$((guard + 1))
     [[ "${guard}" -gt 128 ]] && break
   done
-  # Belt-and-suspenders: drop our usual hideIp priority band.
-  local p
-  for p in $(seq "${WARP_RULE_PRIO_BASE}" $((WARP_RULE_PRIO_BASE + 64))); do
-    ip rule del pref "${p}" 2>/dev/null || true
-  done
+  # Do NOT sweep prefs 300–364 by number. Cascade entry used 320/321 for
+  # 10.8/10.9 → hop table 51821; a numeric wipe on every users.json
+  # heartbeat dropped Path B into eth0 without MASQ (keepalives lived,
+  # HTTPS stalled). Only delete rules that actually lookup THIS table.
 }
 
 # Remove our DNS→main exceptions (only ARDTT ingress ifaces, never every dport 53 rule).
