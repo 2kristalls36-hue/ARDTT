@@ -1,17 +1,21 @@
 package com.ardtt.app.ui.components.feedback
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttAlpha
@@ -77,6 +81,58 @@ fun ArdttStatusPill(
             ),
             style = MaterialTheme.typography.labelLarge,
         )
+    }
+}
+
+/** Gray host chip — profile and server address rows. */
+@Composable
+fun ArdttIpChip(
+    ip: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = ArdttShapes.Badge,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Text(
+            ip,
+            modifier = Modifier.padding(
+                horizontal = ArdttSpacing.Small,
+                vertical = BadgeVerticalPadding,
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** One or more [ArdttIpChip]s; cascade is `chip → chip`. */
+@Composable
+fun ArdttIpHostRow(
+    hosts: List<String>,
+    modifier: Modifier = Modifier,
+    muted: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    if (hosts.isEmpty()) return
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+    ) {
+        hosts.forEachIndexed { index, host ->
+            if (index > 0) {
+                Text(
+                    "→",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = muted,
+                )
+            }
+            ArdttIpChip(host)
+        }
     }
 }
 

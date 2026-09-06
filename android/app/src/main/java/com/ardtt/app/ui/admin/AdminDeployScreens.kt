@@ -104,6 +104,8 @@ import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
+import com.ardtt.app.ui.components.feedback.ArdttIpChip
+import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttFeedHeader
@@ -676,14 +678,16 @@ private fun ServerIdentityBody(
     health: HealthUi?,
     expectedVersion: String,
 ) {
-    val cascadeSpan = serverCardCascadeIpSpan(
+    val cascadeHosts = serverCardCascadeHosts(
         host = server.host,
         publicHost = server.publicHost,
         cascadeEnabled = server.cascadeEnabled,
         cascadeHost = server.cascadeHost,
     )
+    val cascadeSpan = cascadeHosts.takeIf { it.size >= 2 }?.joinToString(" → ")
     val title = serverCardTitle(server.name, server.host, cascadeSpan)
-    val meta = serverCardMetaLine(
+    val titleHosts = serverCardTitleHosts(server.name, server.host, cascadeHosts)
+    val meta = serverCardMetaParts(
         name = server.name,
         host = server.host,
         sshPort = server.sshPort,
@@ -711,15 +715,23 @@ private fun ServerIdentityBody(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (titleHosts.isNotEmpty()) {
+                    ArdttIpHostRow(
+                        hosts = titleHosts,
+                        modifier = Modifier.weight(1f),
+                        muted = muted,
+                    )
+                } else {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 ServerOsBadge(
                     osId = server.osId,
                     osVersion = server.osVersion,
@@ -730,14 +742,26 @@ private fun ServerIdentityBody(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
-                Text(
-                    meta,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
                     modifier = Modifier.weight(1f),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                ) {
+                    if (meta.hosts.isNotEmpty()) {
+                        ArdttIpHostRow(hosts = meta.hosts, muted = muted)
+                        Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
+                    }
+                    Text(
+                        "SSH ${meta.sshPort}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = muted,
+                        maxLines = 1,
+                    )
+                    meta.pubHost?.let { pub ->
+                        Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
+                        ArdttIpChip(pub)
+                    }
+                }
                 ServerPresenceLabel(health)
             }
             ServerHealthStatusRow(
