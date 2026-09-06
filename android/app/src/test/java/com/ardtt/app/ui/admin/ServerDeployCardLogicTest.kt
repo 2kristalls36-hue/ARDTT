@@ -215,21 +215,21 @@ class ServerDeployCardLogicTest {
 
     @Test
     fun statusLineDoesNotRepeatFreshnessWords() {
-        val current = healthStatusParts(HealthUi.Online("1.0.6"))
+        val current = healthStatusParts(HealthUi.Online("1.0.6"), "1.0.6")
         assertEquals("● Онлайн", current.presence)
         assertEquals("деплой 1.0.6", current.deploy)
         assertFalse(current.deploy.orEmpty().contains("актуален"))
         assertFalse(current.deploy.orEmpty().contains("нужно обновить"))
 
-        val outdated = healthStatusParts(HealthUi.Online("1.0.5"))
-        assertEquals("деплой 1.0.5", outdated.deploy)
+        val outdated = healthStatusParts(HealthUi.Online("1.0.5"), "1.0.6")
+        assertEquals("Требуется обновление · 1.0.5 → 1.0.6", outdated.deploy)
         assertFalse(outdated.deploy.orEmpty().contains("актуален"))
         assertFalse(outdated.deploy.orEmpty().contains("нужно обновить"))
     }
 
     @Test
     fun statusLineShowsPingInsteadOfDeployAge() {
-        val withPing = healthStatusParts(HealthUi.Online("1.0.12", pingMs = 42L))
+        val withPing = healthStatusParts(HealthUi.Online("1.0.12", pingMs = 42L), "1.0.12")
         assertEquals("деплой 1.0.12", withPing.deploy)
         assertEquals("42 мс", withPing.pingLabel)
         assertFalse(withPing.deploy.orEmpty().contains("назад"))
@@ -506,7 +506,7 @@ class ServerDeployCardLogicTest {
 
     @Test
     fun healthStatusPartsSplitOnlineLine() {
-        val parts = healthStatusParts(HealthUi.Online("1.0.12", pingMs = 42L))
+        val parts = healthStatusParts(HealthUi.Online("1.0.12", pingMs = 42L), "1.0.12")
         assertEquals("● Онлайн", parts.presence)
         assertEquals("деплой 1.0.12", parts.deploy)
         assertEquals("42 мс", parts.pingLabel)
