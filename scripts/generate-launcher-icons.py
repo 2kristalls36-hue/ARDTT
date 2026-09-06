@@ -144,6 +144,12 @@ def letter_alpha(rgba: np.ndarray) -> np.ndarray:
     return alpha
 
 
+def letter_silhouette_alpha(rgba: np.ndarray) -> np.ndarray:
+    """Hard AR/DTT mask for monochrome. Skip the color master's drop-shadow fringe."""
+    seed = letter_seed(_rgb(rgba), inner_field_mask(rgba))
+    return seed.astype(np.float32)
+
+
 def pad_to_square_rgba(rgba: np.ndarray) -> np.ndarray:
     h, w = rgba.shape[:2]
     side = max(h, w)
@@ -263,26 +269,44 @@ def extract_mark(master: Image.Image, white_only: bool = False) -> Image.Image:
     right = min(w, int(xs.max()) + pad_px + 1)
     bottom = min(h, int(ys.max()) + pad_px + 1)
     out = np.zeros((bottom - top, right - left, 4), dtype=np.uint8)
+    out[:, :, 0] = 255
+    out[:, :, 1] = 255
+    out[:, :, 2] = 255
     if white_only:
-        out[:, :, 0] = 255
-        out[:, :, 1] = 255
-        out[:, :, 2] = 255
+        sil = letter_silhouette_alpha(rgba)
+        out[:, :, 3] = np.clip(sil[top:bottom, left:right] * 255.0, 0, 255).astype(np.uint8)
     else:
         out[:, :, :3] = np.clip(rgb[top:bottom, left:right], 0, 255).astype(np.uint8)
-    out[:, :, 3] = np.clip(alpha[top:bottom, left:right] * 255.0, 0, 255).astype(np.uint8)
+        out[:, :, 3] = np.clip(alpha[top:bottom, left:right] * 255.0, 0, 255).astype(np.uint8)
     return Image.fromarray(out, "RGBA")
 
 
-def fit_on_canvas(mark: Image.Image, canvas: int, safe_frac: float) -> Image.Image:
+def force_white_rgb(image: Image.Image) -> Image.Image:
+    """Keep RGB white so LANCZOS / themed-icon masks do not pick up a dark fringe."""
+    arr = np.array(image.convert("RGBA"))
+    arr[:, :, 0:3] = 255
+    return Image.fromarray(arr, "RGBA")
+
+
+def fit_on_canvas(
+    mark: Image.Image,
+    canvas: int,
+    safe_frac: float,
+    *,
+    white: bool = False,
+) -> Image.Image:
     safe = max(1, int(round(canvas * safe_frac)))
     mw, mh = mark.size
     scale = min(safe / mw, safe / mh)
     nw = max(1, int(round(mw * scale)))
     nh = max(1, int(round(mh * scale)))
     scaled = mark.resize((nw, nh), Image.Resampling.LANCZOS)
-    fg = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    if white:
+        scaled = force_white_rgb(scaled)
+    fill = (255, 255, 255, 0) if white else (0, 0, 0, 0)
+    fg = Image.new("RGBA", (canvas, canvas), fill)
     fg.paste(scaled, ((canvas - nw) // 2, (canvas - nh) // 2), scaled)
-    return fg
+    return force_white_rgb(fg) if white else fg
 
 
 def save_png(image: Image.Image, path: Path) -> None:
@@ -333,15 +357,15 @@ def main() -> None:
             round_adaptive_foreground(color_mark, size),
             RES / f"mipmap-{density}" / "ic_launcher_round_foreground.png",
         )
-
-    save_png(
-        fit_on_canvas(
-            white_mark,
-            256,
-            safe_frac=adaptive_safe_frac(MONO_ADAPTIVE_LETTER_FRAC),
-        ),
-        RES / "drawable" / "ic_launcher_monochrome.png",
-    )
+        save_png(
+            fit_on_canvas(
+                white_mark,
+                size,
+                safe_frac=adaptive_safe_frac(MONO_ADAPTIVE_LETTER_FRAC),
+                white=True,
+            ),
+            RES / f"mipmap-{density}" / "ic_launcher_monochrome.png",
+        )
 
     for density, size in LOGO_FULL_SIZES.items():
         save_png(
@@ -358,7 +382,7 @@ def main() -> None:
             RES / f"drawable-{density}" / "ic_tile_custom.png",
         )
         save_png(
-            fit_on_canvas(white_mark, size, safe_frac=0.84),
+            fit_on_canvas(white_mark, size, safe_frac=0.84, white=True),
             RES / f"drawable-{density}" / "ic_stat_connected.png",
         )
 
