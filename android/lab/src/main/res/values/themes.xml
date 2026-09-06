@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ArdttLab" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#031D3B</item>
+        <item name="android:navigationBarColor">#031D3B</item>
+        <item name="android:windowBackground">#031D3B</item>
+    </style>
+</resources>

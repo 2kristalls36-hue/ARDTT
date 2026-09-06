@@ -8,7 +8,8 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP, VpnService |
 | [DEPLOY.md](DEPLOY.md) | Стек **1.0.36**: из приложения (GitHub) или `git clone` / `ARDTT_GIT_REF` |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
-| [DEVICE-TEST.md](DEVICE-TEST.md) | Проверка на белом списке: юнит-тесты, телеметрия, USB/`adb` |
+| [DEVICE-TEST.md](DEVICE-TEST.md) | Проверка на белом списке |
+| [LAB.md](LAB.md) | ARDTT Lab: живое управление телефоном через SSH |
 | [UI.md](UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
 | [android/README.md](../android/README.md) | Сборка клиента 0.5.242, keystore, GitHub Releases |
 | [server/README.md](../server/README.md) | Единый контейнер `ardtt`: provision, direct, bypass, dns, warp, cascade, telemetry |

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ARDTT Lab</string>
+    <string name="notify_title">ARDTT Lab</string>
+    <string name="notify_connecting">Подключение к серверу…</string>
+    <string name="notify_online">На связи. Агент может подключиться по SSH.</string>
+</resources>
