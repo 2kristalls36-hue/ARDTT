@@ -652,10 +652,16 @@ private fun ServerCard(
     server: DeployTarget,
     health: HealthUi?,
     expectedVersion: String,
-    onOpenServer: () -> Unit,
+    onOpenServer: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    ArdttCompactCard(modifier = modifier.clickable(onClick = onOpenServer)) {
+    ArdttCompactCard(
+        modifier = if (onOpenServer != null) {
+            modifier.clickable(onClick = onOpenServer)
+        } else {
+            modifier
+        },
+    ) {
         ServerIdentityBody(
             server = server,
             health = health,
@@ -669,7 +675,6 @@ private fun ServerIdentityBody(
     server: DeployTarget,
     health: HealthUi?,
     expectedVersion: String,
-    extraLines: List<String> = emptyList(),
 ) {
     val cascadeSpan = serverCardCascadeIpSpan(
         host = server.host,
@@ -734,15 +739,6 @@ private fun ServerIdentityBody(
                     modifier = Modifier.weight(1f),
                 )
                 ServerPresenceLabel(health)
-            }
-            extraLines.forEach { line ->
-                Text(
-                    line,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
             ServerHealthStatusRow(
                 health = health,
@@ -1186,20 +1182,11 @@ private fun ServerOverviewScreen(
                     verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                 ) {
             item {
-                ArdttCompactCard {
-                    ServerIdentityBody(
-                        server = server,
-                        health = health,
-                        expectedVersion = expectedVersion,
-                        extraLines = listOf(
-                            if (server.autoPorts) {
-                                "Автопорты · Direct ${server.directPort}  ·  Bypass ${server.bypassPort}"
-                            } else {
-                                "Direct ${server.directPort}  ·  Bypass ${server.bypassPort}"
-                            },
-                        ),
-                    )
-                }
+                ServerCard(
+                    server = server,
+                    health = health,
+                    expectedVersion = expectedVersion,
+                )
             }
             item {
                 Text(
