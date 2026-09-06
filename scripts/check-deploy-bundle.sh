@@ -7,17 +7,19 @@ msg() { echo "$*" >&2; }
 err() { msg "FAIL: $*"; fail=1; }
 
 INSTALLER="$ROOT/server/install.sh"
-ASSET_INSTALLER="$ROOT/android/app/src/main/assets/deploy/install.sh"
 VERSION_FILE="$ROOT/server/DEPLOY_VERSION"
 ASSET_VERSION="$ROOT/android/app/src/main/assets/deploy/DEPLOY_VERSION"
 BUNDLE_KT="$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployBundle.kt"
+STACK_SOURCE_KT="$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackSource.kt"
+PACK_STACK="$ROOT/scripts/pack-stack.sh"
 COMPOSE="$ROOT/server/docker-compose.yml"
 
 [ -f "$INSTALLER" ] || err "missing $INSTALLER"
-[ -f "$ASSET_INSTALLER" ] || err "missing $ASSET_INSTALLER"
 [ -f "$VERSION_FILE" ] || err "missing $VERSION_FILE"
 [ -f "$ASSET_VERSION" ] || err "missing $ASSET_VERSION"
 [ -f "$BUNDLE_KT" ] || err "missing $BUNDLE_KT"
+[ -f "$STACK_SOURCE_KT" ] || err "missing $STACK_SOURCE_KT"
+[ -f "$PACK_STACK" ] || err "missing $PACK_STACK"
 [ -f "$COMPOSE" ] || err "missing $COMPOSE"
 
 if [ -f "$INSTALLER" ]; then
@@ -25,6 +27,12 @@ if [ -f "$INSTALLER" ]; then
   grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
   grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
   grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
+  grep -q 'find_server_tree' "$INSTALLER" || err "installer missing find_server_tree (GitHub archive layout)"
+  grep -q 'extract_archive_to_staging' "$INSTALLER" || err "installer missing extract_archive_to_staging"
+  grep -q 'fetch_stack_from_git' "$INSTALLER" || err "installer missing fetch_stack_from_git"
+  grep -q 'ARDTT_GIT_REF' "$INSTALLER" || err "installer missing ARDTT_GIT_REF"
+  grep -q 'ARDTT_GIT_REPO' "$INSTALLER" || err "installer missing ARDTT_GIT_REPO"
+  grep -q 'github_source_tarball_url' "$INSTALLER" || err "installer missing github_source_tarball_url"
   grep -q 'уже распакованный стек' "$INSTALLER" || err "installer missing re-run-without-tar path"
   grep -q 'ARDTT_TELEMETRY_PORT' "$INSTALLER" || err "installer missing telemetry port"
   grep -q 'TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing TELEMETRY_LISTEN in .env"
@@ -94,10 +102,25 @@ if [ -f "$INSTALLER" ]; then
   fi
 fi
 
-if [ -f "$INSTALLER" ] && [ -f "$ASSET_INSTALLER" ]; then
-  if ! cmp -s "$INSTALLER" "$ASSET_INSTALLER"; then
-    err "assets/deploy/install.sh differs from server/install.sh — run scripts/pack-deploy-assets.sh"
+if [ -f "$PACK_STACK" ]; then
+  bash -n "$PACK_STACK" || err "bash -n failed for scripts/pack-stack.sh"
+  grep -q 'ardtt-stack-' "$PACK_STACK" || err "pack-stack.sh must name GitHub release asset ardtt-stack-*.tar.gz"
+  grep -q 'android/app/src/main/assets/deploy' "$PACK_STACK" || err "pack-stack.sh must sync assets/deploy/DEPLOY_VERSION"
+  if grep -q 'stack.tar.gz.bin' "$PACK_STACK"; then
+    err "pack-stack.sh must not copy the archive into the APK"
   fi
+fi
+
+if [ -f "$STACK_SOURCE_KT" ]; then
+  grep -q 'ardtt-stack-' "$STACK_SOURCE_KT" || err "DeployStackSource must name ardtt-stack-*.tar.gz"
+  grep -q 'raw.githubusercontent.com' "$STACK_SOURCE_KT" || err "DeployStackSource must fetch install.sh from GitHub"
+fi
+
+if [ -f "$ROOT/android/app/src/main/assets/deploy/install.sh" ]; then
+  err "assets/deploy/install.sh must not be bundled; the phone downloads it from GitHub"
+fi
+if ls "$ROOT"/android/app/src/main/assets/deploy/stack.tar.gz* >/dev/null 2>&1; then
+  err "assets/deploy must not contain stack.tar.gz*; publish via scripts/pack-stack.sh"
 fi
 
 VER=""
@@ -120,6 +143,26 @@ if [ -f "$BUNDLE_KT" ]; then
   if [ -n "$VER" ] && [ -n "$FALLBACK" ] && [ "$FALLBACK" != "$VER" ]; then
     err "DeployBundle.FALLBACK_VERSION=$FALLBACK but server/DEPLOY_VERSION=$VER"
   fi
+fi
+
+if [ -f "$PACK_STACK" ] && [ -n "$VER" ]; then
+  packdir="$(mktemp -d)"
+  packed="$packdir/ardtt-stack-${VER}.tar.gz"
+  if bash "$PACK_STACK" "$packed"; then
+    members="$(tar -tzf "$packed" 2>/dev/null || true)"
+    printf '%s\n' "$members" | grep -Fxq 'docker-compose.yml' \
+      || err "packed stack missing docker-compose.yml at archive root"
+    printf '%s\n' "$members" | grep -Fxq 'install.sh' \
+      || err "packed stack missing install.sh"
+    printf '%s\n' "$members" | grep -q '^provision/' \
+      || err "packed stack missing provision/"
+    if printf '%s\n' "$members" | grep -q '^data/'; then
+      err "packed stack must not include server/data/"
+    fi
+  else
+    err "scripts/pack-stack.sh failed"
+  fi
+  rm -rf "$packdir"
 fi
 
 for context in provision direct bypass dns warp telemetry-upload; do
