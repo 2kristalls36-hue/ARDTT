@@ -1,6 +1,6 @@
 # Документация ARDTT
 
-Обзор продукта и текущие версии — в корневом [README.md](../README.md). Заметки линейки 0.5.238 — [CHANGELOG.md](../CHANGELOG.md).
+Обзор продукта и текущие версии — в корневом [README.md](../README.md). Заметки линейки 0.5.239 — [CHANGELOG.md](../CHANGELOG.md).
 
 | Документ | Содержание |
 |----------|------------|
@@ -9,7 +9,7 @@
 | [DEPLOY.md](DEPLOY.md) | Стек **1.0.36**: из приложения (GitHub) или `git clone` / `ARDTT_GIT_REF` |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
 | [UI.md](UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
-| [android/README.md](../android/README.md) | Сборка клиента 0.5.238, keystore, GitHub Releases |
+| [android/README.md](../android/README.md) | Сборка клиента 0.5.239, keystore, GitHub Releases |
 | [server/README.md](../server/README.md) | Единый контейнер `ardtt`: provision, direct, bypass, dns, warp, cascade, telemetry |
 
 Бренд-исходник иконки: квадрат [assets/brand/ardtt-icon-source.png](assets/brand/ardtt-icon-source.png), круг [assets/brand/ardtt-icon-round-source.png](assets/brand/ardtt-icon-round-source.png).

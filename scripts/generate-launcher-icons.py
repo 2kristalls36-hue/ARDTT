@@ -186,6 +186,9 @@ ROUND_RIM = (166, 172, 188)
 # foreground safe zone; wider than that clips AR/DTT corners on a circular mask.
 ROUND_LETTER_FRAC = 0.66
 ROUND_RIM_FRAC = 0.016
+# AdaptiveIconDrawable draws each 108dp layer at 1.5× bounds; the launcher
+# only shows the inner 72dp. A rim at the 108dp edge is cropped away.
+ADAPTIVE_VIEWPORT = 2.0 / 3.0
 
 
 def round_color_icon(mark: Image.Image, size: int) -> Image.Image:
@@ -217,6 +220,21 @@ def round_color_icon(mark: Image.Image, size: int) -> Image.Image:
     disc = Image.fromarray(np.clip(plate, 0, 255).astype(np.uint8), "RGBA")
     disc.alpha_composite(fit_on_canvas(mark, ss, safe_frac=ROUND_LETTER_FRAC))
     return disc.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def round_adaptive_foreground(mark: Image.Image, size: int) -> Image.Image:
+    """108dp round-icon layer: navy disc sits in the inner 72dp viewport.
+
+    minSdk 28 always resolves @mipmap/ic_launcher_round to the v26 XML, so the
+    density PNGs never appear on device. This layer is what circular launchers
+    actually mask.
+    """
+    inner = max(1, int(round(size * ADAPTIVE_VIEWPORT)))
+    disc = round_color_icon(mark, inner)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ox = (size - inner) // 2
+    canvas.paste(disc, (ox, ox), disc)
+    return canvas
 
 
 def extract_mark(master: Image.Image, white_only: bool = False) -> Image.Image:
@@ -296,6 +314,10 @@ def main() -> None:
         save_png(
             fit_on_canvas(color_mark, size, safe_frac=0.66),
             RES / f"mipmap-{density}" / "ic_launcher_foreground.png",
+        )
+        save_png(
+            round_adaptive_foreground(color_mark, size),
+            RES / f"mipmap-{density}" / "ic_launcher_round_foreground.png",
         )
 
     save_png(fit_on_canvas(white_mark, 256, safe_frac=0.72), RES / "drawable" / "ic_launcher_monochrome.png")
