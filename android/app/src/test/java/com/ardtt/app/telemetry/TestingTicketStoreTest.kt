@@ -16,6 +16,18 @@ class TestingTicketStoreTest {
     }
 
     @Test
+    fun commentPreviewShowsASingleLineSnippet() {
+        assertEquals("", testingCommentPreview(""))
+        assertEquals("", testingCommentPreview("   "))
+        assertEquals("короткий текст", testingCommentPreview("короткий текст"))
+        assertEquals("после Wi‑Fi туннель не встал", testingCommentPreview("после Wi‑Fi\nтуннель не встал"))
+        val long = "x".repeat(TESTING_COMMENT_PREVIEW_CHARS + 8)
+        val preview = testingCommentPreview(long)
+        assertTrue(preview.endsWith("…"))
+        assertEquals(TESTING_COMMENT_PREVIEW_CHARS + 1, preview.length)
+    }
+
+    @Test
     fun ticketsGetSequentialNumbersAndKeepComments() {
         val dir = Files.createTempDirectory("tickets").toFile()
         val store = TestingTicketStore(File(dir, "testing_tickets.json"))
@@ -95,5 +107,22 @@ class TestingTicketStoreTest {
         assertEquals(4, restored.nextNumber)
         assertEquals(listOf(3, 2), restored.tickets.map { it.number })
         assertEquals("каскад не поднялся", restored.tickets.first().comment)
+    }
+
+    @Test
+    fun perLogDraftsRoundTripAndDropBlanks() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        store.saveDrafts(
+            mapOf(
+                "log-a.json" to "после Wi‑Fi туннель не встал",
+                "  " to "skip",
+                "log-b.json" to "   ",
+            ),
+        )
+        val loaded = store.load()
+        assertEquals(mapOf("log-a.json" to "после Wi‑Fi туннель не встал"), loaded.drafts)
+        val restored = TestingTicketStore.parse(TestingTicketStore.encode(loaded))
+        assertEquals(loaded.drafts, restored.drafts)
     }
 }
