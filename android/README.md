@@ -39,24 +39,22 @@ Release (подписанный постоянным keystore):
 # или: cd android && ./gradlew :app:assembleRelease :app:bundleRelease
 ```
 
-### GitHub Releases (автоматически из `main`)
+### GitHub Releases (вручную)
 
-Каждый push в `main` (и тег `v*`) запускает workflow
-[`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml):
+GitHub Actions в репозитории нет. Подписанный APK и архив стека собираются локально, релиз тега `v<versionName>` публикуется руками:
 
-1. Собирает подписанные `ardtt-<versionName>-*.apk` (R8 + сжатие ресурсов; стек VPS в APK не кладётся)
-2. Пакует `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из `server/` (`scripts/pack-stack.sh`)
-3. Публикует GitHub Release с тегом `v<versionName>`
-4. Кладёт рядом `ardtt-update.json` и `SHA256SUMS.txt`
+1. `scripts/build-release-apk.sh` — подписанные `ardtt-<versionName>-*.apk` (R8 + сжатие ресурсов; стек VPS в APK не кладётся)
+2. `scripts/pack-stack.sh` — `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из `server/`
+3. GitHub Release с тегом `v<versionName>`
+4. Рядом — `ardtt-update.json` и `SHA256SUMS.txt`
 
-**Секреты репозитория** (Settings → Secrets → Actions):
+Подпись — локальный `android/keystore.properties` (не секреты Actions):
 
-| Secret | Значение |
+| Поле | Значение |
 |--------|----------|
-| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 android/keystore/ardtt-release.keystore` |
-| `ANDROID_KEYSTORE_PASSWORD` | из `keystore.properties` |
-| `ANDROID_KEY_ALIAS` | `ardtt` |
-| `ANDROID_KEY_PASSWORD` | из `keystore.properties` |
+| `storeFile` | `keystore/ardtt-release.keystore` |
+| `storePassword` / `keyPassword` | из `keystore.properties` |
+| `keyAlias` | `ardtt` |
 
 Приложение проверяет обновления через **публичный GitHub Releases API** (как qWDTT),
 с fallback на старый `update.json` на VPS. PAT не нужен и в APK не вшивается.
@@ -81,4 +79,4 @@ Release (подписанный постоянным keystore):
 
 После деплоя сервера на VPS стек лежит в `/opt/ardtt/stack/` и рабочие образы.
 
-Архив `server/` в APK больше не кладётся. Релизный актив `ardtt-stack-<DEPLOY_VERSION>.tar.gz` собирает `scripts/pack-stack.sh` и публикует GitHub Release. Механика и повторный деплой: [docs/DEPLOY.md](../docs/DEPLOY.md).
+Архив `server/` в APK больше не кладётся. Релизный актив `ardtt-stack-<DEPLOY_VERSION>.tar.gz` собирает `scripts/pack-stack.sh`; на GitHub Release его кладут вручную. Механика и повторный деплой: [docs/DEPLOY.md](../docs/DEPLOY.md).
