@@ -126,23 +126,87 @@ internal fun serverCardTitle(
 }
 
 /** Entry → exit hosts when the card is a cascade with two distinct addresses. */
-internal fun serverCardCascadeIpSpan(
+internal fun serverCardCascadeHosts(
     host: String,
     publicHost: String,
     cascadeEnabled: Boolean,
     cascadeHost: String,
-): String? {
-    if (!cascadeEnabled) return null
+): List<String> {
+    if (!cascadeEnabled) return emptyList()
     val entry = (
         DeployHop.host(publicHost)
             ?: publicHost.trim().ifBlank { null }
             ?: DeployHop.host(host)
             ?: host.trim().ifBlank { null }
-        ) ?: return null
-    val exit = DeployHop.host(cascadeHost)?.takeIf { it.isNotBlank() } ?: return null
-    if (entry.equals(exit, ignoreCase = true)) return null
-    return "$entry → $exit"
+        ) ?: return emptyList()
+    val exit = DeployHop.host(cascadeHost)?.takeIf { it.isNotBlank() } ?: return emptyList()
+    if (entry.equals(exit, ignoreCase = true)) return emptyList()
+    return listOf(entry, exit)
 }
+
+internal fun serverCardCascadeIpSpan(
+    host: String,
+    publicHost: String,
+    cascadeEnabled: Boolean,
+    cascadeHost: String,
+): String? = serverCardCascadeHosts(host, publicHost, cascadeEnabled, cascadeHost)
+    .takeIf { it.size >= 2 }
+    ?.joinToString(" → ")
+
+/** IPs painted as gray chips in the title when the card has no custom name. */
+internal fun serverCardTitleHosts(
+    name: String,
+    host: String,
+    cascadeHosts: List<String>,
+): List<String> {
+    val trimmed = name.trim()
+    val ssh = host.trim()
+    if (trimmed.isNotEmpty() && !trimmed.equals(ssh, ignoreCase = true)) return emptyList()
+    return cascadeHosts.takeIf { it.size >= 2 } ?: listOfNotNull(ssh.ifBlank { null })
+}
+
+internal data class ServerCardMetaParts(
+    val hosts: List<String>,
+    val sshPort: Int,
+    val pubHost: String? = null,
+)
+
+/** SSH / pub facts under the title — never repeats the title IP. Cascade is `ip → ip`. */
+internal fun serverCardMetaParts(
+    name: String,
+    host: String,
+    sshPort: Int,
+    publicHost: String,
+    cascadeEnabled: Boolean = false,
+    cascadeHost: String = "",
+): ServerCardMetaParts {
+    val cascade = serverCardCascadeHosts(host, publicHost, cascadeEnabled, cascadeHost)
+    val title = serverCardTitle(name, host, cascade.takeIf { it.size >= 2 }?.joinToString(" → "))
+    val ssh = host.trim()
+    if (cascade.isNotEmpty()) {
+        val hosts = if (cascade.joinToString(" → ").equals(title, ignoreCase = true)) {
+            emptyList()
+        } else {
+            cascade
+        }
+        return ServerCardMetaParts(hosts = hosts, sshPort = sshPort)
+    }
+    val showSshHost = ssh.isNotEmpty() && !ssh.equals(title, ignoreCase = true)
+    return ServerCardMetaParts(
+        hosts = if (showSshHost) listOf(ssh) else emptyList(),
+        sshPort = sshPort,
+        pubHost = distinctPublicHost(ssh, publicHost),
+    )
+}
+
+internal fun ServerCardMetaParts.asLine(): String = buildList {
+    when {
+        hosts.size >= 2 -> add(hosts.joinToString(" → "))
+        hosts.size == 1 -> add(hosts[0])
+    }
+    add("SSH $sshPort")
+    pubHost?.let { add("pub $it") }
+}.joinToString(" · ")
 
 /** SSH / pub facts under the title — never repeats the title IP. Cascade shows `ip → ip`. */
 internal fun serverCardMetaLine(
@@ -152,23 +216,14 @@ internal fun serverCardMetaLine(
     publicHost: String,
     cascadeEnabled: Boolean = false,
     cascadeHost: String = "",
-): String {
-    val span = serverCardCascadeIpSpan(host, publicHost, cascadeEnabled, cascadeHost)
-    val title = serverCardTitle(name, host, span)
-    val ssh = host.trim()
-    val parts = mutableListOf<String>()
-    if (span != null) {
-        if (!span.equals(title, ignoreCase = true)) parts.add(span)
-        parts.add("SSH $sshPort")
-        return parts.joinToString(" · ")
-    }
-    if (ssh.isNotEmpty() && !ssh.equals(title, ignoreCase = true)) {
-        parts.add(ssh)
-    }
-    parts.add("SSH $sshPort")
-    distinctPublicHost(ssh, publicHost)?.let { parts.add("pub $it") }
-    return parts.joinToString(" · ")
-}
+): String = serverCardMetaParts(
+    name = name,
+    host = host,
+    sshPort = sshPort,
+    publicHost = publicHost,
+    cascadeEnabled = cascadeEnabled,
+    cascadeHost = cascadeHost,
+).asLine()
 
 /**
  * Version fragment for the OS badge, without repeating [serverOsBadgeLabel].

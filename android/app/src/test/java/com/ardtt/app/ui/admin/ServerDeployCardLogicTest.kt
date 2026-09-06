@@ -125,6 +125,34 @@ class ServerDeployCardLogicTest {
                 cascadeHost = "2.26.125.160",
             ),
         )
+        assertEquals(
+            listOf("10.0.0.1", "2.26.125.160"),
+            serverCardCascadeHosts(
+                host = "10.0.0.1",
+                publicHost = "10.0.0.1",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160:22",
+            ),
+        )
+        assertEquals(
+            emptyList<String>(),
+            serverCardTitleHosts("Edge", "10.0.0.1", listOf("10.0.0.1", "2.26.125.160")),
+        )
+        assertEquals(
+            listOf("10.0.0.1", "2.26.125.160"),
+            serverCardTitleHosts("  ", "10.0.0.1", listOf("10.0.0.1", "2.26.125.160")),
+        )
+        assertEquals(
+            listOf("10.0.0.1", "2.26.125.160"),
+            serverCardMetaParts(
+                name = "Edge",
+                host = "10.0.0.1",
+                sshPort = 22,
+                publicHost = "10.0.0.1",
+                cascadeEnabled = true,
+                cascadeHost = "2.26.125.160",
+            ).hosts,
+        )
     }
 
     @Test
