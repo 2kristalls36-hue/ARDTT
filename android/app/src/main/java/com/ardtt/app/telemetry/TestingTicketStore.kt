@@ -3,6 +3,7 @@ package com.ardtt.app.telemetry
 import android.content.Context
 import java.io.File
 import java.text.SimpleDateFormat
+import java.time.Instant
 import java.util.Date
 import java.util.Locale
 import org.json.JSONArray
@@ -13,6 +14,10 @@ data class TestingTicket(
     val comment: String,
     val createdAtMs: Long,
     val logName: String = "",
+    val read: Boolean = false,
+    val processedAt: String = "",
+    val processedBy: String = "",
+    val reviewNote: String = "",
 )
 
 data class TestingTicketState(
@@ -20,6 +25,18 @@ data class TestingTicketState(
     val drafts: Map<String, String> = emptyMap(),
     val nextNumber: Int = 1,
     val tickets: List<TestingTicket> = emptyList(),
+)
+
+/** Server (or recovered) status of one uploaded log. */
+data class TestingTicketStatus(
+    val logName: String,
+    val number: Int = 0,
+    val read: Boolean = false,
+    val comment: String = "",
+    val processedAt: String = "",
+    val processedBy: String = "",
+    val reviewNote: String = "",
+    val uploadedAtMs: Long = 0L,
 )
 
 /** Ask for a comment only when the log-row draft is still empty. */
@@ -41,7 +58,24 @@ internal fun testingCommentPreview(
 
 private val WHITESPACE = Regex("\\s+")
 
-internal fun testingTicketTitle(number: Int): String = "Обращение №$number"
+internal fun testingTicketTitle(number: Int): String =
+    if (number > 0) "Обращение №$number" else "Обращение"
+
+internal fun testingTicketReadLabel(read: Boolean): String =
+    if (read) "Прочитано" else "Ожидает разбора"
+
+internal const val TESTING_AUTHOR_REPLY_TITLE = "Ответ автора"
+internal const val TESTING_USER_COMMENT_TITLE = "Ваш комментарий"
+
+internal fun testingTicketSameIdentity(
+    ticket: TestingTicket,
+    logName: String,
+    number: Int,
+): Boolean {
+    val name = logName.trim()
+    if (name.isNotEmpty()) return ticket.logName == name
+    return number > 0 && ticket.number == number && ticket.logName.isEmpty()
+}
 
 internal fun testingTicketNextNumber(nextNumber: Int, tickets: List<TestingTicket>): Int {
     val maxExisting = tickets.maxOfOrNull { it.number } ?: 0
@@ -51,6 +85,12 @@ internal fun testingTicketNextNumber(nextNumber: Int, tickets: List<TestingTicke
 internal fun formatTestingTicketTime(ms: Long): String {
     if (ms <= 0L) return ""
     return SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru")).format(Date(ms))
+}
+
+internal fun parseTelemetryTimeMs(raw: String): Long {
+    val value = raw.trim()
+    if (value.isEmpty()) return 0L
+    return runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
 }
 
 class TestingTicketStore(private val file: File) {
@@ -86,47 +126,106 @@ class TestingTicketStore(private val file: File) {
 
     @Synchronized
     fun register(comment: String, logName: String = ""): TestingTicket =
-        registerInternal(comment, logName, reuseLog = false)
+        rememberUpload(comment = comment, logName = logName, serverNumber = 0)
 
     /** Keep the same number when the same log file is sent again after a failed upload. */
     @Synchronized
     fun registerOrReuse(comment: String, logName: String): TestingTicket =
-        registerInternal(comment, logName, reuseLog = true)
+        rememberUpload(comment = comment, logName = logName, serverNumber = 0)
 
-    private fun registerInternal(comment: String, logName: String, reuseLog: Boolean): TestingTicket {
+    /**
+     * Record a successful upload. [serverNumber] from the telemetry host wins;
+     * `0` falls back to a local sequential id so older stacks still show history.
+     */
+    @Synchronized
+    fun rememberUpload(
+        comment: String,
+        logName: String,
+        serverNumber: Int,
+        read: Boolean = false,
+        processedAt: String = "",
+        processedBy: String = "",
+        reviewNote: String = "",
+        createdAtMs: Long = 0L,
+    ): TestingTicket {
         val cleaned = comment.trim()
         require(cleaned.isNotBlank()) { "Введите комментарий" }
         val name = logName.trim()
         val state = load()
-        if (reuseLog && name.isNotEmpty()) {
-            val existing = state.tickets.firstOrNull { it.logName == name }
-            if (existing != null) {
-                val updated = existing.copy(comment = cleaned.take(MAX_COMMENT))
-                if (updated != existing) {
-                    persist(
-                        state.copy(
-                            tickets = state.tickets.map { ticket ->
-                                if (ticket.number == existing.number) updated else ticket
-                            },
-                        ),
-                    )
-                }
-                return updated
-            }
+        val existing = state.tickets.firstOrNull { ticket ->
+            testingTicketSameIdentity(ticket, name, serverNumber)
+        }
+        val number = when {
+            serverNumber > 0 -> serverNumber
+            existing != null && existing.number > 0 -> existing.number
+            else -> testingTicketNextNumber(state.nextNumber, state.tickets)
         }
         val ticket = TestingTicket(
-            number = testingTicketNextNumber(state.nextNumber, state.tickets),
+            number = number,
             comment = cleaned.take(MAX_COMMENT),
-            createdAtMs = System.currentTimeMillis(),
-            logName = name,
+            createdAtMs = when {
+                createdAtMs > 0L -> createdAtMs
+                existing != null && existing.createdAtMs > 0L -> existing.createdAtMs
+                else -> System.currentTimeMillis()
+            },
+            logName = name.ifEmpty { existing?.logName.orEmpty() },
+            read = read,
+            processedAt = processedAt,
+            processedBy = processedBy,
+            reviewNote = reviewNote,
         )
+        val tickets = listOf(ticket) + state.tickets.filterNot { other ->
+            testingTicketSameIdentity(other, ticket.logName, ticket.number)
+        }
         persist(
             state.copy(
-                nextNumber = ticket.number + 1,
-                tickets = listOf(ticket) + state.tickets,
+                nextNumber = testingTicketNextNumber(ticket.number + 1, tickets),
+                tickets = tickets.sortedByDescending { it.number },
             ),
         )
         return ticket
+    }
+
+    @Synchronized
+    fun applyServerStatuses(items: List<TestingTicketStatus>): TestingTicketState {
+        var state = load()
+        items.forEach { item ->
+            val name = item.logName.trim()
+            if (name.isEmpty() && item.number <= 0) return@forEach
+            val existing = state.tickets.firstOrNull { ticket ->
+                testingTicketSameIdentity(ticket, name, item.number)
+            }
+            val comment = item.comment.trim().ifBlank {
+                existing?.comment.orEmpty().ifBlank { name.ifBlank { "Лог" } }
+            }
+            val ticket = TestingTicket(
+                number = when {
+                    item.number > 0 -> item.number
+                    existing != null && existing.number > 0 -> existing.number
+                    else -> testingTicketNextNumber(state.nextNumber, state.tickets)
+                },
+                comment = comment.take(MAX_COMMENT),
+                createdAtMs = when {
+                    existing != null && existing.createdAtMs > 0L -> existing.createdAtMs
+                    item.uploadedAtMs > 0L -> item.uploadedAtMs
+                    else -> System.currentTimeMillis()
+                },
+                logName = name.ifEmpty { existing?.logName.orEmpty() },
+                read = item.read,
+                processedAt = item.processedAt,
+                processedBy = item.processedBy,
+                reviewNote = item.reviewNote,
+            )
+            val tickets = listOf(ticket) + state.tickets.filterNot { other ->
+                testingTicketSameIdentity(other, ticket.logName, ticket.number)
+            }
+            state = state.copy(
+                nextNumber = testingTicketNextNumber(ticket.number + 1, tickets),
+                tickets = tickets.sortedByDescending { it.number },
+            )
+        }
+        persist(state)
+        return state
     }
 
     private fun persist(state: TestingTicketState) {
@@ -146,18 +245,23 @@ class TestingTicketStore(private val file: File) {
         internal fun parse(raw: String): TestingTicketState {
             val o = JSONObject(raw)
             val tickets = mutableListOf<TestingTicket>()
-            val seen = mutableSetOf<Int>()
+            val seen = mutableSetOf<Pair<Int, String>>()
             o.optJSONArray("tickets")?.let { arr ->
                 for (i in 0 until arr.length()) {
                     val t = arr.optJSONObject(i) ?: continue
                     val number = t.optInt("number")
                     val comment = t.optString("comment").trim()
-                    if (number <= 0 || comment.isEmpty() || !seen.add(number)) continue
+                    val logName = t.optString("logName")
+                    if (number <= 0 || comment.isEmpty() || !seen.add(number to logName)) continue
                     tickets += TestingTicket(
                         number = number,
                         comment = comment,
                         createdAtMs = t.optLong("createdAtMs"),
-                        logName = t.optString("logName"),
+                        logName = logName,
+                        read = t.optBoolean("read"),
+                        processedAt = t.optString("processedAt"),
+                        processedBy = t.optString("processedBy"),
+                        reviewNote = t.optString("reviewNote"),
                     )
                 }
             }
@@ -187,7 +291,11 @@ class TestingTicketStore(private val file: File) {
                         .put("number", ticket.number)
                         .put("comment", ticket.comment)
                         .put("createdAtMs", ticket.createdAtMs)
-                        .put("logName", ticket.logName),
+                        .put("logName", ticket.logName)
+                        .put("read", ticket.read)
+                        .put("processedAt", ticket.processedAt)
+                        .put("processedBy", ticket.processedBy)
+                        .put("reviewNote", ticket.reviewNote),
                 )
             }
             val drafts = JSONObject()

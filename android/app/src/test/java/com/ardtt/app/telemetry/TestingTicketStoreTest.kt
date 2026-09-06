@@ -125,4 +125,154 @@ class TestingTicketStoreTest {
         val restored = TestingTicketStore.parse(TestingTicketStore.encode(loaded))
         assertEquals(loaded.drafts, restored.drafts)
     }
+
+    @Test
+    fun rememberUploadUsesServerNumberAndKeepsReadState() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        val local = store.register("локальный fallback", "log-a.json")
+        assertEquals(1, local.number)
+        val fromServer = store.rememberUpload(
+            comment = "после Wi‑Fi туннель не встал",
+            logName = "log-a.json",
+            serverNumber = 12,
+            read = true,
+            processedAt = "2026-09-06T12:00:00Z",
+            processedBy = "author",
+            reviewNote = "разобрано",
+        )
+        assertEquals(12, fromServer.number)
+        assertTrue(fromServer.read)
+        assertEquals("разобрано", fromServer.reviewNote)
+        val loaded = store.load()
+        assertEquals(listOf(12), loaded.tickets.map { it.number })
+        assertEquals(13, loaded.nextNumber)
+        assertTrue(loaded.tickets.first().read)
+        assertEquals("Прочитано", testingTicketReadLabel(true))
+        assertEquals("Ожидает разбора", testingTicketReadLabel(false))
+        assertEquals("Обращение", testingTicketTitle(0))
+    }
+
+    @Test
+    fun applyServerStatusesMarksReadAndAddsMissingTickets() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        store.rememberUpload("ждёт разбора", "log-a.json", serverNumber = 4)
+        store.applyServerStatuses(
+            listOf(
+                TestingTicketStatus(
+                    logName = "log-a.json",
+                    number = 4,
+                    read = true,
+                    processedAt = "2026-09-06T12:00:00Z",
+                    processedBy = "author",
+                    reviewNote = "принято",
+                ),
+                TestingTicketStatus(
+                    logName = "log-b.json",
+                    number = 9,
+                    comment = "каскад не поднялся",
+                    uploadedAtMs = 1_700_000_000_000L,
+                ),
+            ),
+        )
+        val loaded = store.load()
+        assertEquals(listOf(9, 4), loaded.tickets.map { it.number })
+        val first = loaded.tickets.single { it.number == 4 }
+        assertTrue(first.read)
+        assertEquals("принято", first.reviewNote)
+        val added = loaded.tickets.single { it.number == 9 }
+        assertEquals("каскад не поднялся", added.comment)
+        assertEquals("log-b.json", added.logName)
+        assertFalse(added.read)
+    }
+
+    @Test
+    fun unreadServerStatusClearsAuthorReply() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        store.rememberUpload(
+            comment = "ждёт разбора",
+            logName = "log-a.json",
+            serverNumber = 4,
+            read = true,
+            reviewNote = "старый ответ",
+        )
+        store.applyServerStatuses(
+            listOf(
+                TestingTicketStatus(logName = "log-a.json", number = 4, read = false),
+            ),
+        )
+        val ticket = store.load().tickets.single()
+        assertFalse(ticket.read)
+        assertEquals("", ticket.reviewNote)
+    }
+
+    @Test
+    fun rememberUploadDoesNotMergeDifferentFilesWithTheSameNumber() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        store.rememberUpload("старое локальное", "log-a.json", serverNumber = 1)
+        store.rememberUpload("новое с сервера", "log-b.json", serverNumber = 1)
+        val loaded = store.load()
+        assertEquals(2, loaded.tickets.size)
+        assertEquals("старое локальное", loaded.tickets.single { it.logName == "log-a.json" }.comment)
+        assertEquals("новое с сервера", loaded.tickets.single { it.logName == "log-b.json" }.comment)
+        val restored = TestingTicketStore.parse(TestingTicketStore.encode(loaded))
+        assertEquals(2, restored.tickets.size)
+    }
+
+    @Test
+    fun applyServerStatusesTrustsEmptyReviewMetadata() {
+        val dir = Files.createTempDirectory("tickets").toFile()
+        val store = TestingTicketStore(File(dir, "testing_tickets.json"))
+        store.rememberUpload(
+            comment = "ждёт разбора",
+            logName = "log-a.json",
+            serverNumber = 4,
+            read = true,
+            processedAt = "2026-09-06T12:00:00Z",
+            processedBy = "author",
+            reviewNote = "старый ответ",
+        )
+        store.applyServerStatuses(
+            listOf(
+                TestingTicketStatus(
+                    logName = "log-a.json",
+                    number = 4,
+                    read = true,
+                    processedAt = "2026-09-06T13:00:00Z",
+                    processedBy = "cursor-agent",
+                ),
+            ),
+        )
+        val ticket = store.load().tickets.single()
+        assertTrue(ticket.read)
+        assertEquals("", ticket.reviewNote)
+        assertEquals("cursor-agent", ticket.processedBy)
+        assertEquals("2026-09-06T13:00:00Z", ticket.processedAt)
+    }
+
+    @Test
+    fun jsonRoundTripKeepsReadMarker() {
+        val state = TestingTicketState(
+            nextNumber = 5,
+            tickets = listOf(
+                TestingTicket(
+                    number = 4,
+                    comment = "обход не встал",
+                    createdAtMs = 1_700_000_000_000L,
+                    logName = "a.json",
+                    read = true,
+                    processedAt = "2026-09-06T12:00:00Z",
+                    processedBy = "author",
+                    reviewNote = "ок",
+                ),
+            ),
+        )
+        val restored = TestingTicketStore.parse(TestingTicketStore.encode(state))
+        assertTrue(restored.tickets.single().read)
+        assertEquals("ок", restored.tickets.single().reviewNote)
+        assertEquals("author", restored.tickets.single().processedBy)
+    }
 }
