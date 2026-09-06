@@ -82,16 +82,11 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
-          GITHUB_RELEASE_READ_TOKEN: ${{ secrets.GITHUB_RELEASE_READ_TOKEN }}
         run: |
           bash scripts/build-bypass-client.sh arm64-v8a
           cd android
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
-          token_arg=""
-          if [ -n "$GITHUB_RELEASE_READ_TOKEN" ]; then
-            token_arg="-PgithubReleaseToken=$GITHUB_RELEASE_READ_TOKEN"
-          fi
-          ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a $token_arg --no-daemon
+          ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

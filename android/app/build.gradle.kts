@@ -17,6 +17,7 @@ val targetAbis = providers.gradleProperty("targetAbis")
     .map { value -> value.split(',').map(String::trim).filter { it.isNotEmpty() } }
     .orElse(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
 
+// Public Releases need no PAT. Optional override for private forks only.
 val githubReleaseToken = providers.gradleProperty("githubReleaseToken")
     .orElse(providers.environmentVariable("GITHUB_RELEASE_READ_TOKEN"))
     .orElse("")
@@ -32,8 +33,8 @@ android {
         applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 259
-        versionName = "0.5.241"
+        versionCode = 260
+        versionName = "0.5.242"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
