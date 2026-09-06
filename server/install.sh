@@ -1,11 +1,14 @@
 #!/bin/bash
 # ARDTT VPS installer — canonical copy lives here (server/install.sh).
-# Android APK gets a copy via scripts/pack-deploy-assets.sh → assets/deploy/install.sh.
 #
-# Product path (from the app): SSH upload of stack.tar.gz + this script, then:
-#   ARDTT_PUBLIC_HOST=… bash /opt/ardtt/install.sh
-# Git path: clone a release tag, tar server/ into /opt/ardtt/stack.tar.gz,
-#   copy this script, then the same command (see docs/DEPLOY.md Path 2).
+# Product path (from the app): the phone downloads server/ from GitHub
+#   (release asset ardtt-stack-*.tar.gz or a source tarball) and uploads it
+#   over SSH with this script, then:
+#   ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=vX.Y.Z bash /opt/ardtt/install.sh
+# Git path (on the VPS, no phone upload):
+#   curl -fsSL https://raw.githubusercontent.com/<owner>/ARDTT/<tag>/server/install.sh \
+#     -o /opt/ardtt/install.sh
+#   ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=<tag> bash /opt/ardtt/install.sh
 # Cascade: phone SSHs to the exit VPS (ARDTT_ROLE=exit) and the entry VPS
 #   (ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1) separately. Do not write SSH passwords
 #   into .env.
@@ -46,6 +49,8 @@ CASCADE_LISTEN_PORT="${ARDTT_CASCADE_LISTEN_PORT:-${NVPN_CASCADE_LISTEN_PORT:-51
 CASCADE_PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-${NVPN_CASCADE_PEER_ENDPOINT:-}}"
 CASCADE_PEER_PUBLIC_KEY="${ARDTT_CASCADE_PEER_PUBLIC_KEY:-${NVPN_CASCADE_PEER_PUBLIC_KEY:-}}"
 CASCADE_DNS="${ARDTT_CASCADE_DNS:-${NVPN_CASCADE_DNS:-10.10.0.2}}"
+GIT_REPO="${ARDTT_GIT_REPO:-${NVPN_GIT_REPO:-https://github.com/2kristalls36-hue/ARDTT.git}}"
+GIT_REF="${ARDTT_GIT_REF:-${NVPN_GIT_REF:-}}"
 if [ "$ROLE" = "exit" ]; then
   CASCADE_ENABLED=1
 fi
@@ -475,6 +480,111 @@ restore_live_stack_if_needed() {
   STACK_STOPPED_FOR_BUILD=0
 }
 
+find_server_tree() {
+  local root="$1"
+  local candidate
+  if [ -f "$root/docker-compose.yml" ] && [ -d "$root/provision" ]; then
+    printf '%s' "$root"
+    return 0
+  fi
+  if [ -f "$root/server/docker-compose.yml" ] && [ -d "$root/server/provision" ]; then
+    printf '%s' "$root/server"
+    return 0
+  fi
+  for candidate in "$root"/*; do
+    [ -d "$candidate" ] || continue
+    if [ -f "$candidate/docker-compose.yml" ] && [ -d "$candidate/provision" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+    if [ -f "$candidate/server/docker-compose.yml" ] && [ -d "$candidate/server/provision" ]; then
+      printf '%s' "$candidate/server"
+      return 0
+    fi
+  done
+  return 1
+}
+
+copy_server_tree_to_staging() {
+  local tree="$1"
+  rm -rf "$STAGING"
+  mkdir -p "$STAGING"
+  cp -a "$tree"/. "$STAGING"/
+}
+
+extract_archive_to_staging() {
+  local archive="$1"
+  local extract="$INSTALL_DIR/unpack.src"
+  rm -rf "$extract" "$STAGING"
+  mkdir -p "$extract"
+  tar -xzf "$archive" -C "$extract" || die "Не удалось распаковать архив стека"
+  local tree
+  if ! tree="$(find_server_tree "$extract")"; then
+    rm -rf "$extract"
+    die "В архиве нет server/ (docker-compose.yml + provision/). Скачайте стек из GitHub."
+  fi
+  copy_server_tree_to_staging "$tree"
+  rm -rf "$extract"
+  rm -f "$archive"
+}
+
+ensure_fetch_tools() {
+  if command -v curl >/dev/null 2>&1 || command -v git >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y --no-install-recommends ca-certificates curl git
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf -y install ca-certificates curl git
+  else
+    die "Нужны curl или git, чтобы скачать стек из GitHub"
+  fi
+}
+
+github_source_tarball_url() {
+  local repo="$1" ref="$2"
+  repo="${repo%.git}"
+  case "$ref" in
+    main|master|HEAD) printf '%s/archive/refs/heads/%s.tar.gz' "$repo" "$ref" ;;
+    *) printf '%s/archive/refs/tags/%s.tar.gz' "$repo" "$ref" ;;
+  esac
+}
+
+fetch_stack_from_git() {
+  local ref="$1"
+  local repo="$GIT_REPO"
+  [ -n "$ref" ] || die "ARDTT_GIT_REF пуст"
+  ensure_fetch_tools
+  local tmp="$INSTALL_DIR/git.src"
+  rm -rf "$tmp"
+  mkdir -p "$tmp"
+  echo "ARDTT_INFO|скачиваем стек из $repo ($ref)"
+  if command -v git >/dev/null 2>&1 && git clone --depth 1 --branch "$ref" "$repo" "$tmp" >/dev/null 2>&1; then
+    :
+  else
+    local url tarball
+    url="$(github_source_tarball_url "$repo" "$ref")"
+    tarball="$INSTALL_DIR/repo.tar.gz"
+    rm -rf "$tmp"
+    mkdir -p "$tmp"
+    if ! command -v curl >/dev/null 2>&1; then
+      die "git clone не удался и нет curl для $url"
+    fi
+    curl -fsSL --retry 3 --retry-delay 2 "$url" -o "$tarball" || die "Не удалось скачать $url"
+    tar -xzf "$tarball" -C "$tmp"
+    rm -f "$tarball"
+  fi
+  local tree
+  if ! tree="$(find_server_tree "$tmp")"; then
+    rm -rf "$tmp"
+    die "В репозитории нет server/ (ref=$ref)"
+  fi
+  copy_server_tree_to_staging "$tree"
+  rm -rf "$tmp"
+}
+
 cleanup_stale_deploy_files() {
   # Leftovers from older installer names, failed SSH drops, and agent probes.
   # Do not delete stack.staging here: it is the in-progress unpack.
@@ -483,7 +593,7 @@ cleanup_stale_deploy_files() {
   rm -f /var/log/ardtt-build*.log /var/log/ardtt-install.log
   rm -f /tmp/ardtt-entry-* /tmp/ardtt-cascade-* /tmp/ardtt-cascade-probe-*.sh
   rm -rf /tmp/ardtt-provision /tmp/ardtt-data-bak /var/tmp/ardtt-*
-  rm -rf "$INSTALL_DIR/stack.old"
+  rm -rf "$INSTALL_DIR/stack.old" "$INSTALL_DIR/unpack.src" "$INSTALL_DIR/git.src"
   # Leftover wg-quick conf from kernel-WG WARP. Do not ip-link-del warp0 here:
   # the live ardtt-warp may still own it until compose replaces the container.
   # Do not delete stack/data/warp — that is the live wgcf account.
@@ -596,9 +706,9 @@ ensure_cascade_keys() {
 }
 
 cleanup_install_artifacts() {
-  rm -f "$INSTALL_DIR/stack.tar.gz"
+  rm -f "$INSTALL_DIR/stack.tar.gz" "$INSTALL_DIR/repo.tar.gz"
   rm -f /var/log/ardtt-build*.log /var/log/ardtt-install.log
-  rm -rf /tmp/ardtt-data-bak "$INSTALL_DIR/stack.staging" "$INSTALL_DIR/stack.old"
+  rm -rf /tmp/ardtt-data-bak "$INSTALL_DIR/stack.staging" "$INSTALL_DIR/stack.old" "$INSTALL_DIR/unpack.src" "$INSTALL_DIR/git.src"
   cleanup_stale_deploy_files
   if [ "$KEEP_INSTALL_LOG" = "1" ]; then
     mkdir -p "$INSTALL_DIR"
@@ -759,19 +869,24 @@ cleanup_stale_deploy_files
 STAGING="$INSTALL_DIR/stack.staging"
 if [ -f "$INSTALL_DIR/stack.tar.gz" ]; then
   # Unpack into staging while the OLD stack (if any) keeps running.
+  # Accepts both a packed server/ tree and a GitHub source archive
+  # (ARDTT-<tag>/server/…).
   prog 0.15 "Распаковка стека в staging (старый стек не останавливаем)"
-  rm -rf "$STAGING"
-  mkdir -p "$STAGING"
-  tar -xzf "$INSTALL_DIR/stack.tar.gz" -C "$STAGING"
-  rm -f "$INSTALL_DIR/stack.tar.gz"
+  extract_archive_to_staging "$INSTALL_DIR/stack.tar.gz"
+elif [ -f "$INSTALL_DIR/repo.tar.gz" ]; then
+  prog 0.15 "Распаковка архива репозитория в staging"
+  extract_archive_to_staging "$INSTALL_DIR/repo.tar.gz"
 elif [ -f "$INSTALL_DIR/stack/docker-compose.yml" ]; then
   # Tar is deleted on every previous run. Allow a re-run against the already
   # unpacked tree so a failed compose build is recoverable without re-upload.
   prog 0.15 "Архив не найден — используем уже распакованный стек"
   rm -rf "$STAGING"
   cp -a "$INSTALL_DIR/stack" "$STAGING"
+elif [ -n "$GIT_REF" ]; then
+  prog 0.15 "Загрузка стека из GitHub ($GIT_REF)"
+  fetch_stack_from_git "$GIT_REF"
 else
-  die "Не найден $INSTALL_DIR/stack.tar.gz"
+  die "Нет стека: нужен stack.tar.gz с телефона или ARDTT_GIT_REF для загрузки из GitHub"
 fi
 
 [ -f "$STAGING/docker-compose.yml" ] || die "В архиве нет docker-compose.yml"
@@ -787,7 +902,7 @@ if [ ! -f "$STAGING/Dockerfile" ] || [ ! -f "$STAGING/entrypoint.sh" ]; then
   missing_contexts="$missing_contexts Dockerfile/entrypoint.sh"
 fi
 if [ -n "$missing_contexts" ]; then
-  die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Обновите APK или пересоберите архив scripts/pack-deploy-assets.sh"
+  die "Неполный архив деплоя, отсутствуют каталоги:${missing_contexts}. Скачайте стек из GitHub (ardtt-stack-*.tar.gz или тег релиза)"
 fi
 
 if [ "${ARDTT_DRY_RUN:-${NVPN_DRY_RUN:-0}}" != "1" ]; then

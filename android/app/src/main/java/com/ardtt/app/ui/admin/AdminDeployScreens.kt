@@ -1104,8 +1104,8 @@ private fun ServerOverviewHost(
                     dismissOnClickOutside = !busy,
                 ) {
                     Text(
-                        "Стек версии $expectedVersion будет заново залит на ${server.host} " +
-                            "по сохранённым SSH-данным. Параметры подключения менять не нужно.",
+                        serverReinstallConfirmBody(server.host, expectedVersion) +
+                            " Параметры подключения менять не нужно.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

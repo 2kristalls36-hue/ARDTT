@@ -1,7 +1,7 @@
 # Сервер ARDTT
 
-Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.34** (`DEPLOY_VERSION`).  
-Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
+Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.36** (`DEPLOY_VERSION`).  
+Исходники — `server/` **этого** репозитория (в APK копии нет). Механика установки (из приложения по SSH или `docker compose`): [DEPLOY.md](../docs/DEPLOY.md).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
 Боевой контур — **один контейнер** `ardtt` (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)). Процессы внутри те же:
@@ -38,12 +38,12 @@ Call hash звонка на сервер **не** кладётся — толь�
 `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B (GPL-3, `bypass/wdtt-server/` —
 линия [SpaceNeuroX/qWDTT](https://github.com/SpaceNeuroX/proxy-turn-vk-android)).
 
-На VPS клонируйте **тег релиза**, не скользящий `main` (сейчас `v0.5.231` = стек **1.0.34**).
+На VPS клонируйте **тег релиза**, не скользящий `main` (сейчас `v0.5.238` = стек **1.0.36**).
 Публичный репозиторий клонируется без PAT; приватный — SSH-ключ или token. Каноническая
 раскладка `/opt/ardtt` через `install.sh`: [Путь 2 в DEPLOY.md](../docs/DEPLOY.md#путь-2--git--compose).
 
 ```bash
-git clone --depth 1 --branch v0.5.231 \
+git clone --depth 1 --branch v0.5.238 \
   https://github.com/2kristalls36-hue/ARDTT.git
 cd ARDTT/server
 cp .env.example .env   # пропишите ARDTT_PUBLIC_HOST; COMPOSE_PROFILES=isolated
@@ -74,7 +74,7 @@ curl -s http://127.0.0.1:9100/health
 
 ### 2) Как проходит деплой
 
-Стек ставится из Android (SSH, архив из APK) или клоном тега релиза — [DEPLOY.md](../docs/DEPLOY.md). Дальше одинаково:
+Стек ставится из Android (SSH, архив `server/` с GitHub) или клоном тега релиза — [DEPLOY.md](../docs/DEPLOY.md). Дальше одинаково:
 
 1. В `.env` задаётся внешний адрес VPS (`ARDTT_PUBLIC_HOST`) и порты.
 2. Compose собирает и запускает контейнеры.

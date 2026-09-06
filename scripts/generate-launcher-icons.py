@@ -144,6 +144,12 @@ def letter_alpha(rgba: np.ndarray) -> np.ndarray:
     return alpha
 
 
+def letter_silhouette_alpha(rgba: np.ndarray) -> np.ndarray:
+    """Hard AR/DTT mask for monochrome. Skip the color master's drop-shadow fringe."""
+    seed = letter_seed(_rgb(rgba), inner_field_mask(rgba))
+    return seed.astype(np.float32)
+
+
 def pad_to_square_rgba(rgba: np.ndarray) -> np.ndarray:
     h, w = rgba.shape[:2]
     side = max(h, w)
@@ -182,10 +188,22 @@ def plate_rgba_icon(master: Image.Image, size: int) -> Image.Image:
 # Navy disc: slightly lighter center, matching the master's radial field.
 ROUND_CENTER = (8, 42, 82)
 ROUND_RIM = (166, 172, 188)
-# Letter block as a fraction of the circle diameter. 0.66 matches the adaptive
-# foreground safe zone; wider than that clips AR/DTT corners on a circular mask.
-ROUND_LETTER_FRAC = 0.66
+# Letter block as a fraction of the circle diameter. 0.74 keeps DTT inside
+# the silver rim; 0.80 still sat the D/T corners on the ring.
+ROUND_LETTER_FRAC = 0.74
 ROUND_RIM_FRAC = 0.016
+# AdaptiveIconDrawable draws each 108dp layer at 1.5× bounds; the launcher
+# only shows the inner 72dp. A rim at the 108dp edge is cropped away.
+ADAPTIVE_VIEWPORT = 2.0 / 3.0
+# Square adaptive can run a bit wider than round: a squircle shows more of
+# the sides. Themed monochrome is circular on many launchers, so it follows
+# the round fraction with a little extra gap so DTT is not shaved.
+SQUARE_ADAPTIVE_LETTER_FRAC = 0.94
+MONO_ADAPTIVE_LETTER_FRAC = 0.76
+
+
+def adaptive_safe_frac(viewport_content_frac: float) -> float:
+    return ADAPTIVE_VIEWPORT * viewport_content_frac
 
 
 def round_color_icon(mark: Image.Image, size: int) -> Image.Image:
@@ -219,6 +237,21 @@ def round_color_icon(mark: Image.Image, size: int) -> Image.Image:
     return disc.resize((size, size), Image.Resampling.LANCZOS)
 
 
+def round_adaptive_foreground(mark: Image.Image, size: int) -> Image.Image:
+    """108dp round-icon layer: navy disc sits in the inner 72dp viewport.
+
+    minSdk 28 always resolves @mipmap/ic_launcher_round to the v26 XML, so the
+    density PNGs never appear on device. This layer is what circular launchers
+    actually mask.
+    """
+    inner = max(1, int(round(size * ADAPTIVE_VIEWPORT)))
+    disc = round_color_icon(mark, inner)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ox = (size - inner) // 2
+    canvas.paste(disc, (ox, ox), disc)
+    return canvas
+
+
 def extract_mark(master: Image.Image, white_only: bool = False) -> Image.Image:
     """Keep AR + DTT with a transparent field; crop to the letter block."""
     rgba = _as_rgba(master)
@@ -235,26 +268,44 @@ def extract_mark(master: Image.Image, white_only: bool = False) -> Image.Image:
     right = min(w, int(xs.max()) + pad_px + 1)
     bottom = min(h, int(ys.max()) + pad_px + 1)
     out = np.zeros((bottom - top, right - left, 4), dtype=np.uint8)
+    out[:, :, 0] = 255
+    out[:, :, 1] = 255
+    out[:, :, 2] = 255
     if white_only:
-        out[:, :, 0] = 255
-        out[:, :, 1] = 255
-        out[:, :, 2] = 255
+        sil = letter_silhouette_alpha(rgba)
+        out[:, :, 3] = np.clip(sil[top:bottom, left:right] * 255.0, 0, 255).astype(np.uint8)
     else:
         out[:, :, :3] = np.clip(rgb[top:bottom, left:right], 0, 255).astype(np.uint8)
-    out[:, :, 3] = np.clip(alpha[top:bottom, left:right] * 255.0, 0, 255).astype(np.uint8)
+        out[:, :, 3] = np.clip(alpha[top:bottom, left:right] * 255.0, 0, 255).astype(np.uint8)
     return Image.fromarray(out, "RGBA")
 
 
-def fit_on_canvas(mark: Image.Image, canvas: int, safe_frac: float) -> Image.Image:
+def force_white_rgb(image: Image.Image) -> Image.Image:
+    """Keep RGB white so LANCZOS / themed-icon masks do not pick up a dark fringe."""
+    arr = np.array(image.convert("RGBA"))
+    arr[:, :, 0:3] = 255
+    return Image.fromarray(arr, "RGBA")
+
+
+def fit_on_canvas(
+    mark: Image.Image,
+    canvas: int,
+    safe_frac: float,
+    *,
+    white: bool = False,
+) -> Image.Image:
     safe = max(1, int(round(canvas * safe_frac)))
     mw, mh = mark.size
     scale = min(safe / mw, safe / mh)
     nw = max(1, int(round(mw * scale)))
     nh = max(1, int(round(mh * scale)))
     scaled = mark.resize((nw, nh), Image.Resampling.LANCZOS)
-    fg = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    if white:
+        scaled = force_white_rgb(scaled)
+    fill = (255, 255, 255, 0) if white else (0, 0, 0, 0)
+    fg = Image.new("RGBA", (canvas, canvas), fill)
     fg.paste(scaled, ((canvas - nw) // 2, (canvas - nh) // 2), scaled)
-    return fg
+    return force_white_rgb(fg) if white else fg
 
 
 def save_png(image: Image.Image, path: Path) -> None:
@@ -294,11 +345,26 @@ def main() -> None:
 
     for density, size in FOREGROUND_SIZES.items():
         save_png(
-            fit_on_canvas(color_mark, size, safe_frac=0.66),
+            fit_on_canvas(
+                color_mark,
+                size,
+                safe_frac=adaptive_safe_frac(SQUARE_ADAPTIVE_LETTER_FRAC),
+            ),
             RES / f"mipmap-{density}" / "ic_launcher_foreground.png",
         )
-
-    save_png(fit_on_canvas(white_mark, 256, safe_frac=0.72), RES / "drawable" / "ic_launcher_monochrome.png")
+        save_png(
+            round_adaptive_foreground(color_mark, size),
+            RES / f"mipmap-{density}" / "ic_launcher_round_foreground.png",
+        )
+        save_png(
+            fit_on_canvas(
+                white_mark,
+                size,
+                safe_frac=adaptive_safe_frac(MONO_ADAPTIVE_LETTER_FRAC),
+                white=True,
+            ),
+            RES / f"mipmap-{density}" / "ic_launcher_monochrome.png",
+        )
 
     for density, size in LOGO_FULL_SIZES.items():
         save_png(
@@ -315,7 +381,7 @@ def main() -> None:
             RES / f"drawable-{density}" / "ic_tile_custom.png",
         )
         save_png(
-            fit_on_canvas(white_mark, size, safe_frac=0.84),
+            fit_on_canvas(white_mark, size, safe_frac=0.84, white=True),
             RES / f"drawable-{density}" / "ic_stat_connected.png",
         )
 

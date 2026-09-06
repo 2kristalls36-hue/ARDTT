@@ -179,8 +179,59 @@ out_host="$(run_hostnet)" || err "hostnet install.sh exited $?"
 grep -q '^ARDTT_NETWORK_MODE=hostnet$' "$INSTALL/stack/.env" || err "hostnet mode not written"
 grep -q '^COMPOSE_PROFILES=hostnet$' "$INSTALL/stack/.env" || err "hostnet profile not written"
 
+(
+  set -euo pipefail
+  eval "$(sed -n '/^github_source_tarball_url()/,/^}/p' "$ROOT/server/install.sh")"
+  tag_url="$(github_source_tarball_url 'https://github.com/2kristalls36-hue/ARDTT.git' 'v0.5.238')"
+  [ "$tag_url" = 'https://github.com/2kristalls36-hue/ARDTT/archive/refs/tags/v0.5.238.tar.gz' ]
+  head_url="$(github_source_tarball_url 'https://github.com/2kristalls36-hue/ARDTT.git' 'main')"
+  [ "$head_url" = 'https://github.com/2kristalls36-hue/ARDTT/archive/refs/heads/main.tar.gz' ]
+) || err "github_source_tarball_url helper"
+
+# GitHub source-archive layout (ARDTT-<tag>/server/...) uploaded as stack.tar.gz.
+GH_ROOT="$WORKDIR/ghroot/ARDTT-0.5.238/server"
+mkdir -p "$GH_ROOT"
+cp -a "$STAGE/." "$GH_ROOT/"
+tar -czf "$WORKDIR/github-src.tar.gz" -C "$WORKDIR/ghroot" ARDTT-0.5.238
+INSTALL_GH="$WORKDIR/opt-github"
+mkdir -p "$INSTALL_GH"
+cp "$WORKDIR/github-src.tar.gz" "$INSTALL_GH/stack.tar.gz"
+cp "$ROOT/server/install.sh" "$INSTALL_GH/install.sh"
+chmod +x "$INSTALL_GH/install.sh"
+out_gh="$(
+  ARDTT_INSTALL_DIR="$INSTALL_GH" \
+  ARDTT_PUBLIC_HOST="203.0.113.11" \
+  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_SKIP_ROOT_CHECK=1 \
+  ARDTT_DRY_RUN=1 \
+  ARDTT_KEEP_INSTALL_LOG=1 \
+  bash "$INSTALL_GH/install.sh"
+)" || err "github-layout install.sh exited $?"
+echo "$out_gh" | grep -q 'ARDTT_DONE|dry_run=1' || err "github-layout missing ARDTT_DONE"
+[ -f "$INSTALL_GH/stack/docker-compose.yml" ] || err "github-layout did not flatten server/ into stack/"
+[ -d "$INSTALL_GH/stack/provision" ] || err "github-layout missing provision/"
+[ ! -d "$INSTALL_GH/stack/ARDTT-0.5.238" ] || err "github-layout left archive prefix in stack/"
+[ ! -f "$INSTALL_GH/stack.tar.gz" ] || err "github-layout left stack.tar.gz"
+
+# Same layout via repo.tar.gz (no stack.tar.gz).
+INSTALL_REPO="$WORKDIR/opt-repo"
+mkdir -p "$INSTALL_REPO"
+cp "$WORKDIR/github-src.tar.gz" "$INSTALL_REPO/repo.tar.gz"
+cp "$ROOT/server/install.sh" "$INSTALL_REPO/install.sh"
+chmod +x "$INSTALL_REPO/install.sh"
+out_repo="$(
+  ARDTT_INSTALL_DIR="$INSTALL_REPO" \
+  ARDTT_PUBLIC_HOST="203.0.113.12" \
+  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_SKIP_ROOT_CHECK=1 \
+  ARDTT_DRY_RUN=1 \
+  bash "$INSTALL_REPO/install.sh"
+)" || err "repo.tar.gz install.sh exited $?"
+echo "$out_repo" | grep -q 'Распаковка архива репозитория' || err "repo.tar.gz path not used"
+[ -f "$INSTALL_REPO/stack/docker-compose.yml" ] || err "repo.tar.gz did not unpack server/"
+
 if [ "$fail" -ne 0 ]; then
   echo "install.sh unpack tests failed" >&2
   exit 1
 fi
-ok "install.sh unpack / preserve / re-run"
+ok "install.sh unpack / preserve / re-run / github archive"

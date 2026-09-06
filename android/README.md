@@ -8,7 +8,15 @@ Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial ov
 
 ## Иконка
 
-Круглый и квадратный знак: белое **AR** над бирюзовым **DTT** (градиент cyan→teal) на тёмно-синем поле (`#031D3B`). Квадрат — сквиркл из `docs/assets/brand/ardtt-icon-source.png`. Круглый (`ic_launcher_round`) — отдельный диск: буквы вписаны в окружность, без обрезки квадратной рамки. Пересборка: `python3 scripts/generate-launcher-icons.py`.
+Белое **AR** над бирюзовым **DTT** на `#031D3B`. На minSdk 28 лаунчер берёт `mipmap-anydpi-v26/*.xml`, не density-PNG.
+
+- Квадрат: `ic_launcher.xml` + буквы в `ic_launcher_foreground` (форму даёт маска OEM). Пластину со сквирклом в adaptive не кладём — маска обрежет серебряную рамку.
+- Круг: `ic_launcher_round.xml` + `ic_launcher_round_foreground` (диск во внутренних 72 dp).
+- Виджет: `ic_logo_full` — сквиркл с прозрачными углами.
+- QS / уведомление: `ic_tile_custom` и `ic_stat_connected` — только буквы, SystemUI красит по альфе.
+- Тема: `ic_launcher_monochrome` — белые буквы в mipmap 108 dp (как foreground), не один PNG 256 px.
+
+Исходники: `docs/assets/brand/ardtt-icon-source.png`, `ardtt-icon-round-source.png`. Пересборка: `python3 scripts/generate-launcher-icons.py`.
 
 ## Сборка
 
@@ -36,9 +44,10 @@ Release (подписанный постоянным keystore):
 Каждый push в `main` (и тег `v*`) запускает workflow
 [`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml):
 
-1. Собирает подписанный `ardtt-<versionName>.apk`
-2. Публикует GitHub Release с тегом `v<versionName>`
-3. Кладёт рядом `ardtt-update.json` и `SHA256SUMS.txt`
+1. Собирает подписанные `ardtt-<versionName>-*.apk`
+2. Пакует `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из `server/` (`scripts/pack-stack.sh`)
+3. Публикует GitHub Release с тегом `v<versionName>`
+4. Кладёт рядом `ardtt-update.json` и `SHA256SUMS.txt`
 
 **Секреты репозитория** (Settings → Secrets → Actions):
 
@@ -53,7 +62,7 @@ Release (подписанный постоянным keystore):
 Приложение проверяет обновления через **GitHub Releases API** (как qWDTT),
 с fallback на старый `update.json` на VPS. Пока репозиторий **приватный**, без токена API релизов недоступен — задайте `GITHUB_RELEASE_READ_TOKEN` в CI. Когда репозиторий **публичный**, секрет можно не задавать: клиент читает Releases без PAT.
 
-Стек на VPS ставится из вкладки **Серверы** (архив `server/` внутри APK) **или** клоном тега релиза на машине с Docker — [docs/DEPLOY.md](../docs/DEPLOY.md). Публичный clone с VPS тоже не требует токена.
+Стек на VPS ставится из вкладки **Серверы**: телефон скачивает `server/` с GitHub и заливает по SSH. Тот же стек — клоном тега релиза на машине с Docker — [docs/DEPLOY.md](../docs/DEPLOY.md). Публичный clone с VPS токен не требует.
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`
@@ -73,4 +82,4 @@ Release (подписанный постоянным keystore):
 
 После деплоя сервера на VPS стек лежит в `/opt/ardtt/stack/` и рабочие образы.
 
-Сборка APK перед `preBuild` упаковывает `server/` в `assets/deploy/stack.tar.gz.bin` (`packDeployAssets`). Вручную: `./scripts/pack-deploy-assets.sh`. Механика: [docs/DEPLOY.md](../docs/DEPLOY.md).
+Архив `server/` в APK больше не кладётся. Релизный актив `ardtt-stack-<DEPLOY_VERSION>.tar.gz` собирает `scripts/pack-stack.sh` и публикует GitHub Release. Механика и повторный деплой: [docs/DEPLOY.md](../docs/DEPLOY.md).
