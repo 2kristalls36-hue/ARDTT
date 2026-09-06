@@ -13,10 +13,12 @@ import java.net.Socket
 import java.net.URL
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
+import kotlin.coroutines.coroutineContext
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.job
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -243,17 +245,21 @@ object NetworkProbe {
         }
     }
 
-    internal fun tlsReachable(
+    internal suspend fun tlsReachable(
         host: String,
         port: Int,
         timeoutMs: Int,
         bindNetwork: Network?,
     ): Boolean {
-        var raw: Socket? = null
+        val raw = Socket()
         var ssl: SSLSocket? = null
+        val closeAll = {
+            runCatching { ssl?.close() }
+            runCatching { raw.close() }
+        }
+        val cancelHook = coroutineContext.job.invokeOnCompletion { closeAll() }
         return try {
             val addr = numericIpv4(host)
-            raw = Socket()
             raw.tcpNoDelay = true
             bindNetwork?.bindSocket(raw)
             if (addr != null) {
@@ -264,26 +270,34 @@ object NetworkProbe {
             raw.soTimeout = timeoutMs
             ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
                 .createSocket(raw, host, port, true) as SSLSocket
-            raw = null
+            applyHttpsEndpointIdentification(ssl)
             ssl.soTimeout = timeoutMs
             ssl.startHandshake()
             ssl.session != null && ssl.session.isValid
         } catch (_: Exception) {
             false
         } finally {
-            runCatching { ssl?.close() }
-            runCatching { raw?.close() }
+            cancelHook.dispose()
+            closeAll()
         }
     }
 
-    internal fun udpDnsReachable(
+    internal fun applyHttpsEndpointIdentification(ssl: SSLSocket) {
+        val params = ssl.sslParameters
+        params.endpointIdentificationAlgorithm = "HTTPS"
+        ssl.sslParameters = params
+    }
+
+    internal suspend fun udpDnsReachable(
         ip: String,
         timeoutMs: Int,
         bindNetwork: Network?,
     ): Boolean {
-        var socket: DatagramSocket? = null
+        val socket = DatagramSocket()
+        val cancelHook = coroutineContext.job.invokeOnCompletion {
+            runCatching { socket.close() }
+        }
         return try {
-            socket = DatagramSocket()
             bindNetwork?.bindSocket(socket)
             socket.soTimeout = timeoutMs
             val query = buildDnsQuery()
@@ -296,7 +310,8 @@ object NetworkProbe {
         } catch (_: Exception) {
             false
         } finally {
-            runCatching { socket?.close() }
+            cancelHook.dispose()
+            runCatching { socket.close() }
         }
     }
 
@@ -438,18 +453,21 @@ object NetworkProbe {
         val healthUrl = provisionHealthUrl(baseUrl) ?: return false
         return try {
             val conn = openHttp(URL(healthUrl), bindNetwork).apply {
-                instanceFollowRedirects = true
+                instanceFollowRedirects = false
                 connectTimeout = timeoutMs
                 readTimeout = timeoutMs
                 requestMethod = "GET"
             }
             val code = conn.responseCode
             conn.disconnect()
-            code in 200..399
+            provisionHealthAccepted(code)
         } catch (_: Exception) {
             false
         }
     }
+
+    /** Only the VPS /health 200. Redirects and 3xx/204 look like a portal. */
+    internal fun provisionHealthAccepted(code: Int): Boolean = code == 200
 
     internal fun parseProvisionEndpoint(baseUrl: String?): Pair<String, Int>? =
         NetworkProbePolicy.parseProvisionEndpoint(baseUrl)
