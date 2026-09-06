@@ -53,7 +53,7 @@ Release (подписанный постоянным keystore):
 Приложение проверяет обновления через **GitHub Releases API** (как qWDTT),
 с fallback на старый `update.json` на VPS. Пока репозиторий **приватный**, без токена API релизов недоступен — задайте `GITHUB_RELEASE_READ_TOKEN` в CI. Когда репозиторий **публичный**, секрет можно не задавать: клиент читает Releases без PAT.
 
-Стек на VPS ставится из вкладки **Серверы** (архив `server/` внутри APK) **или** клоном тега релиза на машине с Docker — [docs/DEPLOY.md](../docs/DEPLOY.md). Публичный clone с VPS тоже не требует токена.
+Стек на VPS ставится из вкладки **Серверы**: телефон скачивает `server/` с GitHub и заливает по SSH. Тот же стек — клоном тега релиза на машине с Docker — [docs/DEPLOY.md](../docs/DEPLOY.md). Публичный clone с VPS токен не требует.
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`
@@ -73,4 +73,4 @@ Release (подписанный постоянным keystore):
 
 После деплоя сервера на VPS стек лежит в `/opt/ardtt/stack/` и рабочие образы.
 
-Сборка APK перед `preBuild` упаковывает `server/` в `assets/deploy/stack.tar.gz.bin` (`packDeployAssets`). Вручную: `./scripts/pack-deploy-assets.sh`. Механика: [docs/DEPLOY.md](../docs/DEPLOY.md).
+Архив `server/` в APK больше не кладётся. Релизный актив `ardtt-stack-<DEPLOY_VERSION>.tar.gz` собирает `scripts/pack-stack.sh` и публикует GitHub Release. Механика и повторный деплой: [docs/DEPLOY.md](../docs/DEPLOY.md).

@@ -17,6 +17,8 @@ object DeployInstallEnv {
         cascadePeerPublicKey: String = "",
         cascadeDns: String = CASCADE_DNS,
         autoPorts: Boolean = true,
+        gitRepo: String = "",
+        gitRef: String = "",
     ): String = buildString {
         append("ARDTT_PUBLIC_HOST="); append(SshClient.shellQuote(publicHost)); append(' ')
         append("ARDTT_DIRECT_PORT="); append(directPort); append(' ')
@@ -25,6 +27,12 @@ object DeployInstallEnv {
         append("ARDTT_DEPLOY_VERSION="); append(SshClient.shellQuote(deployVersion)); append(' ')
         append("ARDTT_ROLE="); append(SshClient.shellQuote(role)); append(' ')
         append("ARDTT_CASCADE_ENABLED="); append(if (cascadeEnabled) "1" else "0"); append(' ')
+        if (gitRepo.isNotBlank()) {
+            append("ARDTT_GIT_REPO="); append(SshClient.shellQuote(gitRepo.trim())); append(' ')
+        }
+        if (gitRef.isNotBlank()) {
+            append("ARDTT_GIT_REF="); append(SshClient.shellQuote(gitRef.trim())); append(' ')
+        }
         if (cascadeEnabled) {
             append("ARDTT_CASCADE_LISTEN_PORT="); append(cascadeListenPort); append(' ')
             append("ARDTT_CASCADE_DNS="); append(SshClient.shellQuote(cascadeDns)); append(' ')

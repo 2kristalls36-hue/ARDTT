@@ -6,21 +6,21 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Offline device unlock for alpha APKs.
+ * Offline device unlock for closed-beta APKs.
  *
  * First launch persists a random 16-hex challenge. The matching 6-digit code is
- * HMAC-SHA256(secret, challenge) truncated like HOTP (RFC 4226). The same secret
- * lives in `scripts/alpha-unlock.py`. No network is involved.
+ * HMAC-SHA256(secret, challenge) truncated like HOTP (RFC 4226). No network is
+ * involved.
  *
  * This is not a second independent factor: the verifier is in the APK. It stops
  * casual use of a leaked build. Anyone who reverse-engineers the APK can mint
- * codes. Keep the Python script off testers' devices.
+ * codes.
  */
 object AlphaGate {
     const val CHALLENGE_HEX_LEN = 16
     const val OTP_LEN = 6
 
-    /** XOR mask; must match `scripts/alpha-unlock.py`. */
+    /** XOR mask for the HMAC secret. */
     private val MASK = intArrayOf(
         0x9A, 0x37, 0x19, 0xE4, 0x42, 0x1F, 0x24, 0xCD,
         0xA7, 0xF8, 0x51, 0x63, 0xCF, 0x92, 0x3F, 0x6C,
@@ -28,7 +28,7 @@ object AlphaGate {
         0x5E, 0x7B, 0xD4, 0xC9, 0xF8, 0xFC, 0xA2, 0x85,
     )
 
-    /** `secret XOR MASK`; must match `scripts/alpha-unlock.py`. */
+    /** `secret XOR MASK`. */
     private val OBFUSCATED = intArrayOf(
         0xF3, 0x10, 0x70, 0x94, 0x90, 0x3A, 0xEB, 0xB2,
         0x7B, 0x89, 0x3F, 0xE9, 0xFC, 0xE9, 0x18, 0xF2,
