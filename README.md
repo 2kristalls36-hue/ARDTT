@@ -19,7 +19,7 @@
 > Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несут ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.238** (`versionCode` 256), пакет `com.ardtt.app`. Серверный стек **1.0.36** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
+> Клиент **0.5.239** (`versionCode` 257), пакет `com.ardtt.app`. Серверный стек **1.0.36** (`DEPLOY_VERSION`, каталог `/opt/ardtt`).
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -29,7 +29,7 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.238** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
+| Клиент | **0.5.239** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) |
 | Стек | **1.0.36** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
@@ -72,7 +72,7 @@ ARDTT/
 | **Приложение** | GitHub Releases `ardtt-stack-*.tar.gz` или архив тега; заливка по SSH | удобно с телефона |
 | **Git** | `ARDTT_GIT_REF` / `git clone` тега релиза на VPS | shell на машине с Docker |
 
-Имеет смысл клонировать **тег** `v0.5.238` (стек **1.0.36**), а не скользящий `main`. Пока репозиторий приватный, clone с VPS без токена не выйдет — с телефона достаточно `GITHUB_RELEASE_READ_TOKEN` во вшитом APK. Публичный репозиторий читается без секретов.
+Имеет смысл клонировать **тег** `v0.5.239` (стек **1.0.36**), а не скользящий `main`. Пока репозиторий приватный, clone с VPS без токена не выйдет — с телефона достаточно `GITHUB_RELEASE_READ_TOKEN` во вшитом APK. Публичный репозиторий читается без секретов.
 
 Подробности, каскад и **повторный деплой**: [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -88,7 +88,7 @@ ARDTT/
 Сервер с GitHub (тег релиза):
 
 ```bash
-git clone --depth 1 --branch v0.5.238 \
+git clone --depth 1 --branch v0.5.239 \
   https://github.com/2kristalls36-hue/ARDTT.git
 cd ARDTT/server
 cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_этого_VPS
@@ -115,7 +115,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.238 / стек 1.0.36 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.239 / стек 1.0.36 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка и повторный деплой: из приложения (GitHub) или клоном репозитория |

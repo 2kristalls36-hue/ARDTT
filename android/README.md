@@ -1,14 +1,14 @@
 # Android-клиент ARDTT
 
 Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial over TURN Tunnel).  
-Текущая сборка: **0.5.238** (`versionCode` 256).  
+Текущая сборка: **0.5.239** (`versionCode` 257).  
 `applicationId` / namespace — `com.ardtt.app`, minSdk 28. Смена с `com.nonamevpn.app` требует переустановки APK (это уже другое приложение для Android).
 
 Лендинг репозитория: [../README.md](../README.md). Легенда: [../docs/LEGEND.md](../docs/LEGEND.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
 ## Иконка
 
-Круглый и квадратный знак: белое **AR** над бирюзовым **DTT** (градиент cyan→teal) на тёмно-синем поле (`#031D3B`). Квадрат — сквиркл из `docs/assets/brand/ardtt-icon-source.png`. Круглый (`ic_launcher_round`) — отдельный диск: буквы вписаны в окружность, без обрезки квадратной рамки. Пересборка: `python3 scripts/generate-launcher-icons.py`.
+Круглый и квадратный знак: белое **AR** над бирюзовым **DTT** (градиент cyan→teal) на тёмно-синем поле (`#031D3B`). Квадрат — сквиркл из `docs/assets/brand/ardtt-icon-source.png`. Круглый — отдельный диск: на устройстве это adaptive `ic_launcher_round.xml` + `ic_launcher_round_foreground` (внутренние 72 dp), не density-PNG. Пересборка: `python3 scripts/generate-launcher-icons.py`.
 
 ## Сборка
 
