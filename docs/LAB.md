@@ -21,12 +21,14 @@ cd android
 # android/lab/build/outputs/apk/debug/lab-debug.apk
 ```
 
+Тестовый прыжок — `root@45.129.2.3` (пароль только на телефоне, в репозиторий не кладётся). На сервере: репозиторий `ssh://root@45.129.2.3/opt/repos/ARDTT.git`, рабочая копия `/opt/ardtt-lab`, страница https://45.129.2.3/lab/. Повторная подготовка: `sudo bash scripts/setup-lab-vps.sh` на VPS, затем push ветки `lab`.
+
 На телефоне:
 
 1. Поставьте Lab. ARDTT — как обычно, без особых настроек.
 2. Для проверки БС **выключите Wi‑Fi**, оставьте LTE. Иначе ARDTT сам возьмёт Direct — это его обычное поведение, не баг Lab.
-3. В Lab: сервер, порт SSH, пользователь, пароль, порт на сервере (`7422`).
-4. **Подключить**. На сервере должен быть разрешён TCP forwarding (`AllowTcpForwarding` в sshd).
+3. В Lab уже стоят сервер `45.129.2.3`, пользователь `root`, порт 22. Введите пароль SSH и нажмите **Подключить**.
+4. На сервере должен быть разрешён TCP forwarding (`AllowTcpForwarding` в sshd).
 5. По желанию **Разрешить экран** — тогда агент может снять скриншот (в том числе экран ARDTT).
 
 На сервере появляется `/tmp/ardtt-lab.port`. Канал слушает только localhost — из интернета порт не торчит.
@@ -34,11 +36,11 @@ cd android
 Агент (эта машина или уже сессия на VPS):
 
 ```bash
-./scripts/ardtt-lab --ssh user@vps status
-./scripts/ardtt-lab --ssh user@vps probe --vps 45.129.2.3
-./scripts/ardtt-lab --ssh user@vps launch
-./scripts/ardtt-lab --ssh user@vps screenshot -o /tmp/phone.png
-./scripts/ardtt-lab --ssh user@vps attach
+./scripts/ardtt-lab --ssh root@45.129.2.3 status
+./scripts/ardtt-lab --ssh root@45.129.2.3 probe --vps 45.129.2.3
+./scripts/ardtt-lab --ssh root@45.129.2.3 launch
+./scripts/ardtt-lab --ssh root@45.129.2.3 screenshot -o /tmp/phone.png
+./scripts/ardtt-lab --ssh root@45.129.2.3 attach
 ```
 
 Если вы уже на сервере: `./scripts/ardtt-lab status`.

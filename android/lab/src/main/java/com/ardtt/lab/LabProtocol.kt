@@ -11,6 +11,9 @@ data class LabRequest(
 
 object LabProtocol {
     const val DEFAULT_REMOTE_PORT = 7422
+    const val DEFAULT_SSH_HOST = "45.129.2.3"
+    const val DEFAULT_SSH_USER = "root"
+    const val DEFAULT_SSH_PORT = 22
     const val PORT_FILE = "/tmp/ardtt-lab.port"
     const val ARDTT_PACKAGE = "com.ardtt.app"
 

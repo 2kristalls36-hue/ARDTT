@@ -30,9 +30,9 @@ class LabSettings(context: Context) {
     }
 
     fun load(): LabTarget = LabTarget(
-        host = prefs.getString(KEY_HOST, "") ?: "",
-        sshPort = prefs.getInt(KEY_PORT, 22),
-        user = prefs.getString(KEY_USER, "") ?: "",
+        host = prefs.getString(KEY_HOST, LabProtocol.DEFAULT_SSH_HOST) ?: LabProtocol.DEFAULT_SSH_HOST,
+        sshPort = prefs.getInt(KEY_PORT, LabProtocol.DEFAULT_SSH_PORT),
+        user = prefs.getString(KEY_USER, LabProtocol.DEFAULT_SSH_USER) ?: LabProtocol.DEFAULT_SSH_USER,
         password = prefs.getString(KEY_PASSWORD, "") ?: "",
         remotePort = prefs.getInt(KEY_REMOTE, LabProtocol.DEFAULT_REMOTE_PORT),
     )

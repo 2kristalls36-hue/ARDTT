@@ -27,9 +27,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class LabUiState(
-    val host: String = "",
-    val sshPort: String = "22",
-    val user: String = "",
+    val host: String = LabProtocol.DEFAULT_SSH_HOST,
+    val sshPort: String = LabProtocol.DEFAULT_SSH_PORT.toString(),
+    val user: String = LabProtocol.DEFAULT_SSH_USER,
     val password: String = "",
     val remotePort: String = LabProtocol.DEFAULT_REMOTE_PORT.toString(),
     val wanted: Boolean = false,
