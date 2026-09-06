@@ -45,8 +45,8 @@ Release (подписанный постоянным keystore):
 
 | `versionName` | Куда кладётся сборка |
 |---|---|
-| есть `test` (например `0.5.246-test`) | только **Actions → Artifacts** (30 дней), GitHub Release **не** создаётся |
-| без `test` (например `0.5.246`) | GitHub Release `v<versionName>` + копия в Artifacts |
+| есть `test` (например `0.5.247-test`) | только **Actions → Artifacts** (30 дней), GitHub Release **не** создаётся |
+| без `test` (например `0.5.247`) | GitHub Release `v<versionName>` + копия в Artifacts |
 
 PR всегда собирает Preview APK в артефакты (`.github/workflows/android-branch-apk.yml`), без Releases.
 
