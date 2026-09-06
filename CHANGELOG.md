@@ -343,16 +343,16 @@
 | 0.5.218 | Переустановка листом снизу; создание клиента без автопривязки устройства |
 | 0.5.217 | «Сеть»: каскад только из health / карточки деплоя |
 | 0.5.216 | «Сеть»: без ложного каскада VPS 1 → VPS 2 |
-| [0.5.213](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.213) · [0.5.214](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.214) · [0.5.215](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.215) | Каскад Hide-IP на выходе, ping-точка с карточки сервера, пакет `com.ardtt.app` |
-| [0.5.212](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.212) | Docker snapshot bypass на малых VPS |
-| [0.5.211](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.211) | GitHub-обновления → репозиторий ARDTT |
-| [0.5.210](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.210) | Сброс Docker build cache при обновлении VPS |
-| [0.5.209](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.209) | Ubuntu Circle of Friends на карточке сервера |
-| [0.5.208](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.208) | DNS/WARP каскада после standalone-деплоя |
-| [0.5.207](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.207) | Терминал деплоя, бейдж ОС, донат в тёмной теме |
-| [0.5.206](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.206) | Bypass на БС и Hide-IP mismatch |
-| [0.5.205](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.205) | QS-профиль, ABI-split, Hide-IP off = WAN выхода |
-| [0.5.203](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.203) · [0.5.201](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.201) | Знак AR/DTT, hop-карточки, баннер доната |
-| [0.5.200](https://github.com/2kristalls36-hue/ARDTT/releases/tag/v0.5.200) | Режим тестирования в общих Настройках |
+| 0.5.213 · 0.5.214 · 0.5.215 | Каскад Hide-IP на выходе, ping-точка с карточки сервера, пакет `com.ardtt.app` |
+| 0.5.212 | Docker snapshot bypass на малых VPS |
+| 0.5.211 | GitHub-обновления → репозиторий ARDTT |
+| 0.5.210 | Сброс Docker build cache при обновлении VPS |
+| 0.5.209 | Ubuntu Circle of Friends на карточке сервера |
+| 0.5.208 | DNS/WARP каскада после standalone-деплоя |
+| 0.5.207 | Терминал деплоя, бейдж ОС, донат в тёмной теме |
+| 0.5.206 | Bypass на БС и Hide-IP mismatch |
+| 0.5.205 | QS-профиль, ABI-split, Hide-IP off = WAN выхода |
+| 0.5.203 · 0.5.201 | Знак AR/DTT, hop-карточки, баннер доната |
+| 0.5.200 | Режим тестирования в общих Настройках |
 
-Полный список: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases).
+Живые сборки: [Releases](https://github.com/2kristalls36-hue/ARDTT/releases) (`v0.5.243` latest, `v0.5.242`).
