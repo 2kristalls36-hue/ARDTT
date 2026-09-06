@@ -44,7 +44,7 @@
 | Откуда стек | GitHub Releases `ardtt-stack-1.0.37.tar.gz` или архив тега `v0.5.245` — **не** APK |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
-| Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, архив стека — без PAT |
+| Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, архив стека — без PAT. Только стабильные `versionName` (без `test`). Тестовые APK — [Actions → Artifacts](https://github.com/2kristalls36-hue/ARDTT/actions) |
 
 ## Два пути до VPS
 
@@ -61,7 +61,7 @@
 
 ## Репозиторий
 
-Публичный канонический источник **клиента и стека**. GitHub Actions нет: подписанные APK, `ardtt-update.json` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz` публикуются в Releases вручную. В APK остаётся только метка `deploy/DEPLOY_VERSION` — карточка сервера сравнивает её с `/health`.
+Публичный канонический источник **клиента и стека**. Push в `main` собирает подписанный APK. Если в `versionName` есть `test` (например `0.5.246-test`) — файл только в **Actions → Artifacts**, не в Releases. Стабильная версия без `test` публикует GitHub Release: APK, `ardtt-update.json` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz`. В APK остаётся только метка `deploy/DEPLOY_VERSION` — карточка сервера сравнивает её с `/health`.
 
 ```
 ARDTT/
@@ -69,7 +69,7 @@ ARDTT/
 ├── server/       # единый Docker-образ ardtt (compose profile isolated)
 ├── scripts/      # APK, иконки, pack-stack (релизный архив server/)
 ├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
-├── .github/      # FUNDING
+├── .github/      # сборка APK (Releases только без test в versionName)
 ├── CHANGELOG.md
 ├── LICENSE       # GNU GPL v3
 └── NOTICE        # Amnezia Apache-2.0 + SpaceNeuroX/qWDTT GPL RAW
