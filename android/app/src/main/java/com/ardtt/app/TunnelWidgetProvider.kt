@@ -100,7 +100,7 @@ class TunnelWidgetProvider : AppWidgetProvider() {
 
         private fun togglePendingIntent(context: Context): PendingIntent {
             val intent = Intent(context, WidgetToggleActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                flags = widgetToggleLaunchFlags()
             }
             return PendingIntent.getActivity(
                 context,
