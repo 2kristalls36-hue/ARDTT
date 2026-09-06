@@ -143,7 +143,7 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun randomSceneAlwaysReturnsOneOfThreeScenes() {
+    fun randomSceneAlwaysReturnsAKnownScene() {
         repeat(30) {
             assertTrue(TunnelWallpaperScene.random() in TunnelWallpaperScene.all)
         }
@@ -177,22 +177,24 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun afterAllThreeSeenNextCycleDoesNotRepeatImmediately() {
+    fun afterEverySceneSeenNextCycleDoesNotRepeatImmediately() {
+        val allNames = TunnelWallpaperScene.all.map { it.name }.toSet()
+        val last = TunnelWallpaperScene.all.last().name
         val (scene, seen) = nextTunnelWallpaperScene(
-            previousName = "Refinery",
-            seenNames = setOf("Field", "City", "Refinery"),
+            previousName = last,
+            seenNames = allNames,
             randomInt = { 0 },
         )
-        assertTrue(scene != TunnelWallpaperScene.Refinery)
+        assertTrue(scene.name != last)
         assertEquals(setOf(scene.name), seen)
     }
 
     @Test
-    fun threeSequentialPicksCoverEveryScene() {
+    fun sequentialPicksCoverEveryScene() {
         var previous: String? = null
         var seen = emptySet<String>()
         val picked = mutableSetOf<TunnelWallpaperScene>()
-        repeat(3) {
+        repeat(TunnelWallpaperScene.all.size) {
             val (scene, nextSeen) = nextTunnelWallpaperScene(previous, seen)
             picked.add(scene)
             previous = scene.name

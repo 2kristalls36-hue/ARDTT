@@ -8,17 +8,23 @@ import kotlin.random.Random
 /**
  * One illustrated scene for the whole process (cold start).
  *
- * Field = поле, City = киберпанк-город, Refinery = НПЗ.
+ * Field = поле, City = киберпанк-город, Refinery = НПЗ,
+ * Port = порт, River = набережная, Lake = озеро, Coast = маяк, Dam = ГЭС.
  * Every user-mode tab draws this same scene — Tunnel included.
  */
 enum class TunnelWallpaperScene {
     Field,
     City,
     Refinery,
+    Port,
+    River,
+    Lake,
+    Coast,
+    Dam,
     ;
 
     companion object {
-        val all: List<TunnelWallpaperScene> = listOf(Field, City, Refinery)
+        val all: List<TunnelWallpaperScene> = entries.toList()
 
         fun random(): TunnelWallpaperScene = all[Random.nextInt(all.size)]
     }
@@ -94,8 +100,8 @@ fun tunnelSessionChrome(admin: Boolean, classicAppearance: Boolean = false): Tun
     }
 
 /**
- * Walk through Field, City, and Refinery before repeating.
- * A plain 1/3 roll skipped НПЗ for long stretches of cold starts.
+ * Walk through every scene before repeating.
+ * A small pool skipped НПЗ for long stretches of cold starts.
  */
 fun nextTunnelWallpaperScene(
     previousName: String?,
@@ -116,7 +122,7 @@ fun nextTunnelWallpaperScene(
     return picked to nextSeen
 }
 
-/** One scene per app process (cold start), rotated so all three appear. */
+/** One scene per app process (cold start), rotated so every scene appears. */
 object TunnelWallpaperSession {
     private var sceneOrNull: TunnelWallpaperScene? = null
 
