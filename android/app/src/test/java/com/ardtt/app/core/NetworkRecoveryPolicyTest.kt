@@ -990,5 +990,9 @@ class NetworkRecoveryPolicyTest {
         assertFalse(shouldParkBypassCall(VpnPath.Bypass, VpnPath.Bypass))
         assertEquals(UnderlayKind.Wifi, preferWifiUnderlayKind(true, UnderlayKind.Cellular))
         assertEquals(UnderlayKind.Cellular, preferWifiUnderlayKind(false, UnderlayKind.Cellular))
+        assertEquals(
+            UnderlayKind.Wifi,
+            preferWifiUnderlayKind(false, UnderlayKind.Cellular, wifiConnected = true),
+        )
     }
 }
