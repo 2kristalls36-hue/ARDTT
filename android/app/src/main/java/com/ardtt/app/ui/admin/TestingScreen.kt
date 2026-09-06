@@ -53,6 +53,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.profile.ProfileRepository
+import com.ardtt.app.telemetry.TESTING_AUTHOR_REPLY_TITLE
+import com.ardtt.app.telemetry.TESTING_USER_COMMENT_TITLE
 import com.ardtt.app.telemetry.TelemetryClientId
 import com.ardtt.app.telemetry.TelemetryFileManager
 import com.ardtt.app.telemetry.TelemetryLogEntry
@@ -575,10 +577,15 @@ private fun TicketRow(ticket: TestingTicket) {
                 )
             }
             Text(
+                TESTING_USER_COMMENT_TITLE,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
                 ticket.comment,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
             if (ticket.logName.isNotBlank()) {
@@ -590,14 +597,28 @@ private fun TicketRow(ticket: TestingTicket) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (ticket.read && ticket.reviewNote.isNotBlank()) {
-                Text(
-                    ticket.reviewNote,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            if (ticket.reviewNote.isNotBlank()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = colors.primary.copy(alpha = ArdttAlpha.Fill),
+                    contentColor = colors.onSurface,
+                    shape = ArdttShapes.Card,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(ArdttSpacing.SmallPlus),
+                        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+                    ) {
+                        Text(
+                            TESTING_AUTHOR_REPLY_TITLE,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.primary,
+                        )
+                        Text(
+                            ticket.reviewNote,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
         }
     }
@@ -628,7 +649,7 @@ private fun EmptyHistoryBlock() {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            "После отправки файл пропадает из хранилища и попадает сюда с номером, который выдаёт сервер. Когда автор разберёт лог, обращение помечается как прочитанное.",
+            "После отправки файл пропадает из хранилища и попадает сюда с номером, который выдаёт сервер. Когда автор откроет лог, обращение помечается как прочитанное. Когда разбор закончится, здесь появится ответ автора.",
             modifier = Modifier.padding(ArdttSpacing.MediumPlus),
             style = MaterialTheme.typography.bodySmall,
         )

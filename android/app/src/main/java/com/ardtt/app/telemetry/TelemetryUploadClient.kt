@@ -243,6 +243,12 @@ internal fun parseClientInbox(raw: String): List<TestingTicketStatus> {
         val name = item.optString("filename").trim()
         if (name.isEmpty()) continue
         val review = item.optJSONObject("review")
+        val reply = sequenceOf(
+            item.optString("reply"),
+            review?.optString("reply").orEmpty(),
+            review?.optString("note").orEmpty(),
+            item.optString("note"),
+        ).map { it.trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()
         out += TestingTicketStatus(
             logName = name,
             number = item.optInt("ticket"),
@@ -252,7 +258,7 @@ internal fun parseClientInbox(raw: String): List<TestingTicketStatus> {
                 .ifBlank { item.optString("processed_at") },
             processedBy = review?.optString("processed_by").orEmpty()
                 .ifBlank { item.optString("processed_by") },
-            reviewNote = review?.optString("note").orEmpty(),
+            reviewNote = reply,
             uploadedAtMs = parseTelemetryTimeMs(item.optString("uploaded_at")),
         )
     }
