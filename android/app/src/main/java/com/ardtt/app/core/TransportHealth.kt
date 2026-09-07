@@ -26,6 +26,9 @@ object TransportHealth {
         private set
     @Volatile var lastTrafficGrowthAtMs: Long = 0L
         private set
+    /** Last time the ↓ counter increased — not TX or a repeated 0.00 МБ tick. */
+    @Volatile var lastInboundGrowthAtMs: Long = 0L
+        private set
 
     fun reset() {
         activeWorkers = 0
@@ -35,6 +38,7 @@ object TransportHealth {
         downBytes = 0L
         upBytes = 0L
         lastTrafficGrowthAtMs = 0L
+        lastInboundGrowthAtMs = 0L
     }
 
     fun noteBackendStarted() {
@@ -45,6 +49,7 @@ object TransportHealth {
         downBytes = 0L
         upBytes = 0L
         lastTrafficGrowthAtMs = 0L
+        lastInboundGrowthAtMs = 0L
     }
 
     fun noteBackendStopped() {
@@ -63,6 +68,9 @@ object TransportHealth {
         lastStatsAtMs = System.currentTimeMillis()
         backendAlive = true
         parseDownUpBytes(line)?.let { (down, up) ->
+            if (down > downBytes) {
+                lastInboundGrowthAtMs = lastStatsAtMs
+            }
             downBytes = down
             upBytes = up
         }
@@ -70,17 +78,23 @@ object TransportHealth {
         if (kb != null && kb > trafficKb) {
             trafficKb = kb
             lastTrafficGrowthAtMs = lastStatsAtMs
-        } else if (kb != null && trafficKb == 0L) {
-            trafficKb = kb
-            lastTrafficGrowthAtMs = lastStatsAtMs
+        } else if (kb != null && kb == 0L) {
+            // Repeated 0.00 МБ ticks are not proof of a live data plane.
+            trafficKb = 0L
         }
     }
 
     fun hasFreshStatsSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
         lastStatsAtMs >= sinceMs && activeWorkers > 0 && nowMs - lastStatsAtMs < 90_000L
 
-    /** Inbound/total traffic grew after [sinceMs] — Plus skip-if-alive analogue. */
+    /** ↓ counter grew after [sinceMs]. TX-only / zero ticks do not count. */
     fun hasFreshInboundSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        activeWorkers > 0 &&
+            lastInboundGrowthAtMs >= sinceMs &&
+            nowMs - lastInboundGrowthAtMs < 90_000L
+
+    /** Total (↓+↑) grew after [sinceMs] — process is moving bytes, not necessarily inbound. */
+    fun hasFreshTrafficSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
         activeWorkers > 0 &&
             lastTrafficGrowthAtMs >= sinceMs &&
             nowMs - lastTrafficGrowthAtMs < 90_000L

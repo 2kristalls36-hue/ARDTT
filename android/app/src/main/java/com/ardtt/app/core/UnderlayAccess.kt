@@ -99,9 +99,9 @@ fun scoreUnderlayCandidate(
     var s = 1
     if (validated) s += 10 else s -= 6
     when {
-        wifiTransport && wifiActuallyConnected -> s += 26
-        // SSID unread (no location) but Android VALIDATED the AP — still prefer Wi‑Fi.
+        // Captive / half-up Wi‑Fi must not beat VALIDATED LTE (21 vs 13).
         wifiTransport && validated -> s += 26
+        wifiTransport && wifiActuallyConnected -> s += 4
         wifiTransport && !wifiActuallyConnected -> s -= 12
         cellularTransport && !wifiActuallyConnected -> {
             s += 8

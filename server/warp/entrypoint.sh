@@ -438,6 +438,23 @@ hideip_desired_prefixes() {
     | .users[] | select(.hideIp == true and (.deactivated != true) and (.hostId > 0))
     | "\($db).\(.hostId)/32\n\($bb).\(.hostId)/32"
   ' "${USERS}" 2>/dev/null || true
+  if [[ -f "${DATA}/wdtt/passwords.json" ]]; then
+    jq -r --slurpfile users "${USERS}" '
+      . as $pw
+      | ($users[0].users // []) as $us
+      | [
+          $us[]
+          | select(.hideIp == true and (.deactivated != true))
+          | ((.deviceIds // []) + [(.deviceId // "")])[]
+        ]
+        | map(select(. != null and . != "")) as $ids
+      | ($pw.devices // {})
+      | to_entries[]
+      | select(.value.raw_ip != null and .value.raw_ip != "")
+      | select(.key as $k | $ids | index($k) != null)
+      | "\(.value.raw_ip)/32"
+    ' "${DATA}/wdtt/passwords.json" 2>/dev/null || true
+  fi
   return 0
 }
 

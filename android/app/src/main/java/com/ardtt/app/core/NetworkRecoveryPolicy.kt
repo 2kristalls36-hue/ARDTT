@@ -125,8 +125,12 @@ fun isSecondaryValidatedNetwork(
     preferredHandle: Long?,
 ): Boolean = preferredHandle != null && validatedHandle != preferredHandle
 
-/** TURN-TCP only off Wi‑Fi — home AP UDP to VK is fine; cellular often kills it. */
-fun shouldUseTurnTcp(wifiConnected: Boolean): Boolean = !wifiConnected
+/**
+ * TURN to VK uses TCP by default (qWDTT / Lab). Wi‑Fi vs LTE does not prove
+ * UDP to the relay is open; UDP-fail → restart burns extra allocations.
+ * The server RAW listener stays UDP — this flag is only client → TURN.
+ */
+fun shouldUseTurnTcp(@Suppress("UNUSED_PARAMETER") wifiConnected: Boolean): Boolean = true
 
 /** WIFI→LTE→LTE: a second switch while probe/restart is busy must be queued, not dropped. */
 fun shouldDeferHandoverProbe(
@@ -420,14 +424,8 @@ fun decideNetworkHandoverAction(
             NetworkHandoverDecision.NoAction
         }
     }
-    val canUpgradeToDirect = allowBypassToDirect &&
-        !directFailedOnCurrentUnderlay &&
-        underlayKind == UnderlayKind.Wifi
-    // Home Wi‑Fi: switch now. Do not wait for :9100 — leftover LTE Bypass
-    // still has TURN traffic and would otherwise keep Path B.
-    if (canUpgradeToDirect && underlayChanged) {
-        return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
-    }
+    // Cellular / other: never Auto-upgrade Bypass→Direct here. Wi‑Fi upgrade
+    // already returned above. A ghost TCP :9100 on LTE must not yank Bypass.
     if (underlayChanged) {
         return NetworkHandoverDecision.SoftRestartSamePath
     }
@@ -442,12 +440,12 @@ const val WARM_CALL_HOLD_MS = 5 * 60 * 1000L
 fun shouldParkBypassCall(from: VpnPath, to: VpnPath): Boolean =
     from == VpnPath.Bypass && to == VpnPath.Direct
 
-/** VALIDATED or actually-connected Wi‑Fi wins over LTE even if SSID APIs are blank. */
+/** VALIDATED Wi‑Fi wins over LTE. Association without VALIDATED is not internet. */
 fun preferWifiUnderlayKind(
     hasValidatedWifi: Boolean,
     pickBestKind: UnderlayKind,
-    wifiConnected: Boolean = false,
-): UnderlayKind = if (hasValidatedWifi || wifiConnected) UnderlayKind.Wifi else pickBestKind
+    @Suppress("UNUSED_PARAMETER") wifiConnected: Boolean = false,
+): UnderlayKind = if (hasValidatedWifi) UnderlayKind.Wifi else pickBestKind
 
 fun shouldReconnectTunnelAfterWake(
     activeWorkers: Int,
@@ -543,15 +541,16 @@ fun shouldSoftRestartForTrafficStall(
     nowMs: Long,
     handoffAtMs: Long,
     afterHandoffGraceMs: Long = TRAFFIC_STALL_AFTER_HANDOFF_MS,
-    idleGraceMs: Long = TRAFFIC_STALL_IDLE_MS,
+    @Suppress("UNUSED_PARAMETER") idleGraceMs: Long = TRAFFIC_STALL_IDLE_MS,
     handoffWindowMs: Long = HANDOFF_STALL_WINDOW_MS,
 ): Boolean {
     if (activeWorkers <= 0) return false
     if (trafficBytes <= 0L || lastTrafficGrowthAtMs <= 0L) return false
-    val stalledFor = nowMs - lastTrafficGrowthAtMs
     val inHandoffWindow = handoffAtMs > 0L && nowMs - handoffAtMs <= handoffWindowMs
-    val grace = if (inHandoffWindow) afterHandoffGraceMs else idleGraceMs
-    return stalledFor >= grace
+    // Idle tunnel with live workers is not a stall — only rebind after a handoff.
+    if (!inHandoffWindow) return false
+    val stalledFor = nowMs - lastTrafficGrowthAtMs
+    return stalledFor >= afterHandoffGraceMs
 }
 
 /** Bypass up, but only TURN handshake — sockets glued to a not-yet-ready LTE. */

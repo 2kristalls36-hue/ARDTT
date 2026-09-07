@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,6 +44,8 @@ class BypassGoProcess(
 ) {
     private val processRef = AtomicReference<Process?>(null)
     private val stopping = AtomicBoolean(false)
+    private val parked = AtomicBoolean(false)
+    private val logScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var logJob: Job? = null
     @Volatile var lastError: String? = null
         private set
@@ -53,7 +56,7 @@ class BypassGoProcess(
     fun binaryExists(): Boolean = File(binaryPath()).isFile
 
     suspend fun start(
-        scope: CoroutineScope,
+        @Suppress("UNUSED_PARAMETER") scope: CoroutineScope,
         args: BypassGoArgs,
         onRawConf: suspend (RawConf) -> Unit,
         onLog: (String) -> Unit = {},
@@ -61,6 +64,7 @@ class BypassGoProcess(
     ) = withContext(Dispatchers.IO) {
         stop()
         stopping.set(false)
+        parked.set(false)
         lastError = null
         val bin = binaryPath()
         if (!File(bin).isFile) {
@@ -105,7 +109,7 @@ class BypassGoProcess(
         val rawBox = StringBuilder()
         var rawDelivered = false
 
-        logJob = scope.launch(Dispatchers.IO) {
+        logJob = logScope.launch {
             try {
                 BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
                     while (isActive) {
@@ -141,7 +145,7 @@ class BypassGoProcess(
                         }
 
                         val fatal = classifyFatal(line)
-                        if (fatal != null && !stopping.get()) {
+                        if (fatal != null && !stopping.get() && !parked.get()) {
                             lastError = fatal
                             onFatal(fatal)
                         }
@@ -149,10 +153,11 @@ class BypassGoProcess(
                 }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                if (!stopping.get()) {
+                if (!stopping.get() && !parked.get()) {
                     AppLog.w(TAG, "log reader stopped: ${t.message ?: t.javaClass.simpleName}")
                 }
             } finally {
+                if (parked.get()) return@launch
                 val code = runCatching { proc.waitFor() }.getOrDefault(-1)
                 if (!rawDelivered && !stopping.get()) {
                     val msg = lastError ?: "Модуль обхода завершился (код $code) без конфигурации. Проверьте код звонка."
@@ -163,7 +168,18 @@ class BypassGoProcess(
         }
     }
 
+    /**
+     * Stop reading logs without destroying the process (warm VK call park).
+     * Must not [Process.waitFor] — the child stays alive until [stop].
+     */
+    fun detachLogs() {
+        parked.set(true)
+        logJob?.cancel()
+        logJob = null
+    }
+
     fun stop() {
+        parked.set(false)
         stopping.set(true)
         logJob?.cancel()
         logJob = null

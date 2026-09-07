@@ -204,6 +204,31 @@ class UnderlayAccessTest {
     }
 
     @Test
+    fun unvalidatedConnectedWifiLosesToValidatedCellular() {
+        val captiveWifi = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = false,
+            wifiTransport = true,
+            cellularTransport = false,
+            wifiActuallyConnected = true,
+            networkSubId = -1,
+            activeDataSubId = 2,
+        )
+        val liveCell = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = true,
+            networkSubId = 2,
+            activeDataSubId = 2,
+        )
+        assertTrue(liveCell > captiveWifi)
+    }
+
+    @Test
     fun validatedWifiWithoutSsidStillBeatsCellular() {
         val wifi = scoreUnderlayCandidate(
             hasInternet = true,

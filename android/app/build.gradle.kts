@@ -33,8 +33,8 @@ android {
         applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 268
-        versionName = "0.5.250"
+        versionCode = 269
+        versionName = "0.5.251-test"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
@@ -79,18 +79,17 @@ android {
             val storePasswordProp = keystoreProperties.getProperty("storePassword")
             val keyAliasProp = keystoreProperties.getProperty("keyAlias")
             val keyPasswordProp = keystoreProperties.getProperty("keyPassword")
-            check(
+            val configured =
                 !storeFileProp.isNullOrBlank() &&
                     !storePasswordProp.isNullOrBlank() &&
                     !keyAliasProp.isNullOrBlank() &&
-                    !keyPasswordProp.isNullOrBlank(),
-            ) {
-                "Missing android/keystore.properties (fetch from VPS secrets or run scripts/fetch-release-keystore.sh)"
+                    !keyPasswordProp.isNullOrBlank()
+            if (configured) {
+                storeFile = rootProject.file(storeFileProp)
+                storePassword = storePasswordProp
+                keyAlias = keyAliasProp
+                keyPassword = keyPasswordProp
             }
-            storeFile = rootProject.file(storeFileProp)
-            storePassword = storePasswordProp
-            keyAlias = keyAliasProp
-            keyPassword = keyPasswordProp
         }
     }
 
@@ -98,7 +97,9 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            if (signingConfigs.getByName("release").storeFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

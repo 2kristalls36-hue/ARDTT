@@ -176,6 +176,7 @@ class BypassSession {
         TransportHealth.noteBackendStopped()
         runCatching { tun?.close() }
         tun = null
+        go?.detachLogs()
         job?.cancel()
         job = null
         phase = BypassPhase.Stopped

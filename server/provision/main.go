@@ -80,16 +80,16 @@ type Store struct {
 }
 
 type Profile struct {
-	Name        string `json:"name"`
-	DeviceID    string `json:"deviceId"`
-	HostID      int    `json:"hostId"`
-	Prefer      string `json:"prefer"`
-	HideIP      bool   `json:"hideIp"`
-	ExpiresAt         int64 `json:"expiresAt"`
-	Deactivated       bool  `json:"deactivated"`
-	MaxDevices        int   `json:"maxDevices"`
-	TrafficLimitBytes int64 `json:"trafficLimitBytes,omitempty"`
-	UsedBytes         int64 `json:"usedBytes,omitempty"`
+	Name              string `json:"name"`
+	DeviceID          string `json:"deviceId"`
+	HostID            int    `json:"hostId"`
+	Prefer            string `json:"prefer"`
+	HideIP            bool   `json:"hideIp"`
+	ExpiresAt         int64  `json:"expiresAt"`
+	Deactivated       bool   `json:"deactivated"`
+	MaxDevices        int    `json:"maxDevices"`
+	TrafficLimitBytes int64  `json:"trafficLimitBytes,omitempty"`
+	UsedBytes         int64  `json:"usedBytes,omitempty"`
 	Direct            struct {
 		Endpoint      string         `json:"endpoint"`
 		PrivateKey    string         `json:"privateKey"`
@@ -673,15 +673,42 @@ func (s *Store) HideIPPrefixes() []string {
 	defer s.mu.Unlock()
 	directBase := subnetBase(s.Config.DirectSubnet)
 	bypassBase := subnetBase(s.Config.BypassSubnet)
+	deviceIPs := loadBypassDeviceRawIPs(filepath.Dir(s.path))
 	out := make([]string, 0)
+	seen := map[string]bool{}
+	add := func(prefix string) {
+		if prefix == "" || seen[prefix] {
+			return
+		}
+		seen[prefix] = true
+		out = append(out, prefix)
+	}
 	for _, u := range s.Users {
 		if !u.HideIP || u.Deactivated || u.HostID < minHostID {
 			continue
 		}
-		out = append(out, fmt.Sprintf("%s.%d/32", directBase, u.HostID))
-		out = append(out, fmt.Sprintf("%s.%d/32", bypassBase, u.HostID))
+		add(fmt.Sprintf("%s.%d/32", directBase, u.HostID))
+		add(fmt.Sprintf("%s.%d/32", bypassBase, u.HostID))
+		for _, id := range userDeviceIDs(u) {
+			ip := strings.TrimSpace(deviceIPs[id])
+			if ip == "" {
+				continue
+			}
+			if !strings.Contains(ip, "/") {
+				ip += "/32"
+			}
+			add(ip)
+		}
 	}
 	return out
+}
+
+func userDeviceIDs(u User) []string {
+	ids := append([]string{}, u.DeviceIDs...)
+	if u.DeviceID != "" && !containsString(ids, u.DeviceID) {
+		ids = append([]string{u.DeviceID}, ids...)
+	}
+	return ids
 }
 
 func (s *Store) ListUsersPublic() []UserPublic {
@@ -795,6 +822,32 @@ func loadBypassTrafficLocked(dataDir string) map[string]struct{ DownBytes, UpByt
 	}
 	for name, t := range snap.ByName {
 		out[name] = struct{ DownBytes, UpBytes int64 }{t.DownBytes, t.UpBytes}
+	}
+	return out
+}
+
+func loadBypassDeviceRawIPs(dataDir string) map[string]string {
+	out := map[string]string{}
+	if dataDir == "" || dataDir == "." {
+		return out
+	}
+	raw, err := os.ReadFile(filepath.Join(dataDir, "wdtt", "passwords.json"))
+	if err != nil {
+		return out
+	}
+	var db struct {
+		Devices map[string]struct {
+			RawIP string `json:"raw_ip"`
+		} `json:"devices"`
+	}
+	if json.Unmarshal(raw, &db) != nil || db.Devices == nil {
+		return out
+	}
+	for id, d := range db.Devices {
+		ip := strings.TrimSpace(d.RawIP)
+		if ip != "" {
+			out[id] = ip
+		}
 	}
 	return out
 }
