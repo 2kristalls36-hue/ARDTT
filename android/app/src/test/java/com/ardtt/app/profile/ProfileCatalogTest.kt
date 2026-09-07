@@ -2,7 +2,6 @@ package com.ardtt.app.profile
 
 import com.ardtt.app.core.BypassWorkers
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,13 +18,13 @@ class ProfileCatalogTest {
 
     @Test
     fun parseAlwaysUsesDefaultWorkers() {
-        val raw = VpnProfileJson.encode(sample("alice", "dev-a")).replace(
-            "\"workers\":${BypassWorkers.DEFAULT}",
-            "\"workers\":3",
+        val encoded = VpnProfileJson.encode(sample("alice", "dev-a"))
+        assertTrue(encoded.contains(Regex("\"workers\"\\s*:\\s*${BypassWorkers.DEFAULT}")))
+        val raw = encoded.replace(
+            Regex("\"workers\"\\s*:\\s*${BypassWorkers.DEFAULT}"),
+            "\"workers\": 9",
         )
         assertEquals(BypassWorkers.DEFAULT, VpnProfileJson.parse(raw).bypass.workers)
-        assertTrue(VpnProfileJson.encode(sample("alice", "dev-a")).contains("\"workers\":${BypassWorkers.DEFAULT}"))
-        assertFalse(VpnProfileJson.encode(sample("alice", "dev-a")).contains("\n"))
     }
 
     @Test

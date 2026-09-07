@@ -1,8 +1,15 @@
 package com.ardtt.app.core
 
-/** Path B TURN workers. qWDTT anonymous default is 9 (one VK group). */
+/**
+ * Path B TURN workers.
+ *
+ * Default is 3 — same as Lab, provision `defaultWorkers`, and
+ * [docs/ARCHITECTURE.md]. TURN-TCP plus 9 relays reorders inner TCP
+ * (cwnd collapse on LTE). qWDTT anonymous used 9 (one VK group); that is
+ * [MAX], not the TCP default.
+ */
 object BypassWorkers {
-    const val DEFAULT = 9
+    const val DEFAULT = 3
     const val MIN = 1
     const val MAX = 9
 }

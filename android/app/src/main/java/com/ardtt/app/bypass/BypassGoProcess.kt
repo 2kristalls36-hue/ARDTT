@@ -31,6 +31,7 @@ data class BypassGoArgs(
     val dialPath: DialPath,
     val tunSockName: String,
     val listenPort: Int = 19000,
+    val turnTcp: Boolean = true,
 )
 
 /**
@@ -81,14 +82,14 @@ class BypassGoProcess(
             "-password", args.password,
             "-vk-auth", "anonymous",
             "-vk-anon-path", anonPath,
-            "-turn-tcp",
             "-mode", "rawtun",
             "-tun-fd-sock", TunFdBridge.goSockPath(args.tunSockName),
             "-go-dns", "yandex",
             "-obfs", "audio",
             "-notls",
         )
-        Log.i(TAG, "starting libclient peer=${args.peer} workers=$workers path=$anonPath")
+        cmd.addAll(bypassTurnTransportArgs(args.turnTcp))
+        Log.i(TAG, "starting libclient peer=${args.peer} workers=$workers path=$anonPath turnTcp=${args.turnTcp}")
 
         val pb = ProcessBuilder(cmd)
         pb.redirectErrorStream(true)
@@ -215,3 +216,6 @@ class BypassGoProcess(
 
 /** Writable dir for libclient.so (`vk_profile.json`). The APK native dir is read-only. */
 internal fun bypassGoStateDir(filesDir: File): File = File(filesDir, "bypass")
+
+internal fun bypassTurnTransportArgs(turnTcp: Boolean): List<String> =
+    if (turnTcp) listOf("-turn-tcp") else emptyList()

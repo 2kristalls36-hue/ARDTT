@@ -8,6 +8,19 @@ import org.junit.Test
 class NetworkRecoveryPolicyTest {
 
     @Test
+    fun secondaryValidatedNetworkIsNotPreferredUnderlay() {
+        assertTrue(isSecondaryValidatedNetwork(validatedHandle = 2L, preferredHandle = 1L))
+        assertFalse(isSecondaryValidatedNetwork(validatedHandle = 1L, preferredHandle = 1L))
+        assertFalse(isSecondaryValidatedNetwork(validatedHandle = 2L, preferredHandle = null))
+    }
+
+    @Test
+    fun turnTcpOnlyWhenWifiIsDown() {
+        assertFalse(shouldUseTurnTcp(wifiConnected = true))
+        assertTrue(shouldUseTurnTcp(wifiConnected = false))
+    }
+
+    @Test
     fun validatedTransitionDetectsHandoverAfterLoss() {
         assertEquals(
             ValidatedNetworkTransition.HANDOVER,
@@ -950,6 +963,16 @@ class NetworkRecoveryPolicyTest {
                 trafficKb = 110L,
                 nowMs = 20_000L,
                 handoffAtMs = 1_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForHandshakeStall(
+                bypassPath = true,
+                activeWorkers = 9,
+                trafficKb = 92L,
+                nowMs = 20_000L,
+                handoffAtMs = 1_000L,
+                lastTrafficGrowthAtMs = 19_000L,
             ),
         )
     }
