@@ -65,7 +65,7 @@ PY
   grep -q 'prepare_docker_build' "$INSTALLER" || err "installer missing prepare_docker_build (dangling image prune)"
   grep -q 'foreign_docker_workloads' "$INSTALLER" || err "installer must detect other Docker workloads on a shared VPS"
   grep -q 'cleanup_host_dataplane' "$INSTALLER" || err "installer must strip leftover host TUN/iptables after the old host-net stack"
-  grep -q 'пропускаем builder prune -af и restart dockerd' "$INSTALLER" || err "installer must not restart dockerd when other containers exist"
+  grep -q 'не перезапускаем dockerd — на хосте есть другие контейнеры' "$INSTALLER" || err "installer must not restart dockerd when other containers exist"
   grep -q 'COMPOSE_PROFILES' "$INSTALLER" || err "installer missing COMPOSE_PROFILES (isolated vs hostnet)"
   grep -q 'ARDTT_NETWORK_MODE' "$INSTALLER" || err "installer missing ARDTT_NETWORK_MODE"
   grep -q 'docker exec ardtt' "$INSTALLER" || err "installer health must exec the unified ardtt container"
@@ -212,6 +212,11 @@ fi
 if [ -f "$ROOT/scripts/test-install-auto-ports.sh" ]; then
   bash "$ROOT/scripts/test-install-auto-ports.sh" || err "install auto-ports helpers"
 fi
+if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
+  bash "$ROOT/scripts/test-install-disk-guard.sh" || err "install disk / ENOSPC guards"
+fi
+grep -q 'summarize_build_failure' "$INSTALLER" || err "installer must summarize docker build errors"
+grep -q 'No space left on device' "$INSTALLER" || err "installer must surface ENOSPC instead of apt lists"
 grep -q 'wireproxy' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing wireproxy"
 grep -q 'tun2socks' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing tun2socks"
 if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/warp/entrypoint.sh" >/dev/null; then
