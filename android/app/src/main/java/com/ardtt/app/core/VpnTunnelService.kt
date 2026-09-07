@@ -774,6 +774,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             trafficKb = TransportHealth.trafficKb,
                             nowMs = now,
                             handoffAtMs = lastHandoffAtMs,
+                            lastTrafficGrowthAtMs = TransportHealth.lastTrafficGrowthAtMs,
                         )
                     ) {
                         AppLog.w(

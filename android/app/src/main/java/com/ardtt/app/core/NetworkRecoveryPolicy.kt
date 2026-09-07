@@ -244,8 +244,9 @@ const val PROCESS_DEAD_GRACE_MS = 20_000L
 const val TRAFFIC_STALL_AFTER_HANDOFF_MS = 30_000L
 
 /**
- * Bypass started on a half-up LTE often has 9 TURN workers and only handshake
- * bytes (~0.1 МБ). Rebind sooner than [TRAFFIC_STALL_AFTER_HANDOFF_MS].
+ * Bypass started on a half-up LTE often has TURN workers and only handshake
+ * bytes (~0.1 МБ). Rebind sooner than [TRAFFIC_STALL_AFTER_HANDOFF_MS], but
+ * only when the counter is flat — growing traffic is a live (slow) path.
  */
 const val BYPASS_HANDSHAKE_STALL_MS = 18_000L
 
@@ -548,6 +549,7 @@ fun shouldSoftRestartForHandshakeStall(
     trafficKb: Long,
     nowMs: Long,
     handoffAtMs: Long,
+    lastTrafficGrowthAtMs: Long = 0L,
     graceMs: Long = BYPASS_HANDSHAKE_STALL_MS,
     maxHandshakeKb: Long = BYPASS_HANDSHAKE_ONLY_MAX_KB,
     handoffWindowMs: Long = HANDOFF_STALL_WINDOW_MS,
@@ -557,5 +559,8 @@ fun shouldSoftRestartForHandshakeStall(
     if (handoffAtMs <= 0L) return false
     val sinceHandoff = nowMs - handoffAtMs
     if (sinceHandoff < graceMs || sinceHandoff > handoffWindowMs) return false
-    return trafficKb <= maxHandshakeKb
+    if (trafficKb > maxHandshakeKb) return false
+    // Bytes still climbing (slow page load, not a glued handshake) — leave it.
+    if (lastTrafficGrowthAtMs > 0L && nowMs - lastTrafficGrowthAtMs < graceMs) return false
+    return true
 }

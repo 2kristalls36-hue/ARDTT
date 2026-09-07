@@ -317,7 +317,9 @@ class ConnectionManager(
     }
 
     fun setWorkers(workers: Int) {
-        this.workers = DEFAULT_WORKERS
+        // Path B is TURN-TCP: always the Lab/provision default, not the
+        // argument or an older profile JSON that still says 9.
+        this.workers = BypassWorkers.DEFAULT
     }
 
     fun setSilentRecreate(enabled: Boolean) {

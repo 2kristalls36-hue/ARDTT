@@ -952,6 +952,16 @@ class NetworkRecoveryPolicyTest {
                 handoffAtMs = 1_000L,
             ),
         )
+        assertFalse(
+            shouldSoftRestartForHandshakeStall(
+                bypassPath = true,
+                activeWorkers = 9,
+                trafficKb = 92L,
+                nowMs = 20_000L,
+                handoffAtMs = 1_000L,
+                lastTrafficGrowthAtMs = 19_000L,
+            ),
+        )
     }
 
     @Test

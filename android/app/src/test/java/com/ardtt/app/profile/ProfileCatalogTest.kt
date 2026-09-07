@@ -21,7 +21,7 @@ class ProfileCatalogTest {
     fun parseAlwaysUsesDefaultWorkers() {
         val raw = VpnProfileJson.encode(sample("alice", "dev-a")).replace(
             "\"workers\":${BypassWorkers.DEFAULT}",
-            "\"workers\":3",
+            "\"workers\":9",
         )
         assertEquals(BypassWorkers.DEFAULT, VpnProfileJson.parse(raw).bypass.workers)
         assertTrue(VpnProfileJson.encode(sample("alice", "dev-a")).contains("\"workers\":${BypassWorkers.DEFAULT}"))
