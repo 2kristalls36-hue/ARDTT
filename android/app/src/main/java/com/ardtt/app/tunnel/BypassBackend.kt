@@ -9,12 +9,14 @@ import com.ardtt.app.bypass.BypassSession
 import com.ardtt.app.bypass.DialPath
 import com.ardtt.app.core.BypassWorkers
 import com.ardtt.app.core.VpnPath
+import com.ardtt.app.core.readConnectedWifiState
+import com.ardtt.app.core.shouldUseTurnTcp
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 
 /**
  * Path B — RAW over TURN via qWDTT/SpaceNeuroX go_client (libclient.so):
- * dial (vkcalls) → TURN TCP → WRAP → VPS -listen-raw. No DTLS. No nested WG.
+ * dial (vkcalls) → TURN (UDP on Wi‑Fi, TCP on cellular) → WRAP → VPS -listen-raw.
  *
  * TUN is established after RAWCONF (not before), so go_client can dial without
  * routing its own sockets into the VPN.
@@ -50,6 +52,10 @@ class BypassBackend(
 
         onState(TunnelBackendState.Starting)
         val dialPath = runCatching { DialPath.valueOf(config.dialPathName) }.getOrDefault(DialPath.Auto)
+        val turnTcp = shouldUseTurnTcp(
+            readConnectedWifiState(service, requireBackground = false).connected,
+        )
+        Log.i(TAG, "TURN transport=${if (turnTcp) "tcp" else "udp"}")
         val done = CompletableDeferred<TunnelBackendState>()
 
         coroutineScope {
@@ -63,6 +69,7 @@ class BypassBackend(
                     dialPath = dialPath,
                     silentRecreate = config.silentRecreate,
                     hideIp = config.hideIp,
+                    turnTcp = turnTcp,
                 ),
                 establishTun = { ip, dnsCsv, mtu ->
                     (service as? TunEstablisher)?.establishTun(ip, dnsCsv, mtu)

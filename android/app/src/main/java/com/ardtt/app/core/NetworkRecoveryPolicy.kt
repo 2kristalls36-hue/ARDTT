@@ -116,6 +116,18 @@ fun classifyValidatedNetworkTransition(
     else -> ValidatedNetworkTransition.HANDOVER
 }
 
+/**
+ * Wi‑Fi + LTE are both VALIDATED on dual-radio phones. The second network
+ * lighting up is not a handover if pickBest still points at another handle.
+ */
+fun isSecondaryValidatedNetwork(
+    validatedHandle: Long,
+    preferredHandle: Long?,
+): Boolean = preferredHandle != null && validatedHandle != preferredHandle
+
+/** TURN-TCP only off Wi‑Fi — home AP UDP to VK is fine; cellular often kills it. */
+fun shouldUseTurnTcp(wifiConnected: Boolean): Boolean = !wifiConnected
+
 /** WIFI→LTE→LTE: a second switch while probe/restart is busy must be queued, not dropped. */
 fun shouldDeferHandoverProbe(
     handoverProbeInProgress: Boolean,

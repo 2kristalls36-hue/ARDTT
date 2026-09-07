@@ -24,6 +24,7 @@ data class BypassConfig(
     val dialPath: DialPath = DialPath.Auto,
     val silentRecreate: Boolean = false,
     val hideIp: Boolean = false,
+    val turnTcp: Boolean = true,
 )
 
 sealed class BypassPhase {
@@ -37,7 +38,7 @@ sealed class BypassPhase {
 }
 
 /**
- * Path B: launches go_client (vkcalls → TURN TCP → WRAP → RAW; qWDTT/SpaceNeuroX lineage),
+ * Path B: launches go_client (vkcalls → TURN → WRAP → RAW; qWDTT/SpaceNeuroX lineage),
  * establishes VpnService TUN from RAWCONF, sends FD via [TunFdBridge].
  */
 class BypassSession {
@@ -90,6 +91,7 @@ class BypassSession {
                         workers = config.workers,
                         dialPath = config.dialPath,
                         tunSockName = sockName,
+                        turnTcp = config.turnTcp,
                     ),
                     onRawConf = { conf ->
                         if (!rawReady.isCompleted) rawReady.complete(conf)
