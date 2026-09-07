@@ -68,6 +68,12 @@ class BypassGoProcessTest {
     }
 
     @Test
+    fun turnTcpFlagOnlyWhenRequested() {
+        assertEquals(listOf("-turn-tcp"), bypassTurnTransportArgs(true))
+        assertEquals(emptyList<String>(), bypassTurnTransportArgs(false))
+    }
+
+    @Test
     fun stateDirLivesUnderAppFilesNotNativeLib() {
         val files = java.io.File("/data/user/0/com.ardtt.app/files")
         val dir = bypassGoStateDir(files)

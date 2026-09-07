@@ -61,6 +61,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private var trustedWifiNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private val activeNetworks = ConcurrentHashMap.newKeySet<Network>()
     @Volatile private var lastValidatedNetworkId: Long? = null
+    @Volatile private var lastPreferredUnderlayHandle: Long? = null
     @Volatile private var stableNetworkWasLost = false
     @Volatile private var handoverPreviousNetworkId: Long? = null
     @Volatile private var pendingHandoverUnderlayChanged = false
@@ -177,6 +178,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         lastHandoffAtMs = sessionStartedAtMs
         TransportHealth.reset()
         VpnLiveStats.reset()
+        lastPreferredUnderlayHandle = pickBestUnderlayNetwork(this)?.networkHandle
         setupNetworkCallback()
         setupTrustedWifiMonitoring()
         registerScreenReceiver()
@@ -985,6 +987,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         connectivityManager = cm
         activeNetworks.clear()
         lastValidatedNetworkId = null
+        lastPreferredUnderlayHandle = pickBestUnderlayNetwork(this)?.networkHandle
         stableNetworkWasLost = false
         pendingHandoverUnderlayChanged = false
         stableNetworkEvidenceSinceMs = 0L
@@ -1062,6 +1065,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 if (!usable) return
                 activeNetworks.add(network)
                 val id = network.networkHandle
+                val preferred = pickBestUnderlayNetwork(this@VpnTunnelService)?.networkHandle
+                if (isSecondaryValidatedNetwork(id, preferred)) {
+                    lastPreferredUnderlayHandle = preferred
+                    AppLog.v(
+                        TAG,
+                        "ignore extra VALIDATED network=$id preferred=$preferred",
+                    )
+                    return
+                }
                 val previous = lastValidatedNetworkId
                 val subId = readDefaultDataSubscriptionId()
                 val subChanged =
@@ -1078,6 +1090,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     dataSubscriptionChanged = subChanged,
                 )
                 lastValidatedNetworkId = id
+                lastPreferredUnderlayHandle = preferred ?: id
                 if (
                     rebindBypassWhenValidated &&
                     TunnelSessionHolder.config?.path == VpnPath.Bypass &&
