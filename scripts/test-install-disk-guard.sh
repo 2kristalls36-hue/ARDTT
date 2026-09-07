@@ -47,6 +47,20 @@ if grep -q 'пропускаем builder prune -af и restart dockerd' "$INSTALL
 fi
 grep -q 'truncate_docker_json_logs' "$INSTALLER" || err "must truncate huge docker json logs"
 grep -q 'reclaim_obsolete_split_images' "$INSTALLER" || err "must drop leftover split images"
+grep -q 'reclaim_orphaned_buildkit_snapshots' "$INSTALLER" \
+  || err "must drop leaked Active BuildKit snapshots"
+grep -q 'reclaim_buildkit_leases' "$INSTALLER" \
+  || err "must drop BuildKit leases so containerd can GC"
+grep -q 'kill -USR1' "$INSTALLER" || err "must poke containerd GC without restarting dockerd"
+
+eval "$(sed -n '/^is_live_container_ref()/,/^}/p' "$INSTALLER")"
+type is_live_container_ref >/dev/null 2>&1 || err "is_live_container_ref not extracted"
+# Without docker the helper must not match short BuildKit ids.
+if is_live_container_ref "b32mfeddg1oy2tr2xo3viuara"; then
+  err "short BuildKit snapshot id must not count as a live container"
+else
+  ok "BuildKit snapshot id is not a live container"
+fi
 grep -q 'reserve_mb="${MIN_DISK_MB:-1100}"' "$INSTALLER" || err "swap must reserve MIN_DISK_MB"
 grep -q 'build --no-cache' "$INSTALLER" || err "keep no-cache retry for non-disk failures"
 if awk '

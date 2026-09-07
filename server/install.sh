@@ -474,11 +474,59 @@ cleanup_docker_build_junk() {
   prepare_docker_build
 }
 
+# Docker 29 stores BuildKit layers in containerd snapshots. A failed or
+# cancelled `compose build` leaves Active snapshots + leases that
+# `docker builder prune -af` reports as Reclaimable:false. The next deploy
+# then adds another generation, which is why a small VPS fills up "from
+# build to build" even though the running image is only ~300 MB.
+# Dropping those refs (not running-container IDs) lets containerd GC the
+# blobs without restarting dockerd / bouncing someone else's stack.
+is_live_container_ref() {
+  local key="$1" running
+  [ -n "$key" ] || return 1
+  running="$(docker ps -aq --no-trunc 2>/dev/null || true)"
+  echo "$running" | grep -qx "$key" && return 0
+  echo "$running" | grep -qx "${key%-init}" && return 0
+  return 1
+}
+
+reclaim_orphaned_buildkit_snapshots() {
+  command -v ctr >/dev/null 2>&1 || return 0
+  local i key
+  for i in 1 2 3 4 5 6 7 8; do
+    ctr -n moby snapshots ls 2>/dev/null | awk 'NR>1 && $3=="Active" {print $1}' | while read -r key; do
+      [ -n "$key" ] || continue
+      is_live_container_ref "$key" && continue
+      [ "${#key}" -ge 64 ] && continue
+      ctr -n moby snapshots rm "$key" >/dev/null 2>&1 || true
+    done
+  done
+}
+
+reclaim_buildkit_leases() {
+  command -v ctr >/dev/null 2>&1 || return 0
+  local lid
+  ctr -n moby leases ls 2>/dev/null | awk 'NR>1 {print $1}' | while read -r lid; do
+    [ -n "$lid" ] || continue
+    is_live_container_ref "$lid" && continue
+    case "$lid" in
+      *-variants) continue ;;
+    esac
+    [ "${#lid}" -ge 64 ] && continue
+    ctr -n moby leases rm "$lid" >/dev/null 2>&1 || true
+  done
+}
+
 reclaim_docker_build_cache() {
   command -v docker >/dev/null 2>&1 || return 0
   docker info >/dev/null 2>&1 || return 0
+  reclaim_orphaned_buildkit_snapshots
+  reclaim_buildkit_leases
   docker builder prune -af >/dev/null 2>&1 || true
   docker buildx prune -af >/dev/null 2>&1 || true
+  if command -v pidof >/dev/null 2>&1; then
+    kill -USR1 "$(pidof containerd)" 2>/dev/null || true
+  fi
 }
 
 # Leftover split-stack images after the unified `ardtt` image took over.
