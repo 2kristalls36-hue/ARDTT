@@ -34,7 +34,7 @@ android {
         minSdk = 28
         targetSdk = 35
         versionCode = 270
-        versionName = "0.5.252-test"
+        versionName = "0.5.252"
         buildConfigField(
             "String",
             "TELEMETRY_UPLOAD_URL",
