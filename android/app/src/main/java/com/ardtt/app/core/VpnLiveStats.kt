@@ -273,6 +273,18 @@ object VpnLiveStats {
         return if (saw) rx to tx else null
     }
 
+    /** Latest peer `last_handshake_time_sec=` from a WireGuard/AmneziaWG IPC dump. */
+    internal fun parseAwgHandshakeSec(ipc: String): Long? {
+        var latest: Long? = null
+        for (raw in ipc.lineSequence()) {
+            val line = raw.trim()
+            if (!line.startsWith("last_handshake_time_sec=")) continue
+            val v = line.substringAfter('=').toLongOrNull() ?: continue
+            latest = maxOf(latest ?: 0L, v)
+        }
+        return latest
+    }
+
     private fun readTransportHealth(): Pair<Long, Long>? {
         val rx = TransportHealth.downBytes
         val tx = TransportHealth.upBytes

@@ -94,6 +94,10 @@ PY
   grep -q 'exit-hideip' "$INSTALLER" || err "installer must set WARP_MODE=exit-hideip on the cascade exit"
   grep -q 'WARP_MODE="passthrough"' "$INSTALLER" || err "cascade entry must use WARP passthrough"
   grep -q 'hide-ip-prefixes' "$ROOT/server/warp/entrypoint.sh" || err "exit warp must poll hide-ip-prefixes"
+  grep -q 'TCPMSS --clamp-mss-to-pmtu' "$ROOT/server/direct/entrypoint.sh" \
+    || err "direct must clamp TCPMSS like Bypass (HTTPS blackhole on awg0)"
+  grep -q 'apply_direct_mtu' "$ROOT/server/direct/entrypoint.sh" \
+    || err "direct must set awg0 MTU to 1280 to match the phone TUN"
   grep -q '/v1/hide-ip-prefixes' "$ROOT/server/provision/main.go" || err "provision missing GET /v1/hide-ip-prefixes"
   grep -q 'cleanup_stale_deploy_files' "$INSTALLER" || err "installer missing leftover-file cleanup"
   grep -q 'clear_legacy_kernel_warp' "$ROOT/server/warp/entrypoint.sh" || err "warp entrypoint must drop leftover kernel-WG warp0"
