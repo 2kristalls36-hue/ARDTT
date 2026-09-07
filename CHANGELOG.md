@@ -1,6 +1,11 @@
-# ARDTT v0.5.254
+# ARDTT v0.5.255
 
-Клиент **0.5.254** (`versionCode` 272). Серверный стек **1.0.43** (`DEPLOY_VERSION`).
+Клиент **0.5.255** (`versionCode` 273). Серверный стек **1.0.43** (`DEPLOY_VERSION`).
+
+## 0.5.255
+
+- Прямое: AWG UDP привязывается к живой Wi‑Fi/LTE, а не уходит через чужой VPN (WARP). Handshake был, страницы нет.
+- Direct-TUN только IPv4 (`allowFamily(AF_INET)`), чтобы Chrome не ждал мёртвый IPv6. Обход и Auto не менялись.
 
 ## 0.5.254
 

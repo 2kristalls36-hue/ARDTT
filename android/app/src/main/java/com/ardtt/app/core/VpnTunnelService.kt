@@ -15,6 +15,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.system.OsConstants
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
@@ -1646,8 +1647,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             runCatching { builder.addDnsServer(d) }
         }
         // qWDTT RawTunVpnService: allowBypass() is never called. On some OEMs it
-        // lets browsers skip the tunnel even with 0.0.0.0/0. allowFamily() is
-        // also omitted — qWDTT leaves the Builder family defaults.
+        // lets browsers skip the tunnel even with 0.0.0.0/0.
+        // Direct is IPv4-only (AWG allowed_ip=0.0.0.0/0). Without AF_INET,
+        // Chrome Happy Eyeballs waits on dead IPv6 and sites look offline
+        // even while AWG rx/tx grow. Bypass stays on qWDTT defaults.
         if (plan.whitelistMode) {
             for (pkg in plan.allowed) {
                 if (!isInstalledPackage(pkg)) continue
@@ -1666,6 +1669,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         // Direct (AWG) keeps the previous blocking/metered flags. Bypass matches
         // qWDTT: default non-blocking TUN, no setMetered.
         if (!bypassTun) {
+            builder.allowFamily(OsConstants.AF_INET)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 builder.setMetered(false)
             }
@@ -1703,6 +1707,28 @@ class VpnTunnelService : VpnService(), TunEstablisher {
      * swap the default underlay moved; leaving the previous binding makes
      * apps look offline even when TURN workers already rebound.
      */
+    /**
+     * Pin an already-[protect]ed AWG UDP fd to the VALIDATED Wi‑Fi/LTE
+     * underlay. On some OEMs protect() alone still lets native sockets
+     * leave via another VPN (WARP) — handshake fits, HTTPS dies.
+     */
+    fun bindSocketToUnderlay(fd: Int): String {
+        if (fd < 0) return "skip"
+        val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
+            ?: return "no-underlay"
+        val caps = connectivityManager?.getNetworkCapabilities(n)
+        val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        if (!validated) return "underlay-not-validated"
+        return try {
+            ParcelFileDescriptor.fromFd(fd).use { pfd ->
+                n.bindSocket(pfd.fileDescriptor)
+            }
+            "bound:${n.networkHandle}"
+        } catch (e: Exception) {
+            "bind-fail:${e.message}"
+        }
+    }
+
     private fun bindTunToUnderlay() {
         if (!tunnelSessionActive && tun == null) return
         val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
