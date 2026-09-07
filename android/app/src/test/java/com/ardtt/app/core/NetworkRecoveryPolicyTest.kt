@@ -15,8 +15,8 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
-    fun turnTcpOnlyWhenWifiIsDown() {
-        assertFalse(shouldUseTurnTcp(wifiConnected = true))
+    fun turnTcpIsTheDefaultEvenOnWifi() {
+        assertTrue(shouldUseTurnTcp(wifiConnected = true))
         assertTrue(shouldUseTurnTcp(wifiConnected = false))
     }
 
@@ -199,7 +199,7 @@ class NetworkRecoveryPolicyTest {
                 idleGraceMs = 45_000L,
             ),
         )
-        // Outside handoff window — need longer stall.
+        // Outside handoff window — idle workers are not a stall.
         assertFalse(
             shouldSoftRestartForTrafficStall(
                 activeWorkers = 3,
@@ -211,7 +211,7 @@ class NetworkRecoveryPolicyTest {
                 idleGraceMs = 45_000L,
             ),
         )
-        assertTrue(
+        assertFalse(
             shouldSoftRestartForTrafficStall(
                 activeWorkers = 3,
                 trafficBytes = 1000L,
@@ -1014,7 +1014,7 @@ class NetworkRecoveryPolicyTest {
         assertEquals(UnderlayKind.Wifi, preferWifiUnderlayKind(true, UnderlayKind.Cellular))
         assertEquals(UnderlayKind.Cellular, preferWifiUnderlayKind(false, UnderlayKind.Cellular))
         assertEquals(
-            UnderlayKind.Wifi,
+            UnderlayKind.Cellular,
             preferWifiUnderlayKind(false, UnderlayKind.Cellular, wifiConnected = true),
         )
     }

@@ -36,11 +36,23 @@ class TransportHealthTest {
     }
 
     @Test
-    fun freshInboundRequiresTrafficGrowthAfterEvent() {
-        TransportHealth.onLogLine("[СТАТИСТИКА] Активных: 2 | Трафик: 1.00 МБ | ↓0.80 МБ / ↑0.20 МБ")
-        val afterStats = TransportHealth.lastTrafficGrowthAtMs
-        assertTrue(TransportHealth.hasFreshInboundSince(afterStats - 10L))
-        assertFalse(TransportHealth.hasFreshInboundSince(afterStats + 10L))
+    fun freshInboundRequiresDownGrowthNotTxOrZeroTicks() {
+        TransportHealth.onLogLine("[СТАТИСТИКА] Активных: 2 | Трафик: 0.00 МБ | ↓0.00 МБ / ↑0.00 МБ")
+        assertEquals(0L, TransportHealth.lastInboundGrowthAtMs)
+        assertEquals(0L, TransportHealth.lastTrafficGrowthAtMs)
+        assertFalse(TransportHealth.hasFreshInboundSince(0L))
+
+        TransportHealth.onLogLine("[СТАТИСТИКА] Активных: 2 | Трафик: 0.20 МБ | ↓0.00 МБ / ↑0.20 МБ")
+        assertTrue(TransportHealth.lastTrafficGrowthAtMs > 0L)
+        assertEquals(0L, TransportHealth.lastInboundGrowthAtMs)
+        assertFalse(TransportHealth.hasFreshInboundSince(0L))
+        assertTrue(TransportHealth.hasFreshTrafficSince(0L))
+
+        TransportHealth.onLogLine("[СТАТИСТИКА] Активных: 2 | Трафик: 0.50 МБ | ↓0.30 МБ / ↑0.20 МБ")
+        assertTrue(TransportHealth.lastInboundGrowthAtMs > 0L)
+        val afterDown = TransportHealth.lastInboundGrowthAtMs
+        assertTrue(TransportHealth.hasFreshInboundSince(afterDown - 10L))
+        assertFalse(TransportHealth.hasFreshInboundSince(afterDown + 10L))
         TransportHealth.reset()
         assertFalse(TransportHealth.hasFreshInboundSince(0L))
     }

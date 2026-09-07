@@ -16,7 +16,7 @@ import kotlinx.coroutines.coroutineScope
 
 /**
  * Path B — RAW over TURN via qWDTT/SpaceNeuroX go_client (libclient.so):
- * dial (vkcalls) → TURN (UDP on Wi‑Fi, TCP on cellular) → WRAP → VPS -listen-raw.
+ * dial (vkcalls) → TURN TCP (UDP is not assumed from Wi‑Fi) → WRAP → VPS -listen-raw.
  *
  * TUN is established after RAWCONF (not before), so go_client can dial without
  * routing its own sockets into the VPN.

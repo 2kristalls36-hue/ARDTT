@@ -96,7 +96,7 @@ setup_forwarding
 SERVER_PID=$!
 
 users_cred_fp() {
-  jq -c '[.users[] | {p:.password,h:.hostId,d:(.deactivated==true)}] | sort_by(.p)' \
+  jq -c '[.users[] | {p:.password,h:.hostId,d:(.deactivated==true),e:(.expiresAt//0),m:(.maxDevices//1),id:(.deviceId//""),ids:((.deviceIds//[])|sort)}] | sort_by(.p)' \
     "${USERS}" 2>/dev/null || echo "unreadable"
 }
 

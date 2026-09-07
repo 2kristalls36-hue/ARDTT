@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestCascadeHostFromPeer(t *testing.T) {
 	if got := cascadeHostFromPeer("2.26.125.160:51820"); got != "2.26.125.160" {
@@ -41,6 +45,51 @@ func TestHideIPPrefixes(t *testing.T) {
 	got := s.HideIPPrefixes()
 	if len(got) != 2 || got[0] != "10.8.0.5/32" || got[1] != "10.9.0.5/32" {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestHideIPPrefixesIncludesSecondaryDeviceRawIP(t *testing.T) {
+	dir := t.TempDir()
+	wdtt := filepath.Join(dir, "wdtt")
+	if err := os.MkdirAll(wdtt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{
+  "devices": {
+    "phone-a": {"raw_ip": "10.9.0.5"},
+    "phone-b": {"raw_ip": "10.9.0.40"}
+  }
+}`
+	if err := os.WriteFile(filepath.Join(wdtt, "passwords.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{
+		path:   filepath.Join(dir, "users.json"),
+		Config: Config{DirectSubnet: "10.8.0.0/24", BypassSubnet: "10.9.0.0/24"},
+		Users: []User{
+			{
+				Name:      "on",
+				HostID:    5,
+				HideIP:    true,
+				DeviceID:  "phone-a",
+				DeviceIDs: []string{"phone-a", "phone-b"},
+			},
+			{Name: "off", HostID: 6, HideIP: false, DeviceID: "other", DeviceIDs: []string{"other"}},
+		},
+	}
+	got := s.HideIPPrefixes()
+	want := map[string]bool{
+		"10.8.0.5/32":  true,
+		"10.9.0.5/32":  true,
+		"10.9.0.40/32": true,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Fatalf("unexpected %s in %v", p, got)
+		}
 	}
 }
 

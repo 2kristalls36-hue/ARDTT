@@ -9,8 +9,10 @@ import (
 	"strings"
 )
 
-// Converts ARDTT users.json → WDTT passwords.json (+ device RawIP by host_id)
-// and writes a provision-readable traffic snapshot to /data/bypass-traffic.json.
+// Converts ARDTT users.json → WDTT passwords.json.
+// Primary device of a profile keeps hostId as RAW IP; extra devices get a
+// distinct address so rawRouter downlink is not shared across phones.
+// Writes a provision-readable traffic snapshot to /data/bypass-traffic.json.
 
 type ardttStore struct {
 	Config struct {
@@ -102,6 +104,11 @@ func main() {
 	}
 
 	base := subnetBase(s.Config.BypassSubnet)
+	hostIDs := make([]int, 0, len(s.Users))
+	for _, u := range s.Users {
+		hostIDs = append(hostIDs, u.HostID)
+	}
+	reserved := reservedPrimaryIPs(hostIDs, base)
 	keepPass := map[string]bool{}
 	snap := trafficSnap{ByName: map[string]trafficCounters{}}
 	for _, u := range s.Users {
@@ -139,15 +146,7 @@ func main() {
 			UpBytes:   entry.UpBytes,
 		}
 
-		rawIP := fmt.Sprintf("%s.%d", base, u.HostID)
-		for _, id := range deviceIDs {
-			dev := db.Devices[id]
-			if dev == nil {
-				dev = &wdttDev{DeviceID: id}
-				db.Devices[id] = dev
-			}
-			dev.RawIP = rawIP
-		}
+		assignDeviceRawIPs(&db, deviceIDs, base, u.HostID, reserved)
 	}
 
 	// Drop passwords no longer in ardtt store (keep device history otherwise)
@@ -243,6 +242,84 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func reservedPrimaryIPs(hostIDs []int, base string) map[string]bool {
+	used := map[string]bool{fmt.Sprintf("%s.1", base): true}
+	for _, id := range hostIDs {
+		if id >= 2 {
+			used[fmt.Sprintf("%s.%d", base, id)] = true
+		}
+	}
+	return used
+}
+
+func assignDeviceRawIPs(db *wdttDB, deviceIDs []string, base string, hostID int, reserved map[string]bool) {
+	if len(deviceIDs) == 0 || hostID < 2 {
+		return
+	}
+	primaryIP := fmt.Sprintf("%s.%d", base, hostID)
+	for i, id := range deviceIDs {
+		if id == "" {
+			continue
+		}
+		dev := db.Devices[id]
+		if dev == nil {
+			dev = &wdttDev{DeviceID: id}
+			db.Devices[id] = dev
+		}
+		if i == 0 {
+			dev.RawIP = primaryIP
+			reserved[primaryIP] = true
+			continue
+		}
+		if dev.RawIP != "" &&
+			dev.RawIP != primaryIP &&
+			!reserved[dev.RawIP] &&
+			!ipTakenByOther(db, id, dev.RawIP) {
+			reserved[dev.RawIP] = true
+			continue
+		}
+		next := nextFreeRawIP(db, base, reserved)
+		if next == "" {
+			next = primaryIP
+		}
+		dev.RawIP = next
+		reserved[next] = true
+	}
+}
+
+func ipTakenByOther(db *wdttDB, deviceID, ip string) bool {
+	for id, dev := range db.Devices {
+		if id == deviceID || dev == nil {
+			continue
+		}
+		if dev.RawIP == ip {
+			return true
+		}
+	}
+	return false
+}
+
+func nextFreeRawIP(db *wdttDB, base string, reserved map[string]bool) string {
+	used := map[string]bool{}
+	for ip, on := range reserved {
+		if on {
+			used[ip] = true
+		}
+	}
+	for _, dev := range db.Devices {
+		if dev != nil && dev.RawIP != "" {
+			used[dev.RawIP] = true
+		}
+	}
+	for b4 := 2; b4 <= 254; b4++ {
+		ip := fmt.Sprintf("%s.%d", base, b4)
+		if !used[ip] {
+			return ip
+		}
+	}
+	return ""
 }
 
 func fatalf(f string, a ...any) {

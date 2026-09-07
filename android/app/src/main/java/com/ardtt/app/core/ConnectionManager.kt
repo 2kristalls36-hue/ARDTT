@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 enum class ConnState {
     Idle,
@@ -70,6 +71,9 @@ class ConnectionManager(
     private val settingsRepo = AppSettingsRepository(appContext)
     private var probeJob: Job? = null
     private var connectJob: Job? = null
+    private var connectWhenReadyJob: Job? = null
+    private var runningNotifyJob: Job? = null
+    private val sessionGeneration = AtomicLong(0L)
     private var presenceJob: Job? = null
     private var lastPresenceKey: String = ""
     private var lastPresenceAtMs: Long = 0L
@@ -330,6 +334,16 @@ class ConnectionManager(
         dialPath = path
     }
 
+    fun currentPathMode(): ConnPathMode = pathMode
+
+    private fun bumpSessionGeneration(reason: String): Long {
+        val gen = sessionGeneration.incrementAndGet()
+        runningNotifyJob?.cancel()
+        runningNotifyJob = null
+        AppLog.v(TAG, "sessionGeneration=$gen ($reason)")
+        return gen
+    }
+
     /**
      * @param switchLive when true (user tapped Авто / Прямое / Обход), switch
      * the running tunnel. DataStore sync from composition must pass false so
@@ -391,6 +405,7 @@ class ConnectionManager(
             )
             return
         }
+        bumpSessionGeneration("live-path $current→$target")
         softRestartInProgress = true
         _ui.value = _ui.value.copy(
             state = ConnState.Connecting,
@@ -505,8 +520,13 @@ class ConnectionManager(
             )
         ) {
             startInitialProbe()
-            scope.launch {
+            connectWhenReadyJob?.cancel()
+            connectWhenReadyJob = scope.launch {
                 probeJob?.join()
+                if (!shouldConnectAfterProbeJoin(_ui.value.state)) {
+                    AppLog.v(TAG, "connectWhenReady skipped after probe state=${_ui.value.state}")
+                    return@launch
+                }
                 connect()
             }
             return
@@ -546,6 +566,9 @@ class ConnectionManager(
         deadDirectBindHandle = null
         blockBypassToDirectUntilUnderlayChange = false
         callRecreateAttempts = 0
+        bumpSessionGeneration("connect")
+        connectWhenReadyJob?.cancel()
+        connectWhenReadyJob = null
 
         // Sync Hide-IP preference to VPS (policy route via warp0). WARP must be up.
         if (current.hideIp) {
@@ -612,8 +635,8 @@ class ConnectionManager(
                     .getOrDefault(emptySet())
                 val whitelistOn = runCatching { settingsRepo.appsWhitelistModeSnapshot() }
                     .getOrDefault(false)
-                val fresh: ProbeResult
-                val usePath: VpnPath?
+                var fresh: ProbeResult
+                var usePath: VpnPath?
                 if (skipProbe) {
                     AppLog.v(TAG, "Connect: skip VPS probe — Bypass immediately kind=$kind")
                     fresh = lastGood ?: ProbeResult(
@@ -652,24 +675,45 @@ class ConnectionManager(
                         directEndpoint = directEndpoint,
                         quick = true,
                     )
-                    usePath = resolveConnectPath(
-                        pathMode,
-                        probePreferred,
-                        lastGood,
-                        fresh,
-                        underlayKind = kind,
-                        bypassAllowed = bypassAllowed,
-                    )
                     AppLog.v(
                         TAG,
-                        "Connect re-probe path=${fresh.preselectedPath} → use=$usePath " +
+                        "Connect re-probe path=${fresh.preselectedPath} " +
                             "mode=$pathMode yandex=${fresh.yandexOk} " +
                             "cloudflare=${fresh.bigtechOk} vps=${fresh.provisionOk} " +
-                            "kind=$kind " +
+                            "kind=${currentAutoUnderlayKind()} " +
                             "whitelist=$whitelistOn apps=${selectedApps.size} " +
                             SplitTunnel.logSample(selectedApps),
                     )
                 }
+                val liveModeNow = pathMode
+                val kindNow = currentAutoUnderlayKind()
+                val bypassNow = callHashOrNull() != null
+                if (
+                    liveModeNow == ConnPathMode.Auto &&
+                    (skipProbe || wifiAutoDirect) &&
+                    !autoUsesDirectOnWifi(liveModeNow, kindNow)
+                ) {
+                    AppLog.v(TAG, "Connect: mode/underlay changed during snapshot — probing")
+                    fresh = NetworkProbe.probe(
+                        appContext,
+                        provisionUrl,
+                        directEndpoint = directEndpoint,
+                        quick = true,
+                    )
+                }
+                usePath = resolveConnectPath(
+                    liveModeNow,
+                    probePreferred,
+                    lastGood,
+                    fresh,
+                    underlayKind = kindNow,
+                    bypassAllowed = bypassNow,
+                )
+                AppLog.v(
+                    TAG,
+                    "Connect resolved use=$usePath liveMode=$liveModeNow kind=$kindNow " +
+                        "probe=${fresh.preselectedPath}",
+                )
                 if (usePath == null) {
                     applyProbe(fresh)
                     _ui.value = _ui.value.copy(
@@ -760,6 +804,8 @@ class ConnectionManager(
             return
         }
         if (state == ConnState.Probing) {
+            connectWhenReadyJob?.cancel()
+            connectWhenReadyJob = null
             probeJob?.cancel()
             probeJob = null
             _ui.value = _ui.value.copy(
@@ -791,6 +837,11 @@ class ConnectionManager(
         presenceJob = null
         connectJob?.cancel()
         connectJob = null
+        connectWhenReadyJob?.cancel()
+        connectWhenReadyJob = null
+        runningNotifyJob?.cancel()
+        runningNotifyJob = null
+        bumpSessionGeneration("disconnect")
         transportRestartJob?.cancel()
         transportRestartJob = null
         // Flip state synchronously to avoid double-disconnect race on rapid taps.
@@ -847,6 +898,7 @@ class ConnectionManager(
 
     /** WDTT-Plus-style soft reconnect: keep Connected UI, show progress. */
     fun onTransportRestarting(reason: String) {
+        bumpSessionGeneration("transport-restart")
         softRestartInProgress = true
         EgressIpProbe.invalidate()
         val path = _ui.value.activePath
@@ -973,6 +1025,35 @@ class ConnectionManager(
                 "health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
         )
 
+        val liveMode = pathMode
+        val livePath = TunnelSessionHolder.config?.path
+            ?: _ui.value.activePath
+            ?: currentPath
+        val liveBypass = hashStore.hasHash(profile?.name)
+        val liveKind = underlayKindOf(bindNetwork)
+        if (!shouldApplyHandoverProbe(mode, liveMode, currentPath, livePath)) {
+            AppLog.v(
+                TAG,
+                "Handover probe discarded — stale snapshot mode=$mode→$liveMode " +
+                    "path=$currentPath→$livePath",
+            )
+            val liveDecision = decideNetworkHandoverAction(
+                pathMode = liveMode,
+                currentPath = livePath,
+                probedPath = if (liveMode == ConnPathMode.Auto) fresh.preselectedPath else livePath,
+                bypassAllowed = liveBypass,
+                sessionAgeMs = handoverSessionAgeMs(),
+                currentPathHealthy = currentPathLooksHealthy(livePath),
+                underlayVpsReachable = fresh.provisionOk,
+                sameProbeStreak = 1,
+                underlayChanged = underlayChanged,
+                allowBypassToDirect = allowBypassToDirect,
+                directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
+                underlayKind = liveKind,
+            )
+            return liveDecision
+        }
+
         // Update UI probe snapshot without leaving Connected/Connecting.
         _ui.value = _ui.value.copy(
             probe = fresh,
@@ -987,18 +1068,18 @@ class ConnectionManager(
         }
         handoverProbeStreak = updateProbeStreak(handoverProbeStreak, fresh.preselectedPath)
         val decision = decideNetworkHandoverAction(
-            pathMode = mode,
-            currentPath = currentPath,
+            pathMode = liveMode,
+            currentPath = livePath,
             probedPath = fresh.preselectedPath,
-            bypassAllowed = bypassAllowed,
+            bypassAllowed = liveBypass,
             sessionAgeMs = handoverSessionAgeMs(),
-            currentPathHealthy = pathHealthy,
+            currentPathHealthy = currentPathLooksHealthy(livePath),
             underlayVpsReachable = vpsReachable,
             sameProbeStreak = handoverProbeStreak.count,
             underlayChanged = underlayChanged,
             allowBypassToDirect = allowBypassToDirect,
             directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
-            underlayKind = kind,
+            underlayKind = liveKind,
         )
         applyHandoverDecisionUi(
             decision = decision,
@@ -1213,7 +1294,10 @@ class ConnectionManager(
     }
 
     fun onTunnelRunning(path: VpnPath) {
-        scope.launch {
+        val generation = sessionGeneration.get()
+        runningNotifyJob?.cancel()
+        runningNotifyJob = scope.launch {
+            if (generation != sessionGeneration.get()) return@launch
             softRestartInProgress = false
             if (path == VpnPath.Bypass) {
                 _ui.value = _ui.value.copy(
@@ -1224,12 +1308,14 @@ class ConnectionManager(
                     lastError = null,
                     softInfo = softInfoFor(_ui.value.probe),
                 )
-                if (!waitForBypassWorkers()) {
+                if (!waitForBypassWorkers(generation)) {
+                    if (generation != sessionGeneration.get()) return@launch
                     AppLog.e(TAG, "Bypass: no active TURN workers after ${BYPASS_WORKERS_WAIT_MS}ms")
                     onTunnelFailed("Обход недоступен: нет активных каналов. Проверьте код звонка и сеть.")
                     return@launch
                 }
             }
+            if (generation != sessionGeneration.get()) return@launch
             _ui.value = _ui.value.copy(
                 state = ConnState.Connected,
                 activePath = path,
@@ -1246,6 +1332,7 @@ class ConnectionManager(
                 callRecreateAttempts = 0
             }
             refreshVpnNotification()
+            if (generation != sessionGeneration.get()) return@launch
             val wantHideIp = _ui.value.hideIp
             if (hideIpShouldRetryAfterTunnel(lastHideIpSent, wantHideIp, pendingHideIpSync)) {
                 pendingHideIpSync = false
@@ -1262,6 +1349,7 @@ class ConnectionManager(
                     }
                 }
             }
+            if (generation != sessionGeneration.get()) return@launch
             scheduleEgressIpRefresh("tunnel-up")
             schedulePresenceHeartbeat()
         }
@@ -1803,13 +1891,14 @@ class ConnectionManager(
         appContext.startService(intent)
     }
 
-    private suspend fun waitForBypassWorkers(): Boolean {
+    private suspend fun waitForBypassWorkers(generation: Long = sessionGeneration.get()): Boolean {
         val deadline = System.currentTimeMillis() + BYPASS_WORKERS_WAIT_MS
         while (System.currentTimeMillis() < deadline) {
+            if (generation != sessionGeneration.get()) return false
             if (TransportHealth.activeWorkers > 0) return true
             delay(BYPASS_WORKERS_POLL_MS)
         }
-        return TransportHealth.activeWorkers > 0
+        return generation == sessionGeneration.get() && TransportHealth.activeWorkers > 0
     }
 
     companion object {
