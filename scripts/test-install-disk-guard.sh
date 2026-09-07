@@ -34,6 +34,21 @@ cat >"$TMP/other.log" <<'EOF'
  => ERROR: failed to solve: snapshot abc does not exist: not found
 EOF
 got="$(summarize_build_failure "$TMP/other.log" "ardtt")"
+echo "$got" | grep -q 'кэш сборки Docker сломан' || err "snapshot miss must be poison headline, got: $got"
+ok "BuildKit poison headline"
+
+cat >"$TMP/lease.log" <<'EOF'
+#9 ERROR: lease "ksrdmf43tmhbpuqc3c7y61wb3": not found
+failed to solve: lease "ksrdmf43tmhbpuqc3c7y61wb3": not found
+EOF
+got="$(summarize_build_failure "$TMP/lease.log" "ardtt")"
+echo "$got" | grep -q 'кэш сборки Docker сломан' || err "lease miss must be poison headline, got: $got"
+ok "lease poison headline"
+
+cat >"$TMP/solver.log" <<'EOF'
+ => ERROR: failed to solve: executor failed running [/bin/sh -c go build]: exit code: 2
+EOF
+got="$(summarize_build_failure "$TMP/solver.log" "ardtt")"
 echo "$got" | grep -q 'failed to solve' || err "other errors keep failed to solve: $got"
 ok "non-ENOSPC keeps solver line"
 
@@ -47,19 +62,10 @@ if grep -q 'пропускаем builder prune -af и restart dockerd' "$INSTALL
 fi
 grep -q 'truncate_docker_json_logs' "$INSTALLER" || err "must truncate huge docker json logs"
 grep -q 'reclaim_obsolete_split_images' "$INSTALLER" || err "must drop leftover split images"
-grep -q 'reclaim_orphaned_buildkit_snapshots' "$INSTALLER" \
-  || err "must drop leaked Active BuildKit snapshots"
-grep -q 'reclaim_buildkit_leases' "$INSTALLER" \
-  || err "must drop BuildKit leases so containerd can GC"
-grep -q 'kill -USR1' "$INSTALLER" || err "must poke containerd GC without restarting dockerd"
-
-eval "$(sed -n '/^is_live_container_ref()/,/^}/p' "$INSTALLER")"
-type is_live_container_ref >/dev/null 2>&1 || err "is_live_container_ref not extracted"
-# Without docker the helper must not match short BuildKit ids.
-if is_live_container_ref "b32mfeddg1oy2tr2xo3viuara"; then
-  err "short BuildKit snapshot id must not count as a live container"
-else
-  ok "BuildKit snapshot id is not a live container"
+grep -q 'buildkit_cache_poisoned' "$INSTALLER" || err "must detect snapshot/lease poison"
+grep -q 'reset_docker_buildkit 1' "$INSTALLER" || err "poison must force a BuildKit wipe"
+if grep -E '^[^#]*ctr .*(leases|snapshots) rm' "$INSTALLER" >/dev/null; then
+  err "must not ctr-rm leases/snapshots while dockerd is up (poisons cache.db)"
 fi
 grep -q 'reserve_mb="${MIN_DISK_MB:-1100}"' "$INSTALLER" || err "swap must reserve MIN_DISK_MB"
 grep -q 'build --no-cache' "$INSTALLER" || err "keep no-cache retry for non-disk failures"
