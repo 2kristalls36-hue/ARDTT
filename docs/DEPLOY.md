@@ -9,7 +9,7 @@
 
 Каталог на диске по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). При обновлении старый `/opt/nonamevpn` переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.41**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.42**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -271,7 +271,7 @@ Host network (если UDP через Docker DNAT не работает): `ARDTT
 | 0.15 | распаковка tar / GitHub-архива, уже лежащий `stack/`, либо `ARDTT_GIT_REF` |
 | 0.22 | в архиве есть все build-контексты compose |
 | 0.25 | Docker + compose plugin, если их не было (`get.docker.com`). Чужие контейнеры: dockerd не перезапускаем, кэш BuildKit всё равно чистим |
-| 0.28 | orphan snapshots/leases BuildKit + `builder prune -af` + split-образы + json-логи; swap если RAM < 1.8 ГБ (на shared VPS swapfile не сжимаем) |
+| 0.28 | `builder prune -af` + split-образы + json-логи; swap если RAM < 1.8 ГБ (на shared VPS swapfile не сжимаем). Не трогаем lease-ы containerd на живом dockerd |
 | 0.40 | `.env`, `DEPLOY_VERSION` на хосте и в `stack/data/` (`COMPOSE_PROFILES=isolated`) |
 | 0.45 | проверка места |
 | 0.48 | на VPS < 1.8 ГБ RAM: `compose down` нашего стека; сброс BuildKit (stop docker, umount executor rootfs, `rm` без abort при busy) **только если нет чужих контейнеров** |
@@ -443,7 +443,8 @@ docker exec ardtt provision -cmd create-user -name smoke -data /data
 |---------|----------------|
 | «Не удалось скачать стек … из GitHub» | Сеть на телефоне до github.com. Репозиторий публичный, PAT не нужен. Запас: [Путь 2](#путь-2--git--compose) |
 | `git clone`: Authentication failed | Проверьте URL `https://github.com/2kristalls36-hue/ARDTT.git` и тег релиза. PAT не требуется |
-| Диск растёт от деплоя к деплою | Docker 29 кладёт слои сборки в containerd snapshots. Живой образ ~300 МБ, а кэш BuildKit + Active-снимки сорванной сборки — гигабайты, и `builder prune` их не берёт (Reclaimable:false), пока жив чужой контейнер и dockerd нельзя рестартнуть. Стек ≥**1.0.41** снимает orphan snapshots/leases и будит GC. Не копите именованные APK в `/opt/ardtt/apk`. |
+| Диск растёт от деплоя к деплою | Docker 29 кладёт слои сборки в containerd snapshots. Живой образ ~300 МБ, кэш BuildKit — ещё гигабайты. Чистить только через `builder prune` / полный wipe `/var/lib/docker/buildkit`. Стек ≥**1.0.42**: не рвём lease-ы на живом Docker (это даёт snapshot/lease not found). Не копите именованные APK в `/opt/ardtt/apk`. |
+| `snapshot does not exist` / `lease not found` | Кэш BuildKit ссылается на уже снятые снимки. Стек ≥**1.0.42** сам делает короткий рестарт Docker и повторяет сборку. |
 | `install.sh` + «Мало места» / ENOSPC | На 8–10 ГБ VPS порог обновления ≥900 МБ (после swap оставляем ≥1100 МБ). Установщик режет огромные json-логи Docker, дропает старые split-образы `stack-direct` и т.п., но не трогает чужие контейнеры и не делает `docker image prune -af`. |
 | `install.sh exit=1`, `Device or resource busy` в `/var/lib/docker/buildkit/.../rootfs` | Стек ≥**1.0.34**: umount + повтор, установка не падает. На 1 ГБ VPS старый `rm -rf` после `stop docker` обрывал каскад. Обновите APK и снова «Установить». |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |

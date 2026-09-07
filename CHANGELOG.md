@@ -1,6 +1,10 @@
-# ARDTT v0.5.252
+# ARDTT v0.5.253
 
-Клиент **0.5.252** (`versionCode` 270). Серверный стек **1.0.41** (`DEPLOY_VERSION`).
+Клиент **0.5.253** (`versionCode` 271). Серверный стек **1.0.42** (`DEPLOY_VERSION`).
+
+## 0.5.253
+
+- Деплой больше не ломает кэш Docker 29: не удаляем lease/снимки BuildKit на живом dockerd (из‑за этого был `snapshot does not exist` / `lease not found` при 4 ГБ свободных). При такой ошибке — полный wipe BuildKit и повтор сборки.
 
 ## 0.5.252
 

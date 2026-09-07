@@ -453,15 +453,24 @@ start_docker_engine() {
 # Callers on tiny VPS must compose-down the VPN stack first.
 # Never abort on "Device or resource busy": a 1 GiB VPS often leaves overlay
 # mounts after `systemctl stop docker`, and `set -e` + bare `rm -rf` killed cascade.
+# $1=1 — always stop dockerd and wipe /var/lib/docker/buildkit.
+# Needed when cache.db still names snapshots/leases that no longer exist
+# (Docker 29 overlayfs). A prune-only pass cannot heal that.
 reset_docker_buildkit() {
+  local force="${1:-0}"
   command -v docker >/dev/null 2>&1 || return 0
-  reclaim_docker_build_cache
   docker image prune -f >/dev/null 2>&1 || true
-  if foreign_docker_workloads; then
+  if [ "$force" != 1 ] && foreign_docker_workloads; then
     echo "ARDTT_WARN|не перезапускаем dockerd — на хосте есть другие контейнеры"
+    docker builder prune -af >/dev/null 2>&1 || true
+    docker buildx prune -af >/dev/null 2>&1 || true
     return 0
   fi
-  echo "ARDTT_INFO|сброс BuildKit: stop docker, umount executor, удаление /var/lib/docker/buildkit"
+  if [ "$force" = 1 ]; then
+    echo "ARDTT_WARN|кэш BuildKit сломан (снимок/lease не найден) — короткий рестарт Docker"
+  else
+    echo "ARDTT_INFO|сброс BuildKit: stop docker, umount executor, удаление /var/lib/docker/buildkit"
+  fi
   stop_docker_engine
   wipe_dir_best_effort /var/lib/docker/buildkit
   start_docker_engine
@@ -474,59 +483,19 @@ cleanup_docker_build_junk() {
   prepare_docker_build
 }
 
-# Docker 29 stores BuildKit layers in containerd snapshots. A failed or
-# cancelled `compose build` leaves Active snapshots + leases that
-# `docker builder prune -af` reports as Reclaimable:false. The next deploy
-# then adds another generation, which is why a small VPS fills up "from
-# build to build" even though the running image is only ~300 MB.
-# Dropping those refs (not running-container IDs) lets containerd GC the
-# blobs without restarting dockerd / bouncing someone else's stack.
-is_live_container_ref() {
-  local key="$1" running
-  [ -n "$key" ] || return 1
-  running="$(docker ps -aq --no-trunc 2>/dev/null || true)"
-  echo "$running" | grep -qx "$key" && return 0
-  echo "$running" | grep -qx "${key%-init}" && return 0
-  return 1
-}
-
-reclaim_orphaned_buildkit_snapshots() {
-  command -v ctr >/dev/null 2>&1 || return 0
-  local i key
-  for i in 1 2 3 4 5 6 7 8; do
-    ctr -n moby snapshots ls 2>/dev/null | awk 'NR>1 && $3=="Active" {print $1}' | while read -r key; do
-      [ -n "$key" ] || continue
-      is_live_container_ref "$key" && continue
-      [ "${#key}" -ge 64 ] && continue
-      ctr -n moby snapshots rm "$key" >/dev/null 2>&1 || true
-    done
-  done
-}
-
-reclaim_buildkit_leases() {
-  command -v ctr >/dev/null 2>&1 || return 0
-  local lid
-  ctr -n moby leases ls 2>/dev/null | awk 'NR>1 {print $1}' | while read -r lid; do
-    [ -n "$lid" ] || continue
-    is_live_container_ref "$lid" && continue
-    case "$lid" in
-      *-variants) continue ;;
-    esac
-    [ "${#lid}" -ge 64 ] && continue
-    ctr -n moby leases rm "$lid" >/dev/null 2>&1 || true
-  done
-}
-
+# Official BuildKit prune only. Never `ctr snapshots rm` / `leases rm` while
+# dockerd is up: Docker 29 keeps those IDs in cache.db, then the next build
+# dies with "parent snapshot … does not exist" / "lease … not found".
 reclaim_docker_build_cache() {
   command -v docker >/dev/null 2>&1 || return 0
   docker info >/dev/null 2>&1 || return 0
-  reclaim_orphaned_buildkit_snapshots
-  reclaim_buildkit_leases
   docker builder prune -af >/dev/null 2>&1 || true
   docker buildx prune -af >/dev/null 2>&1 || true
-  if command -v pidof >/dev/null 2>&1; then
-    kill -USR1 "$(pidof containerd)" 2>/dev/null || true
-  fi
+}
+
+buildkit_cache_poisoned() {
+  local log="$1"
+  grep -qE 'snapshot .* does not exist|parent snapshot .* not found|lease "[^"]+": not found|lease .* not found' "$log" 2>/dev/null
 }
 
 # Leftover split-stack images after the unified `ardtt` image took over.
@@ -568,6 +537,10 @@ summarize_build_failure() {
   ram="$(free -h 2>/dev/null | awk '/Mem:/{print $7}')"
   if grep -qE 'No space left on device|ENOSPC' "$log" 2>/dev/null; then
     printf '%s' "на диске VPS не осталось места (No space left on device) при сборке ${svc}. Свободно: ${disk:-?}, RAM: ${ram:-?} avail"
+    return 0
+  fi
+  if grep -qE 'snapshot .* does not exist|parent snapshot .* not found|lease "[^"]+": not found|lease .* not found' "$log" 2>/dev/null; then
+    printf '%s' "кэш сборки Docker сломан (снимок/lease не найден) при сборке ${svc}. Нужен сброс BuildKit. Свободно: ${disk:-?}, RAM: ${ram:-?} avail"
     return 0
   fi
   hint="$(grep -E 'failed to solve|^ERROR:|error:' "$log" 2>/dev/null | grep -vE 'Get:[0-9]|Ign:[0-9]|Selecting previously' | tail -n 4 | tr '\n' ' ' | cut -c1-400)"
@@ -1259,8 +1232,13 @@ for svc in $BUILD_SERVICES; do
     if grep -qE 'No space left on device|ENOSPC' "$BUILD_LOG" 2>/dev/null; then
       echo "ARDTT_WARN|повтор без кэша пропущен — на диске нет места"
     else
-      echo "ARDTT_WARN|сборка $svc не удалась — сброс BuildKit и повтор без кэша"
-      reset_docker_buildkit
+      if buildkit_cache_poisoned "$BUILD_LOG"; then
+        echo "ARDTT_WARN|сборка $svc не удалась — полный сброс BuildKit (snapshot/lease) и повтор без кэша"
+        reset_docker_buildkit 1
+      else
+        echo "ARDTT_WARN|сборка $svc не удалась — сброс BuildKit и повтор без кэша"
+        reset_docker_buildkit
+      fi
       if compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build --no-cache "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
         build_ok=1
       fi
