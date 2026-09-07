@@ -10,7 +10,8 @@ PORT="${ARDTT_DIRECT_PORT:-51820}"
 
 echo "[direct] AmneziaWG userspace (amneziawg-go) on UDP ${PORT}"
 # Must match the Android Direct TUN (VpnTunnelService / profile mtu).
-DIRECT_MTU="${ARDTT_DIRECT_MTU:-1280}"
+DIRECT_MTU="${ARDTT_DIRECT_MTU:-1200}"
+DIRECT_TCPMSS="${ARDTT_DIRECT_TCPMSS:-1160}"
 
 mkdir -p "${CONF_DIR}"
 
@@ -54,9 +55,17 @@ setup_forwarding() {
   iptables -C FORWARD -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT || true
 
-  # Phone Direct TUN is 1280. amneziawg-go defaults awg0 to 1420 — handshake
-  # and keepalives fit, HTTPS SYNs advertise 1380 and return segments die
-  # on the client. Same clamp as Bypass / cascade0.
+  # Phone Direct TUN is 1200 so AWG UDP still fits when the underlay is
+  # already WARP (MTU 1280). clamp-to-pmtu alone kept 1240 and large HTTPS
+  # died. Same clamp as Bypass / cascade0, plus an explicit set-mss.
+  iptables -t mangle -C FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${comment}" -j TCPMSS --set-mss "${DIRECT_TCPMSS}" 2>/dev/null \
+    || iptables -t mangle -I FORWARD 1 -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+      -m comment --comment "${comment}" -j TCPMSS --set-mss "${DIRECT_TCPMSS}" || true
+  iptables -t mangle -C FORWARD -i "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${comment}" -j TCPMSS --set-mss "${DIRECT_TCPMSS}" 2>/dev/null \
+    || iptables -t mangle -I FORWARD 1 -i "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+      -m comment --comment "${comment}" -j TCPMSS --set-mss "${DIRECT_TCPMSS}" || true
   iptables -t mangle -C FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
     -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
     || iptables -t mangle -A FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \

@@ -8,3 +8,5 @@ domain-needed
 cache-size=1000
 # Keep DNS off the VPN path for the resolver process itself.
 bind-interfaces
+# Direct/Bypass TUN is IPv4-only. AAAA answers make Chrome Happy Eyeballs wait.
+filter-AAAA

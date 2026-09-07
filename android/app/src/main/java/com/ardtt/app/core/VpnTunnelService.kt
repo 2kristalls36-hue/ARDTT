@@ -300,7 +300,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val address = config.tunAddress.substringBefore('/').takeIf { it.isNotBlank() }
                     ?: config.profile?.direct?.address?.substringBefore('/')
                     ?: "10.8.0.2"
-                val mtu = config.profile?.direct?.mtu ?: 1280
+                val mtu = (config.profile?.direct?.mtu ?: DIRECT_TUN_MTU).coerceAtMost(DIRECT_TUN_MTU)
                 val dns = config.profile?.direct?.dns?.firstOrNull() ?: "10.8.0.1"
                 establishTun(address, dns, mtu).also { created ->
                     if (created == null) {
@@ -1708,9 +1708,38 @@ class VpnTunnelService : VpnService(), TunEstablisher {
      * apps look offline even when TURN workers already rebound.
      */
     /**
+     * Bind the process to VALIDATED Wi‑Fi/LTE *before* AWG creates UDP
+     * sockets. [bindSocketToUnderlay] after [awgTurnOn] EPERMs on this
+     * OnePlus (Android 16) — the fd is already connected.
+     */
+    fun pinProcessToUnderlay(): String {
+        val cm = connectivityManager
+            ?: getSystemService(ConnectivityManager::class.java)
+            ?: return "no-cm"
+        if (connectivityManager == null) connectivityManager = cm
+        val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
+            ?: return "no-underlay"
+        val caps = cm.getNetworkCapabilities(n)
+        val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        if (!validated) return "underlay-not-validated"
+        return try {
+            cm.bindProcessToNetwork(n)
+            "process-bound:${n.networkHandle}"
+        } catch (e: Exception) {
+            "process-fail:${e.message}"
+        }
+    }
+
+    fun unpinProcessFromUnderlay() {
+        val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java)
+        runCatching { cm?.bindProcessToNetwork(null) }
+    }
+
+    /**
      * Pin an already-[protect]ed AWG UDP fd to the VALIDATED Wi‑Fi/LTE
      * underlay. On some OEMs protect() alone still lets native sockets
      * leave via another VPN (WARP) — handshake fits, HTTPS dies.
+     * Best-effort: this phone EPERMs bindSocket on an already-connected fd.
      */
     fun bindSocketToUnderlay(fd: Int): String {
         if (fd < 0) return "skip"
@@ -2120,5 +2149,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         private const val CHANNEL_SHADE = "ardtt_vpn_shade_v6"
         private const val CHANNEL_MIN = "ardtt_vpn_min_v6"
         private const val TRUSTED_WIFI_RESUME_GUARD_MS = 8_000L
+        /** AWG-over-WARP underlay needs headroom under 1280. */
+        const val DIRECT_TUN_MTU = 1200
     }
 }

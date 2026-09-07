@@ -1,6 +1,11 @@
-# ARDTT v0.5.255
+# ARDTT v0.5.256
 
-Клиент **0.5.255** (`versionCode` 273). Серверный стек **1.0.43** (`DEPLOY_VERSION`).
+Клиент **0.5.256** (`versionCode` 274). Серверный стек **1.0.44** (`DEPLOY_VERSION`).
+
+## 0.5.256
+
+- Прямое: AWG создаётся уже на Wi‑Fi (`bindProcessToNetwork` до `awgTurnOn`). На OnePlus `Network.bindSocket` после handshake даёт EPERM — UDP так и уходил через Cloudflare, страницы ползли.
+- Direct TUN/awg0 MTU **1200** и TCPMSS 1160, чтобы HTTPS пролезал даже если underlay — WARP. DNS больше не отдаёт AAAA. Обход не менялся.
 
 ## 0.5.255
 

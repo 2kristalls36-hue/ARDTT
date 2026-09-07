@@ -29,7 +29,7 @@
 > Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несёт ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.255** (`versionCode` 273), пакет `com.ardtt.app`. Серверный стек **1.0.43** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — этот репозиторий, не `assets/` APK.
+> Клиент **0.5.256** (`versionCode` 274), пакет `com.ardtt.app`. Серверный стек **1.0.44** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — этот репозиторий, не `assets/` APK.
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -39,9 +39,9 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.255** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
-| Стек | **1.0.43** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
-| Откуда стек | GitHub Releases `ardtt-stack-1.0.43.tar.gz` или архив тега — **не** APK |
+| Клиент | **0.5.256** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
+| Стек | **1.0.44** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
+| Откуда стек | GitHub Releases `ardtt-stack-1.0.44.tar.gz` или архив тега — **не** APK |
 | Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, архив стека — без PAT. Только стабильные `versionName` (без `test`). Тестовые APK — [Actions → Artifacts](https://github.com/2kristalls36-hue/ARDTT/actions) |
@@ -130,7 +130,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.255 / стек 1.0.43 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.256 / стек 1.0.44 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Установка и повторный деплой: из приложения (GitHub) или клоном репозитория |
