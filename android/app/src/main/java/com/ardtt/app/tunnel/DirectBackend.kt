@@ -6,6 +6,7 @@ import android.util.Log
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.VpnLiveStats
 import com.ardtt.app.core.VpnPath
+import com.ardtt.app.core.VpnTunnelService
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -88,7 +89,9 @@ class DirectBackend : TunnelBackend {
         val sock6 = GoBackend.awgGetSocketV6(h)
         protectAwgSocket(service, "v4", sock4)
         protectAwgSocket(service, "v6", sock6)
-        AppLog.i(TAG, "tunnel up handle=$h protect v4=$sock4 v6=$sock6")
+        val bind4 = bindAwgToUnderlay(service, sock4)
+        val bind6 = bindAwgToUnderlay(service, sock6)
+        AppLog.i(TAG, "tunnel up handle=$h protect v4=$sock4 v6=$sock6 underlay v4=$bind4 v6=$bind6")
         logAwgSnapshot(h, "up")
 
         onState(TunnelBackendState.Running)
@@ -112,6 +115,12 @@ class DirectBackend : TunnelBackend {
     override fun stop() {
         stopped = true
         turnOff()
+    }
+
+    private fun bindAwgToUnderlay(service: VpnService, fd: Int): String {
+        if (fd < 0) return "skip"
+        val tun = service as? VpnTunnelService ?: return "no-service"
+        return tun.bindSocketToUnderlay(fd)
     }
 
     private fun protectAwgSocket(service: VpnService, label: String, fd: Int) {
