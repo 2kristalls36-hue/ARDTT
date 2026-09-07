@@ -97,6 +97,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var lastHandoffAtMs = 0L
     @Volatile private var stableNetworkEvidenceSinceMs = 0L
     @Volatile private var deadDirectHandledAtMs = 0L
+    @Volatile private var lastDirectHealthLogAtMs = 0L
     /** Bypass started before Android VALIDATED LTE — rebind once it does. */
     @Volatile private var rebindBypassWhenValidated = false
     @Volatile private var sessionStartedAtMs = 0L
@@ -179,6 +180,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         pendingHandover = null
         sessionStartedAtMs = System.currentTimeMillis()
         lastHandoffAtMs = sessionStartedAtMs
+        lastDirectHealthLogAtMs = 0L
         TransportHealth.reset()
         VpnLiveStats.reset()
         lastPreferredUnderlayHandle = pickBestUnderlayNetwork(this)?.networkHandle
@@ -743,6 +745,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     val nowDirect = System.currentTimeMillis()
                     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
                     val freshRx = VpnLiveStats.hasFreshRxSince(anchor)
+                    if (nowDirect - lastDirectHealthLogAtMs >= 15_000L) {
+                        lastDirectHealthLogAtMs = nowDirect
+                        AppLog.i(
+                            TAG,
+                            "watchdog: Direct rx=${VpnLiveStats.totalRx} tx=${VpnLiveStats.totalTx} " +
+                                "freshRx=$freshRx src=${VpnLiveStats.source} " +
+                                "up=${nowDirect - sessionStartedAtMs}ms",
+                        )
+                    }
                     if (
                         shouldTreatDirectAsDeadNoRx(
                             nowMs = nowDirect,
@@ -955,6 +966,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         tunnelSessionActive = true
         sessionStartedAtMs = System.currentTimeMillis()
         lastHandoffAtMs = sessionStartedAtMs
+        lastDirectHealthLogAtMs = 0L
         TransportHealth.reset()
         VpnLiveStats.reset()
         val mode = ConnectionManager.getOrNull()?.currentPathMode() ?: ConnPathMode.Auto

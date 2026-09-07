@@ -57,6 +57,7 @@ class VpnLiveStatsTest {
             last_handshake_time_sec=1
         """.trimIndent()
         assertEquals(5000L to 1000L, VpnLiveStats.parseAwgTransfer(ipc))
+        assertEquals(1L, VpnLiveStats.parseAwgHandshakeSec(ipc))
     }
 
     @Test

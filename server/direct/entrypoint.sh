@@ -9,6 +9,8 @@ IFACE="${ARDTT_DIRECT_IFACE:-awg0}"
 PORT="${ARDTT_DIRECT_PORT:-51820}"
 
 echo "[direct] AmneziaWG userspace (amneziawg-go) on UDP ${PORT}"
+# Must match the Android Direct TUN (VpnTunnelService / profile mtu).
+DIRECT_MTU="${ARDTT_DIRECT_MTU:-1280}"
 
 mkdir -p "${CONF_DIR}"
 
@@ -29,6 +31,10 @@ render_conf() {
   /usr/local/bin/direct-sync -users "${USERS}" -out "${CONF}"
 }
 
+apply_direct_mtu() {
+  ip link set "${IFACE}" mtu "${DIRECT_MTU}" 2>/dev/null || true
+}
+
 setup_forwarding() {
   # Host usually sets this; inside container sysctl is often RO.
   if [ -w /proc/sys/net/ipv4/ip_forward ]; then
@@ -47,6 +53,18 @@ setup_forwarding() {
     || iptables -I FORWARD 1 -i "${IFACE}" -m comment --comment "${comment}" -j ACCEPT || true
   iptables -C FORWARD -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT 2>/dev/null \
     || iptables -I FORWARD 1 -o "${IFACE}" -m comment --comment "${comment}" -j ACCEPT || true
+
+  # Phone Direct TUN is 1280. amneziawg-go defaults awg0 to 1420 — handshake
+  # and keepalives fit, HTTPS SYNs advertise 1380 and return segments die
+  # on the client. Same clamp as Bypass / cascade0.
+  iptables -t mangle -C FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+    || iptables -t mangle -A FORWARD -o "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+      -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu || true
+  iptables -t mangle -C FORWARD -i "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+    -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+    || iptables -t mangle -A FORWARD -i "${IFACE}" -p tcp --tcp-flags SYN,RST SYN \
+      -m comment --comment "${comment}" -j TCPMSS --clamp-mss-to-pmtu || true
 
   if [ "${ARDTT_CASCADE_ENABLED:-0}" = "1" ]; then
     echo "[direct] cascade on — skip WAN MASQ for 10.8.0.0/24 (hop owns egress)"
@@ -87,12 +105,13 @@ if ! awg setconf "${IFACE}" "${CONF}"; then
 fi
 
 ip link set "${IFACE}" up 2>/dev/null || true
+apply_direct_mtu
 ADDR=$(tr -d '[:space:]' <"${CONF}.address" 2>/dev/null || true)
 if [[ -n "${ADDR}" ]]; then
   ip addr replace "${ADDR}" dev "${IFACE}" 2>/dev/null || true
 fi
 
-echo "[direct] ready iface=${IFACE} port=${PORT} addr=${ADDR:-?} peers=$(grep -c '^\[Peer\]' "${CONF}" || true)"
+echo "[direct] ready iface=${IFACE} port=${PORT} addr=${ADDR:-?} mtu=${DIRECT_MTU} peers=$(grep -c '^\[Peer\]' "${CONF}" || true)"
 
 # Hot-reload peers when users.json changes
 (
@@ -104,6 +123,7 @@ echo "[direct] ready iface=${IFACE} port=${PORT} addr=${ADDR:-?} peers=$(grep -c
       echo "[direct] users.json changed — re-sync"
       render_conf
       awg syncconf "${IFACE}" "${CONF}" || awg setconf "${IFACE}" "${CONF}" || true
+      apply_direct_mtu
       ADDR=$(tr -d '[:space:]' <"${CONF}.address" 2>/dev/null || true)
       if [[ -n "${ADDR}" ]]; then
         ip addr replace "${ADDR}" dev "${IFACE}" 2>/dev/null || true

@@ -3,6 +3,7 @@ package com.ardtt.app.tunnel
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.VpnLiveStats
 import com.ardtt.app.core.VpnPath
 import java.util.concurrent.atomic.AtomicInteger
@@ -60,7 +61,7 @@ class DirectBackend : TunnelBackend {
         }
 
         val version = runCatching { GoBackend.awgVersion() }.getOrNull()
-        Log.i(TAG, "awg version=$version endpoint=${direct.endpoint} hideIp=${config.hideIp}")
+        AppLog.i(TAG, "awg version=$version endpoint=${direct.endpoint} hideIp=${config.hideIp}")
 
         val tunFd = try {
             tun.detachFd()
@@ -73,6 +74,7 @@ class DirectBackend : TunnelBackend {
         val h = GoBackend.awgTurnOn(IFACE, tunFd, goConfig)
         if (h < 0) {
             Log.e(TAG, "awgTurnOn failed code=$h")
+            AppLog.e(TAG, "awgTurnOn failed code=$h")
             // detachFd transferred ownership; close orphaned FD ourselves.
             runCatching { ParcelFileDescriptor.adoptFd(tunFd).close() }
                 .onFailure { Log.w(TAG, "close orphaned tunFd=$tunFd", it) }
@@ -84,15 +86,21 @@ class DirectBackend : TunnelBackend {
 
         val sock4 = GoBackend.awgGetSocketV4(h)
         val sock6 = GoBackend.awgGetSocketV6(h)
-        if (sock4 >= 0) service.protect(sock4)
-        if (sock6 >= 0) service.protect(sock6)
-        Log.i(TAG, "tunnel up handle=$h protect v4=$sock4 v6=$sock6")
+        protectAwgSocket(service, "v4", sock4)
+        protectAwgSocket(service, "v6", sock6)
+        AppLog.i(TAG, "tunnel up handle=$h protect v4=$sock4 v6=$sock6")
+        logAwgSnapshot(h, "up")
 
         onState(TunnelBackendState.Running)
         try {
             coroutineScope {
+                var ticks = 0
                 while (isActive && !stopped) {
-                    delay(30_000)
+                    delay(5_000)
+                    ticks += 1
+                    if (ticks == 1 || ticks % 6 == 0) {
+                        logAwgSnapshot(h, "live")
+                    }
                 }
             }
         } finally {
@@ -104,6 +112,33 @@ class DirectBackend : TunnelBackend {
     override fun stop() {
         stopped = true
         turnOff()
+    }
+
+    private fun protectAwgSocket(service: VpnService, label: String, fd: Int) {
+        if (fd < 0) return
+        repeat(3) { attempt ->
+            if (service.protect(fd)) {
+                if (attempt > 0) {
+                    AppLog.w(TAG, "protect $label fd=$fd ok after retry ${attempt + 1}")
+                }
+                return
+            }
+        }
+        AppLog.w(TAG, "protect $label fd=$fd failed — AWG UDP may loop into the TUN")
+    }
+
+    private fun logAwgSnapshot(handle: Int, reason: String) {
+        val cfg = runCatching { GoBackend.awgGetConfig(handle) }.getOrNull()
+        if (cfg.isNullOrBlank()) {
+            AppLog.w(TAG, "awg $reason handle=$handle config empty")
+            return
+        }
+        val xfer = VpnLiveStats.parseAwgTransfer(cfg)
+        val hs = VpnLiveStats.parseAwgHandshakeSec(cfg)
+        AppLog.i(
+            TAG,
+            "awg $reason rx=${xfer?.first ?: -1} tx=${xfer?.second ?: -1} handshake_sec=$hs",
+        )
     }
 
     private fun turnOff() {
