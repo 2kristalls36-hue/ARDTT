@@ -72,27 +72,40 @@ class DirectBackend : TunnelBackend {
             return
         }
 
-        val h = GoBackend.awgTurnOn(IFACE, tunFd, goConfig)
+        val tunService = service as? VpnTunnelService
+        var processPin = "skip"
+        val h = try {
+            processPin = tunService?.pinProcessToUnderlay() ?: "no-service"
+            val started = GoBackend.awgTurnOn(IFACE, tunFd, goConfig)
+            if (started >= 0) {
+                handle.set(started)
+                VpnLiveStats.setAwgHandle(started)
+                val sock4 = GoBackend.awgGetSocketV4(started)
+                val sock6 = GoBackend.awgGetSocketV6(started)
+                protectAwgSocket(service, "v4", sock4)
+                protectAwgSocket(service, "v6", sock6)
+                val bind4 = bindAwgToUnderlay(service, sock4)
+                val bind6 = bindAwgToUnderlay(service, sock6)
+                AppLog.i(
+                    TAG,
+                    "tunnel up handle=$started protect v4=$sock4 v6=$sock6 " +
+                        "process=$processPin underlay v4=$bind4 v6=$bind6",
+                )
+                logAwgSnapshot(started, "up")
+            }
+            started
+        } finally {
+            tunService?.unpinProcessFromUnderlay()
+        }
         if (h < 0) {
             Log.e(TAG, "awgTurnOn failed code=$h")
-            AppLog.e(TAG, "awgTurnOn failed code=$h")
+            AppLog.e(TAG, "awgTurnOn failed code=$h process=$processPin")
             // detachFd transferred ownership; close orphaned FD ourselves.
             runCatching { ParcelFileDescriptor.adoptFd(tunFd).close() }
                 .onFailure { Log.w(TAG, "close orphaned tunFd=$tunFd", it) }
             onState(TunnelBackendState.Failed("AmneziaWG не поднялся (код $h)"))
             return
         }
-        handle.set(h)
-        VpnLiveStats.setAwgHandle(h)
-
-        val sock4 = GoBackend.awgGetSocketV4(h)
-        val sock6 = GoBackend.awgGetSocketV6(h)
-        protectAwgSocket(service, "v4", sock4)
-        protectAwgSocket(service, "v6", sock6)
-        val bind4 = bindAwgToUnderlay(service, sock4)
-        val bind6 = bindAwgToUnderlay(service, sock6)
-        AppLog.i(TAG, "tunnel up handle=$h protect v4=$sock4 v6=$sock6 underlay v4=$bind4 v6=$bind6")
-        logAwgSnapshot(h, "up")
 
         onState(TunnelBackendState.Running)
         try {
