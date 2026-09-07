@@ -9,7 +9,7 @@
 
 Каталог на диске по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). При обновлении старый `/opt/nonamevpn` переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.40**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.41**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
 
 ---
 
@@ -443,7 +443,7 @@ docker exec ardtt provision -cmd create-user -name smoke -data /data
 |---------|----------------|
 | «Не удалось скачать стек … из GitHub» | Сеть на телефоне до github.com. Репозиторий публичный, PAT не нужен. Запас: [Путь 2](#путь-2--git--compose) |
 | `git clone`: Authentication failed | Проверьте URL `https://github.com/2kristalls36-hue/ARDTT.git` и тег релиза. PAT не требуется |
-| `install.sh` + «Мало места» | На 8–10 ГБ VPS порог обновления ~500–1100 МБ; установщик сожмёт 2 ГБ swap до 1 ГБ и не удаляет неиспользуемые `stack-*` образы. Не делайте `docker image prune -af` вручную. |
+| `install.sh` + «Мало места» / ENOSPC | На 8–10 ГБ VPS порог обновления ≥900 МБ (после swap оставляем ≥1100 МБ). Установщик режет огромные json-логи Docker, дропает старые split-образы `stack-direct` и т.п., но не трогает чужие контейнеры и не делает `docker image prune -af`. |
 | `install.sh exit=1`, `Device or resource busy` в `/var/lib/docker/buildkit/.../rootfs` | Стек ≥**1.0.34**: umount + повтор, установка не падает. На 1 ГБ VPS старый `rm -rf` после `stop docker` обрывал каскад. Обновите APK и снова «Установить». |
 | SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
 | `/health` не отвечает после DONE | `docker compose --profile isolated logs`; `ARDTT_PUBLIC_HOST` и публикация `:9100` |

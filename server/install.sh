@@ -38,9 +38,10 @@ TELEMETRY_PORT="${ARDTT_TELEMETRY_PORT:-${NVPN_TELEMETRY_PORT:-9200}}"
 KEEP_INSTALL_LOG="${ARDTT_KEEP_INSTALL_LOG:-${NVPN_KEEP_INSTALL_LOG:-0}}"
 COMPOSE_PROJECT="${ARDTT_COMPOSE_PROJECT:-${NVPN_COMPOSE_PROJECT:-stack}}"
 MIN_SWAP_MB="${ARDTT_MIN_SWAP_MB:-${NVPN_MIN_SWAP_MB:-2048}}"
-# Sequential one-image builds; do not demand 1.8G free on a 8–10G VPS.
+# Sequential one-image builds still need ~1G free (BuildKit + apt layers).
+# 500 MB let an update start and then die mid-apt with ENOSPC.
 MIN_DISK_MB="${ARDTT_MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-1100}}"
-MIN_DISK_UPDATE_MB="${ARDTT_MIN_DISK_UPDATE_MB:-${NVPN_MIN_DISK_UPDATE_MB:-500}}"
+MIN_DISK_UPDATE_MB="${ARDTT_MIN_DISK_UPDATE_MB:-${NVPN_MIN_DISK_UPDATE_MB:-900}}"
 # entry = phone-facing stack. exit = hop egress (AWG + DNS + WARP).
 ROLE="${ARDTT_ROLE:-${NVPN_ROLE:-entry}}"
 CASCADE_ENABLED="${ARDTT_CASCADE_ENABLED:-${NVPN_CASCADE_ENABLED:-0}}"
@@ -82,8 +83,8 @@ drop_legacy_containers() {
 }
 
 # True if Docker is already running workloads that are not ARDTT.
-# Used to refuse dockerd restarts, builder prune -af, swap shrink, and
-# container prune that would take down someone else's stack on a shared VPS.
+# Used to refuse dockerd restarts, swap shrink, and container prune that
+# would take down someone else's stack. Build-cache prune is still safe.
 foreign_docker_workloads() {
   command -v docker >/dev/null 2>&1 || return 1
   docker info >/dev/null 2>&1 || return 1
@@ -454,14 +455,12 @@ start_docker_engine() {
 # mounts after `systemctl stop docker`, and `set -e` + bare `rm -rf` killed cascade.
 reset_docker_buildkit() {
   command -v docker >/dev/null 2>&1 || return 0
+  reclaim_docker_build_cache
+  docker image prune -f >/dev/null 2>&1 || true
   if foreign_docker_workloads; then
-    echo "ARDTT_WARN|пропускаем builder prune -af и restart dockerd — на хосте есть другие контейнеры"
-    docker image prune -f >/dev/null 2>&1 || true
+    echo "ARDTT_WARN|не перезапускаем dockerd — на хосте есть другие контейнеры"
     return 0
   fi
-  docker builder prune -af >/dev/null 2>&1 || true
-  docker buildx prune -af >/dev/null 2>&1 || true
-  docker image prune -f >/dev/null 2>&1 || true
   echo "ARDTT_INFO|сброс BuildKit: stop docker, umount executor, удаление /var/lib/docker/buildkit"
   stop_docker_engine
   wipe_dir_best_effort /var/lib/docker/buildkit
@@ -475,6 +474,63 @@ cleanup_docker_build_junk() {
   prepare_docker_build
 }
 
+reclaim_docker_build_cache() {
+  command -v docker >/dev/null 2>&1 || return 0
+  docker info >/dev/null 2>&1 || return 0
+  docker builder prune -af >/dev/null 2>&1 || true
+  docker buildx prune -af >/dev/null 2>&1 || true
+}
+
+# Leftover split-stack images after the unified `ardtt` image took over.
+# Never remove the live unified image or foreign images.
+reclaim_obsolete_split_images() {
+  command -v docker >/dev/null 2>&1 || return 0
+  docker info >/dev/null 2>&1 || return 0
+  local names
+  names="$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
+  echo "$names" | grep -qE '^(ardtt|ardtt-host)$' || return 0
+  if echo "$names" | grep -qE '^(ardtt-direct|ardtt-bypass|ardtt-dns|ardtt-warp|ardtt-provision|ardtt-telemetry|nvpn-direct|nvpn-bypass)$'; then
+    return 0
+  fi
+  echo "ARDTT_INFO|удаляем неиспользуемые split-образы (живёт единый ardtt)"
+  docker image rm -f \
+    stack-direct stack-bypass stack-dns stack-warp stack-provision stack-telemetry \
+    "${COMPOSE_PROJECT:-stack}-direct" "${COMPOSE_PROJECT:-stack}-bypass" \
+    "${COMPOSE_PROJECT:-stack}-dns" "${COMPOSE_PROJECT:-stack}-warp" \
+    "${COMPOSE_PROJECT:-stack}-provision" "${COMPOSE_PROJECT:-stack}-telemetry" \
+    >/dev/null 2>&1 || true
+}
+
+truncate_docker_json_logs() {
+  local f kb
+  for f in /var/lib/docker/containers/*/*-json.log; do
+    [ -f "$f" ] || continue
+    kb="$(du -k "$f" 2>/dev/null | awk '{print $1}')"
+    if [ "${kb:-0}" -gt 32768 ] 2>/dev/null; then
+      echo "ARDTT_INFO|обрезаем лог контейнера (${kb} КБ) — json-file без ротации"
+      : > "$f" || true
+    fi
+  done
+}
+
+summarize_build_failure() {
+  local log="$1" svc="$2"
+  local disk ram hint tail
+  disk="$(df -h / 2>/dev/null | awk 'NR==2{print $4}')"
+  ram="$(free -h 2>/dev/null | awk '/Mem:/{print $7}')"
+  if grep -qE 'No space left on device|ENOSPC' "$log" 2>/dev/null; then
+    printf '%s' "на диске VPS не осталось места (No space left on device) при сборке ${svc}. Свободно: ${disk:-?}, RAM: ${ram:-?} avail"
+    return 0
+  fi
+  hint="$(grep -E 'failed to solve|^ERROR:|error:' "$log" 2>/dev/null | grep -vE 'Get:[0-9]|Ign:[0-9]|Selecting previously' | tail -n 4 | tr '\n' ' ' | cut -c1-400)"
+  if [ -n "$hint" ]; then
+    printf '%s' "Сборка Docker (${svc}) не удалась: ${hint}. Свободно: ${disk:-?}, RAM: ${ram:-?} avail"
+    return 0
+  fi
+  tail="$(tail -n 8 "$log" 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
+  printf '%s' "Сборка Docker (${svc}) не удалась: ${tail:-причина не определена}. Свободно: ${disk:-?}, RAM: ${ram:-?} avail"
+}
+
 STACK_STOPPED_FOR_BUILD=0
 
 restore_live_stack_if_needed() {
@@ -484,6 +540,10 @@ restore_live_stack_if_needed() {
   (
     cd "$INSTALL_DIR/stack" || exit 0
     if [ -f .env ]; then
+      set -a
+      # shellcheck disable=SC1091
+      . ./.env
+      set +a
       COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose --env-file .env up -d
     else
       COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" docker compose up -d
@@ -618,6 +678,9 @@ cleanup_stale_deploy_files() {
 
 reclaim_disk() {
   cleanup_docker_build_junk
+  reclaim_docker_build_cache
+  reclaim_obsolete_split_images
+  truncate_docker_json_logs
   cleanup_host_packages
   cleanup_stale_deploy_files
   if ! foreign_docker_workloads; then
@@ -817,7 +880,9 @@ ensure_swap() {
   fi
   avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2 {print $4}')"
   # Leave room for Docker images; never fill the rootfs with a swapfile.
-  local reserve_mb="${MIN_DISK_UPDATE_MB:-500}"
+  # Reserve the full build floor, not the old 500 MB update slop — a 1G
+  # swapfile on a tight 8G VPS is what then failed mid-apt with 72K free.
+  local reserve_mb="${MIN_DISK_MB:-1100}"
   local max_swap=$(( ${avail_mb:-0} - reserve_mb ))
   if [ "$max_swap" -lt 512 ]; then
     echo "ARDTT_WARN|мало места для swap (свободно ${avail_mb:-0} МБ, нужно оставить ≥${reserve_mb}) — без увеличения"
@@ -997,7 +1062,8 @@ if [ -z "$DEPLOY_VERSION" ] && [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
   DEPLOY_VERSION="$(tr -d '[:space:]' < "$INSTALL_DIR/DEPLOY_VERSION")"
 fi
 [ -n "$DEPLOY_VERSION" ] || DEPLOY_VERSION="unknown"
-printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
+# Do not stamp $INSTALL_DIR/DEPLOY_VERSION yet: a failed build would leave
+# the host file newer than the running stack (seen as 1.0.40 vs 1.0.34).
 printf '%s\n' "$DEPLOY_VERSION" > "$STAGING/DEPLOY_VERSION"
 BYPASS_DNS="10.9.0.1"
 WARP_MODE="hideip"
@@ -1065,6 +1131,7 @@ if [ "${ARDTT_DRY_RUN:-${NVPN_DRY_RUN:-0}}" = "1" ]; then
   mv "$STAGING" "$STACK"
   STAGING=""
   rm -rf "$INSTALL_DIR/stack.old"
+  printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
   prog 1.00 "dry-run: стек подготовлен"
   echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=$NETWORK_MODE|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS"
   exit 0
@@ -1103,11 +1170,9 @@ if [ "${mem_mb:-0}" -lt 1800 ] 2>/dev/null; then
 else
   prog 0.48 "Очистка кэша сборки Docker"
   if foreign_docker_workloads; then
-    echo "ARDTT_WARN|пропускаем builder prune -af — на хосте есть другие контейнеры"
-  else
-    docker builder prune -af >/dev/null 2>&1 || true
-    docker buildx prune -af >/dev/null 2>&1 || true
+    echo "ARDTT_WARN|не перезапускаем dockerd — на хосте есть другие контейнеры"
   fi
+  reclaim_docker_build_cache
   prog 0.50 "Сборка единого образа (старый стек ещё работает)"
 fi
 cd "$STAGING"
@@ -1143,17 +1208,21 @@ for svc in $BUILD_SERVICES; do
   if compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
     build_ok=1
   else
-    echo "ARDTT_WARN|сборка $svc не удалась — сброс BuildKit и повтор без кэша"
-    reset_docker_buildkit
-    if compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build --no-cache "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
-      build_ok=1
+    if grep -qE 'No space left on device|ENOSPC' "$BUILD_LOG" 2>/dev/null; then
+      echo "ARDTT_WARN|повтор без кэша пропущен — на диске нет места"
+    else
+      echo "ARDTT_WARN|сборка $svc не удалась — сброс BuildKit и повтор без кэша"
+      reset_docker_buildkit
+      if compose -f "$STAGING/docker-compose.yml" --project-directory "$STAGING" build --no-cache "$svc" 2>&1 | tee -a "$BUILD_LOG"; then
+        build_ok=1
+      fi
     fi
   fi
   if [ "$build_ok" != 1 ]; then
-    build_tail="$(tail -n 20 "$BUILD_LOG" | tr '\n' ' ' | cut -c1-1000)"
+    build_msg="$(summarize_build_failure "$BUILD_LOG" "$svc")"
     rm -f "$BUILD_LOG"
     cleanup_docker_build_junk
-    die "Сборка Docker ($svc) не удалась: ${build_tail:-причина не определена}. Свободно: $(df -h / | awk 'NR==2{print $4}'), RAM: $(free -h | awk '/Mem:/{print $7}') avail"
+    die "$build_msg"
   fi
   prepare_docker_build
   echo "ARDTT_INFO|после $svc свободно $(df -Pm / | awk 'NR==2{print $4}') МБ, RAM avail $(awk '/MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo) МБ"
@@ -1254,6 +1323,8 @@ fi
 rm -f "$UP_LOG"
 rm -rf "$INSTALL_DIR/stack.old"
 STACK_STOPPED_FOR_BUILD=0
+# Host marker matches the running stack only after compose up succeeded.
+printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
 
 prog 0.80 "Очистка build-кэша и временных файлов"
 cleanup_docker_build_junk
