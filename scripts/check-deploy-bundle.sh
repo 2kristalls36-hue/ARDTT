@@ -170,6 +170,10 @@ fi
 grep -q 'ref_type == .tag' "$ROOT/.github/workflows/server-package.yml" \
   || grep -q "github.ref_type == 'tag'" "$ROOT/.github/workflows/server-package.yml" \
   || err "release publish must be tag-only"
+if grep -qE '^[[:space:]]*run:.*attach-server-packages-to-release\.sh' \
+     "$ROOT/.github/workflows/android-build.yml"; then
+  err "android-build must not attach server packages; that is tag-only in server-package.yml"
+fi
 bash -n "$ROOT/scripts/test-install-live-isolation.sh" || err "bash -n test-install-live-isolation"
 bash -n "$ROOT/scripts/make-fake-server-package.sh" || err "bash -n make-fake-server-package"
 python3 -m py_compile "$ROOT/scripts/safe-extract-package.py" || err "safe-extract-package.py"
