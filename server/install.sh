@@ -2,7 +2,7 @@
 # ARDTT VPS installer — canonical copy lives here (server/install.sh).
 # Protocol (must stay in the first 400 chars: APK ≤0.5.245 sniffs only that window):
 #   ARDTT_PROGRESS|<0..1>|<step>
-#   ARDTT_ERROR|<message>
+#   ARDTT_ERROR|[code=CODE|]<message>
 #   ARDTT_DONE|install_dir=…|public_host=…|direct_port=…|bypass_port=…
 #   ARDTT_WARN|<message>
 #
@@ -12,7 +12,16 @@
 set -euo pipefail
 
 prog() { echo "ARDTT_PROGRESS|$1|$2"; }
-die() { echo "ARDTT_ERROR|$*" >&2; exit 1; }
+die() {
+  if [ "${1:-}" = "--code" ]; then
+    local code="$2"
+    shift 2
+    echo "ARDTT_ERROR|code=${code}|$*" >&2
+  else
+    echo "ARDTT_ERROR|$*" >&2
+  fi
+  exit 1
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_LIB_DIR="${SCRIPT_DIR}/install-lib"
@@ -120,12 +129,21 @@ readiness_detail() {
 }
 
 preflight_docker() {
-  command -v docker >/dev/null 2>&1 || die "Docker Engine не найден. Установите Docker заранее. Этот пакет не ставит Docker и не качает установщик Engine из сети."
-  docker info >/dev/null 2>&1 || die "Docker Engine не отвечает. Запустите службу docker и повторите. Установщик не перезапускает dockerd."
-  command -v python3 >/dev/null 2>&1 || die "Нужен python3 на хосте (безопасная распаковка и instance.json). Пакет не ставит его из сети."
+  if ! command -v docker >/dev/null 2>&1; then
+    die --code DOCKER_MISSING "Docker Engine не найден. Установите Docker заранее. Этот пакет не ставит Docker и не качает установщик Engine из сети."
+  fi
+  local info
+  info="$(docker info 2>&1)" || true
+  if ! docker info >/dev/null 2>&1; then
+    if printf '%s' "$info" | grep -qiE 'permission denied|access denied|dial unix'; then
+      die --code DOCKER_ACCESS_DENIED "Нет доступа к Docker. Пользователь должен быть в группе docker или запускать установку от root. Демон не перезапускаем."
+    fi
+    die --code DOCKER_NOT_RUNNING "Docker Engine не отвечает. Запустите службу docker и повторите. Установщик не перезапускает dockerd."
+  fi
+  command -v python3 >/dev/null 2>&1 || die --code PYTHON_MISSING "Нужен python3 на хосте (безопасная распаковка и instance.json). Пакет не ставит его из сети."
   local ver
   ver="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
-  [ -n "$ver" ] || die "Не удалось прочитать версию Docker"
+  [ -n "$ver" ] || die --code DOCKER_NOT_RUNNING "Не удалось прочитать версию Docker"
   echo "ARDTT_INFO|Docker ${ver} $(host_arch)"
 }
 
@@ -349,7 +367,7 @@ do_install() {
   ARDTT_IMAGE="${PKG_IMAGE_TAG:-ardtt/server:${DEPLOY_VERSION}}"
 
   if [ "${ARDTT_DRY_RUN:-0}" != "1" ]; then
-    prog 0.18 "Preflight (Docker, TUN, место, порты, подсеть) — старый ARDTT ещё работает"
+    prog 0.18 "Preflight (Docker, TUN, место, порты, подсеть)"
     preflight_docker
     preflight_tun
     preflight_space
@@ -430,7 +448,7 @@ do_install() {
   fi
   write_env_file "$release/.env"
   write_env_file "$INSTALL_DIR/.env"
-  write_instance
+  write_pending_instance
 
   if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
     prog 0.40 "Ключи каскадного AWG"
@@ -444,6 +462,7 @@ do_install() {
     if [ -f "${prev_link}/.env" ]; then
       rm -rf "$INSTALL_DIR/previous"
       cp -a "$prev_link" "$INSTALL_DIR/previous"
+      snapshot_confirmed_metadata "$INSTALL_DIR/previous"
     fi
     stop_owned_stack "$prev_link"
     stop_legacy_owned
@@ -476,6 +495,7 @@ do_install() {
 
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
   write_instance
+  clear_pending_instance
   rm -rf "$PKG_DIR"
   # Keep previous until next successful install. Do not delete previous here.
   prog 1.00 "Готово"

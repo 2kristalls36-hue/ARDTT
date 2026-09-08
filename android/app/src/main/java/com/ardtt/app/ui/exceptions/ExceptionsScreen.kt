@@ -219,7 +219,10 @@ private suspend fun loadInstalledExceptionApps(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExceptionsScreen(settings: AppSettingsRepository) {
+fun ExceptionsScreen(
+    settings: AppSettingsRepository,
+    onBack: (() -> Unit)? = null,
+) {
     val context = LocalContext.current.applicationContext
     val hasBrowserHandlers = remember {
         runCatching { httpsHandlerPackages(context.packageManager).isNotEmpty() }.getOrDefault(false)
@@ -350,6 +353,7 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 ArdttTabHeader(
                     title = "Исключения",
                     subtitle = "Приложения и сайты вне туннеля",
+                    onBack = onBack,
                 )
             },
         ) { topPad ->
