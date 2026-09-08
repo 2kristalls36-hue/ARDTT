@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.HorizontalDivider
@@ -80,6 +81,7 @@ import com.ardtt.app.ui.components.control.PathModeChipRow
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.feedback.ArdttInlineFactRow
+import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
@@ -94,6 +96,8 @@ import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.connectedStatusColor
+import com.ardtt.app.ui.theme.warningStatusColor
 import com.ardtt.app.ui.tunnelConnectionParamsVisible
 import com.ardtt.app.ui.tunnelQuickSettingsProfileHelp
 import com.ardtt.app.ui.tunnelStickyCtaEnabled
@@ -113,6 +117,7 @@ fun TunnelScreen(
     onRequestConnect: () -> Unit,
     isAdmin: Boolean,
     classicAppearance: Boolean,
+    onOpenExceptions: () -> Unit = {},
 ) {
     // Use session flags from AppRoot — a fresh collectAsState(false) here flashes the
     // user-mode round power button for a frame every time this tab is composed.
@@ -361,6 +366,13 @@ fun TunnelScreen(
                 )
             }
 
+            ArdttDestinationRow(
+                icon = Icons.Outlined.FilterList,
+                title = "Правила обхода",
+                subtitle = "Приложения и сайты вне туннеля",
+                onClick = onOpenExceptions,
+            )
+
             if (!admin && profile != null) {
                 val active = profile!!.subscriptionActive
                 val expiresText = when {
@@ -384,7 +396,7 @@ fun TunnelScreen(
                         if (active) "Подписка активна" else "Подписка неактивна",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (active) ArdttColors.Connected else MaterialTheme.colorScheme.error,
+                        color = if (active) connectedStatusColor() else MaterialTheme.colorScheme.error,
                     )
                     Text(
                         "Действует до $expiresText",
@@ -485,8 +497,8 @@ fun TunnelScreen(
             TunnelStatusPanel(
                 statusText = sessionCardStatusText(ui.state, publicIp, ui.lastError),
                 statusColor = when {
-                    pausedTrusted -> ArdttColors.Warning
-                    connected -> ArdttColors.Connected
+                    pausedTrusted -> warningStatusColor()
+                    connected -> connectedStatusColor()
                     ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurface
                 },
@@ -755,8 +767,8 @@ private fun TunnelStatusPanel(
                     value = row.value,
                     pending = row.pending,
                     valueColor = when (row.tone) {
-                        NetcheckTone.Ok -> ArdttColors.Connected
-                        NetcheckTone.Warn -> ArdttColors.Warning
+                        NetcheckTone.Ok -> connectedStatusColor()
+                        NetcheckTone.Warn -> warningStatusColor()
                         NetcheckTone.Error -> MaterialTheme.colorScheme.error
                         NetcheckTone.Neutral -> null
                     },

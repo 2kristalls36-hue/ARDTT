@@ -13,11 +13,26 @@ import androidx.compose.ui.graphics.lerp
  * `MaterialTheme.colorScheme`; only product meanings live here.
  */
 object ArdttColors {
-    /** Healthy tunnel, online client, fresh deploy. Dark enough for white labels. */
+    /** Chip / pill fill. Dark enough for white [onConnected] labels. Not status text. */
     val Connected = Color(0xFF1B7A32)
 
-    /** Degraded but working: stale version, slow ping. */
+    /** Chip / pill fill for degraded state. White [onWarning] labels only. */
     val Warning = Color(0xFFB35C00)
+
+    val OnConnected = Color(0xFFFFFFFF)
+    val OnWarning = Color(0xFFFFFFFF)
+
+    /** Status *text* on a light surface (≥ 4.5:1 on FAFCFF / E8EFF8). */
+    val ConnectedOnLight = Color(0xFF146C2E)
+    val WarningOnLight = Color(0xFF9A4500)
+
+    /** Status *text* on a dark surface (≥ 4.5:1 on 0F1722 / 233141). */
+    val ConnectedOnDark = Color(0xFF7EE2A0)
+    val WarningOnDark = Color(0xFFFFC56B)
+
+    fun connectedForeground(dark: Boolean): Color = if (dark) ConnectedOnDark else ConnectedOnLight
+
+    fun warningForeground(dark: Boolean): Color = if (dark) WarningOnDark else WarningOnLight
 
     /** Direct path accent (AmneziaWG over UDP). */
     val PathDirect = Color(0xFF2E7D32)

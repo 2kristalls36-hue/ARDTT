@@ -63,7 +63,7 @@ data class ArdttNavItem(
 
 internal object ArdttNavChrome {
     val LabelSize = 12.sp
-    val LabelLineHeight = 14.sp
+    val LabelLineHeight = 16.sp
 }
 
 private object NavBarDefaults {
@@ -246,9 +246,9 @@ private fun NavBarTab(
                 },
             ),
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            softWrap = false,
+            softWrap = true,
         )
     }
 }

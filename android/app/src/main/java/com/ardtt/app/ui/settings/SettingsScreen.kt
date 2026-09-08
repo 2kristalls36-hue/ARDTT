@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -70,6 +72,7 @@ import com.ardtt.app.ui.components.control.PathModeChipRow
 import com.ardtt.app.ui.components.control.ThemeModeChipRow
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
+import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
@@ -84,6 +87,7 @@ import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.tunnel.DonateSupportBanner
 import com.ardtt.app.update.AppUpdateController
 import com.ardtt.app.update.AppUpdateInfo
@@ -96,6 +100,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     settings: AppSettingsRepository,
     isRecording: Boolean = false,
+    onOpenTesting: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -427,14 +432,18 @@ fun SettingsScreen(
         ) {
             ArdttSectionTitle("Тестирование")
             Text(
-                "Вкладка «Тест» и запись журналов — после принятия соглашения. Доступно в любом режиме.",
+                if (admin) {
+                    "Запись журналов — в разделе «Диагностика» после принятия соглашения."
+                } else {
+                    "Запись журналов — из журнала событий или отсюда, после принятия соглашения."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             ArdttSwitchRow(
                 title = "Режим тестирования",
                 subtitle = if (testingMode) {
-                    "Вкладка «Тест» открыта."
+                    "Журналы телеметрии доступны."
                 } else {
                     "Выключен. Журналы телеметрии скрыты."
                 },
@@ -456,6 +465,14 @@ fun SettingsScreen(
             testingHint?.let {
                 Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             }
+            if (testingMode && onOpenTesting != null) {
+                ArdttDestinationRow(
+                    icon = Icons.Outlined.Science,
+                    title = "Открыть тестирование",
+                    subtitle = "Запись, хранилище и отправка журналов",
+                    onClick = onOpenTesting,
+                )
+            }
         }
 
         ArdttSectionCard(
@@ -475,7 +492,7 @@ fun SettingsScreen(
             )
             Text(
                 if (admin) {
-                    "Открыты «Сервера», «Деплой» и «Журналы»."
+                    "Открыты «Серверы», «Деплой» и диагностика."
                 } else {
                     "Переместите ползунок вправо до конца."
                 },
@@ -509,7 +526,7 @@ fun SettingsScreen(
             }
             adminHint?.let {
                 val hintColor = if (it == "Режим администратора активирован") {
-                    ArdttColors.Connected
+                    connectedStatusColor()
                 } else {
                     MaterialTheme.colorScheme.primary
                 }

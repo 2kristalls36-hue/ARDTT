@@ -148,12 +148,12 @@ object ArdttSize {
     val ButtonCluster: Dp = 62.dp
     val TouchTarget: Dp = 48.dp
 
-    /** Inner height of the floating tab pill (icon + 12 sp caption). */
-    val NavTrack: Dp = 56.dp
+    /** Inner height of the floating tab pill (icon + wrapping 12 sp caption). */
+    val NavTrack: Dp = 72.dp
 
     /** Screen space the floating tab pill occupies, insets excluded.
      *  Must stay NavTrack + 2 × ArdttSpacing.Small (vertical padding around the track). */
-    val NavZone: Dp = 72.dp
+    val NavZone: Dp = 88.dp
 
     val Border: Dp = 1.dp
     val Contour: Dp = 2.dp

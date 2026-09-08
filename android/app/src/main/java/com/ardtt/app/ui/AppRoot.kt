@@ -45,12 +45,11 @@ import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.telemetry.TelemetryRecorder
 import com.ardtt.app.ui.PendingUiAction
+import com.ardtt.app.ui.admin.DiagnosticsScreen
 import com.ardtt.app.ui.admin.LogsScreen
 import com.ardtt.app.ui.admin.NetworkScreen
 import com.ardtt.app.ui.admin.ServersScreen
 import com.ardtt.app.ui.admin.TestingScreen
-import com.ardtt.app.ui.components.control.ArdttButton
-import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBackdrop
 import com.ardtt.app.ui.components.layout.ArdttNavItem
@@ -188,24 +187,15 @@ fun AppRoot(
     }
 
     val testingTabVisible = TestingSessionGuard.testingTabVisible(testingMode, isRecording)
-    val overflowDestinations = ArdttNavPlan.overflow(admin, testingTabVisible)
     val tabs = ArdttNavPlan.primary(admin, testingTabVisible)
-    val navItems = buildList {
-        addAll(
-            tabs.map { dest ->
-                ArdttNavItem(route = dest.route, label = dest.navLabel, icon = dest.navIcon())
-            },
+    val badgeRoute = ArdttNavPlan.navBadgeRoute(admin, isRecording)
+    val navItems = tabs.map { dest ->
+        ArdttNavItem(
+            route = dest.route,
+            label = dest.navLabel,
+            icon = dest.navIcon(),
+            badgeCount = if (dest.route == badgeRoute) 1 else 0,
         )
-        if (overflowDestinations.isNotEmpty()) {
-            add(
-                ArdttNavItem(
-                    route = ArdttNavPlan.MORE_ROUTE,
-                    label = ArdttNavPlan.MORE_LABEL,
-                    icon = ArdttNavPlan.moreIcon,
-                    badgeCount = if (overflowDestinations.any { it == AppDestination.Testing } && isRecording) 1 else 0,
-                ),
-            )
-        }
     }
     val tabReselectSignal = remember { mutableStateMapOf<String, Int>() }
     ArdttNavPlan.visibleDestinations(admin, testingTabVisible).forEach { dest ->
@@ -216,9 +206,8 @@ fun AppRoot(
     val selectedNavRoute = ArdttNavPlan.barSelectedRoute(
         currentRoute = currentRoute,
         primary = tabs,
-        overflow = overflowDestinations,
+        admin = admin,
     )
-    var showMoreSheet by remember { mutableStateOf(false) }
     var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -358,7 +347,7 @@ fun AppRoot(
         val blocked = when {
             dest == AppDestination.Testing ->
                 !TestingSessionGuard.testingTabVisible(testingMode, isRecording)
-            dest?.adminOnly == true -> !admin
+            dest == AppDestination.Diagnostics || dest?.adminOnly == true -> !admin
             else -> false
         }
         if (blocked) {
@@ -417,6 +406,7 @@ fun AppRoot(
                                 onRequestConnect = { requestVpnThenConnect() },
                                 isAdmin = admin,
                                 classicAppearance = classicAppearance,
+                                onOpenExceptions = { navigateTab(AppDestination.Exceptions.route) },
                             )
                         }
                         composable(AppDestination.Servers.route) {
@@ -436,67 +426,71 @@ fun AppRoot(
                             )
                         }
                         composable(AppDestination.Exceptions.route) {
-                            ExceptionsScreen(settings = settings)
+                            ExceptionsScreen(
+                                settings = settings,
+                                onBack = if (admin) {
+                                    { navigateTab(AppDestination.Tunnel.route) }
+                                } else {
+                                    null
+                                },
+                            )
+                        }
+                        composable(AppDestination.Diagnostics.route) {
+                            DiagnosticsScreen(
+                                testingVisible = testingTabVisible,
+                                onOpenNetwork = { navigateTab(AppDestination.Network.route) },
+                                onOpenLogs = { navigateTab(AppDestination.Logs.route) },
+                                onOpenTesting = { navigateTab(AppDestination.Testing.route) },
+                            )
                         }
                         composable(AppDestination.Network.route) {
                             NetworkScreen(
                                 settings = settings,
                                 profiles = profiles,
                                 serversRepo = serversRepo,
+                                onBack = { navigateTab(AppDestination.Diagnostics.route) },
                             )
                         }
                         composable(AppDestination.Logs.route) {
-                            LogsScreen()
+                            LogsScreen(
+                                onBack = if (admin) {
+                                    { navigateTab(AppDestination.Diagnostics.route) }
+                                } else {
+                                    null
+                                },
+                                testingVisible = testingTabVisible,
+                                onOpenTesting = { navigateTab(AppDestination.Testing.route) },
+                            )
                         }
                         composable(AppDestination.Settings.route) {
                             SettingsScreen(
                                 settings = settings,
                                 isRecording = isRecording,
+                                onOpenTesting = { navigateTab(AppDestination.Testing.route) },
                             )
                         }
                         composable(AppDestination.Testing.route) {
-                            TestingScreen(profiles = profiles)
+                            TestingScreen(
+                                profiles = profiles,
+                                onBack = {
+                                    navigateTab(
+                                        if (admin) {
+                                            AppDestination.Diagnostics.route
+                                        } else {
+                                            AppDestination.Logs.route
+                                        },
+                                    )
+                                },
+                            )
                         }
                     }
 
                     ArdttNavigationBar(
                         items = navItems,
                         selectedRoute = selectedNavRoute,
-                        onSelect = { route ->
-                            if (route == ArdttNavPlan.MORE_ROUTE) {
-                                showMoreSheet = true
-                            } else {
-                                navigateTab(route)
-                            }
-                        },
+                        onSelect = { route -> navigateTab(route) },
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
-                    if (showMoreSheet) {
-                        ArdttDialog(
-                            title = ArdttNavPlan.MORE_LABEL,
-                            onDismissRequest = { showMoreSheet = false },
-                            dismissAction = ArdttDialogAction(
-                                text = "Закрыть",
-                                onClick = { showMoreSheet = false },
-                            ),
-                        ) {
-                            overflowDestinations.forEach { dest ->
-                                ArdttButton(
-                                    text = dest.label,
-                                    onClick = {
-                                        showMoreSheet = false
-                                        navigateTab(dest.route)
-                                    },
-                                    variant = if (dest.route == currentRoute) {
-                                        ArdttButtonVariant.Tonal
-                                    } else {
-                                        ArdttButtonVariant.Outlined
-                                    },
-                                    fillMaxWidth = true,
-                                )
-                            }
-                        }
-                    }
 
                     if (vpnConsentBackgroundVisible) {
                         Surface(

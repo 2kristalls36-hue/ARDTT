@@ -23,8 +23,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
@@ -42,18 +44,17 @@ import com.ardtt.app.ui.theme.ArdttChrome
 import com.ardtt.app.ui.theme.isDarkSurface
 
 /**
- * Pins a sharp header over scrolling content and blurs the strip that
+ * Pins a sharp header over scrolling content and fades the strip that
  * disappears under it.
  *
  * Layering (API 31+): the feed is recorded into one offscreen [androidx.compose.ui.graphics.layer.GraphicsLayer]
- * and drawn once. A clipped overlay draws that same layer again with a GPU
- * [BlurEffect], then a vertical scrim. The header and status icons sit above,
- * unblurred. API 28–30 skip RenderEffect and keep the fade+scrim so text never
- * competes with the clock.
+ * and drawn once. The overlay draws that layer again with a GPU [BlurEffect],
+ * then a DstIn alpha mask so the blur itself fades into sharp pixels. The
+ * header and status icons sit above, unblurred. API 28–30 skip RenderEffect
+ * and keep a color fade so text never competes with the clock.
  *
- * Do not copy the list into a second composition. The fade overlay consumes
- * pointers so hidden rows are not clickable or announced twice; the header
- * row itself is a later sibling and keeps its own taps.
+ * Content is padded by chrome + fade so the first row is clear at scroll 0.
+ * Only the sharp header consumes hits; the fade strip does not steal taps.
  */
 @Composable
 fun ArdttScrollChrome(
@@ -69,7 +70,7 @@ fun ArdttScrollChrome(
     var headerHeight by remember { mutableStateOf(ArdttHeaderDefaults.TitleRowHeight) }
     val fade = ArdttChrome.FadeHeight
     val chromeHeight = status + headerHeight
-    val topPadding = chromeHeight
+    val topPadding = ardttScrollChromeTopPadding(chromeHeight, fade)
     val graphicsLayer = rememberGraphicsLayer()
     val useBlur = ardttScrollChromeUsesGpuBlur(Build.VERSION.SDK_INT)
     val dark = isDarkSurface()
@@ -110,53 +111,70 @@ fun ArdttScrollChrome(
                     .fillMaxWidth()
                     .height(chromeHeight + fade),
             ) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clearAndSetSemantics {}
-                        .then(
-                            if (useBlur) {
-                                Modifier.graphicsLayer {
-                                    clip = true
-                                    compositingStrategy = CompositingStrategy.Offscreen
+                if (useBlur) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clearAndSetSemantics {}
+                            .graphicsLayer {
+                                compositingStrategy = CompositingStrategy.Offscreen
+                            }
+                            .drawWithContent {
+                                drawContent()
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        0f to Color.Black,
+                                        0.55f to Color.Black,
+                                        1f to Color.Transparent,
+                                    ),
+                                    blendMode = BlendMode.DstIn,
+                                )
+                            },
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .graphicsLayer {
                                     renderEffect = BlurEffect(
                                         blurPx,
                                         blurPx,
                                         TileMode.Clamp,
                                     )
-                                }.drawWithContent {
-                                    drawLayer(graphicsLayer)
                                 }
-                            } else {
-                                Modifier
-                            },
-                        ),
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to scrim,
-                                0.55f to scrim.copy(alpha = scrim.alpha * ArdttChrome.FadeAlpha),
-                                1f to scrim.copy(alpha = 0f),
-                            ),
-                        ),
-                )
+                                .drawWithContent {
+                                    drawLayer(graphicsLayer)
+                                },
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .fillMaxWidth()
                         .height(chromeHeight)
+                        .background(
+                            Brush.verticalGradient(
+                                0f to scrim,
+                                0.72f to scrim.copy(alpha = scrim.alpha * ArdttChrome.FadeAlpha),
+                                1f to scrim.copy(alpha = if (useBlur) 0f else scrim.alpha * 0.35f),
+                            ),
+                        )
                         .consumeHiddenContentPointers(),
                 )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(fade)
-                        .consumeHiddenContentPointers(),
-                )
+                if (!useBlur) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(fade)
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to scrim.copy(alpha = scrim.alpha * 0.35f),
+                                    1f to Color.Transparent,
+                                ),
+                            ),
+                    )
+                }
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Spacer(Modifier.height(status))
                     Box(
@@ -176,6 +194,8 @@ fun ArdttScrollChrome(
 
 internal fun ardttScrollChromeUsesGpuBlur(sdkInt: Int): Boolean =
     sdkInt >= Build.VERSION_CODES.S
+
+internal fun ardttScrollChromeTopPadding(chromeHeight: Dp, fade: Dp): Dp = chromeHeight + fade
 
 /** Eat hits that would otherwise reach rows drawn under the pinned chrome. */
 private fun Modifier.consumeHiddenContentPointers(): Modifier = pointerInput(Unit) {

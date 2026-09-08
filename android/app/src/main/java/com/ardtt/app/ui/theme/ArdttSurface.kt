@@ -149,6 +149,16 @@ fun cardShadowElevation(): Dp = ArdttSurface.cardShadowElevation(isDarkSurface()
  * Fill of a selected segmented control — the tab-bar indicator and the selected
  * choice chip, which used to carry two copies of this formula.
  */
+/** Status text/chip accent on the current surface (not the chip fill). */
+@Composable
+@ReadOnlyComposable
+fun connectedStatusColor(): Color = ArdttColors.connectedForeground(isDarkSurface())
+
+/** Warning text/chip accent on the current surface (not the chip fill). */
+@Composable
+@ReadOnlyComposable
+fun warningStatusColor(): Color = ArdttColors.warningForeground(isDarkSurface())
+
 @Composable
 @ReadOnlyComposable
 fun selectedControlContainer(darkAlpha: Float = ArdttAlpha.Fill): Color {

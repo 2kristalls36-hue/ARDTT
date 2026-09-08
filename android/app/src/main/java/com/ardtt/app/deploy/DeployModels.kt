@@ -61,6 +61,7 @@ enum class DeployJobKind {
     Install,
     Update,
     Uninstall,
+    Preflight,
 }
 
 sealed class DeployEvent {

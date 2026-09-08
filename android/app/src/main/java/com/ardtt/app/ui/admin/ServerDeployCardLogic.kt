@@ -3,6 +3,7 @@ package com.ardtt.app.ui.admin
 import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployHopTrack
+import com.ardtt.app.deploy.DeployIssue
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServerOsProbe
@@ -266,9 +267,34 @@ internal fun cascadeDeploySwitchSubtitle(): String =
 
 internal fun cascadeExitHostPlaceholder(): String = "Адрес, как его видит VPS 1"
 
+internal enum class ServerOverviewPrimaryAction {
+    Check,
+    Install,
+    Update,
+}
+
+internal fun serverOverviewPrimaryAction(
+    health: HealthUi?,
+    expectedVersion: String,
+): ServerOverviewPrimaryAction = when (health) {
+    HealthUi.NotInstalled -> ServerOverviewPrimaryAction.Install
+    is HealthUi.Online -> if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
+        ServerOverviewPrimaryAction.Check
+    } else {
+        ServerOverviewPrimaryAction.Update
+    }
+    else -> ServerOverviewPrimaryAction.Check
+}
+
+internal fun serverOverviewPrimaryLabel(action: ServerOverviewPrimaryAction): String = when (action) {
+    ServerOverviewPrimaryAction.Check -> "Проверить"
+    ServerOverviewPrimaryAction.Install -> "Установить"
+    ServerOverviewPrimaryAction.Update -> "Обновить"
+}
+
 /** Overview sticky / overflow: first install vs refresh of an existing stack. */
 internal fun serverOverviewDeployActionLabel(health: HealthUi?): String =
-    if (health is HealthUi.NotInstalled) "Установить деплой" else "Обновить деплой"
+    if (health is HealthUi.NotInstalled) "Установить" else "Обновить"
 
 internal fun serverOverviewDeployConfirmTitle(health: HealthUi?): String =
     if (health is HealthUi.NotInstalled) "Установить деплой?" else "Обновить деплой?"
@@ -306,17 +332,48 @@ internal fun deploySshUserOrRoot(raw: String): String = raw.trim().ifBlank { "ro
 internal fun deploySshSecretMissing(password: String, privateKeyPem: String): Boolean =
     password.isBlank() && privateKeyPem.isBlank()
 
+internal fun deployBusyIssue(): DeployIssue =
+    DeployIssue.of(DeployIssue.BUSY, "Деплой уже идёт")
+
 internal fun deployProgressSheetTitle(
     busy: Boolean,
     isUpdate: Boolean,
     status: String?,
     isUninstall: Boolean = false,
+    failure: DeployIssue? = null,
+    isPreflight: Boolean = false,
 ): String = when {
     busy && isUninstall -> "Удаление деплоя…"
+    busy && isPreflight -> "Проверка узлов…"
     busy && isUpdate -> "Обновление деплоя…"
     busy -> "Установка деплоя…"
-    status?.startsWith("Ошибка") == true -> "Ошибка"
+    failure != null && !failure.isCancelled -> "Не завершено"
+    status?.let { DeployIssue.looksFailed(it) } == true -> "Не завершено"
     else -> "Готово"
+}
+
+internal fun deployProgressFinishedSuccess(
+    busy: Boolean,
+    status: String?,
+    failure: DeployIssue? = null,
+): Boolean {
+    if (busy) return false
+    if (failure != null && !failure.isCancelled) return false
+    val text = status?.trim().orEmpty()
+    if (text.isEmpty()) return false
+    if (text == "Отменено") return false
+    if (DeployIssue.looksFailed(text)) return false
+    return true
+}
+
+internal fun deployProgressFailed(
+    busy: Boolean,
+    status: String?,
+    failure: DeployIssue? = null,
+): Boolean {
+    if (busy) return false
+    if (failure != null) return !failure.isCancelled
+    return DeployIssue.looksFailed(status)
 }
 
 internal enum class DeploySlotPhase {
@@ -324,6 +381,7 @@ internal enum class DeploySlotPhase {
     Active,
     Done,
     Failed,
+    Skipped,
 }
 
 internal data class DeploySlotView(
@@ -345,19 +403,8 @@ internal fun deploySlotStatusText(
     }
     DeploySlotPhase.Done -> "Готово"
     DeploySlotPhase.Failed -> "Ошибка"
+    DeploySlotPhase.Skipped -> "Не начиналась"
 }
-
-internal fun deployProgressFinishedSuccess(busy: Boolean, status: String?): Boolean {
-    if (busy) return false
-    val text = status?.trim().orEmpty()
-    if (text.isEmpty()) return false
-    if (text.startsWith("Ошибка")) return false
-    if (text == "Отменено") return false
-    return true
-}
-
-internal fun deployProgressFailed(busy: Boolean, status: String?): Boolean =
-    !busy && status?.startsWith("Ошибка") == true
 
 internal fun cascadeDeploySlots(
     track: DeployHopTrack,
@@ -404,6 +451,7 @@ internal fun deploySlotPhase(
     if (finishedSuccess || done) return DeploySlotPhase.Done
     val active = DeployHop.same(host, activeHost)
     if (failed && active) return DeploySlotPhase.Failed
+    if (failed) return DeploySlotPhase.Skipped
     if (active) return DeploySlotPhase.Active
     return DeploySlotPhase.Pending
 }
@@ -440,7 +488,7 @@ internal fun serverDeleteConfirmBody(
         "сервера $entry"
     }
     return "Стек ARDTT будет удалён с $where: контейнеры Docker, каталог /opt/ardtt и профили клиентов. " +
-        "После успешного снятия стека карточка исчезнет из вкладки «Сервера». Действие необратимо."
+        "После успешного снятия стека карточка исчезнет из вкладки «Серверы». Действие необратимо."
 }
 
 /** Leave the overview only after a finished uninstall that actually removed the card. */
@@ -448,8 +496,8 @@ internal fun serverDeleteFinishedShouldLeave(busy: Boolean, status: String?): Bo
     if (busy) return false
     val text = status?.trim().orEmpty()
     if (text.isEmpty()) return false
-    if (text.startsWith("Ошибка")) return false
     if (text == "Отменено") return false
+    if (DeployIssue.looksFailed(text)) return false
     return true
 }
 

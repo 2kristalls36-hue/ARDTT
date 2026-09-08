@@ -23,10 +23,38 @@ class LogsCatalogTest {
     }
 
     @Test
-    fun followStopsWhenUserLeavesTheEnd() {
-        assertTrue(LogsCatalog.shouldFollow(followEnabled = true, atEnd = true))
-        assertFalse(LogsCatalog.shouldFollow(followEnabled = true, atEnd = false))
-        assertFalse(LogsCatalog.shouldFollow(followEnabled = false, atEnd = true))
+    fun newLinesDoNotDisableFollow() {
+        assertTrue(LogsCatalog.shouldFollow(followEnabled = true))
+        assertFalse(LogsCatalog.shouldFollow(followEnabled = false))
+        assertTrue(
+            LogsCatalog.followAfterUserGesture(
+                currentlyFollowing = true,
+                atEnd = false,
+                userScrollingAwayFromEnd = false,
+            ),
+        )
+        assertFalse(
+            LogsCatalog.followAfterUserGesture(
+                currentlyFollowing = true,
+                atEnd = false,
+                userScrollingAwayFromEnd = true,
+            ),
+        )
+        assertTrue(
+            LogsCatalog.followAfterUserGesture(
+                currentlyFollowing = false,
+                atEnd = true,
+                userScrollingAwayFromEnd = false,
+            ),
+        )
+    }
+
+    @Test
+    fun levelLabelsAreFullWords() {
+        assertEquals("Уровень: все", LogsCatalog.levelFilterLabel(null))
+        assertEquals("Информация", LogsCatalog.levelName(AppLog.Level.I))
+        assertEquals("Предупреждения", LogsCatalog.levelName(AppLog.Level.W))
+        assertEquals("Ошибки", LogsCatalog.levelName(AppLog.Level.E))
     }
 
     @Test

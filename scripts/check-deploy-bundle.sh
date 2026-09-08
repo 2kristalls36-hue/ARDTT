@@ -155,8 +155,21 @@ bash -n "$ROOT/server/entrypoint.sh" || err "bash -n entrypoint"
 bash -n "$ROOT/scripts/pack-server-package.sh" || err "bash -n pack-server-package"
 bash -n "$ROOT/scripts/repack-server-host-files.sh" || err "bash -n repack-server-host-files"
 bash -n "$ROOT/scripts/attach-server-packages-to-release.sh" || err "bash -n attach-server-packages-to-release"
-grep -q 'repack-server-host-files.sh' "$ROOT/scripts/attach-server-packages-to-release.sh" \
-  || err "attach-to-release must refresh host files before upload"
+grep -q -- '--from-dir' "$ROOT/scripts/attach-server-packages-to-release.sh" \
+  || err "attach-to-release must take local packages, not old workflow artifacts"
+if grep -q -- '--clobber' "$ROOT/scripts/attach-server-packages-to-release.sh"; then
+  err "attach-to-release must not overwrite existing release assets"
+fi
+if grep -q "github.head_ref == 'cursor/server-bundle-ui-bad3'" "$ROOT/.github/workflows/server-package.yml"; then
+  err "PR branch must not publish to GitHub Releases"
+fi
+if grep -q 'pull_request' "$ROOT/.github/workflows/server-package.yml" && \
+   grep -A2 'name: Attach packages to GitHub Release' "$ROOT/.github/workflows/server-package.yml" | grep -q pull_request; then
+  err "release publish job must not run on pull_request"
+fi
+grep -q 'ref_type == .tag' "$ROOT/.github/workflows/server-package.yml" \
+  || grep -q "github.ref_type == 'tag'" "$ROOT/.github/workflows/server-package.yml" \
+  || err "release publish must be tag-only"
 bash -n "$ROOT/scripts/test-install-live-isolation.sh" || err "bash -n test-install-live-isolation"
 bash -n "$ROOT/scripts/make-fake-server-package.sh" || err "bash -n make-fake-server-package"
 python3 -m py_compile "$ROOT/scripts/safe-extract-package.py" || err "safe-extract-package.py"
@@ -248,6 +261,15 @@ if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-repack-server-host-files.sh" ]; then
   bash "$ROOT/scripts/test-repack-server-host-files.sh" || err "repack host files"
+fi
+if [ -f "$ROOT/scripts/test-verify-loaded-image.sh" ]; then
+  bash "$ROOT/scripts/test-verify-loaded-image.sh" || err "image identity"
+fi
+if [ -f "$ROOT/scripts/test-instance-metadata-rollback.sh" ]; then
+  bash "$ROOT/scripts/test-instance-metadata-rollback.sh" || err "instance metadata rollback"
+fi
+if [ -f "$ROOT/scripts/test-install-live-isolation-guard.sh" ]; then
+  bash "$ROOT/scripts/test-install-live-isolation-guard.sh" || err "live isolation guard"
 fi
 
 if [ "$fail" -ne 0 ]; then

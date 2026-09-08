@@ -298,10 +298,23 @@ class ServerDeployCardLogicTest {
 
     @Test
     fun overviewDeployActionDependsOnInstallState() {
-        assertEquals("Установить деплой", serverOverviewDeployActionLabel(HealthUi.NotInstalled))
-        assertEquals("Обновить деплой", serverOverviewDeployActionLabel(HealthUi.Unreachable))
-        assertEquals("Обновить деплой", serverOverviewDeployActionLabel(HealthUi.Online("1.0.5")))
-        assertEquals("Обновить деплой", serverOverviewDeployActionLabel(HealthUi.Checking))
+        assertEquals("Установить", serverOverviewDeployActionLabel(HealthUi.NotInstalled))
+        assertEquals("Обновить", serverOverviewDeployActionLabel(HealthUi.Unreachable))
+        assertEquals("Обновить", serverOverviewDeployActionLabel(HealthUi.Online("1.0.5")))
+        assertEquals("Обновить", serverOverviewDeployActionLabel(HealthUi.Checking))
+        assertEquals(
+            ServerOverviewPrimaryAction.Check,
+            serverOverviewPrimaryAction(HealthUi.Online("1.0.45"), "1.0.45"),
+        )
+        assertEquals(
+            ServerOverviewPrimaryAction.Update,
+            serverOverviewPrimaryAction(HealthUi.Online("1.0.44"), "1.0.45"),
+        )
+        assertEquals(
+            ServerOverviewPrimaryAction.Install,
+            serverOverviewPrimaryAction(HealthUi.NotInstalled, "1.0.45"),
+        )
+        assertEquals("Проверить", serverOverviewPrimaryLabel(ServerOverviewPrimaryAction.Check))
         assertEquals("Установить деплой?", serverOverviewDeployConfirmTitle(HealthUi.NotInstalled))
         assertEquals("Обновить деплой?", serverOverviewDeployConfirmTitle(HealthUi.Online("1.0.5")))
         assertEquals("Установить", serverOverviewDeployConfirmAction(HealthUi.NotInstalled))
@@ -416,6 +429,15 @@ class ServerDeployCardLogicTest {
         assertEquals(DeploySlotPhase.Done, finished[0].phase)
         assertEquals(DeploySlotPhase.Done, finished[1].phase)
 
+        val failedExit = cascadeDeploySlots(
+            track.copy(activeHost = "2.26.125.160", exitDone = false, entryDone = false),
+            failed = true,
+            finishedSuccess = false,
+        )
+        assertEquals(DeploySlotPhase.Skipped, failedExit[0].phase)
+        assertEquals(DeploySlotPhase.Failed, failedExit[1].phase)
+        assertEquals("Не начиналась", deploySlotStatusText(failedExit[0].phase, false, false))
+
         assertTrue(cascadeDeploySlots(DeployHopTrack(), failed = false, finishedSuccess = false).isEmpty())
         assertTrue(deployProgressFinishedSuccess(busy = false, status = "Каскад установлен"))
         assertFalse(deployProgressFinishedSuccess(busy = true, status = "Каскад установлен"))
@@ -431,6 +453,9 @@ class ServerDeployCardLogicTest {
         assertTrue(deploySshSecretMissing(password = "", privateKeyPem = ""))
         assertFalse(deploySshSecretMissing(password = "x", privateKeyPem = ""))
         assertFalse(deploySshSecretMissing(password = "", privateKeyPem = "PEM"))
+        assertEquals("Деплой уже идёт", deployBusyIssue().summary)
+        assertEquals(com.ardtt.app.deploy.DeployIssue.BUSY, deployBusyIssue().code)
+        assertFalse(deployBusyIssue().summary.startsWith("Ошибка"))
     }
 
     @Test
@@ -440,12 +465,48 @@ class ServerDeployCardLogicTest {
             deployProgressSheetTitle(busy = false, isUpdate = true, status = "Обновление завершено"),
         )
         assertEquals(
-            "Ошибка",
+            "Не завершено",
             deployProgressSheetTitle(busy = false, isUpdate = false, status = "Ошибка: timeout"),
+        )
+        assertEquals(
+            "Не завершено",
+            deployProgressSheetTitle(
+                busy = false,
+                isUpdate = false,
+                status = "VPS2 требует подготовки: Docker недоступен.",
+                failure = com.ardtt.app.deploy.DeployIssue.of(
+                    com.ardtt.app.deploy.DeployIssue.DOCKER_MISSING,
+                    "docker",
+                    hopRole = "exit",
+                ),
+            ),
+        )
+        assertEquals(
+            "Проверка узлов…",
+            deployProgressSheetTitle(
+                busy = true,
+                isUpdate = false,
+                status = null,
+                isPreflight = true,
+            ),
         )
         assertEquals(
             "Готово",
             deployProgressSheetTitle(busy = false, isUpdate = false, status = null),
+        )
+        val dockerSummary = "VPS2 требует подготовки: Docker недоступен. " +
+            "Установка ARDTT на VPS1 ещё не запускалась."
+        assertFalse(deployProgressFailed(busy = false, status = dockerSummary, failure = null))
+        assertTrue(
+            deployProgressFailed(
+                busy = false,
+                status = dockerSummary,
+                failure = com.ardtt.app.deploy.DeployIssue.of(
+                    com.ardtt.app.deploy.DeployIssue.DOCKER_MISSING,
+                    "docker",
+                    hopRole = "exit",
+                ),
+            ),
         )
     }
 
@@ -456,7 +517,7 @@ class ServerDeployCardLogicTest {
         val standalone = serverDeleteConfirmBody("10.0.0.1")
         assertTrue(standalone.contains("10.0.0.1"))
         assertTrue(standalone.contains("/opt/ardtt"))
-        assertTrue(standalone.contains("Сервера"))
+        assertTrue(standalone.contains("Серверы"))
         assertTrue(standalone.contains("необратимо"))
         assertFalse(standalone.contains("останутся без изменений"))
         val cascade = serverDeleteConfirmBody(

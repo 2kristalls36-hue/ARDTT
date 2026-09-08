@@ -18,6 +18,44 @@ class ArdttContrastTest {
     }
 
     @Test
+    fun statusForegroundOnLightSurfacesMeetsTextContrast() {
+        val fgs = listOf(ArdttColors.ConnectedOnLight, ArdttColors.WarningOnLight)
+        val bgs = listOf(
+            ArdttLightColorScheme.surface,
+            ArdttLightColorScheme.surfaceVariant,
+            ArdttLightColorScheme.background,
+        )
+        for (fg in fgs) {
+            for (bg in bgs) {
+                val ratio = ArdttSurface.contrastRatio(fg, bg)
+                assertTrue("$fg on $bg = $ratio", ratio >= 4.5f)
+            }
+        }
+    }
+
+    @Test
+    fun statusForegroundOnDarkSurfacesMeetsTextContrast() {
+        val fgs = listOf(ArdttColors.ConnectedOnDark, ArdttColors.WarningOnDark)
+        val bgs = listOf(
+            ArdttDarkColorScheme.surface,
+            ArdttDarkColorScheme.surfaceVariant,
+            ArdttDarkColorScheme.background,
+        )
+        for (fg in fgs) {
+            for (bg in bgs) {
+                val ratio = ArdttSurface.contrastRatio(fg, bg)
+                assertTrue("$fg on $bg = $ratio", ratio >= 4.5f)
+            }
+        }
+    }
+
+    @Test
+    fun containerConnectedIsNotDarkThemeBodyText() {
+        val ratio = ArdttSurface.contrastRatio(ArdttColors.Connected, ArdttDarkColorScheme.surface)
+        assertTrue("container Connected on dark surface $ratio", ratio < 4.5f)
+    }
+
+    @Test
     fun contentColorOnPicksReadableForegroundOnLegacyPrimary() {
         val mid = Color(0xFF4A90E2)
         val chosen = ArdttSurface.contentColorOn(mid)

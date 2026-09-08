@@ -5,9 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -132,10 +131,14 @@ private fun PageHeaderChrome(
     } else {
         null
     }
+    val minTitle = titleRowHeight ?: ArdttHeaderDefaults.TitleRowHeight
+    val actionsOnTitleRow = actions != null && subtitle.isNullOrBlank()
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
+                start = ArdttHeaderDefaults.HorizontalPadding,
+                end = ArdttHeaderDefaults.HorizontalPadding,
                 top = topPadding,
                 bottom = ArdttHeaderDefaults.BottomPaddingBelowTitle,
             ),
@@ -144,7 +147,7 @@ private fun PageHeaderChrome(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (titleRowHeight != null) Modifier.height(titleRowHeight) else Modifier),
+                .heightIn(min = minTitle),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
@@ -164,35 +167,29 @@ private fun PageHeaderChrome(
                     shadow = titleShadow,
                 ),
                 color = backdropTitleColor(),
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (actionsOnTitleRow) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = actions,
+                )
+            }
         }
-        if (!subtitle.isNullOrBlank() || actions != null) {
+        if (!subtitle.isNullOrBlank()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (onBack != null) {
-                            Modifier.padding(start = ArdttHeaderDefaults.TitleRowHeight)
-                        } else {
-                            Modifier
-                        },
-                    ),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (!subtitle.isNullOrBlank()) {
-                    Text(
-                        subtitle,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium.copy(shadow = titleShadow),
-                        color = backdropMutedTextColor(),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+                Text(
+                    subtitle,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium.copy(shadow = titleShadow),
+                    color = backdropMutedTextColor(),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 if (actions != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

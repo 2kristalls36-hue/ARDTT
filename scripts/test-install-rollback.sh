@@ -62,7 +62,8 @@ grep -q 'restore_previous_release' "$ROOT/server/install.sh" || err "install.sh 
 grep -q 'stop_owned_stack' "$ROOT/server/install.sh" || err "install.sh must stop a failed first install"
 grep -q 'restore_previous_release' "$ROOT/server/install-lib/uninstall.sh" || err "restore helper missing"
 grep -q 'load_instance_from_env' "$ROOT/server/install-lib/uninstall.sh" || err "uninstall must read current/.env if instance.json is missing"
-grep -q 'load_instance_from_env' "$ROOT/server/install-lib/ownership.sh" || err "load_instance_from_env helper missing"
+grep -q 'write_pending_instance' "$ROOT/server/install.sh" || err "install.sh must record pending instance before up"
+grep -q 'clear_pending_instance' "$ROOT/server/install.sh" || err "install.sh must commit instance.json only after readiness"
 
 # shellcheck disable=SC1091
 . "$ROOT/server/install-lib/ownership.sh"

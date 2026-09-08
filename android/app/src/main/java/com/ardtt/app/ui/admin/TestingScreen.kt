@@ -101,7 +101,10 @@ import kotlinx.coroutines.withContext
 private enum class TestingPane { Storage, History }
 
 @Composable
-fun TestingScreen(profiles: ProfileRepository) {
+fun TestingScreen(
+    profiles: ProfileRepository,
+    onBack: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val recorder = remember { TelemetryRecorder.get(context) }
     val fileManager = remember { TelemetryFileManager(context) }
@@ -340,6 +343,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                 ArdttTabHeader(
                     title = "Режим тестирования",
                     subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
+                    onBack = onBack,
                 )
             },
         ) { topPad ->
