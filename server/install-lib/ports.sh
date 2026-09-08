@@ -35,6 +35,43 @@ _ss_listen() {
 udp_listen_port() { _ss_listen udp "$1"; }
 tcp_listen_port() { _ss_listen tcp "$1"; }
 
+# True when inspect JSON (one or two objects) publishes this host port/proto.
+# Keys are container ports (e.g. 80/tcp); the host side is HostPort.
+inspect_json_has_host_port() {
+  local json="$1" port="$2" proto="$3"
+  printf '%s' "$json" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+want_port, want_proto = sys.argv[1], sys.argv[2]
+dec = json.JSONDecoder()
+idx = 0
+objs = []
+while idx < len(raw):
+    while idx < len(raw) and raw[idx].isspace():
+        idx += 1
+    if idx >= len(raw):
+        break
+    obj, end = dec.raw_decode(raw, idx)
+    objs.append(obj)
+    idx = end
+for obj in objs:
+    if not isinstance(obj, dict):
+        continue
+    for spec, binds in obj.items():
+        spec_proto = ""
+        if isinstance(spec, str) and "/" in spec:
+            spec_proto = spec.split("/")[-1]
+        for b in binds or []:
+            if not isinstance(b, dict):
+                continue
+            if str(b.get("HostPort") or "") != want_port:
+                continue
+            if not spec_proto or spec_proto == want_proto:
+                raise SystemExit(0)
+raise SystemExit(1)
+' "$port" "$proto"
+}
+
 # Docker HostConfig.PortBindings / NetworkSettings.Ports — even when ss has no docker-proxy.
 docker_published_port() {
   local proto="$1" port="$2"
@@ -45,10 +82,8 @@ docker_published_port() {
   [ -n "$ids" ] || return 1
   for id in $ids; do
     bindings="$(docker inspect -f '{{json .HostConfig.PortBindings}} {{json .NetworkSettings.Ports}}' "$id" 2>/dev/null || true)"
-    echo "$bindings" | grep -Eq "\"${port}/${proto}\"" || continue
-    # HostPort may be the same number or empty (random). Treat as busy if this port is the host side.
-    echo "$bindings" | grep -Eq "\"HostPort\":[[:space:]]*\"${port}\"" && return 0
-    echo "$bindings" | grep -Eq "\"${port}/${proto}\":\\[\\{\"HostIp\":[^]]*\"HostPort\":\"${port}\"" && return 0
+    [ -n "$bindings" ] || continue
+    inspect_json_has_host_port "$bindings" "$port" "$proto" && return 0
   done
   return 1
 }
