@@ -10,8 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,6 +21,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 
@@ -139,13 +139,19 @@ fun ArdttCopyRow(
                 maxLines = maxLines,
                 overflow = TextOverflow.Ellipsis,
             )
-            IconButton(onClick = onCopy) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = "Копировать")
-            }
+            ArdttButton(
+                onClick = onCopy,
+                variant = ArdttButtonVariant.Icon,
+                icon = Icons.Filled.ContentCopy,
+                contentDescription = "Копировать",
+            )
             if (onShare != null) {
-                IconButton(onClick = onShare) {
-                    Icon(Icons.Filled.Share, contentDescription = "Поделиться")
-                }
+                ArdttButton(
+                    onClick = onShare,
+                    variant = ArdttButtonVariant.Icon,
+                    icon = Icons.Filled.Share,
+                    contentDescription = "Поделиться",
+                )
             }
         }
     }

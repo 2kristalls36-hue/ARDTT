@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -224,16 +222,14 @@ fun NetworkScreen(
                 title = "Сеть",
                 subtitle = NetworkMapCopy.SUBTITLE,
                 actions = {
-                    IconButton(
+                    ArdttButton(
                         onClick = pull.onRefresh,
                         enabled = !pull.refreshing,
-                    ) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = "Обновить карту сети",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Обновить карту сети",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
                 },
             )
         },
