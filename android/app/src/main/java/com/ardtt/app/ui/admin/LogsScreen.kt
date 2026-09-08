@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -168,19 +167,27 @@ fun LogsScreen() {
                     "Краткие события туннеля"
                 },
                 actions = {
-                    IconButton(onClick = { AppLog.clear() }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Очистить", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(
+                    ArdttButton(
+                        onClick = { AppLog.clear() },
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Default.Delete,
+                        contentDescription = "Очистить",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
+                    ArdttButton(
                         onClick = { copyToClipboard(context, dumpBody(), "ARDTT logs") },
-                    ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Копировать", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Default.ContentCopy,
+                        contentDescription = "Копировать",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
+                    ArdttButton(
                         onClick = { shareText(context, dumpBody(), "ARDTT logs", "Экспорт логов") },
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = "Поделиться", tint = MaterialTheme.colorScheme.primary)
-                    }
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Default.Share,
+                        contentDescription = "Поделиться",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
                 },
             )
         },
@@ -216,9 +223,12 @@ fun LogsScreen() {
                 label = { Text("Поиск") },
                 trailingIcon = {
                     if (query.isNotBlank()) {
-                        IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Очистить поиск")
-                        }
+                        ArdttButton(
+                            onClick = { query = "" },
+                            variant = ArdttButtonVariant.Icon,
+                            icon = Icons.Default.Delete,
+                            contentDescription = "Очистить поиск",
+                        )
                     }
                 },
             )

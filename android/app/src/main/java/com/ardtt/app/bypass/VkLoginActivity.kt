@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.ardtt.app.core.AppLog
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.theme.ArdttTheme
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
@@ -92,15 +92,16 @@ class VkLoginActivity : ComponentActivity() {
                                     .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 48.dp),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            IconButton(
+                            ArdttButton(
                                 onClick = {
                                     notifyCancelled()
                                     finish()
                                 },
                                 modifier = Modifier.align(Alignment.CenterEnd),
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Закрыть")
-                            }
+                                variant = ArdttButtonVariant.Icon,
+                                icon = Icons.Default.Close,
+                                contentDescription = "Закрыть",
+                            )
                         }
                     }
                     if (loading) {
