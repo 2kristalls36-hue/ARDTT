@@ -8,6 +8,9 @@
 #        phone tunnel falls.
 # exit:  VPS2 — listens for the entry peer; DNS + WAN MASQ + Hide-IP WARP.
 set -euo pipefail
+# shellcheck disable=SC1091
+. /opt/ardtt/netns-guard.sh
+ardtt_require_container_netns || exit 1
 
 DATA="${ARDTT_DATA:-/data}"
 # Old split compose set ARDTT_CASCADE_ROLE from ARDTT_ROLE. The unified
@@ -20,7 +23,7 @@ TABLE="${ARDTT_CASCADE_TABLE:-51821}"
 ENTRY_FROM_DIRECT_PRIO="${ARDTT_CASCADE_RULE_PRIO_DIRECT:-220}"
 ENTRY_FROM_BYPASS_PRIO="${ARDTT_CASCADE_RULE_PRIO_BYPASS:-221}"
 ENTRY_FROM_PRIO_MAX=235
-LISTEN="${ARDTT_CASCADE_LISTEN_PORT:-51820}"
+LISTEN="${ARDTT_DIRECT_LISTEN_PORT:-${ARDTT_CASCADE_LISTEN_PORT:-51820}}"
 PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-}"
 if [ -z "${PEER_ENDPOINT}" ] && [ -s "${DATA}/cascade.peer.endpoint" ]; then
   PEER_ENDPOINT="$(tr -d '[:space:]' <"${DATA}/cascade.peer.endpoint")"

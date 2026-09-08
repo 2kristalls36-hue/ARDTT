@@ -120,6 +120,9 @@ func TestBuildProfileIncludesRemainingTraffic(t *testing.T) {
 	if p.TrafficLimitBytes != 2000 {
 		t.Fatalf("limit: %d", p.TrafficLimitBytes)
 	}
+	if p.ProvisionPort != 9100 {
+		t.Fatalf("default provisionPort: %d", p.ProvisionPort)
+	}
 	if p.UsedBytes != 500 {
 		t.Fatalf("used: %d", p.UsedBytes)
 	}

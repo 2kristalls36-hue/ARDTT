@@ -129,4 +129,11 @@ class ServerOsProbeTest {
         assertEquals("Ubuntu 24.04.1 LTS", next?.osVersion)
         assertNull(ServerOsInfo("ubuntu", "Ubuntu 24.04.1 LTS").appliedTo(next!!))
     }
+
+    @Test
+    fun linuxArchFromUname() {
+        assertEquals("amd64", ServerOsProbe.linuxArch("x86_64"))
+        assertEquals("arm64", ServerOsProbe.linuxArch("aarch64"))
+        assertEquals("amd64", DeployStackSource.linuxArch("x86_64"))
+    }
 }

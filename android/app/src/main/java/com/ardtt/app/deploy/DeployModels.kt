@@ -18,6 +18,10 @@ data class DeployTarget(
     val autoPorts: Boolean = true,
     val directPort: Int = 51820,
     val bypassPort: Int = 56003,
+    val provisionPort: Int = 9100,
+    val telemetryPort: Int = 9200,
+    /** linux amd64/arm64 of the last probed VPS; empty when unknown. */
+    val arch: String = "",
     /** Second VPS: egress hop (AWG + DNS + WARP). Phone deploys it over SSH separately. */
     val cascadeEnabled: Boolean = false,
     val cascadeHost: String = "",
@@ -27,6 +31,9 @@ data class DeployTarget(
     /** PEM for the exit VPS; empty if that hop uses a password. */
     val cascadePrivateKeyPem: String = "",
     val cascadeKeyPassphrase: String = "",
+    val cascadeProvisionPort: Int = 9100,
+    val cascadeTelemetryPort: Int = 9200,
+    val cascadeArch: String = "",
     /** Lowercase linux distro id (e.g. ubuntu/debian), empty when unknown. */
     val osId: String = "",
     /** Human-friendly OS version label (usually PRETTY_NAME). */
@@ -63,10 +70,14 @@ sealed class DeployEvent {
     data class Failure(val message: String) : DeployEvent()
 }
 
-/** Result of a single-hop install.sh run (cascade key + resolved UDP ports). */
+/** Result of a single-hop install.sh run (cascade key + resolved host ports). */
 data class DeployInstallResult(
     val cascadePublicKey: String = "",
     val directPort: Int? = null,
     val bypassPort: Int? = null,
     val cascadeListenPort: Int? = null,
+    val provisionPort: Int? = null,
+    val telemetryPort: Int? = null,
+    val instanceId: String = "",
+    val containerName: String = "",
 )

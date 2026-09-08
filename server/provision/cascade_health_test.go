@@ -95,7 +95,12 @@ func TestHideIPPrefixesIncludesSecondaryDeviceRawIP(t *testing.T) {
 
 func TestProvisionPeerBaseURL(t *testing.T) {
 	t.Setenv("ARDTT_PROVISION_LISTEN", "0.0.0.0:9100")
+	t.Setenv("ARDTT_CASCADE_PEER_PROVISION_PORT", "")
 	if got := provisionPeerBaseURL("2.26.125.160"); got != "http://2.26.125.160:9100" {
-		t.Fatalf("got %q", got)
+		t.Fatalf("default: %q", got)
+	}
+	t.Setenv("ARDTT_CASCADE_PEER_PROVISION_PORT", "9101")
+	if got := provisionPeerBaseURL("2.26.125.160"); got != "http://2.26.125.160:9101" {
+		t.Fatalf("published peer port: %q", got)
 	}
 }

@@ -159,6 +159,19 @@ object ServerOsProbe {
         }
     }
 
+    /** `uname -m` → linux amd64/arm64 used to pick the release asset. */
+    fun linuxArch(unameMachine: String): String = DeployStackSource.linuxArch(unameMachine)
+
+    fun probeLinuxArch(ssh: SshClient): String {
+        val raw = ssh.exec("uname -m", timeoutMs = 12_000L)
+        val machine = raw.lineSequence().map { it.trim() }.lastOrNull { it.isNotEmpty() }.orEmpty()
+        val arch = linuxArch(machine)
+        if (arch != "amd64" && arch != "arm64") {
+            error("Неподдерживаемая архитектура VPS ($machine). Нужен linux amd64 или arm64.")
+        }
+        return arch
+    }
+
     internal fun parse(raw: String): ServerOsInfo {
         val values = linkedMapOf<String, String>()
         raw.lineSequence().forEach { line ->

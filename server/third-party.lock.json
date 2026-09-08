@@ -1,0 +1,59 @@
+{
+  "comment": "Pinned inputs for the ARDTT server image. CI and Dockerfile must use these SHAs; VPS install never fetches them.",
+  "amneziawgGo": {
+    "repo": "https://github.com/amnezia-vpn/amneziawg-go",
+    "commit": "b5928efb6ca19f0153958460c3d141f04abc5c2e",
+    "tarballSha256": "10bf7458e090bf52f87df27adcd3904a60e4d17fab844d9415e46379147f1ab4"
+  },
+  "amneziawgTools": {
+    "repo": "https://github.com/amnezia-vpn/amneziawg-tools",
+    "commit": "ee0f0a9aa34ff0a0da4b3433b9512781cfe02843",
+    "tarballSha256": "22438f231d39ea27e4bdc69707ec3103357f3cecc9ad3eecba18a61e5b39c9b9"
+  },
+  "wgcf": {
+    "version": "2.2.26",
+    "url": "https://github.com/ViRb3/wgcf/releases/download/v2.2.26/wgcf_2.2.26_linux_${ARCH}",
+    "sha256": {
+      "amd64": "b49e7c52307df1f0a9ccd13ad12f87bf7ee7092df4e189f064d81860ec6f4bf5",
+      "arm64": "cbda1a8e4e1144c49ed9a8a2d99f3d5a70e6115ebca62ae3d354d8b074a4ae73"
+    }
+  },
+  "wireproxy": {
+    "version": "1.1.2",
+    "url": "https://github.com/windtf/wireproxy/releases/download/v1.1.2/wireproxy_linux_${ARCH}.tar.gz",
+    "sha256": {
+      "amd64": "b7dcff8f6e9d3410364e432aff24154eaa8db8206e0c6faac35d6c6ab06dac51",
+      "arm64": "aa234db9ef0b2774cb04a79f391bd41c2ededd815fc1a1c720cfdc693c70898d"
+    }
+  },
+  "tun2socks": {
+    "version": "2.5.2",
+    "url": "https://github.com/xjasonlyu/tun2socks/releases/download/v2.5.2/tun2socks-linux-${ARCH}.zip",
+    "sha256": {
+      "amd64": "4aa7737009a9f06b9f4957c4fc12932ae0cd2039471d2ae4e5d4666ffeb40a2e",
+      "arm64": "b83bc4961b33aa3ec0399c801a97c2c47766462991ffa488a4cbaee1ab3e0bff"
+    }
+  },
+  "dockerComposeCli": {
+    "version": "2.32.4",
+    "url": "https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-${UNAME_ARCH}",
+    "sha256": {
+      "amd64": "ed1917fb54db184192ea9d0717bcd59e3662ea79db48bff36d3475516c480a6b",
+      "arm64": "0c4591cf3b1ed039adcd803dbbeddf757375fc08c11245b0154135f838495a2f"
+    },
+    "minEngineApi": "1.44",
+    "note": "Shipped inside ardtt-server-*-linux-<arch>.tar.gz as bin/docker-compose. Used from /opt/ardtt/bin when the host has no Compose v2 plugin. Never replaces the system plugin."
+  },
+  "python": {
+    "requirements": "server/telemetry-upload/requirements.txt",
+    "packages": {
+      "flask": "3.0.3",
+      "gunicorn": "22.0.0"
+    }
+  },
+  "baseImages": {
+    "golangProvision": "golang:1.22-alpine",
+    "golangBookworm": "golang:1.25-bookworm",
+    "runtime": "debian:bookworm-slim"
+  }
+}

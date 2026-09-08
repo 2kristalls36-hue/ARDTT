@@ -221,7 +221,8 @@ internal fun hopHost(raw: String?): String? = DeployHop.host(raw)
 
 internal fun sameHopHost(a: String?, b: String?): Boolean = DeployHop.same(a, b)
 
-internal fun provisionUrlForHost(host: String?): String? = DeployHop.provisionUrl(host)
+internal fun provisionUrlForHost(host: String?, port: Int = 9100): String? =
+    DeployHop.provisionUrl(host, port)
 
 internal fun lastHopProvisionUrls(entry: String?, exit: String?): List<String> =
     DeployHop.lastHopProvisionUrls(entry, exit)

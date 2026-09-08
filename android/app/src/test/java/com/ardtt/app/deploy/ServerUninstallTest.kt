@@ -6,41 +6,42 @@ import org.junit.Test
 
 class ServerUninstallTest {
     @Test
-    fun remoteCommandWipesStackAndSignalsDone() {
+    fun remoteCommandPrefersPackageInstaller() {
         val cmd = ServerUninstall.remoteCommand()
         assertTrue(cmd.startsWith("bash -c "))
-        assertTrue(cmd.contains("docker compose down"))
-        assertTrue(cmd.contains("--remove-orphans"))
-        assertTrue(cmd.contains("rm -rf /opt/ardtt /opt/nonamevpn"))
-        assertTrue(cmd.contains("ardtt-provision"))
-        assertTrue(cmd.contains("nvpn-provision"))
-        assertTrue(cmd.contains("ardtt-host"))
-        assertTrue(cmd.contains("awg0"))
-        assertTrue(cmd.contains("lookup 51820"))
-        assertTrue(cmd.contains(ServerUninstall.DONE_MARKER))
-        assertTrue(cmd.contains("exit 0"))
-        assertFalse(cmd.contains("bash /opt/ardtt/install.sh"))
+        assertTrue(cmd.contains("ARDTT_ACTION=uninstall"))
+        assertTrue(cmd.contains("bash /opt/ardtt/current/install.sh"))
+        assertTrue(cmd.contains(ServerUninstall.DONE_MARKER) || cmd.contains("ARDTT_UNINSTALLED"))
+        assertFalse(cmd.contains("apt-get purge"))
+        assertFalse(cmd.contains("rm -rf /var/lib/docker"))
+        assertFalse(cmd.contains("ip link del docker0"))
+        assertFalse(cmd.contains("swapoff /swapfile"))
+        assertFalse(cmd.contains("ufw --force delete"))
+        assertFalse(cmd.contains("wipe_docker_netfilter"))
+        assertFalse(cmd.contains("foreign_docker_workloads"))
     }
 
     @Test
-    fun remoteCommandRemovesDockerSwapAndFirewallWhenHostIsOurs() {
+    fun fallbackIsLabelScopedAndLeavesDockerEngine() {
+        val fallback = ServerUninstall.FALLBACK_SCRIPT
+        assertTrue(fallback.contains("com.ardtt.owner=ardtt"))
+        assertTrue(fallback.contains("com.ardtt.instance="))
+        assertTrue(fallback.contains("rm -rf /opt/ardtt /opt/nonamevpn"))
+        assertTrue(fallback.contains(ServerUninstall.DONE_MARKER))
+        assertFalse(fallback.contains("apt-get purge"))
+        assertFalse(fallback.contains("/var/lib/docker"))
+        assertFalse(fallback.contains("docker0"))
+        assertFalse(fallback.contains("/swapfile"))
+        assertFalse(fallback.contains("lookup 51820"))
+        assertFalse(fallback.contains("awg0"))
+    }
+
+    @Test
+    fun remoteCommandDoesNotPurgeDockerWhenHostLooksEmpty() {
         val cmd = ServerUninstall.remoteCommand()
-        assertTrue(cmd.contains("foreign_docker_workloads"))
-        assertTrue(cmd.contains("docker image prune -af"))
-        assertTrue(cmd.contains("apt-get purge -y docker-ce"))
-        assertTrue(cmd.contains("rm -rf /var/lib/docker"))
-        assertTrue(cmd.contains("unmount_tree"))
-        assertTrue(cmd.contains("umount -l"))
-        assertTrue(cmd.contains("ip link del docker0"))
-        assertTrue(cmd.contains("swapoff /swapfile"))
-        assertTrue(cmd.contains("sed -i"))
-        assertTrue(cmd.contains("ufw --force delete allow"))
-        assertTrue(cmd.contains("host_drop_port"))
-        assertTrue(cmd.contains("wait_apt_lock"))
-        assertTrue(cmd.contains("docker-model-plugin"))
-        assertTrue(cmd.contains("wipe_docker_netfilter"))
-        assertTrue(cmd.contains("ip6tables"))
-        assertTrue(cmd.contains("/etc/containerd"))
-        assertTrue(cmd.contains("br-[0-9a-f]{12}"))
+        assertFalse(cmd.contains("docker image prune -af"))
+        assertFalse(cmd.contains("docker-ce"))
+        assertFalse(cmd.contains("/etc/containerd"))
+        assertFalse(cmd.contains("host_drop_port"))
     }
 }

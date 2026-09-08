@@ -20,6 +20,9 @@ object DeployTargetJson {
             .put("autoPorts", target.autoPorts)
             .put("directPort", target.directPort)
             .put("bypassPort", target.bypassPort)
+            .put("provisionPort", target.provisionPort)
+            .put("telemetryPort", target.telemetryPort)
+            .put("arch", target.arch)
             .put("cascadeEnabled", target.cascadeEnabled)
             .put("cascadeHost", target.cascadeHost)
             .put("cascadePort", target.cascadePort)
@@ -27,6 +30,9 @@ object DeployTargetJson {
             .put("cascadePassword", target.cascadePassword)
             .put("cascadePrivateKeyPem", target.cascadePrivateKeyPem)
             .put("cascadeKeyPassphrase", target.cascadeKeyPassphrase)
+            .put("cascadeProvisionPort", target.cascadeProvisionPort)
+            .put("cascadeTelemetryPort", target.cascadeTelemetryPort)
+            .put("cascadeArch", target.cascadeArch)
             .put("osId", target.osId)
             .put("osVersion", target.osVersion)
             .put("lastDeployedAtMs", target.lastDeployedAtMs)
@@ -46,6 +52,9 @@ object DeployTargetJson {
             autoPorts = o.optBoolean("autoPorts", true),
             directPort = o.optInt("directPort", 51820),
             bypassPort = o.optInt("bypassPort", 56003),
+            provisionPort = o.optInt("provisionPort", 9100),
+            telemetryPort = o.optInt("telemetryPort", 9200),
+            arch = o.optString("arch", ""),
             cascadeEnabled = o.optBoolean("cascadeEnabled", false),
             cascadeHost = o.optString("cascadeHost", ""),
             cascadePort = o.optInt("cascadePort", 22),
@@ -53,6 +62,9 @@ object DeployTargetJson {
             cascadePassword = o.optString("cascadePassword", ""),
             cascadePrivateKeyPem = o.optString("cascadePrivateKeyPem", ""),
             cascadeKeyPassphrase = o.optString("cascadeKeyPassphrase", ""),
+            cascadeProvisionPort = o.optInt("cascadeProvisionPort", 9100),
+            cascadeTelemetryPort = o.optInt("cascadeTelemetryPort", 9200),
+            cascadeArch = o.optString("cascadeArch", ""),
             osId = o.optString("osId", ""),
             osVersion = o.optString("osVersion", ""),
             lastDeployedAtMs = o.optLong("lastDeployedAtMs", 0L),

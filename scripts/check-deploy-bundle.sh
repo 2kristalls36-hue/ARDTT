@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Consistency checks for the VPS deploy bundle (no Docker required).
+# Consistency checks for the VPS deploy package (no Docker required).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fail=0
@@ -11,19 +11,27 @@ VERSION_FILE="$ROOT/server/DEPLOY_VERSION"
 ASSET_VERSION="$ROOT/android/app/src/main/assets/deploy/DEPLOY_VERSION"
 BUNDLE_KT="$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployBundle.kt"
 STACK_SOURCE_KT="$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackSource.kt"
-PACK_STACK="$ROOT/scripts/pack-stack.sh"
+PACK_SERVER="$ROOT/scripts/pack-server-package.sh"
 COMPOSE="$ROOT/server/docker-compose.yml"
+DOCKERFILE="$ROOT/server/Dockerfile"
 
 [ -f "$INSTALLER" ] || err "missing $INSTALLER"
 [ -f "$VERSION_FILE" ] || err "missing $VERSION_FILE"
 [ -f "$ASSET_VERSION" ] || err "missing $ASSET_VERSION"
 [ -f "$BUNDLE_KT" ] || err "missing $BUNDLE_KT"
 [ -f "$STACK_SOURCE_KT" ] || err "missing $STACK_SOURCE_KT"
-[ -f "$PACK_STACK" ] || err "missing $PACK_STACK"
+[ -f "$PACK_SERVER" ] || err "missing $PACK_SERVER"
 [ -f "$COMPOSE" ] || err "missing $COMPOSE"
+[ -f "$ROOT/server/third-party.lock.json" ] || err "missing third-party.lock.json"
+[ -f "$ROOT/server/docker-compose.exit.yml" ] || err "missing docker-compose.exit.yml"
+[ -f "$ROOT/server/docker-compose.dev.yml" ] || err "missing docker-compose.dev.yml"
+[ -f "$ROOT/server/ready.sh" ] || err "missing ready.sh"
+[ -f "$ROOT/server/netns-guard.sh" ] || err "missing netns-guard.sh"
 
 if [ -f "$INSTALLER" ]; then
   bash -n "$INSTALLER" || err "bash -n failed for server/install.sh"
+  bash -n "$ROOT/server/ready.sh" || err "bash -n ready.sh"
+  bash -n "$ROOT/server/install-lib/ports.sh" || err "bash -n ports.sh"
   grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
   grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
   grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
@@ -34,115 +42,126 @@ if "ARDTT_PROGRESS|" not in head or "ARDTT_DONE|" not in head:
     raise SystemExit(1)
 PY
   then
-    err "ARDTT_PROGRESS| and ARDTT_DONE| must appear in the first 400 chars of install.sh (APK ≤0.5.245 sniff)"
+    err "ARDTT_PROGRESS| and ARDTT_DONE| must appear in the first 400 chars of install.sh"
   fi
-  grep -q 'find_server_tree' "$INSTALLER" || err "installer missing find_server_tree (GitHub archive layout)"
-  grep -q 'extract_archive_to_staging' "$INSTALLER" || err "installer missing extract_archive_to_staging"
-  grep -q 'fetch_stack_from_git' "$INSTALLER" || err "installer missing fetch_stack_from_git"
-  grep -q 'ARDTT_GIT_REF' "$INSTALLER" || err "installer missing ARDTT_GIT_REF"
-  grep -q 'ARDTT_GIT_REPO' "$INSTALLER" || err "installer missing ARDTT_GIT_REPO"
-  grep -q 'github_source_tarball_url' "$INSTALLER" || err "installer missing github_source_tarball_url"
-  grep -q 'уже распакованный стек' "$INSTALLER" || err "installer missing re-run-without-tar path"
-  grep -q 'ARDTT_TELEMETRY_PORT' "$INSTALLER" || err "installer missing telemetry port"
-  grep -q 'telemetry только внутри контейнера (nginx/socat)' "$INSTALLER" \
-    || err "installer must keep telemetry inside the container when nginx and socat own 9200/9199"
-  if grep -q 'внутри контейнера telemetry не стартуем' "$INSTALLER"; then
-    err "installer must not skip gunicorn because host telemetry ports are busy"
+  grep -q 'ARDTT_PACKAGE_SHA256' "$INSTALLER" || err "installer must require outer package SHA-256"
+  grep -q 'safe_extract_package' "$INSTALLER" || err "installer must extract safely"
+  grep -q 'docker load' "$INSTALLER" || err "installer must docker load"
+  grep -q -- '--no-build --pull never' "$INSTALLER" || err "installer must up --no-build --pull never"
+  grep -q 'wait_readiness' "$INSTALLER" || err "installer must wait readiness"
+  grep -q 'restore_previous_release' "$INSTALLER" || err "installer must restore previous on failed up/readiness"
+  if grep -q '\[ -d "$INSTALL_DIR/previous/docker-compose.yml" \]' "$INSTALLER"; then
+    err "auto-rollback must not use [ -d ] on previous/docker-compose.yml (it is a file)"
   fi
-  grep -q 'TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing TELEMETRY_LISTEN in .env"
-  grep -q 'ARDTT_TELEMETRY_LISTEN=' "$INSTALLER" || err "installer missing ARDTT_TELEMETRY_LISTEN alias in .env"
-  grep -q '127.0.0.1:\${TELEMETRY_PORT}/health' "$INSTALLER" || err "installer telemetry health must use TELEMETRY_PORT"
-  if grep -q '127.0.0.1:9200/health' "$INSTALLER"; then
-    err "installer hardcodes telemetry :9200 health check"
-  fi
-  grep -q 'ARDTT_AUTO_PORTS' "$INSTALLER" || err "installer missing ARDTT_AUTO_PORTS"
-  grep -q 'find_free_udp_port' "$INSTALLER" || err "installer missing find_free_udp_port"
-  grep -q 'resolve_udp_host_port' "$INSTALLER" || err "installer missing resolve_udp_host_port"
-  grep -q 'direct_port=' "$INSTALLER" || err "installer ARDTT_DONE must report direct_port"
-  grep -q 'envPort("ARDTT_DIRECT_PORT")' "$ROOT/server/provision/main.go" \
-    || err "provision must sync DirectPort from ARDTT_DIRECT_PORT"
-  grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
-  grep -q 'prepare_docker_build' "$INSTALLER" || err "installer missing prepare_docker_build (dangling image prune)"
-  grep -q 'foreign_docker_workloads' "$INSTALLER" || err "installer must detect other Docker workloads on a shared VPS"
-  grep -q 'cleanup_host_dataplane' "$INSTALLER" || err "installer must strip leftover host TUN/iptables after the old host-net stack"
-  grep -q 'не перезапускаем dockerd — на хосте есть другие контейнеры' "$INSTALLER" || err "installer must not restart dockerd when other containers exist"
-  grep -q 'COMPOSE_PROFILES' "$INSTALLER" || err "installer missing COMPOSE_PROFILES (isolated vs hostnet)"
-  grep -q 'ARDTT_NETWORK_MODE' "$INSTALLER" || err "installer missing ARDTT_NETWORK_MODE"
-  grep -q 'docker exec ardtt' "$INSTALLER" || err "installer health must exec the unified ardtt container"
-  grep -q 'container_name: ardtt' "$COMPOSE" || err "compose missing unified container_name ardtt"
-  grep -q 'profiles: \["isolated"\]' "$COMPOSE" || err "compose missing isolated profile"
-  grep -q 'profiles: \["hostnet"\]' "$COMPOSE" || err "compose missing hostnet profile"
-  grep -q 'network_mode: host' "$COMPOSE" || err "compose missing hostnet fallback"
-  grep -q '/dev/net/tun' "$COMPOSE" || err "compose missing /dev/net/tun"
-  grep -q 'NET_ADMIN' "$COMPOSE" || err "compose missing NET_ADMIN"
-  [ -f "$ROOT/server/Dockerfile" ] || err "missing server/Dockerfile (unified image)"
-  [ -f "$ROOT/server/entrypoint.sh" ] || err "missing server/entrypoint.sh"
-  bash -n "$ROOT/server/entrypoint.sh" || err "bash -n failed for server/entrypoint.sh"
-  if grep -qE 'build:[[:space:]]*\./provision' "$COMPOSE"; then
-    err "compose still builds split provision image — use the unified Dockerfile"
-  fi
-  grep -q 'reset_docker_buildkit' "$INSTALLER" || err "installer missing reset_docker_buildkit (wipe /var/lib/docker/buildkit)"
-  grep -q 'wipe_dir_best_effort /var/lib/docker/buildkit' "$INSTALLER" || err "installer must wipe BuildKit via wipe_dir_best_effort (busy overlay)"
-  grep -q 'unmount_tree' "$INSTALLER" || err "installer must unmount BuildKit executor rootfs before rm"
-  grep -q 'Подготовка: очистка кэша Docker' "$INSTALLER" || err "installer must clean Docker junk at the start of an update"
-  grep -q 'docker buildx prune -af' "$INSTALLER" || err "installer must prune buildx cache, not only builder"
-  grep -q 'Мало RAM — останавливаем стек и сбрасываем BuildKit' "$INSTALLER" || err "installer must stop the stack before golang rebuilds on tiny VPS"
-  grep -q 'build --no-cache' "$INSTALLER" || err "installer must retry compose build --no-cache after a snapshot failure"
-  grep -q 'поднимаем прежний стек' "$INSTALLER" || err "installer must restore the previous stack if a build fails after compose down"
-  grep -q 'ARDTT_CASCADE_FORCE_DISABLE' "$INSTALLER" || err "installer missing cascade force-disable flag"
-  grep -q 'cascade.peer.endpoint' "$INSTALLER" || err "installer must persist cascade peer endpoint"
+  grep -q 'ARDTT_ACTION' "$INSTALLER" || err "installer missing uninstall/rollback actions"
+  grep -q 'ARDTT_CASCADE_FORCE_DISABLE' "$ROOT/server/install-lib/migrate.sh" || err "cascade force-disable"
   grep -q 'exit-hideip' "$INSTALLER" || err "installer must set WARP_MODE=exit-hideip on the cascade exit"
-  grep -q 'WARP_MODE="passthrough"' "$INSTALLER" || err "cascade entry must use WARP passthrough"
-  grep -q 'hide-ip-prefixes' "$ROOT/server/warp/entrypoint.sh" || err "exit warp must poll hide-ip-prefixes"
-  grep -q 'TCPMSS --clamp-mss-to-pmtu' "$ROOT/server/direct/entrypoint.sh" \
-    || err "direct must clamp TCPMSS like Bypass (HTTPS blackhole on awg0)"
-  grep -q 'apply_direct_mtu' "$ROOT/server/direct/entrypoint.sh" \
-    || err "direct must set awg0 MTU to 1280 to match the phone TUN"
-  grep -q '/v1/hide-ip-prefixes' "$ROOT/server/provision/main.go" || err "provision missing GET /v1/hide-ip-prefixes"
-  grep -q 'cleanup_stale_deploy_files' "$INSTALLER" || err "installer missing leftover-file cleanup"
-  grep -q 'clear_legacy_kernel_warp' "$ROOT/server/warp/entrypoint.sh" || err "warp entrypoint must drop leftover kernel-WG warp0"
-  grep -q 'swap_target_mb' "$INSTALLER" || err "installer missing small-disk swap cap"
-  grep -q 'disk_need_mb' "$INSTALLER" || err "installer missing scaled disk threshold"
-  grep -q 'install-live.log' "$INSTALLER" || err "installer must remove legacy install-live.log"
-  if awk '
-    $0 ~ /^cleanup_stale_deploy_files\(\)/ { in_fn=1; next }
-    in_fn && $0 ~ /^}/ { in_fn=0 }
-    in_fn && $0 ~ /rm / && $0 ~ /stack\.staging/ { found=1 }
-    END { exit found ? 0 : 1 }
-  ' "$INSTALLER"; then
-    err "cleanup_stale_deploy_files must not delete in-progress stack.staging"
+  grep -q 'passthrough' "$INSTALLER" || err "cascade entry must use WARP passthrough"
+  grep -q 'ensure_cascade_keys' "$INSTALLER" || err "installer missing cascade key helper"
+  grep -q 'provision_port=' "$INSTALLER" || err "ARDTT_DONE must report provision_port"
+  grep -q 'telemetry_port=' "$INSTALLER" || err "ARDTT_DONE must report telemetry_port"
+  grep -q 'TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALLER" || err "inner telemetry listen stays 9200"
+  if grep -q 'TELEMETRY_LISTEN=0.0.0.0:${TELEMETRY_PORT}' "$INSTALLER"; then
+    err "host telemetry port must not rewrite container TELEMETRY_LISTEN"
   fi
-  if grep -E '^[^#]*image prune -a' "$INSTALLER" >/dev/null; then
-    err "install.sh must not docker image prune -a (drops unused tagged stack images)"
-  fi
-  if grep -q 'ARDTT_CASCADE_PASSWORD' "$INSTALLER"; then
-    err "installer must not write cascade SSH password into .env"
+  grep -q 'get.docker.com' "$INSTALLER" && err "installer must not call get.docker.com"
+  grep -q 'fetch_stack_from_git' "$INSTALLER" && err "installer must not git clone / fetch sources"
+  grep -q 'cleanup_host_dataplane' "$INSTALLER" && err "installer must not call cleanup_host_dataplane"
+  grep -q 'reset_docker_buildkit' "$INSTALLER" && err "installer must not reset BuildKit / stop dockerd"
+  grep -q 'ensure_swap' "$INSTALLER" && err "installer must not manage /swapfile"
+  grep -q 'journalctl --vacuum' "$INSTALLER" && err "installer must not vacuum host journal"
+  grep -q 'docker builder prune' "$INSTALLER" && err "installer must not prune Docker caches"
+  grep -q 'drop_caches' "$INSTALLER" && err "installer must not drop host page cache"
+  grep -q 'ufw allow' "$INSTALLER" && err "installer must not add ufw rules"
+  grep -q 'hostnet' "$INSTALLER" && grep -q 'COMPOSE_PROFILES=hostnet' "$INSTALLER" && err "installer must not enable hostnet"
+  grep -q 'ARDTT_UNINSTALLED' "$ROOT/server/install-lib/uninstall.sh" || err "uninstall marker"
+  grep -q 'ARDTT_PURGE_DATA' "$ROOT/server/install-lib/uninstall.sh" || err "purge data flag"
+  if grep -q 'apt-get purge' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/ServerUninstall.kt"; then
+    err "ServerUninstall.kt must not purge Docker"
   fi
 fi
 
-if [ -f "$PACK_STACK" ]; then
-  bash -n "$PACK_STACK" || err "bash -n failed for scripts/pack-stack.sh"
-  grep -q 'ardtt-stack-' "$PACK_STACK" || err "pack-stack.sh must name GitHub release asset ardtt-stack-*.tar.gz"
-  grep -q 'android/app/src/main/assets/deploy' "$PACK_STACK" || err "pack-stack.sh must sync assets/deploy/DEPLOY_VERSION"
-  if grep -q 'stack.tar.gz.bin' "$PACK_STACK"; then
-    err "pack-stack.sh must not copy the archive into the APK"
-  fi
+if grep -qE '^[[:space:]]*build:' "$COMPOSE"; then
+  err "production compose must not contain build:"
 fi
+if grep -q 'network_mode: host' "$COMPOSE"; then
+  err "production compose must not use host netns"
+fi
+if grep -q 'profiles: \["hostnet"\]' "$COMPOSE"; then
+  err "production compose must not ship a hostnet profile"
+fi
+grep -q 'pull_policy: never' "$COMPOSE" || err "compose must set pull_policy: never"
+grep -q 'cap_drop:' "$COMPOSE" || err "compose must cap_drop ALL"
+grep -q 'NET_ADMIN' "$COMPOSE" || err "compose missing NET_ADMIN"
+grep -q 'NET_RAW' "$COMPOSE" || err "compose missing NET_RAW"
+grep -q '/dev/net/tun' "$COMPOSE" || err "compose missing /dev/net/tun"
+grep -qE '^[[:space:]]*privileged:' "$COMPOSE" && err "compose must not be privileged"
+grep -qE 'docker\.sock:' "$COMPOSE" && err "compose must not mount docker.sock"
+grep -q 'mem_limit:' "$COMPOSE" || err "compose missing mem_limit"
+grep -q '/opt/ardtt/ready.sh' "$COMPOSE" || err "compose healthcheck must use ready.sh"
+grep -q 'ARDTT_TELEMETRY_PORT' "$COMPOSE" || err "compose must publish host telemetry port"
+grep -q '9100:9100/tcp' "$COMPOSE" || grep -q '9100/tcp' "$COMPOSE" || err "compose provision target 9100"
+grep -q '9200:9200/tcp' "$COMPOSE" || grep -q '9200/tcp' "$COMPOSE" || err "compose telemetry target 9200"
+grep -q 'com.ardtt.owner' "$COMPOSE" || err "compose missing owner label"
+grep -q 'ARDTT_DATA_DIR' "$COMPOSE" || err "compose must mount dedicated data dir"
+grep -q 'ARDTT_LOG_DIR' "$COMPOSE" || err "compose must mount dedicated log dir"
+
+grep -q 'AMNEZIAWG_GO_COMMIT' "$DOCKERFILE" || err "Dockerfile must pin amneziawg-go commit"
+grep -q 'sha256sum -c' "$DOCKERFILE" || err "Dockerfile must verify upstream checksums"
+grep -q 'refs/heads/master' "$DOCKERFILE" && err "Dockerfile must not fetch floating master"
+
+grep -q 'hide-ip-prefixes' "$ROOT/server/warp/entrypoint.sh" || err "exit warp must poll hide-ip-prefixes"
+grep -q 'TCPMSS --clamp-mss-to-pmtu' "$ROOT/server/direct/entrypoint.sh" || err "direct must clamp TCPMSS"
+grep -q 'apply_direct_mtu' "$ROOT/server/direct/entrypoint.sh" || err "direct must set awg0 MTU"
+grep -q 'ardtt_require_container_netns' "$ROOT/server/warp/entrypoint.sh" || err "warp must refuse host netns"
+grep -q 'ardtt_require_container_netns' "$ROOT/server/direct/entrypoint.sh" || err "direct must refuse host netns"
+grep -q 'ARDTT_CASCADE_ROLE:-${ARDTT_ROLE:-entry}' "$ROOT/server/direct/cascade-entrypoint.sh" \
+  || err "cascade must inherit ARDTT_ROLE"
+grep -q '/ready' "$ROOT/server/provision/main.go" || err "provision missing /ready"
+grep -q 'publicProvisionPort' "$ROOT/server/provision/main.go" || err "health must expose provisionPort"
+grep -q 'envPort("ARDTT_DIRECT_PORT")' "$ROOT/server/provision/main.go" || err "provision must sync DirectPort"
+
+if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/warp/entrypoint.sh" >/dev/null; then
+  err "warp must not write net.ipv4.conf.all.rp_filter"
+fi
+if grep -E '^[^#]*conf/\*/rp_filter' "$ROOT/server/direct/cascade-entrypoint.sh" >/dev/null; then
+  err "cascade must not write every iface rp_filter"
+fi
+grep -q 'ARDTT_WARP_STATE:-/data/warp' "$ROOT/server/warp/entrypoint.sh" || err "warp default state dir"
+if grep -q 'ARDTT_CASCADE_PASSWORD' "$INSTALLER"; then
+  err "installer must not write cascade SSH password into .env"
+fi
+if grep -E '^[^#]*image prune -a' "$INSTALLER" >/dev/null; then
+  err "install.sh must not docker image prune -a"
+fi
+
+bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n cascade-entrypoint"
+bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n warp"
+bash -n "$ROOT/server/entrypoint.sh" || err "bash -n entrypoint"
+bash -n "$ROOT/scripts/pack-server-package.sh" || err "bash -n pack-server-package"
+bash -n "$ROOT/scripts/make-fake-server-package.sh" || err "bash -n make-fake-server-package"
+python3 -m py_compile "$ROOT/scripts/safe-extract-package.py" || err "safe-extract-package.py"
 
 if [ -f "$STACK_SOURCE_KT" ]; then
-  grep -q 'ardtt-stack-' "$STACK_SOURCE_KT" || err "DeployStackSource must name ardtt-stack-*.tar.gz"
-  grep -q 'raw.githubusercontent.com' "$STACK_SOURCE_KT" || err "DeployStackSource must fetch install.sh from GitHub"
-  grep -q 'extractInstallScript' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackFetcher.kt" \
-    || err "DeployStackFetcher must extract install.sh from the downloaded tarball"
-  grep -q 'SNIFF_CHARS' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackFetcher.kt" \
-    || err "DeployStackFetcher must sniff more than a 400-char install.sh prefix"
+  grep -q 'ardtt-server-' "$STACK_SOURCE_KT" || err "DeployStackSource must name ardtt-server-*-linux-<arch>.tar.gz"
+  grep -q 'raw.githubusercontent.com' "$STACK_SOURCE_KT" && err "DeployStackSource must not fetch install.sh from raw GitHub"
+  grep -q 'archive/refs/heads/main' "$STACK_SOURCE_KT" && err "DeployStackSource must not fall back to main"
+fi
+if grep -q 'docker builder prune -af' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt"; then
+  err "DeployEngine must not prune Docker on the VPS"
+fi
+if grep -q 'uploadBytes(stackBytes' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt"; then
+  err "DeployEngine must SFTP the package file, not uploadBytes of the image"
+fi
+if grep -q 'ByteArrayOutputStream' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackFetcher.kt"; then
+  err "DeployStackFetcher must not buffer the whole package in a ByteArrayOutputStream"
 fi
 
 if [ -f "$ROOT/android/app/src/main/assets/deploy/install.sh" ]; then
-  err "assets/deploy/install.sh must not be bundled; the phone downloads it from GitHub"
+  err "assets/deploy/install.sh must not be bundled"
 fi
 if ls "$ROOT"/android/app/src/main/assets/deploy/stack.tar.gz* >/dev/null 2>&1; then
-  err "assets/deploy must not contain stack.tar.gz*; publish via scripts/pack-stack.sh"
+  err "assets/deploy must not contain stack.tar.gz"
 fi
 
 VER=""
@@ -158,7 +177,6 @@ fi
 if [ -n "$VER" ] && [ -n "$ASSET_VER" ] && [ "$VER" != "$ASSET_VER" ]; then
   err "DEPLOY_VERSION mismatch: server=$VER assets=$ASSET_VER"
 fi
-
 if [ -f "$BUNDLE_KT" ]; then
   FALLBACK="$(sed -n 's/.*FALLBACK_VERSION = "\(.*\)".*/\1/p' "$BUNDLE_KT" | head -1)"
   [ -n "$FALLBACK" ] || err "could not parse DeployBundle.FALLBACK_VERSION"
@@ -167,86 +185,43 @@ if [ -f "$BUNDLE_KT" ]; then
   fi
 fi
 
-if [ -f "$PACK_STACK" ] && [ -n "$VER" ]; then
-  packdir="$(mktemp -d)"
-  packed="$packdir/ardtt-stack-${VER}.tar.gz"
-  if bash "$PACK_STACK" "$packed"; then
-    members="$(tar -tzf "$packed" 2>/dev/null || true)"
-    printf '%s\n' "$members" | grep -Fxq 'docker-compose.yml' \
-      || err "packed stack missing docker-compose.yml at archive root"
-    printf '%s\n' "$members" | grep -Fxq 'install.sh' \
-      || err "packed stack missing install.sh"
-    printf '%s\n' "$members" | grep -q '^provision/' \
-      || err "packed stack missing provision/"
-    if printf '%s\n' "$members" | grep -q '^data/'; then
-      err "packed stack must not include server/data/"
-    fi
-  else
-    err "scripts/pack-stack.sh failed"
-  fi
-  rm -rf "$packdir"
-fi
+python3 - "$ROOT/server/third-party.lock.json" <<'PY' || err "third-party.lock.json invalid"
+import json,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+for k in ("amneziawgGo","amneziawgTools","wgcf","wireproxy","tun2socks","dockerComposeCli"):
+    assert k in d, k
+assert d["amneziawgGo"]["commit"]
+assert len(d["wgcf"]["sha256"]["amd64"])==64
+PY
 
-for context in provision direct bypass dns warp telemetry-upload; do
-  [ -d "$ROOT/server/$context" ] || err "missing server/$context (needed in the deploy tar)"
-done
-[ -f "$ROOT/server/Dockerfile" ] || err "missing unified server/Dockerfile"
-grep -q 'ARG TARGETARCH=amd64' "$ROOT/server/Dockerfile" \
-  || err "Dockerfile TARGETARCH must default to amd64"
-[ -f "$ROOT/server/entrypoint.sh" ] || err "missing unified server/entrypoint.sh"
-[ -f "$ROOT/server/direct/cascade-entrypoint.sh" ] || err "missing cascade-entrypoint.sh"
-if [ -f "$COMPOSE" ]; then
-  grep -q 'container_name: ardtt' "$COMPOSE" || err "compose missing ardtt"
-  grep -q 'TELEMETRY_LISTEN: \${TELEMETRY_LISTEN' "$COMPOSE" || err "compose must interpolate TELEMETRY_LISTEN from .env"
-  if grep -q 'ARDTT_TELEMETRY_LISTEN:-0.0.0.0:9200' "$COMPOSE"; then
-    err "compose still defaults telemetry from ARDTT_TELEMETRY_LISTEN (install.sh writes TELEMETRY_LISTEN)"
-  fi
-fi
-bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n failed for cascade-entrypoint.sh"
-bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n failed for warp/entrypoint.sh"
 if [ -f "$ROOT/scripts/test-warp-wgcf-parse.sh" ]; then
   bash "$ROOT/scripts/test-warp-wgcf-parse.sh" || err "warp wgcf parse"
 fi
 if [ -f "$ROOT/scripts/test-cascade-warp-prefs.sh" ]; then
   bash "$ROOT/scripts/test-cascade-warp-prefs.sh" || err "cascade/warp prefs"
 fi
-if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
-  bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "install buildkit busy wipe"
-fi
 if [ -f "$ROOT/scripts/test-install-auto-ports.sh" ]; then
   bash "$ROOT/scripts/test-install-auto-ports.sh" || err "install auto-ports helpers"
 fi
+if [ -f "$ROOT/scripts/test-install-isolation.sh" ]; then
+  bash "$ROOT/scripts/test-install-isolation.sh" || err "install isolation contract"
+fi
+if [ -f "$ROOT/scripts/test-install-unpack.sh" ]; then
+  bash "$ROOT/scripts/test-install-unpack.sh" || err "install unpack"
+fi
+if [ -f "$ROOT/scripts/test-install-rollback.sh" ]; then
+  bash "$ROOT/scripts/test-install-rollback.sh" || err "install rollback restore"
+fi
+if [ -f "$ROOT/scripts/test-package-extract.sh" ]; then
+  bash "$ROOT/scripts/test-package-extract.sh" || err "package extract safety"
+fi
+
 if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
-  bash "$ROOT/scripts/test-install-disk-guard.sh" || err "install disk / ENOSPC guards"
+  bash "$ROOT/scripts/test-install-disk-guard.sh" || err "disk guard"
 fi
-grep -q 'summarize_build_failure' "$INSTALLER" || err "installer must summarize docker build errors"
-grep -q 'No space left on device' "$INSTALLER" || err "installer must surface ENOSPC instead of apt lists"
-grep -q 'wireproxy' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing wireproxy"
-grep -q 'tun2socks' "$ROOT/server/Dockerfile" || err "unified Dockerfile missing tun2socks"
-if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/warp/entrypoint.sh" >/dev/null; then
-  err "warp must not write net.ipv4.conf.all.rp_filter (breaks other host services)"
+if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
+  bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"
 fi
-if grep -E '^[^#]*conf/\*/rp_filter' "$ROOT/server/direct/cascade-entrypoint.sh" >/dev/null; then
-  err "cascade must not write every iface rp_filter (breaks other host services)"
-fi
-if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/direct/cascade-entrypoint.sh" >/dev/null; then
-  err "cascade must not write net.ipv4.conf.all.rp_filter (breaks other host services)"
-fi
-grep -q 'ARDTT_CASCADE_ROLE:-${ARDTT_ROLE:-entry}' "$ROOT/server/direct/cascade-entrypoint.sh" \
-  || err "cascade must inherit ARDTT_ROLE so the exit hop listens on UDP"
-grep -q 'ARDTT_CASCADE_ROLE: ${ARDTT_ROLE:-entry}' "$COMPOSE" \
-  || err "compose must pass ARDTT_CASCADE_ROLE from ARDTT_ROLE"
-grep -q 'ARDTT_WARP_STATE:-/data/warp' "$ROOT/server/warp/entrypoint.sh" \
-  || err "warp default state dir must be /data/warp"
-grep -q 'ARDTT_WARP_STATE: /data/warp' "$COMPOSE" || err "compose must persist WARP on /data/warp"
-if grep -q '/var/lib/ardtt-warp' "$COMPOSE"; then
-  err "compose must not use ephemeral /var/lib/ardtt-warp for WARP state"
-fi
-grep -q 'ARDTT_CASCADE_ROLE=$ROLE' "$INSTALLER" || err "installer must write ARDTT_CASCADE_ROLE"
-grep -q 'DIRECT_PORT="$CASCADE_LISTEN_PORT"' "$INSTALLER" \
-  || err "exit install must publish cascade UDP via DIRECT_PORT"
-grep -Fq 'iif (awg0|wdttraw0|warp0|cascade0)' "$INSTALLER" \
-  || err "host dataplane cleanup must not delete foreign lookup 51820 rules"
 
 if [ "$fail" -ne 0 ]; then
   msg "deploy bundle check failed"

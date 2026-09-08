@@ -104,13 +104,30 @@ class SshClient(
         }
     }
 
-    fun upload(local: File, remotePath: String) {
+    fun upload(local: File, remotePath: String, onProgress: (copied: Long, total: Long) -> Unit = { _, _ -> }) {
         check(session.isConnected) { "SSH session down" }
         var sftp: ChannelSftp? = null
         try {
             sftp = session.openChannel("sftp") as ChannelSftp
             sftp.connect(15_000)
-            sftp.put(local.absolutePath, remotePath)
+            val total = local.length()
+            // JSch SftpProgressMonitor.count is a delta, not a cumulative total.
+            var copied = 0L
+            sftp.put(
+                local.absolutePath,
+                remotePath,
+                object : com.jcraft.jsch.SftpProgressMonitor {
+                    override fun init(op: Int, src: String?, dest: String?, max: Long) {
+                        copied = 0L
+                    }
+                    override fun count(count: Long): Boolean {
+                        copied += count
+                        onProgress(copied, total)
+                        return true
+                    }
+                    override fun end() = Unit
+                },
+            )
         } finally {
             runCatching { sftp?.disconnect() }
         }
