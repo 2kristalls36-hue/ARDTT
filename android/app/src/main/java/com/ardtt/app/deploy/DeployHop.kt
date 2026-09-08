@@ -35,9 +35,10 @@ object DeployHop {
         return entry == null || !same(entry, exit)
     }
 
-    fun provisionUrl(host: String?): String? {
+    fun provisionUrl(host: String?, port: Int = 9100): String? {
         val h = host(host) ?: return null
-        return "http://$h:9100"
+        val p = if (port in 1..65535) port else 9100
+        return "http://$h:$p"
     }
 
     fun exitProvisionUrl(server: DeployTarget?): String? {
@@ -45,7 +46,7 @@ object DeployHop {
         val exit = host(server.cascadeHost) ?: return null
         val entry = host(server.publicHost) ?: host(server.host)
         if (entry != null && same(entry, exit)) return null
-        return provisionUrl(exit)
+        return provisionUrl(exit, server.cascadeProvisionPort)
     }
 
     /** Last hop first (cascade exit), then entry. Tunnel tab uses this for the public egress IP. */

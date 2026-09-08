@@ -1,0 +1,8 @@
+# Exit-hop port map: no Bypass UDP. Cascade listen is the Direct publish
+# (container 51820/udp). Internal provision/telemetry stay 9100/9200.
+services:
+  ardtt:
+    ports: !override
+      - "${ARDTT_DIRECT_PORT:-51820}:${ARDTT_DIRECT_LISTEN_PORT:-51820}/udp"
+      - "${ARDTT_PROVISION_PORT:-9100}:9100/tcp"
+      - "${ARDTT_TELEMETRY_PORT:-9200}:9200/tcp"

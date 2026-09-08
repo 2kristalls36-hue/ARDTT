@@ -53,9 +53,8 @@ PR всегда собирает Preview APK в артефакты (`.github/wor
 Ручной прогон: Actions → **Android build** → Run workflow. Поле `publish_release`: `auto` (как в таблице), `always` (форс в Releases), `never` (только артефакт).
 
 1. Собирает подписанные `ardtt-<versionName>-*.apk` (R8 + сжатие ресурсов; стек VPS в APK не кладётся)
-2. Пакует `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из `server/` (`scripts/pack-stack.sh`)
-3. Стабильная версия: публикует GitHub Release с тегом `v<versionName>`
-4. Кладёт рядом `ardtt-update.json` и `SHA256SUMS.txt`
+2. Стабильная версия: публикует GitHub Release с тегом `v<versionName>` (APK, `ardtt-update.json`)
+3. Пакеты сервера `ardtt-server-<DEPLOY_VERSION>-linux-*.tar.gz` собирает [`.github/workflows/server-package.yml`](../.github/workflows/server-package.yml)
 
 **Секреты репозитория** (Settings → Secrets → Actions):
 
@@ -69,7 +68,7 @@ PR всегда собирает Preview APK в артефакты (`.github/wor
 Приложение проверяет обновления через **публичный GitHub Releases API** (как qWDTT),
 с fallback на старый `update.json` на VPS. PAT не нужен и в APK не вшивается.
 
-Стек на VPS ставится из вкладки **Серверы**: телефон скачивает `server/` с GitHub и заливает по SSH. Тот же стек — клоном тега релиза на машине с Docker — [docs/DEPLOY.md](../docs/DEPLOY.md). Clone с VPS токен не требует.
+Стек на VPS ставится из вкладки **Серверы**: телефон скачивает `ardtt-server-*-linux-<arch>.tar.gz` с GitHub и заливает по SSH. Docker Engine на VPS уже должен быть. Подробности: [docs/DEPLOY.md](../docs/DEPLOY.md).
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`
@@ -87,6 +86,6 @@ PR всегда собирает Preview APK в артефакты (`.github/wor
 - **Режим тестирования:** полная телеметрия, JSONL, upload на VPS — [../docs/TELEMETRY.md](../docs/TELEMETRY.md)
 - **Обновления:** GitHub Releases (`2kristalls36-hue/ARDTT`), fallback — `https://45.129.2.3/update.json`. Клиент скачивает APK, проверяет SHA-256 и запускает системный установщик. Публичный репозиторий читается без PAT.
 
-После деплоя сервера на VPS стек лежит в `/opt/ardtt/stack/` и рабочие образы.
+После деплоя сервера на VPS стек лежит в `/opt/ardtt/current/` и `/opt/ardtt/data/`.
 
-Архив `server/` в APK больше не кладётся. Релизный актив `ardtt-stack-<DEPLOY_VERSION>.tar.gz` собирает `scripts/pack-stack.sh` и на стабильной версии публикует GitHub Release. Механика и повторный деплой: [docs/DEPLOY.md](../docs/DEPLOY.md).
+Релизный актив `ardtt-server-<DEPLOY_VERSION>-linux-<arch>.tar.gz` собирает `scripts/pack-server-package.sh`. Старые APK с `ardtt-stack-*.tar.gz` этот пакет не ставят.

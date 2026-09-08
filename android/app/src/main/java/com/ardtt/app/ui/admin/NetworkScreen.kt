@@ -37,6 +37,7 @@ import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.core.IpApiLookup
 import com.ardtt.app.deploy.DeployTarget
+import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
@@ -164,7 +165,8 @@ fun NetworkScreen(
             liveCascade = live,
         )
         val pings = if (inputs.sessionUp) {
-            val exitUrl = provisionUrlForHost(resolved.vps2Host)
+            val exitUrl = DeployHop.exitProvisionUrl(inputs.server)
+                ?: provisionUrlForHost(resolved.vps2Host)
             val exitPing = when {
                 resolved.vps2Host.isNullOrBlank() -> -1L
                 sameProvisionBase(inputs.entryProvision, exitUrl) -> entryHealth.pingMs

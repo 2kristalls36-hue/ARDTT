@@ -21,11 +21,13 @@ data class VpnProfile(
     val bypass: BypassConfig,
     val trafficLimitBytes: Long = 0L,
     val usedBytes: Long = 0L,
+    val provisionPort: Int = 9100,
 ) {
     val provisionBaseUrl: String?
         get() {
             val host = NetworkEndpoint.hostOf(direct.endpoint) ?: NetworkEndpoint.hostOf(bypass.peer)
-            return host?.let { "http://$it:9100" }
+            val port = provisionPort.takeIf { it in 1..65535 } ?: 9100
+            return host?.let { "http://$it:$port" }
         }
 
     val subscriptionActive: Boolean
@@ -96,6 +98,7 @@ object VpnProfileJson {
             maxDevices = o.optInt("maxDevices", 1).coerceAtLeast(1),
             trafficLimitBytes = o.optLong("trafficLimitBytes", 0L),
             usedBytes = o.optLong("usedBytes", 0L),
+            provisionPort = o.optInt("provisionPort", 9100).takeIf { it in 1..65535 } ?: 9100,
             direct = DirectConfig(
                 endpoint = direct.optString("endpoint", ""),
                 privateKey = direct.optString("privateKey", ""),
@@ -133,6 +136,7 @@ object VpnProfileJson {
             .put("maxDevices", profile.maxDevices)
             .put("trafficLimitBytes", profile.trafficLimitBytes)
             .put("usedBytes", profile.usedBytes)
+            .put("provisionPort", profile.provisionPort)
             .put(
                 "direct",
                 JSONObject()

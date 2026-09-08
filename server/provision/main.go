@@ -88,8 +88,9 @@ type Profile struct {
 	ExpiresAt         int64  `json:"expiresAt"`
 	Deactivated       bool   `json:"deactivated"`
 	MaxDevices        int    `json:"maxDevices"`
-	TrafficLimitBytes int64  `json:"trafficLimitBytes,omitempty"`
-	UsedBytes         int64  `json:"usedBytes,omitempty"`
+	TrafficLimitBytes int64 `json:"trafficLimitBytes,omitempty"`
+	UsedBytes         int64 `json:"usedBytes,omitempty"`
+	ProvisionPort     int   `json:"provisionPort,omitempty"`
 	Direct            struct {
 		Endpoint      string         `json:"endpoint"`
 		PrivateKey    string         `json:"privateKey"`
@@ -195,13 +196,32 @@ func runServer(store *Store, listen string) error {
 			cascadeHost = cascadeHostFromPeer(peer)
 		}
 		writeJSON(w, map[string]any{
-			"ok":            true,
-			"service":       "provision",
-			"deployVersion": resolveDeployVersion(),
-			"role":          strings.TrimSpace(envOr("ARDTT_ROLE", "entry")),
-			"cascade":       cascade,
-			"cascadePeer":   peer,
-			"cascadeHost":   cascadeHost,
+			"ok":             true,
+			"service":        "provision",
+			"deployVersion":  resolveDeployVersion(),
+			"role":           strings.TrimSpace(envOr("ARDTT_ROLE", "entry")),
+			"cascade":        cascade,
+			"cascadePeer":    peer,
+			"cascadeHost":    cascadeHost,
+			"directPort":     store.Config.DirectPort,
+			"bypassPort":     store.Config.BypassPort,
+			"provisionPort":  publicProvisionPort(),
+			"telemetryPort":  publicTelemetryPort(),
+		})
+	})
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		out, err := exec.Command("/opt/ardtt/ready.sh").CombinedOutput()
+		ready := err == nil
+		status := http.StatusOK
+		if !ready {
+			status = http.StatusServiceUnavailable
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":     ready,
+			"ready":  ready,
+			"detail": strings.TrimSpace(string(out)),
 		})
 	})
 	mux.HandleFunc("/v1/users", func(w http.ResponseWriter, r *http.Request) {
@@ -495,6 +515,7 @@ func loadOrInitStore(dataDir, publicHost string) (*Store, error) {
 	} else if s.Config.DirectPort == 0 {
 		s.Config.DirectPort = defaultDirectPort
 	}
+	// DirectPort in profiles is the host published port. Container listen is 51820.
 	if v := envPort("ARDTT_BYPASS_PORT"); v > 0 {
 		s.Config.BypassPort = v
 	} else if s.Config.BypassPort == 0 {
@@ -1135,13 +1156,28 @@ func shouldProxyEgressToExit(role string, cascade bool, cascadeHost string) bool
 	return role == "entry" && cascade && strings.TrimSpace(cascadeHost) != ""
 }
 
-func provisionPeerBaseURL(host string) string {
-	listen := strings.TrimSpace(envOr("ARDTT_PROVISION_LISTEN", "0.0.0.0:9100"))
-	port := "9100"
-	if _, p, err := net.SplitHostPort(listen); err == nil && strings.TrimSpace(p) != "" {
-		port = p
+func publicProvisionPort() int {
+	if v := envPort("ARDTT_PROVISION_PORT"); v > 0 {
+		return v
 	}
-	return fmt.Sprintf("http://%s:%s", host, port)
+	return 9100
+}
+
+func publicTelemetryPort() int {
+	if v := envPort("ARDTT_TELEMETRY_PORT"); v > 0 {
+		return v
+	}
+	return 9200
+}
+
+func provisionPeerBaseURL(host string) string {
+	// Overlay hide-ip poll uses 10.10.0.1:9100 (container listen). This URL is the
+	// peer's *published* provision port on the WAN.
+	port := 9100
+	if v := envPort("ARDTT_CASCADE_PEER_PROVISION_PORT"); v > 0 {
+		port = v
+	}
+	return fmt.Sprintf("http://%s:%d", host, port)
 }
 
 func probePeerEgressIP(host string, viaWarp bool) (string, error) {
@@ -1267,6 +1303,7 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.Deactivated = u.Deactivated
 	p.MaxDevices = maxInt(u.MaxDevices, 1)
 	p.TrafficLimitBytes = u.TrafficLimitBytes
+	p.ProvisionPort = publicProvisionPort()
 	if t, ok := loadBypassTrafficLocked(filepath.Dir(s.path))[u.Name]; ok {
 		used := t.DownBytes + t.UpBytes
 		if used > 0 {

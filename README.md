@@ -20,7 +20,7 @@
 
 **ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — открытый Android-клиент и self-hosted стек **в этом репозитории**: туннель до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP).
 
-Клиент — `android/`, сервер — `server/`. Репозиторий **публичный**: clone, архивы тегов и GitHub Releases читаются **без токена**. Стек **не** вшит в APK: телефон скачивает `install.sh` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz` из Releases (запас — архив тега `v{versionName}` / `main`) и заливает на VPS по SSH.
+Клиент — `android/`, сервер — `server/`. Репозиторий **публичный**. Стек **не** вшит в APK: телефон скачивает один актив `ardtt-server-<DEPLOY_VERSION>-linux-<amd64|arm64>.tar.gz` из GitHub Releases и заливает по SSH. На VPS уже должен быть Docker Engine; установка делает `docker load`, без build/pull/git.
 
 > [!WARNING]
 > **Назначение проекта**
@@ -29,7 +29,7 @@
 > Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несёт ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.256** (`versionCode` 274), пакет `com.ardtt.app`. Серверный стек **1.0.44** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — этот репозиторий, не `assets/` APK.
+> Клиент **0.5.256** (`versionCode` 274), пакет `com.ardtt.app`. Серверный стек **1.0.45** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — актив Releases, не `assets/` APK. Старые APK (ждут `ardtt-stack-*.tar.gz` / `main`) этот пакет не ставят.
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -40,11 +40,11 @@
 | | |
 |---|---|
 | Клиент | **0.5.256** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
-| Стек | **1.0.44** · `/opt/ardtt` · контейнер `ardtt` (isolated netns) · переменные `ARDTT_*` |
-| Откуда стек | GitHub Releases `ardtt-stack-1.0.44.tar.gz` или архив тега — **не** APK |
-| Compose | единый `ardtt`: provision `:9100`, direct, bypass, dns, warp, cascade, telemetry `:9200` |
+| Стек | **1.0.45** · `/opt/ardtt` · один контейнер, isolated netns, labels `com.ardtt.owner` · переменные `ARDTT_*` |
+| Откуда стек | GitHub Releases `ardtt-server-1.0.45-linux-<amd64\|arm64>.tar.gz` (docker save) — **не** APK, **не** исходники |
+| Compose | production без `build:`; provision/direct/bypass/dns/warp/cascade/telemetry; host-порты на 51820/56003/9100/9200 внутри |
 | Профиль | ссылка `ardtt://config` |
-| Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, архив стека — без PAT. Только стабильные `versionName` (без `test`). Тестовые APK — [Actions → Artifacts](https://github.com/2kristalls36-hue/ARDTT/actions) |
+| Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, пакеты сервера — без PAT. Только стабильные `versionName` (без `test`). Тестовые APK — [Actions → Artifacts](https://github.com/2kristalls36-hue/ARDTT/actions) |
 
 ## Два пути до VPS
 
@@ -61,13 +61,13 @@
 
 ## Репозиторий
 
-Публичный канонический источник **клиента и стека**. Push в `main` собирает подписанный APK. Если в `versionName` есть `test` (например `0.5.247-test`) — файл только в **Actions → Artifacts**, не в Releases. Стабильная версия без `test` публикует GitHub Release: APK, `ardtt-update.json` и `ardtt-stack-<DEPLOY_VERSION>.tar.gz`. В APK остаётся только метка `deploy/DEPLOY_VERSION` — карточка сервера сравнивает её с `/health`.
+Публичный канонический источник **клиента и стека**. Push в `main` собирает подписанный APK. Если в `versionName` есть `test` — файл только в **Actions → Artifacts**. Стабильная версия публикует GitHub Release: APK, `ardtt-update.json` и `ardtt-server-<DEPLOY_VERSION>-linux-*.tar.gz`. В APK остаётся метка `deploy/DEPLOY_VERSION`.
 
 ```
 ARDTT/
 ├── android/      # Jetpack Compose-клиент (Gradle живёт здесь)
 ├── server/       # единый Docker-образ ardtt (compose profile isolated)
-├── scripts/      # APK, иконки, pack-stack (релизный архив server/)
+├── scripts/      # APK, pack-server-package (docker save), проверки установщика
 ├── docs/         # LEGEND, ARCHITECTURE, DEPLOY, TELEMETRY
 ├── .github/      # сборка APK (Releases только без test в versionName)
 ├── CHANGELOG.md
@@ -81,16 +81,14 @@ ARDTT/
 
 Деплой в ранней бете: автор не обещает, что установка стека отработает, и не несёт за это ответственности. Ставите **на свой страх и риск**.
 
-Один и тот же стек ставится **из приложения** (телефон скачивает `server/` с GitHub) или **клоном этого репозитория**. Клиенты — APK с [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest).
+Один и тот же стек ставится **из приложения** (телефон скачивает пакет с GitHub) или **архивом с Releases** на машине, где Docker уже установлен. Сборка из исходников — [инструкция разработчика](docs/DEPLOY.md#путь-разработчика--сборка-из-исходников).
 
-| | Откуда код стека | Когда |
+| | Откуда пакет | Когда |
 |---|---|---|
-| **Приложение** | GitHub Releases `ardtt-stack-*.tar.gz` или архив тега; заливка по SSH | удобно с телефона |
-| **Git** | `ARDTT_GIT_REF` / `git clone` тега релиза на VPS | shell на машине с Docker |
+| **Приложение** | GitHub Releases `ardtt-server-*-linux-<arch>.tar.gz`; SFTP по SSH | удобно с телефона |
+| **Архив** | тот же актив + `install.sh` из него | shell, Docker уже есть |
 
-Клонируйте **тег** `v0.5.247` (стек **1.0.39**), а не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и Releases **не требуют** секретов.
-
-Подробности, каскад и **повторный деплой**: [docs/DEPLOY.md](docs/DEPLOY.md).
+Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` пакет 1.0.45 не ставят. Подробности: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Быстрый старт
 
@@ -100,21 +98,21 @@ ARDTT/
 # https://github.com/2kristalls36-hue/ARDTT/releases/latest
 ```
 
-Сервер с GitHub (тег релиза):
+Сервер с GitHub Releases (Docker Engine уже установлен):
 
 ```bash
-git clone --depth 1 --branch v0.5.247 \
-  https://github.com/2kristalls36-hue/ARDTT.git
-cd ARDTT/server
-cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_этого_VPS
-docker compose --profile isolated up -d --build
-curl -s http://127.0.0.1:9100/health
-./scripts/create-user.sh alice
+# https://github.com/2kristalls36-hue/ARDTT/releases/latest
+# актив ardtt-server-1.0.45-linux-amd64.tar.gz (или arm64)
+# сверьте SHA-256 с digest / SHA256SUMS релиза, затем:
+export ARDTT_PUBLIC_HOST=IP_этого_VPS
+export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.45-linux-amd64.tar.gz
+export ARDTT_PACKAGE_SHA256=...
+# см. docs/DEPLOY.md
 ```
 
-Каноническая раскладка `/opt/ardtt` (как после деплоя из приложения) — тот же `server/install.sh`, см. [Путь 2 в DEPLOY.md](docs/DEPLOY.md#путь-2--git--compose).
+Разработчикам (сборка образа из дерева): `docker compose -f server/docker-compose.dev.yml up -d --build`.
 
-Каскад: `ARDTT_ROLE=entry|exit` и `ARDTT_CASCADE_*` в `.env`. С телефона: вкладка «Серверы», SSH, пароль или PEM.
+Каноническая раскладка `/opt/ardtt` — [docs/DEPLOY.md](docs/DEPLOY.md).
 
 Сборка APK из исходников:
 
@@ -130,10 +128,10 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.256 / стек 1.0.44 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.256 / стек 1.0.45 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
-| [docs/DEPLOY.md](docs/DEPLOY.md) | Установка и повторный деплой: из приложения (GitHub) или клоном репозитория |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Пакет `ardtt-server-*-linux-<arch>.tar.gz`: приложение или архив; Docker уже на VPS |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
 | [docs/UI.md](docs/UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
 | [android/README.md](android/README.md) | Сборка клиента, keystore, релизы |
