@@ -90,26 +90,69 @@ PY
   fi
 }
 
-verify_loaded_image() {
-  local tag="$1" expect_id="$2" got_id got_arch
-  got_id="$(docker image inspect -f '{{.Id}}' "$tag" 2>/dev/null || true)"
-  [ -n "$got_id" ] || die "docker load не дал образ $tag"
-  if [ -n "$expect_id" ] && [ "$got_id" != "$expect_id" ]; then
-    die "Image ID после docker load ($got_id) не совпал с манифестом ($expect_id). Это не registry RepoDigest."
-  fi
-  got_arch="$(docker image inspect -f '{{.Architecture}}' "$tag" 2>/dev/null || true)"
-  [ "$got_arch" = "$(host_arch)" ] || die "Архитектура образа ${got_arch} не совпадает с VPS ($(host_arch))"
+loaded_image_matches_tar() {
+  local tar="$1" tag="$2"
+  python3 - "$tar" "$tag" <<'PY'
+import json, subprocess, sys, tarfile
+tar_path, tag = sys.argv[1], sys.argv[2]
+with tarfile.open(tar_path) as t:
+    raw = t.extractfile("manifest.json")
+    if raw is None:
+        raise SystemExit("image tar has no manifest.json")
+    man = json.load(raw)
+want = []
+entries = man if isinstance(man, list) else [man]
+for item in entries:
+    for layer in item.get("Layers") or []:
+        layer = str(layer)
+        if "sha256/" in layer:
+            want.append("sha256:" + layer.rsplit("sha256/", 1)[-1])
+        elif layer.startswith("sha256:"):
+            want.append(layer)
+        elif "/" in layer:
+            want.append("sha256:" + layer.split("/", 1)[0])
+        else:
+            want.append("sha256:" + layer)
+    break
+if not want:
+    raise SystemExit("could not read layers from image tar")
+got = json.loads(subprocess.check_output(
+    ["docker", "image", "inspect", "-f", "{{json .RootFS.Layers}}", tag],
+    text=True,
+))
+if want != got:
+    raise SystemExit(1)
+PY
 }
 
-# docker load keeps an existing repo:tag if that name already points at another
-# ID. Pin the name to the image ID recorded in this package's manifest.
+verify_loaded_image() {
+  local tag="$1" expect_id="$2" tar="${3:-}" got_id got_arch
+  got_id="$(docker image inspect -f '{{.Id}}' "$tag" 2>/dev/null || true)"
+  [ -n "$got_id" ] || die "docker load не дал образ $tag"
+  got_arch="$(docker image inspect -f '{{.Architecture}}' "$tag" 2>/dev/null || true)"
+  [ "$got_arch" = "$(host_arch)" ] || die "Архитектура образа ${got_arch} не совпадает с VPS ($(host_arch))"
+  if [ -n "$expect_id" ] && [ "$got_id" = "$expect_id" ]; then
+    return 0
+  fi
+  # Classic graphdriver Id is the config blob; containerd overlayfs Id is the
+  # OCI manifest digest. Same image, different strings. Trust RootFS layers.
+  if [ -n "$tar" ] && loaded_image_matches_tar "$tar" "$tag"; then
+    if [ -n "$expect_id" ] && [ "$got_id" != "$expect_id" ]; then
+      echo "ARDTT_INFO|образ $got_id совпал по слоям с пакетом (в манифесте $expect_id — Id другого Docker store, не RepoDigest)"
+    fi
+    return 0
+  fi
+  die "Image ID после docker load ($got_id) не совпал с манифестом (${expect_id:-нет}) и слои не совпали. Это не registry RepoDigest."
+}
+
+# docker load may leave an existing repo:tag pointing at another Id.
+# Prefer tagging the manifest Id when this engine can address it; otherwise
+# require the tagged image's RootFS to match images/ardtt.tar.
 load_package_image() {
   local tar="$1" tag="$2" expect_id="$3"
   docker load -i "$tar" >/dev/null
-  if [ -n "$expect_id" ]; then
-    docker image inspect "$expect_id" >/dev/null 2>&1 \
-      || die "docker load не импортировал образ ${expect_id} из пакета"
+  if [ -n "$expect_id" ] && docker image inspect "$expect_id" >/dev/null 2>&1; then
     docker tag "$expect_id" "$tag"
   fi
-  verify_loaded_image "$tag" "$expect_id"
+  verify_loaded_image "$tag" "$expect_id" "$tar"
 }
