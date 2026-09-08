@@ -473,7 +473,7 @@ class ServerDeployCardLogicTest {
             deployProgressSheetTitle(
                 busy = false,
                 isUpdate = false,
-                status = "VPS2 требует подготовки: Docker недоступен.",
+                status = "VPS2: не удалось поставить Docker Engine из архива.",
                 failure = com.ardtt.app.deploy.DeployIssue.of(
                     com.ardtt.app.deploy.DeployIssue.DOCKER_MISSING,
                     "docker",
@@ -494,7 +494,7 @@ class ServerDeployCardLogicTest {
             "Готово",
             deployProgressSheetTitle(busy = false, isUpdate = false, status = null),
         )
-        val dockerSummary = "VPS2 требует подготовки: Docker недоступен. " +
+        val dockerSummary = "VPS2: не удалось поставить Docker Engine из архива. " +
             "Установка ARDTT на VPS1 ещё не запускалась."
         assertFalse(deployProgressFailed(busy = false, status = dockerSummary, failure = null))
         assertTrue(

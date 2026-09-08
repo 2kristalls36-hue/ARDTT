@@ -2,7 +2,8 @@ package com.ardtt.app.deploy
 
 /**
  * Read-only host probe run over SSH before GitHub download / SFTP.
- * Does not install, upgrade, or restart Docker.
+ * Does not install, upgrade, or restart Docker. Missing Engine is OK:
+ * install.sh unpacks vendor/docker.tgz from the same archive.
  */
 data class DeployPreflightResult(
     val ok: Boolean,
@@ -39,10 +40,12 @@ object DeployPreflight {
             "if command -v podman >/dev/null 2>&1; then foreign=1; echo \"ARDTT_PREFLIGHT|podman=1\"; fi; " +
             "if command -v kubelet >/dev/null 2>&1; then foreign=1; echo \"ARDTT_PREFLIGHT|kubelet=1\"; fi; " +
             "if [ -S /run/containerd/containerd.sock ] && ! command -v docker >/dev/null 2>&1; then foreign=1; echo \"ARDTT_PREFLIGHT|containerd=1\"; fi; " +
+            "if ! command -v python3 >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=PYTHON_MISSING|message=python3\"; exit 0; fi; " +
             "if ! command -v docker >/dev/null 2>&1; then " +
-            "  if [ \"\$foreign\" = 1 ]; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=UNSUPPORTED_RUNTIME|message=foreign-runtime\"; " +
-            "  else echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_MISSING|message=docker-cli-missing\"; fi; " +
-            "  exit 0; " +
+            "  if [ \"\$foreign\" = 1 ]; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=UNSUPPORTED_RUNTIME|message=foreign-runtime\"; exit 0; fi; " +
+            "  if ! command -v systemctl >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_NOT_RUNNING|message=no-systemd\"; exit 0; fi; " +
+            "  echo \"ARDTT_PREFLIGHT|docker=missing\"; " +
+            "  echo \"ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-package\"; exit 0; " +
             "fi; " +
             "echo \"ARDTT_PREFLIGHT|docker=present\"; " +
             "info=\$(docker info 2>&1); " +
@@ -54,7 +57,6 @@ object DeployPreflight {
             "fi; " +
             "ver=\$(docker version --format \"{{.Server.Version}}\" 2>/dev/null || true); " +
             "echo \"ARDTT_PREFLIGHT|docker_version=\$ver\"; " +
-            "if ! command -v python3 >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=PYTHON_MISSING|message=python3\"; exit 0; fi; " +
             "echo \"ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=ready\""
 
     fun parse(output: String): DeployPreflightResult {
@@ -97,7 +99,11 @@ object DeployPreflight {
             osId = fields["os_id"].orEmpty(),
             osVersion = fields["os_ver"].orEmpty(),
             arch = fields["arch"].orEmpty(),
-            docker = if (ok) "ok" else if (fields["docker"] == "present") "present" else "missing",
+            docker = when {
+                fields["docker"] == "present" && ok -> "ok"
+                fields["docker"] == "present" -> "present"
+                else -> "missing"
+            },
             dockerVersion = fields["docker_version"].orEmpty(),
             python = fields["python"] == "1",
             tun = fields["tun"] == "1",
@@ -121,27 +127,25 @@ object DeployPreflight {
 }
 
 /**
- * Docker Engine debs are not packed in ardtt-server-*.tar.gz yet.
- * Do not show a working «Подготовить VPS» until CI ships a verified runtime.
+ * Docker Engine ships inside ardtt-server-*.tar.gz as vendor/docker.tgz.
+ * Install.sh unpacks it when the host has no working Engine. There is no
+ * separate «Подготовить VPS» step.
  */
 object DeployRuntimeBundle {
-    const val INCLUDED = false
+    const val INCLUDED = true
 
     fun canPrepare(osId: String, osVersion: String, arch: String): Boolean {
+        // Engine is installed from the same archive during install.sh, not as a
+        // separate SSH prepare job.
         if (!INCLUDED) return false
-        val os = osId.trim().lowercase()
-        val ver = osVersion.trim()
         val linuxArch = ServerOsProbe.linuxArch(arch)
-        return os == "ubuntu" &&
-            (ver.startsWith("24.04") || ver.startsWith("26.04")) &&
-            (linuxArch == "amd64" || linuxArch == "arm64")
+        return linuxArch == "amd64" || linuxArch == "arm64"
     }
 
     fun missingRuntimeMessage(osId: String, osVersion: String, arch: String): String {
         val label = listOf(osId, osVersion, arch).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "этой ОС" }
-        return "Автоматическая подготовка Docker для $label ещё не входит в архив ARDTT. " +
-            "Установите Docker Engine из локальных пакетов на чистом Ubuntu 24.04/26.04 " +
-            "(без get.docker.com и без apt на VPS из сети), затем повторите проверку. " +
-            "Существующий Docker ARDTT не обновляет и не перезапускает."
+        return "Docker Engine для $label ставится из архива ARDTT при установке. " +
+            "Повторите «Установить»: пакет сам распакует vendor/docker.tgz. " +
+            "Существующий рабочий Docker ARDTT не обновляет и не перезапускает."
     }
 }

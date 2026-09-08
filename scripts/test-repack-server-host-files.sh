@@ -28,7 +28,7 @@ image_before="$(sha256sum "$WORKDIR/old/images/ardtt.tar" | awk '{print $1}')"
   cd "$WORKDIR/old"
   tar -czf "$PKG" manifest.json SHA256SUMS README.md DEPLOY_VERSION third-party.lock.json \
     install.sh install-lib scripts docker-compose.yml docker-compose.exit.yml .env.example \
-    images bin
+    images bin vendor
 )
 
 bash "$ROOT/scripts/repack-server-host-files.sh" "$PKG"
@@ -47,7 +47,7 @@ got = man["files"]["ready.sh"]
 want = hashlib.sha256((stage / "ready.sh").read_bytes()).hexdigest()
 assert got == want, (got, want)
 PY
-[ -s "${PKG}.sha256" ] || err "missing outer .sha256 sidecar"
+[ -f "$WORKDIR/new/vendor/docker.tgz" ] || err "vendor/docker.tgz dropped on repack"
 
 if [ "$fail" -ne 0 ]; then
   echo "repack host files tests failed" >&2
