@@ -90,38 +90,83 @@ PY
   fi
 }
 
+# Compare docker-save config (layers + Entrypoint/Cmd/Env/User) with the
+# loaded image. Matching RootFS layers alone is not identity: OCI config can
+# differ. Classic Docker Id is the config blob; containerd Id is the manifest
+# digest — those strings may differ when config still matches the tar.
 loaded_image_matches_tar() {
   local tar="$1" tag="$2"
   python3 - "$tar" "$tag" <<'PY'
 import json, subprocess, sys, tarfile
+
 tar_path, tag = sys.argv[1], sys.argv[2]
-with tarfile.open(tar_path) as t:
-    raw = t.extractfile("manifest.json")
-    if raw is None:
-        raise SystemExit("image tar has no manifest.json")
-    man = json.load(raw)
-want = []
-entries = man if isinstance(man, list) else [man]
-for item in entries:
-    for layer in item.get("Layers") or []:
+
+def normalize_layers(raw):
+    out = []
+    for layer in raw or []:
         layer = str(layer)
         if "sha256/" in layer:
-            want.append("sha256:" + layer.rsplit("sha256/", 1)[-1])
+            out.append("sha256:" + layer.rsplit("sha256/", 1)[-1])
         elif layer.startswith("sha256:"):
-            want.append(layer)
+            out.append(layer)
         elif "/" in layer:
-            want.append("sha256:" + layer.split("/", 1)[0])
+            out.append("sha256:" + layer.split("/", 1)[0])
         else:
-            want.append("sha256:" + layer)
-    break
-if not want:
+            out.append("sha256:" + layer)
+    return out
+
+def tar_identity(path):
+    with tarfile.open(path) as t:
+        raw = t.extractfile("manifest.json")
+        if raw is None:
+            raise SystemExit("image tar has no manifest.json")
+        man = json.load(raw)
+        item = man[0] if isinstance(man, list) else man
+        cfg_name = item.get("Config")
+        if not cfg_name:
+            raise SystemExit("image tar manifest has no Config")
+        cfg_f = t.extractfile(cfg_name)
+        if cfg_f is None:
+            raise SystemExit("image tar missing config blob")
+        cfg = json.load(cfg_f)
+    conf = cfg.get("config") or {}
+    rootfs = cfg.get("rootfs") or {}
+    return {
+        "layers": normalize_layers(rootfs.get("diff_ids")),
+        "entrypoint": conf.get("Entrypoint"),
+        "cmd": conf.get("Cmd"),
+        "env": conf.get("Env"),
+        "user": conf.get("User") or "",
+        "workingdir": conf.get("WorkingDir") or "",
+        "os": cfg.get("os") or "",
+        "architecture": cfg.get("architecture") or "",
+    }
+
+def inspect_identity(name):
+    ins = json.loads(subprocess.check_output(
+        ["docker", "image", "inspect", name], text=True,
+    ))[0]
+    conf = ins.get("Config") or {}
+    root = ins.get("RootFS") or {}
+    return {
+        "layers": normalize_layers(root.get("Layers")),
+        "entrypoint": conf.get("Entrypoint"),
+        "cmd": conf.get("Cmd"),
+        "env": conf.get("Env"),
+        "user": conf.get("User") or "",
+        "workingdir": conf.get("WorkingDir") or "",
+        "os": ins.get("Os") or "",
+        "architecture": ins.get("Architecture") or "",
+    }
+
+want = tar_identity(tar_path)
+got = inspect_identity(tag)
+for key in ("layers", "entrypoint", "cmd", "env", "user", "workingdir", "os", "architecture"):
+    if want[key] != got[key]:
+        sys.stderr.write("image identity mismatch on %s\n" % key)
+        raise SystemExit(1)
+if not want["layers"]:
     raise SystemExit("could not read layers from image tar")
-got = json.loads(subprocess.check_output(
-    ["docker", "image", "inspect", "-f", "{{json .RootFS.Layers}}", tag],
-    text=True,
-))
-if want != got:
-    raise SystemExit(1)
 PY
 }
 
@@ -134,15 +179,13 @@ verify_loaded_image() {
   if [ -n "$expect_id" ] && [ "$got_id" = "$expect_id" ]; then
     return 0
   fi
-  # Classic graphdriver Id is the config blob; containerd overlayfs Id is the
-  # OCI manifest digest. Same image, different strings. Trust RootFS layers.
   if [ -n "$tar" ] && loaded_image_matches_tar "$tar" "$tag"; then
     if [ -n "$expect_id" ] && [ "$got_id" != "$expect_id" ]; then
-      echo "ARDTT_INFO|образ $got_id совпал по слоям с пакетом (в манифесте $expect_id — Id другого Docker store, не RepoDigest)"
+      echo "ARDTT_INFO|образ $got_id совпал с пакетом по config+слоям (в манифесте $expect_id — Id другого Docker store, не RepoDigest)"
     fi
     return 0
   fi
-  die "Image ID после docker load ($got_id) не совпал с манифестом (${expect_id:-нет}) и слои не совпали. Это не registry RepoDigest."
+  die "Image ID после docker load ($got_id) не совпал с манифестом (${expect_id:-нет}) или config/слои пакета. Это не registry RepoDigest."
 }
 
 # docker load may leave an existing repo:tag pointing at another Id.

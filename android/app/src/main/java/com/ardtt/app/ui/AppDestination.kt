@@ -5,6 +5,7 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
@@ -13,9 +14,9 @@ import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * Bottom tabs: Tunnel → Network (admin) → Servers → Profiles → Exceptions → Logs → Settings.
- * Deploy is reached from Servers (not a bottom tab).
- * Testing appears when testing mode is on, and stays visible while a session is recording.
+ * Bottom tabs (user): Tunnel → Profiles → Exceptions → Logs → Settings.
+ * Bottom tabs (admin): Tunnel → Servers → Profiles → Diagnostics → Settings.
+ * Network, Logs (admin), Testing, Exceptions (admin) and Deploy stay as routes.
  */
 enum class AppDestination(
     val route: String,
@@ -25,13 +26,14 @@ enum class AppDestination(
     val inBottomNav: Boolean = true,
 ) {
     Tunnel("tunnel", "Туннель", navLabel = "Туннель", adminOnly = false),
-    Network("network", "Сеть", adminOnly = true),
-    Servers("servers", "Серверы", navLabel = "Сервера", adminOnly = true),
+    Network("network", "Сеть", adminOnly = true, inBottomNav = false),
+    Servers("servers", "Серверы", navLabel = "Серверы", adminOnly = true),
     Profiles("profiles", "Профили", adminOnly = false),
     Exceptions("exceptions", "Обход", adminOnly = false),
-    Logs("logs", "Логи", adminOnly = false),
-    Settings("settings", "Настройки", navLabel = "Настр.", adminOnly = false),
-    Testing("testing", "Тестирование", navLabel = "Тест", adminOnly = false),
+    Logs("logs", "Журнал", adminOnly = false),
+    Diagnostics("diagnostics", "Диагностика", navLabel = "Диагностика", adminOnly = true),
+    Settings("settings", "Настройки", navLabel = "Настройки", adminOnly = false),
+    Testing("testing", "Тестирование", navLabel = "Тестирование", adminOnly = false, inBottomNav = false),
     /** Nested from Servers — not in bottom bar. */
     Deploy("deploy", "Деплой", navLabel = "Деплой", adminOnly = true, inBottomNav = false),
     ;
@@ -43,6 +45,7 @@ enum class AppDestination(
         Exceptions -> Icons.Outlined.FilterList
         Network -> Icons.Outlined.Wifi
         Logs -> Icons.Outlined.Terminal
+        Diagnostics -> Icons.Outlined.MonitorHeart
         Deploy -> Icons.Outlined.CloudUpload
         Settings -> Icons.Outlined.Settings
         Testing -> Icons.Outlined.Science

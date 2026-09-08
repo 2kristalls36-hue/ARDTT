@@ -49,6 +49,12 @@ class DeployEngine(private val appContext: Context) {
     private val _hopTrack = MutableStateFlow(DeployHopTrack())
     val hopTrack: StateFlow<DeployHopTrack> = _hopTrack.asStateFlow()
 
+    private val _failure = MutableStateFlow<DeployIssue?>(null)
+    val failure: StateFlow<DeployIssue?> = _failure.asStateFlow()
+
+    private val _isPreflight = MutableStateFlow(false)
+    val isPreflight: StateFlow<Boolean> = _isPreflight.asStateFlow()
+
     @Volatile private var activeSession: Session? = null
     /** Entry SSH kept open so cascade exit is reached via ProxyJump, not from the phone. */
     @Volatile private var jumpSession: Session? = null
@@ -77,6 +83,7 @@ class DeployEngine(private val appContext: Context) {
         pendingTarget = target
         _isUpdate.value = kind == DeployJobKind.Update
         _isUninstall.value = kind == DeployJobKind.Uninstall
+        _isPreflight.value = kind == DeployJobKind.Preflight
         _activeTargetId.value = target.id
         _hopTrack.value = DeployHopTrack.from(target)
         _busy.value = true
@@ -84,6 +91,7 @@ class DeployEngine(private val appContext: Context) {
         _step.value = "Инициализация…"
         _log.value = emptyList()
         _outcome.value = null
+        _failure.value = null
         activeHost = target.host.trim()
         TelemetryBridge.deploy(
             "deploy_enqueued",
@@ -104,7 +112,8 @@ class DeployEngine(private val appContext: Context) {
             _busy.value = false
             pendingTarget = null
             _activeTargetId.value = null
-            _outcome.value = "Ошибка: не удалось запустить фоновую задачу"
+            _outcome.value = "Не удалось запустить фоновую задачу"
+            _failure.value = DeployIssue.of(DeployIssue.INSTALL_FAILED, "Не удалось запустить фоновую задачу")
             false
         }
     }
@@ -114,8 +123,13 @@ class DeployEngine(private val appContext: Context) {
         val target = pendingTarget
             ?: return Result.failure(IllegalStateException("Нет задания деплоя"))
         val uninstall = _isUninstall.value
+        val preflightOnly = _isPreflight.value
         return try {
-            if (uninstall) executeUninstall(target) else execute(target)
+            when {
+                uninstall -> executeUninstall(target)
+                preflightOnly -> execute(target, preflightOnly = true)
+                else -> execute(target, preflightOnly = false)
+            }
         } finally {
             running.set(false)
             _busy.value = false
@@ -124,7 +138,10 @@ class DeployEngine(private val appContext: Context) {
         }
     }
 
-    private suspend fun execute(target: DeployTarget): Result<String> = withContext(Dispatchers.IO) {
+    private suspend fun execute(
+        target: DeployTarget,
+        preflightOnly: Boolean = false,
+    ): Result<String> = withContext(Dispatchers.IO) {
         var session: Session? = null
         var client: SshClient? = null
         activeHost = target.host.trim()
@@ -180,7 +197,7 @@ class DeployEngine(private val appContext: Context) {
             }
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
             val entryHost = target.host.trim()
-            val verb = if (_isUpdate.value) "обновление" else "установка"
+            val verb = if (_isUpdate.value) "обновление" else if (preflightOnly) "проверка" else "установка"
 
             var exitPub = ""
             var exitCascadeListen = DeployInstallEnv.CASCADE_LISTEN_PORT
@@ -192,22 +209,63 @@ class DeployEngine(private val appContext: Context) {
             var exitArch = target.cascadeArch
             var exitProvision = target.cascadeProvisionPort
             var exitTelemetry = target.cascadeTelemetryPort
+            val exitHost = if (target.cascadeEnabled) SshJump.targetHost(target.cascadeHost) else ""
+            if (target.cascadeEnabled && exitHost.isBlank()) {
+                error("Не указан host второго сервера")
+            }
+            emitOn(entryHost, 0.02f, "Подключение SSH…")
+            session = try {
+                openEntrySsh(target)
+            } catch (t: Throwable) {
+                throw DeployIssueException(
+                    DeployIssue.of(
+                        code = DeployIssue.SSH_FAILED,
+                        message = t.message ?: t.javaClass.simpleName,
+                        hopRole = "entry",
+                        hopHost = entryHost,
+                        detail = t.stackTraceToString(),
+                    ),
+                )
+            }
+            jumpSession = session
+            activeSession = session
+            append("SSH на VPS 1 ($entryHost)")
+            TelemetryBridge.deploy("ssh_connected", entryHost)
             if (target.cascadeEnabled) {
-                val exitHost = SshJump.targetHost(target.cascadeHost)
-                if (exitHost.isBlank()) error("Не указан host второго сервера")
-                emitOn(entryHost, 0.02f, "Подключение SSH, туннель к выходу…")
-                session = openEntrySsh(target)
-                jumpSession = session
-                activeSession = session
-                append("SSH на VPS 1 ($entryHost), дальше VPS 2 через туннель")
                 TelemetryBridge.deploy("ssh_jump_opened", entryHost)
-                emitOn(exitHost, 0.04f, "Подключение SSH через VPS 1, $verb выходного стека…")
                 append("VPS 2 (выход): $exitHost через $entryHost")
+                emitOn(exitHost, 0.04f, "Проверка выхода через VPS 1…")
                 withExitViaJump(target) { exitSsh ->
                     client = exitSsh
+                    preflightHop(exitSsh, exitHost, "exit")
                     exitArch = ServerOsProbe.probeLinuxArch(exitSsh)
                     append("Архитектура выхода: $exitArch")
-                    val exitPayload = payloadFor(exitArch, 0.06f, 0.14f)
+                }
+            }
+            val entrySsh = SshClient(session, target.sudoPassword.ifBlank { target.password })
+            client = entrySsh
+            emitOn(entryHost, if (target.cascadeEnabled) 0.08f else 0.05f, "Проверка входного узла…")
+            preflightHop(entrySsh, entryHost, "entry")
+            entryArch = ServerOsProbe.probeLinuxArch(entrySsh)
+            append("Архитектура входа: $entryArch")
+
+            if (preflightOnly) {
+                val msg = if (target.cascadeEnabled) {
+                    "Проверка VPS2 и VPS1 пройдена. Docker на месте, установка не запускалась."
+                } else {
+                    "Проверка $entryHost пройдена. Docker на месте, установка не запускалась."
+                }
+                append(msg)
+                emit(1f, msg)
+                _outcome.value = msg
+                return@withContext Result.success(msg)
+            }
+
+            if (target.cascadeEnabled) {
+                emitOn(exitHost, 0.10f, "$verb выходного стека…")
+                withExitViaJump(target) { exitSsh ->
+                    client = exitSsh
+                    val exitPayload = payloadFor(exitArch, 0.10f, 0.18f)
                     val installed = uploadAndInstall(
                         ssh = exitSsh,
                         hostLabel = exitHost,
@@ -227,8 +285,9 @@ class DeployEngine(private val appContext: Context) {
                             provisionPort = target.cascadeProvisionPort,
                             telemetryPort = target.cascadeTelemetryPort,
                         ),
-                        progressStart = 0.14f,
+                        progressStart = 0.18f,
                         progressEnd = 0.48f,
+                        hopRole = "exit",
                     )
                     exitPub = installed.cascadePublicKey
                     if (exitPub.isBlank()) {
@@ -247,21 +306,13 @@ class DeployEngine(private val appContext: Context) {
                 emitOn(entryHost, 0.50f, "$verb входного стека…")
                 activeSession = session
             } else {
-                emitOn(entryHost, 0.04f, "Подключение SSH, $verb входного стека…")
-                session = openEntrySsh(target)
-                activeSession = session
-                append("SSH подключено ($entryHost)")
+                emitOn(entryHost, 0.12f, "$verb входного стека…")
             }
-            val entrySession = session ?: error("SSH-сессия входа не открыта")
-            val ssh = SshClient(entrySession, target.sudoPassword.ifBlank { target.password })
-            client = ssh
-            TelemetryBridge.deploy("ssh_connected", activeHost)
-            entryArch = ServerOsProbe.probeLinuxArch(ssh)
-            append("Архитектура входа: $entryArch")
+            val ssh = entrySsh
             val entryPayload = payloadFor(
                 entryArch,
-                if (target.cascadeEnabled) 0.50f else 0.06f,
-                if (target.cascadeEnabled) 0.56f else 0.18f,
+                if (target.cascadeEnabled) 0.50f else 0.12f,
+                if (target.cascadeEnabled) 0.56f else 0.22f,
             )
 
             val entryCmd = DeployInstallEnv.command(
@@ -291,8 +342,9 @@ class DeployEngine(private val appContext: Context) {
                 payload = entryPayload,
                 deployVersion = deployVersion,
                 command = entryCmd,
-                progressStart = if (target.cascadeEnabled) 0.56f else 0.18f,
+                progressStart = if (target.cascadeEnabled) 0.56f else 0.22f,
                 progressEnd = if (target.cascadeEnabled) 0.92f else 0.96f,
+                hopRole = "entry",
             )
             val entryPub = entryInstalled.cascadePublicKey
             entryInstalled.directPort?.let { resolvedDirect = it }
@@ -377,24 +429,42 @@ class DeployEngine(private val appContext: Context) {
                 )
             }
             val cancelled = _log.value.any { it.contains("Отменено") }
-            val msg = if (cancelled) {
-                "Отменено"
-            } else {
-                t.message?.take(300) ?: t.javaClass.simpleName
+            val issue = when {
+                cancelled -> DeployIssue.of(DeployIssue.CANCELLED, "Отменено")
+                t is DeployIssueException -> t.issue
+                else -> DeployIssue.of(
+                    code = DeployIssue.INSTALL_FAILED,
+                    message = t.message?.take(300) ?: t.javaClass.simpleName,
+                    hopRole = _hopTrack.value.let { track ->
+                        when {
+                            track.cascade && DeployHop.same(track.activeHost, track.exitHost) -> "exit"
+                            else -> "entry"
+                        }
+                    },
+                    hopHost = _hopTrack.value.activeHost,
+                    entryInstallStarted = _hopTrack.value.entryDone ||
+                        DeployHop.same(_hopTrack.value.activeHost, _hopTrack.value.entryHost) &&
+                        _progress.value >= 0.5f,
+                    detail = t.message ?: "",
+                )
             }
-            append("Ошибка: $msg")
-            emit(_progress.value, if (cancelled) "Отменено" else "Ошибка")
+            _failure.value = issue
+            append(issue.summary)
+            if (issue.detail.isNotBlank() && issue.detail != issue.summary) {
+                append(issue.detail.take(400))
+            }
+            emit(_progress.value, if (issue.isCancelled) "Отменено" else issue.summary)
             TelemetryBridge.deploy(
                 "deploy_failed",
                 activeHost,
                 JSONObject()
-                    .put("message", msg)
+                    .put("message", issue.summary)
+                    .put("code", issue.code)
                     .put("progress", _progress.value.toDouble())
                     .put("step", _step.value)
                     .put("log_tail", _log.value.takeLast(20).joinToString("\n")),
             )
-            val shown = if (cancelled) "Отменено" else "Ошибка: $msg"
-            _outcome.value = shown
+            _outcome.value = issue.summary
             Result.failure(t)
         } finally {
             disconnectJump()
@@ -477,24 +547,28 @@ class DeployEngine(private val appContext: Context) {
             AppLog.e(TAG, "uninstall failed: ${t.message ?: t.javaClass.simpleName}")
             TelemetryBridge.handledError("uninstall", t)
             val cancelled = _log.value.any { it.contains("Отменено") }
-            val msg = if (cancelled) {
-                "Отменено"
-            } else {
-                t.message?.take(300) ?: t.javaClass.simpleName
+            val issue = when {
+                cancelled -> DeployIssue.of(DeployIssue.CANCELLED, "Отменено")
+                t is DeployIssueException -> t.issue
+                else -> DeployIssue.of(
+                    code = DeployIssue.INSTALL_FAILED,
+                    message = t.message?.take(300) ?: t.javaClass.simpleName,
+                )
             }
-            append("Ошибка: $msg")
-            emit(_progress.value, if (cancelled) "Отменено" else "Ошибка")
+            _failure.value = issue
+            append(issue.summary)
+            emit(_progress.value, if (issue.isCancelled) "Отменено" else issue.summary)
             TelemetryBridge.deploy(
                 "uninstall_failed",
                 activeHost,
                 JSONObject()
-                    .put("message", msg)
+                    .put("message", issue.summary)
+                    .put("code", issue.code)
                     .put("progress", _progress.value.toDouble())
                     .put("step", _step.value)
                     .put("log_tail", _log.value.takeLast(20).joinToString("\n")),
             )
-            val shown = if (cancelled) "Отменено" else "Ошибка: $msg"
-            _outcome.value = shown
+            _outcome.value = issue.summary
             Result.failure(t)
         } finally {
             disconnectJump()
@@ -599,9 +673,16 @@ class DeployEngine(private val appContext: Context) {
                 jump = jump,
             )
         } catch (t: Throwable) {
-            throw IllegalStateException(
-                SshJump.connectError(SshJump.targetHost(target.host), exitHost, t),
-                t,
+            if (t is DeployIssueException) throw t
+            throw DeployIssueException(
+                DeployIssue.of(
+                    code = DeployIssue.SSH_FAILED,
+                    message = SshJump.connectError(SshJump.targetHost(target.host), exitHost, t),
+                    hopRole = "exit",
+                    hopHost = exitHost,
+                    entryInstallStarted = false,
+                    detail = t.message ?: t.javaClass.simpleName,
+                ),
             )
         }
     }
@@ -627,6 +708,7 @@ class DeployEngine(private val appContext: Context) {
         command: String,
         progressStart: Float,
         progressEnd: Float,
+        hopRole: String? = null,
     ): DeployInstallResult {
         emitOn(hostLabel, progressStart, "Подготовка каталога /opt/ardtt/incoming…")
         ssh.exec(
@@ -695,7 +777,14 @@ class DeployEngine(private val appContext: Context) {
                 hostLabel,
                 JSONObject().put("message", failed),
             )
-            error("$hostLabel: $failed")
+            throw DeployIssueException(
+                DeployIssue.fromInstallerLine(
+                    raw = failed,
+                    hopRole = hopRole,
+                    hopHost = hostLabel,
+                    entryInstallStarted = hopRole == "entry",
+                ),
+            )
         }
         if (code != 0) {
             val hint = _log.value.takeLast(8).joinToString(" ")
@@ -732,6 +821,31 @@ class DeployEngine(private val appContext: Context) {
             telemetryPort = DeployInstallEnv.intField(doneFields, "telemetry_port"),
             instanceId = doneFields["instance"].orEmpty(),
             containerName = doneFields["container"].orEmpty(),
+        )
+    }
+
+    private fun preflightHop(ssh: SshClient, hostLabel: String, hopRole: String) {
+        throwIfCancelled()
+        append("Предварительная проверка $hostLabel (только чтение)")
+        val result = DeployPreflight.run(ssh)
+        result.fields.forEach { (k, v) -> append("preflight $hostLabel $k=$v") }
+        if (result.ok) {
+            append(
+                "Проверка $hostLabel: Docker ${result.dockerVersion.ifBlank { "ok" }} " +
+                    "${result.osId} ${result.arch}".trim(),
+            )
+            return
+        }
+        val code = result.code ?: DeployIssue.PREFLIGHT_FAILED
+        throw DeployIssueException(
+            DeployIssue.of(
+                code = code,
+                message = result.message.ifBlank { code },
+                hopRole = hopRole,
+                hopHost = hostLabel,
+                entryInstallStarted = false,
+                detail = result.fields.entries.joinToString(" ") { "${it.key}=${it.value}" },
+            ),
         )
     }
 

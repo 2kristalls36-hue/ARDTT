@@ -5,7 +5,7 @@
 uninstall_this_instance() {
   local purge="${ARDTT_PURGE_DATA:-0}"
   prog 0.10 "Поиск экземпляра ARDTT"
-  if load_instance || load_instance_from_env; then
+  if load_instance || load_pending_instance || load_instance_from_env; then
     prog 0.30 "Остановка контейнера ${ARDTT_CONTAINER_NAME}"
     local current="${INSTALL_DIR}/current"
     [ -d "$current" ] || current="${INSTALL_DIR}/stack"
@@ -77,6 +77,16 @@ restore_previous_release() {
     printf '%s\n' "$prev_ver" > "${INSTALL_DIR}/data/DEPLOY_VERSION"
     printf '%s\n' "$prev_ver" > "${INSTALL_DIR}/DEPLOY_VERSION"
   fi
+  if [ -f "$prev/root.env" ]; then
+    cp -a "$prev/root.env" "${INSTALL_DIR}/.env"
+  elif [ -f "$prev/.env" ]; then
+    cp -a "$prev/.env" "${INSTALL_DIR}/.env"
+  fi
+  if [ -f "$prev/instance.json" ]; then
+    cp -a "$prev/instance.json" "${INSTALL_DIR}/instance.json"
+    chmod 600 "${INSTALL_DIR}/instance.json" 2>/dev/null || true
+  fi
+  rm -f "${INSTALL_DIR}/instance.pending.json"
   (
     cd "${INSTALL_DIR}/current"
     compose_up_cmd up -d --no-build --pull never

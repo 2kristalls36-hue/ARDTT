@@ -20,13 +20,27 @@ fi
 
 INSTALL="${ARDTT_LIVE_INSTALL_DIR:-$(mktemp -d /tmp/ardtt-live-XXXXXX)}"
 FOREIGN=(stack-nginx-1 stack-xray-1 ardtt-lookalike ardtt)
+RUN_ID="iso${RANDOM}$$"
+CREATED_IDS=()
 HOST_PORT="${ARDTT_LIVE_HTTP_PORT:-18080}"
 HTTPD_PID=""
+PROBE_PID=""
 STAGE=""
 INSTALL_SH="$ROOT/server/install.sh"
 fail=0
 err() { echo "FAIL: $*" >&2; fail=1; }
 ok() { echo "OK $*"; }
+
+live_isolation_require_free_names() {
+  local name
+  for name in "$@"; do
+    if docker inspect "$name" >/dev/null 2>&1; then
+      echo "ABORT: container $name already exists; not touching it" >&2
+      return 1
+    fi
+  done
+  return 0
+}
 
 live_uninstall_script() {
   if [ -n "${INSTALL:-}" ] && [ -f "${INSTALL}/current/install.sh" ]; then
@@ -41,7 +55,7 @@ live_uninstall_script() {
 }
 
 cleanup() {
-  local un
+  local un id
   un="$(live_uninstall_script)"
   if [ -f "$un" ]; then
     unset ARDTT_PKG_DIR || true
@@ -50,8 +64,15 @@ cleanup() {
       ARDTT_PACKAGE_SHA256="$SHA" \
       bash "$un" >/tmp/ardtt-live-uninstall.log 2>&1 || true
   fi
-  for name in "${FOREIGN[@]}"; do
-    docker rm -f "$name" >/dev/null 2>&1 || true
+  if [ -n "${PROBE_PID:-}" ]; then
+    kill "$PROBE_PID" >/dev/null 2>&1 || true
+  fi
+  for id in "${CREATED_IDS[@]:-}"; do
+    [ -n "$id" ] || continue
+    owner="$(docker inspect -f '{{index .Config.Labels "com.ardtt.test-run"}}' "$id" 2>/dev/null || true)"
+    if [ "$owner" = "$RUN_ID" ]; then
+      docker rm -f "$id" >/dev/null 2>&1 || true
+    fi
   done
   if [ -n "${HTTPD_PID:-}" ]; then
     kill "$HTTPD_PID" >/dev/null 2>&1 || true
@@ -84,18 +105,32 @@ python3 "$ROOT/scripts/safe-extract-package.py" "$PKG" "$STAGE"
 INSTALL_SH="$STAGE/install.sh"
 test -f "$INSTALL_SH"
 
+live_isolation_require_free_names "${FOREIGN[@]}" || exit 1
+
 for name in "${FOREIGN[@]}"; do
-  docker rm -f "$name" >/dev/null 2>&1 || true
-  docker run -d --name "$name" --restart unless-stopped --network none \
+  id="$(docker run -d --name "$name" --restart unless-stopped --network none \
     --label com.ardtt.owner=foreign --label com.ardtt.instance=foreign \
-    --label com.ardtt.foreign=1 \
-    --entrypoint sleep "$IMAGE" 7200 >/dev/null
+    --label com.ardtt.foreign=1 --label "com.ardtt.test-run=$RUN_ID" \
+    --entrypoint sleep "$IMAGE" 7200)"
+  CREATED_IDS+=("$id")
 done
 
 python3 -m http.server "$HOST_PORT" --bind 127.0.0.1 >/tmp/ardtt-live-httpd.log 2>&1 &
 HTTPD_PID=$!
 sleep 0.3
 curl -fsS --max-time 2 "http://127.0.0.1:${HOST_PORT}/" >/dev/null || err "host httpd did not start"
+: > /tmp/ardtt-live-http-probe.log
+(
+  while kill -0 "$HTTPD_PID" >/dev/null 2>&1; do
+    if curl -fsS --max-time 1 "http://127.0.0.1:${HOST_PORT}/" >/dev/null 2>&1; then
+      echo ok >> /tmp/ardtt-live-http-probe.log
+    else
+      echo fail >> /tmp/ardtt-live-http-probe.log
+    fi
+    sleep 0.4
+  done
+) &
+PROBE_PID=$!
 
 declare -A FOREIGN_ID
 for name in "${FOREIGN[@]}"; do
@@ -163,6 +198,11 @@ DOCKER_VER_AFTER="$(docker version --format '{{.Server.Version}}')"
 [ "$DOCKER_VER_BEFORE" = "$DOCKER_VER_AFTER" ] || err "Docker server version changed"
 docker info >/dev/null 2>&1 || err "Docker engine no longer responds"
 curl -fsS --max-time 2 "http://127.0.0.1:${HOST_PORT}/" >/dev/null || err "host httpd stopped"
+if grep -q '^fail$' /tmp/ardtt-live-http-probe.log 2>/dev/null; then
+  err "neighbor HTTP probe dropped during install"
+else
+  ok "neighbor HTTP stayed up during install"
+fi
 ROUTE_AFTER="$(ip -4 route show default || true)"
 [ "$ROUTE_BEFORE" = "$ROUTE_AFTER" ] || err "default route changed"
 

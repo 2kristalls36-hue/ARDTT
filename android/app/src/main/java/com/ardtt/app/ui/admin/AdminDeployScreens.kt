@@ -34,6 +34,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,7 +69,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -83,8 +84,10 @@ import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
 import com.ardtt.app.deploy.DeployHopTrack
+import com.ardtt.app.deploy.DeployIssue
 import com.ardtt.app.deploy.DeployJobKind
 import com.ardtt.app.deploy.DeployProgressCopy
+import com.ardtt.app.deploy.DeployRuntimeBundle
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.PendingServerImport
 import com.ardtt.app.deploy.ServerLinkCodec
@@ -126,6 +129,11 @@ import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.connectedStatusColor
+import com.ardtt.app.ui.theme.warningStatusColor
+import com.ardtt.app.ui.util.copyToClipboard
+import com.ardtt.app.ui.util.readClipboardText
+import com.ardtt.app.ui.util.shareText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -231,19 +239,20 @@ private val ServersNavScreenSaver = Saver<ServersNavScreen, List<String>>(
     },
 )
 
-private fun pingLatencyColor(
+@Composable
+private fun pingLatencyContentColor(
     pingMs: Long,
     poor: Color,
 ): Color? = when (pingLatencyTier(pingMs)) {
-    PingLatencyTier.Good -> ArdttColors.Connected
-    PingLatencyTier.Fair -> ArdttColors.Warning
+    PingLatencyTier.Good -> connectedStatusColor()
+    PingLatencyTier.Fair -> warningStatusColor()
     PingLatencyTier.Poor -> poor
     null -> null
 }
 
 @Composable
 private fun serverPresenceColor(health: HealthUi?): Color = when (health) {
-    is HealthUi.Online -> ArdttColors.Connected
+    is HealthUi.Online -> connectedStatusColor()
     HealthUi.Unreachable, HealthUi.NotInstalled -> MaterialTheme.colorScheme.error
     else -> MaterialTheme.colorScheme.primary
 }
@@ -271,13 +280,13 @@ private fun ServerHealthStatusRow(
     val deployColor = when (health) {
         is HealthUi.Online ->
             if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
-                ArdttColors.Connected
+                connectedStatusColor()
             } else {
-                ArdttColors.Warning
+                warningStatusColor()
             }
         else -> null
     }
-    val pingColor = pingLatencyColor(parts.pingMs, MaterialTheme.colorScheme.error)
+    val pingColor = pingLatencyContentColor(parts.pingMs, MaterialTheme.colorScheme.error)
     val labelStyle = MaterialTheme.typography.labelSmall
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -394,7 +403,6 @@ private fun ServerListScreen(
     onAddServer: () -> Unit,
 ) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
     val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
     var healthById by remember { mutableStateOf<Map<String, HealthUi>>(emptyMap()) }
     var selectMode by rememberSaveable { mutableStateOf(false) }
@@ -514,7 +522,7 @@ private fun ServerListScreen(
                                         leadingIcon = Icons.Filled.FileDownload,
                                         onClick = {
                                             menuExpanded = false
-                                            val clip = clipboard.getText()?.text.orEmpty()
+                                            val clip = readClipboardText(context).orEmpty()
                                             if (tryParseImport(clip)) {
                                                 Toast.makeText(
                                                     context,
@@ -666,7 +674,10 @@ private fun ServerCard(
 ) {
     ArdttCompactCard(
         modifier = if (onOpenServer != null) {
-            modifier.clickable(onClick = onOpenServer)
+            modifier.clickable(
+                onClick = onOpenServer,
+                onClickLabel = "Открыть подробности",
+            )
         } else {
             modifier
         },
@@ -675,6 +686,7 @@ private fun ServerCard(
             server = server,
             health = health,
             expectedVersion = expectedVersion,
+            showOpenHint = onOpenServer != null,
         )
     }
 }
@@ -684,6 +696,7 @@ private fun ServerIdentityBody(
     server: DeployTarget,
     health: HealthUi?,
     expectedVersion: String,
+    showOpenHint: Boolean = false,
 ) {
     val cascadeHosts = serverCardCascadeHosts(
         host = server.host,
@@ -776,6 +789,13 @@ private fun ServerIdentityBody(
                 expectedVersion = expectedVersion,
             )
         }
+        if (showOpenHint) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Открыть подробности",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -790,15 +810,39 @@ private fun DeployProgressSheet(
     onCancel: () -> Unit,
     onClose: () -> Unit,
     isUninstall: Boolean = false,
+    isPreflight: Boolean = false,
     hopTrack: DeployHopTrack = DeployHopTrack(),
+    failure: DeployIssue? = null,
+    onRetryPreflight: (() -> Unit)? = null,
+    onRetryInstall: (() -> Unit)? = null,
+    retryInstallEnabled: Boolean = false,
 ) {
+    val context = LocalContext.current
+    val failed = deployProgressFailed(busy, status, failure)
+    val finishedOk = deployProgressFinishedSuccess(busy, status, failure)
     val slots = cascadeDeploySlots(
         hopTrack,
-        failed = deployProgressFailed(busy, status),
-        finishedSuccess = deployProgressFinishedSuccess(busy, status),
+        failed = failed,
+        finishedSuccess = finishedOk,
     )
+    var showLog by remember { mutableStateOf(false) }
+    val redacted = remember(log) { DeployIssue.redactLog(log.joinToString("\n")) }
+    val headline = when {
+        failure != null -> failure.summary
+        !status.isNullOrBlank() -> status
+        else -> null
+    }
+    val dockerMissing = failure?.code == DeployIssue.DOCKER_MISSING
+    val prepareLabel = if (failure?.hopRole == "exit") "Подготовить VPS2" else "Подготовить VPS"
     ArdttDialog(
-        title = deployProgressSheetTitle(busy, isUpdate, status, isUninstall),
+        title = deployProgressSheetTitle(
+            busy = busy,
+            isUpdate = isUpdate,
+            status = status,
+            isUninstall = isUninstall,
+            failure = failure,
+            isPreflight = isPreflight,
+        ),
         onDismissRequest = {},
         confirmAction = if (busy) {
             ArdttDialogAction("Отменить", onCancel, destructive = true)
@@ -819,38 +863,105 @@ private fun DeployProgressSheet(
                 }
             }
         }
-        Text(
-            step.ifBlank { "…" },
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        ArdttLinearProgress(progress = progress)
-        Text(
-            DeployProgressCopy.percentLabel(progress),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        status?.let {
+        if (failed) {
+            headline?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            if (step.isNotBlank()) {
+                Text(
+                    "Этап: $step",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
             Text(
-                it,
-                color = if (it.startsWith("Ошибка")) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    ArdttColors.Connected
-                },
+                step.ifBlank { headline ?: "…" },
                 style = MaterialTheme.typography.bodyMedium,
+                color = if (finishedOk) connectedStatusColor() else MaterialTheme.colorScheme.onSurface,
+            )
+            if (busy) {
+                ArdttLinearProgress(progress = progress)
+                Text(
+                    DeployProgressCopy.percentLabel(progress),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (!busy && dockerMissing) {
+            Text(
+                DeployRuntimeBundle.missingRuntimeMessage(
+                    osId = "",
+                    osVersion = "",
+                    arch = "",
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ArdttButton(
+                text = prepareLabel,
+                onClick = {},
+                enabled = false,
+                variant = ArdttButtonVariant.Tonal,
+                fillMaxWidth = true,
             )
         }
-        Text(
-            "Лог",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
+        if (!busy && !isUninstall) {
+            if (onRetryPreflight != null) {
+                ArdttButton(
+                    text = "Повторить проверку",
+                    onClick = onRetryPreflight,
+                    variant = ArdttButtonVariant.Outlined,
+                    fillMaxWidth = true,
+                )
+            }
+            if (onRetryInstall != null) {
+                ArdttButton(
+                    text = "Повторить установку",
+                    onClick = onRetryInstall,
+                    enabled = retryInstallEnabled,
+                    fillMaxWidth = true,
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+        ) {
+            ArdttButton(
+                text = if (showLog) "Скрыть журнал" else "Журнал",
+                onClick = { showLog = !showLog },
+                variant = ArdttButtonVariant.Text,
+                modifier = Modifier.weight(1f),
+            )
+            ArdttButton(
+                text = "Скопировать лог",
+                onClick = { copyToClipboard(context, redacted, "ARDTT deploy") },
+                enabled = redacted.isNotBlank(),
+                variant = ArdttButtonVariant.Text,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        ArdttButton(
+            text = "Поделиться логом",
+            onClick = { shareText(context, redacted, "ARDTT deploy", "Поделиться логом") },
+            enabled = redacted.isNotBlank(),
+            variant = ArdttButtonVariant.Text,
+            fillMaxWidth = true,
         )
-        ArdttTerminalCard(
-            text = log.takeLast(24).joinToString("\n"),
-            maxHeight = 200.dp,
-        )
+        if (showLog) {
+            ArdttTerminalCard(
+                text = redacted.ifBlank { log.takeLast(24).joinToString("\n") },
+                maxHeight = 200.dp,
+            )
+        }
     }
 }
 
@@ -864,13 +975,16 @@ private fun DeployHopSlotCard(
     val borderColor = when (slot.phase) {
         DeploySlotPhase.Done -> ArdttColors.Connected
         DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
-        DeploySlotPhase.Pending, DeploySlotPhase.Active -> hopMapGrayStroke(outline)
+        DeploySlotPhase.Skipped,
+        DeploySlotPhase.Pending,
+        DeploySlotPhase.Active,
+        -> hopMapGrayStroke(outline)
     }
     val statusColor = when (slot.phase) {
-        DeploySlotPhase.Done -> ArdttColors.Connected
+        DeploySlotPhase.Done -> connectedStatusColor()
         DeploySlotPhase.Failed -> MaterialTheme.colorScheme.error
         DeploySlotPhase.Active -> MaterialTheme.colorScheme.onSurface
-        DeploySlotPhase.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
+        DeploySlotPhase.Pending, DeploySlotPhase.Skipped -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     ArdttSectionCard(
         contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.SmallPlus),
@@ -936,9 +1050,14 @@ private fun ServerOverviewHost(
     val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
     val engineIsUninstall by engine.isUninstall.collectAsStateWithLifecycle()
+    val engineIsPreflight by engine.isPreflight.collectAsStateWithLifecycle()
     val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
+    val engineFailure by engine.failure.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var deleteConfirmOffline by remember { mutableStateOf(false) }
+    var localFailure by remember { mutableStateOf<DeployIssue?>(null) }
+    var lastPreflightOk by remember { mutableStateOf(false) }
+    val failure = localFailure ?: engineFailure
 
     LaunchedEffect(servers, serverId, showDeleteProgress) {
         if (showDeleteProgress) return@LaunchedEffect
@@ -956,14 +1075,16 @@ private fun ServerOverviewHost(
             if (engineIsUninstall) {
                 showDeleteProgress = true
                 deleteStatus = null
+                localFailure = null
             } else {
                 showRedeployProgress = true
                 redeployStatus = null
+                localFailure = null
             }
         }
     }
 
-    LaunchedEffect(busy, outcome, serverId, activeTargetId, showDeleteProgress, showRedeployProgress) {
+    LaunchedEffect(busy, outcome, serverId, activeTargetId, showDeleteProgress, showRedeployProgress, engineFailure, engineIsPreflight) {
         if (busy || outcome == null) return@LaunchedEffect
         if (activeTargetId != null && activeTargetId != serverId) return@LaunchedEffect
         if (showDeleteProgress) {
@@ -972,6 +1093,13 @@ private fun ServerOverviewHost(
         }
         if (!showRedeployProgress) return@LaunchedEffect
         redeployStatus = outcome
+        localFailure = engineFailure
+        val fail = engineFailure
+        if (engineIsPreflight && fail == null) {
+            lastPreflightOk = true
+        } else if (fail != null && !fail.isCancelled) {
+            lastPreflightOk = false
+        }
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
         health = probeServerHealthUi(target, serversRepo)
@@ -981,13 +1109,25 @@ private fun ServerOverviewHost(
         showRedeployConfirm = false
         showRedeployProgress = true
         redeployStatus = null
+        localFailure = null
         val kind = if (serverOverviewDeployIsUpdate(health)) {
             DeployJobKind.Update
         } else {
             DeployJobKind.Install
         }
         if (!enqueueJob(target, kind)) {
-            redeployStatus = "Ошибка: деплой уже идёт"
+            localFailure = deployBusyIssue()
+            redeployStatus = localFailure?.summary
+        }
+    }
+
+    fun startPreflight(target: DeployTarget) {
+        showRedeployProgress = true
+        redeployStatus = null
+        localFailure = null
+        if (!enqueueJob(target, DeployJobKind.Preflight)) {
+            localFailure = deployBusyIssue()
+            redeployStatus = localFailure?.summary
         }
     }
 
@@ -995,8 +1135,10 @@ private fun ServerOverviewHost(
         showDeleteConfirm = false
         showDeleteProgress = true
         deleteStatus = null
+        localFailure = null
         if (!enqueueJob(target, DeployJobKind.Uninstall)) {
-            deleteStatus = "Ошибка: деплой уже идёт"
+            localFailure = deployBusyIssue()
+            deleteStatus = localFailure?.summary
         }
     }
 
@@ -1038,6 +1180,18 @@ private fun ServerOverviewHost(
                 expectedVersion = expectedVersion,
                 onOpenClients = onOpenClients,
                 onUpdateDeploy = { showRedeployConfirm = true },
+                onPrimaryAction = {
+                    when (serverOverviewPrimaryAction(health, expectedVersion)) {
+                        ServerOverviewPrimaryAction.Check -> scope.launch {
+                            health = HealthUi.Checking
+                            health = probeServerHealthUi(server, serversRepo)
+                        }
+                        ServerOverviewPrimaryAction.Install,
+                        ServerOverviewPrimaryAction.Update,
+                        -> showRedeployConfirm = true
+                    }
+                },
+                primaryAction = serverOverviewPrimaryAction(health, expectedVersion),
                 onOpenDeploySettings = onOpenDeploySettings,
                 onBack = onBack,
                 showActions = showActions,
@@ -1132,6 +1286,7 @@ private fun ServerOverviewHost(
                 progress = progress,
                 log = deployLog,
                 hopTrack = hopTrack,
+                failure = failure,
                 onCancel = { engine.cancel() },
                 onClose = {
                     val leave = serverDeleteFinishedShouldLeave(busy, deleteStatus)
@@ -1143,11 +1298,16 @@ private fun ServerOverviewHost(
             DeployProgressSheet(
                 busy = busy,
                 isUpdate = if (busy) engineIsUpdate else serverOverviewDeployIsUpdate(health),
+                isPreflight = if (busy) engineIsPreflight else false,
                 status = redeployStatus,
                 step = step,
                 progress = progress,
                 log = deployLog,
                 hopTrack = hopTrack,
+                failure = failure,
+                onRetryPreflight = { startPreflight(server) },
+                onRetryInstall = { startRedeploy(server) },
+                retryInstallEnabled = lastPreflightOk && !busy,
                 onCancel = { engine.cancel() },
                 onClose = { showRedeployProgress = false },
             )
@@ -1162,6 +1322,8 @@ private fun ServerOverviewScreen(
     expectedVersion: String,
     onOpenClients: () -> Unit,
     onUpdateDeploy: () -> Unit,
+    onPrimaryAction: () -> Unit,
+    primaryAction: ServerOverviewPrimaryAction,
     onOpenDeploySettings: () -> Unit,
     onBack: () -> Unit,
     showActions: Boolean,
@@ -1171,8 +1333,6 @@ private fun ServerOverviewScreen(
     refreshing: Boolean,
     onRefresh: () -> Unit,
 ) {
-    val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
-
     Box(modifier = Modifier.fillMaxSize()) {
         ArdttScrollChrome(
             header = {
@@ -1240,11 +1400,7 @@ private fun ServerOverviewScreen(
                         start = ArdttSpacing.Large,
                         end = ArdttSpacing.Large,
                         top = ArdttSpacing.Small,
-                        bottom = if (showUpdateButton) {
-                            ArdttBottomChrome.scrollContentPadding()
-                        } else {
-                            ArdttBottomChrome.navigationReserve() + ArdttSpacing.Large
-                        },
+                        bottom = ArdttBottomChrome.scrollContentPadding(),
                     ),
                     verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                 ) {
@@ -1285,15 +1441,27 @@ private fun ServerOverviewScreen(
         }
         }
 
-        if (showUpdateButton) {
-            ArdttStickyBottomBar {
-                ArdttPrimaryButton(
-                    text = serverOverviewDeployActionLabel(health),
-                    onClick = onUpdateDeploy,
-                    containerColor = ArdttColors.Warning,
-                    icon = Icons.Filled.CloudUpload,
-                )
-            }
+        ArdttStickyBottomBar {
+            ArdttPrimaryButton(
+                text = serverOverviewPrimaryLabel(primaryAction),
+                onClick = onPrimaryAction,
+                busy = health is HealthUi.Checking && primaryAction == ServerOverviewPrimaryAction.Check,
+                containerColor = if (primaryAction == ServerOverviewPrimaryAction.Update) {
+                    ArdttColors.Warning
+                } else {
+                    null
+                },
+                contentColor = if (primaryAction == ServerOverviewPrimaryAction.Update) {
+                    ArdttColors.OnWarning
+                } else {
+                    null
+                },
+                icon = if (primaryAction == ServerOverviewPrimaryAction.Check) {
+                    Icons.Filled.Refresh
+                } else {
+                    Icons.Filled.CloudUpload
+                },
+            )
         }
     }
 }
@@ -1401,6 +1569,7 @@ fun DeployScreen(
     onBack: () -> Unit = {},
 ) {
     val startDeploy = rememberStartDeploy(engine)
+    val enqueueJob = rememberEnqueueDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
     val progress by engine.progress.collectAsStateWithLifecycle()
     val step by engine.step.collectAsStateWithLifecycle()
@@ -1435,7 +1604,12 @@ fun DeployScreen(
     var showDeployProgress by remember { mutableStateOf(false) }
     val activeTargetId by engine.activeTargetId.collectAsStateWithLifecycle()
     val engineIsUpdate by engine.isUpdate.collectAsStateWithLifecycle()
+    val engineIsPreflight by engine.isPreflight.collectAsStateWithLifecycle()
     val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
+    val engineFailure by engine.failure.collectAsStateWithLifecycle()
+    var localFailure by remember { mutableStateOf<DeployIssue?>(null) }
+    var lastPreflightOk by remember { mutableStateOf(false) }
+    val failure = localFailure ?: engineFailure
     val saved = initial != null
 
     LaunchedEffect(initial?.id) {
@@ -1468,14 +1642,22 @@ fun DeployScreen(
         if (busy && activeTargetId == id) {
             showDeployProgress = true
             deployStatus = null
+            localFailure = null
         }
     }
 
-    LaunchedEffect(busy, outcome, id, activeTargetId) {
+    LaunchedEffect(busy, outcome, id, activeTargetId, engineFailure, engineIsPreflight) {
         if (busy || outcome == null) return@LaunchedEffect
         if (activeTargetId != null && activeTargetId != id) return@LaunchedEffect
         if (!showDeployProgress) return@LaunchedEffect
         deployStatus = outcome
+        localFailure = engineFailure
+        val fail = engineFailure
+        if (engineIsPreflight && fail == null) {
+            lastPreflightOk = true
+        } else if (fail != null && !fail.isCancelled) {
+            lastPreflightOk = false
+        }
         val stored = serversRepo.snapshot().find { it.id == id }
         if (stored != null) {
             if (stored.lastDeployedAtMs > 0L) lastDeployedAtMs = stored.lastDeployedAtMs
@@ -1543,8 +1725,27 @@ fun DeployScreen(
         status = null
         showDeployProgress = true
         deployStatus = null
+        localFailure = null
         if (!startDeploy(target, isUpdate)) {
-            deployStatus = "Ошибка: деплой уже идёт"
+            localFailure = deployBusyIssue()
+            deployStatus = localFailure?.summary
+        }
+    }
+
+    fun startFormPreflight() {
+        formValidationError()?.let {
+            status = it
+            return
+        }
+        val target = buildTarget()
+        serversRepo.upsert(target)
+        status = null
+        showDeployProgress = true
+        deployStatus = null
+        localFailure = null
+        if (!enqueueJob(target, DeployJobKind.Preflight)) {
+            localFailure = deployBusyIssue()
+            deployStatus = localFailure?.summary
         }
     }
 
@@ -1872,8 +2073,8 @@ fun DeployScreen(
         status?.let {
             Text(
                 it,
-                color = if (it.startsWith("Ошибка")) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
             } // form column
@@ -1911,11 +2112,16 @@ fun DeployScreen(
             DeployProgressSheet(
                 busy = busy,
                 isUpdate = if (busy) engineIsUpdate else isUpdate,
+                isPreflight = if (busy) engineIsPreflight else false,
                 status = deployStatus,
                 step = step,
                 progress = progress,
                 log = log,
                 hopTrack = hopTrack,
+                failure = failure,
+                onRetryPreflight = { startFormPreflight() },
+                onRetryInstall = { startServerDeploy() },
+                retryInstallEnabled = lastPreflightOk && !busy,
                 onCancel = { engine.cancel() },
                 onClose = { showDeployProgress = false },
             )
