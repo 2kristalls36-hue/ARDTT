@@ -1,10 +1,10 @@
 # Сервер ARDTT
 
-Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.45** (`DEPLOY_VERSION`).  
+Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.46** (`DEPLOY_VERSION`).  
 Продуктовая установка — готовый архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` из GitHub Releases: [DEPLOY.md](../docs/DEPLOY.md).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
-На VPS должен быть **уже установленный Docker Engine**. Пакет не вызывает `get.docker.com`, не делает `docker pull` и не собирает образ.
+На чистом VPS пакет ставит Docker Engine из `vendor/docker.tgz`. Пакет не вызывает сетевой установщик Engine, не делает `docker pull` и не собирает образ. Рабочий Docker не переустанавливается.
 
 Боевой контур — **один контейнер** (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
 
@@ -20,13 +20,13 @@
 
 ## Установка (продукт)
 
-Нужны Linux amd64/arm64, Docker Engine, `/dev/net/tun`, python3.
+Нужны Linux amd64/arm64, `/dev/net/tun`, python3, iptables. Docker Engine — из архива, если его ещё нет.
 
 ```bash
 # Актив с https://github.com/2kristalls36-hue/ARDTT/releases
 # Сверьте внешнюю SHA-256 с digest / SHA256SUMS релиза.
 export ARDTT_PUBLIC_HOST=IP_VPS
-export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.45-linux-amd64.tar.gz
+export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.46-linux-amd64.tar.gz
 export ARDTT_PACKAGE_SHA256='…'
 # после safe-extract:
 bash /opt/ardtt/staging/install.sh
