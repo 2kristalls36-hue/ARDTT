@@ -1,3 +1,12 @@
+# ARDTT v0.5.258
+
+Клиент **0.5.258** (`versionCode` 276). Серверный стек **1.0.46** (`DEPLOY_VERSION`).
+
+## 0.5.258 / стек 1.0.46
+
+- Единый архив каскада ставит Docker Engine **из коробки**: `vendor/docker.tgz` (статический Engine 29.7.2) внутри `ardtt-server-*-linux-<arch>.tar.gz`. На чистом VPS `install.sh` распаковывает Engine и поднимает systemd-юниты. Рабочий Docker не трогает, `get.docker.com` / apt на VPS нет.
+- Preflight больше не останавливает каскад из‑за отсутствия Docker: «Docker будет установлен из пакета». Чужой podman/kubelet по-прежнему отказ. Кнопка «Подготовить VPS» не нужна.
+
 # ARDTT v0.5.257
 
 Клиент **0.5.257** (`versionCode` 275). Серверный стек **1.0.45** (`DEPLOY_VERSION`).
