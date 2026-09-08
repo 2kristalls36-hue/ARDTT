@@ -5,7 +5,7 @@
 ## 0.5.257
 
 - UI: общие кнопки `ArdttButton`, контраст primary/onPrimary, нижняя навигация «4 вкладки + Ещё», отмена Connecting, логи с автопрокруткой/поиском, кнопка обновления Сети, ленивые Профили, размытие ленты под верхней панелью (API 31+, fallback 28–30). Переключатель профилей, «Очистить» в Обходе и донат — те же варианты кнопок. Иконки в шапке/карточках — `ArdttButton.Icon` с касанием 48 dp.
-- Стек 1.0.45 без изменений относительно #176: один архив `ardtt-server-*-linux-<arch>.tar.gz`, isolated install, без prune/hostnet/get.docker.com.
+- Стек 1.0.45: один архив `ardtt-server-*-linux-<arch>.tar.gz`. После push в `main` workflow Server package прикрепляет его к последнему GitHub Release (не только к тегу). Isolated install без prune/hostnet/get.docker.com.
 
 # ARDTT v0.5.256
 

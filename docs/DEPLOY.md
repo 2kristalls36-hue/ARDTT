@@ -287,7 +287,7 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
 
 1. `android/app/src/main/assets/deploy/DEPLOY_VERSION`
 2. `DeployBundle.FALLBACK_VERSION`
-3. CI соберёт `ardtt-server-<версия>-linux-*.tar.gz`
+3. CI (`.github/workflows/server-package.yml`) собирает `ardtt-server-<версия>-linux-*.tar.gz` и при push в `main` или тег `v*` **прикрепляет их к последнему GitHub Release**, если он уже есть. Пока релиза нет — только Artifacts (30 дней). Старый `ardtt-stack-*.tar.gz` в релиз не кладётся.
 
 Бамп: образ, Compose, entrypoint'ы, `install.sh`. Только UI телефона — нет.
 
