@@ -55,7 +55,7 @@ bin/docker-compose      # закреплённый Compose CLI этой arch
 third-party.lock.json
 ```
 
-Доверие к архиву — **внешняя SHA-256** актива GitHub Release (`digest` или `SHA256SUMS` того же релиза), не суммы внутри tar. Image ID после `docker load` — не registry RepoDigest. Если на хосте уже висит другой образ с тем же тегом, установщик всё равно ставит тег на **ID из манифеста этого архива**.
+Доверие к архиву — **внешняя SHA-256** актива GitHub Release (`digest` или `SHA256SUMS` того же релиза), не суммы внутри tar. Image ID в манифесте пакета — не registry RepoDigest: на классическом Docker это config blob, на containerd — digest манифеста. После `docker load` установщик сверяет **слои** `images/ardtt.tar` с загруженным образом.
 
 Сборка в GitHub Actions: [`.github/workflows/server-package.yml`](../.github/workflows/server-package.yml) (`scripts/build-server-image.sh` + `scripts/pack-server-package.sh`). Push в `main` сначала прикрепляет уже собранный образ из Artifacts, подставив в tar текущие `install.sh` / `ready.sh` / Compose (`scripts/repack-server-host-files.sh`), затем пересобирает образ (~3 ч) и заливает снова. Сторонние исходники (Debian, pinned GitHub tarball'ы) допустимы **в CI**; на VPS пользователь получает только этот архив.
 
