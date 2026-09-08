@@ -57,25 +57,26 @@ private val PrimaryLabelTracking = 0.2.sp
  */
 @Composable
 fun ArdttButton(
-    text: String,
+    text: String = "",
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     variant: ArdttButtonVariant = ArdttButtonVariant.Primary,
     size: ArdttButtonSize = ArdttButtonSize.Regular,
     enabled: Boolean = true,
     busy: Boolean = false,
-    fillMaxWidth: Boolean = variant == ArdttButtonVariant.Primary && size == ArdttButtonSize.Regular,
+    fillMaxWidth: Boolean = ardttButtonFillsWidth(variant, size, text),
     icon: ImageVector? = null,
     contentDescription: String? = null,
     containerColor: Color? = null,
     contentColor: Color? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val minHeight = if (size == ArdttButtonSize.Compact) ArdttSize.ButtonCompact else ArdttSize.Button
+    val minHeight = ardttButtonMinHeight(variant, size)
     val pair = buttonColors(variant, scheme.primary, scheme.onPrimary, containerColor, contentColor)
     val clickable = enabled && !busy
+    val showsText = ardttButtonShowsText(variant, text)
     val semanticsModifier = Modifier.semantics(mergeDescendants = true) {
-        this.role = if (variant == ArdttButtonVariant.Icon) Role.Button else Role.Button
+        this.role = Role.Button
         val name = contentDescription ?: text
         this.contentDescription = name
         if (busy) this.stateDescription = "Загрузка"
@@ -103,9 +104,11 @@ fun ArdttButton(
                     contentDescription = null,
                     modifier = Modifier.size(ArdttSize.Icon),
                 )
-                Spacer(modifier = Modifier.width(ArdttSpacing.Small))
+                if (showsText) {
+                    Spacer(modifier = Modifier.width(ArdttSpacing.Small))
+                }
             }
-            if (variant != ArdttButtonVariant.Icon) {
+            if (showsText) {
                 Text(
                     text,
                     style = MaterialTheme.typography.titleSmall.copy(
@@ -115,7 +118,7 @@ fun ArdttButton(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-            } else if (icon != null) {
+            } else if (variant == ArdttButtonVariant.Icon && icon != null) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(ArdttSize.Icon))
             }
         }
@@ -139,7 +142,7 @@ fun ArdttButton(
                     pressedElevation = ArdttElevation.Low,
                     disabledElevation = ArdttElevation.None,
                 ),
-                contentPadding = PaddingValues(horizontal = ArdttSpacing.Large, vertical = ArdttSpacing.Small),
+                contentPadding = ardttButtonContentPadding(variant, showsText),
             ) { content() }
         }
         ArdttButtonVariant.Tonal -> {
@@ -166,7 +169,7 @@ fun ArdttButton(
                     contentColor = pair.content,
                     disabledContentColor = pair.content.copy(alpha = 0.82f),
                 ),
-                contentPadding = PaddingValues(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.TinyPlus),
+                contentPadding = ardttButtonContentPadding(variant, showsText),
             ) { content() }
         }
         ArdttButtonVariant.Text -> {
@@ -191,6 +194,38 @@ fun ArdttButton(
             ) { content() }
         }
     }
+}
+
+internal fun ardttButtonMinHeight(variant: ArdttButtonVariant, size: ArdttButtonSize) = when {
+    variant == ArdttButtonVariant.Icon -> ArdttSize.TouchTarget
+    size == ArdttButtonSize.Compact -> ArdttSize.ButtonCompact
+    else -> ArdttSize.Button
+}
+
+internal fun ardttButtonShowsText(variant: ArdttButtonVariant, text: String): Boolean =
+    variant != ArdttButtonVariant.Icon && text.isNotBlank()
+
+internal fun ardttButtonFillsWidth(
+    variant: ArdttButtonVariant,
+    size: ArdttButtonSize,
+    text: String,
+): Boolean = variant == ArdttButtonVariant.Primary &&
+    size == ArdttButtonSize.Regular &&
+    ardttButtonShowsText(variant, text)
+
+internal fun ardttButtonContentPadding(
+    variant: ArdttButtonVariant,
+    showsText: Boolean,
+): PaddingValues = when (variant) {
+    ArdttButtonVariant.Primary, ArdttButtonVariant.Danger ->
+        if (showsText) {
+            PaddingValues(horizontal = ArdttSpacing.Large, vertical = ArdttSpacing.Small)
+        } else {
+            PaddingValues(ArdttSpacing.None)
+        }
+    ArdttButtonVariant.Outlined ->
+        PaddingValues(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.TinyPlus)
+    else -> PaddingValues(ArdttSpacing.Small)
 }
 
 private data class ButtonPair(val container: Color, val content: Color)

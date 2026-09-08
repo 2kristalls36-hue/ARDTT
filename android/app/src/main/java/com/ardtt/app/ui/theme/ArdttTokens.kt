@@ -144,6 +144,8 @@ object ArdttSize {
     /** Minimum height of a primary (sticky / full-width) button. */
     val Button: Dp = 58.dp
     val ButtonCompact: Dp = 48.dp
+    /** Width of an icon-only primary in a button cluster (profile switcher arrows). */
+    val ButtonCluster: Dp = 62.dp
     val TouchTarget: Dp = 48.dp
 
     /** Inner height of the floating tab pill (icon + 12 sp caption). */

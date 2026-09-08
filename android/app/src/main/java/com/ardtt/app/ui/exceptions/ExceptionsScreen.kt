@@ -53,7 +53,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -625,17 +624,15 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 modifier = Modifier.weight(1f),
                             )
                             if (orderedSites.isNotEmpty()) {
-                                TextButton(
+                                ArdttButton(
+                                    text = "Очистить",
                                     onClick = { showClearConfirm = true },
                                     enabled = !busy,
-                                    contentPadding = PaddingValues(horizontal = ArdttSpacing.SmallPlus, vertical = ArdttSpacing.Tiny),
-                                ) {
-                                    Text(
-                                        "Очистить",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = colors.error,
-                                    )
-                                }
+                                    variant = ArdttButtonVariant.Text,
+                                    size = ArdttButtonSize.Compact,
+                                    fillMaxWidth = false,
+                                    contentColor = colors.error,
+                                )
                             }
                         }
                         hint?.let {
