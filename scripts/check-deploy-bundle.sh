@@ -47,6 +47,8 @@ PY
   grep -q 'ARDTT_PACKAGE_SHA256' "$INSTALLER" || err "installer must require outer package SHA-256"
   grep -q 'safe_extract_package' "$INSTALLER" || err "installer must extract safely"
   grep -q 'docker load' "$INSTALLER" || err "installer must docker load"
+  grep -q 'load_package_image' "$INSTALLER" || err "installer must load_package_image (retag manifest ID)"
+  grep -q 'docker tag' "$ROOT/server/install-lib/package.sh" || err "package load must docker tag the manifest image ID"
   grep -q -- '--no-build --pull never' "$INSTALLER" || err "installer must up --no-build --pull never"
   grep -q 'wait_readiness' "$INSTALLER" || err "installer must wait readiness"
   grep -q 'restore_previous_release' "$INSTALLER" || err "installer must restore previous on failed up/readiness"
@@ -151,7 +153,10 @@ bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n cascade-entr
 bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n warp"
 bash -n "$ROOT/server/entrypoint.sh" || err "bash -n entrypoint"
 bash -n "$ROOT/scripts/pack-server-package.sh" || err "bash -n pack-server-package"
+bash -n "$ROOT/scripts/repack-server-host-files.sh" || err "bash -n repack-server-host-files"
 bash -n "$ROOT/scripts/attach-server-packages-to-release.sh" || err "bash -n attach-server-packages-to-release"
+grep -q 'repack-server-host-files.sh' "$ROOT/scripts/attach-server-packages-to-release.sh" \
+  || err "attach-to-release must refresh host files before upload"
 bash -n "$ROOT/scripts/test-install-live-isolation.sh" || err "bash -n test-install-live-isolation"
 bash -n "$ROOT/scripts/make-fake-server-package.sh" || err "bash -n make-fake-server-package"
 python3 -m py_compile "$ROOT/scripts/safe-extract-package.py" || err "safe-extract-package.py"
@@ -240,6 +245,9 @@ if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"
+fi
+if [ -f "$ROOT/scripts/test-repack-server-host-files.sh" ]; then
+  bash "$ROOT/scripts/test-repack-server-host-files.sh" || err "repack host files"
 fi
 
 if [ "$fail" -ne 0 ]; then

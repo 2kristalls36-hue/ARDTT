@@ -95,6 +95,16 @@ gh run download "$RUN_ID" --repo "$REPO" \
   -n ardtt-server-amd64 -n ardtt-server-arm64 \
   -D "$WORKDIR"
 
+# Image layers stay from CI; host files come from this checkout so merge
+# attach is not the stale #176 tarball (no SETGID / no ready.sh overlay).
+shopt -s nullglob
+for pkg in "$WORKDIR"/ardtt-server-${VER}-linux-*.tar.gz \
+           "$WORKDIR"/*/ardtt-server-${VER}-linux-*.tar.gz; do
+  [ -f "$pkg" ] || continue
+  bash "$ROOT/scripts/repack-server-host-files.sh" "$pkg"
+done
+shopt -u nullglob
+
 python3 - "$WORKDIR" "$VER" "$DRY" "$TAG" "$REPO" <<'PY'
 import hashlib, os, pathlib, subprocess, sys
 root = pathlib.Path(sys.argv[1])

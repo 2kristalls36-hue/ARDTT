@@ -100,3 +100,16 @@ verify_loaded_image() {
   got_arch="$(docker image inspect -f '{{.Architecture}}' "$tag" 2>/dev/null || true)"
   [ "$got_arch" = "$(host_arch)" ] || die "Архитектура образа ${got_arch} не совпадает с VPS ($(host_arch))"
 }
+
+# docker load keeps an existing repo:tag if that name already points at another
+# ID. Pin the name to the image ID recorded in this package's manifest.
+load_package_image() {
+  local tar="$1" tag="$2" expect_id="$3"
+  docker load -i "$tar" >/dev/null
+  if [ -n "$expect_id" ]; then
+    docker image inspect "$expect_id" >/dev/null 2>&1 \
+      || die "docker load не импортировал образ ${expect_id} из пакета"
+    docker tag "$expect_id" "$tag"
+  fi
+  verify_loaded_image "$tag" "$expect_id"
+}
