@@ -6,22 +6,28 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.update.GitHubReleaseUpdate
+import java.io.File
 import java.net.InetAddress
+import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
 class DeployPayload(
-    val stackBytes: ByteArray,
-    val installBytes: ByteArray,
+    val packageFile: File,
+    val sha256: String,
+    val sizeBytes: Long,
+    val arch: String,
     val sourceLabel: String,
     val gitRef: String,
 )
 
 /**
- * Downloads `server/` from GitHub for admin deploy. Release asset first,
- * then the tag/source tarball so a public clone works before the asset exists.
+ * Downloads `ardtt-server-<ver>-linux-<arch>.tar.gz` from GitHub Releases
+ * into a cache file. SHA-256 is computed on the stream. The docker image is
+ * never held as a ByteArray.
  */
 class DeployStackFetcher(
     private val context: Context,
@@ -29,168 +35,163 @@ class DeployStackFetcher(
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.MINUTES)
         .writeTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
 
-    fun fetch(onProgress: (Float) -> Unit = {}): DeployPayload {
+    fun fetch(
+        arch: String,
+        onProgress: (Float) -> Unit = {},
+        isCancelled: () -> Boolean = { false },
+    ): DeployPayload {
         val tag = DeployStackSource.gitRef()
+        val linuxArch = DeployStackSource.linuxArch(arch)
+        if (linuxArch != "amd64" && linuxArch != "arm64") {
+            error("Неподдерживаемая архитектура VPS ($arch). Нужен linux amd64 или arm64.")
+        }
         val errors = mutableListOf<String>()
-
-        resolveReleaseAssetUrl(tag)?.let { url ->
+        resolveReleaseAsset(tag, linuxArch)?.let { asset ->
             runCatching {
-                return assemble(url, "GitHub Releases $tag / ${DeployStackSource.stackAssetName(expectedVersion)}", tag, onProgress)
+                return downloadVerified(asset, "GitHub Releases $tag / ${asset.name}", tag, linuxArch, onProgress, isCancelled)
             }.onFailure { errors.add(it.message ?: it.javaClass.simpleName) }
         }
-
-        for (candidate in sourceArchiveCandidates(tag)) {
-            runCatching {
-                return assemble(
-                    url = candidate.url,
-                    label = candidate.label,
-                    gitRef = candidate.ref,
-                    onProgress = onProgress,
-                    githubApi = candidate.githubApi,
-                )
-            }.onFailure { errors.add("${candidate.label}: ${it.message ?: it.javaClass.simpleName}") }
-        }
-
-        loadBundledFallback()?.let { return it }
-
-        val hint = errors.take(5).joinToString("; ").ifBlank { "нет ответа" }
+        val hint = errors.take(5).joinToString("; ").ifBlank { "нет актива ardtt-server-$expectedVersion-linux-$linuxArch.tar.gz" }
         error(
-            "Не удалось скачать стек $expectedVersion из GitHub ($hint). " +
-                "Нужен доступ с телефона к github.com. Репозиторий публичный, PAT не требуется.",
+            "Не удалось скачать пакет $expectedVersion ($linuxArch) из GitHub Releases ($hint). " +
+                "Нужен доступ с телефона к github.com. Старые APK, которые ждут ardtt-stack-*.tar.gz " +
+                "или исходники main, этот пакет поставить не могут — обновите приложение.",
         )
     }
 
-    private fun assemble(
-        url: String,
-        label: String,
-        gitRef: String,
-        onProgress: (Float) -> Unit,
-        githubApi: Boolean = false,
-    ): DeployPayload {
-        onProgress(0.05f)
-        val stack = downloadBytes(url, githubApi = githubApi, githubDownload = !githubApi) { frac ->
-            onProgress(0.05f + frac * 0.8f)
-        }
-        if (stack.size < 256) error("архив стека слишком короткий (${stack.size} B)")
-        if (!looksLikeGzip(stack)) error("ответ GitHub не gzip (не архив стека)")
-        onProgress(0.88f)
-        val install = DeployStackArchive.extractInstallScript(stack)
-            ?: downloadInstallScript(gitRef)
-        onProgress(1f)
-        return DeployPayload(
-            stackBytes = stack,
-            installBytes = install,
-            sourceLabel = label,
-            gitRef = gitRef,
-        )
+    private fun resolveReleaseAsset(tag: String, arch: String): DeployStackSource.ReleaseAsset? {
+        val json = fetchText(GitHubReleaseUpdate.releaseByTagApiUrl(tag), githubApi = true)
+            ?: fetchNewestMatchingRelease(arch)
+            ?: return null
+        return completeAsset(json, arch)
     }
 
-    private fun downloadInstallScript(gitRef: String): ByteArray {
-        val refs = listOf(gitRef, "main").distinct()
-        var lastError: Throwable? = null
-        for (ref in refs) {
-            val bytes = runCatching {
-                downloadBytes(DeployStackSource.rawInstallUrl(ref), githubDownload = true)
-            }.onFailure { lastError = it }.getOrNull()
-            if (bytes != null) {
-                if (looksLikeInstaller(bytes)) return bytes
-                lastError = IllegalStateException(
-                    "server/install.sh с $ref не похож на установщик (${bytes.size} B)",
-                )
-            }
-        }
-        loadAsset("deploy/install.sh")?.takeIf { looksLikeInstaller(it) }?.let { return it }
-        throw lastError ?: IllegalStateException("Не удалось скачать server/install.sh из GitHub")
-    }
-
-    private fun resolveReleaseAssetUrl(tag: String): String? {
-        fetchText(GitHubReleaseUpdate.releaseByTagApiUrl(tag), githubApi = true)
-            ?.let { DeployStackSource.pickStackAssetUrl(it, expectedVersion) }
-            ?.let { return it }
-        fetchText(GitHubReleaseUpdate.releasesListApiUrl(), githubApi = true)?.let { raw ->
-            val releases = runCatching { org.json.JSONArray(raw) }.getOrNull() ?: return@let
-            for (i in 0 until releases.length()) {
-                val json = releases.optJSONObject(i) ?: continue
-                DeployStackSource.pickStackAssetUrl(json.toString(), expectedVersion)?.let { return it }
+    private fun fetchNewestMatchingRelease(arch: String): String? {
+        val raw = fetchText(GitHubReleaseUpdate.releasesListApiUrl(), githubApi = true) ?: return null
+        val releases = runCatching { org.json.JSONArray(raw) }.getOrNull() ?: return null
+        for (i in 0 until releases.length()) {
+            val json = releases.optJSONObject(i) ?: continue
+            DeployStackSource.pickServerAsset(json.toString(), expectedVersion, arch)?.let {
+                return json.toString()
             }
         }
         return null
     }
 
-    private data class ArchiveCandidate(
-        val url: String,
-        val label: String,
-        val ref: String,
-        val githubApi: Boolean,
-    )
+    private fun completeAsset(releaseJson: String, arch: String): DeployStackSource.ReleaseAsset? {
+        val asset = DeployStackSource.pickServerAsset(releaseJson, expectedVersion, arch) ?: return null
+        if (asset.sha256.isNotEmpty()) return asset
+        val sumsUrl = DeployStackSource.sha256sumsUrl(releaseJson) ?: return null
+        val sums = fetchText(sumsUrl, githubApi = false) ?: return null
+        val sha = DeployStackSource.sha256FromSums(sums, asset.name) ?: return null
+        return asset.copy(sha256 = sha)
+    }
 
-    private fun sourceArchiveCandidates(tag: String): List<ArchiveCandidate> = listOf(
-        ArchiveCandidate(
-            url = DeployStackSource.apiTarballUrl(tag),
-            label = "GitHub tarball $tag",
-            ref = tag,
-            githubApi = true,
-        ),
-        ArchiveCandidate(
-            url = DeployStackSource.publicTagArchiveUrl(tag),
-            label = "GitHub archive $tag",
-            ref = tag,
-            githubApi = false,
-        ),
-        ArchiveCandidate(
-            url = DeployStackSource.apiTarballUrl("main"),
-            label = "GitHub tarball main",
-            ref = "main",
-            githubApi = true,
-        ),
-        ArchiveCandidate(
-            url = DeployStackSource.publicHeadArchiveUrl("main"),
-            label = "GitHub archive main",
-            ref = "main",
-            githubApi = false,
-        ),
-    )
+    private fun downloadVerified(
+        asset: DeployStackSource.ReleaseAsset,
+        label: String,
+        gitRef: String,
+        arch: String,
+        onProgress: (Float) -> Unit,
+        isCancelled: () -> Boolean,
+    ): DeployPayload {
+        val expect = asset.sha256.lowercase(Locale.US).removePrefix("sha256:")
+        if (expect.isEmpty()) {
+            error("У актива ${asset.name} нет SHA-256 в метаданных релиза (digest / SHA256SUMS)")
+        }
+        val cache = cacheFile(arch, expect)
+        if (cache.isFile && cache.length() > 0L) {
+            val existing = sha256OfFile(cache, isCancelled)
+            if (existing == expect) {
+                onProgress(1f)
+                return DeployPayload(cache, expect, cache.length(), arch, "$label (кеш)", gitRef)
+            }
+        }
+        onProgress(0.05f)
+        val tmp = File(cache.parentFile, cache.name + ".partial")
+        tmp.parentFile?.mkdirs()
+        if (tmp.exists()) tmp.delete()
+        val got = downloadToFile(asset.url, tmp, asset.sizeBytes, githubDownload = true, onProgress, isCancelled)
+        if (got != expect) {
+            tmp.delete()
+            error("SHA-256 пакета не совпал с релизом (ожидали $expect, получили $got)")
+        }
+        if (cache.exists()) cache.delete()
+        if (!tmp.renameTo(cache)) {
+            tmp.copyTo(cache, overwrite = true)
+            tmp.delete()
+        }
+        onProgress(1f)
+        return DeployPayload(cache, expect, cache.length(), arch, label, gitRef)
+    }
 
-    private fun downloadBytes(
+    private fun cacheFile(arch: String, sha256: String): File {
+        val dir = File(context.cacheDir, "ardtt-deploy")
+        dir.mkdirs()
+        return File(dir, "ardtt-server-${expectedVersion}-linux-$arch-${sha256.take(16)}.tar.gz")
+    }
+
+    private fun downloadToFile(
         url: String,
-        githubApi: Boolean = false,
-        githubDownload: Boolean = false,
-        onProgress: (Float) -> Unit = {},
-    ): ByteArray {
-        val request = requestBuilder(url, githubApi, githubDownload).build()
+        dest: File,
+        expectedSize: Long,
+        githubDownload: Boolean,
+        onProgress: (Float) -> Unit,
+        isCancelled: () -> Boolean,
+    ): String {
+        val request = requestBuilder(url, githubApi = false, githubDownload = githubDownload).build()
         var lastError: Throwable? = null
         for (candidate in httpClients()) {
-            val bytes = runCatching {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val sha = runCatching {
                 candidate.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) error("HTTP ${response.code}")
                     val body = response.body ?: error("пустой ответ")
-                    val total = body.contentLength()
-                    val out = java.io.ByteArrayOutputStream(
-                        if (total > 0) total.toInt().coerceAtLeast(4096) else 64 * 1024,
-                    )
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var copied = 0L
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            out.write(buffer, 0, read)
-                            copied += read
-                            if (total > 0) onProgress((copied.toFloat() / total.toFloat()).coerceIn(0f, 1f))
+                    val total = if (body.contentLength() > 0) body.contentLength() else expectedSize
+                    dest.outputStream().use { output ->
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var copied = 0L
+                            while (true) {
+                                if (isCancelled()) error("Отменено")
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                output.write(buffer, 0, read)
+                                digest.update(buffer, 0, read)
+                                copied += read.toLong()
+                                if (total > 0) onProgress((copied.toFloat() / total.toFloat()).coerceIn(0f, 1f))
+                            }
                         }
                     }
-                    out.toByteArray()
+                    hex(digest.digest())
                 }
-            }.onFailure { lastError = it }.getOrNull()
-            if (bytes != null) return bytes
+            }.onFailure {
+                lastError = it
+                dest.delete()
+            }.getOrNull()
+            if (sha != null) return sha
         }
         throw (lastError ?: IllegalStateException("нет ответа"))
+    }
+
+    private fun sha256OfFile(file: File, isCancelled: () -> Boolean): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                if (isCancelled()) error("Отменено")
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return hex(digest.digest())
     }
 
     private fun fetchText(url: String, githubApi: Boolean): String? {
@@ -256,51 +257,18 @@ class DeployStackFetcher(
         }
     }
 
-    private fun loadBundledFallback(): DeployPayload? {
-        val names = listOf(
-            "deploy/stack.tar.gz.bin",
-            "deploy/stack.tar.gz",
-            "deploy/stack.tar",
-        )
-        for (name in names) {
-            val bytes = loadAsset(name) ?: continue
-            if (bytes.isEmpty()) continue
-            val stack = if (name.endsWith(".tar") && !name.endsWith(".tar.gz")) {
-                gzipBytes(bytes)
-            } else {
-                bytes
-            }
-            val install = loadAsset("deploy/install.sh") ?: continue
-            if (!looksLikeInstaller(install)) continue
-            return DeployPayload(
-                stackBytes = stack,
-                installBytes = install,
-                sourceLabel = "локальный бандл APK ($name)",
-                gitRef = DeployStackSource.gitRef(),
-            )
-        }
-        return null
-    }
-
-    private fun loadAsset(name: String): ByteArray? =
-        runCatching { context.assets.open(name).use { it.readBytes() } }.getOrNull()
-
-    private fun gzipBytes(raw: ByteArray): ByteArray {
-        val out = java.io.ByteArrayOutputStream(raw.size / 2)
-        java.util.zip.GZIPOutputStream(out).use { it.write(raw) }
-        return out.toByteArray()
-    }
-
     companion object {
         fun looksLikeInstaller(bytes: ByteArray): Boolean {
             val text = bytes.decodeToString().take(SNIFF_CHARS)
             return text.contains("ARDTT_PROGRESS|") && text.contains("ARDTT_DONE|")
         }
 
-        /** APK ≤0.5.245 used 400; keep protocol markers near the top of install.sh. */
         const val SNIFF_CHARS = 64 * 1024
 
         fun looksLikeGzip(bytes: ByteArray): Boolean =
             bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
+
+        fun hex(bytes: ByteArray): String =
+            bytes.joinToString("") { b -> "%02x".format(b) }
     }
 }

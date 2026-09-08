@@ -54,7 +54,8 @@ object ProvisionAdminApi {
 
     fun provisionBase(target: DeployTarget): String {
         val host = target.publicHost.ifBlank { target.host }.trim()
-        return "http://$host:9100"
+        val port = target.provisionPort.takeIf { it in 1..65535 } ?: 9100
+        return "http://$host:$port"
     }
 
     suspend fun health(baseUrl: String): Result<HealthInfo> = withContext(Dispatchers.IO) {

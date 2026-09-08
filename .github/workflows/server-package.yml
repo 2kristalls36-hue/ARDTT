@@ -1,0 +1,140 @@
+# Build and pack self-contained ARDTT server packages (docker save).
+# CI may fetch base images and pinned GitHub releases. The VPS payload
+# does not: install is docker load + compose --no-build --pull never.
+name: Server package
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "server/**"
+      - "scripts/build-server-image.sh"
+      - "scripts/pack-server-package.sh"
+      - "scripts/verify-server-package.sh"
+      - "scripts/check-deploy-bundle.sh"
+      - "scripts/safe-extract-package.py"
+      - ".github/workflows/server-package.yml"
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "server/**"
+      - "scripts/**"
+      - "android/app/src/main/java/com/ardtt/app/deploy/**"
+      - ".github/workflows/server-package.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: server-package-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  contract:
+    name: Installer contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache-dependency-path: server/provision/go.sum
+
+      - name: Contract tests (no Docker image build)
+        shell: bash
+        run: |
+          bash scripts/check-deploy-bundle.sh
+          bash scripts/test-install-disk-guard.sh
+          bash scripts/test-install-buildkit-wipe.sh
+          (cd server/provision && go test ./...)
+
+  package:
+    name: Package linux-${{ matrix.arch }}
+    needs: contract
+    if: github.event_name != 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        shell: bash
+        env:
+          ARDTT_GIT_COMMIT: ${{ github.sha }}
+        run: bash scripts/build-server-image.sh "${{ matrix.arch }}"
+
+      - name: Pack release archive
+        shell: bash
+        env:
+          ARDTT_PACKAGE_ARCH: ${{ matrix.arch }}
+          ARDTT_GIT_COMMIT: ${{ github.sha }}
+          ARDTT_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          bash scripts/pack-server-package.sh
+          ls -lh dist/
+
+      - name: Load package without pull
+        shell: bash
+        run: |
+          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
+          pkg="dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
+          bash scripts/verify-server-package.sh "$pkg"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ardtt-server-${{ matrix.arch }}
+          path: |
+            dist/ardtt-server-*-linux-${{ matrix.arch }}.tar.gz
+            dist/ardtt-server-*-linux-${{ matrix.arch }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Attach packages to GitHub Release
+    needs: package
+    if: github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish if a release exists
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          (cd dist && sha256sum ardtt-server-*.tar.gz > SHA256SUMS-server.txt)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/ardtt-server-*.tar.gz dist/ardtt-server-*.tar.gz.sha256 dist/SHA256SUMS-server.txt --clobber
+          else
+            echo "Release $tag not created yet; android-build publishes APK first. Packages stay on Artifacts."
+          fi

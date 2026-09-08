@@ -15,6 +15,9 @@
 #   priority 100: iif <ingress> udp/tcp dport 53 → main
 #   priority 300+: from <client> → table 51820 (WARP TUN)
 set -euo pipefail
+# shellcheck disable=SC1091
+. /opt/ardtt/netns-guard.sh
+ardtt_require_container_netns || exit 1
 
 DATA="${ARDTT_DATA:-/data}"
 USERS="${DATA}/users.json"

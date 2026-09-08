@@ -277,7 +277,7 @@ private fun ClientsScreen(
                     error != null -> ArdttErrorState(
                         title = "Provision недоступен",
                         description = error,
-                        hint = "Нужен установленный стек (health на :9100).",
+                        hint = "Нужен установленный стек (HTTP /health на порте provision).",
                         onRetry = { refresh() },
                     )
                     else -> {

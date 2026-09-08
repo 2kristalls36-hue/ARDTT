@@ -1,10 +1,13 @@
 #!/bin/bash
 set -euo pipefail
+# shellcheck disable=SC1091
+. /opt/ardtt/netns-guard.sh
+ardtt_require_container_netns || exit 1
 
 DATA="${ARDTT_DATA:-/data}"
 USERS="${DATA}/users.json"
 CFG_DIR="${ARDTT_WDTT_CONFIG:-/etc/wdtt}"
-PORT="${ARDTT_BYPASS_PORT:-56003}"
+PORT="${ARDTT_BYPASS_LISTEN_PORT:-${ARDTT_BYPASS_PORT:-56003}}"
 # DNS pushed to Path B clients via RAWCONF — gateway dnsmasq (ardtt-dns).
 DNS="${ARDTT_BYPASS_DNS:-10.9.0.1}"
 

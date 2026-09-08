@@ -12,6 +12,7 @@ on:
       - "scripts/build-bypass-client.sh"
       - "scripts/build-release-apk.sh"
       - "scripts/pack-stack.sh"
+      - "scripts/pack-server-package.sh"
       - "scripts/pack-deploy-assets.sh"
       - "server/**"
       - ".github/workflows/android-build.yml"
@@ -164,7 +165,7 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
         run: |
           mkdir -p dist
-          bash scripts/pack-stack.sh "dist/ardtt-stack-$(tr -d '[:space:]' < server/DEPLOY_VERSION).tar.gz"
+          bash scripts/pack-stack.sh
           found=0
           for apk in android/app/build/outputs/apk/release/*.apk; do
             test -f "$apk" || continue
@@ -204,7 +205,7 @@ jobs:
               encoding="utf-8",
           )
           PY
-          (cd dist && sha256sum ./*.apk ./*.json ./*.tar.gz > SHA256SUMS.txt)
+          (cd dist && sha256sum ./*.apk ./*.json > SHA256SUMS.txt)
 
       - name: Upload Actions artifacts
         uses: actions/upload-artifact@v4

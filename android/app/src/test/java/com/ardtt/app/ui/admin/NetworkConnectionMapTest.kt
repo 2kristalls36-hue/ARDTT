@@ -384,6 +384,16 @@ class NetworkConnectionMapTest {
                 ),
             ),
         )
+        assertEquals(
+            "http://2.26.125.160:9101",
+            DeployHop.exitProvisionUrl(
+                server(
+                    host = "45.129.2.3",
+                    cascadeEnabled = true,
+                    cascadeHost = "2.26.125.160",
+                ).copy(cascadeProvisionPort = 9101),
+            ),
+        )
         assertNull(
             DeployHop.exitProvisionUrl(
                 server(

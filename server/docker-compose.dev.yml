@@ -1,0 +1,19 @@
+# Developer Compose: build the image from this tree. Not used by VPS install.
+# Production installs load a release image and use docker-compose.yml (no build).
+#
+#   cd server
+#   cp .env.example .env   # ARDTT_PUBLIC_HOST, ARDTT_INSTANCE_ID, ARDTT_BRIDGE_SUBNET
+#   docker compose -f docker-compose.dev.yml up -d --build
+
+include:
+  - path: docker-compose.yml
+
+services:
+  ardtt:
+    build:
+      context: .
+      args:
+        ARDTT_DEPLOY_VERSION: ${ARDTT_DEPLOY_VERSION:-dev}
+        ARDTT_GIT_COMMIT: ${ARDTT_GIT_COMMIT:-dev}
+    pull_policy: build
+    image: ${ARDTT_IMAGE:-ardtt/server:dev}

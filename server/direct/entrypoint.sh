@@ -1,12 +1,15 @@
 #!/bin/bash
 set -euo pipefail
+# shellcheck disable=SC1091
+. /opt/ardtt/netns-guard.sh
+ardtt_require_container_netns || exit 1
 
 DATA="${ARDTT_DATA:-/data}"
 USERS="${DATA}/users.json"
 CONF_DIR="/etc/amneziawg"
 CONF="${CONF_DIR}/awg0.conf"
 IFACE="${ARDTT_DIRECT_IFACE:-awg0}"
-PORT="${ARDTT_DIRECT_PORT:-51820}"
+PORT="${ARDTT_DIRECT_LISTEN_PORT:-${ARDTT_DIRECT_PORT:-51820}}"
 
 echo "[direct] AmneziaWG userspace (amneziawg-go) on UDP ${PORT}"
 # Must match the Android Direct TUN (VpnTunnelService / profile mtu).

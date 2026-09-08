@@ -80,6 +80,12 @@ class ProfileCatalogTest {
         val again = VpnProfileJson.parse(VpnProfileJson.encode(parsed))
         assertEquals(8000L, again.trafficLimitBytes)
         assertEquals(1500L, again.usedBytes)
+        assertEquals(9100, parsed.provisionPort)
+        assertEquals("http://1.2.3.4:9100", parsed.provisionBaseUrl)
+        val custom = VpnProfileJson.parse(
+            """{"name":"x","hostId":2,"provisionPort":9101,"direct":{"endpoint":"9.9.9.9:51820","privateKey":"p","peerPublicKey":"q","address":"10.8.0.2/32"},"bypass":{"peer":"9.9.9.9:56003","address":"10.9.0.2/32","password":"pw"}}""",
+        )
+        assertEquals("http://9.9.9.9:9101", custom.provisionBaseUrl)
     }
 
     private fun sample(name: String, deviceId: String) = VpnProfileJson.parse(
