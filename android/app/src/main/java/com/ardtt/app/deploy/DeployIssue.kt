@@ -107,7 +107,7 @@ data class DeployIssue(
                 CANCELLED -> "Отменено"
                 BUSY -> "Деплой уже идёт"
                 DOCKER_MISSING ->
-                    "$hop требует подготовки: Docker недоступен.$entryNote"
+                    "$hop: не удалось поставить Docker Engine из архива.$entryNote"
                 DOCKER_NOT_RUNNING ->
                     "$hop: Docker установлен, но демон не отвечает.$entryNote"
                 DOCKER_ACCESS_DENIED ->

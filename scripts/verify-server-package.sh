@@ -23,6 +23,11 @@ test -f "$STAGE/manifest.json"
 test -f "$STAGE/install.sh"
 test -f "$STAGE/docker-compose.yml"
 test -f "$STAGE/images/ardtt.tar"
+test -f "$STAGE/vendor/docker.tgz"
+tar -tzf "$STAGE/vendor/docker.tgz" | grep -q 'docker/dockerd' || {
+  echo "vendor/docker.tgz must contain docker/dockerd" >&2
+  exit 1
+}
 if grep -qE '^[[:space:]]*build:' "$STAGE/docker-compose.yml"; then
   echo "production compose must not contain build:" >&2
   exit 1
