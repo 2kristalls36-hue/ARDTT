@@ -104,7 +104,8 @@ grep -q '/opt/ardtt/ready.sh' "$COMPOSE" || err "compose healthcheck must use re
 if ! grep -q 'bash", "/opt/ardtt/ready.sh' "$COMPOSE"; then
   err "compose healthcheck must run ready.sh via bash (image copy may be mode 644)"
 fi
-grep -q 'docker cp' "$INSTALLER" || err "installer must overlay package ready.sh into the container"
+grep -q 'overlay_ready_script' "$INSTALLER" || err "installer must overlay package ready.sh into the container"
+grep -q 'cat > /opt/ardtt/ready.sh' "$INSTALLER" || err "overlay must write ready.sh as container root (docker cp uses host uid)"
 grep -q 'bash /opt/ardtt/ready.sh' "$INSTALLER" || err "readiness must invoke ready.sh via bash"
 if grep -E 'local[[:space:]]+name="\$1"[[:space:]]+pidfile=.*\$\{name\}' "$ROOT/server/ready.sh" >/dev/null; then
   err "ready.sh must not expand \${name} in the same local statement (set -u)"

@@ -23,17 +23,36 @@ FOREIGN=(stack-nginx-1 stack-xray-1 ardtt-lookalike ardtt)
 HOST_PORT="${ARDTT_LIVE_HTTP_PORT:-18080}"
 HTTPD_PID=""
 STAGE=""
+KEEP_INSTALL=""
 INSTALL_SH="$ROOT/server/install.sh"
 fail=0
 err() { echo "FAIL: $*" >&2; fail=1; }
 ok() { echo "OK $*"; }
 
-cleanup() {
+live_uninstall_script() {
+  if [ -n "${INSTALL:-}" ] && [ -f "${INSTALL}/current/install.sh" ]; then
+    printf '%s' "${INSTALL}/current/install.sh"
+    return 0
+  fi
+  if [ -n "${KEEP_INSTALL:-}" ] && [ -f "${KEEP_INSTALL}" ]; then
+    printf '%s' "${KEEP_INSTALL}"
+    return 0
+  fi
   if [ -n "${INSTALL_SH:-}" ] && [ -f "${INSTALL_SH}" ]; then
+    printf '%s' "${INSTALL_SH}"
+    return 0
+  fi
+  printf '%s' "$ROOT/server/install.sh"
+}
+
+cleanup() {
+  local un
+  un="$(live_uninstall_script)"
+  if [ -f "$un" ]; then
     ARDTT_ACTION=uninstall ARDTT_INSTALL_DIR="$INSTALL" ARDTT_SKIP_ROOT_CHECK=1 \
-      ARDTT_PURGE_DATA=1 ARDTT_PKG_DIR="${STAGE:-}" ARDTT_PACKAGE="$PKG" \
+      ARDTT_PURGE_DATA=1 ARDTT_PACKAGE="$PKG" \
       ARDTT_PACKAGE_SHA256="$SHA" \
-      bash "$INSTALL_SH" >/tmp/ardtt-live-uninstall.log 2>&1 || true
+      bash "$un" >/tmp/ardtt-live-uninstall.log 2>&1 || true
   fi
   for name in "${FOREIGN[@]}"; do
     docker rm -f "$name" >/dev/null 2>&1 || true
@@ -42,6 +61,7 @@ cleanup() {
     kill "$HTTPD_PID" >/dev/null 2>&1 || true
   fi
   [ -n "${STAGE:-}" ] && rm -rf "$STAGE"
+  [ -n "${KEEP_INSTALL:-}" ] && rm -f "$KEEP_INSTALL"
 }
 trap cleanup EXIT
 
@@ -66,7 +86,10 @@ fi
 
 STAGE="$(mktemp -d /tmp/ardtt-pkg-extract-XXXXXX)"
 python3 "$ROOT/scripts/safe-extract-package.py" "$PKG" "$STAGE"
-INSTALL_SH="$STAGE/install.sh"
+KEEP_INSTALL="$(mktemp /tmp/ardtt-live-installsh-XXXXXX)"
+cp -f "$STAGE/install.sh" "$KEEP_INSTALL"
+chmod 755 "$KEEP_INSTALL"
+INSTALL_SH="$KEEP_INSTALL"
 test -f "$INSTALL_SH"
 
 for name in "${FOREIGN[@]}"; do
@@ -155,7 +178,8 @@ fi
 
 export ARDTT_ACTION=uninstall
 export ARDTT_PURGE_DATA=1
-bash "$INSTALL_SH" > /tmp/ardtt-live-uninstall.log 2>&1 || true
+UNINSTALL_SH="$(live_uninstall_script)"
+bash "$UNINSTALL_SH" > /tmp/ardtt-live-uninstall.log 2>&1 || true
 grep -q ARDTT_UNINSTALLED /tmp/ardtt-live-uninstall.log || err "uninstall missing ARDTT_UNINSTALLED"
 
 for name in "${FOREIGN[@]}"; do
