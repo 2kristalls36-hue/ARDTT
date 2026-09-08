@@ -4,6 +4,9 @@
 #   Bypass RAW     → 10.9.0.1
 # Upstream: 1.1.1.1 / 1.0.0.1 via host main routing (not WARP).
 set -euo pipefail
+# shellcheck disable=SC1091
+. /opt/ardtt/netns-guard.sh
+ardtt_require_container_netns || exit 1
 
 CONF_DIR="${ARDTT_DNS_CONF_DIR:-/tmp/ardtt-dnsmasq}"
 CONF="${CONF_DIR}/dnsmasq.conf"

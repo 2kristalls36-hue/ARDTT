@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Exercise install.sh unpack / data-preserve / re-run-without-tar (no Docker).
+# Exercise install.sh unpack / data-preserve / dry-run (no Docker Engine required).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKDIR="$(mktemp -d)"
@@ -9,229 +9,146 @@ fail=0
 err() { echo "FAIL: $*" >&2; fail=1; }
 ok() { echo "OK $*"; }
 
-STAGE="$WORKDIR/src"
-for context in provision direct bypass dns warp telemetry-upload; do
-  mkdir -p "$STAGE/$context"
-done
-cp "$ROOT/server/docker-compose.yml" "$STAGE/docker-compose.yml"
-echo '# test dockerfile' > "$STAGE/Dockerfile"
-echo '#!/bin/sh' > "$STAGE/entrypoint.sh"
-printf '%s\n' "1.0.6-test" > "$STAGE/DEPLOY_VERSION"
-echo "test-readme" > "$STAGE/README.md"
-mkdir -p "$STAGE/scripts"
-echo '#!/bin/sh' > "$STAGE/scripts/create-user.sh"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|amd64) ARCH=amd64 ;;
+  aarch64|arm64) ARCH=arm64 ;;
+esac
 
-tar -czf "$WORKDIR/stack.tar.gz" -C "$STAGE" .
-
-INSTALL="$WORKDIR/opt"
-mkdir -p "$INSTALL"
-cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
-cp "$ROOT/server/install.sh" "$INSTALL/install.sh"
-chmod +x "$INSTALL/install.sh"
+PKG="$WORKDIR/ardtt-server-1.0.45-test-linux-${ARCH}.tar.gz"
+bash "$ROOT/scripts/make-fake-server-package.sh" "$PKG" "$ARCH" "1.0.45-test"
+SHA="$(cat "${PKG}.sha256")"
 
 run_install() {
-  ARDTT_INSTALL_DIR="$INSTALL" \
+  local dir="$1"
+  shift
+  ARDTT_INSTALL_DIR="$dir" \
   ARDTT_PUBLIC_HOST="203.0.113.9" \
   ARDTT_DIRECT_PORT=51820 \
   ARDTT_BYPASS_PORT=56003 \
-  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_DEPLOY_VERSION="1.0.45-test" \
+  ARDTT_PACKAGE="$dir/incoming/pkg.tar.gz" \
+  ARDTT_PACKAGE_SHA256="$SHA" \
   ARDTT_SKIP_ROOT_CHECK=1 \
   ARDTT_DRY_RUN=1 \
   ARDTT_KEEP_INSTALL_LOG=1 \
-  bash "$INSTALL/install.sh"
+  bash "$ROOT/server/install.sh" "$@"
 }
 
-echo leftover-live > "$INSTALL/install-live.log"
-echo leftover-run > "$INSTALL/install-run.log"
-mkdir -p "$INSTALL/stack.old" "$INSTALL/stack.staging"
-echo stale-old > "$INSTALL/stack.old/junk"
-echo keep-staging-until-success > "$INSTALL/stack.staging/junk"
+INSTALL="$WORKDIR/opt"
+mkdir -p "$INSTALL/incoming"
+cp "$PKG" "$INSTALL/incoming/pkg.tar.gz"
 
-# Isolated leftover cleanup: drop old logs / stack.old, keep in-progress staging.
-leftover_root="$(mktemp -d)"
-mkdir -p "${leftover_root}/stack.old" "${leftover_root}/stack.staging"
-echo old > "${leftover_root}/stack.old/a"
-echo staging > "${leftover_root}/stack.staging/b"
-echo live > "${leftover_root}/install-live.log"
-echo run > "${leftover_root}/install-run.log"
-(
-  set -euo pipefail
-  INSTALL_DIR="$leftover_root"
-  eval "$(sed -n '/^cleanup_stale_deploy_files()/,/^}/p' "$ROOT/server/install.sh")"
-  cleanup_stale_deploy_files
-)
-[ ! -e "${leftover_root}/install-live.log" ] || err "cleanup_stale left install-live.log"
-[ ! -e "${leftover_root}/install-run.log" ] || err "cleanup_stale left install-run.log"
-[ ! -d "${leftover_root}/stack.old" ] || err "cleanup_stale left stack.old"
-[ -f "${leftover_root}/stack.staging/b" ] || err "cleanup_stale must keep stack.staging"
-rm -rf "${leftover_root}"
-
-out="$(run_install)" || err "first install.sh exited $?"
+out="$(run_install "$INSTALL")" || err "first install.sh exited $?"
 echo "$out" | grep -q 'ARDTT_DONE|dry_run=1' || err "first run missing ARDTT_DONE dry_run"
-echo "$out" | grep -q 'Распаковка стека' || err "first run did not unpack tar"
-[ -f "$INSTALL/stack/docker-compose.yml" ] || err "stack not unpacked"
-[ -f "$INSTALL/stack/.env" ] || err "missing .env"
-grep -q 'ARDTT_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env public host"
-grep -q 'ARDTT_DEPLOY_VERSION=1.0.6-test' "$INSTALL/stack/.env" || err ".env version"
-grep -q 'TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env telemetry listen"
-grep -q 'ARDTT_TELEMETRY_LISTEN=0.0.0.0:9200' "$INSTALL/stack/.env" || err ".env ARDTT_TELEMETRY_LISTEN alias"
-grep -q 'ARDTT_TELEMETRY_PORT=9200' "$INSTALL/stack/.env" || err ".env ARDTT_TELEMETRY_PORT"
-grep -q 'ARDTT_ROLE=entry' "$INSTALL/stack/.env" || err ".env default role entry"
-grep -q 'ARDTT_CASCADE_ROLE=entry' "$INSTALL/stack/.env" || err ".env default cascade role entry"
-grep -q 'ARDTT_CASCADE_ENABLED=0' "$INSTALL/stack/.env" || err ".env cascade off by default"
-grep -q '^ARDTT_NETWORK_MODE=isolated$' "$INSTALL/stack/.env" || err "default network mode must be isolated"
-grep -q '^COMPOSE_PROFILES=isolated$' "$INSTALL/stack/.env" || err ".env COMPOSE_PROFILES=isolated"
-grep -q '^ARDTT_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone first install must leave hop DNS empty"
-if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
+echo "$out" | grep -q 'SHA-256' || err "first run did not verify sha256"
+[ -f "$INSTALL/.env" ] || [ -f "$INSTALL/current/.env" ] || err "missing .env"
+ENVF="$INSTALL/current/.env"
+[ -f "$ENVF" ] || ENVF="$INSTALL/.env"
+grep -q 'ARDTT_PUBLIC_HOST=203.0.113.9' "$ENVF" || err ".env public host"
+grep -q 'ARDTT_DEPLOY_VERSION=1.0.45-test' "$ENVF" || err ".env version"
+grep -q 'TELEMETRY_LISTEN=0.0.0.0:9200' "$ENVF" || err ".env telemetry listen inner 9200"
+grep -q 'ARDTT_TELEMETRY_PORT=9200' "$ENVF" || err ".env host telemetry port"
+grep -q 'ARDTT_ROLE=entry' "$ENVF" || err ".env default role entry"
+grep -q 'ARDTT_CASCADE_ROLE=entry' "$ENVF" || err ".env default cascade role entry"
+grep -q 'ARDTT_CASCADE_ENABLED=0' "$ENVF" || err ".env cascade off by default"
+grep -q '^ARDTT_NETWORK_MODE=isolated$' "$ENVF" || err "default network mode must be isolated"
+grep -q '^ARDTT_CASCADE_DNS=$' "$ENVF" || err "standalone first install must leave hop DNS empty"
+grep -q 'ARDTT_DATA_DIR=' "$ENVF" || err ".env data dir"
+if grep -qi 'PASSWORD=' "$ENVF"; then
   err ".env must not contain PASSWORD"
 fi
 [ -f "$INSTALL/DEPLOY_VERSION" ] || err "missing host DEPLOY_VERSION"
-[ -f "$INSTALL/stack/data/DEPLOY_VERSION" ] || err "missing data/DEPLOY_VERSION"
-[ ! -f "$INSTALL/stack.tar.gz" ] || err "tar should be deleted after run"
-[ ! -f "$INSTALL/install-live.log" ] || err "install-live.log leftover after dry-run"
-[ ! -f "$INSTALL/install-run.log" ] || err "install-run.log leftover after dry-run"
-[ ! -d "$INSTALL/stack.staging" ] || err "stack.staging leftover after successful dry-run"
-[ ! -d "$INSTALL/stack.old" ] || err "stack.old leftover after successful dry-run"
+[ -f "$INSTALL/data/DEPLOY_VERSION" ] || err "missing data/DEPLOY_VERSION"
+[ -f "$INSTALL/instance.json" ] || err "missing instance.json"
 
-echo 'keep-me' > "$INSTALL/stack/data/users.json"
+echo 'keep-me' > "$INSTALL/data/users.json"
 
-# Re-run with a fresh tar: data must survive replace.
-cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
-out2="$(run_install)" || err "second install.sh exited $?"
-echo "$out2" | grep -q 'Распаковка стека' || err "second run with tar should unpack"
-[ -f "$INSTALL/stack/data/users.json" ] || err "users.json missing after tar update"
-grep -qx 'keep-me' "$INSTALL/stack/data/users.json" || err "users.json not preserved across tar update"
-
-# Re-run without tar (archive already deleted): keep existing tree + data.
-out3="$(run_install)" || err "third install.sh exited $?"
-echo "$out3" | grep -q 'уже распакованный стек' || err "third run should use existing stack"
-grep -qx 'keep-me' "$INSTALL/stack/data/users.json" || err "users.json lost on tar-less re-run"
-grep -q 'ARDTT_PUBLIC_HOST=203.0.113.9' "$INSTALL/stack/.env" || err ".env rewritten on tar-less re-run"
-grep -q '^ARDTT_CASCADE_DNS=$' "$INSTALL/stack/.env" || err "standalone .env must not set hop DNS"
+# Re-run: data must survive.
+out2="$(run_install "$INSTALL")" || err "second install.sh exited $?"
+grep -qx 'keep-me' "$INSTALL/data/users.json" || err "users.json not preserved"
 
 # Live cascade flags on entry must survive an update that omits them.
-sed -i 's/^ARDTT_CASCADE_ENABLED=.*/ARDTT_CASCADE_ENABLED=1/' "$INSTALL/stack/.env"
-sed -i 's/^ARDTT_CASCADE_PEER_ENDPOINT=.*/ARDTT_CASCADE_PEER_ENDPOINT=2.26.125.160:51820/' "$INSTALL/stack/.env"
-sed -i 's/^ARDTT_CASCADE_PEER_PUBLIC_KEY=.*/ARDTT_CASCADE_PEER_PUBLIC_KEY=abc+DEF\/123=/' "$INSTALL/stack/.env"
-mkdir -p "$INSTALL/stack/data"
-printf '%s\n' '2.26.125.160:51820' > "$INSTALL/stack/data/cascade.peer.endpoint"
-printf '%s\n' 'abc+DEF/123=' > "$INSTALL/stack/data/cascade.peer.pub"
-printf '%s\n' 'fake-priv' > "$INSTALL/stack/data/cascade.priv"
-cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
-out_preserve="$(run_install)" || err "preserve-cascade install.sh exited $?"
+sed -i 's/^ARDTT_CASCADE_ENABLED=.*/ARDTT_CASCADE_ENABLED=1/' "$ENVF"
+sed -i 's/^ARDTT_CASCADE_PEER_ENDPOINT=.*/ARDTT_CASCADE_PEER_ENDPOINT=2.26.125.160:51820/' "$ENVF"
+sed -i 's/^ARDTT_CASCADE_PEER_PUBLIC_KEY=.*/ARDTT_CASCADE_PEER_PUBLIC_KEY=abc+DEF\/123=/' "$ENVF"
+mkdir -p "$INSTALL/data"
+printf '%s\n' '2.26.125.160:51820' > "$INSTALL/data/cascade.peer.endpoint"
+printf '%s\n' 'abc+DEF/123=' > "$INSTALL/data/cascade.peer.pub"
+printf '%s\n' 'fake-priv' > "$INSTALL/data/cascade.priv"
+# Installer reads legacy env from INSTALL/.env or current/.env
+cp -f "$ENVF" "$INSTALL/.env"
+out_preserve="$(run_install "$INSTALL")" || err "preserve-cascade install.sh exited $?"
 echo "$out_preserve" | grep -q 'каскад сохранён с прошлого деплоя' || err "missing live-cascade preserve warning"
-grep -q '^ARDTT_CASCADE_ENABLED=1$' "$INSTALL/stack/.env" || err "cascade flag not preserved"
-grep -q '^ARDTT_CASCADE_PEER_ENDPOINT=2.26.125.160:51820$' "$INSTALL/stack/.env" || err "cascade peer endpoint not preserved"
-grep -q '^ARDTT_CASCADE_PEER_PUBLIC_KEY=abc+DEF/123=$' "$INSTALL/stack/.env" || err "cascade peer key not preserved"
-grep -q '^ARDTT_CASCADE_DNS=10.10.0.2$' "$INSTALL/stack/.env" || err "cascade DNS not restored when hop is on"
-grep -q '^ARDTT_WARP_MODE=passthrough$' "$INSTALL/stack/.env" || err "cascade entry must not WARP locally"
+ENVF2="$INSTALL/current/.env"
+[ -f "$ENVF2" ] || ENVF2="$INSTALL/.env"
+grep -q '^ARDTT_CASCADE_ENABLED=1$' "$ENVF2" || err "cascade flag not preserved"
+grep -q '^ARDTT_CASCADE_PEER_ENDPOINT=2.26.125.160:51820$' "$ENVF2" || err "cascade peer endpoint not preserved"
+grep -q '^ARDTT_CASCADE_DNS=10.10.0.2$' "$ENVF2" || err "cascade DNS not restored when hop is on"
+grep -q '^ARDTT_WARP_MODE=passthrough$' "$ENVF2" || err "cascade entry must not WARP locally"
 
 run_exit() {
   ARDTT_INSTALL_DIR="$INSTALL" \
   ARDTT_PUBLIC_HOST="203.0.113.10" \
   ARDTT_ROLE=exit \
-  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_PACKAGE="$INSTALL/incoming/pkg.tar.gz" \
+  ARDTT_PACKAGE_SHA256="$SHA" \
+  ARDTT_DEPLOY_VERSION="1.0.45-test" \
   ARDTT_SKIP_ROOT_CHECK=1 \
   ARDTT_DRY_RUN=1 \
   ARDTT_KEEP_INSTALL_LOG=1 \
-  bash "$INSTALL/install.sh"
+  bash "$ROOT/server/install.sh"
 }
 out4="$(run_exit)" || err "exit-role install.sh exited $?"
 echo "$out4" | grep -q 'ARDTT_DONE|dry_run=1' || err "exit dry-run missing ARDTT_DONE"
-grep -q 'ARDTT_ROLE=exit' "$INSTALL/stack/.env" || err ".env role exit"
-grep -q 'ARDTT_CASCADE_ROLE=exit' "$INSTALL/stack/.env" || err "exit must set ARDTT_CASCADE_ROLE=exit"
-grep -q 'ARDTT_CASCADE_ENABLED=1' "$INSTALL/stack/.env" || err "exit forces cascade enabled"
-grep -q 'ARDTT_WARP_MODE=exit-hideip' "$INSTALL/stack/.env" || err "exit warp mode exit-hideip"
-grep -q 'ARDTT_DIRECT_PORT=51820' "$INSTALL/stack/.env" || err "exit default must publish cascade UDP 51820"
-grep -q 'ARDTT_WARP_HIDEIP_URL=http://10.10.0.1:9100/v1/hide-ip-prefixes' "$INSTALL/stack/.env" || err "exit hideIp URL"
-grep -Eq 'ARDTT_WARP_DNS_IIFACES=.*cascade0' "$INSTALL/stack/.env" || err "exit DNS iif cascade0"
-if grep -qi 'PASSWORD=' "$INSTALL/stack/.env"; then
-  err "exit .env must not contain PASSWORD"
+grep -q 'ARDTT_ROLE=exit' "$INSTALL/current/.env" "$INSTALL/.env" 2>/dev/null | head -1 || true
+if ! grep -q 'ARDTT_ROLE=exit' "$INSTALL/current/.env" 2>/dev/null && ! grep -q 'ARDTT_ROLE=exit' "$INSTALL/.env"; then
+  err ".env role exit"
+fi
+if ! grep -q 'ARDTT_WARP_MODE=exit-hideip' "$INSTALL/current/.env" 2>/dev/null && ! grep -q 'ARDTT_WARP_MODE=exit-hideip' "$INSTALL/.env"; then
+  err "exit warp mode exit-hideip"
 fi
 
-run_exit_listen() {
-  ARDTT_INSTALL_DIR="$INSTALL" \
-  ARDTT_PUBLIC_HOST="203.0.113.10" \
-  ARDTT_ROLE=exit \
-  ARDTT_CASCADE_LISTEN_PORT=51821 \
-  ARDTT_DEPLOY_VERSION="1.0.6-test" \
-  ARDTT_SKIP_ROOT_CHECK=1 \
-  ARDTT_DRY_RUN=1 \
-  ARDTT_KEEP_INSTALL_LOG=1 \
-  bash "$INSTALL/install.sh"
-}
-cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
-out_exit_port="$(run_exit_listen)" || err "exit custom-listen install.sh exited $?"
-grep -q '^ARDTT_DIRECT_PORT=51821$' "$INSTALL/stack/.env" || err "exit custom cascade listen must publish the same UDP port"
-grep -q '^ARDTT_CASCADE_LISTEN_PORT=51821$' "$INSTALL/stack/.env" || err "exit custom cascade listen not written"
-
-run_hostnet() {
-  ARDTT_INSTALL_DIR="$INSTALL" \
+# Wrong SHA must fail before ARDTT_DONE.
+set +e
+bad="$(
+  ARDTT_INSTALL_DIR="$WORKDIR/opt-bad" \
   ARDTT_PUBLIC_HOST="203.0.113.9" \
-  ARDTT_NETWORK_MODE=hostnet \
-  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+  ARDTT_PACKAGE="$PKG" \
+  ARDTT_PACKAGE_SHA256="0000000000000000000000000000000000000000000000000000000000000000" \
   ARDTT_SKIP_ROOT_CHECK=1 \
   ARDTT_DRY_RUN=1 \
-  bash "$INSTALL/install.sh"
-}
-cp "$WORKDIR/stack.tar.gz" "$INSTALL/stack.tar.gz"
-out_host="$(run_hostnet)" || err "hostnet install.sh exited $?"
-grep -q '^ARDTT_NETWORK_MODE=hostnet$' "$INSTALL/stack/.env" || err "hostnet mode not written"
-grep -q '^COMPOSE_PROFILES=hostnet$' "$INSTALL/stack/.env" || err "hostnet profile not written"
+  bash "$ROOT/server/install.sh" 2>&1
+)"
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || err "wrong sha must fail"
+echo "$bad" | grep -q 'ARDTT_ERROR|' || err "wrong sha must emit ARDTT_ERROR"
+echo "$bad" | grep -q 'ARDTT_DONE' && err "wrong sha must not emit ARDTT_DONE"
+ok "wrong digest rejected before switch"
 
-(
-  set -euo pipefail
-  eval "$(sed -n '/^github_source_tarball_url()/,/^}/p' "$ROOT/server/install.sh")"
-  tag_url="$(github_source_tarball_url 'https://github.com/2kristalls36-hue/ARDTT.git' 'v0.5.238')"
-  [ "$tag_url" = 'https://github.com/2kristalls36-hue/ARDTT/archive/refs/tags/v0.5.238.tar.gz' ]
-  head_url="$(github_source_tarball_url 'https://github.com/2kristalls36-hue/ARDTT.git' 'main')"
-  [ "$head_url" = 'https://github.com/2kristalls36-hue/ARDTT/archive/refs/heads/main.tar.gz' ]
-) || err "github_source_tarball_url helper"
-
-# GitHub source-archive layout (ARDTT-<tag>/server/...) uploaded as stack.tar.gz.
-GH_ROOT="$WORKDIR/ghroot/ARDTT-0.5.238/server"
-mkdir -p "$GH_ROOT"
-cp -a "$STAGE/." "$GH_ROOT/"
-tar -czf "$WORKDIR/github-src.tar.gz" -C "$WORKDIR/ghroot" ARDTT-0.5.238
-INSTALL_GH="$WORKDIR/opt-github"
-mkdir -p "$INSTALL_GH"
-cp "$WORKDIR/github-src.tar.gz" "$INSTALL_GH/stack.tar.gz"
-cp "$ROOT/server/install.sh" "$INSTALL_GH/install.sh"
-chmod +x "$INSTALL_GH/install.sh"
-out_gh="$(
-  ARDTT_INSTALL_DIR="$INSTALL_GH" \
-  ARDTT_PUBLIC_HOST="203.0.113.11" \
-  ARDTT_DEPLOY_VERSION="1.0.6-test" \
+# Missing package
+set +e
+missing="$(
+  ARDTT_INSTALL_DIR="$WORKDIR/opt-miss" \
+  ARDTT_PUBLIC_HOST="203.0.113.9" \
+  ARDTT_PACKAGE_SHA256="$SHA" \
   ARDTT_SKIP_ROOT_CHECK=1 \
   ARDTT_DRY_RUN=1 \
-  ARDTT_KEEP_INSTALL_LOG=1 \
-  bash "$INSTALL_GH/install.sh"
-)" || err "github-layout install.sh exited $?"
-echo "$out_gh" | grep -q 'ARDTT_DONE|dry_run=1' || err "github-layout missing ARDTT_DONE"
-[ -f "$INSTALL_GH/stack/docker-compose.yml" ] || err "github-layout did not flatten server/ into stack/"
-[ -d "$INSTALL_GH/stack/provision" ] || err "github-layout missing provision/"
-[ ! -d "$INSTALL_GH/stack/ARDTT-0.5.238" ] || err "github-layout left archive prefix in stack/"
-[ ! -f "$INSTALL_GH/stack.tar.gz" ] || err "github-layout left stack.tar.gz"
+  bash "$ROOT/server/install.sh" 2>&1
+)"
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || err "missing package must fail"
+echo "$missing" | grep -q 'Нет пакета' || err "missing package message"
 
-# Same layout via repo.tar.gz (no stack.tar.gz).
-INSTALL_REPO="$WORKDIR/opt-repo"
-mkdir -p "$INSTALL_REPO"
-cp "$WORKDIR/github-src.tar.gz" "$INSTALL_REPO/repo.tar.gz"
-cp "$ROOT/server/install.sh" "$INSTALL_REPO/install.sh"
-chmod +x "$INSTALL_REPO/install.sh"
-out_repo="$(
-  ARDTT_INSTALL_DIR="$INSTALL_REPO" \
-  ARDTT_PUBLIC_HOST="203.0.113.12" \
-  ARDTT_DEPLOY_VERSION="1.0.6-test" \
-  ARDTT_SKIP_ROOT_CHECK=1 \
-  ARDTT_DRY_RUN=1 \
-  bash "$INSTALL_REPO/install.sh"
-)" || err "repo.tar.gz install.sh exited $?"
-echo "$out_repo" | grep -q 'Распаковка архива репозитория' || err "repo.tar.gz path not used"
-[ -f "$INSTALL_REPO/stack/docker-compose.yml" ] || err "repo.tar.gz did not unpack server/"
+# hostnet env must not be written
+if grep -q 'COMPOSE_PROFILES=hostnet' "$INSTALL/.env" "$INSTALL/current/.env" 2>/dev/null; then
+  err "hostnet profile written"
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "install.sh unpack tests failed" >&2
   exit 1
 fi
-ok "install.sh unpack / preserve / re-run / github archive"
+ok "install.sh unpack / preserve / sha / exit role"

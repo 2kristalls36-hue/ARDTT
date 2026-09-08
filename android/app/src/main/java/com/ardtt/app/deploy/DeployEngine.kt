@@ -13,9 +13,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * Admin deploy: phone downloads server/ from GitHub, SSH-uploads it with
- * install.sh, runs Compose on the VPS; or SSH uninstall then drops the card.
- * Protocol and VPS layout: docs/DEPLOY.md. Canonical installer: server/install.sh.
+ * Admin deploy: probe VPS arch over SSH, stream one GitHub Release package
+ * (`ardtt-server-<ver>-linux-<arch>.tar.gz`) to a cache file, SFTP it, run
+ * the installer from that archive. No git/main/raw fallback, no docker prune.
+ * Protocol and VPS layout: docs/DEPLOY.md.
  */
 class DeployEngine(private val appContext: Context) {
     private val running = AtomicBoolean(false)
@@ -140,24 +141,39 @@ class DeployEngine(private val appContext: Context) {
             )
             append("Старт деплоя ${target.name.ifBlank { target.host }}")
             val deployVersion = DeployBundle.expectedVersion(appContext)
-            emit(0.02f, "Загрузка стека $deployVersion из GitHub…")
-            val payload = DeployStackFetcher(appContext, deployVersion).fetch { frac ->
-                emit(0.02f + frac * 0.06f, "Загрузка стека из GitHub…")
+            val payloads = mutableMapOf<String, DeployPayload>()
+            fun payloadFor(arch: String, progressStart: Float, progressEnd: Float): DeployPayload {
+                val linuxArch = DeployStackSource.linuxArch(arch)
+                payloads[linuxArch]?.let { return it }
+                emit(progressStart, "Загрузка пакета $deployVersion ($linuxArch) из GitHub…")
+                val span = (progressEnd - progressStart).coerceAtLeast(0.02f)
+                val payload = DeployStackFetcher(appContext, deployVersion).fetch(
+                    arch = linuxArch,
+                    onProgress = { frac ->
+                        emit(
+                            progressStart + span * frac.coerceIn(0f, 1f),
+                            "Загрузка пакета $linuxArch из GitHub…",
+                        )
+                    },
+                    isCancelled = { _log.value.any { it.contains("Отменено") } },
+                )
+                payloads[linuxArch] = payload
+                append(
+                    "Пакет $deployVersion $linuxArch ← ${payload.sourceLabel} (${payload.sizeBytes / 1024} КБ)",
+                )
+                TelemetryBridge.deploy(
+                    "bundle_downloaded",
+                    activeHost,
+                    JSONObject()
+                        .put("deploy_version", deployVersion)
+                        .put("source", payload.sourceLabel)
+                        .put("git_ref", payload.gitRef)
+                        .put("arch", linuxArch)
+                        .put("archive_bytes", payload.sizeBytes)
+                        .put("sha256", payload.sha256),
+                )
+                return payload
             }
-            append("Стек $deployVersion ← ${payload.sourceLabel} (${payload.stackBytes.size / 1024} КБ)")
-            TelemetryBridge.deploy(
-                "bundle_downloaded",
-                activeHost,
-                JSONObject()
-                    .put("deploy_version", deployVersion)
-                    .put("source", payload.sourceLabel)
-                    .put("git_ref", payload.gitRef)
-                    .put("archive_bytes", payload.stackBytes.size),
-            )
-            val stackBytes = payload.stackBytes
-            val installBytes = payload.installBytes
-            val gitRepo = DeployStackSource.gitRepoHttps()
-            val gitRef = payload.gitRef
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
             val entryHost = target.host.trim()
             val verb = if (_isUpdate.value) "обновление" else "установка"
@@ -166,10 +182,16 @@ class DeployEngine(private val appContext: Context) {
             var exitCascadeListen = DeployInstallEnv.CASCADE_LISTEN_PORT
             var resolvedDirect = target.directPort
             var resolvedBypass = target.bypassPort
+            var resolvedProvision = target.provisionPort
+            var resolvedTelemetry = target.telemetryPort
+            var entryArch = target.arch
+            var exitArch = target.cascadeArch
+            var exitProvision = target.cascadeProvisionPort
+            var exitTelemetry = target.cascadeTelemetryPort
             if (target.cascadeEnabled) {
                 val exitHost = target.cascadeHost.trim()
                 if (exitHost.isBlank()) error("Не указан host второго сервера")
-                emitOn(exitHost, 0.08f, "Подключение SSH, $verb выходного стека…")
+                emitOn(exitHost, 0.04f, "Подключение SSH, $verb выходного стека…")
                 append("VPS 2 (выход): $exitHost")
                 val exitSession = SshClient.connect(
                     host = exitHost,
@@ -181,12 +203,14 @@ class DeployEngine(private val appContext: Context) {
                 val exitSsh = SshClient(exitSession, target.cascadePassword)
                 client = exitSsh
                 try {
+                    exitArch = ServerOsProbe.probeLinuxArch(exitSsh)
+                    append("Архитектура выхода: $exitArch")
+                    val exitPayload = payloadFor(exitArch, 0.06f, 0.14f)
                     val installed = uploadAndInstall(
                         ssh = exitSsh,
                         hostLabel = exitHost,
                         publicHost = exitHost,
-                        stackBytes = stackBytes,
-                        installBytes = installBytes,
+                        payload = exitPayload,
                         deployVersion = deployVersion,
                         command = DeployInstallEnv.command(
                             publicHost = exitHost,
@@ -194,12 +218,14 @@ class DeployEngine(private val appContext: Context) {
                             bypassPort = target.bypassPort,
                             deployVersion = deployVersion,
                             role = "exit",
+                            packagePath = DeployInstallEnv.packageRemotePath(deployVersion, exitArch),
+                            packageSha256 = exitPayload.sha256,
                             cascadeEnabled = true,
                             autoPorts = target.autoPorts,
-                            gitRepo = gitRepo,
-                            gitRef = gitRef,
+                            provisionPort = target.cascadeProvisionPort,
+                            telemetryPort = target.cascadeTelemetryPort,
                         ),
-                        progressStart = 0.10f,
+                        progressStart = 0.14f,
                         progressEnd = 0.48f,
                     )
                     exitPub = installed.cascadePublicKey
@@ -208,6 +234,8 @@ class DeployEngine(private val appContext: Context) {
                     }
                     installed.cascadeListenPort?.let { exitCascadeListen = it }
                         ?: installed.directPort?.let { exitCascadeListen = it }
+                    installed.provisionPort?.let { exitProvision = it }
+                    installed.telemetryPort?.let { exitTelemetry = it }
                     append("Ключ выхода получен с $exitHost")
                     markTrackedHostDone(exitHost)
                 } finally {
@@ -216,7 +244,7 @@ class DeployEngine(private val appContext: Context) {
                 }
             }
 
-            emitOn(entryHost, if (target.cascadeEnabled) 0.50f else 0.08f, "Подключение SSH, $verb входного стека…")
+            emitOn(entryHost, if (target.cascadeEnabled) 0.50f else 0.04f, "Подключение SSH, $verb входного стека…")
             session = SshClient.connect(
                 host = entryHost,
                 user = target.sshUser.trim().ifBlank { "root" },
@@ -228,6 +256,13 @@ class DeployEngine(private val appContext: Context) {
             client = ssh
             append("SSH подключено ($entryHost)")
             TelemetryBridge.deploy("ssh_connected", activeHost)
+            entryArch = ServerOsProbe.probeLinuxArch(ssh)
+            append("Архитектура входа: $entryArch")
+            val entryPayload = payloadFor(
+                entryArch,
+                if (target.cascadeEnabled) 0.50f else 0.06f,
+                if (target.cascadeEnabled) 0.56f else 0.18f,
+            )
 
             val entryCmd = DeployInstallEnv.command(
                 publicHost = publicHost,
@@ -235,6 +270,8 @@ class DeployEngine(private val appContext: Context) {
                 bypassPort = target.bypassPort,
                 deployVersion = deployVersion,
                 role = "entry",
+                packagePath = DeployInstallEnv.packageRemotePath(deployVersion, entryArch),
+                packageSha256 = entryPayload.sha256,
                 cascadeEnabled = target.cascadeEnabled,
                 cascadePeerEndpoint = if (target.cascadeEnabled) {
                     DeployInstallEnv.peerEndpoint(target.cascadeHost, exitCascadeListen)
@@ -242,24 +279,26 @@ class DeployEngine(private val appContext: Context) {
                     ""
                 },
                 cascadePeerPublicKey = exitPub,
+                cascadePeerProvisionPort = exitProvision,
                 autoPorts = target.autoPorts,
-                gitRepo = gitRepo,
-                gitRef = gitRef,
+                provisionPort = target.provisionPort,
+                telemetryPort = target.telemetryPort,
             )
             val entryInstalled = uploadAndInstall(
                 ssh = ssh,
                 hostLabel = entryHost,
                 publicHost = publicHost,
-                stackBytes = stackBytes,
-                installBytes = installBytes,
+                payload = entryPayload,
                 deployVersion = deployVersion,
                 command = entryCmd,
-                progressStart = if (target.cascadeEnabled) 0.50f else 0.08f,
+                progressStart = if (target.cascadeEnabled) 0.56f else 0.18f,
                 progressEnd = if (target.cascadeEnabled) 0.92f else 0.96f,
             )
             val entryPub = entryInstalled.cascadePublicKey
             entryInstalled.directPort?.let { resolvedDirect = it }
             entryInstalled.bypassPort?.let { resolvedBypass = it }
+            entryInstalled.provisionPort?.let { resolvedProvision = it }
+            entryInstalled.telemetryPort?.let { resolvedTelemetry = it }
             markTrackedHostDone(entryHost)
 
             if (target.cascadeEnabled) {
@@ -278,25 +317,20 @@ class DeployEngine(private val appContext: Context) {
                         error("Входной VPS не отдал ключ каскада")
                     }
                     exitSsh.exec(
-                        "install -d -m 700 /opt/ardtt/stack/data && " +
+                        "install -d -m 700 /opt/ardtt/data && " +
                             "printf '%s\\n' ${SshClient.shellQuote(entryPub)} " +
-                            "> /opt/ardtt/stack/data/cascade.peer.pub && " +
-                            "chmod 644 /opt/ardtt/stack/data/cascade.peer.pub && " +
-                            "(docker restart ardtt >/dev/null 2>&1 || docker restart ardtt-host >/dev/null 2>&1 || docker restart ardtt-cascade >/dev/null 2>&1 || docker restart nvpn-cascade >/dev/null 2>&1 || true)",
+                            "> /opt/ardtt/data/cascade.peer.pub && " +
+                            "chmod 644 /opt/ardtt/data/cascade.peer.pub && " +
+                            "if [ -f /opt/ardtt/current/docker-compose.yml ]; then " +
+                            "(cd /opt/ardtt/current && docker compose restart); " +
+                            "elif [ -f /opt/ardtt/stack/docker-compose.yml ]; then " +
+                            "(cd /opt/ardtt/stack && docker compose restart); fi",
                     )
                     append("Пир входа записан на $exitHost")
                 } finally {
                     runCatching { exitSession.disconnect() }
                     activeSession = session
                 }
-            }
-
-            runCatching {
-                ssh.exec(
-                    "rm -f /opt/ardtt/stack.tar.gz /var/log/ardtt-build*.log /var/log/ardtt-install.log; " +
-                        "docker builder prune -af >/dev/null 2>&1 || true; " +
-                        "docker image prune -f >/dev/null 2>&1 || true",
-                )
             }
 
             val msg = if (target.cascadeEnabled) {
@@ -319,6 +353,12 @@ class DeployEngine(private val appContext: Context) {
                         lastDeployedAtMs = deployedAt,
                         directPort = resolvedDirect,
                         bypassPort = resolvedBypass,
+                        provisionPort = resolvedProvision,
+                        telemetryPort = resolvedTelemetry,
+                        arch = entryArch.ifBlank { stored.arch },
+                        cascadeProvisionPort = exitProvision,
+                        cascadeTelemetryPort = exitTelemetry,
+                        cascadeArch = exitArch.ifBlank { stored.cascadeArch },
                         osId = osInfo?.osId?.trim()?.ifBlank { stored.osId } ?: stored.osId,
                         osVersion = osInfo?.osVersionLabel?.trim()?.ifBlank { stored.osVersion }
                             ?: stored.osVersion,
@@ -553,48 +593,51 @@ class DeployEngine(private val appContext: Context) {
         ssh: SshClient,
         hostLabel: String,
         publicHost: String,
-        stackBytes: ByteArray,
-        installBytes: ByteArray,
+        payload: DeployPayload,
         deployVersion: String,
         command: String,
         progressStart: Float,
         progressEnd: Float,
     ): DeployInstallResult {
-        emitOn(hostLabel, progressStart, "Подготовка каталога /opt/ardtt…")
+        emitOn(hostLabel, progressStart, "Подготовка каталога /opt/ardtt/incoming…")
         ssh.exec(
             "if [ -d /opt/nonamevpn ] && [ ! -e /opt/ardtt ]; then mv /opt/nonamevpn /opt/ardtt; fi; " +
-                "mkdir -p /opt/ardtt && chmod 755 /opt/ardtt",
+                "mkdir -p /opt/ardtt/incoming && chmod 755 /opt/ardtt /opt/ardtt/incoming",
         )
 
         val span = (progressEnd - progressStart).coerceAtLeast(0.05f)
+        val remoteFinal = DeployInstallEnv.packageRemotePath(deployVersion, payload.arch)
+        val remotePartial = "$remoteFinal.partial"
         emitOn(
             hostLabel,
-            progressStart + span * 0.08f,
-            "Загрузка архива стека на VPS (${stackBytes.size / 1024} КБ)…",
+            progressStart + span * 0.06f,
+            "SFTP пакета на VPS (${payload.sizeBytes / 1024} КБ)…",
         )
-        ssh.uploadBytes(stackBytes, "/opt/ardtt/stack.tar.gz")
-        append("Загружен stack.tar.gz на $hostLabel (${stackBytes.size / 1024} КБ)")
-
-        emitOn(hostLabel, progressStart + span * 0.16f, "Загрузка install.sh и метки версии…")
-        ssh.uploadBytes(installBytes, "/opt/ardtt/install.sh")
-        ssh.exec("chmod +x /opt/ardtt/install.sh")
-        runCatching {
-            ssh.uploadBytes(
-                (deployVersion + "\n").toByteArray(Charsets.UTF_8),
-                "/opt/ardtt/DEPLOY_VERSION",
+        ssh.exec("rm -f ${SshClient.shellQuote(remotePartial)}")
+        ssh.upload(payload.packageFile, remotePartial) { copied, total ->
+            val frac = if (total > 0L) (copied.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+            emitOn(
+                hostLabel,
+                progressStart + span * (0.06f + 0.28f * frac),
+                "SFTP пакета (${copied / 1024} / ${total / 1024} КБ)…",
             )
         }
-        append("Версия деплоя $deployVersion · $publicHost")
+        ssh.exec(
+            "mv -f ${SshClient.shellQuote(remotePartial)} ${SshClient.shellQuote(remoteFinal)}",
+        )
+        append("Загружен ${payload.packageFile.name} на $hostLabel (${payload.sizeBytes / 1024} КБ)")
         TelemetryBridge.deploy(
             "bundle_uploaded",
             hostLabel,
             JSONObject()
                 .put("deploy_version", deployVersion)
-                .put("archive_bytes", stackBytes.size)
+                .put("archive_bytes", payload.sizeBytes)
+                .put("sha256", payload.sha256)
+                .put("arch", payload.arch)
                 .put("public_host", publicHost),
         )
 
-        emitOn(hostLabel, progressStart + span * 0.22f, "Запуск install.sh…")
+        emitOn(hostLabel, progressStart + span * 0.36f, "Запуск install.sh из пакета…")
         var failed: String? = null
         var cascadePub = ""
         var doneFields = emptyMap<String, String>()
@@ -606,7 +649,8 @@ class DeployEngine(private val appContext: Context) {
                     val parts = line.split('|', limit = 3)
                     val frac = parts.getOrNull(1)?.toFloatOrNull() ?: 0f
                     val step = parts.getOrNull(2)?.take(160).orEmpty()
-                    val mapped = (progressStart + span * frac.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+                    val mapped = (progressStart + span * (0.36f + 0.64f * frac.coerceIn(0f, 1f)))
+                        .coerceIn(0f, 1f)
                     if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
                 }
                 line.startsWith("ARDTT_ERROR|") -> failed = line.removePrefix("ARDTT_ERROR|")
@@ -629,7 +673,7 @@ class DeployEngine(private val appContext: Context) {
             val detail = when {
                 code == -1 ->
                     " — SSH-сессия оборвалась во время установки (Wi‑Fi/фон). " +
-                        "Повторите деплой: образы собираются до остановки старого стека"
+                        "Повторите деплой: предыдущий стек не переключается до readiness"
                 hint.contains("no space", ignoreCase = true) ||
                     hint.contains("write /") ||
                     hint.contains("Мало места") ->
@@ -647,9 +691,7 @@ class DeployEngine(private val appContext: Context) {
         }
         runCatching {
             ssh.exec(
-                "rm -f /opt/ardtt/stack.tar.gz /var/log/ardtt-build*.log /var/log/ardtt-install.log; " +
-                    "docker builder prune -af >/dev/null 2>&1 || true; " +
-                    "docker image prune -f >/dev/null 2>&1 || true",
+                "rm -f ${SshClient.shellQuote(remoteFinal)} ${SshClient.shellQuote(remotePartial)}",
             )
         }
         return DeployInstallResult(
@@ -657,6 +699,10 @@ class DeployEngine(private val appContext: Context) {
             directPort = DeployInstallEnv.intField(doneFields, "direct_port"),
             bypassPort = DeployInstallEnv.intField(doneFields, "bypass_port"),
             cascadeListenPort = DeployInstallEnv.intField(doneFields, "cascade_listen_port"),
+            provisionPort = DeployInstallEnv.intField(doneFields, "provision_port"),
+            telemetryPort = DeployInstallEnv.intField(doneFields, "telemetry_port"),
+            instanceId = doneFields["instance"].orEmpty(),
+            containerName = doneFields["container"].orEmpty(),
         )
     }
 

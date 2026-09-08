@@ -1,15 +1,62 @@
 # Деплой сервера ARDTT
 
 > [!CAUTION]
-> **Ранняя бета.** Деплой-часть (установка и обновление стека на VPS из приложения или с Git) не обещана рабочей. Автор **не несёт ответственности** за результат. Ставите **на свой страх и риск**.
+> **Ранняя бета.** Деплой-часть не обещана рабочей. Автор **не несёт ответственности** за результат. Ставите **на свой страх и риск**.
 
 Как ставится и как живёт self-hosted стек **ARDTT** на VPS.  
-Клиентская сторона деплоя — вкладка **Серверы** в режиме администратора Android.  
-Состав сервисов и смысл Path A/B: [ARCHITECTURE.md](ARCHITECTURE.md), [LEGEND.md](LEGEND.md).
+Клиентская сторона — вкладка **Серверы** в режиме администратора Android.  
+Состав сервисов: [ARCHITECTURE.md](ARCHITECTURE.md), [LEGEND.md](LEGEND.md).
 
-Каталог на диске по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). При обновлении старый `/opt/nonamevpn` переносится сюда.
+Каталог по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). Старый `/opt/nonamevpn` при обновлении переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.44**) независима от `versionName` приложения. Её бампят только когда меняется то, что уезжает на VPS (Compose, `install.sh`, образы сервисов).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.45**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`).
+
+> [!IMPORTANT]
+> Стек **1.0.45** — самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (docker save).  
+> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.45. Нужен клиент с этой версии.
+
+---
+
+## Что нужно на VPS
+
+Основной безопасный режим рассчитан на **уже установленный и работающий Docker Engine**.
+
+| Есть | Нет |
+|------|-----|
+| Linux amd64 или arm64 | Сборка образа на VPS |
+| Docker Engine | `get.docker.com`, apt/dnf установка Docker |
+| `/dev/net/tun` | `docker pull` / GHCR / Docker Hub на установке |
+| python3 | `git clone` исходников |
+| Compose v2 *или* `bin/docker-compose` из архива | Хостовый hostnet |
+
+Пакет **не** ставит Docker и **не** является установщиком чистой ОС. Если Engine нет или он не отвечает, preflight завершается до изменений. Недостающий Compose разрешено взять из того же архива в `/opt/ardtt/bin`.
+
+Стек — **один контейнер** в своей netns и своей Docker bridge-сети. Hostnet из старой `.env` не восстанавливается. Привилегированный режим, host PID/IPC, `docker.sock` внутри контейнера и nsenter в хост не используются.
+
+---
+
+## Формат пакета
+
+Имя: `ardtt-server-<DEPLOY_VERSION>-linux-<amd64|arm64>.tar.gz`.  
+Entry и exit используют один образ своей архитектуры, различаясь `.env` / `docker-compose.exit.yml`.
+
+Содержимое:
+
+```
+manifest.json          # format ardtt-server-v1, version, arch, image tag/id
+SHA256SUMS             # суммы файлов внутри (не источник доверия)
+install.sh + install-lib/
+docker-compose.yml     # production: image + pull_policy: never, без build:
+docker-compose.exit.yml
+.env.example
+images/ardtt.tar       # docker save
+bin/docker-compose      # закреплённый Compose CLI этой arch
+third-party.lock.json
+```
+
+Доверие к архиву — **внешняя SHA-256** актива GitHub Release (`digest` или `SHA256SUMS` того же релиза), не суммы внутри tar. Image ID после `docker load` — не registry RepoDigest.
+
+Сборка в GitHub Actions: [`.github/workflows/server-package.yml`](../.github/workflows/server-package.yml) (`scripts/build-server-image.sh` + `scripts/pack-server-package.sh`). Сторонние исходники (Debian, pinned GitHub tarball'ы) допустимы **в CI**; на VPS пользователь получает только этот архив.
 
 ---
 
@@ -17,272 +64,165 @@
 
 | Способ | Когда | Что происходит |
 |--------|--------|----------------|
-| **Из приложения** | Админ с телефоном | Телефон скачивает `server/` с GitHub (релизный `ardtt-stack-*.tar.gz` или архив тега) и заливает по SSH → Compose на хосте |
-| **Git + Compose** | На VPS есть shell | `install.sh` с `ARDTT_GIT_REF=<тег>` сам клонирует репозиторий, либо `docker compose` в `server/` |
+| **Из приложения** | Админ с телефоном | SSH определяет arch → один актив релиза → SFTP файла → `docker load` + compose `--no-build --pull never` |
+| **Архив с Releases** | На VPS есть shell и Docker | Скачать актив, сверить SHA-256 с релизом, `install.sh` |
 
-Оба способа поднимают **один и тот же** стек: единый контейнер `ardtt` (provision + direct + bypass + dns + warp + cascade + telemetry).  
-Пользователи и ключи живут в `users.json` и **переживают** повторный деплой.
+Сборка из исходников (`docker-compose.dev.yml`) — путь **разработчика**, не продуктовая установка.
+
+Оба продуктовых способа поднимают один контейнер: provision + direct + bypass + dns + warp + cascade + telemetry. Пользователи и ключи живут в `/opt/ardtt/data` и переживают обновление.
 
 ```
 Телефон (админ)
-  HTTPS  GitHub Releases / archive (server/)
-      │
-  SSH (пароль или PEM)
-      │  upload  /opt/ardtt/stack.tar.gz
-      │  upload  /opt/ardtt/install.sh
-      │  env ARDTT_PUBLIC_HOST=… ARDTT_GIT_REF=v0.5.247 bash install.sh
+  HTTPS  GitHub Releases  ardtt-server-<ver>-linux-<arch>.tar.gz
+      │  SHA-256 с digest / SHA256SUMS релиза
+  SSH
+      │  SFTP  /opt/ardtt/incoming/*.tar.gz
+      │  extract + bash staging/install.sh
       ▼
-    VPS  /opt/ardtt/stack/     ← compose + исходники + Dockerfile
-         /opt/ardtt/stack/data ← users.json, ключи, warp state
-         контейнер ardtt (своя netns, не host)
+    VPS  /opt/ardtt/current/     ← compose + .env этой версии
+         /opt/ardtt/previous/    ← прошлое, пока новая не прошла readiness
+         /opt/ardtt/data         ← users.json, ключи, warp
+         /opt/ardtt/logs
+         контейнер с labels com.ardtt.owner / com.ardtt.instance
       │
-      ├─ :51820/udp  AmneziaWG (Path A)
-      ├─ :56003/udp  RAW/WRAP  (Path B, после TURN на клиенте)
-      ├─ :9100/tcp   provision (/health, пользователи, профили)
-      └─ :9200/tcp   telemetry upload
+      ├─ host UDP Direct  → контейнер 51820
+      ├─ host UDP Bypass  → контейнер 56003
+      ├─ host TCP provision → контейнер 9100
+      └─ host TCP telemetry → контейнер 9200
 ```
 
----
-
-## Что поднимается
-
-По умолчанию — **один контейнер** `ardtt` в своей netns (`COMPOSE_PROFILES=isolated`).  
-TUN, iptables и `ip rule` живут **внутри** контейнера (`NET_ADMIN` + `/dev/net/tun`), а на хост публикуются только порты ARDTT. Так деплой не перехватывает FORWARD/sysctl/ip-rule чужих сервисов на уже работающем VPS.
-
-Запасной режим `ARDTT_NETWORK_MODE=hostnet` — прежний host network, если UDP через Docker DNAT на этой машине не проходит.
-
-| Процесс в `ardtt` | Образ | Роль |
-|-----------|--------|------|
-| `provision` | `server/Dockerfile` (stage) | Источник истины: `host_id`, AWG-ключи, пароли bypass, JSON-профиль, `GET /health` с `deployVersion` |
-| `direct` | то же | AmneziaWG 2.0 (`amneziawg-go` + `awg`) на `awg0`, подсеть `10.8.0.0/24` |
-| `bypass` | то же | `wdtt-server -listen-raw` на `wdttraw0`, подсеть `10.9.0.0/24` |
-| `dns` | то же | dnsmasq на шлюзах `10.8.0.1` / `10.9.0.1`, upstream `1.1.1.1`/`1.0.0.1` **через main**, не через WARP |
-| `warp` | то же | wgcf → wireproxy → tun2socks `warp0`; hideIp → table `51820`. DNS (:53) остаётся на main |
-| `telemetry` | то же | `POST /api/upload-log` с телефона |
-
-Один `host_id` (начиная с **2**, `.1` — шлюз) даёт клиенту оба адреса: `10.8.0.{id}` и `10.9.0.{id}`.  
-WARP — не третий путь подключения, а **egress** выбранных пользователей.
+Внутренние listen-порты стабильны. Настраиваются **host published** Direct / Bypass / cascade / provision / telemetry. `TELEMETRY_LISTEN` внутри контейнера всегда `0.0.0.0:9200`.
 
 ---
 
 ## Путь 1 — деплой из Android
 
+Нужен APK этой линейки (стек 1.0.45). Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят.
+
 ### UI
 
-1. Настройки → разблокировать режим администратора (долгий тап / PIN).
-2. Вкладка **Серверы** → «Добавить сервер» (первый раз) или карточка VPS → **Обновить деплой** / **Установить деплой**, если стека ещё нет.
-3. SSH host, порт, user (`root` по умолчанию), пароль **или** PEM. Каскад: те же поля для второго VPS.
-4. Публичный host (`ARDTT_PUBLIC_HOST`) — то, что попадёт в endpoint профиля; обычно = IP VPS.
-5. Порты: по умолчанию включён **автовыбор** свободных UDP Direct / Bypass на VPS. Выключите переключатель «Автовыбор портов», чтобы задать 51820 / 56003 (или свои) вручную.
-6. «Сохранить сервер» только пишет цель в encrypted prefs. Установка — **«Установить на VPS»**.
-7. **«Удалить»** на карточке не снимает её сразу. Плашка предупреждает, что стек будет стёрт на VPS (контейнеры, `/opt/ardtt`, профили клиентов). После подтверждения `DeployEngine` по SSH делает uninstall (каскад: сначала выход, потом вход). Карточка во вкладке **Сервера** пропадает только если удалённый wipe завершился успешно. Если SSH не проходит, карточка остаётся.
+1. Настройки → режим администратора.
+2. **Серверы** → добавить или **Обновить деплой**.
+3. SSH (пароль или PEM). Каскад: те же поля для второго VPS (arch узлов могут различаться).
+4. Публичный host (`ARDTT_PUBLIC_HOST`) — endpoint профиля.
+5. Автовыбор портов по умолчанию: свободные host TCP/UDP, результат в `.env` и `ARDTT_DONE`.
+6. **«Удалить»** снимает **этот** экземпляр ARDTT (контейнер, сети, каталоги). Docker Engine и чужие контейнеры остаются. Карточка исчезает только после `ARDTT_UNINSTALLED`.
 
-Креды лежат в `EncryptedSharedPreferences` (`ardtt_servers`), не в профиле VPN.
-
-Список серверов зондрует `http://{publicHost}:9100/health`. Если `/health` молчит, карточка пробует SSH с сохранёнными кредами. Сравнение `deployVersion` с версией стека, которую знает это приложение (`assets/deploy/DEPLOY_VERSION`):
-
-- зелёный — установленный стек = стек в этом приложении;
-- оранжевый — VPS онлайн, но версия старая → «Обновить деплой»;
-- нет связи — «Нет связи»;
-- SSH проходит, а `/health` нет — «Не установлено» и кнопка «Установить деплой».
-- каскад — на строке IP `вход → выход`, обычный сервер — один адрес.
+Список серверов зондрует `http://{publicHost}:{provisionPort}/health` (порт с прошлого `ARDTT_DONE`, иначе 9100).
 
 ### Что делает `DeployEngine`
 
-Класс: `android/.../deploy/DeployEngine.kt`. Таймаут установщика — 45 минут.
+1. SSH: `uname -m` → `amd64` / `arm64` **на каждом** хопе.
+2. HTTPS: потоковая загрузка актива в файл кеша, SHA-256 на потоке. Образ не держится в `ByteArray`. Кеш переиспользуется только при совпадении version/arch/digest.
+3. SFTP файла во временное имя, затем `mv`. Отдельный `install.sh` с GitHub не качается.
+4. На VPS: сверка SHA-256, безопасная распаковка, `install.sh` из архива.
+5. Протокол: `ARDTT_PROGRESS`, `ARDTT_WARN`, `ARDTT_ERROR`, `ARDTT_DONE`, `ARDTT_CASCADE_PUBLIC_KEY`. Фактические `provision_port` / `telemetry_port` пишутся в карточку.
 
-1. HTTPS: `DeployStackFetcher` скачивает стек с GitHub (см. [Откуда телефон берёт стек](#откуда-телефон-берёт-стек)).
-2. SSH (JSch). Не-root: команда через `sudo -S` с паролем.
-3. `mkdir -p /opt/ardtt`
-4. Загрузка архива стека и `install.sh` (оба из GitHub, не из APK).
-5. Запуск:
+Каскад: сначала выход, потом вход. Общая установка не считается успешной, если один узел не готов. Пароль второго сервера в `.env` входа не пишется.
 
-```bash
-ARDTT_PUBLIC_HOST='…' ARDTT_DIRECT_PORT=51820 ARDTT_BYPASS_PORT=56003 ARDTT_AUTO_PORTS=1 \
-ARDTT_DEPLOY_VERSION='1.0.39' ARDTT_GIT_REF='v0.5.247' \
-ARDTT_GIT_REPO='https://github.com/2kristalls36-hue/ARDTT.git' \
-bash /opt/ardtt/install.sh
-```
+Повторный «Обновить деплой» входа без флага каскада не сбрасывает живой hop (`preserve_live_cascade`). Снять: `ARDTT_CASCADE_FORCE_DISABLE=1`.
 
-При `ARDTT_AUTO_PORTS=1` установщик оставляет предпочтительные порты, если они свободны; иначе подбирает ближайшие свободные UDP и пишет фактические значения в `ARDTT_DONE|…|direct_port=…|bypass_port=…`. Приложение сохраняет их в карточке сервера. `ARDTT_AUTO_PORTS=0` — прежнее поведение: занятый порт = ошибка установки.
+Отмена = `session.disconnect()`. Docker `builder prune` / `image prune` с телефона **не** вызываются.
 
-Каскад (два VPS): телефон **отдельно** SSH на выход, потом на вход. Пароль второго сервера в `.env` входа не пишется.
+### Удаление
 
-```bash
-# 1) выход (DNS + WARP)
-ARDTT_ROLE=exit ARDTT_PUBLIC_HOST='2.26.125.160' ARDTT_DEPLOY_VERSION='1.0.39' \
-  ARDTT_GIT_REF='v0.5.247' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
-# stdout: ARDTT_CASCADE_PUBLIC_KEY|<base64>
+`ARDTT_ACTION=uninstall` у `/opt/ardtt/current/install.sh`. Fallback — только объекты с `com.ardtt.owner=ardtt` и `/opt/ardtt`. Docker/containerd, `docker0`, swap, чужой firewall **не** трогаются, даже если других контейнеров нет.
 
-# 2) вход (клиенты), пир = ключ выхода
-ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
-  ARDTT_CASCADE_PEER_ENDPOINT='2.26.125.160:51820' \
-  ARDTT_CASCADE_PEER_PUBLIC_KEY='…' \
-  ARDTT_PUBLIC_HOST='45.129.2.3' ARDTT_DEPLOY_VERSION='1.0.39' \
-  ARDTT_GIT_REF='v0.5.247' ARDTT_AUTO_PORTS=1 bash /opt/ardtt/install.sh
+`ARDTT_PURGE_DATA=1` стирает `data/`; без флага данные остаются.
 
-# 3) ключ входа → /opt/ardtt/stack/data/cascade.peer.pub на выходе
-```
+---
 
-Повторный «Обновить деплой» **входа** без `ARDTT_CASCADE_ENABLED=1` больше не сбрасывает живой каскад: `install.sh` копирует флаги из `stack/.env` и `data/cascade.peer.endpoint`. Снять каскад явно: `ARDTT_CASCADE_FORCE_DISABLE=1`.
+## Путь 2 — архив с GitHub Releases
 
-На standalone-входе `ARDTT_CASCADE_DNS` в `.env` должен быть пустым. Иначе provision отдаёт профилям `10.10.0.2`, хотя `ardtt-cascade` не запущен и DNS на `10.8.0.1` / `10.9.0.1`.
-
-Порядок обновления каскада: сначала **выход** до этого стека, потом вход. Если обновить только вход и включить hop, Hide-IP-выкл уедет в старый blanket WARP на выходе — 2ip.ru снова покажет Cloudflare. Не поднимайте hop, пока `/health` выхода не покажет тот же `deployVersion`, что и вход.
-
-6. Разбор stdout построчно (UTF-8, без ANSI):
-   - `ARDTT_PROGRESS|<0..1>|<шаг>` — полоса, процент и подпись в UI (каскад: два ряда VPS 1 / VPS 2 с IP);
-   - `ARDTT_ERROR|<текст>` — ошибка даже при exit 0;
-   - `ARDTT_DONE|…` — успех (`direct_port` / `bypass_port` / `cascade_listen_port` — фактические UDP);
-   - `ARDTT_WARN|…` — в лог, деплой продолжается.
-7. После успеха: prune образов на хосте, `lastDeployedAtMs` в prefs.
-8. После ошибки: `tail` удалённого `/opt/ardtt/install.log` в телеметрию (если включена запись).
-
-Отмена = `session.disconnect()`.
-
-### Удаление сервера из приложения
-
-Класс: `android/.../deploy/ServerUninstall.kt` (команда в APK, **без** бампа `DEPLOY_VERSION`).
-
-1. Плашка «Удалить сервер?» — предупреждение, что стек снимется с VPS.
-2. `docker compose down -v` в `/opt/ardtt/stack` (и legacy `/opt/nonamevpn`), `docker rm -f` контейнеров `ardtt` / `ardtt-*` / `nvpn-*`, снятие leftover TUN/`ip rule`/iptables с комментариями ARDTT, правила ufw/firewalld на порты стека, `rm -rf /opt/ardtt /opt/nonamevpn`. Образы `stack-ardtt`. Если на хосте **нет чужих контейнеров** — `apt-get purge` Docker, `docker0`, `/var/lib/docker`, `/swapfile` установщика и docker.list. Чужой стек на shared VPS не трогается.
-3. Каскад: сначала выходной VPS, затем вход. Ошибка на любом хосте оставляет карточку, чтобы можно было повторить (команда идемпотентна).
-4. Маркер stdout `ARDTT_UNINSTALLED` и exit 0. Только после этого `ServersRepository.delete`.
-5. Отмена = обрыв SSH; карточка не удаляется.
-
-### Откуда телефон берёт стек
-
-Исходники стека живут в `server/` этого репозитория и **не** пакуются в APK. На телефоне в assets остаётся только метка `deploy/DEPLOY_VERSION` (чтобы карточка сервера сравнивала `/health`).
-
-Порядок загрузки (`DeployStackFetcher`):
-
-1. GitHub Release тега `v<versionName>` — актив `ardtt-stack-<DEPLOY_VERSION>.tar.gz` (кладёт [android-build.yml](../.github/workflows/android-build.yml) через `scripts/pack-stack.sh` на стабильной версии без `test` в `versionName`).
-2. Тот же актив в списке релизов, если имя совпадает с ожидаемой версией стека.
-3. Source-tarball GitHub (`/repos/…/tarball/<ref>` или `archive/refs/tags/…`) — `install.sh` сам находит `server/` внутри префикса `ARDTT-<tag>/`.
-4. Ветка `main`, если тега ещё нет (debug-сборка).
-5. Если в APK всё же лежит локальный `stack.tar.gz` (ручная упаковка) — запасной офлайн-путь.
-
-`install.sh` сначала вынимается из того же gzip-tar (корень релизного актива или `…/server/install.sh` в архиве тега). Запас — `raw.githubusercontent.com/…/<ref>/server/install.sh`. APK ≤0.5.245 узнаёт скрипт по первым 400 символам: маркеры `ARDTT_PROGRESS|` / `ARDTT_DONE|` должны быть в этой шапке.
-
-В архиве стека (корень tar = содержимое `server/`, без `data/`):
-
-```
-docker-compose.yml  Dockerfile  entrypoint.sh  .env.example  DEPLOY_VERSION  README.md  install.sh  scripts/
-provision/  direct/  bypass/  dns/  warp/  telemetry-upload/
-```
-
-Проверка согласованности (без Docker):
+Docker уже должен работать. Не вызывайте `get.docker.com`.
 
 ```bash
-./scripts/check-deploy-bundle.sh
-./scripts/test-install-unpack.sh   # распаковка, GitHub-layout, сохранение data/, повтор без tar
-./scripts/pack-stack.sh            # dist/ardtt-stack-1.0.39.tar.gz
-```
-
-### Обновление vs первая установка
-
-`install.sh` перед распаковкой копирует `stack/data` в `/tmp/ardtt-data-bak` и возвращает после `tar`. Сохраняются:
-
-- `users.json` / `config.json` / ключи;
-- состояние WARP (`data/warp/`, учётка wgcf);
-- счётчики трафика bypass.
-
-Пересобираются образы и контейнеры. Неуправляемые контейнеры с именами `ardtt` / `ardtt-*` (без compose-label) снимаются, чтобы не конфликтовать с `container_name`. Имена `nvpn-*` с прошлых установок тоже удаляются. После остановки старого host-network стека установщик снимает leftover `awg0` / `wdttraw0` / `warp0` / `cascade0` и **свои** `ip rule` lookup 51820 (подсети 10.8/10.9/10.10/10.99) **с хоста**, иначе они продолжают ломать nginx и чужой Docker. Чужой WireGuard с таблицей 51820 не трогается.
-
-Если предыдущий запуск **стёр** `stack.tar.gz` (скрипт удаляет архив и при ошибке), повторный запуск **без** новой заливки идёт по уже распакованному `stack/docker-compose.yml` — так можно добить упавшую сборку Docker. Если нет ни tar, ни `stack/`, но задан `ARDTT_GIT_REF`, установщик сам клонирует репозиторий.
-
-Место: нужно ≥ **1800 МБ** свободно на `/`, иначе установщик выходит с понятной ошибкой.
-
-### Повторный деплой
-
-Один и тот же стек на уже стоящем VPS обновляется так, чтобы `data/` (пользователи, ключи, WARP) пережили замену образов.
-
-**С телефона (предпочтительный путь после публикации репозитория)**
-
-1. Обновите клиент с [Releases](https://github.com/2kristalls36-hue/ARDTT/releases), если карточка показывает «нужно обновить».
-2. Режим администратора → вкладка **Серверы** → карточка VPS → **Обновить деплой** (или **Переустановить деплой** в параметрах сервера).
-3. Телефон заново скачивает стек **этой** версии с GitHub и заливает по сохранённым SSH-данным. Пароль/PEM вводить повторно не нужно.
-4. Каскад: сначала обновите **выход**, дождитесь `/health` с новым `deployVersion`, затем вход.
-5. Пользователей заново создавать не нужно. Профили клиентов остаются, пока не сменились UDP-порты (при автовыборе установщик старается оставить прежние).
-
-**С shell на VPS**
-
-```bash
-TAG=v0.5.247
-install -d -m 755 /opt/ardtt
-curl -fsSL "https://raw.githubusercontent.com/2kristalls36-hue/ARDTT/${TAG}/server/install.sh" \
-  -o /opt/ardtt/install.sh
-chmod +x /opt/ardtt/install.sh
+VER=1.0.45
+ARCH=amd64   # или arm64; uname -m: x86_64→amd64, aarch64→arm64
+TAG=v0.5.256
+ASSET=ardtt-server-${VER}-linux-${ARCH}.tar.gz
+install -d -m 755 /opt/ardtt/incoming
+# Скачайте актив с https://github.com/2kristalls36-hue/ARDTT/releases
+# Сверьте SHA-256 с digest актива или SHA256SUMS этого релиза (не с самоподписанной суммой tar).
 export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS
-export ARDTT_DEPLOY_VERSION=1.0.39
-export ARDTT_GIT_REF="$TAG"
-export ARDTT_GIT_REPO=https://github.com/2kristalls36-hue/ARDTT.git
-# каскад: на выходе ARDTT_ROLE=exit; на входе не опускайте ARDTT_CASCADE_ENABLED=1
-bash /opt/ardtt/install.sh
-curl -s http://127.0.0.1:9100/health
+export ARDTT_PACKAGE=/opt/ardtt/incoming/${ASSET}
+export ARDTT_PACKAGE_SHA256=...   # с релиза
+# install.sh внутри архива сам распакует в staging, если не задан ARDTT_PKG_DIR
+python3 -c 'import tarfile'  # нужен python3
+tar -tzf "$ARDTT_PACKAGE" >/dev/null
+# После сверки SHA-256:
+#   python3 scripts/safe-extract-package.py "$ARDTT_PACKAGE" /opt/ardtt/staging
+#   ARDTT_PKG_DIR=/opt/ardtt/staging bash /opt/ardtt/staging/install.sh
+# Или одним шагом, если пакет уже в incoming:
+bash -c '… extract then install …'
 ```
 
-Не делайте `rm -rf /opt/ardtt/stack/data` «для чистоты»: это снимет всех клиентов. Полный снос — только кнопка **Удалить** в приложении или вручную `rm -rf /opt/ardtt`.
-
----
-
-## Путь 2 — git + Compose
-
-Тот же стек, что ставит приложение. Нужны Docker, `NET_ADMIN`, `/dev/net/tun`. Сборка тянет `amneziawg-go` / `amneziawg-tools` и RAW-сервер Path B.
-
-Клонируйте **тег релиза** (`v0.5.247` = клиент 0.5.247 и стек 1.0.39), не скользящий `main`. Репозиторий публичный: HTTPS clone, `raw.githubusercontent.com` и GitHub Releases читаются без PAT.
+Практичный вариант после ручной распаковки проверенного архива:
 
 ```bash
-TAG=v0.5.247
-
-# Вариант A — тот же install.sh, что из приложения (/opt/ardtt, data/ сохраняется)
-install -d -m 755 /opt/ardtt
-curl -fsSL "https://raw.githubusercontent.com/2kristalls36-hue/ARDTT/${TAG}/server/install.sh" \
-  -o /opt/ardtt/install.sh
-export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS ARDTT_DEPLOY_VERSION=1.0.39 ARDTT_GIT_REF="$TAG"
-bash /opt/ardtt/install.sh
-
-# Вариант B — compose прямо в клоне (без /opt/ardtt)
-git clone --depth 1 --branch "$TAG" \
-  https://github.com/2kristalls36-hue/ARDTT.git /tmp/ardtt
-cd /tmp/ardtt/server
-cp .env.example .env          # ARDTT_PUBLIC_HOST=IP_VPS; COMPOSE_PROFILES=isolated
-docker compose --profile isolated up -d --build
-curl -s http://127.0.0.1:9100/health
-./scripts/create-user.sh alice
+export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS
+export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.45-linux-amd64.tar.gz
+export ARDTT_PACKAGE_SHA256='…из GitHub Release…'
+export ARDTT_AUTO_PORTS=1
+bash /opt/ardtt/staging/install.sh   # после safe-extract в staging
 ```
 
-Host network (если UDP через Docker DNAT не работает): `ARDTT_NETWORK_MODE=hostnet` в `.env` и `docker compose --profile hostnet up -d --build`.
+Обновление — тот же архив новой версии. Откат: `ARDTT_ACTION=rollback bash /opt/ardtt/current/install.sh`.  
+Удаление: `ARDTT_ACTION=uninstall bash /opt/ardtt/current/install.sh` (данные) или с `ARDTT_PURGE_DATA=1`.
 
-`ARDTT_DEPLOY_VERSION` подхватывается из `.env` / `DEPLOY_VERSION` и отдаётся в `GET /health`.
+Каскад:
 
-Телефон больше не несёт копию стека в APK: и админ-деплой, и git-путь читают один репозиторий. Клиент всё равно нужен для туннеля и админки.
+```bash
+# выход
+ARDTT_ROLE=exit ARDTT_PUBLIC_HOST=IP_ВЫХОДА … bash install.sh
+# stdout: ARDTT_CASCADE_PUBLIC_KEY|…  и provision_port=
+
+# вход
+ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
+  ARDTT_CASCADE_PEER_ENDPOINT='IP_ВЫХОДА:51820' \
+  ARDTT_CASCADE_PEER_PUBLIC_KEY='…' \
+  ARDTT_CASCADE_PEER_PROVISION_PORT=9100 \
+  ARDTT_PUBLIC_HOST=IP_ВХОДА … bash install.sh
+```
+
+Порядок обновления каскада: сначала выход до этого `deployVersion`, потом вход.
 
 ---
 
-## Что делает `install.sh` на VPS
+## Путь разработчика — сборка из исходников
 
-Канонический файл: [`server/install.sh`](../server/install.sh). Каталог установки: `/opt/ardtt` (`ARDTT_INSTALL_DIR`).
+Не для VPS-установки. Нужны Docker, сеть до Debian/GitHub, `NET_ADMIN`, `/dev/net/tun`.
 
-| Progress | Шаг |
-|----------|-----|
-| 0.05 | root |
-| 0.10 | каталог |
-| 0.15 | распаковка tar / GitHub-архива, уже лежащий `stack/`, либо `ARDTT_GIT_REF` |
-| 0.22 | в архиве есть все build-контексты compose |
-| 0.25 | Docker + compose plugin, если их не было (`get.docker.com`). Чужие контейнеры: dockerd не перезапускаем, кэш BuildKit всё равно чистим |
-| 0.28 | `builder prune -af` + split-образы + json-логи; swap если RAM < 1.8 ГБ (на shared VPS swapfile не сжимаем). Не трогаем lease-ы containerd на живом dockerd |
-| 0.40 | `.env`, `DEPLOY_VERSION` на хосте и в `stack/data/` (`COMPOSE_PROFILES=isolated`) |
-| 0.45 | проверка места |
-| 0.48 | на VPS < 1.8 ГБ RAM: `compose down` нашего стека; сброс BuildKit (stop docker, umount executor rootfs, `rm` без abort при busy) **только если нет чужих контейнеров** |
-| 0.50 | `compose build ardtt` (один образ; повтор `--no-cache` после сброса BuildKit) → `compose up -d` |
-| 0.74 | leftover TUN/iptables/ip-rule с хоста |
-| 0.80 | снос build-cache и apt-архивов |
-| 0.85 | `curl` provision `:9100` и telemetry на `ARDTT_TELEMETRY_PORT` (по умолчанию 9200) |
-| 0.96 | ufw / firewalld: Direct UDP, Bypass UDP, 9100/tcp, telemetry TCP. `iptables -I INPUT` — только в `hostnet` |
-| 1.00 | `ARDTT_DONE` |
+```bash
+cd server
+cp .env.example .env   # ARDTT_PUBLIC_HOST, ARDTT_INSTANCE_ID, ARDTT_BRIDGE_SUBNET
+docker compose -f docker-compose.dev.yml up -d --build
+curl -s http://127.0.0.1:9100/health
+```
 
-Лог при ошибке: `/opt/ardtt/install.log`. При успехе временный лог и tar удаляются.
+Production `docker-compose.yml` **без** `build:`. Образ собирает CI.
+
+---
+
+## Что делает `install.sh`
+
+Канонический файл: [`server/install.sh`](../server/install.sh). Маркеры `ARDTT_PROGRESS|` / `ARDTT_DONE|` остаются в первых 400 символах (старые APK).
+
+| Шаг | Поведение |
+|------|-----------|
+| Lock | `/opt/ardtt/install.lock` — один установщик на экземпляр |
+| SHA-256 | до любых изменений стека |
+| Safe extract | запрет `..`, абсолютных путей, symlink/hardlink |
+| Preflight | Docker, python3, TUN, arch пакета, диск (install + DockerRootDir), RAM, порты TCP/UDP + Docker PortBindings, подсеть bridge. **Старый ARDTT ещё работает** |
+| `docker load` | проверка image ID и arch |
+| Switch | только этот экземпляр по labels; `previous/` до readiness |
+| Up | `docker compose up -d --no-build --pull never` |
+| Readiness | `ready.sh` (процессы/интерфейсы роли), не один `/health` |
+| Ошибка | откат на `previous`, `ARDTT_ERROR`, код ≠ 0, **нет** `ARDTT_DONE` |
+
+Не делается: stop Docker/containerd, prune кэшей, wipe `/var/lib/docker`, swap/fstab, host DNS/sysctl, ufw/firewalld по номеру порта, `cleanup_host_dataplane()`.
+
+Чужие контейнеры `stack-nginx-1` и имена вроде `ardtt` не считаются нашими без labels / подтверждённых mounts.
 
 ---
 
@@ -290,150 +230,81 @@ Host network (если UDP через Docker DNAT не работает): `ARDTT
 
 ```
 /opt/ardtt/
-  install.sh              # последняя заливка с GitHub (через телефон или curl)
-  DEPLOY_VERSION          # то же число, что в /health
-  install.log             # только если последний прогон упал
-  stack/
-    docker-compose.yml
-    .env
-    DEPLOY_VERSION
-    provision/ direct/ bypass/ dns/ warp/ telemetry-upload/
-    data/                 # volume; не из tar
-      users.json          # config + users (ключи, hideIp, presence)
-      config.json
-      server_public.key
-      DEPLOY_VERSION
-      bypass-traffic.json # снимок счётчиков RAW
-      warp/               # wgcf-account.toml, профиль warp0
+  incoming/              # загруженный архив (телефон)
+  staging/               # распаковка текущей попытки
+  current/               # активные compose + .env + install.sh
+  previous/              # прошлое до следующего успеха
+  releases/<version>/
+  data/                  # users, ключи, warp; не в tar
+  logs/                  # telemetry, не /var/logs/app хоста
+  instance.json          # instanceId, compose project, container, subnet, image id
+  bin/docker-compose     # если взят из пакета
+  install.lock
 ```
 
-После успешного деплоя не должно оставаться `stack.staging`, `stack.old`, `stack.tar.gz`, `install-live.log`, `install-run.log`. На 8–10 ГБ VPS установщик держит `/swapfile` ≈ 1 ГБ (не 2 ГБ) и не делает `docker image prune -af` — иначе пропадают неиспользуемые `stack-*` образы. `/opt/ardtt-distribution` — раздача APK, не мусор стека.
-
-Не коммитить `server/data/` с боевыми секретами (уже в `.gitignore`).
+Миграция со стека ≤1.0.44: `stack/data` → `data/`, confirmed telemetry logs, остановка только подтверждённого контейнера. Старый hostnet: если контейнер не найден, установщик **останавливается** и просит ручное решение leftover-интерфейсов. Универсальная очистка хоста отключена.
 
 ---
 
 ## Как стек работает после деплоя
 
-Источник истины — **provision** (`users.json`). Остальные сервисы **ждут** появления файла (до ~2 мин) и дальше следят за mtime.
+Источник истины — **provision** (`users.json`). Остальные процессы ждут файл и следят за mtime.
 
-```
-provision ──writes──► /data/users.json
-    │
-    ├─ direct-sync  → awg0.conf  → amneziawg-go   (каждые 5 с при изменении)
-    ├─ bypass-sync  → passwords.json + raw_ip     (SIGHUP wdtt-server)
-    └─ warp         → ip rule from 10.8/10.9.{id} → table 51820, если hideIp
-                      (на каскаде правило ставит выход, не вход)
-```
+### Direct / Bypass / DNS / Hide IP
 
-### Direct (Path A)
+Как раньше: AmneziaWG UDP, RAW UDP после TURN на клиенте, dnsmasq на шлюзах, WARP только как egress выбранных `/32`. DNS `:53` не через WARP и не на `host:53`.
 
-UDP `ARDTT_DIRECT_PORT`. Клиенты — peers AmneziaWG с `AllowedIPs=10.8.0.{hostId}/32`.  
-FORWARD + MASQUERADE в WAN. Смена пользователей → `awg syncconf` без рестарта контейнера.
+На каскаде вход — passthrough; выход опрашивает `GET /v1/hide-ip-prefixes` у `10.10.0.1:9100` (overlay). WAN-опрос provision выхода идёт на **опубликованный** порт (`ARDTT_CASCADE_PEER_PROVISION_PORT`).
 
-### Bypass (Path B)
+### Provision API
 
-Клиент доходит до VPS **уже после TURN** (звонок на телефоне). На сервере слушается RAW UDP `ARDTT_BYPASS_PORT`, без DTLS. Пароль и `10.9.0.{hostId}` берутся из того же `users.json`. Трафик в админке — из `bypass-traffic.json`.
+Порт снаружи — `ARDTT_PROVISION_PORT` (в профиле поле `provisionPort`). Внутри контейнера слушает 9100.
 
-Hash звонка на сервер **не** кладётся.
+`GET /health` отдаёт `deployVersion`, `role`, `cascade`, `directPort`, `bypassPort`, `provisionPort`, `telemetryPort`.  
+`GET /ready` — тот же `ready.sh`.
 
-### DNS
-
-Клиентский DNS в профиле — шлюз туннеля (`10.8.0.1` / `10.9.0.1`). dnsmasq резолвит через Cloudflare по **main**.  
-Если Hide IP включён, `ip rule` prio 100 (`iif awg0|wdttraw0 dport 53 → main`) не пускает :53 в `warp0`.
-
-### Hide IP / WARP
-
-`POST /v1/hide-ip` → `users.json.hideIp`. На standalone вход warp-entrypoint дебаунсит ~1 с и вешает `from 10.8.0.{id}/32`. На каскаде вход в `passthrough`, а выход опрашивает `GET /v1/hide-ip-prefixes` у `10.10.0.1` и вешает те же `/32` на своём `warp0`. DNS и подсети туннелей остаются на main. Клиент **не** рестартует TUN.
-
-### Provision API (телефон бьёт в `:9100`)
-
-| Метод | Путь | Зачем |
-|-------|------|--------|
-| GET | `/health` | `{ ok, service, deployVersion }` — статус карточки сервера |
-| GET/POST | `/v1/users` | список / создать (тело создания = JSON профиля) |
-| POST | `/v1/users/update` | срок, устройства, деактивация, лимит трафика |
-| POST | `/v1/users/unbind-device` | снять deviceId |
-| POST | `/v1/users/delete` | удалить пользователя |
-| GET | `/v1/profile/{name}` | тот же JSON, что импортирует клиент |
-| POST | `/v1/presence` | online в админке |
-| POST | `/v1/hide-ip` | WARP egress |
-| GET/POST | `/v1/egress-ip` | публичный IP (через `warp0`, если hideIp) |
-
-Авторизации на provision нет: это ваш VPS. Порт 9100 должен быть доступен с телефона админа (и с клиента для presence/hide-ip).
-
-Профиль, который выдаёт provision:
-
-```json
-{
-  "name": "alice",
-  "hostId": 2,
-  "direct": { "endpoint": "VPS:51820", "address": "10.8.0.2/32", "…": "…" },
-  "bypass": { "peer": "VPS:56003", "address": "10.9.0.2/32", "password": "…", "mode": "raw" }
-}
-```
-
-Клиенты создаются из приложения (Сервер → Клиенты) или `./scripts/create-user.sh`.
+Авторизации нет: это ваш VPS.
 
 ---
 
 ## Порты
 
-| Порт | Протокол | Кто | Обязательно снаружи |
-|------|----------|-----|---------------------|
-| SSH (22) | TCP | деплой из приложения | да, для админ-деплоя; git-путь можно с локальной машины |
-| 51820 | UDP | direct (предпочтительно) | да, Path A; при автовыборе может стать другим свободным UDP |
-| 56003 | UDP | bypass RAW (предпочтительно) | да, Path B; то же для автовыбора |
-| 9100 | TCP | provision | да, health / профили / hide-ip |
-| 9200 | TCP | telemetry | если нужен приём логов с телефонов |
+| Предпочтительно | Протокол | Кто | Снаружи |
+|------|----------|-----|---------|
+| SSH | TCP | деплой из приложения | да, для админ-деплоя |
+| 51820 | UDP | Direct / cascade listen | да; автовыбор может сменить host-порт |
+| 56003 | UDP | Bypass RAW | да (не на exit) |
+| 9100 | TCP | provision | да |
+| 9200 | TCP | telemetry | если нужны логи с телефонов |
 
-`ARDTT_AUTO_PORTS=1` (кнопка в форме деплоя по умолчанию): если 51820/56003 заняты другим сервисом, установщик берёт следующие свободные UDP и синхронизирует их в `.env`, `users.json` (через provision из env) и `ARDTT_DONE`. При обновлении с автовыбором сначала пробуются порты прошлого деплоя. `ARDTT_AUTO_PORTS=0` + занятый порт → ошибка, как раньше.
-
-TURN VK — на стороне **клиента**, на VPS отдельного TURN нет.
+`ARDTT_AUTO_PORTS=1`: занятый **чужой** порт → следующий свободный; свои опубликованные при обновлении не считаются конфликтом. Занятый порт чужой службой не убивается. Произвольный listener на 9200 не считается «настроенным nginx».
 
 ---
 
 ## Когда бампать `DEPLOY_VERSION`
 
-Файл: `server/DEPLOY_VERSION`. Синхронно обновить:
+Файл: `server/DEPLOY_VERSION`. Синхронно:
 
 1. `android/app/src/main/assets/deploy/DEPLOY_VERSION`
 2. `DeployBundle.FALLBACK_VERSION`
-3. При релизе CI сам соберёт `ardtt-stack-<версия>.tar.gz` (`scripts/pack-stack.sh`)
+3. CI соберёт `ardtt-server-<версия>-linux-*.tar.gz`
 
-Бамп нужен, если изменились `docker-compose.yml`, Dockerfiles, entrypoint'ы, `install.sh` или vendored bypass. Правка только UI телефона — нет.
-
-Формат — semver стека (`1.0.x`), не версия APK.
-
----
-
-## Снятие и данные
-
-```bash
-cd /opt/ardtt/stack
-docker compose down          # контейнеры; data/ остаётся
-# полный снос (ключи тоже):
-# rm -rf /opt/ardtt
-```
-
-Кнопка **Удалить** в приложении снимает стек с VPS по SSH (см. [Удаление сервера](#удаление-сервера-из-приложения)). Повторный деплой без удаления карточки `data/` не трогает.
+Бамп: образ, Compose, entrypoint'ы, `install.sh`. Только UI телефона — нет.
 
 ---
 
 ## Чек-лист после установки
 
 ```bash
-cd /opt/ardtt/stack
-COMPOSE_PROFILES=isolated docker compose ps
+cd /opt/ardtt/current
+docker compose ps
 curl -s http://127.0.0.1:9100/health
-# ожидается: "ok": true, "deployVersion": "1.0.39"
-
-ss -ulnp | grep -E '51820|56003'
+curl -s http://127.0.0.1:9100/ready
+ss -ulnp | grep -E '51820|56003' || true
 ss -tlnp | grep -E '9100|9200'
-docker exec ardtt provision -cmd create-user -name smoke -data /data
+NAME=$(python3 -c 'import json; print(json.load(open("/opt/ardtt/instance.json"))["containerName"])')
+docker exec "$NAME" provision -cmd create-user -name smoke -data /data
 ```
-
-С телефона: карточка VPS — ОС справа, «Онлайн» под ней, деплой 1.0.39 слева (или «Требуется обновление · …»), создание клиента, импорт профиля, Connect.
 
 ---
 
@@ -441,20 +312,14 @@ docker exec ardtt provision -cmd create-user -name smoke -data /data
 
 | Симптом | Что проверить |
 |---------|----------------|
-| «Не удалось скачать стек … из GitHub» | Сеть на телефоне до github.com. Репозиторий публичный, PAT не нужен. Запас: [Путь 2](#путь-2--git--compose) |
-| `git clone`: Authentication failed | Проверьте URL `https://github.com/2kristalls36-hue/ARDTT.git` и тег релиза. PAT не требуется |
-| Диск растёт от деплоя к деплою | Docker 29 кладёт слои сборки в containerd snapshots. Живой образ ~300 МБ, кэш BuildKit — ещё гигабайты. Чистить только через `builder prune` / полный wipe `/var/lib/docker/buildkit`. Стек ≥**1.0.42**: не рвём lease-ы на живом Docker (это даёт snapshot/lease not found). Не копите именованные APK в `/opt/ardtt/apk`. |
-| `snapshot does not exist` / `lease not found` | Кэш BuildKit ссылается на уже снятые снимки. Стек ≥**1.0.42** сам делает короткий рестарт Docker и повторяет сборку. |
-| `install.sh` + «Мало места» / ENOSPC | На 8–10 ГБ VPS порог обновления ≥900 МБ (после swap оставляем ≥1100 МБ). Установщик режет огромные json-логи Docker, дропает старые split-образы `stack-direct` и т.п., но не трогает чужие контейнеры и не делает `docker image prune -af`. |
-| `install.sh exit=1`, `Device or resource busy` в `/var/lib/docker/buildkit/.../rootfs` | Стек ≥**1.0.34**: umount + повтор, установка не падает. На 1 ГБ VPS старый `rm -rf` после `stop docker` обрывал каскад. Обновите APK и снова «Установить». |
-| SSH timeout / permission | user/порт/ключ; для не-root нужен sudo-пароль |
-| `/health` не отвечает после DONE | `docker compose --profile isolated logs`; `ARDTT_PUBLIC_HOST` и публикация `:9100` |
-| telemetry не принимает логи, `:9200` занят | Стек ≥**1.0.39**: `:9200` busy → publish `:9199`; если заняты и `:9200`, и `:9199` (nginx + socat), gunicorn всё равно стартует внутри контейнера, без `ARDTT_SKIP_TELEMETRY=1` |
-| Чужие сайты/контейнеры на VPS отвалились после деплоя | Нужен стек ≥1.0.32 (isolated). Обновите деплой из приложения. Запасной `ARDTT_NETWORK_MODE=hostnet` снова шарит host netns |
-| UDP Direct не коннектится, TCP :9100 жив | Docker UDP DNAT. Попробуйте `ARDTT_NETWORK_MODE=hostnet` |
-| Карточка «нужно обновить» | APK новее стека на VPS — «Обновить деплой» (телефон снова скачает стек с GitHub); или рассинхрон `DEPLOY_VERSION` |
-| «Удалить» не снимает карточку | SSH до VPS не прошёл или uninstall оборвался — карточка специально остаётся. Повторите или поправьте креды |
-| Hide IP: ping есть, HTTPS нет | MSS clamp на warp0 (уже в entrypoint); DNS не через WARP |
-| Повторный деплой «нет tar» | С 1.0.12 установщик продолжает с уже распакованного `stack/`; при `ARDTT_GIT_REF` может скачать заново с GitHub |
+| «Не удалось скачать пакет … из GitHub» | Сеть телефона до github.com. Старый APK ждёт `ardtt-stack-*` — обновите приложение |
+| Нет SHA-256 у актива | Релиз без `digest` / `SHA256SUMS` — установка откажется до изменений на VPS |
+| Docker Engine не найден | Поставьте Docker сами. Этот пакет его не ставит |
+| Мало места | Порог с запасом на load + слои + `previous/`. Глобальная очистка сервера не выполняется |
+| `ARDTT_ERROR` без `ARDTT_DONE` | Новый стек не прошёл readiness; смотрите `previous/` и `/opt/ardtt/install.log` |
+| Чужие контейнеры/VPN отвалились | Так быть не должно. Сообщите labels/имена; не включайте hostnet |
+| UDP Direct мёртв, TCP provision жив | Docker UDP DNAT. Hostnet-fallback нет — смотрите published ports и return path |
+| Карточка «нужно обновить» | APK новее стека — «Обновить деплой» |
+| «Удалить» не снимает карточку | SSH не прошёл — карточка остаётся специально |
 
-Телеметрия категории `deploy` (старт, SSH, прогресс, хвост `install.log`) — [TELEMETRY.md](TELEMETRY.md).
+Телеметрия категории `deploy` — [TELEMETRY.md](TELEMETRY.md).

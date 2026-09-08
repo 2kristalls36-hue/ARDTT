@@ -4,6 +4,10 @@
 # shared VPS keeps its other services. Host-net is ARDTT_NETWORK_MODE=hostnet.
 set -euo pipefail
 
+# shellcheck disable=SC1091
+. /opt/ardtt/netns-guard.sh
+ardtt_require_container_netns || exit 1
+
 ROLE="${ARDTT_ROLE:-entry}"
 CASCADE_ENABLED="${ARDTT_CASCADE_ENABLED:-0}"
 TELEMETRY_LISTEN="${TELEMETRY_LISTEN:-${ARDTT_TELEMETRY_LISTEN:-0.0.0.0:9200}}"

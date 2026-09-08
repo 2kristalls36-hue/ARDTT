@@ -64,4 +64,18 @@ class ProvisionAdminApiTest {
         assertTrue(flagged.enabled)
         assertNull(flagged.host)
     }
+
+    @Test
+    fun provisionBaseUsesStoredPort() {
+        val target = DeployTarget(
+            id = "1",
+            name = "s",
+            host = "10.0.0.1",
+            publicHost = "45.129.2.3",
+            provisionPort = 9101,
+        )
+        assertEquals("http://45.129.2.3:9101", ProvisionAdminApi.provisionBase(target))
+        val def = DeployTarget(id = "2", name = "s", host = "10.0.0.2")
+        assertEquals("http://10.0.0.2:9100", ProvisionAdminApi.provisionBase(def))
+    }
 }
