@@ -11,31 +11,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.cardContainerColor
 import com.ardtt.app.ui.theme.isDarkSurface
 
 /** Default height cap of an inline log view. */
 private val TerminalMaxHeight = 240.dp
 
-/** Same terminal fill as the Logs tab card. */
+/** Opaque theme surface — not a translucent green terminal on wallpaper. */
 @Composable
-fun terminalCardColor(): Color {
-    val dark = isDarkSurface()
-    val base = if (dark) {
-        ArdttColors.TerminalBgDark
-    } else {
-        lerp(ArdttColors.TerminalBg, MaterialTheme.colorScheme.surface, 0.35f)
-    }
-    return base.copy(alpha = if (dark) 0.90f else 1.00f)
-}
+fun terminalCardColor(): Color = cardContainerColor()
 
 @Composable
 fun terminalCardElevation(): Dp =
@@ -63,10 +54,10 @@ fun ArdttTerminalCard(
     ) {
         Text(
             text = text.ifBlank { emptyText },
-            color = ArdttColors.TerminalText,
+            color = MaterialTheme.colorScheme.onSurface,
             fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = maxHeight)

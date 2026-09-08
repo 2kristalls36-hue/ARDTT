@@ -78,6 +78,8 @@ import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.connectedStatusColor
+import com.ardtt.app.ui.theme.warningStatusColor
 import com.ardtt.app.update.AppUpdateController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -694,10 +696,10 @@ private fun ClientCard(
         else -> (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
     }
     val trafficColor = when {
-        limit <= 0L -> ArdttColors.Connected
+        limit <= 0L -> connectedStatusColor()
         progress >= 0.85f -> MaterialTheme.colorScheme.error
-        progress >= 0.55f -> ArdttColors.Warning
-        else -> ArdttColors.Connected
+        progress >= 0.55f -> warningStatusColor()
+        else -> connectedStatusColor()
     }
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
@@ -715,13 +717,13 @@ private fun ClientCard(
     }
     val expiresTone = clientExpiresTone(user.expiresAt)
     val expiresColor = when (expiresTone) {
-        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> ArdttColors.Connected
-        ClientExpiresTone.ExpiringSoon -> ArdttColors.Warning
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> connectedStatusColor()
+        ClientExpiresTone.ExpiringSoon -> warningStatusColor()
         ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
     }
     val appVer = clientAppVersionView(user, latestVersionCode)
     val appVerColor = when (appVer.tone) {
-        ClientAppVersionTone.Current -> ArdttColors.Connected
+        ClientAppVersionTone.Current -> connectedStatusColor()
         ClientAppVersionTone.Outdated -> MaterialTheme.colorScheme.error
         ClientAppVersionTone.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -902,7 +904,7 @@ private fun ClientCard(
                     accent = if (enableAction.nextDeactivated) {
                         MaterialTheme.colorScheme.error
                     } else {
-                        ArdttColors.Connected
+                        connectedStatusColor()
                     },
                     onClick = { onSetDeactivated(enableAction.nextDeactivated) },
                 )

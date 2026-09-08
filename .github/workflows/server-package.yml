@@ -54,7 +54,44 @@ jobs:
           bash scripts/check-deploy-bundle.sh
           bash scripts/test-install-disk-guard.sh
           bash scripts/test-install-buildkit-wipe.sh
+          bash scripts/test-verify-loaded-image.sh
+          bash scripts/test-instance-metadata-rollback.sh
+          bash scripts/test-install-live-isolation-guard.sh
           (cd server/provision && go test ./...)
+
+  pr-artifacts:
+    name: PR host-file artifacts
+    needs: contract
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Pack installer host files (no image)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
+          mkdir -p dist
+          tar -C server -czf "dist/ardtt-server-hostfiles-${ver}.tar.gz" \
+            install.sh install-lib ready.sh docker-compose.yml docker-compose.exit.yml \
+            DEPLOY_VERSION manifest.json 2>/dev/null || \
+          tar -C server -czf "dist/ardtt-server-hostfiles-${ver}.tar.gz" \
+            install.sh install-lib ready.sh docker-compose.yml docker-compose.exit.yml \
+            DEPLOY_VERSION
+          sha256sum "dist/ardtt-server-hostfiles-${ver}.tar.gz" \
+            | awk '{print $1}' > "dist/ardtt-server-hostfiles-${ver}.tar.gz.sha256"
+          ls -lh dist/
+
+      - name: Upload host-file artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ardtt-server-hostfiles
+          path: dist/ardtt-server-hostfiles-*.tar.gz*
+          if-no-files-found: error
+          retention-days: 14
 
   package:
     name: Package linux-${{ matrix.arch }}
@@ -119,40 +156,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  publish-existing:
-    name: Attach existing packages to GitHub Release
-    # Main/tag: production path. This PR branch also attaches so the one-file
-    # archives reach GitHub Releases without waiting on merge (same-repo only).
-    if: |
-      (github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main'))
-      || (github.event_name == 'pull_request' && github.head_ref == 'cursor/server-bundle-ui-bad3' && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Attach packages already built on main
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARDTT_GIT_COMMIT: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          # Downloads the last dual-arch image artifacts, then refreshes
-          # install.sh / ready.sh / Compose from this commit before upload.
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            bash scripts/attach-server-packages-to-release.sh --tag "${GITHUB_REF_NAME}"
-          else
-            bash scripts/attach-server-packages-to-release.sh
-          fi
-
   publish:
     name: Attach packages to GitHub Release
-    needs: package
-    # Tags upload to that tag. Main uploads to the latest published release
-    # so a VPS can fetch ardtt-server-*.tar.gz without waiting for a new tag.
-    if: github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main')
+    needs: [contract, package]
+    # Only an explicit version tag publishes. PRs never touch Releases.
+    # Main does not clobber an existing tag. No mixing of a new installer
+    # with an older image under the same package version.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -165,32 +175,10 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Publish if a GitHub Release exists
-        if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+      - name: Publish this tag without clobber
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          pkgs=(dist/ardtt-server-*.tar.gz)
-          if [ "${#pkgs[@]}" -lt 1 ]; then
-            echo "No ardtt-server-*.tar.gz in dist; skip upload."
-            exit 0
-          fi
-          (cd dist && sha256sum ardtt-server-*.tar.gz > SHA256SUMS-server.txt)
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            tag="${GITHUB_REF_NAME}"
-          else
-            tag="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
-          fi
-          if [ -z "${tag}" ]; then
-            echo "No GitHub Release to attach to; packages stay on Artifacts."
-            exit 0
-          fi
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/ardtt-server-*.tar.gz dist/ardtt-server-*.tar.gz.sha256 dist/SHA256SUMS-server.txt --clobber
-            echo "Attached server packages to https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
-          else
-            echo "Release $tag not created yet; packages stay on Artifacts."
-          fi
+          bash scripts/attach-server-packages-to-release.sh --tag "${GITHUB_REF_NAME}" --from-dir dist

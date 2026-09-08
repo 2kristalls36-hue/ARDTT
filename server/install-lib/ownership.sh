@@ -5,10 +5,25 @@ OWNER_LABEL="com.ardtt.owner"
 INSTANCE_LABEL="com.ardtt.instance"
 
 instance_file() { printf '%s' "${INSTALL_DIR}/instance.json"; }
+pending_instance_file() { printf '%s' "${INSTALL_DIR}/instance.pending.json"; }
 
 load_instance() {
   local f
   f="$(instance_file)"
+  [ -f "$f" ] || return 1
+  INSTANCE_ID="$(json_get "$f" instanceId)"
+  COMPOSE_PROJECT="$(json_get "$f" composeProject)"
+  ARDTT_CONTAINER_NAME="$(json_get "$f" containerName)"
+  ARDTT_NETWORK_NAME="$(json_get "$f" networkName)"
+  ARDTT_BRIDGE_SUBNET="$(json_get "$f" bridgeSubnet)"
+  PREV_IMAGE_ID="$(json_get "$f" imageId)"
+  PREV_IMAGE_TAG="$(json_get "$f" imageTag)"
+  [ -n "$INSTANCE_ID" ]
+}
+
+load_pending_instance() {
+  local f
+  f="$(pending_instance_file)"
   [ -f "$f" ] || return 1
   INSTANCE_ID="$(json_get "$f" instanceId)"
   COMPOSE_PROJECT="$(json_get "$f" composeProject)"
@@ -61,6 +76,47 @@ PY
   chmod 600 "$INSTALL_DIR/instance.json" 2>/dev/null || true
 }
 
+write_pending_instance() {
+  mkdir -p "$INSTALL_DIR"
+  python3 - "$(pending_instance_file)" <<PY
+import json,sys,time
+path=sys.argv[1]
+data={
+  "instanceId": "${INSTANCE_ID}",
+  "composeProject": "${COMPOSE_PROJECT}",
+  "containerName": "${ARDTT_CONTAINER_NAME}",
+  "networkName": "${ARDTT_NETWORK_NAME}",
+  "bridgeSubnet": "${ARDTT_BRIDGE_SUBNET}",
+  "imageId": "${LOADED_IMAGE_ID:-${PKG_IMAGE_ID:-}}",
+  "imageTag": "${ARDTT_IMAGE:-}",
+  "deployVersion": "${DEPLOY_VERSION}",
+  "role": "${ROLE}",
+  "pending": True,
+  "updatedAt": int(time.time()),
+}
+open(path,"w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
+PY
+  chmod 600 "$(pending_instance_file)" 2>/dev/null || true
+}
+
+clear_pending_instance() {
+  rm -f "$(pending_instance_file)"
+}
+
+snapshot_confirmed_metadata() {
+  local dest="$1"
+  mkdir -p "$dest"
+  if [ -f "$(instance_file)" ]; then
+    cp -a "$(instance_file)" "$dest/instance.json"
+  fi
+  if [ -f "$INSTALL_DIR/.env" ]; then
+    cp -a "$INSTALL_DIR/.env" "$dest/root.env"
+  fi
+  if [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
+    cp -a "$INSTALL_DIR/DEPLOY_VERSION" "$dest/DEPLOY_VERSION"
+  fi
+}
+
 new_instance_id() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex 8
@@ -96,6 +152,11 @@ object_owned_by_us() {
 
 choose_container_name() {
   local want="${ARDTT_CONTAINER_NAME:-ardtt}"
+  # Dry-run never creates a container; do not inspect the host Docker store.
+  if [ "${ARDTT_DRY_RUN:-0}" = "1" ] || ! command -v docker >/dev/null 2>&1; then
+    ARDTT_CONTAINER_NAME="$want"
+    return 0
+  fi
   if ! docker inspect "$want" >/dev/null 2>&1; then
     ARDTT_CONTAINER_NAME="$want"
     return 0

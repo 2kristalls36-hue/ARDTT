@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Attach already-built ardtt-server-*.tar.gz Actions artifacts to a GitHub Release.
-# Does not rebuild the image. Uploads only files whose version matches
-# server/DEPLOY_VERSION in this checkout.
+# Attach ardtt-server-*.tar.gz from a local directory to an existing GitHub
+# Release tag. Does not rebuild or repack images. Does not download older
+# workflow artifacts. Refuses to overwrite assets that already exist.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VER="$(tr -d '[:space:]' < "$ROOT/server/DEPLOY_VERSION")"
@@ -13,121 +13,47 @@ fi
 [ -n "$REPO" ] || { echo "GITHUB_REPOSITORY is not set" >&2; exit 1; }
 
 TAG=""
-RUN_ID=""
+FROM_DIR=""
 DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --tag) TAG="${2:-}"; shift 2 ;;
-    --run-id) RUN_ID="${2:-}"; shift 2 ;;
+    --from-dir) FROM_DIR="${2:-}"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     -h|--help)
-      echo "usage: $0 [--tag vX.Y.Z] [--run-id N] [--dry-run]"
+      echo "usage: $0 --tag vX.Y.Z --from-dir DIR [--dry-run]"
       exit 0
       ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 
-if [ -z "$TAG" ]; then
-  TAG="$(gh release view --repo "$REPO" --json tagName --jq .tagName 2>/dev/null || true)"
-fi
-if [ -z "$TAG" ]; then
-  echo "No GitHub Release to attach to; packages stay on Actions artifacts."
-  exit 0
-fi
+[ -n "$TAG" ] || { echo "usage: $0 --tag vX.Y.Z --from-dir DIR" >&2; exit 1; }
+[ -n "$FROM_DIR" ] && [ -d "$FROM_DIR" ] || { echo "--from-dir must be a directory" >&2; exit 1; }
 
-WORKDIR="$(mktemp -d)"
-cleanup() { rm -rf "$WORKDIR"; }
-trap cleanup EXIT
-
-if [ -z "$RUN_ID" ]; then
-  RUN_ID="$(python3 - "$REPO" <<'PY'
-import json, subprocess, sys
-repo = sys.argv[1]
-
-def artifacts(name):
-    raw = subprocess.check_output(
-        ["gh", "api", "--paginate",
-         f"repos/{repo}/actions/artifacts?name={name}&per_page=100"],
-        text=True,
-    )
-    decoder = json.JSONDecoder()
-    s = raw.strip()
-    idx = 0
-    pages = []
-    while idx < len(s):
-        while idx < len(s) and s[idx].isspace():
-            idx += 1
-        if idx >= len(s):
-            break
-        obj, end = decoder.raw_decode(s, idx)
-        pages.append(obj)
-        idx = end
-    out = []
-    for page in pages:
-        for a in page.get("artifacts", []):
-            if a.get("expired"):
-                continue
-            wr = a.get("workflow_run") or {}
-            run = wr.get("id")
-            if not run:
-                continue
-            out.append({"run": run, "created": a.get("created_at") or ""})
-    return out
-
-amd = artifacts("ardtt-server-amd64")
-arm_runs = {a["run"] for a in artifacts("ardtt-server-arm64")}
-candidates = [a for a in amd if a["run"] in arm_runs]
-candidates.sort(key=lambda a: a["created"], reverse=True)
-if candidates:
-    print(candidates[0]["run"])
-PY
-)" || true
-fi
-
-if [ -z "${RUN_ID:-}" ]; then
-  echo "No non-expired ardtt-server-{amd64,arm64} artifacts; skip upload."
-  exit 0
-fi
-
-echo "Downloading server packages from Actions run $RUN_ID (want $VER)"
-gh run download "$RUN_ID" --repo "$REPO" \
-  -n ardtt-server-amd64 -n ardtt-server-arm64 \
-  -D "$WORKDIR"
-
-# Image layers stay from CI; host files come from this checkout so merge
-# attach is not the stale #176 tarball (no SETGID / no ready.sh overlay).
-shopt -s nullglob
-for pkg in "$WORKDIR"/ardtt-server-${VER}-linux-*.tar.gz \
-           "$WORKDIR"/*/ardtt-server-${VER}-linux-*.tar.gz; do
-  [ -f "$pkg" ] || continue
-  bash "$ROOT/scripts/repack-server-host-files.sh" "$pkg"
-done
-shopt -u nullglob
-
-python3 - "$WORKDIR" "$VER" "$DRY" "$TAG" "$REPO" <<'PY'
-import hashlib, os, pathlib, subprocess, sys
+python3 - "$FROM_DIR" "$VER" "$DRY" "$TAG" "$REPO" <<'PY'
+import hashlib, json, pathlib, subprocess, sys
 root = pathlib.Path(sys.argv[1])
 ver = sys.argv[2]
 dry = sys.argv[3] == "1"
 tag = sys.argv[4]
 repo = sys.argv[5]
-pkgs = sorted(root.rglob(f"ardtt-server-{ver}-linux-*.tar.gz"))
 want = {
     f"ardtt-server-{ver}-linux-amd64.tar.gz",
     f"ardtt-server-{ver}-linux-arm64.tar.gz",
 }
+pkgs = sorted(p for p in root.rglob(f"ardtt-server-{ver}-linux-*.tar.gz") if p.is_file())
 have = {p.name for p in pkgs}
-if not want <= have:
-    print(f"Artifacts do not contain {sorted(want)}; skip upload.")
-    for p in root.rglob("*"):
-        if p.is_file():
-            print(" ", p)
-    sys.exit(0)
+if have != want:
+    raise SystemExit(f"need both architectures for {ver}, have {sorted(have)}")
+
+def sha256(path: pathlib.Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
 upload = []
 lines = []
 for pkg in pkgs:
-    digest = hashlib.sha256(pkg.read_bytes()).hexdigest()
+    digest = sha256(pkg)
     sidecar = pathlib.Path(str(pkg) + ".sha256")
     if sidecar.is_file():
         expect = sidecar.read_text(encoding="utf-8").split()[0].strip().lower().removeprefix("sha256:")
@@ -141,13 +67,25 @@ for pkg in pkgs:
 sums = root / "SHA256SUMS-server.txt"
 sums.write_text("".join(lines), encoding="utf-8")
 upload.append(sums)
+
+raw = subprocess.check_output(
+    ["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
+    text=True,
+)
+assets = {a["name"] for a in json.loads(raw).get("assets") or []}
+overlap = [p.name for p in upload if p.name in assets]
+if overlap:
+    raise SystemExit(
+        "refusing to overwrite existing release assets: " + ", ".join(overlap)
+    )
+
 print("Attach to https://github.com/%s/releases/tag/%s" % (repo, tag))
 for path in upload:
-    print(" ", path)
+    print(" ", path, sha256(path) if path.suffix != ".txt" else "")
 if dry:
     print("dry-run: skip gh release upload")
     sys.exit(0)
-cmd = ["gh", "release", "upload", tag, *[str(p) for p in upload], "--repo", repo, "--clobber"]
+cmd = ["gh", "release", "upload", tag, *[str(p) for p in upload], "--repo", repo]
 subprocess.check_call(cmd)
 print(f"Attached {len(pkgs)} server packages to {tag}")
 PY

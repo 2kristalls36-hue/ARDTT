@@ -29,7 +29,9 @@
 | python3 | `git clone` исходников |
 | Compose v2 *или* `bin/docker-compose` из архива | Хостовый hostnet |
 
-Пакет **не** ставит Docker и **не** является установщиком чистой ОС. Если Engine нет или он не отвечает, preflight завершается до изменений. Недостающий Compose разрешено взять из того же архива в `/opt/ardtt/bin`.
+Пакет **не** ставит Docker и **не** является установщиком чистой ОС. Если Engine нет или он не отвечает, **read-only preflight** на телефоне завершается до загрузки архива и до изменений на VPS. Недостающий Compose разрешено взять из того же архива в `/opt/ardtt/bin`.
+
+Клиент перед GitHub/SFTP проверяет оба узла тем же SSH-маршрутом, что и установка: сначала выход (VPS2 через VPS1), затем вход. Коды: `DOCKER_MISSING`, `DOCKER_NOT_RUNNING`, `DOCKER_ACCESS_DENIED`, `UNSUPPORTED_RUNTIME`, `PYTHON_MISSING`, `SSH_FAILED`. Чужой podman/kubelet/containerd без Docker — не «чистый VPS». Кнопка «Подготовить VPS» не активна, пока CI не упакует закреплённые debs Engine; это отдельный незавершённый критерий. Существующий Docker клиент не обновляет и не перезапускает.
 
 Стек — **один контейнер** в своей netns и своей Docker bridge-сети. Hostnet из старой `.env` не восстанавливается. Привилегированный режим, host PID/IPC, `docker.sock` внутри контейнера и nsenter в хост не используются. Compose: `cap_drop: ALL`, затем `NET_ADMIN`, `NET_RAW`, `SETUID` и `SETGID` (иначе dnsmasq `setgid(dip)` падает с Operation not permitted). Подсеть bridge подбирается так, чтобы не пересечься с маршрутами хоста и сетями Docker: сначала `172.28.x.0/24` / `172.30.x.0/24`, а если хост анонсирует `172.16.0.0/12` (часто на облачных VPS) — `10.112.x.0/24` или `10.210.x.0/24`. Не задаётся одна жёсткая подсеть для всех машин.
 
@@ -288,7 +290,7 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
 
 1. `android/app/src/main/assets/deploy/DEPLOY_VERSION`
 2. `DeployBundle.FALLBACK_VERSION`
-3. CI (`.github/workflows/server-package.yml`) собирает `ardtt-server-<версия>-linux-*.tar.gz`. Push в `main` **сразу** прикрепляет уже собранные артефакты Actions к последнему GitHub Release (не ждёт 3-часовую пересборку). Тот же шаг делает `android-build.yml`, когда публикует APK-тег. Полная пересборка образа по-прежнему идёт на `main`/тег и заливает пакеты поверх (`--clobber`). Пока релиза нет — только Artifacts (30 дней). Старый `ardtt-stack-*.tar.gz` в релиз не кладётся.
+3. CI (`.github/workflows/server-package.yml`) собирает `ardtt-server-<версия>-linux-*.tar.gz`. Публикация в GitHub Release — **только с тега** `v*` после `contract` и `package`, без `--clobber` уже лежащих ассетов. Push в `main` и открытый PR **не** прикрепляют пакеты к релизу. PR загружает host-file артефакт Actions (без образа). Полная пересборка образа идёт на `main`/тег; ассеты тега не смешивают новый установщик со старым образом под тем же именем. Пока релиза нет — только Artifacts (30 дней). Старый `ardtt-stack-*.tar.gz` в релиз не кладётся.
 
 Бамп: образ, Compose, entrypoint'ы, `install.sh`. Только UI телефона — нет.
 
@@ -315,7 +317,7 @@ docker exec "$NAME" provision -cmd create-user -name smoke -data /data
 |---------|----------------|
 | «Не удалось скачать пакет … из GitHub» | Сеть телефона до github.com. Старый APK ждёт `ardtt-stack-*` — обновите приложение. Новый APK ищет архив на своём теге, иначе на другом релизе с тем же стеком |
 | Нет SHA-256 у актива | Релиз без `digest` / `SHA256SUMS` — установка откажется до изменений на VPS |
-| Docker Engine не найден | Поставьте Docker сами. Этот пакет его не ставит |
+| Docker Engine не найден | Поставьте Docker Engine из локальных пакетов на чистом Ubuntu 24.04/26.04. Архив ARDTT runtime пока не содержит. Не `get.docker.com` и не сетевой apt с телефона |
 | Мало места | Порог с запасом на load + слои + `previous/`. Глобальная очистка сервера не выполняется |
 | `ARDTT_ERROR` без `ARDTT_DONE` | Новый стек не прошёл readiness; смотрите `previous/` и `/opt/ardtt/install.log` |
 | Чужие контейнеры/VPN отвалились | Так быть не должно. Сообщите labels/имена; не включайте hostnet |
