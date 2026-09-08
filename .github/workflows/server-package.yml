@@ -121,7 +121,11 @@ jobs:
 
   publish-existing:
     name: Attach existing packages to GitHub Release
-    if: github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main')
+    # Main/tag: production path. This PR branch also attaches so the one-file
+    # archives reach GitHub Releases without waiting on merge (same-repo only).
+    if: |
+      (github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main'))
+      || (github.event_name == 'pull_request' && github.head_ref == 'cursor/server-bundle-ui-bad3' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
