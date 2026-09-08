@@ -61,13 +61,18 @@ data class ArdttNavItem(
     val badgeCount: Int = 0,
 )
 
+internal object ArdttNavChrome {
+    val LabelSize = 12.sp
+    val LabelLineHeight = 14.sp
+}
+
 private object NavBarDefaults {
     val Easing = CubicBezierEasing(0.2f, 0.9f, 0.24f, 1f)
     val OuterPadding = ArdttSpacing.SmallPlus
     val TrackPadding = ArdttSpacing.Small
     val IndicatorInset = ArdttSpacing.TinyPlus
-    val LabelSize = 12.sp
-    val LabelLineHeight = 14.sp
+    val LabelSize = ArdttNavChrome.LabelSize
+    val LabelLineHeight = ArdttNavChrome.LabelLineHeight
 
     const val BoldEmphasis = 0.55f
     const val OpaqueEmphasis = 0.4f

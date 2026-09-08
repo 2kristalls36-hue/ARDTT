@@ -95,6 +95,7 @@ class ConnectionControlsTest {
         assertTrue(tunnelProfileCenterOpensManage(1))
         assertTrue(tunnelProfileCenterOpensManage(3))
         assertFalse(tunnelProfileCenterOpensManage(0))
+        assertEquals("Отменить подключение", tunnelPowerContentDescription(ConnState.Connecting, connected = false))
     }
 
     @Test

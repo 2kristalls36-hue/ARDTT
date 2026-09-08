@@ -12,8 +12,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,9 +71,13 @@ internal fun ClientSettingsSheet(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            IconButton(onClick = onEditName, enabled = !busy) {
-                Icon(Icons.Filled.Edit, contentDescription = "Изменить имя")
-            }
+            ArdttButton(
+                onClick = onEditName,
+                enabled = !busy,
+                variant = ArdttButtonVariant.Icon,
+                icon = Icons.Filled.Edit,
+                contentDescription = "Изменить имя",
+            )
         }
 
         Box(
@@ -222,12 +224,13 @@ private fun BoundDeviceRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = onUnbind, enabled = enabled) {
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = "Отвязать",
-                tint = MaterialTheme.colorScheme.error,
-            )
-        }
+        ArdttButton(
+            onClick = onUnbind,
+            enabled = enabled,
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Filled.Close,
+            contentDescription = "Отвязать",
+            contentColor = MaterialTheme.colorScheme.error,
+        )
     }
 }

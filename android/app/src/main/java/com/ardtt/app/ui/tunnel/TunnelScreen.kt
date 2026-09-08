@@ -25,7 +25,6 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,6 +70,8 @@ import com.ardtt.app.ui.PathModeCopy
 import com.ardtt.app.ui.commitHideIp
 import com.ardtt.app.ui.commitPathMode
 import com.ardtt.app.ui.components.control.ArdttChoiceChip
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttSettingBlock
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
@@ -586,16 +587,13 @@ private fun TunnelConnectionHintBanner(
                 modifier = Modifier.weight(1f),
             )
             if (!missingCallHashHint) {
-                IconButton(
+                ArdttButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(ArdttSpacing.XXXLarge),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Закрыть информационное сообщение",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                    variant = ArdttButtonVariant.Icon,
+                    icon = Icons.Outlined.Close,
+                    contentDescription = "Закрыть информационное сообщение",
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         Text(

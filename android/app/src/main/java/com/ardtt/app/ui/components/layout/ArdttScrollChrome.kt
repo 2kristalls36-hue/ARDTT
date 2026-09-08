@@ -71,7 +71,7 @@ fun ArdttScrollChrome(
     val chromeHeight = status + headerHeight
     val topPadding = chromeHeight
     val graphicsLayer = rememberGraphicsLayer()
-    val useBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val useBlur = ardttScrollChromeUsesGpuBlur(Build.VERSION.SDK_INT)
     val dark = isDarkSurface()
     val scrim = MaterialTheme.colorScheme.background.copy(
         alpha = if (dark) ArdttChrome.ScrimAlphaDark else ArdttChrome.ScrimAlphaLight,
@@ -173,6 +173,9 @@ fun ArdttScrollChrome(
         }
     }
 }
+
+internal fun ardttScrollChromeUsesGpuBlur(sdkInt: Int): Boolean =
+    sdkInt >= Build.VERSION_CODES.S
 
 /** Eat hits that would otherwise reach rows drawn under the pinned chrome. */
 private fun Modifier.consumeHiddenContentPointers(): Modifier = pointerInput(Unit) {

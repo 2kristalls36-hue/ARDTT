@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -63,6 +62,8 @@ import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.admin.ClientExpiresTone
 import com.ardtt.app.ui.admin.clientExpiresTone
 import com.ardtt.app.ui.admin.formatClientExpires
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
@@ -570,21 +571,17 @@ private fun ProfileCard(
                 }
             }
             Box {
-                IconButton(
+                ArdttButton(
                     onClick = { menu = true },
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Действия",
-                        tint = if (selectionLocked) {
-                            colors.onSurface.copy(alpha = 0.45f)
-                        } else {
-                            colors.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(ArdttSize.IconCompact),
-                    )
-                }
+                    variant = ArdttButtonVariant.Icon,
+                    icon = Icons.Filled.MoreVert,
+                    contentDescription = "Действия",
+                    contentColor = if (selectionLocked) {
+                        colors.onSurface.copy(alpha = 0.45f)
+                    } else {
+                        colors.onSurfaceVariant
+                    },
+                )
                 ArdttOverflowMenu(
                     expanded = menu,
                     onDismissRequest = { menu = false },

@@ -9,11 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,6 +22,8 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -34,7 +33,7 @@ import com.ardtt.app.ui.theme.illustratedBackdropActive
 
 /** Single anchor for every bottom-tab title row in a scrolling feed. */
 object ArdttHeaderDefaults {
-    val TitleRowHeight: Dp = ArdttSize.TitleRow
+    val TitleRowHeight: Dp = ArdttSize.TouchTarget
     val TopPaddingAfterStatusBar: Dp = ArdttSpacing.Small
     val HorizontalPadding: Dp = ArdttSpacing.Large
     val BottomPaddingBelowTitle: Dp = ArdttSpacing.Medium
@@ -149,16 +148,13 @@ private fun PageHeaderChrome(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
-                IconButton(
+                ArdttButton(
                     onClick = onBack,
-                    modifier = Modifier.size(ArdttHeaderDefaults.TitleRowHeight),
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Назад",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                    variant = ArdttButtonVariant.Icon,
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад",
+                    contentColor = MaterialTheme.colorScheme.primary,
+                )
             }
             Text(
                 title,

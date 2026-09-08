@@ -44,7 +44,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
@@ -76,6 +75,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -903,7 +904,15 @@ private fun BypassSearchBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(ArdttBottomChrome.ButtonHeight),
+            .height(ArdttBottomChrome.ButtonHeight)
+            .semantics { contentDescription = "Поиск" }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {
+                focusRequester.requestFocus()
+                keyboard?.show()
+            },
         shape = ArdttShapes.Control,
         color = fill,
         border = ArdttFloatingShell.shellBorder(),
@@ -918,16 +927,8 @@ private fun BypassSearchBar(
         ) {
             Icon(
                 Icons.Outlined.Search,
-                contentDescription = "Поиск",
-                modifier = Modifier
-                    .size(ArdttSize.Icon)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        focusRequester.requestFocus()
-                        keyboard?.show()
-                    },
+                contentDescription = null,
+                modifier = Modifier.size(ArdttSize.Icon),
                 tint = colors.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.width(ArdttSpacing.Medium))
@@ -970,17 +971,13 @@ private fun BypassSearchBar(
                 },
             )
             if (value.isNotEmpty()) {
-                IconButton(
+                ArdttButton(
                     onClick = { onValueChange("") },
-                    modifier = Modifier.size(ArdttSize.PullIndicator),
-                ) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "Очистить",
-                        modifier = Modifier.size(ArdttSize.IconCompact),
-                        tint = colors.onSurfaceVariant,
-                    )
-                }
+                    variant = ArdttButtonVariant.Icon,
+                    icon = Icons.Filled.Close,
+                    contentDescription = "Очистить",
+                    contentColor = colors.onSurfaceVariant,
+                )
             }
         }
     }
@@ -1008,18 +1005,14 @@ private fun BypassRuleRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        IconButton(
+        ArdttButton(
             onClick = onRemove,
             enabled = enabled,
-            modifier = Modifier.size(ArdttSize.PullIndicator),
-        ) {
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = "Удалить",
-                modifier = Modifier.size(ArdttSize.IconSmall),
-                tint = colors.onSurfaceVariant.copy(alpha = ArdttAlpha.Muted),
-            )
-        }
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Filled.Close,
+            contentDescription = "Удалить",
+            contentColor = colors.onSurfaceVariant.copy(alpha = ArdttAlpha.Muted),
+        )
     }
 }
 

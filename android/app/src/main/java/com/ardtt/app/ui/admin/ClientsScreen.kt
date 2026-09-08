@@ -22,8 +22,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -769,18 +767,14 @@ private fun ClientCard(
                     )
                 }
                 Box {
-                    IconButton(
+                    ArdttButton(
                         onClick = { menuExpanded = true },
                         enabled = !busy,
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "Действия",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(ArdttSize.IconCompact),
-                        )
-                    }
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Filled.MoreVert,
+                        contentDescription = "Действия",
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     ArdttOverflowMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
