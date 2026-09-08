@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,7 +112,15 @@ fun ArdttErrorState(
         modifier = modifier,
         description = listOfNotNull(description, hint).joinToString("\n\n").ifBlank { null },
         action = onRetry?.let {
-            { OutlinedButton(onClick = it) { Text(retryText) } }
+            {
+                ArdttButton(
+                    text = retryText,
+                    onClick = it,
+                    variant = ArdttButtonVariant.Outlined,
+                    size = ArdttButtonSize.Compact,
+                    fillMaxWidth = false,
+                )
+            }
         },
     )
 }

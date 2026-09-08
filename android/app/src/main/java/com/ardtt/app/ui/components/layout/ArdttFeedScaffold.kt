@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -14,6 +15,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -24,7 +29,7 @@ import androidx.compose.ui.zIndex
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSpacing
 
-/** Scrollable spacer for the status bar. Title top pad lives in [ArdttTabHeader]. */
+/** Status-bar spacer for screens that do not use [ArdttScrollChrome]. */
 @Composable
 fun ArdttStatusBarInset(extra: Dp = ArdttSpacing.None) {
     Spacer(
@@ -37,11 +42,9 @@ fun ArdttStatusBarInset(extra: Dp = ArdttSpacing.None) {
 /**
  * The one scroll container of the app.
  *
- * Content runs edge-to-edge under the status bar and under the floating tab
- * pill. Passing [stickyContent] pins a full-width action above the pill and
- * reserves feed space for it; leaving it null gives the plain settings/logs
- * feed. Both variants share the header anchor and the pull-to-refresh host, so
- * titles land on the same baseline and the spinner at the same Y on every tab.
+ * The title is pinned in [ArdttScrollChrome]; feed content scrolls underneath
+ * and fades into the blur strip. Passing [stickyContent] pins a full-width
+ * action above the pill.
  */
 @Composable
 fun ArdttFeedScaffold(
@@ -54,7 +57,7 @@ fun ArdttFeedScaffold(
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
     stickyContent: (@Composable BoxScope.() -> Unit)? = null,
-    header: @Composable ColumnScope.() -> Unit = {},
+    header: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val bottomPadding = scrollBottomPadding
@@ -64,50 +67,111 @@ fun ArdttFeedScaffold(
             ArdttBottomChrome.navigationReserve() + bottomExtra
         }
 
-    val feed: @Composable (Modifier) -> Unit = { feedModifier ->
-        Column(
-            modifier = feedModifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = horizontalPadding)
-                .padding(bottom = bottomPadding),
-            verticalArrangement = verticalArrangement,
-        ) {
-            ArdttHeaderAnchor { header() }
-            content()
-        }
-    }
-
-    val refreshable: @Composable (Modifier) -> Unit = { hostModifier ->
-        if (onRefresh != null) {
-            ArdttPullRefresh(
-                refreshing = refreshing,
-                onRefresh = onRefresh,
-                modifier = hostModifier.fillMaxSize(),
+    ArdttScrollChrome(
+        modifier = modifier,
+        header = header,
+    ) { topPad ->
+        val feed: @Composable (Modifier) -> Unit = { feedModifier ->
+            Column(
+                modifier = feedModifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = horizontalPadding)
+                    .padding(top = topPad, bottom = bottomPadding),
+                verticalArrangement = verticalArrangement,
             ) {
-                feed(Modifier)
+                content()
             }
+        }
+        val host: @Composable (Modifier) -> Unit = { hostModifier ->
+            if (onRefresh != null) {
+                ArdttPullRefresh(
+                    refreshing = refreshing,
+                    onRefresh = onRefresh,
+                    modifier = hostModifier.fillMaxSize(),
+                ) {
+                    feed(Modifier)
+                }
+            } else {
+                feed(hostModifier)
+            }
+        }
+        if (stickyContent == null) {
+            host(Modifier)
         } else {
-            feed(hostModifier)
+            Box(modifier = Modifier.fillMaxSize()) {
+                host(Modifier)
+                ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = stickyContent)
+            }
         }
     }
+}
 
-    if (stickyContent == null) {
-        refreshable(modifier)
-    } else {
-        Box(modifier = modifier.fillMaxSize()) {
-            refreshable(Modifier)
-            ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = stickyContent)
+/** Lazy feed with the same pinned chrome and sticky CTA as [ArdttFeedScaffold]. */
+@Composable
+fun ArdttLazyFeedScaffold(
+    modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
+    horizontalPadding: Dp = ArdttLayout.ScreenPadding,
+    bottomExtra: Dp = ArdttLayout.FeedBottomExtra,
+    scrollBottomPadding: Dp? = null,
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
+    stickyContent: (@Composable BoxScope.() -> Unit)? = null,
+    header: @Composable () -> Unit = {},
+    content: LazyListScope.() -> Unit,
+) {
+    val bottomPadding = scrollBottomPadding
+        ?: if (stickyContent != null) {
+            ArdttBottomChrome.scrollContentPadding()
+        } else {
+            ArdttBottomChrome.navigationReserve() + bottomExtra
+        }
+
+    ArdttScrollChrome(
+        modifier = modifier,
+        header = header,
+    ) { topPad ->
+        val feed: @Composable (Modifier) -> Unit = { feedModifier ->
+            LazyColumn(
+                state = listState,
+                modifier = feedModifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = horizontalPadding,
+                    end = horizontalPadding,
+                    top = topPad,
+                    bottom = bottomPadding,
+                ),
+                verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
+                content = content,
+            )
+        }
+        val host: @Composable (Modifier) -> Unit = { hostModifier ->
+            if (onRefresh != null) {
+                ArdttPullRefresh(
+                    refreshing = refreshing,
+                    onRefresh = onRefresh,
+                    modifier = hostModifier.fillMaxSize(),
+                ) {
+                    feed(Modifier)
+                }
+            } else {
+                feed(hostModifier)
+            }
+        }
+        if (stickyContent == null) {
+            host(Modifier)
+        } else {
+            Box(modifier = Modifier.fillMaxSize()) {
+                host(Modifier)
+                ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = stickyContent)
+            }
         }
     }
 }
 
 /**
  * Pins [content] above the floating tab pill.
- *
- * Screens that scroll with a `LazyColumn` cannot use [ArdttFeedScaffold], but
- * their CTA must line up with the ones that can — this is the shared placement
- * those screens used to spell out modifier by modifier.
  */
 @Composable
 fun BoxScope.ArdttStickyBottomBar(

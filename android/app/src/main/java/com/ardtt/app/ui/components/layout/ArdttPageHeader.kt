@@ -59,9 +59,9 @@ fun ArdttHeaderAnchor(content: @Composable ColumnScope.() -> Unit) {
 }
 
 /**
- * Anchored tab title row. [ArdttFeedScaffold] already applies the status-bar
- * inset, so pass this composable in its `header` slot; use [ArdttFeedHeader]
- * only for hand-rolled scroll containers.
+ * Anchored tab title row. [ArdttScrollChrome] already consumes status-bar
+ * and cutout insets, so pass this composable in the scaffold `header` slot.
+ * Use [ArdttFeedHeader] only for scroll containers that do not use chrome.
  */
 @Composable
 fun ArdttTabHeader(

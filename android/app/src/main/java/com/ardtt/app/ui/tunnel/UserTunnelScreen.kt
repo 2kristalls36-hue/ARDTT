@@ -82,10 +82,13 @@ import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.themeModeVisualKey
+import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.tunnelPowerBusy
 import com.ardtt.app.ui.tunnelPowerClickDisconnects
+import com.ardtt.app.ui.tunnelPowerContentDescription
 import com.ardtt.app.ui.tunnelPowerSessionLit
 import com.ardtt.app.ui.tunnelPowerToggleEnabled
+import com.ardtt.app.ui.tunnelProfileCenterOpensImport
 import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -168,6 +171,14 @@ fun UserTunnelScreen(
                 conn.updateProfile(target.profile)
             }
         },
+        onOpenProfiles = {
+            haptics.tick()
+            if (catalog.items.isEmpty()) {
+                PendingUiAction.requestOpenProfileAdd()
+            } else {
+                PendingUiAction.requestOpenProfiles()
+            }
+        },
         showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state),
         onDismissDonate = { scope.launch { settings.setDonateBannerDismissed(true) } },
     )
@@ -185,6 +196,7 @@ private fun UserTunnelSimpleScreen(
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
+    onOpenProfiles: () -> Unit,
     showDonateBanner: Boolean,
     onDismissDonate: () -> Unit,
 ) {
@@ -281,6 +293,7 @@ private fun UserTunnelSimpleScreen(
                 busy = tunnelPowerBusy(ui.state),
                 sessionLit = tunnelPowerSessionLit(ui.state),
                 enabled = tunnelPowerToggleEnabled(ui.state, ui.connectEnabled),
+                contentDescription = tunnelPowerContentDescription(ui.state, connected),
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
@@ -305,6 +318,7 @@ private fun UserTunnelSimpleScreen(
                 switchEnabled = catalogItems.size > 1 && !vpnSessionBlocksProfileSwitch(ui.state),
                 onPrev = onSelectPreviousProfile,
                 onNext = onSelectNextProfile,
+                onOpenProfiles = onOpenProfiles,
             )
         }
     }
@@ -379,6 +393,7 @@ private fun TunnelPowerToggle(
     busy: Boolean,
     sessionLit: Boolean,
     enabled: Boolean,
+    contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -418,7 +433,7 @@ private fun TunnelPowerToggle(
         Surface(
             modifier = Modifier
                 .size(180.dp)
-                .clickable(enabled = enabled && !busy) {
+                .clickable(enabled = enabled) {
                     runCatching { onClick() }
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
                 },
@@ -449,7 +464,7 @@ private fun TunnelPowerToggle(
                 } else {
                     Icon(
                         imageVector = Icons.Default.PowerSettingsNew,
-                        contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
+                        contentDescription = contentDescription,
                         tint = accentColor,
                         modifier = Modifier.size(72.dp),
                     )
@@ -466,6 +481,7 @@ private fun ProfileSwitcherBar(
     switchEnabled: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
+    onOpenProfiles: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -511,8 +527,8 @@ private fun ProfileSwitcherBar(
             }
         }
         Button(
-            onClick = { if (switchEnabled) onNext() },
-            enabled = activeItem != null && (!canSwitch || switchEnabled),
+            onClick = onOpenProfiles,
+            enabled = true,
             shape = ArdttShapes.Control,
             modifier = Modifier
                 .weight(1f)

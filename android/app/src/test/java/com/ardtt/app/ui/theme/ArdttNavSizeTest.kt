@@ -6,8 +6,8 @@ import org.junit.Test
 class ArdttNavSizeTest {
     @Test
     fun navZoneIsTrackPlusOuterVerticalPadding() {
-        assertEquals(48, ArdttSize.NavTrack.value.toInt())
-        assertEquals(64, ArdttSize.NavZone.value.toInt())
+        assertEquals(56, ArdttSize.NavTrack.value.toInt())
+        assertEquals(72, ArdttSize.NavZone.value.toInt())
         assertEquals(
             ArdttSize.NavTrack + ArdttSpacing.Small * 2,
             ArdttSize.NavZone,

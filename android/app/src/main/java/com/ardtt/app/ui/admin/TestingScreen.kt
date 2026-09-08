@@ -73,9 +73,10 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
-import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
@@ -333,6 +334,14 @@ fun TestingScreen(profiles: ProfileRepository) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        ArdttScrollChrome(
+            header = {
+                ArdttTabHeader(
+                    title = "Режим тестирования",
+                    subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
+                )
+            },
+        ) { topPad ->
         ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
@@ -342,16 +351,11 @@ fun TestingScreen(profiles: ProfileRepository) {
             contentPadding = PaddingValues(
                 start = ArdttLayout.ScreenPadding,
                 end = ArdttLayout.ScreenPadding,
+                top = topPad,
                 bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small),
             ),
             verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
         ) {
-            item(key = "header") {
-                ArdttFeedHeader(
-                    title = "Режим тестирования",
-                    subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
-                )
-            }
 
             item(key = "pane") {
                 ArdttChoiceChipRow(
@@ -473,6 +477,7 @@ fun TestingScreen(profiles: ProfileRepository) {
                 }
             },
         )
+    }
     }
 }
 

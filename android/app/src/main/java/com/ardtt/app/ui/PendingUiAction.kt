@@ -69,6 +69,9 @@ object PendingUiAction {
         return true
     }
 
+    private val _openProfileAdd = MutableStateFlow(false)
+    val openProfileAdd: StateFlow<Boolean> = _openProfileAdd.asStateFlow()
+
     fun requestOpenProfiles() {
         _openProfiles.value = true
     }
@@ -76,6 +79,17 @@ object PendingUiAction {
     fun consumeOpenProfiles(): Boolean {
         if (!_openProfiles.value) return false
         _openProfiles.value = false
+        return true
+    }
+
+    fun requestOpenProfileAdd() {
+        _openProfileAdd.value = true
+        _openProfiles.value = true
+    }
+
+    fun consumeOpenProfileAdd(): Boolean {
+        if (!_openProfileAdd.value) return false
+        _openProfileAdd.value = false
         return true
     }
 
