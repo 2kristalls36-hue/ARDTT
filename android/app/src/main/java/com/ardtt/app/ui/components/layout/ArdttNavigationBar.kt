@@ -3,7 +3,6 @@ package com.ardtt.app.ui.components.layout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,16 +35,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
-import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttShapes
@@ -59,40 +61,23 @@ data class ArdttNavItem(
     val badgeCount: Int = 0,
 )
 
+internal object ArdttNavChrome {
+    val LabelSize = 12.sp
+    val LabelLineHeight = 14.sp
+}
+
 private object NavBarDefaults {
     val Easing = CubicBezierEasing(0.2f, 0.9f, 0.24f, 1f)
     val OuterPadding = ArdttSpacing.SmallPlus
     val TrackPadding = ArdttSpacing.Small
     val IndicatorInset = ArdttSpacing.TinyPlus
-    val LabelSize = 10.sp
-    val LabelMinSize = 7.5.sp
-    val LabelLineHeight = 11.sp
-    const val LabelSizeStep = 0.5f
+    val LabelSize = ArdttNavChrome.LabelSize
+    val LabelLineHeight = ArdttNavChrome.LabelLineHeight
 
-    /** Emphasis above which a tab label turns semibold / fully opaque. */
     const val BoldEmphasis = 0.55f
     const val OpaqueEmphasis = 0.4f
-    const val FadedLabelAlpha = 0.5f
+    const val FadedLabelAlpha = 0.92f
     const val MaxBadgeCount = 99
-}
-
-/**
- * Shrink a tab caption until it fits [maxWidthPx]. Eight admin tabs share a
- * phone-width pill; 10 sp clips «Туннель» / «Сервера» / «Профили».
- */
-internal fun fitNavLabelSp(
-    maxWidthPx: Int,
-    maxSp: Float = NavBarDefaults.LabelSize.value,
-    minSp: Float = NavBarDefaults.LabelMinSize.value,
-    stepSp: Float = NavBarDefaults.LabelSizeStep,
-    widthAt: (Float) -> Int,
-): Float {
-    if (maxWidthPx <= 0) return minSp
-    var size = maxSp
-    while (size > minSp && widthAt(size) > maxWidthPx) {
-        size = ((size - stepSp) * 10f).toInt() / 10f
-    }
-    return size.coerceAtLeast(minSp)
 }
 
 /** Floating pill bottom bar with a sliding selection indicator. */
@@ -107,7 +92,7 @@ fun ArdttNavigationBar(
 ) {
     val colors = MaterialTheme.colorScheme
     val selectedColor = colors.primary
-    val unselectedColor = colors.onSurfaceVariant.copy(alpha = ArdttAlpha.Subtle)
+    val unselectedColor = colors.onSurfaceVariant
     val indicatorColor = selectedControlContainer()
 
     val indicatorIndex = remember { Animatable(0f) }
@@ -172,6 +157,7 @@ fun ArdttNavigationBar(
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
+                        .selectableGroup()
                         .padding(
                             horizontal = NavBarDefaults.TrackPadding,
                             vertical = ArdttSpacing.Tiny,
@@ -181,6 +167,7 @@ fun ArdttNavigationBar(
                         val emphasis = (1f - abs(index - dragVisualIndex)).coerceIn(0f, 1f)
                         NavBarTab(
                             item = item,
+                            selected = item.route == selectedRoute,
                             emphasis = emphasis,
                             iconColor = lerp(unselectedColor, selectedColor, emphasis),
                             onSelect = { onSelect(item.route) },
@@ -196,6 +183,7 @@ fun ArdttNavigationBar(
 @Composable
 private fun NavBarTab(
     item: ArdttNavItem,
+    selected: Boolean,
     emphasis: Float,
     iconColor: Color,
     onSelect: () -> Unit,
@@ -204,14 +192,19 @@ private fun NavBarTab(
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .clickable(onClick = onSelect),
+            .selectable(
+                selected = selected,
+                onClick = onSelect,
+                role = Role.Tab,
+            )
+            .semantics { this.selected = selected },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(contentAlignment = Alignment.TopEnd) {
             Icon(
                 imageVector = item.icon,
-                contentDescription = item.label,
+                contentDescription = null,
                 modifier = Modifier.size(ArdttSize.Icon),
                 tint = iconColor,
             )
@@ -227,9 +220,24 @@ private fun NavBarTab(
             }
         }
         Spacer(modifier = Modifier.height(ArdttSpacing.Hairline))
-        NavBarLabel(
+        Text(
             text = item.label,
-            emphasis = emphasis,
+            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = NavBarDefaults.LabelSize,
+                lineHeight = NavBarDefaults.LabelLineHeight,
+                letterSpacing = 0.sp,
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                lineHeightStyle = LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.Both,
+                ),
+            ),
+            fontWeight = if (emphasis > NavBarDefaults.BoldEmphasis) {
+                FontWeight.SemiBold
+            } else {
+                FontWeight.Normal
+            },
             color = iconColor.copy(
                 alpha = if (emphasis > NavBarDefaults.OpaqueEmphasis) {
                     1f
@@ -237,53 +245,9 @@ private fun NavBarTab(
                     NavBarDefaults.FadedLabelAlpha
                 },
             ),
-        )
-    }
-}
-
-@Composable
-private fun NavBarLabel(
-    text: String,
-    emphasis: Float,
-    color: Color,
-) {
-    val measurer = rememberTextMeasurer()
-    val weight = if (emphasis > NavBarDefaults.BoldEmphasis) {
-        FontWeight.SemiBold
-    } else {
-        FontWeight.Normal
-    }
-    val baseStyle = MaterialTheme.typography.labelSmall.copy(
-        letterSpacing = 0.sp,
-        lineHeight = NavBarDefaults.LabelLineHeight,
-        platformStyle = PlatformTextStyle(includeFontPadding = false),
-        lineHeightStyle = LineHeightStyle(
-            alignment = LineHeightStyle.Alignment.Center,
-            trim = LineHeightStyle.Trim.Both,
-        ),
-    )
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val maxWidthPx = constraints.maxWidth
-        val fontSize = fitNavLabelSp(maxWidthPx) { sizeSp ->
-            measurer.measure(
-                text = text,
-                style = baseStyle.copy(
-                    fontSize = sizeSp.sp,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                maxLines = 1,
-                softWrap = false,
-            ).size.width
-        }
-        Text(
-            text = text,
-            modifier = Modifier.fillMaxWidth(),
-            style = baseStyle.copy(fontSize = fontSize.sp),
-            fontWeight = weight,
-            color = color,
             textAlign = TextAlign.Center,
             maxLines = 1,
-            overflow = TextOverflow.Clip,
+            overflow = TextOverflow.Ellipsis,
             softWrap = false,
         )
     }

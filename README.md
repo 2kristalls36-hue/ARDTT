@@ -29,7 +29,7 @@
 > Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несёт ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.256** (`versionCode` 274), пакет `com.ardtt.app`. Серверный стек **1.0.45** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — актив Releases, не `assets/` APK. Старые APK (ждут `ardtt-stack-*.tar.gz` / `main`) этот пакет не ставят.
+> Клиент **0.5.257** (`versionCode` 275), пакет `com.ardtt.app`. Серверный стек **1.0.45** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — актив Releases, не `assets/` APK. Старые APK (ждут `ardtt-stack-*.tar.gz` / `main`) этот пакет не ставят.
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -39,7 +39,7 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.256** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
+| Клиент | **0.5.257** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
 | Стек | **1.0.45** · `/opt/ardtt` · один контейнер, isolated netns, labels `com.ardtt.owner` · переменные `ARDTT_*` |
 | Откуда стек | GitHub Releases `ardtt-server-1.0.45-linux-<amd64\|arm64>.tar.gz` (docker save) — **не** APK, **не** исходники |
 | Compose | production без `build:`; provision/direct/bypass/dns/warp/cascade/telemetry; host-порты на 51820/56003/9100/9200 внутри |
@@ -128,7 +128,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.256 / стек 1.0.45 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.257 / стек 1.0.45 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Пакет `ardtt-server-*-linux-<arch>.tar.gz`: приложение или архив; Docker уже на VPS |

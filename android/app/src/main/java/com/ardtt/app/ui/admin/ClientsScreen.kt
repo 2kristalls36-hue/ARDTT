@@ -1,7 +1,6 @@
 package com.ardtt.app.ui.admin
 
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -22,12 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -55,6 +50,9 @@ import com.ardtt.app.deploy.deviceDisplayLabels
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.VpnProfileJson
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
@@ -65,9 +63,10 @@ import com.ardtt.app.ui.components.feedback.ArdttLoadingState
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.feedback.ArdttStatusDot
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
-import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
@@ -255,22 +254,28 @@ private fun ClientsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        ArdttScrollChrome(
+            header = {
+                ArdttTabHeader(
+                    title = "Клиенты",
+                    subtitle = when {
+                        loading -> "Загрузка…"
+                        error != null -> server.host
+                        else -> "${users.size} · ${server.name.ifBlank { server.host }}"
+                    },
+                    onBack = onBack,
+                )
+            },
+        ) { topPad ->
         ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = { if (!loading) pull.onRefresh() },
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
-                    ArdttFeedHeader(
-                        title = "Клиенты",
-                        subtitle = when {
-                            loading -> "Загрузка…"
-                            error != null -> server.host
-                            else -> "${users.size} · ${server.name.ifBlank { server.host }}"
-                        },
-                        onBack = onBack,
-                    )
-                }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topPad),
+            ) {
 
                 when {
                     loading -> ArdttLoadingState()
@@ -352,6 +357,7 @@ private fun ClientsScreen(
                 }
             }
             }
+        }
         }
 
         ArdttStickyBottomBar {
@@ -761,18 +767,14 @@ private fun ClientCard(
                     )
                 }
                 Box {
-                    IconButton(
+                    ArdttButton(
                         onClick = { menuExpanded = true },
                         enabled = !busy,
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "Действия",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(ArdttSize.IconCompact),
-                        )
-                    }
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Filled.MoreVert,
+                        contentDescription = "Действия",
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     ArdttOverflowMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
@@ -917,27 +919,14 @@ private fun ClientActionButton(
     accent: Color? = null,
     onClick: () -> Unit,
 ) {
-    val stroke = clientActionButtonStroke(
-        accent = accent,
-        outline = MaterialTheme.colorScheme.outline,
-        busy = busy,
-    )
-    OutlinedButton(
+    ArdttButton(
+        text = label,
         onClick = onClick,
+        modifier = modifier,
+        variant = ArdttButtonVariant.Outlined,
+        size = ArdttButtonSize.Compact,
         enabled = !busy,
-        modifier = modifier.height(36.dp),
-        shape = ArdttShapes.Icon,
-        contentPadding = PaddingValues(horizontal = ArdttSpacing.Small),
-        colors = if (accent != null) {
-            ButtonDefaults.outlinedButtonColors(
-                contentColor = accent,
-                disabledContentColor = accent.copy(alpha = ArdttAlpha.Disabled),
-            )
-        } else {
-            ButtonDefaults.outlinedButtonColors()
-        },
-        border = BorderStroke(ArdttSize.Border, stroke),
-    ) {
-        Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1)
-    }
+        fillMaxWidth = true,
+        contentColor = accent,
+    )
 }

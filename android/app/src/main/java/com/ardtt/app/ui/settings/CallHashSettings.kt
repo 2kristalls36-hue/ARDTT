@@ -8,14 +8,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.bypass.VkCallHashGenerator
 import com.ardtt.app.bypass.VkLoginActivity
@@ -41,6 +35,9 @@ import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.profile.ProfileRepository
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
@@ -71,7 +68,6 @@ fun CallHashSettingsContent(
         ui.state == ConnState.PausedTrustedWifi ||
         ui.state == ConnState.Disconnecting
     val canEdit = profile != null && !vpnActive && !busy
-    val colors = MaterialTheme.colorScheme
     LaunchedEffect(vkLoggedIn) {
         vkDisplayName = if (vkLoggedIn) VkSession.resolveDisplayName() else null
     }
@@ -98,7 +94,8 @@ fun CallHashSettingsContent(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
         ) {
-            OutlinedButton(
+            ArdttButton(
+                text = "Создать код",
                 onClick = {
                     scope.launch {
                         busy = true
@@ -115,22 +112,23 @@ fun CallHashSettingsContent(
                     }
                 },
                 enabled = canEdit && vkLoggedIn,
+                variant = ArdttButtonVariant.Outlined,
+                size = ArdttButtonSize.Compact,
+                fillMaxWidth = false,
                 modifier = Modifier.weight(1f),
-                shape = ArdttShapes.Chip,
-            ) {
-                Text("Создать код")
-            }
-            OutlinedButton(
+            )
+            ArdttButton(
+                text = "Ввести вручную",
                 onClick = {
                     manualDraft = conn.callHashOrNull().orEmpty()
                     showManual = true
                 },
                 enabled = canEdit,
+                variant = ArdttButtonVariant.Outlined,
+                size = ArdttButtonSize.Compact,
+                fillMaxWidth = false,
                 modifier = Modifier.weight(1f),
-                shape = ArdttShapes.Chip,
-            ) {
-                Text("Ввести вручную")
-            }
+            )
         }
         val sessionAction = vkSessionAction(
             loggedIn = vkLoggedIn,
@@ -138,15 +136,16 @@ fun CallHashSettingsContent(
             busy = busy,
             hasProfile = profile != null,
         )
-        Button(
+        ArdttButton(
+            text = sessionAction.label,
             onClick = {
-                if (!sessionAction.enabled) return@Button
+                if (!sessionAction.enabled) return@ArdttButton
                 if (sessionAction.destructive) {
                     VkSession.clear()
                     vkLoggedIn = false
                     vkDisplayName = null
                     message = "Сессия ВКонтакте завершена."
-                    return@Button
+                    return@ArdttButton
                 }
                 scope.launch {
                     busy = true
@@ -166,23 +165,13 @@ fun CallHashSettingsContent(
                 }
             },
             enabled = sessionAction.enabled,
-            modifier = Modifier.fillMaxWidth(),
-            shape = ArdttShapes.Chip,
-            colors = if (sessionAction.destructive) {
-                ButtonDefaults.buttonColors(
-                    containerColor = colors.error,
-                    contentColor = colors.onError,
-                )
+            busy = busy,
+            variant = if (sessionAction.destructive) {
+                ArdttButtonVariant.Danger
             } else {
-                ButtonDefaults.buttonColors()
+                ArdttButtonVariant.Primary
             },
-        ) {
-            Text(
-                sessionAction.label,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-        }
+        )
         Text(
             when {
                 vpnActive -> "Недоступно во время соединения."
@@ -263,15 +252,13 @@ private fun CallHashDialog(
                 shape = ArdttShapes.Field,
                 singleLine = true,
             )
-            OutlinedButton(
+            ArdttButton(
+                text = "Копировать",
                 onClick = onCopy,
-                modifier = Modifier.fillMaxWidth(),
-                shape = ArdttShapes.Chip,
                 enabled = value.isNotBlank(),
-            ) {
-                Icon(Icons.Default.ContentCopy, contentDescription = null)
-                Text("Копировать", modifier = Modifier.padding(start = ArdttSpacing.Small))
-            }
+                variant = ArdttButtonVariant.Outlined,
+                icon = Icons.Default.ContentCopy,
+            )
         }
     }
 }

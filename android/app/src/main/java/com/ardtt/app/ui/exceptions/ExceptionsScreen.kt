@@ -40,12 +40,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
@@ -54,7 +52,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -78,6 +75,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -92,11 +91,15 @@ import com.ardtt.app.core.ExceptionAppVisibility
 import com.ardtt.app.core.HostExclusion
 import com.ardtt.app.core.appIconDecodeSize
 import com.ardtt.app.settings.AppSettingsRepository
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
-import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttScrollChrome
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
@@ -342,6 +345,14 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        ArdttScrollChrome(
+            header = {
+                ArdttTabHeader(
+                    title = "Исключения",
+                    subtitle = "Приложения и сайты вне туннеля",
+                )
+            },
+        ) { topPad ->
         ArdttPullRefresh(
             refreshing = pull.refreshing,
             onRefresh = pull.onRefresh,
@@ -349,12 +360,9 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = ArdttSpacing.Large),
+                    .padding(horizontal = ArdttSpacing.Large)
+                    .padding(top = topPad),
             ) {
-                ArdttFeedHeader(
-                    title = "Исключения",
-                    subtitle = "Приложения и сайты вне туннеля",
-                )
 
                 if (busy) {
                     LinearProgressIndicator(
@@ -518,13 +526,36 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         if (isLoading) {
                             AppsLoadingAnimation(modifier = Modifier.fillMaxSize())
                         } else if (filteredApps.isEmpty()) {
+                            val kind = ExceptionsCatalog.emptyKind(
+                                total = appsList.size,
+                                visible = 0,
+                                query = searchQuery,
+                            )
                             ArdttEmptyState(
-                                title = if (searchQuery.isBlank()) {
-                                    "Нет приложений"
-                                } else {
+                                title = if (kind == ExceptionsEmptyKind.NoMatches) {
                                     "Нет совпадений"
+                                } else {
+                                    "Нет приложений"
+                                },
+                                description = if (ExceptionsCatalog.offersClearSearch(kind)) {
+                                    "Сбросьте поиск, чтобы снова увидеть список."
+                                } else {
+                                    null
                                 },
                                 modifier = Modifier.fillMaxSize(),
+                                action = if (ExceptionsCatalog.offersClearSearch(kind)) {
+                                    {
+                                        ArdttButton(
+                                            text = "Очистить поиск",
+                                            onClick = { searchQuery = "" },
+                                            variant = ArdttButtonVariant.Outlined,
+                                            size = ArdttButtonSize.Compact,
+                                            fillMaxWidth = false,
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
                             )
                         } else {
                             LazyColumn(
@@ -594,17 +625,15 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                                 modifier = Modifier.weight(1f),
                             )
                             if (orderedSites.isNotEmpty()) {
-                                TextButton(
+                                ArdttButton(
+                                    text = "Очистить",
                                     onClick = { showClearConfirm = true },
                                     enabled = !busy,
-                                    contentPadding = PaddingValues(horizontal = ArdttSpacing.SmallPlus, vertical = ArdttSpacing.Tiny),
-                                ) {
-                                    Text(
-                                        "Очистить",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = colors.error,
-                                    )
-                                }
+                                    variant = ArdttButtonVariant.Text,
+                                    size = ArdttButtonSize.Compact,
+                                    fillMaxWidth = false,
+                                    contentColor = colors.error,
+                                )
                             }
                         }
                         hint?.let {
@@ -630,7 +659,17 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         } else if (visibleSites.isEmpty()) {
                             ArdttEmptyState(
                                 title = "Нет совпадений",
+                                description = "Сбросьте поиск, чтобы снова увидеть правила.",
                                 modifier = Modifier.fillMaxSize(),
+                                action = {
+                                    ArdttButton(
+                                        text = "Очистить поиск",
+                                        onClick = { newRule = "" },
+                                        variant = ArdttButtonVariant.Outlined,
+                                        size = ArdttButtonSize.Compact,
+                                        fillMaxWidth = false,
+                                    )
+                                },
                             )
                         } else {
                             LazyColumn(
@@ -662,7 +701,6 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
             }
         }
         }
-    }
 
         val chromePad = ArdttBottomChrome.stickyBottomPadding()
         val imePad = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
@@ -718,11 +756,13 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                         onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
                         modifier = Modifier.weight(1f),
                     )
-                    BypassAddButton(
+                    ArdttButton(
+                        text = "Добавить",
+                        onClick = { addSite() },
                         enabled = !busy && newRule.isNotBlank(),
                         busy = busy,
-                        keyboardVisible = keyboardVisible,
-                        onClick = { addSite() },
+                        variant = ArdttButtonVariant.Primary,
+                        fillMaxWidth = false,
                     )
                 }
             }
@@ -749,6 +789,8 @@ fun ExceptionsScreen(settings: AppSettingsRepository) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+    }
     }
 }
 
@@ -841,54 +883,6 @@ private fun AppRowShimmerBar(
 }
 
 @Composable
-private fun BypassAddButton(
-    enabled: Boolean,
-    busy: Boolean,
-    keyboardVisible: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    val elevation = ArdttFloatingShell.shadowElevation
-    val fill = if (keyboardVisible) {
-        colors.primary
-    } else {
-        ArdttFloatingShell.tintedShell(colors.primary, mix = 0.62f)
-    }
-    Surface(
-        onClick = onClick,
-        enabled = enabled && !busy,
-        modifier = modifier.height(ArdttBottomChrome.ButtonHeight),
-        shape = ArdttShapes.Control,
-        color = fill,
-        contentColor = colors.onPrimary,
-        shadowElevation = elevation,
-        tonalElevation = ArdttElevation.None,
-        border = if (keyboardVisible) null else ArdttFloatingShell.shellBorder(),
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = ArdttSpacing.LargePlus),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(ArdttSize.Icon),
-                    strokeWidth = ArdttSize.Stroke,
-                    color = colors.onPrimary,
-                )
-            } else {
-                Text(
-                    "Добавить",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun BypassSearchBar(
     value: String,
     onValueChange: (String) -> Unit,
@@ -910,7 +904,15 @@ private fun BypassSearchBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(ArdttBottomChrome.ButtonHeight),
+            .height(ArdttBottomChrome.ButtonHeight)
+            .semantics { contentDescription = "Поиск" }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {
+                focusRequester.requestFocus()
+                keyboard?.show()
+            },
         shape = ArdttShapes.Control,
         color = fill,
         border = ArdttFloatingShell.shellBorder(),
@@ -925,16 +927,8 @@ private fun BypassSearchBar(
         ) {
             Icon(
                 Icons.Outlined.Search,
-                contentDescription = "Поиск",
-                modifier = Modifier
-                    .size(ArdttSize.Icon)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        focusRequester.requestFocus()
-                        keyboard?.show()
-                    },
+                contentDescription = null,
+                modifier = Modifier.size(ArdttSize.Icon),
                 tint = colors.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.width(ArdttSpacing.Medium))
@@ -977,17 +971,13 @@ private fun BypassSearchBar(
                 },
             )
             if (value.isNotEmpty()) {
-                IconButton(
+                ArdttButton(
                     onClick = { onValueChange("") },
-                    modifier = Modifier.size(ArdttSize.PullIndicator),
-                ) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "Очистить",
-                        modifier = Modifier.size(ArdttSize.IconCompact),
-                        tint = colors.onSurfaceVariant,
-                    )
-                }
+                    variant = ArdttButtonVariant.Icon,
+                    icon = Icons.Filled.Close,
+                    contentDescription = "Очистить",
+                    contentColor = colors.onSurfaceVariant,
+                )
             }
         }
     }
@@ -1015,18 +1005,14 @@ private fun BypassRuleRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        IconButton(
+        ArdttButton(
             onClick = onRemove,
             enabled = enabled,
-            modifier = Modifier.size(ArdttSize.PullIndicator),
-        ) {
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = "Удалить",
-                modifier = Modifier.size(ArdttSize.IconSmall),
-                tint = colors.onSurfaceVariant.copy(alpha = ArdttAlpha.Muted),
-            )
-        }
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Filled.Close,
+            contentDescription = "Удалить",
+            contentColor = colors.onSurfaceVariant.copy(alpha = ArdttAlpha.Muted),
+        )
     }
 }
 

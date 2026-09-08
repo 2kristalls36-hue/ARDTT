@@ -63,6 +63,8 @@ echo "${COMPOSE_SHA}  $STAGE/bin/docker-compose" | sha256sum -c -
 chmod 755 "$STAGE/bin/docker-compose"
 
 cp -f "$ROOT/server/install.sh" "$STAGE/install.sh"
+cp -f "$ROOT/server/ready.sh" "$STAGE/ready.sh"
+chmod 755 "$STAGE/ready.sh"
 cp -a "$ROOT/server/install-lib/." "$STAGE/install-lib/"
 cp -f "$ROOT/scripts/safe-extract-package.py" "$STAGE/scripts/safe-extract-package.py"
 cp -f "$ROOT/server/docker-compose.yml" "$STAGE/docker-compose.yml"
@@ -107,6 +109,7 @@ EOF
 
 IMAGE_SHA256="$(sha256sum "$STAGE/images/ardtt.tar" | awk '{print $1}')"
 INSTALL_SHA="$(sha256sum "$STAGE/install.sh" | awk '{print $1}')"
+READY_SHA="$(sha256sum "$STAGE/ready.sh" | awk '{print $1}')"
 COMPOSE_FILE_SHA="$(sha256sum "$STAGE/docker-compose.yml" | awk '{print $1}')"
 
 python3 - "$STAGE/manifest.json" <<PY
@@ -127,6 +130,7 @@ manifest = {
   "files": {
     "images/ardtt.tar": "${IMAGE_SHA256}",
     "install.sh": "${INSTALL_SHA}",
+    "ready.sh": "${READY_SHA}",
     "docker-compose.yml": "${COMPOSE_FILE_SHA}",
   },
   "docker": {
@@ -144,12 +148,12 @@ PY
 
 (
   cd "$STAGE"
-  sha256sum install.sh docker-compose.yml docker-compose.exit.yml images/ardtt.tar bin/docker-compose manifest.json third-party.lock.json > SHA256SUMS
+  sha256sum install.sh ready.sh docker-compose.yml docker-compose.exit.yml images/ardtt.tar bin/docker-compose manifest.json third-party.lock.json > SHA256SUMS
 )
 
 tar -czf "$OUT" -C "$STAGE" \
   manifest.json SHA256SUMS README.md DEPLOY_VERSION third-party.lock.json \
-  install.sh install-lib scripts \
+  install.sh ready.sh install-lib scripts \
   docker-compose.yml docker-compose.exit.yml .env.example \
   images bin
 

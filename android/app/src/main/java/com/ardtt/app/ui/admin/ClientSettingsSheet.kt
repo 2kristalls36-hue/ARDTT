@@ -12,10 +12,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,6 +24,8 @@ import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.deviceDisplayLabels
 import com.ardtt.app.profile.ProfileLinkCodec
 import com.ardtt.app.profile.VpnProfile
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.feedback.ArdttCopyRow
 import com.ardtt.app.ui.components.feedback.ArdttStackedFactRow
 import com.ardtt.app.ui.components.surface.ArdttBottomSheet
@@ -34,7 +33,6 @@ import com.ardtt.app.ui.components.surface.ArdttQrCode
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
 import com.ardtt.app.ui.components.surface.ArdttSheetDefaults
 import com.ardtt.app.ui.theme.ArdttAlpha
-import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.util.copyToClipboard
@@ -73,9 +71,13 @@ internal fun ClientSettingsSheet(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            IconButton(onClick = onEditName, enabled = !busy) {
-                Icon(Icons.Filled.Edit, contentDescription = "Изменить имя")
-            }
+            ArdttButton(
+                onClick = onEditName,
+                enabled = !busy,
+                variant = ArdttButtonVariant.Icon,
+                icon = Icons.Filled.Edit,
+                contentDescription = "Изменить имя",
+            )
         }
 
         Box(
@@ -154,14 +156,13 @@ internal fun ClientSettingsSheet(
         }
 
         if (profile != null) {
-            OutlinedButton(
+            ArdttButton(
+                text = "Добавить на этот телефон",
                 onClick = onAddToPhone,
                 enabled = !busy,
-                modifier = SheetPadding.fillMaxWidth(),
-                shape = ArdttShapes.Chip,
-            ) {
-                Text("Добавить на этот телефон")
-            }
+                variant = ArdttButtonVariant.Outlined,
+                modifier = SheetPadding,
+            )
         }
     }
 }
@@ -223,12 +224,13 @@ private fun BoundDeviceRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = onUnbind, enabled = enabled) {
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = "Отвязать",
-                tint = MaterialTheme.colorScheme.error,
-            )
-        }
+        ArdttButton(
+            onClick = onUnbind,
+            enabled = enabled,
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Filled.Close,
+            contentDescription = "Отвязать",
+            contentColor = MaterialTheme.colorScheme.error,
+        )
     }
 }

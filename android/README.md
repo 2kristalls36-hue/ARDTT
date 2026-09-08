@@ -1,7 +1,7 @@
 # Android-клиент ARDTT
 
 Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial over TURN Tunnel).  
-Текущая сборка: **0.5.256** (`versionCode` 274).  
+Текущая сборка: **0.5.257** (`versionCode` 275).  
 `applicationId` / namespace — `com.ardtt.app`, minSdk 28. Смена с `com.nonamevpn.app` требует переустановки APK (это уже другое приложение для Android).
 
 Лендинг репозитория: [../README.md](../README.md). Легенда: [../docs/LEGEND.md](../docs/LEGEND.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
@@ -54,7 +54,7 @@ PR всегда собирает Preview APK в артефакты (`.github/wor
 
 1. Собирает подписанные `ardtt-<versionName>-*.apk` (R8 + сжатие ресурсов; стек VPS в APK не кладётся)
 2. Стабильная версия: публикует GitHub Release с тегом `v<versionName>` (APK, `ardtt-update.json`)
-3. Пакеты сервера `ardtt-server-<DEPLOY_VERSION>-linux-*.tar.gz` собирает [`.github/workflows/server-package.yml`](../.github/workflows/server-package.yml)
+3. Пакеты сервера `ardtt-server-<DEPLOY_VERSION>-linux-*.tar.gz` собирает [`.github/workflows/server-package.yml`](../.github/workflows/server-package.yml). Push в `main` прикрепляет уже готовые артефакты к GitHub Release сразу; Android build при публикации APK делает то же для своего тега. `android-build.yml` больше не кладёт в релиз исходный `ardtt-stack-*.tar.gz`.
 
 **Секреты репозитория** (Settings → Secrets → Actions):
 

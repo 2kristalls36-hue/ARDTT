@@ -261,6 +261,11 @@ internal fun serverDeployActionLabel(saved: Boolean, cascadeEnabled: Boolean): S
     else -> "Установить на VPS"
 }
 
+internal fun cascadeDeploySwitchSubtitle(): String =
+    "Второй сервер — выход в интернет и WARP. SSH к нему идёт через первый VPS. Клиенты живут на первом."
+
+internal fun cascadeExitHostPlaceholder(): String = "Адрес, как его видит VPS 1"
+
 /** Overview sticky / overflow: first install vs refresh of an existing stack. */
 internal fun serverOverviewDeployActionLabel(health: HealthUi?): String =
     if (health is HealthUi.NotInstalled) "Установить деплой" else "Обновить деплой"

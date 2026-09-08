@@ -66,6 +66,8 @@ class ConnectionControlsTest {
         assertTrue(tunnelPowerSessionLit(ConnState.Connected))
         assertTrue(tunnelPowerSessionLit(ConnState.Disconnecting))
         assertTrue(tunnelPowerClickDisconnects(ConnState.Connected))
+        assertTrue(tunnelPowerToggleEnabled(ConnState.Connecting, connectEnabled = false))
+        assertTrue(tunnelPowerClickEnabled(ConnState.Connecting, connectEnabled = false))
         assertTrue(tunnelPowerToggleEnabled(ConnState.Connected, connectEnabled = false))
         assertTrue(tunnelPowerToggleEnabled(ConnState.Ready, connectEnabled = true))
         assertFalse(tunnelPowerToggleEnabled(ConnState.Ready, connectEnabled = false))
@@ -84,6 +86,16 @@ class ConnectionControlsTest {
         assertEquals(PROFILE_SWITCH_LOCKED_MESSAGE, tunnelQuickSettingsProfileHelp(2, locked = true))
         assertNull(tunnelQuickSettingsProfileHelp(1, locked = false))
         assertNull(tunnelQuickSettingsProfileHelp(2, locked = false))
+    }
+
+    @Test
+    fun emptyCatalogOpensImportAndSingleProfileOpensManage() {
+        assertTrue(tunnelProfileCenterOpensImport(0))
+        assertFalse(tunnelProfileCenterOpensImport(1))
+        assertTrue(tunnelProfileCenterOpensManage(1))
+        assertTrue(tunnelProfileCenterOpensManage(3))
+        assertFalse(tunnelProfileCenterOpensManage(0))
+        assertEquals("Отменить подключение", tunnelPowerContentDescription(ConnState.Connecting, connected = false))
     }
 
     @Test

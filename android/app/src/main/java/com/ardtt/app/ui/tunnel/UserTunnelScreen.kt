@@ -3,7 +3,6 @@ package com.ardtt.app.ui.tunnel
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -11,7 +10,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -33,8 +31,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.WbSunny
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +46,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -71,6 +71,8 @@ import com.ardtt.app.profile.ProfileCatalog
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
 import com.ardtt.app.settings.AppSettingsRepository
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
@@ -78,14 +80,16 @@ import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.nextThemeMode
 import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.theme.ArdttAlpha
-import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.themeModeVisualKey
+import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.tunnelPowerBusy
 import com.ardtt.app.ui.tunnelPowerClickDisconnects
+import com.ardtt.app.ui.tunnelPowerContentDescription
 import com.ardtt.app.ui.tunnelPowerSessionLit
 import com.ardtt.app.ui.tunnelPowerToggleEnabled
+import com.ardtt.app.ui.tunnelProfileCenterOpensImport
 import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -168,6 +172,14 @@ fun UserTunnelScreen(
                 conn.updateProfile(target.profile)
             }
         },
+        onOpenProfiles = {
+            haptics.tick()
+            if (tunnelProfileCenterOpensImport(catalog.items.size)) {
+                PendingUiAction.requestOpenProfileAdd()
+            } else {
+                PendingUiAction.requestOpenProfiles()
+            }
+        },
         showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state),
         onDismissDonate = { scope.launch { settings.setDonateBannerDismissed(true) } },
     )
@@ -185,6 +197,7 @@ private fun UserTunnelSimpleScreen(
     onToggleTunnel: () -> Unit,
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
+    onOpenProfiles: () -> Unit,
     showDonateBanner: Boolean,
     onDismissDonate: () -> Unit,
 ) {
@@ -238,9 +251,9 @@ private fun UserTunnelSimpleScreen(
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(top = ArdttSpacing.Small, end = ArdttSpacing.Medium)
-                .size(38.dp)
+                .size(ArdttSize.TouchTarget)
                 .combinedClickable(onClick = onSwitchThemeMode),
-            shape = RoundedCornerShape(19.dp),
+            shape = CircleShape,
             color = ArdttFloatingShell.shellColor(),
             border = ArdttFloatingShell.shellBorder(),
             shadowElevation = ArdttFloatingShell.shadowElevation,
@@ -281,6 +294,7 @@ private fun UserTunnelSimpleScreen(
                 busy = tunnelPowerBusy(ui.state),
                 sessionLit = tunnelPowerSessionLit(ui.state),
                 enabled = tunnelPowerToggleEnabled(ui.state, ui.connectEnabled),
+                contentDescription = tunnelPowerContentDescription(ui.state, connected),
                 onClick = onToggleTunnel,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
@@ -305,6 +319,7 @@ private fun UserTunnelSimpleScreen(
                 switchEnabled = catalogItems.size > 1 && !vpnSessionBlocksProfileSwitch(ui.state),
                 onPrev = onSelectPreviousProfile,
                 onNext = onSelectNextProfile,
+                onOpenProfiles = onOpenProfiles,
             )
         }
     }
@@ -379,6 +394,7 @@ private fun TunnelPowerToggle(
     busy: Boolean,
     sessionLit: Boolean,
     enabled: Boolean,
+    contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -418,7 +434,11 @@ private fun TunnelPowerToggle(
         Surface(
             modifier = Modifier
                 .size(180.dp)
-                .clickable(enabled = enabled && !busy) {
+                .semantics {
+                    role = Role.Button
+                    this.contentDescription = contentDescription
+                }
+                .clickable(enabled = enabled, role = Role.Button) {
                     runCatching { onClick() }
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
                 },
@@ -449,7 +469,7 @@ private fun TunnelPowerToggle(
                 } else {
                     Icon(
                         imageVector = Icons.Default.PowerSettingsNew,
-                        contentDescription = if (connected) "Отключить туннель" else "Подключить туннель",
+                        contentDescription = null,
                         tint = accentColor,
                         modifier = Modifier.size(72.dp),
                     )
@@ -466,6 +486,7 @@ private fun ProfileSwitcherBar(
     switchEnabled: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
+    onOpenProfiles: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -476,79 +497,48 @@ private fun ProfileSwitcherBar(
     ) {
         val scheme = MaterialTheme.colorScheme
         val sessionLocked = canSwitch && !switchEnabled
-        val commonButtonColors = ButtonDefaults.buttonColors(
-            containerColor = scheme.primary,
-            contentColor = scheme.onPrimary,
-            disabledContainerColor = if (sessionLocked) {
-                scheme.surface.copy(alpha = 0.88f)
-            } else {
-                scheme.primary.copy(alpha = 0.65f)
-            },
-            disabledContentColor = if (sessionLocked) {
-                scheme.onSurface.copy(alpha = 0.58f)
-            } else {
-                scheme.onPrimary.copy(alpha = 0.75f)
-            },
-        )
-        val lockedBorder = if (sessionLocked) {
-            BorderStroke(ArdttSize.Border, scheme.outline.copy(alpha = ArdttAlpha.Muted))
-        } else {
-            null
-        }
+        val lockedContainer = scheme.surface.copy(alpha = ArdttAlpha.Strong)
+        val lockedContent = scheme.onSurface.copy(alpha = ArdttAlpha.Muted)
+        val label = activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль"
         if (canSwitch) {
-            Button(
+            ArdttButton(
                 onClick = onPrev,
                 enabled = switchEnabled,
-                shape = ArdttShapes.Control,
-                modifier = Modifier
-                    .height(ArdttBottomChrome.ButtonHeight)
-                    .width(62.dp),
-                colors = commonButtonColors,
-                border = lockedBorder,
-                contentPadding = PaddingValues(ArdttSpacing.None),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий профиль")
-            }
-        }
-        Button(
-            onClick = { if (switchEnabled) onNext() },
-            enabled = activeItem != null && (!canSwitch || switchEnabled),
-            shape = ArdttShapes.Control,
-            modifier = Modifier
-                .weight(1f)
-                .height(ArdttBottomChrome.ButtonHeight),
-            colors = commonButtonColors,
-            border = lockedBorder,
-        ) {
-            if (sessionLocked) {
-                Icon(
-                    Icons.Filled.Lock,
-                    contentDescription = "Смена профиля недоступна",
-                    modifier = Modifier.size(ArdttSize.IconSmall),
-                )
-                Spacer(modifier = Modifier.width(ArdttSpacing.Small))
-            }
-            Text(
-                activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль",
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                variant = ArdttButtonVariant.Primary,
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Предыдущий профиль",
+                containerColor = if (sessionLocked) lockedContainer else null,
+                contentColor = if (sessionLocked) lockedContent else null,
+                modifier = Modifier.width(ArdttSize.ButtonCluster),
             )
         }
+        ArdttButton(
+            text = label,
+            onClick = onOpenProfiles,
+            enabled = true,
+            variant = ArdttButtonVariant.Primary,
+            fillMaxWidth = false,
+            icon = if (sessionLocked) Icons.Filled.Lock else null,
+            contentDescription = if (sessionLocked) {
+                "Смена профиля недоступна. $label"
+            } else {
+                label
+            },
+            containerColor = if (sessionLocked) lockedContainer else null,
+            contentColor = if (sessionLocked) lockedContent else null,
+            modifier = Modifier.weight(1f),
+        )
         if (canSwitch) {
-            Button(
+            ArdttButton(
                 onClick = onNext,
                 enabled = switchEnabled,
-                shape = ArdttShapes.Control,
-                modifier = Modifier
-                    .height(ArdttBottomChrome.ButtonHeight)
-                    .width(62.dp),
-                colors = commonButtonColors,
-                border = lockedBorder,
-                contentPadding = PaddingValues(ArdttSpacing.None),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий профиль")
-            }
+                variant = ArdttButtonVariant.Primary,
+                icon = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = "Следующий профиль",
+                containerColor = if (sessionLocked) lockedContainer else null,
+                contentColor = if (sessionLocked) lockedContent else null,
+                modifier = Modifier.width(ArdttSize.ButtonCluster),
+            )
         }
     }
 }

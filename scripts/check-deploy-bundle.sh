@@ -31,7 +31,7 @@ DOCKERFILE="$ROOT/server/Dockerfile"
 if [ -f "$INSTALLER" ]; then
   bash -n "$INSTALLER" || err "bash -n failed for server/install.sh"
   bash -n "$ROOT/server/ready.sh" || err "bash -n ready.sh"
-  bash -n "$ROOT/server/install-lib/ports.sh" || err "bash -n ports.sh"
+  bash -n "$ROOT/server/install-lib/network.sh" || err "bash -n network.sh"
   grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
   grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
   grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
@@ -47,6 +47,8 @@ PY
   grep -q 'ARDTT_PACKAGE_SHA256' "$INSTALLER" || err "installer must require outer package SHA-256"
   grep -q 'safe_extract_package' "$INSTALLER" || err "installer must extract safely"
   grep -q 'docker load' "$INSTALLER" || err "installer must docker load"
+  grep -q 'load_package_image' "$INSTALLER" || err "installer must load_package_image (retag manifest ID)"
+  grep -q 'loaded_image_matches_tar' "$ROOT/server/install-lib/package.sh" || err "package load must compare image tar layers"
   grep -q -- '--no-build --pull never' "$INSTALLER" || err "installer must up --no-build --pull never"
   grep -q 'wait_readiness' "$INSTALLER" || err "installer must wait readiness"
   grep -q 'restore_previous_release' "$INSTALLER" || err "installer must restore previous on failed up/readiness"
@@ -94,11 +96,23 @@ grep -q 'pull_policy: never' "$COMPOSE" || err "compose must set pull_policy: ne
 grep -q 'cap_drop:' "$COMPOSE" || err "compose must cap_drop ALL"
 grep -q 'NET_ADMIN' "$COMPOSE" || err "compose missing NET_ADMIN"
 grep -q 'NET_RAW' "$COMPOSE" || err "compose missing NET_RAW"
+grep -q 'SETUID' "$COMPOSE" || err "compose missing SETUID for dnsmasq"
+grep -q 'SETGID' "$COMPOSE" || err "compose missing SETGID for dnsmasq"
 grep -q '/dev/net/tun' "$COMPOSE" || err "compose missing /dev/net/tun"
 grep -qE '^[[:space:]]*privileged:' "$COMPOSE" && err "compose must not be privileged"
 grep -qE 'docker\.sock:' "$COMPOSE" && err "compose must not mount docker.sock"
 grep -q 'mem_limit:' "$COMPOSE" || err "compose missing mem_limit"
 grep -q '/opt/ardtt/ready.sh' "$COMPOSE" || err "compose healthcheck must use ready.sh"
+if ! grep -q 'bash", "/opt/ardtt/ready.sh' "$COMPOSE"; then
+  err "compose healthcheck must run ready.sh via bash (image copy may be mode 644)"
+fi
+grep -q 'overlay_ready_script' "$INSTALLER" || err "installer must overlay package ready.sh into the container"
+grep -q 'cat > /opt/ardtt/ready.sh' "$INSTALLER" || err "overlay must write ready.sh as container root (docker cp uses host uid)"
+grep -q 'bash /opt/ardtt/ready.sh' "$INSTALLER" || err "readiness must invoke ready.sh via bash"
+if grep -E 'local[[:space:]]+name="\$1"[[:space:]]+pidfile=.*\$\{name\}' "$ROOT/server/ready.sh" >/dev/null; then
+  err "ready.sh must not expand \${name} in the same local statement (set -u)"
+fi
+grep -Fq 'cp -f "$ROOT/server/ready.sh"' "$PACK_SERVER" || err "pack-server-package must include ready.sh"
 grep -q 'ARDTT_TELEMETRY_PORT' "$COMPOSE" || err "compose must publish host telemetry port"
 grep -q '9100:9100/tcp' "$COMPOSE" || grep -q '9100/tcp' "$COMPOSE" || err "compose provision target 9100"
 grep -q '9200:9200/tcp' "$COMPOSE" || grep -q '9200/tcp' "$COMPOSE" || err "compose telemetry target 9200"
@@ -139,11 +153,18 @@ bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n cascade-entr
 bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n warp"
 bash -n "$ROOT/server/entrypoint.sh" || err "bash -n entrypoint"
 bash -n "$ROOT/scripts/pack-server-package.sh" || err "bash -n pack-server-package"
+bash -n "$ROOT/scripts/repack-server-host-files.sh" || err "bash -n repack-server-host-files"
+bash -n "$ROOT/scripts/attach-server-packages-to-release.sh" || err "bash -n attach-server-packages-to-release"
+grep -q 'repack-server-host-files.sh' "$ROOT/scripts/attach-server-packages-to-release.sh" \
+  || err "attach-to-release must refresh host files before upload"
+bash -n "$ROOT/scripts/test-install-live-isolation.sh" || err "bash -n test-install-live-isolation"
 bash -n "$ROOT/scripts/make-fake-server-package.sh" || err "bash -n make-fake-server-package"
 python3 -m py_compile "$ROOT/scripts/safe-extract-package.py" || err "safe-extract-package.py"
 
 if [ -f "$STACK_SOURCE_KT" ]; then
   grep -q 'ardtt-server-' "$STACK_SOURCE_KT" || err "DeployStackSource must name ardtt-server-*-linux-<arch>.tar.gz"
+  grep -q 'preferredReleaseJson' "$STACK_SOURCE_KT" || err "DeployStackSource must search other releases if the version tag has no server asset"
+  grep -q 'SHA256SUMS-server' "$STACK_SOURCE_KT" || err "DeployStackSource must read SHA256SUMS-server.txt"
   grep -q 'raw.githubusercontent.com' "$STACK_SOURCE_KT" && err "DeployStackSource must not fetch install.sh from raw GitHub"
   grep -q 'archive/refs/heads/main' "$STACK_SOURCE_KT" && err "DeployStackSource must not fall back to main"
 fi
@@ -203,6 +224,9 @@ fi
 if [ -f "$ROOT/scripts/test-install-auto-ports.sh" ]; then
   bash "$ROOT/scripts/test-install-auto-ports.sh" || err "install auto-ports helpers"
 fi
+if [ -f "$ROOT/scripts/test-install-bridge-subnet.sh" ]; then
+  bash "$ROOT/scripts/test-install-bridge-subnet.sh" || err "bridge subnet picker"
+fi
 if [ -f "$ROOT/scripts/test-install-isolation.sh" ]; then
   bash "$ROOT/scripts/test-install-isolation.sh" || err "install isolation contract"
 fi
@@ -221,6 +245,9 @@ if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"
+fi
+if [ -f "$ROOT/scripts/test-repack-server-host-files.sh" ]; then
+  bash "$ROOT/scripts/test-repack-server-host-files.sh" || err "repack host files"
 fi
 
 if [ "$fail" -ne 0 ]; then

@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +24,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -58,15 +58,18 @@ import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.VpnProfileJson
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.PROFILE_SWITCH_LOCKED_MESSAGE
+import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.admin.ClientExpiresTone
 import com.ardtt.app.ui.admin.clientExpiresTone
 import com.ardtt.app.ui.admin.formatClientExpires
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
-import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttLazyFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
@@ -114,6 +117,7 @@ fun ProfilesScreen(
     var error by remember { mutableStateOf<String?>(null) }
 
     val visible = catalog.items
+    val openProfileAdd by PendingUiAction.openProfileAdd.collectAsStateWithLifecycle()
 
     fun afterChange(message: String? = null) {
         busy = false
@@ -176,6 +180,12 @@ fun ProfilesScreen(
         PendingProfileImport.take()?.let { importResolved(it, "Профиль из ссылки импортирован") }
     }
 
+    LaunchedEffect(openProfileAdd) {
+        if (PendingUiAction.consumeOpenProfileAdd()) {
+            showAddSheet = true
+        }
+    }
+
     LaunchedEffect(catalog.items) {
         val next = linkedMapOf<String, ProfileLiveFacts>()
         catalog.items.groupBy { it.profile.provisionBaseUrl }.forEach { (base, items) ->
@@ -227,7 +237,7 @@ fun ProfilesScreen(
         }
     }
 
-    ArdttFeedScaffold(
+    ArdttLazyFeedScaffold(
         stickyContent = {
             ArdttPrimaryButton(
                 text = if (busy) "Импорт…" else "Добавить",
@@ -249,76 +259,78 @@ fun ProfilesScreen(
             )
         },
     ) {
-        error?.let {
-            ArdttCompactCard {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        error?.let { message ->
+            item(key = "error") {
+                ArdttCompactCard {
+                    Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 
         if (visible.isEmpty()) {
-            ArdttCompactCard {
-                Text(
-                    "Профили не загружены",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "Импортируйте JSON пользователя или создайте клиента на вкладке VPS.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            item(key = "empty") {
+                ArdttCompactCard {
+                    Text(
+                        "Профили не загружены",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Импортируйте JSON пользователя или создайте клиента на вкладке VPS.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing)) {
-                visible.forEach { item ->
-                    ProfileCard(
-                        item = item,
-                        active = item.id == catalog.activeId,
-                        selectionLocked = profileSwitchLocked,
-                        servers = servers,
-                        liveFacts = liveFacts[item.id],
-                        onSelect = { applyProfile(item) },
-                        onOpen = { applyProfile(item, openTunnel = true) },
-                        onCopy = {
-                            copyToClipboard(
-                                context = context,
-                                text = VpnProfileJson.encode(item.profile),
-                                clipLabel = "ARDTT profile",
-                                toast = "JSON скопирован",
-                            )
-                        },
-                        onShare = {
+            items(visible, key = { it.id }) { stored ->
+                ProfileCard(
+                    item = stored,
+                    active = stored.id == catalog.activeId,
+                    selectionLocked = profileSwitchLocked,
+                    servers = servers,
+                    liveFacts = liveFacts[stored.id],
+                    onSelect = { applyProfile(stored) },
+                    onOpen = { applyProfile(stored, openTunnel = true) },
+                    onCopy = {
+                        copyToClipboard(
+                            context = context,
+                            text = VpnProfileJson.encode(stored.profile),
+                            clipLabel = "ARDTT profile",
+                            toast = "JSON скопирован",
+                        )
+                    },
+                    onShare = {
+                        scope.launch {
+                            delay(64)
+                            shareProfile = stored.profile
+                        }
+                    },
+                    onRename = {
+                        renameTarget = stored
+                        renameText = stored.profile.name
+                    },
+                    onDelete = {
+                        if (profileSwitchLocked && stored.id == catalog.activeId) {
+                            Toast.makeText(
+                                context,
+                                PROFILE_SWITCH_LOCKED_MESSAGE,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
                             scope.launch {
-                                delay(64)
-                                shareProfile = item.profile
-                            }
-                        },
-                        onRename = {
-                            renameTarget = item
-                            renameText = item.profile.name
-                        },
-                        onDelete = {
-                            if (profileSwitchLocked && item.id == catalog.activeId) {
-                                Toast.makeText(
-                                    context,
-                                    PROFILE_SWITCH_LOCKED_MESSAGE,
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                                return@ProfileCard
-                            }
-                            scope.launch {
-                                val wasActive = item.id == catalog.activeId
-                                profiles.delete(item.id)
+                                val wasActive = stored.id == catalog.activeId
+                                profiles.delete(stored.id)
                                 if (wasActive) {
                                     val next = profiles.snapshot().active
                                     settings.setProfileName(next?.name.orEmpty())
                                     conn.updateProfile(next)
                                 }
-                                AppLog.i("Profiles", "deleted ${item.profile.name}")
+                                AppLog.i("Profiles", "deleted ${stored.profile.name}")
                             }
-                        },
-                    )
-                }
+                        }
+                    },
+                )
             }
         }
     }
@@ -559,21 +571,17 @@ private fun ProfileCard(
                 }
             }
             Box {
-                IconButton(
+                ArdttButton(
                     onClick = { menu = true },
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Действия",
-                        tint = if (selectionLocked) {
-                            colors.onSurface.copy(alpha = 0.45f)
-                        } else {
-                            colors.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(ArdttSize.IconCompact),
-                    )
-                }
+                    variant = ArdttButtonVariant.Icon,
+                    icon = Icons.Filled.MoreVert,
+                    contentDescription = "Действия",
+                    contentColor = if (selectionLocked) {
+                        colors.onSurface.copy(alpha = 0.45f)
+                    } else {
+                        colors.onSurfaceVariant
+                    },
+                )
                 ArdttOverflowMenu(
                     expanded = menu,
                     onDismissRequest = { menu = false },

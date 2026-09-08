@@ -46,13 +46,10 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -99,6 +96,9 @@ import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.ui.PendingUiAction
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
@@ -108,9 +108,10 @@ import com.ardtt.app.ui.components.feedback.ArdttIpChip
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
-import com.ardtt.app.ui.components.layout.ArdttFeedHeader
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
+import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
+import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
@@ -471,36 +472,29 @@ private fun ServerListScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        ArdttPullRefresh(
-            refreshing = pull.refreshing,
-            onRefresh = pull.onRefresh,
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = ArdttSpacing.Large),
-            ) {
-                ArdttFeedHeader(
+        ArdttScrollChrome(
+            header = {
+                ArdttTabHeader(
                     title = if (selectMode) "Экспорт серверов" else "Управление серверами",
                     subtitle = if (selectMode) "Выбрано: ${selectedIds.size}" else null,
                     actions = {
                         if (selectMode) {
-                            IconButton(onClick = { exitSelectMode() }) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "Отменить экспорт",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            ArdttButton(
+                                onClick = { exitSelectMode() },
+                                variant = ArdttButtonVariant.Icon,
+                                icon = Icons.Filled.Close,
+                                contentDescription = "Отменить экспорт",
+                                contentColor = MaterialTheme.colorScheme.primary,
+                            )
                         } else {
                             Box {
-                                IconButton(onClick = { menuExpanded = true }) {
-                                    Icon(
-                                        Icons.Filled.MoreVert,
-                                        contentDescription = "Меню серверов",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
+                                ArdttButton(
+                                    onClick = { menuExpanded = true },
+                                    variant = ArdttButtonVariant.Icon,
+                                    icon = Icons.Filled.MoreVert,
+                                    contentDescription = "Меню серверов",
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                )
                                 ArdttOverflowMenu(
                                     expanded = menuExpanded,
                                     onDismissRequest = { menuExpanded = false },
@@ -541,6 +535,18 @@ private fun ServerListScreen(
                         }
                     },
                 )
+            },
+        ) { topPad ->
+        ArdttPullRefresh(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = ArdttSpacing.Large)
+                    .padding(top = topPad),
+            ) {
 
                 if (servers.isEmpty()) {
                     ArdttEmptyState(
@@ -586,6 +592,7 @@ private fun ServerListScreen(
                     }
                 }
             }
+        }
         }
 
         ArdttStickyBottomBar {
@@ -1167,25 +1174,21 @@ private fun ServerOverviewScreen(
     val showUpdateButton = shouldShowUpdateDeployButton(health, expectedVersion)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        ArdttPullRefresh(
-            refreshing = refreshing,
-            onRefresh = onRefresh,
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
-                    ArdttFeedHeader(
-                        title = server.name.ifBlank { server.host },
-                        subtitle = "Управление сервером",
-                        onBack = onBack,
+        ArdttScrollChrome(
+            header = {
+                ArdttTabHeader(
+                    title = server.name.ifBlank { server.host },
+                    subtitle = "Управление сервером",
+                    onBack = onBack,
                     actions = {
                         Box {
-                            IconButton(onClick = { onShowActions(true) }) {
-                                Icon(
-                                    Icons.Filled.MoreVert,
-                                    contentDescription = "Действия с сервером",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            ArdttButton(
+                                onClick = { onShowActions(true) },
+                                variant = ArdttButtonVariant.Icon,
+                                icon = Icons.Filled.MoreVert,
+                                contentDescription = "Действия с сервером",
+                                contentColor = MaterialTheme.colorScheme.primary,
+                            )
                             ArdttOverflowMenu(
                                 expanded = showActions,
                                 onDismissRequest = { onShowActions(false) },
@@ -1218,8 +1221,18 @@ private fun ServerOverviewScreen(
                             }
                         }
                     },
-                    )
-                }
+                )
+            },
+        ) { topPad ->
+        ArdttPullRefresh(
+            refreshing = refreshing,
+            onRefresh = onRefresh,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topPad),
+            ) {
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -1269,6 +1282,7 @@ private fun ServerOverviewScreen(
             }
                 }
             }
+        }
         }
 
         if (showUpdateButton) {
@@ -1537,25 +1551,28 @@ fun DeployScreen(
     BackHandler(enabled = !canLeave) { }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        ArdttScrollChrome(
+            header = {
+                ArdttTabHeader(
+                    title = serverDeployScreenTitle(saved),
+                    subtitle = if (saved) {
+                        "Стек $expectedDeployVersion · SSH · Compose"
+                    } else {
+                        "SSH · установка Compose-стека ARDTT"
+                    },
+                    onBack = if (canLeave) onBack else null,
+                )
+            },
+        ) { topPad ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
+                .padding(top = topPad)
                 .padding(bottom = ArdttBottomChrome.navigationReserve() + ArdttSpacing.XXLarge),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
-        Column(Modifier.padding(horizontal = ArdttLayout.ScreenPadding)) {
-            ArdttFeedHeader(
-                title = serverDeployScreenTitle(saved),
-                subtitle = if (saved) {
-                    "Стек $expectedDeployVersion · SSH · Compose"
-                } else {
-                    "SSH · установка Compose-стека ARDTT"
-                },
-                onBack = if (canLeave) onBack else null,
-            )
-        }
         Text(
             serverDeployFormHelp(saved, cascadeEnabled, expectedDeployVersion),
             style = MaterialTheme.typography.bodyMedium,
@@ -1716,8 +1733,7 @@ fun DeployScreen(
         ) {
             ArdttSwitchRow(
                 title = "Каскадное подключение",
-                subtitle = "Второй сервер — выход в интернет и WARP. " +
-                    "Телефон ставит его отдельно; клиенты живут на первом.",
+                subtitle = cascadeDeploySwitchSubtitle(),
                 checked = cascadeEnabled,
                 onCheckedChange = { on ->
                     cascadeEnabled = on
@@ -1730,7 +1746,7 @@ fun DeployScreen(
                     value = cascadeHost,
                     onValueChange = { cascadeHost = it },
                     label = { Text("Выход host / IP") },
-                    placeholder = { Text("Второй VPS, WARP") },
+                    placeholder = { Text(cascadeExitHostPlaceholder()) },
                     singleLine = true,
                     enabled = !busy,
                     modifier = Modifier
@@ -1807,11 +1823,12 @@ fun DeployScreen(
             }
         }
 
-        OutlinedButton(
+        ArdttButton(
+            text = "Сохранить сервер",
             onClick = {
                 formValidationError()?.let {
                     status = it
-                    return@OutlinedButton
+                    return@ArdttButton
                 }
                 val target = buildTarget()
                 serversRepo.upsert(target)
@@ -1819,16 +1836,16 @@ fun DeployScreen(
                 onSaved(target.id)
             },
             enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Сохранить сервер")
-        }
+            variant = ArdttButtonVariant.Outlined,
+            fillMaxWidth = true,
+        )
 
-        Button(
+        ArdttButton(
+            text = serverDeployActionLabel(saved, cascadeEnabled),
             onClick = {
                 formValidationError()?.let {
                     status = it
-                    return@Button
+                    return@ArdttButton
                 }
                 if (saved) {
                     status = null
@@ -1838,30 +1855,18 @@ fun DeployScreen(
                 }
             },
             enabled = !busy,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            shape = ArdttShapes.Chip,
-        ) {
-            Icon(
-                Icons.Filled.CloudUpload,
-                contentDescription = null,
-                modifier = Modifier.size(ArdttSpacing.XLarge),
-            )
-            Spacer(modifier = Modifier.width(ArdttSpacing.Small))
-            Text(
-                serverDeployActionLabel(saved, cascadeEnabled),
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
+            variant = ArdttButtonVariant.Primary,
+            fillMaxWidth = true,
+            icon = Icons.Filled.CloudUpload,
+        )
 
         if (canLeave) {
-            OutlinedButton(
+            ArdttButton(
+                text = "Назад",
                 onClick = onBack,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Назад")
-            }
+                variant = ArdttButtonVariant.Outlined,
+                fillMaxWidth = true,
+            )
         }
 
         status?.let {
@@ -1872,6 +1877,7 @@ fun DeployScreen(
             )
         }
             } // form column
+        }
         }
 
         if (showReinstallConfirm) {

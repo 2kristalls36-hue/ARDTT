@@ -315,6 +315,11 @@ class ServerDeployCardLogicTest {
     fun newCardActionDependsOnCascade() {
         assertEquals("Установить на VPS", serverDeployActionLabel(saved = false, cascadeEnabled = false))
         assertEquals("Установить каскад", serverDeployActionLabel(saved = false, cascadeEnabled = true))
+        assertEquals(
+            "Второй сервер — выход в интернет и WARP. SSH к нему идёт через первый VPS. Клиенты живут на первом.",
+            cascadeDeploySwitchSubtitle(),
+        )
+        assertEquals("Адрес, как его видит VPS 1", cascadeExitHostPlaceholder())
     }
 
     @Test

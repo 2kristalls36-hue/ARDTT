@@ -80,11 +80,32 @@ compose_up_cmd() {
     $bin "${extra[@]}" "$@"
 }
 
+# Stock 1.0.45 image: ready.sh has a set -u `local name="$1" pidfile=...${name}`
+# bug. docker cp writes the host uid (often 1000) and mode 644; with cap_drop
+# ALL the container cannot chmod that file, and exec.Command("/opt/ardtt/ready.sh")
+# fails. Stream the package copy as container root, then chmod 755.
+overlay_ready_script() {
+  local name="${ARDTT_CONTAINER_NAME:-}" src=""
+  [ -n "$name" ] || return 1
+  if [ -f "${INSTALL_DIR}/current/ready.sh" ]; then
+    src="${INSTALL_DIR}/current/ready.sh"
+  elif [ -f "${SCRIPT_DIR}/ready.sh" ]; then
+    src="${SCRIPT_DIR}/ready.sh"
+  elif [ -n "${PKG_DIR:-}" ] && [ -f "${PKG_DIR}/ready.sh" ]; then
+    src="${PKG_DIR}/ready.sh"
+  fi
+  [ -n "$src" ] || return 0
+  docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -qx true || return 1
+  docker exec -i "$name" sh -c 'cat > /opt/ardtt/ready.sh && chmod 755 /opt/ardtt/ready.sh' < "$src" >/dev/null 2>&1 || return 1
+  return 0
+}
+
 wait_readiness() {
   local name="${ARDTT_CONTAINER_NAME}" i
   for i in $(seq 1 40); do
     if docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -qx true; then
-      if docker exec "$name" /opt/ardtt/ready.sh >/dev/null 2>&1; then
+      overlay_ready_script || true
+      if docker exec "$name" bash /opt/ardtt/ready.sh >/dev/null 2>&1; then
         return 0
       fi
     fi
@@ -94,7 +115,8 @@ wait_readiness() {
 }
 
 readiness_detail() {
-  docker exec "${ARDTT_CONTAINER_NAME}" /opt/ardtt/ready.sh 2>&1 | tail -5 | tr '\n' ' ' | cut -c1-400
+  overlay_ready_script || true
+  docker exec "${ARDTT_CONTAINER_NAME}" bash /opt/ardtt/ready.sh 2>&1 | tail -5 | tr '\n' ' ' | cut -c1-400
 }
 
 preflight_docker() {
@@ -372,12 +394,18 @@ do_install() {
   fi
 
   prog 0.30 "docker load образа (без build и без pull)"
-  docker load -i "$IMAGE_TAR" >/dev/null
-  verify_loaded_image "$ARDTT_IMAGE" "$PKG_IMAGE_ID"
+  load_package_image "$IMAGE_TAR" "$ARDTT_IMAGE" "$PKG_IMAGE_ID"
   LOADED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$ARDTT_IMAGE")"
 
   mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs"
   chmod 700 "$INSTALL_DIR/data"
+  # cap_drop ALL removes DAC_OVERRIDE. Container uid 0 can write 0700 data/
+  # only if it owns the directory (root install). Non-root smoke installs
+  # must allow other-write or mkdir /data/warp fails and the stack restarts.
+  if [ "$(id -u)" -ne 0 ]; then
+    chmod 0777 "$INSTALL_DIR/data" "$INSTALL_DIR/logs" || true
+    echo "ARDTT_WARN|не root — каталоги data/logs 0777, иначе контейнер без DAC_OVERRIDE не пишет. Production: install от root."
+  fi
   local data_src
   data_src="$(legacy_data_dir || true)"
   if [ -n "$data_src" ] && [ "$data_src" != "$INSTALL_DIR/data" ]; then
@@ -395,8 +423,14 @@ do_install() {
   [ -f "$PKG_DIR/manifest.json" ] && cp -a "$PKG_DIR/manifest.json" "$release/"
   cp -a "$PKG_DIR/install.sh" "$release/" 2>/dev/null || true
   [ -d "$PKG_DIR/install-lib" ] && cp -a "$PKG_DIR/install-lib" "$release/"
+  if [ -f "$PKG_DIR/ready.sh" ]; then
+    cp -a "$PKG_DIR/ready.sh" "$release/"
+  elif [ -f "$SCRIPT_DIR/ready.sh" ]; then
+    cp -a "$SCRIPT_DIR/ready.sh" "$release/"
+  fi
   write_env_file "$release/.env"
   write_env_file "$INSTALL_DIR/.env"
+  write_instance
 
   if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
     prog 0.40 "Ключи каскадного AWG"
@@ -434,7 +468,9 @@ do_install() {
     local detail
     detail="$(readiness_detail || true)"
     echo "ARDTT_WARN|readiness не прошла: ${detail}"
-    restore_previous_release || true
+    if ! restore_previous_release; then
+      stop_owned_stack "$INSTALL_DIR/current" || true
+    fi
     die "Новая версия не прошла readiness. Код ≠ 0, ARDTT_DONE нет. ${detail}"
   fi
 
