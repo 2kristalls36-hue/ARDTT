@@ -42,7 +42,7 @@ class DeployIssueTest {
             entryInstallStarted = false,
         )
         assertEquals(
-            "VPS2 требует подготовки: Docker недоступен. Установка ARDTT на VPS1 ещё не запускалась.",
+            "VPS2: не удалось поставить Docker Engine из архива. Установка ARDTT на VPS1 ещё не запускалась.",
             issue.summary,
         )
     }
@@ -55,12 +55,12 @@ class DeployIssueTest {
             hopRole = "exit",
             entryInstallStarted = true,
         )
-        assertEquals("VPS2 требует подготовки: Docker недоступен.", issue.summary)
+        assertEquals("VPS2: не удалось поставить Docker Engine из архива.", issue.summary)
     }
 
     @Test
     fun looksFailedIgnoresPlainUserSummary() {
-        val summary = "VPS2 требует подготовки: Docker недоступен. " +
+        val summary = "VPS2: не удалось поставить Docker Engine из архива. " +
             "Установка ARDTT на VPS1 ещё не запускалась."
         assertFalse(DeployIssue.looksFailed(summary))
         assertTrue(DeployIssue.looksFailed("Ошибка: timeout"))
@@ -90,12 +90,12 @@ class DeployIssueTest {
     }
 
     @Test
-    fun runtimeBundleIsHonestlyMissing() {
-        assertFalse(DeployRuntimeBundle.INCLUDED)
-        assertFalse(DeployRuntimeBundle.canPrepare("ubuntu", "26.04", "x86_64"))
+    fun runtimeBundleIsIncludedInPackage() {
+        assertTrue(DeployRuntimeBundle.INCLUDED)
+        assertTrue(DeployRuntimeBundle.canPrepare("ubuntu", "26.04", "x86_64"))
         assertTrue(
             DeployRuntimeBundle.missingRuntimeMessage("ubuntu", "26.04", "x86_64")
-                .contains("ещё не входит в архив"),
+                .contains("ставится из архива"),
         )
     }
 }

@@ -50,9 +50,13 @@ case "$ARCH" in
   arm64) UNAME_ARCH=aarch64 ;;
 esac
 
+ENGINE_VER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dockerEngineStatic"]["version"])' "$LOCK")"
+ENGINE_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dockerEngineStatic"]["sha256"][sys.argv[2]])' "$LOCK" "$ARCH")"
+ENGINE_UNAME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dockerEngineStatic"]["unameArch"][sys.argv[2]])' "$LOCK" "$ARCH")"
+
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE/images" "$STAGE/bin" "$STAGE/install-lib" "$STAGE/scripts"
+mkdir -p "$STAGE/images" "$STAGE/bin" "$STAGE/install-lib" "$STAGE/scripts" "$STAGE/vendor"
 
 docker save -o "$STAGE/images/ardtt.tar" "$IMAGE"
 test -s "$STAGE/images/ardtt.tar"
@@ -61,6 +65,11 @@ COMPOSE_URL="https://github.com/docker/compose/releases/download/v${COMPOSE_VER}
 curl -fsSL -o "$STAGE/bin/docker-compose" "$COMPOSE_URL"
 echo "${COMPOSE_SHA}  $STAGE/bin/docker-compose" | sha256sum -c -
 chmod 755 "$STAGE/bin/docker-compose"
+
+ENGINE_URL="https://download.docker.com/linux/static/stable/${ENGINE_UNAME}/docker-${ENGINE_VER}.tgz"
+curl -fsSL -o "$STAGE/vendor/docker.tgz" "$ENGINE_URL"
+echo "${ENGINE_SHA}  $STAGE/vendor/docker.tgz" | sha256sum -c -
+test -s "$STAGE/vendor/docker.tgz"
 
 cp -f "$ROOT/server/install.sh" "$STAGE/install.sh"
 cp -f "$ROOT/server/ready.sh" "$STAGE/ready.sh"
@@ -80,11 +89,13 @@ This archive is the only software payload a VPS needs.
 ## Requires
 
 - Linux ${ARCH}
-- Docker Engine already installed and running (Compose v2 plugin optional;
-  this archive includes \`bin/docker-compose\` for /opt/ardtt/bin)
-- /dev/net/tun
+- python3, iptables, /dev/net/tun
+- systemd (to start bundled dockerd when Engine is missing)
 
-The installer will **not** run get.docker.com, apt/dnf, or docker pull.
+This archive includes \`vendor/docker.tgz\` (Engine ${ENGINE_VER}) and
+\`bin/docker-compose\`. The installer unpacks Engine only when \`docker info\`
+fails. It will **not** fetch a network Engine installer, apt/dnf, or docker pull.
+A working Engine is left alone.
 
 ## Install
 
@@ -111,6 +122,7 @@ IMAGE_SHA256="$(sha256sum "$STAGE/images/ardtt.tar" | awk '{print $1}')"
 INSTALL_SHA="$(sha256sum "$STAGE/install.sh" | awk '{print $1}')"
 READY_SHA="$(sha256sum "$STAGE/ready.sh" | awk '{print $1}')"
 COMPOSE_FILE_SHA="$(sha256sum "$STAGE/docker-compose.yml" | awk '{print $1}')"
+ENGINE_FILE_SHA="$(sha256sum "$STAGE/vendor/docker.tgz" | awk '{print $1}')"
 
 python3 - "$STAGE/manifest.json" <<PY
 import json, os, pathlib, sys
@@ -132,9 +144,13 @@ manifest = {
     "install.sh": "${INSTALL_SHA}",
     "ready.sh": "${READY_SHA}",
     "docker-compose.yml": "${COMPOSE_FILE_SHA}",
+    "vendor/docker.tgz": "${ENGINE_FILE_SHA}",
   },
   "docker": {
-    "engineRequired": True,
+    "engineRequired": False,
+    "engineBundled": True,
+    "engineTarball": "vendor/docker.tgz",
+    "engineVersion": "${ENGINE_VER}",
     "composeCli": "bin/docker-compose",
     "composeVersion": "${COMPOSE_VER}",
     "minApi": "1.44",
@@ -148,14 +164,14 @@ PY
 
 (
   cd "$STAGE"
-  sha256sum install.sh ready.sh docker-compose.yml docker-compose.exit.yml images/ardtt.tar bin/docker-compose manifest.json third-party.lock.json > SHA256SUMS
+  sha256sum install.sh ready.sh docker-compose.yml docker-compose.exit.yml images/ardtt.tar bin/docker-compose vendor/docker.tgz manifest.json third-party.lock.json > SHA256SUMS
 )
 
 tar -czf "$OUT" -C "$STAGE" \
   manifest.json SHA256SUMS README.md DEPLOY_VERSION third-party.lock.json \
   install.sh ready.sh install-lib scripts \
   docker-compose.yml docker-compose.exit.yml .env.example \
-  images bin
+  images bin vendor
 
 # Outer digest is published next to the archive (GitHub asset digest is the trust source).
 sha256sum "$OUT" | awk '{print $1}' > "${OUT}.sha256"

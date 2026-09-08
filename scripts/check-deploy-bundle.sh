@@ -27,11 +27,16 @@ DOCKERFILE="$ROOT/server/Dockerfile"
 [ -f "$ROOT/server/docker-compose.dev.yml" ] || err "missing docker-compose.dev.yml"
 [ -f "$ROOT/server/ready.sh" ] || err "missing ready.sh"
 [ -f "$ROOT/server/netns-guard.sh" ] || err "missing netns-guard.sh"
+[ -f "$ROOT/server/install-lib/engine.sh" ] || err "missing install-lib/engine.sh"
+PREFLIGHT_KT="$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployPreflight.kt"
 
 if [ -f "$INSTALLER" ]; then
   bash -n "$INSTALLER" || err "bash -n failed for server/install.sh"
   bash -n "$ROOT/server/ready.sh" || err "bash -n ready.sh"
-  bash -n "$ROOT/server/install-lib/network.sh" || err "bash -n network.sh"
+  for lib in "$ROOT/server/install-lib/"*.sh; do
+    bash -n "$lib" || err "bash -n $(basename "$lib")"
+  done
+  grep -q 'INSTALL_LIB_DIR/engine.sh' "$INSTALLER" || err "install.sh must source engine.sh"
   grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
   grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
   grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
@@ -67,6 +72,19 @@ PY
     err "host telemetry port must not rewrite container TELEMETRY_LISTEN"
   fi
   grep -q 'get.docker.com' "$INSTALLER" && err "installer must not call get.docker.com"
+  if grep -q 'get.docker.com' "$ROOT/server/install-lib/"*.sh; then
+    err "install-lib must not call get.docker.com"
+  fi
+  grep -q 'get.docker.com' "$PACK_SERVER" && err "pack-server-package must not call get.docker.com"
+  grep -q 'ensure_docker_engine' "$INSTALLER" || err "installer must install Engine from vendor/docker.tgz when missing"
+  grep -q 'vendor/docker.tgz' "$PACK_SERVER" || err "pack-server-package must include vendor/docker.tgz"
+  grep -q 'download.docker.com/linux/static' "$PACK_SERVER" || err "pack must fetch Engine static tarball in CI"
+  if grep -q 'cat > /lib/systemd/system/docker.service' "$ROOT/server/install-lib/engine.sh"; then
+    err "bundled Engine must not overwrite distro docker.service"
+  fi
+  if grep -E 'rm -.*/usr/local/lib/ardtt-docker' "$ROOT/server/install-lib/uninstall.sh"; then
+    err "uninstall must not remove bundled Engine"
+  fi
   grep -q 'fetch_stack_from_git' "$INSTALLER" && err "installer must not git clone / fetch sources"
   grep -q 'cleanup_host_dataplane' "$INSTALLER" && err "installer must not call cleanup_host_dataplane"
   grep -q 'reset_docker_buildkit' "$INSTALLER" && err "installer must not reset BuildKit / stop dockerd"
@@ -218,14 +236,25 @@ if [ -f "$BUNDLE_KT" ]; then
     err "DeployBundle.FALLBACK_VERSION=$FALLBACK but server/DEPLOY_VERSION=$VER"
   fi
 fi
+if [ -f "$PREFLIGHT_KT" ]; then
+  grep -q 'INCLUDED = true' "$PREFLIGHT_KT" || err "DeployRuntimeBundle.INCLUDED must be true"
+  grep -q 'INCLUDED = false' "$PREFLIGHT_KT" && err "Engine must ship in the package (INCLUDED = false)"
+  grep -q 'docker-from-package' "$PREFLIGHT_KT" || err "preflight must allow missing Docker (docker-from-package)"
+  grep -q 'code=DOCKER_MISSING' "$PREFLIGHT_KT" && err "phone preflight must not abort with DOCKER_MISSING"
+fi
 
 python3 - "$ROOT/server/third-party.lock.json" <<'PY' || err "third-party.lock.json invalid"
 import json,sys
 d=json.load(open(sys.argv[1],encoding="utf-8"))
-for k in ("amneziawgGo","amneziawgTools","wgcf","wireproxy","tun2socks","dockerComposeCli"):
+for k in ("amneziawgGo","amneziawgTools","wgcf","wireproxy","tun2socks","dockerComposeCli","dockerEngineStatic"):
     assert k in d, k
 assert d["amneziawgGo"]["commit"]
 assert len(d["wgcf"]["sha256"]["amd64"])==64
+assert len(d["dockerEngineStatic"]["sha256"]["amd64"])==64
+assert len(d["dockerEngineStatic"]["sha256"]["arm64"])==64
+assert d["dockerEngineStatic"]["version"]
+assert d["dockerEngineStatic"]["unameArch"]["amd64"]=="x86_64"
+assert d["dockerEngineStatic"]["unameArch"]["arm64"]=="aarch64"
 PY
 
 if [ -f "$ROOT/scripts/test-warp-wgcf-parse.sh" ]; then
@@ -258,6 +287,10 @@ if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"
+fi
+if [ -f "$ROOT/scripts/test-install-bundled-engine.sh" ]; then
+  bash -n "$ROOT/scripts/test-install-bundled-engine.sh" || err "bash -n test-install-bundled-engine"
+  bash "$ROOT/scripts/test-install-bundled-engine.sh" || err "bundled docker engine"
 fi
 if [ -f "$ROOT/scripts/test-repack-server-host-files.sh" ]; then
   bash "$ROOT/scripts/test-repack-server-host-files.sh" || err "repack host files"

@@ -1,6 +1,7 @@
 # shellcheck shell=bash
-# Remove only this ARDTT instance. Docker Engine, foreign containers, bridges,
-# and firewall policy stay. Default keeps data/; ARDTT_PURGE_DATA=1 deletes it.
+# Remove only this ARDTT instance. Docker Engine (including a bundled copy
+# outside /opt/ardtt), foreign containers, bridges, and firewall policy stay.
+# Default keeps data/; ARDTT_PURGE_DATA=1 deletes it.
 
 uninstall_this_instance() {
   local purge="${ARDTT_PURGE_DATA:-0}"
