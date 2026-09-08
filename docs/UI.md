@@ -96,6 +96,9 @@ ui/
 `ArdttButton` — общий контракт. Варианты: `Primary`, `Tonal`, `Outlined`, `Text`,
 `Danger`, `Icon`. Размеры: `Regular` (мин. 58 dp) и `Compact` (мин. 48 dp); высота
 растёт с системным `fontScale`. `ArdttPrimaryButton` — тонкая обёртка полной ширины.
+Пустой `text` у `Primary` не рисует подпись, не растягивается на ширину и убирает
+боковой padding — так собраны стрелки переключателя профилей (`ArdttSize.ButtonCluster`).
+`Icon` — прозрачная иконка в шапке/баннере, не залитый control.
 
 Состояния default / pressed / focused / disabled / loading задаются одним API:
 `enabled`, `busy`. Индикатор загрузки берёт `content` той же пары, что и подпись.

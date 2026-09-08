@@ -11,10 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.LocalCafe
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,6 +21,8 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttElevation
@@ -113,16 +113,13 @@ fun DonateSupportBanner(
                 modifier = Modifier.weight(1f),
             )
             if (onDismiss != null) {
-                IconButton(
+                ArdttButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(ArdttSpacing.XXXLarge),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Закрыть предложение поддержать автора",
-                        tint = colors.dismiss,
-                    )
-                }
+                    variant = ArdttButtonVariant.Icon,
+                    icon = Icons.Outlined.Close,
+                    contentDescription = "Закрыть предложение поддержать автора",
+                    contentColor = colors.dismiss,
+                )
             }
         }
         Text(
@@ -130,11 +127,12 @@ fun DonateSupportBanner(
             style = MaterialTheme.typography.bodySmall,
             color = colors.body,
         )
-        TextButton(
+        ArdttButton(
+            text = DonateSupport.ACTION,
             onClick = { DonateSupport.openPage(context) },
-            contentPadding = PaddingValues(horizontal = ArdttSpacing.None, vertical = ArdttSpacing.None),
-        ) {
-            Text(DonateSupport.ACTION, color = colors.accent, fontWeight = FontWeight.SemiBold)
-        }
+            variant = ArdttButtonVariant.Text,
+            fillMaxWidth = false,
+            contentColor = colors.accent,
+        )
     }
 }
