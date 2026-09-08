@@ -48,7 +48,7 @@ PY
   grep -q 'safe_extract_package' "$INSTALLER" || err "installer must extract safely"
   grep -q 'docker load' "$INSTALLER" || err "installer must docker load"
   grep -q 'load_package_image' "$INSTALLER" || err "installer must load_package_image (retag manifest ID)"
-  grep -q 'docker tag' "$ROOT/server/install-lib/package.sh" || err "package load must docker tag the manifest image ID"
+  grep -q 'loaded_image_matches_tar' "$ROOT/server/install-lib/package.sh" || err "package load must compare image tar layers"
   grep -q -- '--no-build --pull never' "$INSTALLER" || err "installer must up --no-build --pull never"
   grep -q 'wait_readiness' "$INSTALLER" || err "installer must wait readiness"
   grep -q 'restore_previous_release' "$INSTALLER" || err "installer must restore previous on failed up/readiness"
