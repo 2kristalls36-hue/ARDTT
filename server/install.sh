@@ -81,8 +81,9 @@ compose_up_cmd() {
 }
 
 # Stock 1.0.45 image: ready.sh has a set -u `local name="$1" pidfile=...${name}`
-# bug and docker cp often leaves mode 644 (exec form → permission denied).
-# Host package copy + bash covers both until the next image rebuild.
+# bug. docker cp writes the host uid (often 1000) and mode 644; with cap_drop
+# ALL the container cannot chmod that file, and exec.Command("/opt/ardtt/ready.sh")
+# fails. Stream the package copy as container root, then chmod 755.
 overlay_ready_script() {
   local name="${ARDTT_CONTAINER_NAME:-}" src=""
   [ -n "$name" ] || return 1
@@ -94,9 +95,8 @@ overlay_ready_script() {
     src="${PKG_DIR}/ready.sh"
   fi
   [ -n "$src" ] || return 0
-  docker inspect "$name" >/dev/null 2>&1 || return 1
-  docker cp "$src" "${name}:/opt/ardtt/ready.sh" >/dev/null 2>&1 || return 1
-  docker exec "$name" chmod 755 /opt/ardtt/ready.sh >/dev/null 2>&1 || true
+  docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -qx true || return 1
+  docker exec -i "$name" sh -c 'cat > /opt/ardtt/ready.sh && chmod 755 /opt/ardtt/ready.sh' < "$src" >/dev/null 2>&1 || return 1
   return 0
 }
 
