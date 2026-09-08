@@ -47,6 +47,24 @@ ui/
 | `@Composable`, возвращающий значение | lowerCamelCase | `cardContainerColor()` |
 | Строки интерфейса | `internal object <Домен>Copy`, поля UPPER_SNAKE | `PathModeCopy.AUTO` |
 
+## Карта экранов
+
+Роль контролов задаётся общим компонентом, не копией на экране.
+
+| Экран | Каркас | Кнопки / действия |
+|-------|--------|-------------------|
+| Туннель | свой layout + wallpaper | питание (`ConnectionControls`), Connecting → отмена, центр профиля → импорт/управление |
+| Сеть | `ArdttFeedScaffold` | обновление в заголовке, «Повторить» на hop-карточке |
+| Серверы / деплой | `ArdttScrollChrome` | `ArdttButton` сохранить / установить / назад |
+| Клиенты | `ArdttScrollChrome` + sticky CTA | `ArdttButton` создать / лимит / вкл.; лист `ClientSettingsSheet` |
+| Профили | `ArdttLazyFeedScaffold` | «Добавить», карточки с ключом `id` |
+| Обход | `ArdttScrollChrome` | поиск, «Очистить поиск», «Добавить» |
+| Логи | `ArdttScrollChrome` | follow / к последним / поиск / уровень (`LogsCatalog`) |
+| Настройки | `ArdttFeedScaffold` | `ArdttButton` Wi‑Fi, админ-сессия, код звонка |
+| Тестирование | `ArdttScrollChrome` | запись, отправка, история |
+
+Вложенный `Deploy` открывается с Серверов, не вкладка. «Ещё» держит остальные `AppDestination` (`ArdttNavPlan`).
+
 ## Токены
 
 Экран не пишет `16.dp`, `0.18f` или `RoundedCornerShape(20.dp)` — он берёт

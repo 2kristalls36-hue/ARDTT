@@ -16,7 +16,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,6 +26,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -138,21 +139,12 @@ fun ArdttLinkShareDialog(
                         Icon(Icons.Default.ContentCopy, contentDescription = "Копировать")
                     }
                 }
-                OutlinedButton(
+                ArdttButton(
+                    text = "Копировать ссылку",
                     onClick = copy,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = ArdttShapes.Chip,
-                ) {
-                    Icon(
-                        Icons.Default.ContentCopy,
-                        contentDescription = null,
-                        modifier = Modifier.size(ArdttSize.IconCompact),
-                    )
-                    Text(
-                        "Копировать ссылку",
-                        modifier = Modifier.padding(start = ArdttSpacing.Small),
-                    )
-                }
+                    variant = ArdttButtonVariant.Outlined,
+                    icon = Icons.Default.ContentCopy,
+                )
             }
             extraContent()
         }
