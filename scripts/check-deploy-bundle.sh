@@ -171,6 +171,10 @@ bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n cascade-entr
 bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n warp"
 bash -n "$ROOT/server/entrypoint.sh" || err "bash -n entrypoint"
 bash -n "$ROOT/scripts/pack-server-package.sh" || err "bash -n pack-server-package"
+bash -n "$ROOT/scripts/verify-server-package.sh" || err "bash -n verify-server-package"
+if grep -E 'tar -tzf .+\| grep -q' "$ROOT/scripts/verify-server-package.sh"; then
+  err "verify must not pipe tar -tzf to grep -q (SIGPIPE under pipefail)"
+fi
 bash -n "$ROOT/scripts/repack-server-host-files.sh" || err "bash -n repack-server-host-files"
 bash -n "$ROOT/scripts/attach-server-packages-to-release.sh" || err "bash -n attach-server-packages-to-release"
 grep -q -- '--from-dir' "$ROOT/scripts/attach-server-packages-to-release.sh" \
