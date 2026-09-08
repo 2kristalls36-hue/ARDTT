@@ -13,8 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -135,9 +133,12 @@ fun ArdttLinkShareDialog(
                         maxLines = LINK_MAX_LINES,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    IconButton(onClick = copy) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Копировать")
-                    }
+                    ArdttButton(
+                        onClick = copy,
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Default.ContentCopy,
+                        contentDescription = "Копировать",
+                    )
                 }
                 ArdttButton(
                     text = "Копировать ссылку",

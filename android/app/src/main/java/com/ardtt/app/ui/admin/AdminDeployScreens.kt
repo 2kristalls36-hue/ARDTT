@@ -49,7 +49,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -480,22 +479,22 @@ private fun ServerListScreen(
                     subtitle = if (selectMode) "Выбрано: ${selectedIds.size}" else null,
                     actions = {
                         if (selectMode) {
-                            IconButton(onClick = { exitSelectMode() }) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "Отменить экспорт",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            ArdttButton(
+                                onClick = { exitSelectMode() },
+                                variant = ArdttButtonVariant.Icon,
+                                icon = Icons.Filled.Close,
+                                contentDescription = "Отменить экспорт",
+                                contentColor = MaterialTheme.colorScheme.primary,
+                            )
                         } else {
                             Box {
-                                IconButton(onClick = { menuExpanded = true }) {
-                                    Icon(
-                                        Icons.Filled.MoreVert,
-                                        contentDescription = "Меню серверов",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
+                                ArdttButton(
+                                    onClick = { menuExpanded = true },
+                                    variant = ArdttButtonVariant.Icon,
+                                    icon = Icons.Filled.MoreVert,
+                                    contentDescription = "Меню серверов",
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                )
                                 ArdttOverflowMenu(
                                     expanded = menuExpanded,
                                     onDismissRequest = { menuExpanded = false },
@@ -1183,13 +1182,13 @@ private fun ServerOverviewScreen(
                     onBack = onBack,
                     actions = {
                         Box {
-                            IconButton(onClick = { onShowActions(true) }) {
-                                Icon(
-                                    Icons.Filled.MoreVert,
-                                    contentDescription = "Действия с сервером",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            ArdttButton(
+                                onClick = { onShowActions(true) },
+                                variant = ArdttButtonVariant.Icon,
+                                icon = Icons.Filled.MoreVert,
+                                contentDescription = "Действия с сервером",
+                                contentColor = MaterialTheme.colorScheme.primary,
+                            )
                             ArdttOverflowMenu(
                                 expanded = showActions,
                                 onDismissRequest = { onShowActions(false) },

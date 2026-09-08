@@ -22,8 +22,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -44,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -67,6 +66,8 @@ import com.ardtt.app.telemetry.testingCommentPreview
 import com.ardtt.app.telemetry.testingTicketReadLabel
 import com.ardtt.app.telemetry.testingTicketTitle
 import com.ardtt.app.telemetry.testingUploadNeedsCommentPrompt
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttChoice
 import com.ardtt.app.ui.components.control.ArdttChoiceChipRow
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
@@ -653,20 +654,22 @@ private fun LogRow(
                 onOpen = onOpenEditor,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = onUpload, enabled = !uploading) {
-                Icon(
-                    Icons.AutoMirrored.Outlined.Send,
-                    contentDescription = "Отправить",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            IconButton(onClick = onDelete, enabled = !uploading) {
-                Icon(
-                    Icons.Outlined.Delete,
-                    contentDescription = "Удалить",
-                    tint = MaterialTheme.colorScheme.error,
-                )
-            }
+            ArdttButton(
+                onClick = onUpload,
+                enabled = !uploading,
+                variant = ArdttButtonVariant.Icon,
+                icon = Icons.AutoMirrored.Outlined.Send,
+                contentDescription = "Отправить",
+                contentColor = MaterialTheme.colorScheme.primary,
+            )
+            ArdttButton(
+                onClick = onDelete,
+                enabled = !uploading,
+                variant = ArdttButtonVariant.Icon,
+                icon = Icons.Outlined.Delete,
+                contentDescription = "Удалить",
+                contentColor = MaterialTheme.colorScheme.error,
+            )
         }
         if (uploading) {
             ArdttLinearProgress(progress = progress)
@@ -690,9 +693,9 @@ private fun LogCommentField(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(ArdttSize.ChipCompact)
+            .height(ArdttSize.TouchTarget)
             .semantics { contentDescription = "Комментарий" }
-            .clickable(enabled = enabled, onClick = onOpen),
+            .clickable(enabled = enabled, role = Role.Button, onClick = onOpen),
         shape = ArdttShapes.Field,
         color = colors.surface,
         contentColor = if (preview.isBlank()) {

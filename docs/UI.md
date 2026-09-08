@@ -158,7 +158,8 @@ Pull-to-refresh и нижние закреплённые действия (`stic
 
 Роль, selected, `contentDescription`, `stateDescription` («Загрузка») задаются
 у общих кнопок и вкладок. Декоративная иконка рядом с подписью — `null`.
-Минимальная область касания 48×48 dp (`ArdttSize.TouchTarget`). Disabled-контроль
+Минимальная область касания 48×48 dp (`ArdttSize.TouchTarget`). Шапка
+(`ArdttHeaderDefaults.TitleRowHeight`) совпадает с этим минимумом. Disabled-контроль
 не должен быть единственным путём без объяснения: Connecting остаётся доступным
 для отмены; пустой каталог ведёт к импорту.
 

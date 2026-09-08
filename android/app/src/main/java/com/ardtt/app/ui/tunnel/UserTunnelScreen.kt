@@ -46,6 +46,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -170,7 +174,7 @@ fun UserTunnelScreen(
         },
         onOpenProfiles = {
             haptics.tick()
-            if (catalog.items.isEmpty()) {
+            if (tunnelProfileCenterOpensImport(catalog.items.size)) {
                 PendingUiAction.requestOpenProfileAdd()
             } else {
                 PendingUiAction.requestOpenProfiles()
@@ -430,7 +434,11 @@ private fun TunnelPowerToggle(
         Surface(
             modifier = Modifier
                 .size(180.dp)
-                .clickable(enabled = enabled) {
+                .semantics {
+                    role = Role.Button
+                    this.contentDescription = contentDescription
+                }
+                .clickable(enabled = enabled, role = Role.Button) {
                     runCatching { onClick() }
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
                 },
@@ -461,7 +469,7 @@ private fun TunnelPowerToggle(
                 } else {
                     Icon(
                         imageVector = Icons.Default.PowerSettingsNew,
-                        contentDescription = contentDescription,
+                        contentDescription = null,
                         tint = accentColor,
                         modifier = Modifier.size(72.dp),
                     )
