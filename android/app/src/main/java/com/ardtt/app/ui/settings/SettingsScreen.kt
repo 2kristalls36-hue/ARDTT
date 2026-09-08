@@ -20,7 +20,6 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,6 +60,9 @@ import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.TestingSessionGuard
 import com.ardtt.app.ui.commitHideIp
 import com.ardtt.app.ui.commitPathMode
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.control.DialPathChipRow
 import com.ardtt.app.ui.components.control.HideIpChipRow
@@ -494,18 +496,16 @@ fun SettingsScreen(
                     },
                 )
             } else {
-                OutlinedButton(
+                ArdttButton(
+                    text = "Завершить сессию администратора",
                     onClick = {
                         scope.launch {
                             settings.lockAdmin()
                             adminHint = null
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = ArdttShapes.Card,
-                ) {
-                    Text("Завершить сессию администратора")
-                }
+                    variant = ArdttButtonVariant.Outlined,
+                )
             }
             adminHint?.let {
                 val hintColor = if (it == "Режим администратора активирован") {
@@ -819,19 +819,14 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        OutlinedButton(
+        ArdttButton(
+            text = if (wifi.ssidAvailable) "Добавить «${wifi.ssid}»" else "Добавить текущую Wi‑Fi",
             onClick = {
                 askTrustedWifiPermissions(wantBackground = false, addAfter = true)
             },
-            modifier = Modifier.fillMaxWidth(),
-            shape = ArdttShapes.Card,
             enabled = enabled,
-        ) {
-            Text(
-                if (wifi.ssidAvailable) "Добавить «${wifi.ssid}»"
-                else "Добавить текущую Wi‑Fi",
-            )
-        }
+            variant = ArdttButtonVariant.Outlined,
+        )
         ssids.forEach { ssid ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -839,10 +834,13 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(ssid, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                OutlinedButton(
+                ArdttButton(
+                    text = "Удалить",
                     onClick = { scope.launch { settings.removeTrustedWifiSsid(ssid) } },
-                    shape = ArdttShapes.Icon,
-                ) { Text("Удалить") }
+                    variant = ArdttButtonVariant.Text,
+                    size = ArdttButtonSize.Compact,
+                    fillMaxWidth = false,
+                )
             }
         }
         hint?.let {
