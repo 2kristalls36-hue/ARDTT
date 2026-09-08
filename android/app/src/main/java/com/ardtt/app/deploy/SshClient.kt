@@ -1,11 +1,17 @@
 package com.ardtt.app.deploy
 
+import com.jcraft.jsch.ChannelDirectTCPIP
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
+import com.jcraft.jsch.Proxy
 import com.jcraft.jsch.Session
+import com.jcraft.jsch.SocketFactory
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.Socket
 import java.util.Properties
 
 class SshClient(
@@ -161,6 +167,7 @@ class SshClient(
             port: Int,
             auth: DeployAuth,
             timeoutMs: Int = 20_000,
+            jump: Session? = null,
         ): Session {
             val jsch = JSch()
             when (auth) {
@@ -186,11 +193,67 @@ class SshClient(
                     })
                 },
             )
-            session.connect(timeoutMs.coerceAtLeast(1_000))
+            val proxy = jump?.let {
+                check(it.isConnected) { "SSH-сессия входа закрыта, туннель к выходу недоступен" }
+                SshJumpProxy(it)
+            }
+            if (proxy != null) {
+                session.setProxy(proxy)
+            }
+            try {
+                session.connect(timeoutMs.coerceAtLeast(1_000))
+            } catch (t: Throwable) {
+                runCatching { proxy?.close() }
+                runCatching { session.disconnect() }
+                throw t
+            }
             return session
         }
 
         fun shellQuote(value: String): String =
             "'" + value.replace("'", "'\"'\"'") + "'"
+    }
+}
+
+/**
+ * OpenSSH-style ProxyJump: VPS 1 opens TCP to the exit host so the phone never
+ * dials VPS 2 directly. JSch treats a null [Proxy.getSocket] as stream-only.
+ */
+internal class SshJumpProxy(private val jump: Session) : Proxy {
+    private var channel: ChannelDirectTCPIP? = null
+    private var input: InputStream? = null
+    private var output: OutputStream? = null
+
+    override fun connect(socketFactory: SocketFactory?, host: String, port: Int, timeout: Int) {
+        check(jump.isConnected) { "SSH-сессия входа закрыта, туннель к выходу недоступен" }
+        val ch = jump.openChannel("direct-tcpip") as ChannelDirectTCPIP
+        ch.setHost(host)
+        ch.setPort(port)
+        ch.setOrgIPAddress("127.0.0.1")
+        ch.setOrgPort(0)
+        input = ch.inputStream
+        output = ch.outputStream
+        try {
+            ch.connect(timeout.coerceAtLeast(1_000))
+        } catch (t: Throwable) {
+            runCatching { ch.disconnect() }
+            input = null
+            output = null
+            throw t
+        }
+        channel = ch
+    }
+
+    override fun getInputStream(): InputStream? = input
+
+    override fun getOutputStream(): OutputStream? = output
+
+    override fun getSocket(): Socket? = null
+
+    override fun close() {
+        runCatching { channel?.disconnect() }
+        channel = null
+        input = null
+        output = null
     }
 }

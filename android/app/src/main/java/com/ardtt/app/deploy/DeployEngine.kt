@@ -15,8 +15,9 @@ import kotlinx.coroutines.withContext
 /**
  * Admin deploy: probe VPS arch over SSH, stream one GitHub Release package
  * (`ardtt-server-<ver>-linux-<arch>.tar.gz`) to a cache file, SFTP it, run
- * the installer from that archive. No git/main/raw fallback, no docker prune.
- * Protocol and VPS layout: docs/DEPLOY.md.
+ * the installer from that archive. Cascade exit is reached only through the
+ * entry SSH session (ProxyJump / direct-tcpip). No git/main/raw fallback,
+ * no docker prune. Protocol and VPS layout: docs/DEPLOY.md.
  */
 class DeployEngine(private val appContext: Context) {
     private val running = AtomicBoolean(false)
@@ -49,6 +50,8 @@ class DeployEngine(private val appContext: Context) {
     val hopTrack: StateFlow<DeployHopTrack> = _hopTrack.asStateFlow()
 
     @Volatile private var activeSession: Session? = null
+    /** Entry SSH kept open so cascade exit is reached via ProxyJump, not from the phone. */
+    @Volatile private var jumpSession: Session? = null
     @Volatile private var activeHost: String = ""
     @Volatile private var pendingTarget: DeployTarget? = null
 
@@ -137,7 +140,8 @@ class DeployEngine(private val appContext: Context) {
                     .put("auth_type", if (target.privateKeyPem.isNotBlank()) "key" else "password")
                     .put("is_update", _isUpdate.value)
                     .put("public_host", target.publicHost.ifBlank { target.host }.trim())
-                    .put("cascade_enabled", target.cascadeEnabled),
+                    .put("cascade_enabled", target.cascadeEnabled)
+                    .put("cascade_ssh_via_entry", target.cascadeEnabled),
             )
             append("Старт деплоя ${target.name.ifBlank { target.host }}")
             val deployVersion = DeployBundle.expectedVersion(appContext)
@@ -189,20 +193,18 @@ class DeployEngine(private val appContext: Context) {
             var exitProvision = target.cascadeProvisionPort
             var exitTelemetry = target.cascadeTelemetryPort
             if (target.cascadeEnabled) {
-                val exitHost = target.cascadeHost.trim()
+                val exitHost = SshJump.targetHost(target.cascadeHost)
                 if (exitHost.isBlank()) error("Не указан host второго сервера")
-                emitOn(exitHost, 0.04f, "Подключение SSH, $verb выходного стека…")
-                append("VPS 2 (выход): $exitHost")
-                val exitSession = SshClient.connect(
-                    host = exitHost,
-                    user = target.cascadeSshUser(),
-                    port = target.cascadePort,
-                    auth = target.cascadeAuth(),
-                )
-                activeSession = exitSession
-                val exitSsh = SshClient(exitSession, target.cascadePassword)
-                client = exitSsh
-                try {
+                emitOn(entryHost, 0.02f, "Подключение SSH, туннель к выходу…")
+                session = openEntrySsh(target)
+                jumpSession = session
+                activeSession = session
+                append("SSH на VPS 1 ($entryHost), дальше VPS 2 через туннель")
+                TelemetryBridge.deploy("ssh_jump_opened", entryHost)
+                emitOn(exitHost, 0.04f, "Подключение SSH через VPS 1, $verb выходного стека…")
+                append("VPS 2 (выход): $exitHost через $entryHost")
+                withExitViaJump(target) { exitSsh ->
+                    client = exitSsh
                     exitArch = ServerOsProbe.probeLinuxArch(exitSsh)
                     append("Архитектура выхода: $exitArch")
                     val exitPayload = payloadFor(exitArch, 0.06f, 0.14f)
@@ -238,23 +240,21 @@ class DeployEngine(private val appContext: Context) {
                     installed.telemetryPort?.let { exitTelemetry = it }
                     append("Ключ выхода получен с $exitHost")
                     markTrackedHostDone(exitHost)
-                } finally {
-                    runCatching { exitSession.disconnect() }
-                    if (activeSession === exitSession) activeSession = null
                 }
             }
 
-            emitOn(entryHost, if (target.cascadeEnabled) 0.50f else 0.04f, "Подключение SSH, $verb входного стека…")
-            session = SshClient.connect(
-                host = entryHost,
-                user = target.sshUser.trim().ifBlank { "root" },
-                port = target.sshPort,
-                auth = target.auth(),
-            )
-            activeSession = session
-            val ssh = SshClient(session, target.sudoPassword.ifBlank { target.password })
+            if (target.cascadeEnabled) {
+                emitOn(entryHost, 0.50f, "$verb входного стека…")
+                activeSession = session
+            } else {
+                emitOn(entryHost, 0.04f, "Подключение SSH, $verb входного стека…")
+                session = openEntrySsh(target)
+                activeSession = session
+                append("SSH подключено ($entryHost)")
+            }
+            val entrySession = session ?: error("SSH-сессия входа не открыта")
+            val ssh = SshClient(entrySession, target.sudoPassword.ifBlank { target.password })
             client = ssh
-            append("SSH подключено ($entryHost)")
             TelemetryBridge.deploy("ssh_connected", activeHost)
             entryArch = ServerOsProbe.probeLinuxArch(ssh)
             append("Архитектура входа: $entryArch")
@@ -302,17 +302,9 @@ class DeployEngine(private val appContext: Context) {
             markTrackedHostDone(entryHost)
 
             if (target.cascadeEnabled) {
-                val exitHost = target.cascadeHost.trim()
-                emitOn(exitHost, 0.94f, "Запись ключа входа и перезапуск контейнера…")
-                val exitSession = SshClient.connect(
-                    host = exitHost,
-                    user = target.cascadeSshUser(),
-                    port = target.cascadePort,
-                    auth = target.cascadeAuth(),
-                )
-                activeSession = exitSession
-                val exitSsh = SshClient(exitSession, target.cascadePassword)
-                try {
+                val exitHost = SshJump.targetHost(target.cascadeHost)
+                emitOn(exitHost, 0.94f, "Запись ключа входа через туннель…")
+                withExitViaJump(target) { exitSsh ->
                     if (entryPub.isBlank()) {
                         error("Входной VPS не отдал ключ каскада")
                     }
@@ -327,9 +319,6 @@ class DeployEngine(private val appContext: Context) {
                             "(cd /opt/ardtt/stack && docker compose restart); fi",
                     )
                     append("Пир входа записан на $exitHost")
-                } finally {
-                    runCatching { exitSession.disconnect() }
-                    activeSession = session
                 }
             }
 
@@ -408,6 +397,7 @@ class DeployEngine(private val appContext: Context) {
             _outcome.value = shown
             Result.failure(t)
         } finally {
+            disconnectJump()
             runCatching { session?.disconnect() }
             activeSession = null
             activeHost = ""
@@ -426,47 +416,36 @@ class DeployEngine(private val appContext: Context) {
                     .put("ssh_port", target.sshPort)
                     .put("ssh_user", target.sshUser.trim().ifBlank { "root" })
                     .put("auth_type", if (target.privateKeyPem.isNotBlank()) "key" else "password")
-                    .put("cascade_enabled", target.cascadeEnabled),
+                    .put("cascade_enabled", target.cascadeEnabled)
+                    .put("cascade_ssh_via_entry", target.cascadeEnabled),
             )
             append("Старт удаления ${target.name.ifBlank { target.host }}")
 
+            val entryHost = target.host.trim()
             if (target.cascadeEnabled) {
-                val exitHost = target.cascadeHost.trim()
+                val exitHost = SshJump.targetHost(target.cascadeHost)
                 if (exitHost.isBlank()) error("Не указан host второго сервера")
-                emitOn(exitHost, 0.04f, "Подключение SSH, снятие выходного стека…")
-                append("VPS 2 (выход): $exitHost")
-                val exitSession = SshClient.connect(
-                    host = exitHost,
-                    user = target.cascadeSshUser(),
-                    port = target.cascadePort,
-                    auth = target.cascadeAuth(),
-                )
-                activeSession = exitSession
-                try {
-                    val exitSsh = SshClient(exitSession, target.cascadePassword)
+                emitOn(entryHost, 0.02f, "Подключение SSH, туннель к выходу…")
+                session = openEntrySsh(target)
+                jumpSession = session
+                activeSession = session
+                append("SSH на VPS 1 ($entryHost), дальше VPS 2 через туннель")
+                emitOn(exitHost, 0.04f, "Подключение SSH через VPS 1, снятие выходного стека…")
+                append("VPS 2 (выход): $exitHost через $entryHost")
+                withExitViaJump(target) { exitSsh ->
                     wipeRemoteStack(exitSsh, exitHost, 0.06f, 0.48f)
                     markTrackedHostDone(exitHost)
-                } finally {
-                    runCatching { exitSession.disconnect() }
-                    if (activeSession === exitSession) activeSession = null
                 }
+                emitOn(entryHost, 0.50f, "Снятие входного стека…")
+                activeSession = session
+            } else {
+                emitOn(entryHost, 0.08f, "Подключение SSH, снятие входного стека…")
+                session = openEntrySsh(target)
+                activeSession = session
+                append("SSH подключено ($entryHost)")
             }
-
-            val entryHost = target.host.trim()
-            emitOn(
-                entryHost,
-                if (target.cascadeEnabled) 0.50f else 0.08f,
-                "Подключение SSH, снятие входного стека…",
-            )
-            session = SshClient.connect(
-                host = entryHost,
-                user = target.sshUser.trim().ifBlank { "root" },
-                port = target.sshPort,
-                auth = target.auth(),
-            )
-            activeSession = session
-            val ssh = SshClient(session, target.sudoPassword.ifBlank { target.password })
-            append("SSH подключено ($entryHost)")
+            val entrySession = session ?: error("SSH-сессия входа не открыта")
+            val ssh = SshClient(entrySession, target.sudoPassword.ifBlank { target.password })
             TelemetryBridge.deploy("ssh_connected", activeHost)
             wipeRemoteStack(
                 ssh,
@@ -518,6 +497,7 @@ class DeployEngine(private val appContext: Context) {
             _outcome.value = shown
             Result.failure(t)
         } finally {
+            disconnectJump()
             runCatching { session?.disconnect() }
             activeSession = null
             activeHost = ""
@@ -586,7 +566,56 @@ class DeployEngine(private val appContext: Context) {
         append("Отменено")
         TelemetryBridge.deploy("deploy_cancelled", activeHost)
         runCatching { activeSession?.disconnect() }
+        disconnectJump()
         activeSession = null
+    }
+
+    private fun disconnectJump() {
+        val jump = jumpSession
+        jumpSession = null
+        runCatching { jump?.disconnect() }
+    }
+
+    private fun openEntrySsh(target: DeployTarget): Session {
+        val host = SshJump.targetHost(target.host)
+        if (host.isBlank()) error("Не указан host сервера")
+        return SshClient.connect(
+            host = host,
+            user = target.sshUser.trim().ifBlank { "root" },
+            port = target.sshPort,
+            auth = target.auth(),
+        )
+    }
+
+    private fun openExitSsh(target: DeployTarget, jump: Session): Session {
+        val exitHost = SshJump.targetHost(target.cascadeHost)
+        if (exitHost.isBlank()) error("Не указан host второго сервера")
+        return try {
+            SshClient.connect(
+                host = exitHost,
+                user = target.cascadeSshUser(),
+                port = target.cascadePort,
+                auth = target.cascadeAuth(),
+                jump = jump,
+            )
+        } catch (t: Throwable) {
+            throw IllegalStateException(
+                SshJump.connectError(SshJump.targetHost(target.host), exitHost, t),
+                t,
+            )
+        }
+    }
+
+    private inline fun withExitViaJump(target: DeployTarget, block: (SshClient) -> Unit) {
+        val jump = jumpSession ?: error("SSH-сессия входа не открыта")
+        val exitSession = openExitSsh(target, jump)
+        activeSession = exitSession
+        try {
+            block(SshClient(exitSession, target.cascadePassword))
+        } finally {
+            runCatching { exitSession.disconnect() }
+            if (activeSession === exitSession) activeSession = jump
+        }
     }
 
     private fun uploadAndInstall(
