@@ -105,6 +105,66 @@ class DeployStackSourceTest {
     }
 
     @Test
+    fun sha256sumsUrlPrefersServerFileOverApkSums() {
+        val json = """
+            {
+              "assets": [
+                { "name": "SHA256SUMS.txt", "browser_download_url": "https://example/apk-sums" },
+                { "name": "SHA256SUMS-server.txt", "browser_download_url": "https://example/server-sums" }
+              ]
+            }
+        """.trimIndent()
+        assertEquals("https://example/server-sums", DeployStackSource.sha256sumsUrl(json))
+        assertEquals(
+            "https://example/pkg.tar.gz.sha256",
+            DeployStackSource.siblingSha256AssetUrl(
+                """{"assets":[{"name":"ardtt-server-1.0.45-linux-amd64.tar.gz.sha256","browser_download_url":"https://example/pkg.tar.gz.sha256"}]}""",
+                "ardtt-server-1.0.45-linux-amd64.tar.gz",
+            ),
+        )
+        assertEquals(
+            "c".repeat(64),
+            DeployStackSource.parseSha256Text("${"c".repeat(64)}\n", "ignored.tar.gz"),
+        )
+    }
+
+    @Test
+    fun preferredReleaseJsonSkipsVersionTagWithoutServerAsset() {
+        val tagOnlyApk = """
+            {
+              "tag_name": "v0.5.257",
+              "draft": false,
+              "assets": [
+                { "name": "ardtt-0.5.257-arm64-v8a.apk", "browser_download_url": "https://example/app.apk" }
+              ]
+            }
+        """.trimIndent()
+        val list = """
+            [
+              $tagOnlyApk,
+              {
+                "tag_name": "v0.5.256",
+                "draft": false,
+                "assets": [
+                  {
+                    "name": "ardtt-server-1.0.45-linux-amd64.tar.gz",
+                    "browser_download_url": "https://example/ardtt-server-1.0.45-linux-amd64.tar.gz",
+                    "digest": "sha256:${"d".repeat(64)}",
+                    "size": 99
+                  }
+                ]
+              }
+            ]
+        """.trimIndent()
+        val chosen = DeployStackSource.preferredReleaseJson(tagOnlyApk, list, "1.0.45", "amd64")
+        assertEquals(
+            "https://example/ardtt-server-1.0.45-linux-amd64.tar.gz",
+            DeployStackSource.pickServerAsset(chosen!!, "1.0.45", "amd64")?.url,
+        )
+        assertNull(DeployStackSource.preferredReleaseJson(tagOnlyApk, "[]", "1.0.45", "amd64"))
+    }
+
+    @Test
     fun gzipMagicAndInstallerSniff() {
         assertTrue(DeployStackFetcher.looksLikeGzip(byteArrayOf(0x1f, 0x8b.toByte(), 0x08)))
         assertFalse(DeployStackFetcher.looksLikeGzip("not gzip".toByteArray()))

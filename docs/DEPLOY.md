@@ -31,7 +31,7 @@
 
 Пакет **не** ставит Docker и **не** является установщиком чистой ОС. Если Engine нет или он не отвечает, preflight завершается до изменений. Недостающий Compose разрешено взять из того же архива в `/opt/ardtt/bin`.
 
-Стек — **один контейнер** в своей netns и своей Docker bridge-сети. Hostnet из старой `.env` не восстанавливается. Привилегированный режим, host PID/IPC, `docker.sock` внутри контейнера и nsenter в хост не используются.
+Стек — **один контейнер** в своей netns и своей Docker bridge-сети. Hostnet из старой `.env` не восстанавливается. Привилегированный режим, host PID/IPC, `docker.sock` внутри контейнера и nsenter в хост не используются. Подсеть bridge подбирается так, чтобы не пересечься с маршрутами хоста и сетями Docker: сначала `172.28.x.0/24` / `172.30.x.0/24`, а если хост анонсирует `172.16.0.0/12` (часто на облачных VPS) — `10.112.x.0/24` или `10.210.x.0/24`. Не задаётся одна жёсткая подсеть для всех машин.
 
 ---
 
@@ -113,7 +113,7 @@ third-party.lock.json
 ### Что делает `DeployEngine`
 
 1. SSH: `uname -m` → `amd64` / `arm64` **на каждом** хопе.
-2. HTTPS: потоковая загрузка актива в файл кеша, SHA-256 на потоке. Образ не держится в `ByteArray`. Кеш переиспользуется только при совпадении version/arch/digest.
+2. HTTPS: потоковая загрузка актива в файл кеша, SHA-256 на потоке. Сначала тег `v<versionName>`, если на нём нет `ardtt-server-*.tar.gz` — другой опубликованный релиз с этой версией стека. Образ не держится в `ByteArray`. Кеш переиспользуется только при совпадении version/arch/digest.
 3. SFTP файла во временное имя, затем `mv`. Отдельный `install.sh` с GitHub не качается.
 4. На VPS: сверка SHA-256, безопасная распаковка, `install.sh` из архива.
 5. Протокол: `ARDTT_PROGRESS`, `ARDTT_WARN`, `ARDTT_ERROR`, `ARDTT_DONE`, `ARDTT_CASCADE_PUBLIC_KEY`. Фактические `provision_port` / `telemetry_port` пишутся в карточку.
@@ -287,7 +287,7 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
 
 1. `android/app/src/main/assets/deploy/DEPLOY_VERSION`
 2. `DeployBundle.FALLBACK_VERSION`
-3. CI (`.github/workflows/server-package.yml`) собирает `ardtt-server-<версия>-linux-*.tar.gz` и при push в `main` или тег `v*` **прикрепляет их к последнему GitHub Release**, если он уже есть. Пока релиза нет — только Artifacts (30 дней). Старый `ardtt-stack-*.tar.gz` в релиз не кладётся.
+3. CI (`.github/workflows/server-package.yml`) собирает `ardtt-server-<версия>-linux-*.tar.gz`. Push в `main` **сразу** прикрепляет уже собранные артефакты Actions к последнему GitHub Release (не ждёт 3-часовую пересборку). Тот же шаг делает `android-build.yml`, когда публикует APK-тег. Полная пересборка образа по-прежнему идёт на `main`/тег и заливает пакеты поверх (`--clobber`). Пока релиза нет — только Artifacts (30 дней). Старый `ardtt-stack-*.tar.gz` в релиз не кладётся.
 
 Бамп: образ, Compose, entrypoint'ы, `install.sh`. Только UI телефона — нет.
 
@@ -312,7 +312,7 @@ docker exec "$NAME" provision -cmd create-user -name smoke -data /data
 
 | Симптом | Что проверить |
 |---------|----------------|
-| «Не удалось скачать пакет … из GitHub» | Сеть телефона до github.com. Старый APK ждёт `ardtt-stack-*` — обновите приложение |
+| «Не удалось скачать пакет … из GitHub» | Сеть телефона до github.com. Старый APK ждёт `ardtt-stack-*` — обновите приложение. Новый APK ищет архив на своём теге, иначе на другом релизе с тем же стеком |
 | Нет SHA-256 у актива | Релиз без `digest` / `SHA256SUMS` — установка откажется до изменений на VPS |
 | Docker Engine не найден | Поставьте Docker сами. Этот пакет его не ставит |
 | Мало места | Порог с запасом на load + слои + `previous/`. Глобальная очистка сервера не выполняется |

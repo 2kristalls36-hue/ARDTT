@@ -20,6 +20,25 @@ load_instance() {
   [ -n "$INSTANCE_ID" ]
 }
 
+# Failed first install used to write current/.env before instance.json.
+# Uninstall still accepts either source so a restarting container is not left.
+load_instance_from_env() {
+  local envf
+  for envf in "${INSTALL_DIR}/current/.env" "${INSTALL_DIR}/.env"; do
+    [ -f "$envf" ] || continue
+    INSTANCE_ID="$(env_file_val "$envf" ARDTT_INSTANCE_ID)"
+    COMPOSE_PROJECT="$(env_file_val "$envf" COMPOSE_PROJECT_NAME)"
+    ARDTT_CONTAINER_NAME="$(env_file_val "$envf" ARDTT_CONTAINER_NAME)"
+    ARDTT_NETWORK_NAME="$(env_file_val "$envf" ARDTT_NETWORK_NAME)"
+    ARDTT_BRIDGE_SUBNET="$(env_file_val "$envf" ARDTT_BRIDGE_SUBNET)"
+    PREV_IMAGE_TAG="$(env_file_val "$envf" ARDTT_IMAGE)"
+    if [ -n "$INSTANCE_ID" ] && [ -n "${ARDTT_CONTAINER_NAME:-}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 write_instance() {
   mkdir -p "$INSTALL_DIR"
   python3 - "$INSTALL_DIR/instance.json" <<PY

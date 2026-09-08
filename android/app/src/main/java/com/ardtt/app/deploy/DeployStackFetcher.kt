@@ -54,7 +54,7 @@ class DeployStackFetcher(
         val errors = mutableListOf<String>()
         resolveReleaseAsset(tag, linuxArch)?.let { asset ->
             runCatching {
-                return downloadVerified(asset, "GitHub Releases $tag / ${asset.name}", tag, linuxArch, onProgress, isCancelled)
+                return downloadVerified(asset, "GitHub Releases / ${asset.name}", tag, linuxArch, onProgress, isCancelled)
             }.onFailure { errors.add(it.message ?: it.javaClass.simpleName) }
         }
         val hint = errors.take(5).joinToString("; ").ifBlank { "нет актива ardtt-server-$expectedVersion-linux-$linuxArch.tar.gz" }
@@ -66,31 +66,33 @@ class DeployStackFetcher(
     }
 
     private fun resolveReleaseAsset(tag: String, arch: String): DeployStackSource.ReleaseAsset? {
-        val json = fetchText(GitHubReleaseUpdate.releaseByTagApiUrl(tag), githubApi = true)
-            ?: fetchNewestMatchingRelease(arch)
+        val tagJson = fetchText(GitHubReleaseUpdate.releaseByTagApiUrl(tag), githubApi = true)
+        val tagHasPackage = tagJson != null &&
+            DeployStackSource.pickServerAsset(tagJson, expectedVersion, arch) != null
+        val listJson = if (tagHasPackage) {
+            null
+        } else {
+            fetchText(GitHubReleaseUpdate.releasesListApiUrl(), githubApi = true)
+        }
+        val json = DeployStackSource.preferredReleaseJson(tagJson, listJson, expectedVersion, arch)
             ?: return null
         return completeAsset(json, arch)
-    }
-
-    private fun fetchNewestMatchingRelease(arch: String): String? {
-        val raw = fetchText(GitHubReleaseUpdate.releasesListApiUrl(), githubApi = true) ?: return null
-        val releases = runCatching { org.json.JSONArray(raw) }.getOrNull() ?: return null
-        for (i in 0 until releases.length()) {
-            val json = releases.optJSONObject(i) ?: continue
-            DeployStackSource.pickServerAsset(json.toString(), expectedVersion, arch)?.let {
-                return json.toString()
-            }
-        }
-        return null
     }
 
     private fun completeAsset(releaseJson: String, arch: String): DeployStackSource.ReleaseAsset? {
         val asset = DeployStackSource.pickServerAsset(releaseJson, expectedVersion, arch) ?: return null
         if (asset.sha256.isNotEmpty()) return asset
-        val sumsUrl = DeployStackSource.sha256sumsUrl(releaseJson) ?: return null
-        val sums = fetchText(sumsUrl, githubApi = false) ?: return null
-        val sha = DeployStackSource.sha256FromSums(sums, asset.name) ?: return null
-        return asset.copy(sha256 = sha)
+        DeployStackSource.sha256sumsUrl(releaseJson)?.let { sumsUrl ->
+            val sums = fetchText(sumsUrl, githubApi = false)
+            val sha = sums?.let { DeployStackSource.sha256FromSums(it, asset.name) }
+            if (sha != null) return asset.copy(sha256 = sha)
+        }
+        DeployStackSource.siblingSha256AssetUrl(releaseJson, asset.name)?.let { sibling ->
+            val body = fetchText(sibling, githubApi = false)
+            val sha = body?.let { DeployStackSource.parseSha256Text(it, asset.name) }
+            if (sha != null) return asset.copy(sha256 = sha)
+        }
+        return null
     }
 
     private fun downloadVerified(
