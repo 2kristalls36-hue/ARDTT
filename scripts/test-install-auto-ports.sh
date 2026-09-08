@@ -82,6 +82,18 @@ got="$(resolve_udp_host_port 51820 "Direct" 2>/dev/null)"
 [ "$got" = "51820" ] || err "update must keep our published port, got '$got'"
 ok "our published port is not a foreign conflict"
 
+# HostPort is the host publish; container-port keys must not be treated as busy host ports.
+mapped='{"80/tcp":[{"HostIp":"0.0.0.0","HostPort":"9100"}]} {"80/tcp":[{"HostIp":"0.0.0.0","HostPort":"9100"}]}'
+inspect_json_has_host_port "$mapped" 9100 tcp || err "host 9100 via container 80/tcp must be busy"
+inspect_json_has_host_port "$mapped" 80 tcp && err "container port 80 must not count as host 80"
+inspect_json_has_host_port "$mapped" 9100 udp && err "tcp HostPort must not count as udp"
+ok "HostPort 9100 from container 80/tcp"
+
+shifted='{"9100/tcp":[{"HostIp":"","HostPort":"19100"}]}'
+inspect_json_has_host_port "$shifted" 9100 tcp && err "container 9100 published as 19100 is not host 9100"
+inspect_json_has_host_port "$shifted" 19100 tcp || err "host 19100 must be busy"
+ok "container 9100/tcp → host 19100"
+
 if [ "$fail" -ne 0 ]; then
   echo "auto-ports helper tests failed" >&2
   exit 1

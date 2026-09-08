@@ -6,7 +6,7 @@
 
 - Один установочный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz`: docker save, `install.sh`, production Compose без `build:`, `bin/docker-compose`. На VPS — `docker load` и `compose up --no-build --pull never`. Нет git/main/GHCR/`get.docker.com`.
 - Docker Engine должен быть установлен заранее. Hostnet убран. Ресурсы — labels `com.ardtt.owner` / `com.ardtt.instance`, не префиксы `stack-`.
-- Установщик не останавливает Docker, не чистит BuildKit/кэши/swap/журнал хоста, не трогает чужие контейнеры и firewall. Preflight до остановки старого ARDTT. Готовность — `ready.sh`, не один `/health`. Ошибка → откат, без ложного `ARDTT_DONE`.
+- Установщик не останавливает Docker, не чистит BuildKit/кэши/swap/журнал хоста, не трогает чужие контейнеры и firewall. Preflight до остановки старого ARDTT. Готовность — `ready.sh`, не один `/health`. Ошибка compose/readiness → восстановление `previous/` (файл Compose, не каталог) и `DEPLOY_VERSION`, без ложного `ARDTT_DONE`. Занятость портов смотрит Docker **HostPort**, не ключ контейнерного порта.
 - Host-порты provision/telemetry отдельно от listen 9100/9200 внутри контейнера. Android зонд arch, качает пакет в файл, SFTP из файла; после установки не делает `docker prune`.
 - Совместимость: APK, которые ждут `ardtt-stack-*.tar.gz` или исходники `main`, этот пакет не ставят.
 

@@ -421,30 +421,20 @@ do_install() {
   ln -sfn "$release" "$INSTALL_DIR/current-release" 2>/dev/null || true
 
   prog 0.62 "Запуск compose --no-build --pull never"
-  (
+  if ! (
     cd "$INSTALL_DIR/current"
-    if ! compose_up_cmd up -d --no-build --pull never; then
-      die "docker compose up не удался"
-    fi
-  )
+    compose_up_cmd up -d --no-build --pull never
+  ); then
+    restore_previous_release || true
+    die "docker compose up не удался. Код ≠ 0, ARDTT_DONE нет."
+  fi
 
   prog 0.80 "Readiness (процессы, интерфейсы, /health)"
   if ! wait_readiness; then
     local detail
     detail="$(readiness_detail || true)"
     echo "ARDTT_WARN|readiness не прошла: ${detail}"
-    if [ -d "$INSTALL_DIR/previous/docker-compose.yml" ]; then
-      echo "ARDTT_WARN|откат на предыдущую версию"
-      (
-        cd "$INSTALL_DIR/current" && compose_up_cmd down --remove-orphans || true
-      )
-      rm -rf "$INSTALL_DIR/current"
-      cp -a "$INSTALL_DIR/previous" "$INSTALL_DIR/current"
-      (
-        cd "$INSTALL_DIR/current"
-        compose_up_cmd up -d --no-build --pull never || true
-      )
-    fi
+    restore_previous_release || true
     die "Новая версия не прошла readiness. Код ≠ 0, ARDTT_DONE нет. ${detail}"
   fi
 

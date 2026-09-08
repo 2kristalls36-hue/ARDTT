@@ -56,6 +56,36 @@ uninstall_this_instance() {
   echo "ARDTT_UNINSTALLED"
 }
 
+# Copy previous/ onto current/ and start it. Does not emit ARDTT_DONE —
+# a failed update must still return ARDTT_ERROR even after restoring the old stack.
+# docker-compose.yml is a file: [ -d that-path ] is always false.
+restore_previous_release() {
+  local prev="${INSTALL_DIR}/previous"
+  [ -f "$prev/docker-compose.yml" ] || return 1
+  echo "ARDTT_WARN|откат на предыдущую версию"
+  if [ -d "${INSTALL_DIR}/current" ]; then
+    (
+      cd "${INSTALL_DIR}/current"
+      compose_up_cmd down --remove-orphans || true
+    ) >/dev/null 2>&1 || true
+  fi
+  rm -rf "${INSTALL_DIR}/current"
+  mkdir -p "${INSTALL_DIR}/current"
+  cp -a "$prev"/. "${INSTALL_DIR}/current"/
+  local prev_ver
+  prev_ver="$(env_file_val "$prev/.env" ARDTT_DEPLOY_VERSION)"
+  if [ -n "$prev_ver" ]; then
+    mkdir -p "${INSTALL_DIR}/data"
+    printf '%s\n' "$prev_ver" > "${INSTALL_DIR}/data/DEPLOY_VERSION"
+    printf '%s\n' "$prev_ver" > "${INSTALL_DIR}/DEPLOY_VERSION"
+  fi
+  (
+    cd "${INSTALL_DIR}/current"
+    compose_up_cmd up -d --no-build --pull never
+  ) || return 1
+  return 0
+}
+
 rollback_previous() {
   local prev="${INSTALL_DIR}/previous"
   [ -f "$prev/docker-compose.yml" ] || die "Нет предыдущей версии для отката"
@@ -69,13 +99,7 @@ rollback_previous() {
     rm -rf "${INSTALL_DIR}/failed"
     mv "$live" "${INSTALL_DIR}/failed" || true
   fi
-  mkdir -p "${INSTALL_DIR}/current"
-  cp -a "$prev"/. "${INSTALL_DIR}/current"/
-  (
-    cd "${INSTALL_DIR}/current"
-    compose_up_cmd up -d --no-build --pull never
-  ) || die "Откат: compose up не удался"
+  restore_previous_release || die "Откат: compose up не удался"
   wait_readiness || die "Откат: readiness не прошла"
-  printf '%s\n' "$(env_file_val "$prev/.env" ARDTT_DEPLOY_VERSION)" > "${INSTALL_DIR}/DEPLOY_VERSION"
   echo "ARDTT_DONE|rollback=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$(cat "${INSTALL_DIR}/DEPLOY_VERSION")"
 }

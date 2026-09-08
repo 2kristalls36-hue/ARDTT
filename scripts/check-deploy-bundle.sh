@@ -49,6 +49,10 @@ PY
   grep -q 'docker load' "$INSTALLER" || err "installer must docker load"
   grep -q -- '--no-build --pull never' "$INSTALLER" || err "installer must up --no-build --pull never"
   grep -q 'wait_readiness' "$INSTALLER" || err "installer must wait readiness"
+  grep -q 'restore_previous_release' "$INSTALLER" || err "installer must restore previous on failed up/readiness"
+  if grep -q '\[ -d "$INSTALL_DIR/previous/docker-compose.yml" \]' "$INSTALLER"; then
+    err "auto-rollback must not use [ -d ] on previous/docker-compose.yml (it is a file)"
+  fi
   grep -q 'ARDTT_ACTION' "$INSTALLER" || err "installer missing uninstall/rollback actions"
   grep -q 'ARDTT_CASCADE_FORCE_DISABLE' "$ROOT/server/install-lib/migrate.sh" || err "cascade force-disable"
   grep -q 'exit-hideip' "$INSTALLER" || err "installer must set WARP_MODE=exit-hideip on the cascade exit"
@@ -204,6 +208,9 @@ if [ -f "$ROOT/scripts/test-install-isolation.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-unpack.sh" ]; then
   bash "$ROOT/scripts/test-install-unpack.sh" || err "install unpack"
+fi
+if [ -f "$ROOT/scripts/test-install-rollback.sh" ]; then
+  bash "$ROOT/scripts/test-install-rollback.sh" || err "install rollback restore"
 fi
 if [ -f "$ROOT/scripts/test-package-extract.sh" ]; then
   bash "$ROOT/scripts/test-package-extract.sh" || err "package extract safety"

@@ -62,6 +62,7 @@ fi
 grep -q 'com.ardtt.owner' "$ROOT/server/install-lib/ownership.sh" || err "ownership labels"
 grep -q 'pick_bridge_subnet' "$ROOT/server/install-lib/network.sh" || err "bridge subnet picker"
 grep -q 'docker_published_port' "$ROOT/server/install-lib/ports.sh" || err "Docker PortBindings probe"
+grep -q 'inspect_json_has_host_port' "$ROOT/server/install-lib/ports.sh" || err "HostPort inspect helper"
 
 if [ "$fail" -ne 0 ]; then
   echo "install isolation tests failed" >&2
