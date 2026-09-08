@@ -54,7 +54,7 @@ PR всегда собирает Preview APK в артефакты (`.github/wor
 
 1. Собирает подписанные `ardtt-<versionName>-*.apk` (R8 + сжатие ресурсов; стек VPS в APK не кладётся)
 2. Стабильная версия: публикует GitHub Release с тегом `v<versionName>` (APK, `ardtt-update.json`)
-3. Пакеты сервера `ardtt-server-<DEPLOY_VERSION>-linux-*.tar.gz` собирает [`.github/workflows/server-package.yml`](../.github/workflows/server-package.yml)
+3. Пакеты сервера `ardtt-server-<DEPLOY_VERSION>-linux-*.tar.gz` собирает [`.github/workflows/server-package.yml`](../.github/workflows/server-package.yml) и при push в `main` (или тег) прикрепляет к последнему GitHub Release. `android-build.yml` больше не кладёт в релиз исходный `ardtt-stack-*.tar.gz`.
 
 **Секреты репозитория** (Settings → Secrets → Actions):
 
