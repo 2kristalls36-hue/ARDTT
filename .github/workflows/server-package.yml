@@ -132,8 +132,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          ARDTT_GIT_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # Downloads the last dual-arch image artifacts, then refreshes
+          # install.sh / ready.sh / Compose from this commit before upload.
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             bash scripts/attach-server-packages-to-release.sh --tag "${GITHUB_REF_NAME}"
           else

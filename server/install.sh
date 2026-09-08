@@ -394,8 +394,7 @@ do_install() {
   fi
 
   prog 0.30 "docker load образа (без build и без pull)"
-  docker load -i "$IMAGE_TAR" >/dev/null
-  verify_loaded_image "$ARDTT_IMAGE" "$PKG_IMAGE_ID"
+  load_package_image "$IMAGE_TAR" "$ARDTT_IMAGE" "$PKG_IMAGE_ID"
   LOADED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$ARDTT_IMAGE")"
 
   mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs"
