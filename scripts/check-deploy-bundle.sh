@@ -94,11 +94,22 @@ grep -q 'pull_policy: never' "$COMPOSE" || err "compose must set pull_policy: ne
 grep -q 'cap_drop:' "$COMPOSE" || err "compose must cap_drop ALL"
 grep -q 'NET_ADMIN' "$COMPOSE" || err "compose missing NET_ADMIN"
 grep -q 'NET_RAW' "$COMPOSE" || err "compose missing NET_RAW"
+grep -q 'SETUID' "$COMPOSE" || err "compose missing SETUID for dnsmasq"
+grep -q 'SETGID' "$COMPOSE" || err "compose missing SETGID for dnsmasq"
 grep -q '/dev/net/tun' "$COMPOSE" || err "compose missing /dev/net/tun"
 grep -qE '^[[:space:]]*privileged:' "$COMPOSE" && err "compose must not be privileged"
 grep -qE 'docker\.sock:' "$COMPOSE" && err "compose must not mount docker.sock"
 grep -q 'mem_limit:' "$COMPOSE" || err "compose missing mem_limit"
 grep -q '/opt/ardtt/ready.sh' "$COMPOSE" || err "compose healthcheck must use ready.sh"
+if ! grep -q 'bash", "/opt/ardtt/ready.sh' "$COMPOSE"; then
+  err "compose healthcheck must run ready.sh via bash (image copy may be mode 644)"
+fi
+grep -q 'docker cp' "$INSTALLER" || err "installer must overlay package ready.sh into the container"
+grep -q 'bash /opt/ardtt/ready.sh' "$INSTALLER" || err "readiness must invoke ready.sh via bash"
+if grep -E 'local[[:space:]]+name="\$1"[[:space:]]+pidfile=.*\$\{name\}' "$ROOT/server/ready.sh" >/dev/null; then
+  err "ready.sh must not expand \${name} in the same local statement (set -u)"
+fi
+grep -Fq 'cp -f "$ROOT/server/ready.sh"' "$PACK_SERVER" || err "pack-server-package must include ready.sh"
 grep -q 'ARDTT_TELEMETRY_PORT' "$COMPOSE" || err "compose must publish host telemetry port"
 grep -q '9100:9100/tcp' "$COMPOSE" || grep -q '9100/tcp' "$COMPOSE" || err "compose provision target 9100"
 grep -q '9200:9200/tcp' "$COMPOSE" || grep -q '9200/tcp' "$COMPOSE" || err "compose telemetry target 9200"

@@ -11,7 +11,9 @@ WARP_MODE="${ARDTT_WARP_MODE:-hideip}"
 fail() { echo "not ready: $*" >&2; exit 1; }
 
 alive() {
-  local name="$1" pidfile="/var/run/ardtt-${name}.pid" pid
+  local name pidfile pid
+  name="$1"
+  pidfile="/var/run/ardtt-${name}.pid"
   [ -f "$pidfile" ] || return 1
   pid="$(cat "$pidfile" 2>/dev/null || true)"
   [ -n "${pid:-}" ] || return 1
