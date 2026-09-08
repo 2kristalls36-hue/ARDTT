@@ -39,6 +39,13 @@ chmod +x "$WORKDIR/docker/dockerd"
 echo '#!/bin/sh' > "$WORKDIR/docker/docker"
 chmod +x "$WORKDIR/docker/docker"
 tar -czf "$WORKDIR/pkg/vendor/docker.tgz" -C "$WORKDIR" docker
+python3 - "$WORKDIR/pkg/vendor/docker.tgz" <<'PY' || err "python tarfile listing must see docker/dockerd"
+import sys, tarfile
+with tarfile.open(sys.argv[1], "r:gz") as tf:
+    names = tf.getnames()
+if "docker/dockerd" not in names:
+    raise SystemExit("missing docker/dockerd")
+PY
 SHA="$(sha256sum "$WORKDIR/pkg/vendor/docker.tgz" | awk '{print $1}')"
 ARCH="$(uname -m)"
 case "$ARCH" in
