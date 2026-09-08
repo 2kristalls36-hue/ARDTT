@@ -31,7 +31,7 @@ DOCKERFILE="$ROOT/server/Dockerfile"
 if [ -f "$INSTALLER" ]; then
   bash -n "$INSTALLER" || err "bash -n failed for server/install.sh"
   bash -n "$ROOT/server/ready.sh" || err "bash -n ready.sh"
-  bash -n "$ROOT/server/install-lib/ports.sh" || err "bash -n ports.sh"
+  bash -n "$ROOT/server/install-lib/network.sh" || err "bash -n network.sh"
   grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
   grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
   grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
@@ -139,11 +139,15 @@ bash -n "$ROOT/server/direct/cascade-entrypoint.sh" || err "bash -n cascade-entr
 bash -n "$ROOT/server/warp/entrypoint.sh" || err "bash -n warp"
 bash -n "$ROOT/server/entrypoint.sh" || err "bash -n entrypoint"
 bash -n "$ROOT/scripts/pack-server-package.sh" || err "bash -n pack-server-package"
+bash -n "$ROOT/scripts/attach-server-packages-to-release.sh" || err "bash -n attach-server-packages-to-release"
+bash -n "$ROOT/scripts/test-install-live-isolation.sh" || err "bash -n test-install-live-isolation"
 bash -n "$ROOT/scripts/make-fake-server-package.sh" || err "bash -n make-fake-server-package"
 python3 -m py_compile "$ROOT/scripts/safe-extract-package.py" || err "safe-extract-package.py"
 
 if [ -f "$STACK_SOURCE_KT" ]; then
   grep -q 'ardtt-server-' "$STACK_SOURCE_KT" || err "DeployStackSource must name ardtt-server-*-linux-<arch>.tar.gz"
+  grep -q 'preferredReleaseJson' "$STACK_SOURCE_KT" || err "DeployStackSource must search other releases if the version tag has no server asset"
+  grep -q 'SHA256SUMS-server' "$STACK_SOURCE_KT" || err "DeployStackSource must read SHA256SUMS-server.txt"
   grep -q 'raw.githubusercontent.com' "$STACK_SOURCE_KT" && err "DeployStackSource must not fetch install.sh from raw GitHub"
   grep -q 'archive/refs/heads/main' "$STACK_SOURCE_KT" && err "DeployStackSource must not fall back to main"
 fi
@@ -202,6 +206,9 @@ if [ -f "$ROOT/scripts/test-cascade-warp-prefs.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-auto-ports.sh" ]; then
   bash "$ROOT/scripts/test-install-auto-ports.sh" || err "install auto-ports helpers"
+fi
+if [ -f "$ROOT/scripts/test-install-bridge-subnet.sh" ]; then
+  bash "$ROOT/scripts/test-install-bridge-subnet.sh" || err "bridge subnet picker"
 fi
 if [ -f "$ROOT/scripts/test-install-isolation.sh" ]; then
   bash "$ROOT/scripts/test-install-isolation.sh" || err "install isolation contract"

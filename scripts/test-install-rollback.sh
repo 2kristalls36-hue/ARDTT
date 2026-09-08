@@ -59,7 +59,33 @@ if grep -q '\[ -d "$INSTALL_DIR/previous/docker-compose.yml" \]' "$ROOT/server/i
   err "install.sh used [ -d previous/docker-compose.yml ] — rollback would never run"
 fi
 grep -q 'restore_previous_release' "$ROOT/server/install.sh" || err "install.sh must restore previous on failed switch"
+grep -q 'stop_owned_stack' "$ROOT/server/install.sh" || err "install.sh must stop a failed first install"
 grep -q 'restore_previous_release' "$ROOT/server/install-lib/uninstall.sh" || err "restore helper missing"
+grep -q 'load_instance_from_env' "$ROOT/server/install-lib/uninstall.sh" || err "uninstall must read current/.env if instance.json is missing"
+grep -q 'load_instance_from_env' "$ROOT/server/install-lib/ownership.sh" || err "load_instance_from_env helper missing"
+
+# shellcheck disable=SC1091
+. "$ROOT/server/install-lib/ownership.sh"
+ENV_ONLY="$TMP/env-only"
+mkdir -p "$ENV_ONLY/current"
+cat > "$ENV_ONLY/current/.env" <<EOF
+ARDTT_INSTANCE_ID=deadbeef
+COMPOSE_PROJECT_NAME=ardttdeadbeef
+ARDTT_CONTAINER_NAME=ardtt-deadbeef
+ARDTT_NETWORK_NAME=ardtt-deadbeef
+ARDTT_BRIDGE_SUBNET=10.112.0.0/24
+ARDTT_IMAGE=ardtt/server:1.0.45
+EOF
+INSTALL_DIR="$ENV_ONLY"
+if load_instance; then
+  err "load_instance must fail without instance.json"
+else
+  ok "load_instance ignores missing instance.json"
+fi
+load_instance_from_env || err "load_instance_from_env failed"
+[ "$ARDTT_CONTAINER_NAME" = "ardtt-deadbeef" ] || err "env fallback container name"
+[ "$INSTANCE_ID" = "deadbeef" ] || err "env fallback instance id"
+ok "uninstall identity from current/.env"
 
 if [ "$fail" -ne 0 ]; then
   echo "rollback restore tests failed" >&2

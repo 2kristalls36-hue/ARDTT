@@ -397,6 +397,7 @@ do_install() {
   [ -d "$PKG_DIR/install-lib" ] && cp -a "$PKG_DIR/install-lib" "$release/"
   write_env_file "$release/.env"
   write_env_file "$INSTALL_DIR/.env"
+  write_instance
 
   if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
     prog 0.40 "Ключи каскадного AWG"
@@ -434,7 +435,9 @@ do_install() {
     local detail
     detail="$(readiness_detail || true)"
     echo "ARDTT_WARN|readiness не прошла: ${detail}"
-    restore_previous_release || true
+    if ! restore_previous_release; then
+      stop_owned_stack "$INSTALL_DIR/current" || true
+    fi
     die "Новая версия не прошла readiness. Код ≠ 0, ARDTT_DONE нет. ${detail}"
   fi
 
