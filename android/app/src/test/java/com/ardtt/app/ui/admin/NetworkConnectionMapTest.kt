@@ -384,16 +384,6 @@ class NetworkConnectionMapTest {
                 ),
             ),
         )
-        assertEquals(
-            "http://2.26.125.160:9101",
-            DeployHop.exitProvisionUrl(
-                server(
-                    host = "45.129.2.3",
-                    cascadeEnabled = true,
-                    cascadeHost = "2.26.125.160",
-                ).copy(cascadeProvisionPort = 9101),
-            ),
-        )
         assertNull(
             DeployHop.exitProvisionUrl(
                 server(
@@ -662,6 +652,13 @@ class NetworkConnectionMapTest {
         assertFalse(provider.loading)
         val vps = synced.first { it.hop.kind == NetworkMapHopKind.Vps }
         assertEquals("45.129.2.3", vps.info.ip)
+    }
+
+    @Test
+    fun hopCardRetryOnlyWhenAddressMissingAndNotLoading() {
+        assertTrue(hopCardNeedsRetry(IpApiInfo.Empty.copy(error = "таймаут"), loading = false))
+        assertFalse(hopCardNeedsRetry(IpApiInfo.Empty.copy(error = "таймаут"), loading = true))
+        assertFalse(hopCardNeedsRetry(IpApiInfo(ip = "1.1.1.1", subtitle = "x"), loading = false))
     }
 
     @Test

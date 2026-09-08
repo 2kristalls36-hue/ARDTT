@@ -14,6 +14,7 @@ on:
       - "scripts/pack-stack.sh"
       - "scripts/pack-server-package.sh"
       - "scripts/pack-deploy-assets.sh"
+      - "scripts/attach-server-packages-to-release.sh"
       - "server/**"
       - ".github/workflows/android-build.yml"
     tags:
@@ -35,6 +36,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
@@ -233,6 +235,14 @@ jobs:
             gh release create "$tag" dist/* --target "$GITHUB_SHA" "${args[@]}"
           fi
           echo "Published https://github.com/${{ github.repository }}/releases/tag/${tag}"
+
+      - name: Attach server packages from Actions artifacts
+        if: steps.channel.outputs.publish_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARDTT_GIT_COMMIT: ${{ github.sha }}
+        run: bash scripts/attach-server-packages-to-release.sh --tag "${{ steps.version.outputs.release_tag }}"
 
       - name: Write job summary
         if: always()

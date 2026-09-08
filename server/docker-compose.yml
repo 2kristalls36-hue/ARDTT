@@ -9,7 +9,9 @@
 #   telemetry   -> 9200/tcp
 #
 # Capabilities: cap_drop ALL, then NET_ADMIN (TUN, iptables, ip rule in this
-# netns) and NET_RAW (RAW Bypass). No host PID/IPC and no engine socket mount.
+# netns), NET_RAW (RAW Bypass), and SETUID/SETGID so dnsmasq can drop to
+# its configured user/group. setgid(dip) fails with Operation not permitted
+# when those caps are missing. No host PID/IPC and no engine socket mount.
 
 x-ardtt-labels: &ardtt-labels
   com.ardtt.owner: ardtt
@@ -32,6 +34,8 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+      - SETUID
+      - SETGID
     security_opt:
       - no-new-privileges:true
     devices:
@@ -84,7 +88,7 @@ services:
     networks:
       ardtt:
     healthcheck:
-      test: ["CMD", "/opt/ardtt/ready.sh"]
+      test: ["CMD", "bash", "/opt/ardtt/ready.sh"]
       interval: 15s
       timeout: 8s
       retries: 8

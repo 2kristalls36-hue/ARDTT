@@ -88,6 +88,7 @@ start_or_reload() {
   # Drop stale pid
   rm -f "${PID_FILE}"
   dnsmasq --conf-file="${CONF}" --pid-file="${PID_FILE}" --log-facility=- \
+    --user=root --group=root \
     && echo "[dns] dnsmasq up" \
     || { echo "[dns] dnsmasq failed to start" >&2; return 1; }
 }

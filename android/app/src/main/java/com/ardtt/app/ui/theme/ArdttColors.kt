@@ -13,11 +13,11 @@ import androidx.compose.ui.graphics.lerp
  * `MaterialTheme.colorScheme`; only product meanings live here.
  */
 object ArdttColors {
-    /** Healthy tunnel, online client, fresh deploy. */
-    val Connected = Color(0xFF4CAF50)
+    /** Healthy tunnel, online client, fresh deploy. Dark enough for white labels. */
+    val Connected = Color(0xFF1B7A32)
 
     /** Degraded but working: stale version, slow ping. */
-    val Warning = Color(0xFFFFA726)
+    val Warning = Color(0xFFB35C00)
 
     /** Direct path accent (AmneziaWG over UDP). */
     val PathDirect = Color(0xFF2E7D32)
@@ -36,25 +36,25 @@ object ArdttColors {
 
 /** Light — soft sky-blue defaults. */
 val ArdttLightColorScheme = lightColorScheme(
-    primary = Color(0xFF4A90E2),
+    primary = Color(0xFF1565C0),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFDCEBFF),
-    onPrimaryContainer = Color(0xFF0D3B66),
-    secondary = Color(0xFF5E7FA6),
+    primaryContainer = Color(0xFFD6E6F8),
+    onPrimaryContainer = Color(0xFF0A2F57),
+    secondary = Color(0xFF3D5A78),
     onSecondary = Color(0xFFFFFFFF),
     secondaryContainer = Color(0xFFE7F1FF),
     onSecondaryContainer = Color(0xFF1A3654),
-    tertiary = Color(0xFF5CA9E6),
+    tertiary = Color(0xFF0E6B8A),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFD9EEFF),
-    onTertiaryContainer = Color(0xFF123956),
+    tertiaryContainer = Color(0xFFD4EEF7),
+    onTertiaryContainer = Color(0xFF063445),
     background = Color(0xFFF3F8FF),
     onBackground = Color(0xFF1C1B1A),
     surface = Color(0xFFFAFCFF),
     onSurface = Color(0xFF1C1B1A),
     surfaceVariant = Color(0xFFE8EFF8),
-    onSurfaceVariant = Color(0xFF4C5E74),
-    outline = Color(0xFFB2C2D7),
+    onSurfaceVariant = Color(0xFF3A4A5F),
+    outline = Color(0xFF6B7F96),
     outlineVariant = Color(0xFFD2DDEC),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
@@ -63,7 +63,7 @@ val ArdttLightColorScheme = lightColorScheme(
     inverseSurface = Color(0xFF232A33),
     inverseOnSurface = Color(0xFFE9F1FB),
     inversePrimary = Color(0xFFA8D0FF),
-    surfaceTint = Color(0xFF4A90E2),
+    surfaceTint = Color(0xFF1565C0),
 )
 
 /** Dark — blue-toned contrast palette. */

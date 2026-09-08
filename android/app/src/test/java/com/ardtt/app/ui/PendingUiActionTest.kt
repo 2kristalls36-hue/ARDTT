@@ -22,8 +22,8 @@ class PendingUiActionTest {
 
     @Test
     fun hideIpCopyAvoidsWarpAndPryamoy() {
-        assertEquals("Адрес сервера", HideIpCopy.SERVER_CHIP)
-        assertEquals("Скрытый адрес", HideIpCopy.HIDDEN_CHIP)
+        assertEquals("Мой IP", HideIpCopy.SERVER_CHIP)
+        assertEquals("Инкогнито", HideIpCopy.HIDDEN_CHIP)
         assertFalse(HideIpCopy.SERVER_CHIP.contains("Прямой"))
         assertFalse(HideIpCopy.HIDDEN_CHIP.contains("WARP", ignoreCase = true))
         assertFalse(HideIpCopy.subtitle(true).contains("WARP", ignoreCase = true))
@@ -59,5 +59,18 @@ class PendingUiActionTest {
         assertTrue(PendingUiAction.consumeOpenProfiles())
         assertFalse(PendingUiAction.openProfiles.value)
         assertFalse(PendingUiAction.consumeOpenProfiles())
+    }
+
+    @Test
+    fun openProfileAddAlsoRequestsProfiles() {
+        PendingUiAction.consumeOpenProfileAdd()
+        PendingUiAction.consumeOpenProfiles()
+        PendingUiAction.requestOpenProfileAdd()
+        assertTrue(PendingUiAction.openProfileAdd.value)
+        assertTrue(PendingUiAction.openProfiles.value)
+        assertTrue(PendingUiAction.consumeOpenProfileAdd())
+        assertFalse(PendingUiAction.openProfileAdd.value)
+        assertTrue(PendingUiAction.consumeOpenProfiles())
+        assertFalse(PendingUiAction.consumeOpenProfileAdd())
     }
 }

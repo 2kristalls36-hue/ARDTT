@@ -22,7 +22,7 @@ data class DeployTarget(
     val telemetryPort: Int = 9200,
     /** linux amd64/arm64 of the last probed VPS; empty when unknown. */
     val arch: String = "",
-    /** Second VPS: egress hop (AWG + DNS + WARP). Phone deploys it over SSH separately. */
+    /** Second VPS: egress hop (AWG + DNS + WARP). Phone SSHs to it through the entry VPS. */
     val cascadeEnabled: Boolean = false,
     val cascadeHost: String = "",
     val cascadePort: Int = 22,

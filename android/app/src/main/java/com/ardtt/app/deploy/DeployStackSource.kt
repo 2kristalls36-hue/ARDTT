@@ -2,6 +2,7 @@ package com.ardtt.app.deploy
 
 import com.ardtt.app.BuildConfig
 import java.util.Locale
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -64,12 +65,26 @@ object DeployStackSource {
     fun sha256sumsUrl(releaseJson: String): String? {
         val json = runCatching { JSONObject(releaseJson) }.getOrNull() ?: return null
         val assets = json.optJSONArray("assets") ?: return null
+        // Prefer SHA256SUMS-server.txt: Android build's SHA256SUMS.txt is APK-only.
+        val preferred = listOf("SHA256SUMS-server.txt", "SHA256SUMS.txt", "SHA256SUMS")
+        for (want in preferred) {
+            for (i in 0 until assets.length()) {
+                val asset = assets.optJSONObject(i) ?: continue
+                if (asset.optString("name").equals(want, ignoreCase = true)) {
+                    return asset.optString("browser_download_url").trim().takeIf { it.isNotEmpty() }
+                }
+            }
+        }
+        return null
+    }
+
+    fun siblingSha256AssetUrl(releaseJson: String, fileName: String): String? {
+        val json = runCatching { JSONObject(releaseJson) }.getOrNull() ?: return null
+        val assets = json.optJSONArray("assets") ?: return null
+        val want = "$fileName.sha256"
         for (i in 0 until assets.length()) {
             val asset = assets.optJSONObject(i) ?: continue
-            val name = asset.optString("name")
-            if (name.equals("SHA256SUMS.txt", ignoreCase = true) ||
-                name.equals("SHA256SUMS", ignoreCase = true)
-            ) {
+            if (asset.optString("name").equals(want, ignoreCase = true)) {
                 return asset.optString("browser_download_url").trim().takeIf { it.isNotEmpty() }
             }
         }
@@ -86,6 +101,54 @@ object DeployStackSource {
             if (name.equals(fileName, ignoreCase = true)) {
                 return parts[0].lowercase(Locale.US).removePrefix("sha256:")
             }
+        }
+        return null
+    }
+
+    fun parseSha256Text(text: String, fileName: String): String? {
+        sha256FromSums(text, fileName)?.let { return it }
+        val token = text.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
+            ?.split(Regex("\\s+"))
+            ?.firstOrNull()
+            ?.lowercase(Locale.US)
+            ?.removePrefix("sha256:")
+        return token?.takeIf { it.length == 64 && it.all { ch -> ch in '0'..'9' || ch in 'a'..'f' } }
+    }
+
+    fun firstReleaseJsonWithServerAsset(
+        releasesListJson: String,
+        expectedVersion: String,
+        arch: String,
+    ): String? {
+        val releases = runCatching { JSONArray(releasesListJson) }.getOrNull() ?: return null
+        for (i in 0 until releases.length()) {
+            val json = releases.optJSONObject(i) ?: continue
+            if (json.optBoolean("draft")) continue
+            val text = json.toString()
+            if (pickServerAsset(text, expectedVersion, arch) != null) return text
+        }
+        return null
+    }
+
+    /**
+     * Use the app version tag when that release already has the server archive.
+     * Otherwise search published releases so a new APK tag without the archive
+     * can still install from an older tag that carries `ardtt-server-*.tar.gz`.
+     * Never falls back to git/main/raw sources.
+     */
+    fun preferredReleaseJson(
+        tagJson: String?,
+        releasesListJson: String?,
+        expectedVersion: String,
+        arch: String,
+    ): String? {
+        if (tagJson != null && pickServerAsset(tagJson, expectedVersion, arch) != null) {
+            return tagJson
+        }
+        if (!releasesListJson.isNullOrBlank()) {
+            firstReleaseJsonWithServerAsset(releasesListJson, expectedVersion, arch)?.let { return it }
         }
         return null
     }

@@ -9,16 +9,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -151,33 +151,29 @@ fun ArdttDialog(
 
 @Composable
 private fun DialogConfirmAction(action: ArdttDialogAction) {
-    Button(
+    ArdttButton(
+        text = action.text,
         onClick = action.onClick,
         enabled = action.enabled,
-        colors = if (action.destructive) {
-            ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.error,
-                contentColor = MaterialTheme.colorScheme.onError,
-            )
-        } else {
-            ButtonDefaults.buttonColors()
-        },
-    ) {
-        Text(action.text)
-    }
+        variant = if (action.destructive) ArdttButtonVariant.Danger else ArdttButtonVariant.Primary,
+        size = ArdttButtonSize.Compact,
+        fillMaxWidth = false,
+    )
 }
 
 @Composable
 private fun DialogTextAction(action: ArdttDialogAction) {
-    TextButton(
+    ArdttButton(
+        text = action.text,
         onClick = action.onClick,
         enabled = action.enabled,
-        colors = if (action.destructive) {
-            ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+        variant = if (action.destructive) ArdttButtonVariant.Danger else ArdttButtonVariant.Text,
+        size = ArdttButtonSize.Compact,
+        fillMaxWidth = false,
+        contentColor = if (action.destructive) {
+            MaterialTheme.colorScheme.error
         } else {
-            ButtonDefaults.textButtonColors()
+            null
         },
-    ) {
-        Text(action.text)
-    }
+    )
 }

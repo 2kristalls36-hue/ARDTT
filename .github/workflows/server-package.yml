@@ -31,6 +31,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   contract:
@@ -99,6 +100,15 @@ jobs:
           pkg="dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
           bash scripts/verify-server-package.sh "$pkg"
 
+      - name: Live isolation without touching foreign containers
+        if: matrix.arch == 'amd64'
+        shell: bash
+        env:
+          ARDTT_REQUIRE_READY: "0"
+        run: |
+          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
+          bash scripts/test-install-live-isolation.sh "dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
@@ -109,9 +119,39 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  publish-existing:
+    name: Attach existing packages to GitHub Release
+    # Main/tag: production path. This PR branch also attaches so the one-file
+    # archives reach GitHub Releases without waiting on merge (same-repo only).
+    if: |
+      (github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main'))
+      || (github.event_name == 'pull_request' && github.head_ref == 'cursor/server-bundle-ui-bad3' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Attach packages already built on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARDTT_GIT_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Downloads the last dual-arch image artifacts, then refreshes
+          # install.sh / ready.sh / Compose from this commit before upload.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            bash scripts/attach-server-packages-to-release.sh --tag "${GITHUB_REF_NAME}"
+          else
+            bash scripts/attach-server-packages-to-release.sh
+          fi
+
   publish:
     name: Attach packages to GitHub Release
     needs: package
+    # Tags upload to that tag. Main uploads to the latest published release
+    # so a VPS can fetch ardtt-server-*.tar.gz without waiting for a new tag.
     if: github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -125,16 +165,32 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Publish if a release exists
-        if: github.ref_type == 'tag'
+      - name: Publish if a GitHub Release exists
+        if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${GITHUB_REF_NAME}"
+          set -euo pipefail
+          shopt -s nullglob
+          pkgs=(dist/ardtt-server-*.tar.gz)
+          if [ "${#pkgs[@]}" -lt 1 ]; then
+            echo "No ardtt-server-*.tar.gz in dist; skip upload."
+            exit 0
+          fi
           (cd dist && sha256sum ardtt-server-*.tar.gz > SHA256SUMS-server.txt)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          fi
+          if [ -z "${tag}" ]; then
+            echo "No GitHub Release to attach to; packages stay on Artifacts."
+            exit 0
+          fi
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/ardtt-server-*.tar.gz dist/ardtt-server-*.tar.gz.sha256 dist/SHA256SUMS-server.txt --clobber
+            echo "Attached server packages to https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
           else
-            echo "Release $tag not created yet; android-build publishes APK first. Packages stay on Artifacts."
+            echo "Release $tag not created yet; packages stay on Artifacts."
           fi

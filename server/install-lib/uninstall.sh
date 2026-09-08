@@ -5,17 +5,7 @@
 uninstall_this_instance() {
   local purge="${ARDTT_PURGE_DATA:-0}"
   prog 0.10 "Поиск экземпляра ARDTT"
-  if ! load_instance; then
-    if [ -d "${INSTALL_DIR}/stack" ] || docker inspect ardtt >/dev/null 2>&1; then
-      INSTANCE_ID="${INSTANCE_ID:-unknown}"
-      plan_legacy_resources
-      stop_legacy_owned
-    else
-      echo "ARDTT_INFO|экземпляр ARDTT не найден — нечего снимать"
-      echo "ARDTT_UNINSTALLED"
-      return 0
-    fi
-  else
+  if load_instance || load_instance_from_env; then
     prog 0.30 "Остановка контейнера ${ARDTT_CONTAINER_NAME}"
     local current="${INSTALL_DIR}/current"
     [ -d "$current" ] || current="${INSTALL_DIR}/stack"
@@ -36,6 +26,14 @@ uninstall_this_instance() {
     if [ -n "${PREV_IMAGE_ID:-}" ]; then
       echo "ARDTT_INFO|образ ${PREV_IMAGE_ID} оставляем (другие экземпляры / откат)"
     fi
+  elif [ -d "${INSTALL_DIR}/stack" ] || docker inspect ardtt >/dev/null 2>&1; then
+    INSTANCE_ID="${INSTANCE_ID:-unknown}"
+    plan_legacy_resources
+    stop_legacy_owned
+  else
+    echo "ARDTT_INFO|экземпляр ARDTT не найден — нечего снимать"
+    echo "ARDTT_UNINSTALLED"
+    return 0
   fi
   prog 0.70 "Каталоги установки"
   rm -f "${INSTALL_DIR}/incoming/"*.partial 2>/dev/null || true

@@ -13,6 +13,8 @@ echo "fake-docker-save" > "$STAGE/images/ardtt.tar"
 echo "#!/bin/sh" > "$STAGE/bin/docker-compose"
 chmod +x "$STAGE/bin/docker-compose"
 cp -f "$ROOT/server/install.sh" "$STAGE/install.sh"
+cp -f "$ROOT/server/ready.sh" "$STAGE/ready.sh"
+chmod 755 "$STAGE/ready.sh"
 cp -a "$ROOT/server/install-lib/." "$STAGE/install-lib/"
 cp -f "$ROOT/scripts/safe-extract-package.py" "$STAGE/scripts/safe-extract-package.py"
 cp -f "$ROOT/server/docker-compose.yml" "$STAGE/docker-compose.yml"
@@ -35,7 +37,7 @@ cat > "$STAGE/manifest.json" <<EOF
 }
 EOF
 echo "test package" > "$STAGE/README.md"
-(cd "$STAGE" && sha256sum install.sh docker-compose.yml images/ardtt.tar manifest.json > SHA256SUMS)
+(cd "$STAGE" && sha256sum install.sh ready.sh docker-compose.yml images/ardtt.tar manifest.json > SHA256SUMS)
 tar -czf "$OUT" -C "$STAGE" .
 sha256sum "$OUT" | awk '{print $1}' > "${OUT}.sha256"
 echo "$OUT"
