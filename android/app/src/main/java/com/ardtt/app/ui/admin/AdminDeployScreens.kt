@@ -1733,8 +1733,7 @@ fun DeployScreen(
         ) {
             ArdttSwitchRow(
                 title = "Каскадное подключение",
-                subtitle = "Второй сервер — выход в интернет и WARP. " +
-                    "Телефон ставит его отдельно; клиенты живут на первом.",
+                subtitle = cascadeDeploySwitchSubtitle(),
                 checked = cascadeEnabled,
                 onCheckedChange = { on ->
                     cascadeEnabled = on
@@ -1747,7 +1746,7 @@ fun DeployScreen(
                     value = cascadeHost,
                     onValueChange = { cascadeHost = it },
                     label = { Text("Выход host / IP") },
-                    placeholder = { Text("Второй VPS, WARP") },
+                    placeholder = { Text(cascadeExitHostPlaceholder()) },
                     singleLine = true,
                     enabled = !busy,
                     modifier = Modifier
