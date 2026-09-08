@@ -266,6 +266,10 @@ internal fun hopCardPrimaryText(info: IpApiInfo, loading: Boolean = false): Stri
     return info.error?.trim()?.takeIf { it.isNotBlank() } ?: "Не удалось определить IP"
 }
 
+/** Error/empty hop with no address — the card must offer an explicit retry. */
+internal fun hopCardNeedsRetry(info: IpApiInfo, loading: Boolean): Boolean =
+    !loading && info.ip.isBlank()
+
 /** RTT from GET /health on the entry and (when cascade) exit provision. */
 internal data class HopHealthPings(
     val entryMs: Long = -1L,

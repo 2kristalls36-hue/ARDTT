@@ -49,6 +49,8 @@ import com.ardtt.app.ui.admin.LogsScreen
 import com.ardtt.app.ui.admin.NetworkScreen
 import com.ardtt.app.ui.admin.ServersScreen
 import com.ardtt.app.ui.admin.TestingScreen
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBackdrop
 import com.ardtt.app.ui.components.layout.ArdttNavItem
@@ -185,24 +187,38 @@ fun AppRoot(
         }
     }
 
-    val tabs = AppDestination.entries.filter { dest ->
-        if (!dest.inBottomNav) return@filter false
-        when (dest) {
-            AppDestination.Testing ->
-                TestingSessionGuard.testingTabVisible(testingMode, isRecording)
-            else -> !dest.adminOnly || admin
+    val testingTabVisible = TestingSessionGuard.testingTabVisible(testingMode, isRecording)
+    val overflowDestinations = ArdttNavPlan.overflow(admin, testingTabVisible)
+    val tabs = ArdttNavPlan.primary(admin, testingTabVisible)
+    val navItems = buildList {
+        addAll(
+            tabs.map { dest ->
+                ArdttNavItem(route = dest.route, label = dest.navLabel, icon = dest.navIcon())
+            },
+        )
+        if (overflowDestinations.isNotEmpty()) {
+            add(
+                ArdttNavItem(
+                    route = ArdttNavPlan.MORE_ROUTE,
+                    label = ArdttNavPlan.MORE_LABEL,
+                    icon = ArdttNavPlan.moreIcon,
+                    badgeCount = if (overflowDestinations.any { it == AppDestination.Testing } && isRecording) 1 else 0,
+                ),
+            )
         }
-    }
-    val navItems = tabs.map { dest ->
-        ArdttNavItem(route = dest.route, label = dest.navLabel, icon = dest.navIcon())
     }
     val tabReselectSignal = remember { mutableStateMapOf<String, Int>() }
-    tabs.forEach { tab ->
-        if (tab.route !in tabReselectSignal) {
-            tabReselectSignal[tab.route] = 0
+    ArdttNavPlan.visibleDestinations(admin, testingTabVisible).forEach { dest ->
+        if (dest.route !in tabReselectSignal) {
+            tabReselectSignal[dest.route] = 0
         }
     }
-    val selectedNavRoute = currentRoute
+    val selectedNavRoute = ArdttNavPlan.barSelectedRoute(
+        currentRoute = currentRoute,
+        primary = tabs,
+        overflow = overflowDestinations,
+    )
+    var showMoreSheet by remember { mutableStateOf(false) }
     var vpnConsentBackgroundVisible by remember { mutableStateOf(false) }
     val vpnPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -446,9 +462,41 @@ fun AppRoot(
                     ArdttNavigationBar(
                         items = navItems,
                         selectedRoute = selectedNavRoute,
-                        onSelect = { route -> navigateTab(route) },
+                        onSelect = { route ->
+                            if (route == ArdttNavPlan.MORE_ROUTE) {
+                                showMoreSheet = true
+                            } else {
+                                navigateTab(route)
+                            }
+                        },
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
+                    if (showMoreSheet) {
+                        ArdttDialog(
+                            title = ArdttNavPlan.MORE_LABEL,
+                            onDismissRequest = { showMoreSheet = false },
+                            dismissAction = ArdttDialogAction(
+                                text = "Закрыть",
+                                onClick = { showMoreSheet = false },
+                            ),
+                        ) {
+                            overflowDestinations.forEach { dest ->
+                                ArdttButton(
+                                    text = dest.label,
+                                    onClick = {
+                                        showMoreSheet = false
+                                        navigateTab(dest.route)
+                                    },
+                                    variant = if (dest.route == currentRoute) {
+                                        ArdttButtonVariant.Tonal
+                                    } else {
+                                        ArdttButtonVariant.Outlined
+                                    },
+                                    fillMaxWidth = true,
+                                )
+                            }
+                        }
+                    }
 
                     if (vpnConsentBackgroundVisible) {
                         Surface(

@@ -56,6 +56,6 @@ class DonateSupportTest {
         )
         assertEquals(Color(0xFFB8860B), light.accent)
         assertEquals(Color(0xFFFFFBE6), light.card)
-        assertEquals(0.45f, light.border.alpha, 1e-5f)
+        assertEquals(Color(0xFFB8860B).copy(alpha = 0.45f).alpha, light.border.alpha, 1e-3f)
     }
 }

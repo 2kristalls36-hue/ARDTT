@@ -141,21 +141,31 @@ object ArdttSize {
     val MenuWidth: Dp = 216.dp
     val MenuItem: Dp = 54.dp
 
-    /** Height of every primary (sticky / full-width) button. */
+    /** Minimum height of a primary (sticky / full-width) button. */
     val Button: Dp = 58.dp
+    val ButtonCompact: Dp = 48.dp
+    val TouchTarget: Dp = 48.dp
 
-    /** Inner height of the floating tab pill.
-     *  Icon + trimmed 10 sp caption must fit; do not grow this to hide clip. */
-    val NavTrack: Dp = 48.dp
+    /** Inner height of the floating tab pill (icon + 12 sp caption). */
+    val NavTrack: Dp = 56.dp
 
     /** Screen space the floating tab pill occupies, insets excluded.
-     *  Must stay NavTrack + 2 × ArdttSpacing.Small (outer vertical padding). */
-    val NavZone: Dp = 64.dp
+     *  Must stay NavTrack + 2 × ArdttSpacing.Small (vertical padding around the track). */
+    val NavZone: Dp = 72.dp
 
     val Border: Dp = 1.dp
     val Contour: Dp = 2.dp
     val Stroke: Dp = 2.dp
     val StrokeThick: Dp = 2.5.dp
+}
+
+/** Top chrome: blur strip under the pinned header. */
+object ArdttChrome {
+    val BlurRadius: Dp = 18.dp
+    val FadeHeight: Dp = 28.dp
+    const val ScrimAlphaLight = 0.78f
+    const val ScrimAlphaDark = 0.72f
+    const val FadeAlpha = 0.92f
 }
 
 /** Opacity steps. One name per visual role, not per numeric value. */

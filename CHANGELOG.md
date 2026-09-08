@@ -1,3 +1,12 @@
+# ARDTT v0.5.257
+
+Клиент **0.5.257** (`versionCode` 275). Серверный стек **1.0.45** (`DEPLOY_VERSION`).
+
+## 0.5.257
+
+- UI: общие кнопки `ArdttButton`, контраст primary/onPrimary, нижняя навигация «4 вкладки + Ещё», отмена Connecting, логи с автопрокруткой/поиском, кнопка обновления Сети, ленивые Профили, размытие ленты под верхней панелью (API 31+, fallback 28–30).
+- Стек 1.0.45 без изменений относительно #176: один архив `ardtt-server-*-linux-<arch>.tar.gz`, isolated install, без prune/hostnet/get.docker.com.
+
 # ARDTT v0.5.256
 
 Клиент **0.5.256** (`versionCode` 274). Серверный стек **1.0.45** (`DEPLOY_VERSION`).

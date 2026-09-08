@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,12 +40,15 @@ import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.core.IpApiLookup
-import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.DeployHop
+import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
+import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.feedback.ArdttPingDot
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
@@ -216,6 +223,18 @@ fun NetworkScreen(
             ArdttTabHeader(
                 title = "Сеть",
                 subtitle = NetworkMapCopy.SUBTITLE,
+                actions = {
+                    IconButton(
+                        onClick = pull.onRefresh,
+                        enabled = !pull.refreshing,
+                    ) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = "Обновить карту сети",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
             )
         },
     ) {
@@ -232,6 +251,11 @@ fun NetworkScreen(
                     highlighted = hopCardHighlighted(view.hop.kind, terminalKind),
                     pingMs = hopHealthPingMs(view.hop.kind, hopPings),
                     accentColor = pathAccent,
+                    onRetry = if (hopCardNeedsRetry(view.info, view.loading)) {
+                        pull.onRefresh
+                    } else {
+                        null
+                    },
                 )
             }
         }
@@ -439,6 +463,7 @@ private fun IpInfoCard(
     highlighted: Boolean = false,
     pingMs: Long = -1L,
     accentColor: Color = ArdttColors.Connected,
+    onRetry: (() -> Unit)? = null,
 ) {
     val pingLabel = formatHealthPingMs(pingMs)
     val pingColor = when (pingLatencyTier(pingMs)) {
@@ -496,6 +521,15 @@ private fun IpInfoCard(
                 info.subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (onRetry != null) {
+            ArdttButton(
+                text = "Повторить",
+                onClick = onRetry,
+                variant = ArdttButtonVariant.Outlined,
+                size = ArdttButtonSize.Compact,
+                fillMaxWidth = true,
             )
         }
     }

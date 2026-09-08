@@ -49,6 +49,10 @@ internal fun tunnelStickyCtaEnabled(state: ConnState, connectEnabled: Boolean): 
 internal fun tunnelPowerBusy(state: ConnState): Boolean =
     state == ConnState.Connecting || state == ConnState.Disconnecting
 
+/** Visual loading must not block cancel while Connecting. */
+internal fun tunnelPowerClickEnabled(state: ConnState, connectEnabled: Boolean): Boolean =
+    tunnelPowerToggleEnabled(state, connectEnabled)
+
 internal fun tunnelPowerSessionLit(state: ConnState): Boolean = when (state) {
     ConnState.Connecting,
     ConnState.Connected,
@@ -58,7 +62,9 @@ internal fun tunnelPowerSessionLit(state: ConnState): Boolean = when (state) {
 }
 
 internal fun tunnelPowerToggleEnabled(state: ConnState, connectEnabled: Boolean): Boolean = when (state) {
-    ConnState.Connecting, ConnState.Disconnecting, ConnState.Probing -> false
+    ConnState.Connecting -> true
+    ConnState.Disconnecting -> false
+    ConnState.Probing -> connectEnabled
     ConnState.Connected, ConnState.PausedTrustedWifi -> true
     else -> connectEnabled
 }
@@ -71,8 +77,19 @@ internal fun tunnelPowerClickDisconnects(state: ConnState): Boolean = when (stat
     else -> false
 }
 
+internal fun tunnelProfileCenterOpensImport(count: Int): Boolean = count <= 0
+
+internal fun tunnelProfileCenterOpensManage(count: Int): Boolean = count >= 1
+
 internal const val PROFILE_SWITCH_LOCKED_MESSAGE =
     "Отключите туннель, чтобы сменить профиль."
+
+internal fun tunnelPowerContentDescription(state: ConnState, connected: Boolean): String = when (state) {
+    ConnState.Connecting -> "Отменить подключение"
+    ConnState.Disconnecting -> "Отключение"
+    ConnState.PausedTrustedWifi -> "Отключить паузу Wi‑Fi"
+    else -> if (connected) "Отключить туннель" else "Подключить туннель"
+}
 
 internal fun pathModeNeedsCallHash(mode: ConnPathMode, hasCallHash: Boolean): Boolean =
     mode == ConnPathMode.Bypass && !hasCallHash
