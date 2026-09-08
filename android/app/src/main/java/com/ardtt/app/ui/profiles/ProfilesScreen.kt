@@ -39,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,6 +79,8 @@ import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.connectedStatusColor
+import com.ardtt.app.ui.theme.warningStatusColor
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
@@ -240,7 +244,7 @@ fun ProfilesScreen(
     ArdttLazyFeedScaffold(
         stickyContent = {
             ArdttPrimaryButton(
-                text = if (busy) "Импорт…" else "Добавить",
+                text = if (busy) "Импорт…" else stringResource(R.string.profiles_add),
                 onClick = { showAddSheet = true },
                 enabled = !busy,
                 icon = Icons.Default.Add,
@@ -249,13 +253,16 @@ fun ProfilesScreen(
         header = {
             ArdttTabHeader(
                 title = "Профили",
-                subtitle = when {
-                    catalog.items.isEmpty() -> "Импортируйте JSON с сервера"
-                    profileSwitchLocked ->
-                        "Соединение активно · смена профиля недоступна"
-                    else ->
-                        "${catalog.items.size} профилей · активен: ${catalog.active?.name ?: "—"}"
-                },
+                subtitle = profilesCountSubtitle(
+                    count = catalog.items.size,
+                    countLabel = pluralStringResource(
+                        R.plurals.profiles_count,
+                        catalog.items.size,
+                        catalog.items.size,
+                    ),
+                    activeName = catalog.active?.name,
+                    locked = profileSwitchLocked,
+                ),
             )
         },
     ) {
@@ -483,7 +490,7 @@ private fun ProfileCard(
     val deleteEnabled = !selectionLocked || !active
     val muted = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f)
     val titleColor = when {
-        active -> ArdttColors.Connected
+        active -> connectedStatusColor()
         selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
         else -> colors.onSurface
     }
@@ -491,8 +498,8 @@ private fun ProfileCard(
     val addressHosts = profileCardAddressHosts(item.profile, servers)
     val expiresTone = clientExpiresTone(facts.expiresAt)
     val expiresColor = when (expiresTone) {
-        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> ArdttColors.Connected
-        ClientExpiresTone.ExpiringSoon -> ArdttColors.Warning
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> connectedStatusColor()
+        ClientExpiresTone.ExpiringSoon -> warningStatusColor()
         ClientExpiresTone.Expired -> colors.error
     }
     ArdttCompactCard(
@@ -541,7 +548,7 @@ private fun ProfileCard(
                         Icon(
                             Icons.Filled.CheckCircle,
                             contentDescription = "Активен",
-                            tint = ArdttColors.Connected,
+                            tint = connectedStatusColor(),
                             modifier = Modifier.size(ArdttSize.IconCompact),
                         )
                     }

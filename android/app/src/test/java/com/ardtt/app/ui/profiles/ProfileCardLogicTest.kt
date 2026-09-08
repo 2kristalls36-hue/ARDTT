@@ -85,6 +85,26 @@ class ProfileCardLogicTest {
         assertNull(profileLiveFactsFromUsers("missing", emptyList()))
     }
 
+    @Test
+    fun profileCountSubtitleUsesCallerPlural() {
+        assertEquals(
+            "1 профиль · активен: Дом",
+            profilesCountSubtitle(1, "1 профиль", "Дом", locked = false),
+        )
+        assertEquals(
+            "2 профиля · активен: Дом",
+            profilesCountSubtitle(2, "2 профиля", "Дом", locked = false),
+        )
+        assertEquals(
+            "5 профилей · активен: —",
+            profilesCountSubtitle(5, "5 профилей", null, locked = false),
+        )
+        assertEquals(
+            "Импортируйте JSON с сервера",
+            profilesCountSubtitle(0, "0 профилей", null, locked = false),
+        )
+    }
+
     private fun profile(directEndpoint: String, bypassPeer: String) = VpnProfile(
         name = "alice",
         deviceId = "dev-a",
