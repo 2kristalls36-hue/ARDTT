@@ -9,29 +9,29 @@
 
 Каталог по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). Старый `/opt/nonamevpn` при обновлении переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.45**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.46**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
 
 > [!IMPORTANT]
-> Стек **1.0.45** — самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (docker save).  
-> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.45. Нужен клиент с этой версии.
+> Стек **1.0.46** — самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (docker save + Engine).  
+> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.46. Нужен клиент с этой версии.
 
 ---
 
 ## Что нужно на VPS
 
-Основной безопасный режим рассчитан на **уже установленный и работающий Docker Engine**.
+Чистый Linux amd64/arm64 с python3, iptables и `/dev/net/tun`. **Docker Engine входит в архив** (`vendor/docker.tgz`) и ставится, если `docker info` не проходит.
 
 | Есть | Нет |
 |------|-----|
 | Linux amd64 или arm64 | Сборка образа на VPS |
-| Docker Engine | `get.docker.com`, apt/dnf установка Docker |
+| python3, iptables, systemd | `get.docker.com`, apt/dnf установка Docker |
 | `/dev/net/tun` | `docker pull` / GHCR / Docker Hub на установке |
-| python3 | `git clone` исходников |
-| Compose v2 *или* `bin/docker-compose` из архива | Хостовый hostnet |
+| Compose v2 *или* `bin/docker-compose` из архива | `git clone` исходников |
+| | Хостовый hostnet |
 
-Пакет **не** ставит Docker и **не** является установщиком чистой ОС. Если Engine нет или он не отвечает, **read-only preflight** на телефоне завершается до загрузки архива и до изменений на VPS. Недостающий Compose разрешено взять из того же архива в `/opt/ardtt/bin`.
+Если Engine уже работает, установщик его не обновляет и не перезапускает. Если CLI есть, а демон мёртв — отказ (чужой Engine не подменяем). Недостающий Compose берётся из того же архива в `/opt/ardtt/bin`.
 
-Клиент перед GitHub/SFTP проверяет оба узла тем же SSH-маршрутом, что и установка: сначала выход (VPS2 через VPS1), затем вход. Коды: `DOCKER_MISSING`, `DOCKER_NOT_RUNNING`, `DOCKER_ACCESS_DENIED`, `UNSUPPORTED_RUNTIME`, `PYTHON_MISSING`, `SSH_FAILED`. Чужой podman/kubelet/containerd без Docker — не «чистый VPS». Кнопка «Подготовить VPS» не активна, пока CI не упакует закреплённые debs Engine; это отдельный незавершённый критерий. Существующий Docker клиент не обновляет и не перезапускает.
+Клиент перед GitHub/SFTP проверяет оба узла тем же SSH-маршрутом, что и установка: сначала выход (VPS2 через VPS1), затем вход. Отсутствие Docker **не** ошибка: установка распакует Engine из архива. По-прежнему отказ: `DOCKER_NOT_RUNNING` (чужой демон мёртв), `DOCKER_ACCESS_DENIED`, `UNSUPPORTED_RUNTIME` (podman/kubelet/containerd без Docker), `PYTHON_MISSING`, `SSH_FAILED`.
 
 Стек — **один контейнер** в своей netns и своей Docker bridge-сети. Hostnet из старой `.env` не восстанавливается. Привилегированный режим, host PID/IPC, `docker.sock` внутри контейнера и nsenter в хост не используются. Compose: `cap_drop: ALL`, затем `NET_ADMIN`, `NET_RAW`, `SETUID` и `SETGID` (иначе dnsmasq `setgid(dip)` падает с Operation not permitted). Подсеть bridge подбирается так, чтобы не пересечься с маршрутами хоста и сетями Docker: сначала `172.28.x.0/24` / `172.30.x.0/24`, а если хост анонсирует `172.16.0.0/12` (часто на облачных VPS) — `10.112.x.0/24` или `10.210.x.0/24`. Не задаётся одна жёсткая подсеть для всех машин.
 
@@ -54,6 +54,7 @@ docker-compose.exit.yml
 .env.example
 images/ardtt.tar       # docker save
 bin/docker-compose      # закреплённый Compose CLI этой arch
+vendor/docker.tgz       # статический Docker Engine (ставится, если docker info не проходит)
 third-party.lock.json
 ```
 
@@ -67,8 +68,8 @@ third-party.lock.json
 
 | Способ | Когда | Что происходит |
 |--------|--------|----------------|
-| **Из приложения** | Админ с телефоном | SSH определяет arch → один актив релиза → SFTP файла → `docker load` + compose `--no-build --pull never` |
-| **Архив с Releases** | На VPS есть shell и Docker | Скачать актив, сверить SHA-256 с релизом, `install.sh` |
+| **Из приложения** | Админ с телефоном | SSH определяет arch → один актив релиза → SFTP файла → Engine из архива при необходимости → `docker load` + compose `--no-build --pull never` |
+| **Архив с Releases** | На VPS есть shell | Скачать актив, сверить SHA-256 с релизом, `install.sh` |
 
 Сборка из исходников (`docker-compose.dev.yml`) — путь **разработчика**, не продуктовая установка.
 
@@ -100,7 +101,7 @@ third-party.lock.json
 
 ## Путь 1 — деплой из Android
 
-Нужен APK этой линейки (стек 1.0.45). Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят.
+Нужен APK этой линейки (стек **1.0.46**, клиент **0.5.258**). APK **0.5.257** ещё останавливает каскад на preflight, если Docker на VPS нет. Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят.
 
 ### UI
 
@@ -137,12 +138,12 @@ third-party.lock.json
 
 ## Путь 2 — архив с GitHub Releases
 
-Docker уже должен работать. Не вызывайте `get.docker.com`.
+Docker на VPS не обязателен: `install.sh` распакует Engine из `vendor/docker.tgz`. Рабочий Engine не трогает. Не вызывайте сетевой установщик Engine.
 
 ```bash
-VER=1.0.45
+VER=1.0.46
 ARCH=amd64   # или arm64; uname -m: x86_64→amd64, aarch64→arm64
-TAG=v0.5.256
+TAG=v0.5.258
 ASSET=ardtt-server-${VER}-linux-${ARCH}.tar.gz
 install -d -m 755 /opt/ardtt/incoming
 # Скачайте актив с https://github.com/2kristalls36-hue/ARDTT/releases
@@ -164,7 +165,7 @@ bash -c '… extract then install …'
 
 ```bash
 export ARDTT_PUBLIC_HOST=IP_ЭТОГО_VPS
-export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.45-linux-amd64.tar.gz
+export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.46-linux-amd64.tar.gz
 export ARDTT_PACKAGE_SHA256='…из GitHub Release…'
 export ARDTT_AUTO_PORTS=1
 bash /opt/ardtt/staging/install.sh   # после safe-extract в staging
@@ -317,7 +318,7 @@ docker exec "$NAME" provision -cmd create-user -name smoke -data /data
 |---------|----------------|
 | «Не удалось скачать пакет … из GitHub» | Сеть телефона до github.com. Старый APK ждёт `ardtt-stack-*` — обновите приложение. Новый APK ищет архив на своём теге, иначе на другом релизе с тем же стеком |
 | Нет SHA-256 у актива | Релиз без `digest` / `SHA256SUMS` — установка откажется до изменений на VPS |
-| Docker Engine не найден | Поставьте Docker Engine из локальных пакетов на чистом Ubuntu 24.04/26.04. Архив ARDTT runtime пока не содержит. Не `get.docker.com` и не сетевой apt с телефона |
+| Docker Engine не найден на чистом VPS | Норма для 1.0.46: пакет ставит Engine из `vendor/docker.tgz`. Если отказ — смотрите `DOCKER_MISSING` (нет tarball/SHA) или `DOCKER_NOT_RUNNING` (чужой демон / нет systemd). Нужен APK 0.5.258: 0.5.257 ещё обрывает preflight |
 | Мало места | Порог с запасом на load + слои + `previous/`. Глобальная очистка сервера не выполняется |
 | `ARDTT_ERROR` без `ARDTT_DONE` | Новый стек не прошёл readiness; смотрите `previous/` и `/opt/ardtt/install.log` |
 | Чужие контейнеры/VPN отвалились | Так быть не должно. Сообщите labels/имена; не включайте hostnet |

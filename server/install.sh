@@ -7,8 +7,9 @@
 #   ARDTT_WARN|<message>
 #
 # Product path: one release archive ardtt-server-<ver>-linux-<arch>.tar.gz
-#   (docker save image + this script + Compose). No git clone, no network
-#   Docker installer, GHCR, or second install.sh fetch. Docker Engine must already be running.
+#   (docker save image + this script + Compose + vendor/docker.tgz). No git clone,
+#   no network Engine installer / GHCR, or second install.sh fetch. Missing Engine is installed
+#   from vendor/docker.tgz. A working Engine is left alone.
 set -euo pipefail
 
 prog() { echo "ARDTT_PROGRESS|$1|$2"; }
@@ -30,6 +31,8 @@ if [ ! -d "$INSTALL_LIB_DIR" ]; then
 fi
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/common.sh"
+# shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/engine.sh"
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/ports.sh"
 # shellcheck disable=SC1091
@@ -129,18 +132,8 @@ readiness_detail() {
 }
 
 preflight_docker() {
-  if ! command -v docker >/dev/null 2>&1; then
-    die --code DOCKER_MISSING "Docker Engine не найден. Установите Docker заранее. Этот пакет не ставит Docker и не качает установщик Engine из сети."
-  fi
-  local info
-  info="$(docker info 2>&1)" || true
-  if ! docker info >/dev/null 2>&1; then
-    if printf '%s' "$info" | grep -qiE 'permission denied|access denied|dial unix'; then
-      die --code DOCKER_ACCESS_DENIED "Нет доступа к Docker. Пользователь должен быть в группе docker или запускать установку от root. Демон не перезапускаем."
-    fi
-    die --code DOCKER_NOT_RUNNING "Docker Engine не отвечает. Запустите службу docker и повторите. Установщик не перезапускает dockerd."
-  fi
   command -v python3 >/dev/null 2>&1 || die --code PYTHON_MISSING "Нужен python3 на хосте (безопасная распаковка и instance.json). Пакет не ставит его из сети."
+  ensure_docker_engine
   local ver
   ver="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
   [ -n "$ver" ] || die --code DOCKER_NOT_RUNNING "Не удалось прочитать версию Docker"
@@ -367,7 +360,7 @@ do_install() {
   ARDTT_IMAGE="${PKG_IMAGE_TAG:-ardtt/server:${DEPLOY_VERSION}}"
 
   if [ "${ARDTT_DRY_RUN:-0}" != "1" ]; then
-    prog 0.18 "Preflight (Docker, TUN, место, порты, подсеть)"
+    prog 0.18 "Preflight (Docker из архива при необходимости, TUN, место, порты)"
     preflight_docker
     preflight_tun
     preflight_space

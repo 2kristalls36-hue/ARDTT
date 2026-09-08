@@ -1,7 +1,7 @@
 # Android-клиент ARDTT
 
 Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial over TURN Tunnel).  
-Текущая сборка: **0.5.257** (`versionCode` 275).  
+Текущая сборка: **0.5.258** (`versionCode` 276).  
 `applicationId` / namespace — `com.ardtt.app`, minSdk 28. Смена с `com.nonamevpn.app` требует переустановки APK (это уже другое приложение для Android).
 
 Лендинг репозитория: [../README.md](../README.md). Легенда: [../docs/LEGEND.md](../docs/LEGEND.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
@@ -68,7 +68,7 @@ PR всегда собирает Preview APK в артефакты (`.github/wor
 Приложение проверяет обновления через **публичный GitHub Releases API** (как qWDTT),
 с fallback на старый `update.json` на VPS. PAT не нужен и в APK не вшивается.
 
-Стек на VPS ставится из вкладки **Серверы**: телефон скачивает `ardtt-server-*-linux-<arch>.tar.gz` с GitHub и заливает по SSH. Docker Engine на VPS уже должен быть. Подробности: [docs/DEPLOY.md](../docs/DEPLOY.md).
+Стек на VPS ставится из вкладки **Серверы**: телефон скачивает `ardtt-server-*-linux-<arch>.tar.gz` с GitHub и заливает по SSH. Docker Engine входит в этот архив (`vendor/docker.tgz`) и ставится, если на VPS его ещё нет. Подробности: [docs/DEPLOY.md](../docs/DEPLOY.md).
 
 - APK: `android/app/build/outputs/apk/release/app-release.apk`
 - AAB: `android/app/build/outputs/bundle/release/app-release.aab`

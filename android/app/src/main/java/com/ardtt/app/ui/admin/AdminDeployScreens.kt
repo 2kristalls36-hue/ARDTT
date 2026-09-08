@@ -895,7 +895,7 @@ private fun DeployProgressSheet(
                 )
             }
         }
-        if (!busy && dockerMissing) {
+        if (!busy && dockerMissing && !DeployRuntimeBundle.INCLUDED) {
             Text(
                 DeployRuntimeBundle.missingRuntimeMessage(
                     osId = "",
