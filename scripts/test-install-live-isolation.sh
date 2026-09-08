@@ -23,7 +23,6 @@ FOREIGN=(stack-nginx-1 stack-xray-1 ardtt-lookalike ardtt)
 HOST_PORT="${ARDTT_LIVE_HTTP_PORT:-18080}"
 HTTPD_PID=""
 STAGE=""
-KEEP_INSTALL=""
 INSTALL_SH="$ROOT/server/install.sh"
 fail=0
 err() { echo "FAIL: $*" >&2; fail=1; }
@@ -32,10 +31,6 @@ ok() { echo "OK $*"; }
 live_uninstall_script() {
   if [ -n "${INSTALL:-}" ] && [ -f "${INSTALL}/current/install.sh" ]; then
     printf '%s' "${INSTALL}/current/install.sh"
-    return 0
-  fi
-  if [ -n "${KEEP_INSTALL:-}" ] && [ -f "${KEEP_INSTALL}" ]; then
-    printf '%s' "${KEEP_INSTALL}"
     return 0
   fi
   if [ -n "${INSTALL_SH:-}" ] && [ -f "${INSTALL_SH}" ]; then
@@ -49,6 +44,7 @@ cleanup() {
   local un
   un="$(live_uninstall_script)"
   if [ -f "$un" ]; then
+    unset ARDTT_PKG_DIR || true
     ARDTT_ACTION=uninstall ARDTT_INSTALL_DIR="$INSTALL" ARDTT_SKIP_ROOT_CHECK=1 \
       ARDTT_PURGE_DATA=1 ARDTT_PACKAGE="$PKG" \
       ARDTT_PACKAGE_SHA256="$SHA" \
@@ -61,7 +57,6 @@ cleanup() {
     kill "$HTTPD_PID" >/dev/null 2>&1 || true
   fi
   [ -n "${STAGE:-}" ] && rm -rf "$STAGE"
-  [ -n "${KEEP_INSTALL:-}" ] && rm -f "$KEEP_INSTALL"
 }
 trap cleanup EXIT
 
@@ -86,10 +81,7 @@ fi
 
 STAGE="$(mktemp -d /tmp/ardtt-pkg-extract-XXXXXX)"
 python3 "$ROOT/scripts/safe-extract-package.py" "$PKG" "$STAGE"
-KEEP_INSTALL="$(mktemp /tmp/ardtt-live-installsh-XXXXXX)"
-cp -f "$STAGE/install.sh" "$KEEP_INSTALL"
-chmod 755 "$KEEP_INSTALL"
-INSTALL_SH="$KEEP_INSTALL"
+INSTALL_SH="$STAGE/install.sh"
 test -f "$INSTALL_SH"
 
 for name in "${FOREIGN[@]}"; do
@@ -131,6 +123,14 @@ set -e
 if grep -q '^ARDTT_DONE|' /tmp/ardtt-live-install.log; then
   ok "install emitted ARDTT_DONE"
   READY=1
+  cname="$(grep '^ARDTT_DONE|' /tmp/ardtt-live-install.log | tail -1 | tr '|' '\n' | sed -n 's/^container=//p')"
+  if [ -n "$cname" ]; then
+    mode="$(docker exec "$cname" stat -c '%a %u' /opt/ardtt/ready.sh 2>/dev/null || true)"
+    echo "${mode:-}" | grep -q '^755 0$' || err "ready.sh should be mode 755 uid 0, got ${mode:-missing}"
+    ready_json="$(curl -fsS --max-time 3 http://127.0.0.1:9100/ready || true)"
+    echo "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' || err "GET /ready failed: ${ready_json:-empty}"
+    ok "overlay ready.sh 755 root and GET /ready"
+  fi
 else
   echo "WARN: install did not emit ARDTT_DONE (rc=$install_rc). Last lines:"
   tail -20 /tmp/ardtt-live-install.log || true
@@ -178,6 +178,7 @@ fi
 
 export ARDTT_ACTION=uninstall
 export ARDTT_PURGE_DATA=1
+unset ARDTT_PKG_DIR || true
 UNINSTALL_SH="$(live_uninstall_script)"
 bash "$UNINSTALL_SH" > /tmp/ardtt-live-uninstall.log 2>&1 || true
 grep -q ARDTT_UNINSTALLED /tmp/ardtt-live-uninstall.log || err "uninstall missing ARDTT_UNINSTALLED"
