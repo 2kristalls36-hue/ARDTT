@@ -116,6 +116,7 @@ fun ProfilesScreen(
     var error by remember { mutableStateOf<String?>(null) }
 
     val visible = catalog.items
+    val openProfileAdd by PendingUiAction.openProfileAdd.collectAsStateWithLifecycle()
 
     fun afterChange(message: String? = null) {
         busy = false
@@ -176,6 +177,9 @@ fun ProfilesScreen(
 
     LaunchedEffect(Unit) {
         PendingProfileImport.take()?.let { importResolved(it, "Профиль из ссылки импортирован") }
+    }
+
+    LaunchedEffect(openProfileAdd) {
         if (PendingUiAction.consumeOpenProfileAdd()) {
             showAddSheet = true
         }
