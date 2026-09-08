@@ -9,8 +9,7 @@ import androidx.compose.ui.graphics.Color
 /**
  * True while the illustrated user-mode wallpaper shows through tab content.
  *
- * Cards turn opaque and labels switch to the fixed light palette below, because
- * scheme-derived colors are unreadable over an arbitrary photo.
+ * Cards turn opaque so labels use the theme, not a forced light-on-photo color.
  */
 val LocalIllustratedBackdrop = staticCompositionLocalOf { false }
 
@@ -18,25 +17,20 @@ val LocalIllustratedBackdrop = staticCompositionLocalOf { false }
 @ReadOnlyComposable
 fun illustratedBackdropActive(): Boolean = LocalIllustratedBackdrop.current
 
-/** Title / primary label over the illustrated wallpaper. */
+/** Title / primary label. Chrome sits on an opaque scrim — use the scheme, not a forced light color. */
 @Composable
 @ReadOnlyComposable
 fun backdropTitleColor(): Color =
     if (illustratedBackdropActive()) {
-        ArdttSurface.LightContent
+        MaterialTheme.colorScheme.onSurface
     } else {
         MaterialTheme.colorScheme.primary
     }
 
-/** Secondary label over the illustrated wallpaper. */
+/** Secondary label on chrome / cards. */
 @Composable
 @ReadOnlyComposable
-fun backdropMutedTextColor(): Color =
-    if (illustratedBackdropActive()) {
-        ArdttSurface.MutedLightContent
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
+fun backdropMutedTextColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant
 
 /** Inactive segmented-chip fill when tabs sit on the wallpaper. */
 @Composable
@@ -50,8 +44,4 @@ fun backdropSegmentInactiveContainer(): Color {
 @Composable
 @ReadOnlyComposable
 fun backdropSegmentInactiveContent(): Color =
-    if (illustratedBackdropActive()) {
-        ArdttSurface.SoftLightContent
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    MaterialTheme.colorScheme.onSurfaceVariant

@@ -58,6 +58,8 @@ import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.connectedStatusColor
+import com.ardtt.app.ui.theme.warningStatusColor
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -67,6 +69,7 @@ fun NetworkScreen(
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     serversRepo: ServersRepository,
+    onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -221,6 +224,7 @@ fun NetworkScreen(
             ArdttTabHeader(
                 title = "Сеть",
                 subtitle = NetworkMapCopy.SUBTITLE,
+                onBack = onBack,
                 actions = {
                     ArdttButton(
                         onClick = pull.onRefresh,
@@ -463,8 +467,8 @@ private fun IpInfoCard(
 ) {
     val pingLabel = formatHealthPingMs(pingMs)
     val pingColor = when (pingLatencyTier(pingMs)) {
-        PingLatencyTier.Good -> ArdttColors.Connected
-        PingLatencyTier.Fair -> ArdttColors.Warning
+        PingLatencyTier.Good -> connectedStatusColor()
+        PingLatencyTier.Fair -> warningStatusColor()
         PingLatencyTier.Poor -> MaterialTheme.colorScheme.error
         null -> accentColor
     }
