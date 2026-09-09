@@ -81,3 +81,48 @@ func TestDownlinkBytesOnlyOnSuccessfulWrite(t *testing.T) {
 	d.Shutdown()
 	_ = r.Close()
 }
+
+// Concurrent AttachTUN/DetachTUN while readLoop is unblocked used to race
+// on d.tunFile (CI go test -race on Go 1.25). Counters and logs must use the
+// loop-local snapshot, not the field without tunMu.
+func TestAttachTUNDoesNotRaceWithReadLoop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d := NewDispatcherPendingTUN(ctx, NewStats())
+	defer d.Shutdown()
+
+	slot := &WorkerSlot{
+		ID:     1,
+		SendCh: make(chan []byte, 256),
+		PrioCh: make(chan []byte, 32),
+	}
+	d.Register(slot)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case pkt := <-slot.SendCh:
+				putPktBuf(pkt)
+			case pkt := <-slot.PrioCh:
+				putPktBuf(pkt)
+			}
+		}
+	}()
+
+	payload := []byte{0x45, 0, 0, 28, 0, 0, 0, 0, 64, 0, 0, 0, 127, 0, 0, 1, 127, 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8}
+	for i := 0; i < 40; i++ {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := d.AttachTUN(r); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write(payload)
+		time.Sleep(2 * time.Millisecond)
+		d.DetachTUN()
+		_ = w.Close()
+	}
+	cancel()
+}

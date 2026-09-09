@@ -177,9 +177,7 @@ func (d *Dispatcher) AttachTUN(f *os.File) error {
 	d.tunFile = f
 	d.tunGen++
 	d.tunMu.Unlock()
-	if old != nil && old != f {
-		_ = old.Close()
-	}
+	closeRetiredTUN(old, f)
 	d.readyOnce.Do(func() { close(d.ready) })
 	return nil
 }
@@ -190,9 +188,18 @@ func (d *Dispatcher) DetachTUN() {
 	d.tunFile = nil
 	d.tunGen++
 	d.tunMu.Unlock()
-	if old != nil {
-		_ = old.Close()
+	closeRetiredTUN(old, nil)
+}
+
+// closeRetiredTUN unblocks in-flight Read/Write on the old fd, then closes it.
+// File.Fd() is never used here: it would flip the TUN to non-blocking as a
+// side effect and race with Close if called without tunMu.
+func closeRetiredTUN(old, current *os.File) {
+	if old == nil || old == current {
+		return
 	}
+	_ = old.SetDeadline(time.Now())
+	_ = old.Close()
 }
 
 func (d *Dispatcher) SetUserDataPaused(v bool) {
@@ -286,8 +293,10 @@ func (d *Dispatcher) readLoop() {
 		return
 	case <-d.ready:
 	}
-	if d.tunFile != nil {
-		rawDiagf("readLoop: разблокирован, начинаю читать из tunFile (fd=%v)", d.tunFile.Fd())
+	if _, gen := d.currentTUN(); gen > 0 {
+		rawDiagf("readLoop: разблокирован, начинаю читать TUN gen=%d", gen)
+	} else {
+		rawDiagf("readLoop: разблокирован, TUN ещё не прикреплён")
 	}
 
 	buf := make([]byte, readBufSize)
@@ -318,7 +327,7 @@ func (d *Dispatcher) readLoop() {
 			}
 			if atomic.CompareAndSwapUint32(&d.firstReadErr, 0, 1) {
 				src := "localConn"
-				if d.tunFile != nil {
+				if tun != nil {
 					src = "tunFile"
 				}
 				rawDiagf("readLoop: первая ошибка чтения из %s: %v", src, err)
@@ -401,7 +410,7 @@ func (d *Dispatcher) readLoop() {
 				}
 			}
 			if sentPrio {
-				if d.tunFile != nil {
+				if usedTun {
 					atomic.AddUint64(&d.tunSentCount, 1)
 				}
 				d.mu.Unlock()
@@ -455,7 +464,7 @@ func (d *Dispatcher) readLoop() {
 		}
 
 		if sent {
-			if d.tunFile != nil {
+			if usedTun {
 				atomic.AddUint64(&d.tunSentCount, 1)
 			}
 		} else {
@@ -463,7 +472,7 @@ func (d *Dispatcher) readLoop() {
 			d.rrIndex = (idx + 1) % nw
 			d.rrCount = 0
 			putPktBuf(pkt)
-			if d.tunFile != nil {
+			if usedTun {
 				c := atomic.AddUint64(&d.tunDroppedCount, 1)
 				if c == 1 || c%50 == 0 {
 					rawDiagf("readLoop: пакет из TUN ДРОПНУТ — все воркеры перегружены (дропнуто всего=%d)", c)
