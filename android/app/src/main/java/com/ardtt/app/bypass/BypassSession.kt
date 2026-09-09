@@ -223,7 +223,10 @@ class BypassSession {
         keepProcessOnCleanup = false
         keepTunOnStop = false
         running.set(true)
-        process.sendControl("ALLOW_NET_OPS")
+        if (!BypassGoProcess.controlAckSucceeded(process.sendControl("ALLOW_NET_OPS"))) {
+            running.set(false)
+            return false
+        }
         val pfd = establishTun(conf.ip, conf.dnsCsv, conf.mtu) ?: return false
         tun = pfd
         if (!process.attachTun(pfd)) {
@@ -231,7 +234,9 @@ class BypassSession {
             tun = null
             return false
         }
-        process.sendControl("RESUME_CHANNELS")
+        if (!BypassGoProcess.controlAckSucceeded(process.sendControl("RESUME_CHANNELS"))) {
+            return false
+        }
         setPhase(BypassPhase.Running, onPhase)
         job = scope.launch {
             while (isActive && running.get() && process.isAlive) {

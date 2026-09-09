@@ -264,6 +264,19 @@ object ConnectionReducer {
                 state.call
             },
         )
+        val fromNetworkGap = !state.underlay.allowsNetworkOps && snapshot.allowsNetworkOps
+        val recovered = if (snapshot.allowsNetworkOps && (networkChanged || fromNetworkGap)) {
+            next.copy(
+                transport = if (next.transport == TransportLifecycle.Failed) {
+                    TransportLifecycle.Stopped
+                } else {
+                    next.transport
+                },
+                recovery = next.recovery.copy(nextRetryAtElapsedMs = null),
+            )
+        } else {
+            next
+        }
         if (!snapshot.allowsNetworkOps) {
             val paused = next.copy(
                 transport = if (next.transport == TransportLifecycle.Running) {
@@ -287,7 +300,7 @@ object ConnectionReducer {
                 RecoveryCommand.PauseNetOps,
             )
         }
-        return decideNext(next, elapsedMs, jitterPermille)
+        return decideNext(recovered, elapsedMs, jitterPermille)
     }
 
     private fun onProbe(
@@ -655,21 +668,7 @@ object ConnectionReducer {
             }
             is AutoDecision.Stay -> ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
             is AutoDecision.StartDirect -> {
-                if (state.transport == TransportLifecycle.Failed &&
-                    state.activePath == VpnPath.Direct
-                ) {
-                    val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
-                    return ReduceResult(
-                        withUi(
-                            state.copy(
-                                recovery = phaseOf(RecoveryPhase.Backoff, delay = delay)
-                                    .copy(failureIndex = state.recovery.failureIndex + 1),
-                            ),
-                            elapsedMs,
-                        ),
-                        RecoveryCommand.ScheduleRetry(delay),
-                    )
-                }
+                backoffAfterFailure(VpnPath.Direct, state, elapsedMs, jitterPermille)?.let { return it }
                 val transportEpoch = state.transportEpoch + 1L
                 val switching = state.activePath == VpnPath.Bypass &&
                     (state.transport == TransportLifecycle.Running || state.parkedRawAlive)
@@ -703,21 +702,7 @@ object ConnectionReducer {
                 )
             }
             is AutoDecision.StartBypass -> {
-                if (state.transport == TransportLifecycle.Failed &&
-                    state.activePath == VpnPath.Bypass
-                ) {
-                    val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
-                    return ReduceResult(
-                        withUi(
-                            state.copy(
-                                recovery = phaseOf(RecoveryPhase.Backoff, delay = delay)
-                                    .copy(failureIndex = state.recovery.failureIndex + 1),
-                            ),
-                            elapsedMs,
-                        ),
-                        RecoveryCommand.ScheduleRetry(delay),
-                    )
-                }
+                backoffAfterFailure(VpnPath.Bypass, state, elapsedMs, jitterPermille)?.let { return it }
                 val transportEpoch = state.transportEpoch + 1L
                 val returning = decision.reason.contains("return-mobile") ||
                     (state.parkedRawAlive && state.activePath == VpnPath.Direct)
@@ -725,6 +710,7 @@ object ConnectionReducer {
                     state.parkedRawAlive -> RecoveryCommand.ResumeParkedRaw
                     state.call.validity == CallValidity.CredentialsExpired ->
                         RecoveryCommand.RefreshCredentials
+                    returning && state.call.canReuse -> RecoveryCommand.RebuildRawSameCall
                     else -> RecoveryCommand.StartBypass(reuseCall = decision.reuseCall)
                 }
                 val diagnostic = when (cmd) {
@@ -760,6 +746,49 @@ object ConnectionReducer {
                 )
             }
         }
+    }
+
+    /**
+     * First failure on this path schedules backoff. Later events while the
+     * timer is still running must not bump [RecoveryState.failureIndex] or
+     * start a second attempt. A due timer falls through to a real start.
+     */
+    private fun backoffAfterFailure(
+        path: VpnPath,
+        state: ConnectionSnapshot,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult? {
+        if (state.transport != TransportLifecycle.Failed || state.activePath != path) {
+            return null
+        }
+        val due = state.recovery.nextRetryAtElapsedMs
+        if (due != null && elapsedMs < due) {
+            return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
+        }
+        if (due != null) {
+            return null
+        }
+        val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
+        return ReduceResult(
+            withUi(
+                state.copy(
+                    recovery = state.recovery.copy(
+                        phase = RecoveryPhase.Backoff,
+                        inFlight = false,
+                        nextRetryAtElapsedMs = elapsedMs + delay,
+                        failureIndex = state.recovery.failureIndex + 1,
+                        permit = permitFrom(
+                            state,
+                            netOps = state.underlay.allowsNetworkOps,
+                            inFlight = false,
+                        ),
+                    ),
+                ),
+                elapsedMs,
+            ),
+            RecoveryCommand.ScheduleRetry(delay),
+        )
     }
 
     private fun permitFrom(

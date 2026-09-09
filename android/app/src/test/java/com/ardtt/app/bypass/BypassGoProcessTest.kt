@@ -1,8 +1,10 @@
 package com.ardtt.app.bypass
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BypassGoProcessTest {
@@ -45,6 +47,14 @@ class BypassGoProcessTest {
         assertNotNull(ack)
         assertEquals("k3", ack!!.reqId)
         assertNull(BypassGoProcess.parseControlAck("PAUSE"))
+    }
+
+    @Test
+    fun staleControlAckIsFailure() {
+        assertTrue(BypassGoProcess.controlAckSucceeded("V1|k3|1|ACK|ATTACH_TUN|ok"))
+        assertFalse(BypassGoProcess.controlAckSucceeded("V1|k3|2|ACK|ATTACH_TUN|stale"))
+        assertFalse(BypassGoProcess.controlAckSucceeded("V1|k3|1|ACK|ATTACH_TUN|err|timeout"))
+        assertFalse(BypassGoProcess.controlAckSucceeded(null))
     }
 
     @Test

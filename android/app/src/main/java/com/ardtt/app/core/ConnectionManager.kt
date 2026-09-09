@@ -302,22 +302,14 @@ class ConnectionManager(
         rebuildTun: Boolean = false,
     ) {
         val state = _ui.value.state
-        if (
-            state != ConnState.Connected &&
-            state != ConnState.PausedTrustedWifi &&
-            state != ConnState.Connecting
-        ) {
-            return
-        }
+        if (state == ConnState.Disconnecting) return
+        if (!state.holdsUserSession() && TunnelSessionHolder.config == null) return
         transportRestartJob?.cancel()
         transportRestartJob = scope.launch {
             delay(TRANSPORT_RESTART_DEBOUNCE_MS)
             val live = _ui.value.state
-            if (
-                live != ConnState.Connected &&
-                live != ConnState.PausedTrustedWifi &&
-                live != ConnState.Connecting
-            ) {
+            if (live == ConnState.Disconnecting) return@launch
+            if (!live.holdsUserSession() && TunnelSessionHolder.config == null) {
                 return@launch
             }
             val intent = Intent(appContext, VpnTunnelService::class.java)
@@ -499,11 +491,13 @@ class ConnectionManager(
         val cm = appContext.getSystemService(ConnectivityManager::class.java)
         val wifi = cm?.let { pickWifiUnderlayNetwork(it) } ?: pickBestUnderlayNetwork(appContext)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && cm != null && wifi != null) {
-            val ok = runCatching {
-                cm.startCaptivePortalApp(wifi)
+            val started = runCatching {
+                ConnectivityManager::class.java
+                    .getMethod("startCaptivePortalApp", Network::class.java)
+                    .invoke(cm, wifi)
                 true
             }.getOrDefault(false)
-            if (ok) return
+            if (started) return
         }
         runCatching {
             appContext.startActivity(captivePortalLoginIntent())
@@ -536,6 +530,8 @@ class ConnectionManager(
         }
     }
 
+    fun isRecoveryInFlight(): Boolean = recoverySnapshot.recovery.inFlight
+
     private fun executeRecoveryCommand(result: ReduceResult) {
         when (val cmd = result.command) {
             RecoveryCommand.None -> Unit
@@ -556,46 +552,39 @@ class ConnectionManager(
             RecoveryCommand.Probe -> startInitialProbe()
             is RecoveryCommand.StartDirect,
             RecoveryCommand.ParkBypassForDirect,
-            -> {
-                recoveryRetryJob?.cancel()
-                recoveryRetryJob = null
-                stopWatchingUnderlay()
-                requestGoNetOps(allowed = true)
-                pendingConnectPath = VpnPath.Direct
-                launchConnectJob()
-            }
-            is RecoveryCommand.StartBypass -> {
-                recoveryRetryJob?.cancel()
-                recoveryRetryJob = null
-                stopWatchingUnderlay()
-                requestGoNetOps(allowed = true)
-                pendingConnectPath = VpnPath.Bypass
-                launchConnectJob()
-            }
-            RecoveryCommand.ResumeParkedRaw -> {
-                recoveryRetryJob?.cancel()
-                recoveryRetryJob = null
-                stopWatchingUnderlay()
-                requestGoNetOps(allowed = true)
-                pendingConnectPath = VpnPath.Bypass
-                launchConnectJob()
-            }
-            RecoveryCommand.RebuildRawSameCall -> {
-                recoveryRetryJob?.cancel()
-                recoveryRetryJob = null
-                stopWatchingUnderlay()
-                requestGoNetOps(allowed = true)
-                pendingConnectPath = VpnPath.Bypass
-                launchConnectJob()
-            }
+            -> startRecoveryTransport(
+                path = VpnPath.Direct,
+                resumeExisting = false,
+                rebuildTun = false,
+            )
+            is RecoveryCommand.StartBypass -> startRecoveryTransport(
+                path = VpnPath.Bypass,
+                resumeExisting = false,
+                rebuildTun = false,
+            )
+            RecoveryCommand.ResumeParkedRaw -> startRecoveryTransport(
+                path = VpnPath.Bypass,
+                resumeExisting = true,
+                rebuildTun = false,
+            )
+            RecoveryCommand.RebuildRawSameCall -> startRecoveryTransport(
+                path = VpnPath.Bypass,
+                resumeExisting = false,
+                rebuildTun = true,
+            )
             RecoveryCommand.RefreshCredentials -> {
                 recoveryRetryJob?.cancel()
                 recoveryRetryJob = null
                 requestGoNetOps(allowed = true)
-                val liveBypass = result.state.activePath == VpnPath.Bypass &&
-                    (result.state.transport == TransportLifecycle.Running ||
-                        result.state.parkedRawAlive)
-                if (!liveBypass) {
+                if (tunnelServiceLikelyRunning()) {
+                    bumpSessionGeneration("refresh-credentials")
+                    applySessionPath(VpnPath.Bypass)
+                    requestTransportRestart(
+                        reason = "refresh credentials",
+                        pathOverride = VpnPath.Bypass,
+                        rebuildTun = false,
+                    )
+                } else {
                     pendingConnectPath = VpnPath.Bypass
                     launchConnectJob()
                 }
@@ -608,6 +597,49 @@ class ConnectionManager(
                 }
             }
         }
+    }
+
+    private fun tunnelServiceLikelyRunning(): Boolean =
+        _ui.value.state.holdsUserSession() && TunnelSessionHolder.config != null
+
+    /**
+     * Resume/rebuild reuse the live VPN service. Cold start still goes through
+     * [launchConnectJob] so Direct can establish a new TUN.
+     */
+    private fun startRecoveryTransport(
+        path: VpnPath,
+        resumeExisting: Boolean,
+        rebuildTun: Boolean,
+    ) {
+        recoveryRetryJob?.cancel()
+        recoveryRetryJob = null
+        stopWatchingUnderlay()
+        requestGoNetOps(allowed = true)
+        pendingConnectPath = path
+        bumpSessionGeneration("recovery-transport path=$path resume=$resumeExisting rebuild=$rebuildTun")
+        if (resumeExisting && tunnelServiceLikelyRunning()) {
+            applySessionPath(path)
+            requestTransportRestart(
+                reason = if (path == VpnPath.Direct) {
+                    "start Direct"
+                } else {
+                    "resume parked RAW"
+                },
+                pathOverride = path,
+                rebuildTun = rebuildTun,
+            )
+            return
+        }
+        if (!resumeExisting && rebuildTun && tunnelServiceLikelyRunning()) {
+            applySessionPath(path)
+            requestTransportRestart(
+                reason = "rebuild RAW same call",
+                pathOverride = path,
+                rebuildTun = true,
+            )
+            return
+        }
+        launchConnectJob()
     }
 
     private fun requestGoUpdateNetwork(underlay: UnderlaySnapshot) {
@@ -794,6 +826,8 @@ class ConnectionManager(
         }
         probeJob?.cancel()
         probeJob = scope.launch {
+            val probeSessionEpoch = recoverySnapshot.sessionEpoch
+            val probeNetworkEpoch = recoverySnapshot.networkEpoch
             AppLog.v(TAG, "Probe start endpoint=$directEndpoint provision=$provisionUrl")
             _ui.value = _ui.value.copy(
                 state = ConnState.Probing,
@@ -825,7 +859,11 @@ class ConnectionManager(
                 AppLog.w(TAG, "Probe result ignored — already connecting/connected")
                 return@launch
             }
-            applyProbe(result)
+            applyProbe(
+                result,
+                sessionEpoch = probeSessionEpoch,
+                networkEpoch = probeNetworkEpoch,
+            )
         }
     }
 
@@ -926,6 +964,8 @@ class ConnectionManager(
 
         connectJob?.cancel()
         connectJob = scope.launch {
+            val connectSessionEpoch = recoverySnapshot.sessionEpoch
+            val connectNetworkEpoch = recoverySnapshot.networkEpoch
             try {
                 val snap = _ui.value
                 val lastGood = snap.probe
@@ -1070,7 +1110,11 @@ class ConnectionManager(
                         "probe=${fresh.preselectedPath}",
                 )
                 if (usePath == null) {
-                    applyProbe(fresh)
+                    applyProbe(
+                        fresh,
+                        sessionEpoch = connectSessionEpoch,
+                        networkEpoch = connectNetworkEpoch,
+                    )
                     val underlay = readUnderlaySnapshot()
                     dispatchRecovery(ConnectionEvent.UnderlayUpdated(underlay))
                     AppLog.w(TAG, "Connect deferred — no path yet: ${fresh.message}")
@@ -1694,6 +1738,8 @@ class ConnectionManager(
                     )
                     return@launch
                 }
+            }
+            val confirmed = if (path == VpnPath.Direct) {
                 dispatchRecovery(
                     ConnectionEvent.DirectConfirmed(
                         sessionEpoch = sessionEpoch,
@@ -1708,6 +1754,10 @@ class ConnectionManager(
                         transportEpoch = transportEpoch,
                     ),
                 )
+            }
+            if (confirmed.state.recovery.phase != RecoveryPhase.Connected) {
+                AppLog.w(TAG, "Tunnel running ignored — confirm rejected path=$path")
+                return@launch
             }
             _ui.value = _ui.value.copy(
                 state = ConnState.Connected,
@@ -2044,7 +2094,11 @@ class ConnectionManager(
         }
     }
 
-    private fun applyProbe(result: ProbeResult) {
+    private fun applyProbe(
+        result: ProbeResult,
+        sessionEpoch: Long,
+        networkEpoch: Long,
+    ) {
         val shown = displayedAutoProbe(pathMode, currentAutoUnderlayKind(), result)
         if (recoverySnapshot.intent.wantsConnected) {
             dispatchRecovery(
@@ -2061,8 +2115,8 @@ class ConnectionManager(
                         ttlUntilElapsedMs = SystemClock.elapsedRealtime() + RecoverySettings.PROBE_CACHE_TTL_MS,
                         bindHandle = shown.bindHandle,
                     ),
-                    sessionEpoch = recoverySnapshot.sessionEpoch,
-                    networkEpoch = recoverySnapshot.networkEpoch,
+                    sessionEpoch = sessionEpoch,
+                    networkEpoch = networkEpoch,
                 ),
             )
             _ui.value = _ui.value.copy(
@@ -2415,13 +2469,21 @@ class ConnectionManager(
         while (System.currentTimeMillis() < deadline) {
             if (generation != sessionGeneration.get()) return false
             VpnLiveStats.sample()
-            if (VpnLiveStats.totalRx > 0L) return true
-            if (VpnLiveStats.currentAwgHandshakeSec() > 0L) return true
+            if (RecoverySettings.directPathLooksConfirmed(
+                    VpnLiveStats.totalRx,
+                    VpnLiveStats.currentAwgHandshakeSec(),
+                )
+            ) {
+                return true
+            }
             delay(250L)
         }
         if (generation != sessionGeneration.get()) return false
         VpnLiveStats.sample()
-        return VpnLiveStats.totalRx > 0L || VpnLiveStats.currentAwgHandshakeSec() > 0L
+        return RecoverySettings.directPathLooksConfirmed(
+            VpnLiveStats.totalRx,
+            VpnLiveStats.currentAwgHandshakeSec(),
+        )
     }
 
     fun onWatchdogFault(path: VpnPath, reason: String) {

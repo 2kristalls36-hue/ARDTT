@@ -36,6 +36,33 @@ func TestUpdateNetworkStoresHandleAndBumpsEpoch(t *testing.T) {
 	if ctrl.SocketsEpoch() <= first {
 		t.Fatal("second UPDATE_NETWORK must bump sockets epoch")
 	}
+	if ctrl.NetEpoch() < 2 {
+		t.Fatalf("netEpoch=%d", ctrl.NetEpoch())
+	}
+}
+
+func TestShutdownBumpsGenerationAndStalesNextCmd(t *testing.T) {
+	ctrl := NewSessionControl()
+	rt := &controlRuntime{ctrl: ctrl}
+	cmd, err := parseControlLine("V1|r1|1|SHUTDOWN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := rt.handle(context.Background(), cmd)
+	if reply.Stale {
+		t.Fatal("shutdown of current gen must succeed")
+	}
+	if ctrl.Generation() <= 1 {
+		t.Fatalf("generation=%d", ctrl.Generation())
+	}
+	next, err := parseControlLine("V1|r2|1|ALLOW_NET_OPS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := rt.handle(context.Background(), next)
+	if !stale.Stale {
+		t.Fatal("command with old generation must be stale after SHUTDOWN")
+	}
 }
 
 func TestForbidThenWaitNetOps(t *testing.T) {

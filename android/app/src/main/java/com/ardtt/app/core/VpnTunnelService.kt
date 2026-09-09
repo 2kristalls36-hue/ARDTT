@@ -463,7 +463,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         underlayChanged: Boolean = false,
     ) {
         if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) return
-        if (shouldDeferHandoverProbe(handoverProbeInProgress, softRestartInProgress)) {
+        if (shouldDeferHandoverProbe(handoverProbeInProgress, softRestartInProgress) ||
+            ConnectionManager.getOrNull()?.isRecoveryInFlight() == true
+        ) {
             pendingHandover = mergePendingHandover(
                 pendingHandover,
                 PendingHandoverEvent(
