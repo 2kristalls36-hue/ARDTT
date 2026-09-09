@@ -155,6 +155,7 @@ func main() {
 				}
 				reply := rt.handle(ctx, cmd)
 				if reply.Stale {
+					fmt.Printf("%s|%s|%d|ACK|%s|stale\n", controlVersion, cmd.ReqID, rt.ctrl.Generation(), cmd.Name)
 					continue
 				}
 				if reply.Line != "" {

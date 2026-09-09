@@ -52,6 +52,21 @@ class CallRecreateTest {
     }
 
     @Test
+    fun mapsFatalBypassToUserActionWithoutTreatingTimeoutAsDeath() {
+        assertEquals(
+            com.ardtt.app.core.UserActionKind.Profile,
+            userActionForBypassFailure("FATAL_AUTH неверный пароль"),
+        )
+        assertEquals(
+            com.ardtt.app.core.UserActionKind.Captcha,
+            userActionForBypassFailure("captcha required"),
+        )
+        assertEquals(null, userActionForBypassFailure("stale nonce"))
+        assertEquals(null, userActionForBypassFailure("quota 486"))
+        assertEquals(null, userActionForBypassFailure("timeout"))
+    }
+
+    @Test
     fun silentRecreateNeedsLiveVkSession() {
         assertEquals(
             DeadCallAction.SilentRecreate,

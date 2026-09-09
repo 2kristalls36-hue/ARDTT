@@ -53,6 +53,34 @@ data class UnderlaySnapshot(
         get() = kind == UnderlayKind.Cellular && hasPhysicalNetwork
 }
 
+fun selectedNotSuspended(
+    selectedKind: UnderlayKind,
+    selectedNotSuspendedCap: Boolean,
+    cellularDataSuspended: Boolean,
+): Boolean {
+    val dataSuspendedApplies = selectedKind == UnderlayKind.Cellular && cellularDataSuspended
+    return selectedNotSuspendedCap && !dataSuspendedApplies
+}
+
+data class PhysicalNetworkPresence(
+    val wifi: Boolean = false,
+    val cellular: Boolean = false,
+    val ethernet: Boolean = false,
+)
+
+fun mergePhysicalPresence(
+    selectedWifi: Boolean,
+    selectedCellular: Boolean,
+    selectedEthernet: Boolean,
+    inventoryWifi: Boolean,
+    inventoryCellular: Boolean,
+    inventoryEthernet: Boolean,
+): PhysicalNetworkPresence = PhysicalNetworkPresence(
+    wifi = selectedWifi || inventoryWifi,
+    cellular = selectedCellular || inventoryCellular,
+    ethernet = selectedEthernet || inventoryEthernet,
+)
+
 fun networkConfigFingerprint(
     addresses: List<String>,
     dns: List<String>,

@@ -43,6 +43,7 @@ internal object NetworkProbePolicy {
         yandexOutcome: CheckOutcome? = null,
         bigtechOutcome: CheckOutcome? = null,
         provisionOutcome: CheckOutcome? = null,
+        seriesCount: Int = 1,
     ): ProbeResult {
         val yandex = yandexOutcome ?: if (yandexOk) CheckOutcome.Success else CheckOutcome.Timeout
         val bigtech = bigtechOutcome ?: if (bigtechOk) CheckOutcome.Success else CheckOutcome.Timeout
@@ -51,7 +52,7 @@ internal object NetworkProbePolicy {
             cellular = underlayKind == UnderlayKind.Cellular,
             yandex = yandex,
             bigtech = bigtech,
-            seriesCount = 1,
+            seriesCount = seriesCount.coerceAtLeast(1),
         )
         if (captive) {
             return ProbeResult(
@@ -168,4 +169,24 @@ internal object NetworkProbePolicy {
             null
         }
     }
+}
+
+fun nextProbeSeriesCount(
+    previous: ReachabilityEvidence?,
+    next: ReachabilityEvidence,
+): Int {
+    if (!next.yandex.ran || !next.bigtech.ran) {
+        return previous?.seriesCount ?: 1
+    }
+    if (previous == null) return 1
+    if (previous.networkKey != next.networkKey || previous.profileId != next.profileId) {
+        return 1
+    }
+    if (!previous.yandex.ran || !previous.bigtech.ran) return 1
+    if (previous.measuredAtElapsedMs == next.measuredAtElapsedMs &&
+        previous.bindHandle == next.bindHandle
+    ) {
+        return previous.seriesCount
+    }
+    return previous.seriesCount + 1
 }

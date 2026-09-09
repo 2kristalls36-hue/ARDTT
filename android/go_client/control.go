@@ -32,6 +32,9 @@ type SessionControl struct {
 	userDataPaused atomic.Int32
 	netOpsAllowed  atomic.Int32
 	tunGen         atomic.Uint64
+	netHandle      atomic.Int64
+	netEpoch       atomic.Uint64
+	socketsEpoch   atomic.Uint64
 	stage          atomic.Value // string
 }
 
@@ -68,6 +71,18 @@ func (c *SessionControl) SetNetOpsAllowed(v bool) {
 }
 
 func (c *SessionControl) NetOpsAllowed() bool { return c.netOpsAllowed.Load() != 0 }
+
+func (c *SessionControl) ApplyNetwork(handle int64) uint64 {
+	c.netHandle.Store(handle)
+	c.netEpoch.Add(1)
+	return c.socketsEpoch.Add(1)
+}
+
+func (c *SessionControl) NetworkHandle() int64 { return c.netHandle.Load() }
+
+func (c *SessionControl) NetEpoch() uint64 { return c.netEpoch.Load() }
+
+func (c *SessionControl) SocketsEpoch() uint64 { return c.socketsEpoch.Load() }
 
 func (c *SessionControl) WaitNetOps(ctx context.Context) error {
 	for {
@@ -169,11 +184,15 @@ func (rt *controlRuntime) handle(ctx context.Context, cmd *ControlCmd) ControlRe
 		if err != nil {
 			return controlAck(cmd, gen, "err", err.Error())
 		}
+		if cmd.SessionGen != rt.ctrl.Generation() {
+			_ = f.Close()
+			return ControlReply{Stale: true, Command: cmd.Name}
+		}
 		if err := rt.disp.AttachTUN(f); err != nil {
 			_ = f.Close()
 			return controlAck(cmd, gen, "err", err.Error())
 		}
-		return controlAck(cmd, gen, "ok", fmt.Sprintf("tunGen=%d", rt.disp.TunGeneration()))
+		return controlAck(cmd, rt.ctrl.Generation(), "ok", fmt.Sprintf("tunGen=%d", rt.disp.TunGeneration()))
 	case "FORBID_NET_OPS":
 		rt.ctrl.SetNetOpsAllowed(false)
 		return controlAck(cmd, gen, "ok", "")
@@ -181,7 +200,26 @@ func (rt *controlRuntime) handle(ctx context.Context, cmd *ControlCmd) ControlRe
 		rt.ctrl.SetNetOpsAllowed(true)
 		return controlAck(cmd, gen, "ok", "")
 	case "UPDATE_NETWORK":
-		return controlAck(cmd, gen, "ok", strings.Join(cmd.Args, ","))
+		handle := int64(0)
+		kind := ""
+		if len(cmd.Args) > 0 {
+			kind = cmd.Args[0]
+		}
+		if len(cmd.Args) > 1 {
+			if parsed, err := strconv.ParseInt(cmd.Args[1], 10, 64); err == nil {
+				handle = parsed
+			}
+		}
+		sockEpoch := rt.ctrl.ApplyNetwork(handle)
+		payload := fmt.Sprintf("kind=%s|handle=%d|netEpoch=%d|socketsEpoch=%d", kind, handle, rt.ctrl.NetEpoch(), sockEpoch)
+		return controlAck(cmd, gen, "ok", payload)
+	case "SHUTDOWN":
+		ack := controlAck(cmd, gen, "ok", "")
+		rt.ctrl.BumpGeneration()
+		if rt.cancel != nil {
+			rt.cancel()
+		}
+		return ack
 	case "GET_TELEMETRY":
 		payload := "stage=" + rt.stage()
 		if rt.disp != nil {
@@ -189,11 +227,6 @@ func (rt *controlRuntime) handle(ctx context.Context, cmd *ControlCmd) ControlRe
 		}
 		payload += fmt.Sprintf("|sessionGen=%d|paused=%d|netOps=%d", gen, boolToInt(rt.ctrl.UserDataPaused()), boolToInt(rt.ctrl.NetOpsAllowed()))
 		return controlAck(cmd, gen, "ok", payload)
-	case "SHUTDOWN":
-		if rt.cancel != nil {
-			rt.cancel()
-		}
-		return controlAck(cmd, gen, "ok", "")
 	default:
 		return controlAck(cmd, gen, "err", "unknown")
 	}

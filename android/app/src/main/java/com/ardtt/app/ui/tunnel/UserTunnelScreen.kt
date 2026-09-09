@@ -67,6 +67,7 @@ import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.ConnectionUiAction
+import com.ardtt.app.core.VpnPath
 import com.ardtt.app.ui.performConnectionUiAction
 import com.ardtt.app.profile.ProfileCatalog
 import com.ardtt.app.profile.ProfileRepository

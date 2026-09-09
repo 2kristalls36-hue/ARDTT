@@ -61,6 +61,11 @@ sealed class ConnectionEvent {
         val validity: CallValidity,
     ) : ConnectionEvent()
 
+    data class SessionParamsChanged(
+        val profileId: String?,
+        val hasCallHash: Boolean,
+    ) : ConnectionEvent()
+
     data class Clock(val elapsedMs: Long) : ConnectionEvent()
     data class TrustedWifiChanged(val waiting: Boolean) : ConnectionEvent()
 }
@@ -114,6 +119,7 @@ object ConnectionReducer {
             is ConnectionEvent.ParkedProcessDied -> onParkedDied(state, event)
             is ConnectionEvent.TransportDied -> onTransportDied(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.CallValidityChanged -> onCallValidity(state, event, elapsedMs, jitterPermille)
+            is ConnectionEvent.SessionParamsChanged -> onSessionParams(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.Clock -> onClock(state, event.elapsedMs, jitterPermille)
             is ConnectionEvent.TrustedWifiChanged ->
                 state.copy(
@@ -169,6 +175,7 @@ object ConnectionReducer {
         elapsedMs: Long,
     ): ReduceResult {
         val sessionEpoch = state.sessionEpoch + 1L
+        val transportEpoch = state.transportEpoch + 1L
         val started = state.copy(
             intent = UserConnectionIntent(
                 wantsConnected = true,
@@ -181,19 +188,22 @@ object ConnectionReducer {
                 hashPresent = event.hasCallHash,
                 profileId = event.profileId,
                 createdThisGeneration = false,
+                validity = if (event.hasCallHash) state.call.validity else CallValidity.Valid,
             ),
             sessionEpoch = sessionEpoch,
-            transportEpoch = state.transportEpoch + 1L,
+            transportEpoch = transportEpoch,
             wifiFailStreak = 0,
             wifiStableHits = 0,
-            directFailedOnNetwork = null,
+            directNegative = null,
             lastConfirmedPath = null,
-            recovery = RecoveryState(
-                phase = RecoveryPhase.Probing,
-                permit = permit(state, sessionEpoch, netOps = true, inFlight = false),
+            recovery = RecoveryState(phase = RecoveryPhase.Probing),
+        )
+        val permitted = started.copy(
+            recovery = started.recovery.copy(
+                permit = permitFrom(started, netOps = true, inFlight = false),
             ),
         )
-        return decideNext(started, elapsedMs, jitterPermille = 0)
+        return decideNext(permitted, elapsedMs, jitterPermille = 0)
     }
 
     private fun retryNow(
@@ -240,7 +250,7 @@ object ConnectionReducer {
         val next = state.copy(
             underlay = snapshot,
             networkEpoch = snapshot.networkEpoch,
-            directFailedOnNetwork = if (networkChanged) null else state.directFailedOnNetwork,
+            directNegative = if (networkChanged) null else state.directNegative,
             evidence = if (networkChanged) null else state.evidence,
             call = if (snapshot.availability == UnderlayAvailability.None) {
                 state.call.copy(
@@ -268,7 +278,7 @@ object ConnectionReducer {
                         UnderlayAvailability.Captive -> RecoveryPhase.CaptivePortal
                         else -> RecoveryPhase.WaitingForNetwork
                     },
-                    permit = permit(next, next.sessionEpoch, netOps = false, inFlight = false),
+                    permit = permitFrom(next, netOps = false, inFlight = false),
                     nextRetryAtElapsedMs = null,
                 ),
             )
@@ -289,7 +299,23 @@ object ConnectionReducer {
         if (!state.recovery.permit.accepts(event.sessionEpoch, event.networkEpoch)) {
             return ReduceResult(state, RecoveryCommand.None)
         }
-        val next = state.copy(evidence = event.evidence)
+        val series = nextProbeSeriesCount(state.evidence, event.evidence)
+        val restriction = NetworkProbePolicy.restrictionHint(
+            cellular = state.underlay.kind == UnderlayKind.Cellular,
+            yandex = event.evidence.yandex,
+            bigtech = event.evidence.bigtech,
+            seriesCount = series,
+        )
+        val next = state.copy(
+            evidence = event.evidence.copy(
+                seriesCount = series,
+                restriction = if (state.underlay.kind == UnderlayKind.Cellular) {
+                    restriction
+                } else {
+                    RestrictionHint.None
+                },
+            ),
+        )
         return decideNext(next, elapsedMs, jitterPermille)
     }
 
@@ -306,13 +332,13 @@ object ConnectionReducer {
             lastConfirmedPath = VpnPath.Direct,
             wifiFailStreak = 0,
             wifiStableHits = state.wifiStableHits + 1,
-            directFailedOnNetwork = null,
+            directNegative = null,
             recovery = state.recovery.copy(
                 phase = RecoveryPhase.Connected,
                 failureIndex = 0,
                 inFlight = false,
                 nextRetryAtElapsedMs = null,
-                permit = permit(state, state.sessionEpoch, netOps = true, inFlight = false),
+                permit = permitFrom(state, netOps = true, inFlight = false),
             ),
         )
         return ReduceResult(withUi(next, nowElapsedMs = 0L), RecoveryCommand.None)
@@ -328,9 +354,16 @@ object ConnectionReducer {
             return ReduceResult(state, RecoveryCommand.None)
         }
         val wifi = state.underlay.kind.prefersDirectInAuto()
+        val retryAfter = elapsedMs + RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
         val next = state.copy(
             transport = TransportLifecycle.Failed,
-            directFailedOnNetwork = event.networkKey ?: state.underlay.key,
+            directNegative = DirectNegativeEvidence(
+                key = event.networkKey ?: state.underlay.key ?: NetworkKey(0L, state.underlay.kind, null, "unknown"),
+                profileId = state.intent.profileId,
+                reason = event.reason,
+                failedAtElapsedMs = elapsedMs,
+                retryAfterElapsedMs = retryAfter,
+            ),
             wifiFailStreak = if (wifi) state.wifiFailStreak + 1 else state.wifiFailStreak,
             wifiStableHits = if (wifi) 0 else state.wifiStableHits,
         )
@@ -354,7 +387,7 @@ object ConnectionReducer {
                 failureIndex = 0,
                 inFlight = false,
                 nextRetryAtElapsedMs = null,
-                permit = permit(state, state.sessionEpoch, netOps = true, inFlight = false),
+                permit = permitFrom(state, netOps = true, inFlight = false),
             ),
         )
         return ReduceResult(withUi(next, nowElapsedMs = 0L), RecoveryCommand.None)
@@ -375,7 +408,7 @@ object ConnectionReducer {
                 recovery = state.recovery.copy(
                     phase = RecoveryPhase.NeedsUserAction,
                     inFlight = false,
-                    permit = permit(state, state.sessionEpoch, netOps = false, inFlight = false),
+                    permit = permitFrom(state, netOps = false, inFlight = false),
                 ),
                 ui = connectionUiModel(
                     phase = RecoveryPhase.NeedsUserAction,
@@ -447,6 +480,31 @@ object ConnectionReducer {
         return decideNext(next, elapsedMs, jitterPermille)
     }
 
+    private fun onSessionParams(
+        state: ConnectionSnapshot,
+        event: ConnectionEvent.SessionParamsChanged,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult {
+        val profileChanged = state.intent.profileId != event.profileId
+        val next = state.copy(
+            intent = state.intent.copy(
+                profileId = event.profileId,
+                hasCallHash = event.hasCallHash,
+            ),
+            call = state.call.copy(
+                hashPresent = event.hasCallHash,
+                profileId = event.profileId,
+            ),
+            evidence = if (profileChanged) null else state.evidence,
+            directNegative = if (profileChanged) null else state.directNegative,
+        )
+        if (!next.intent.wantsConnected) {
+            return ReduceResult(next, RecoveryCommand.None)
+        }
+        return decideNext(next, elapsedMs, jitterPermille)
+    }
+
     private fun onClock(
         state: ConnectionSnapshot,
         elapsedMs: Long,
@@ -490,7 +548,7 @@ object ConnectionReducer {
                 transport = state.transport,
                 hasCallHash = state.intent.hasCallHash,
                 call = state.call,
-                directFailedOnNetwork = state.directFailedOnNetwork,
+                directNegative = state.directNegative,
                 lastConfirmedPath = state.lastConfirmedPath,
                 wifiFailStreak = state.wifiFailStreak,
                 wifiStableHits = state.wifiStableHits,
@@ -513,9 +571,8 @@ object ConnectionReducer {
                 phase = phase,
                 inFlight = inFlight,
                 nextRetryAtElapsedMs = delay?.let { elapsedMs + it },
-                permit = permit(
+                permit = permitFrom(
                     state,
-                    state.sessionEpoch,
                     netOps = state.underlay.allowsNetworkOps,
                     inFlight = inFlight,
                 ),
@@ -633,9 +690,8 @@ object ConnectionReducer {
                             transport = TransportLifecycle.Starting,
                             transportEpoch = transportEpoch,
                             recovery = phaseOf(phase, inFlight = true).copy(
-                                permit = permit(
+                                permit = permitFrom(
                                     state.copy(transportEpoch = transportEpoch),
-                                    state.sessionEpoch,
                                     netOps = true,
                                     inFlight = true,
                                 ),
@@ -690,9 +746,8 @@ object ConnectionReducer {
                             transport = TransportLifecycle.Starting,
                             transportEpoch = transportEpoch,
                             recovery = phaseOf(phase, inFlight = true).copy(
-                                permit = permit(
+                                permit = permitFrom(
                                     state.copy(transportEpoch = transportEpoch),
-                                    state.sessionEpoch,
                                     netOps = true,
                                     inFlight = true,
                                 ),
@@ -707,13 +762,12 @@ object ConnectionReducer {
         }
     }
 
-    private fun permit(
+    private fun permitFrom(
         state: ConnectionSnapshot,
-        sessionEpoch: Long,
         netOps: Boolean,
         inFlight: Boolean,
     ): RecoveryPermit = RecoveryPermit(
-        sessionEpoch = sessionEpoch,
+        sessionEpoch = state.sessionEpoch,
         networkEpoch = state.networkEpoch,
         transportEpoch = state.transportEpoch,
         netOpsAllowed = netOps && state.intent.wantsConnected,

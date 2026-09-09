@@ -33,7 +33,7 @@ fun performConnectionUiAction(
         ConnectionUiAction.RetryNow,
         -> conn.retryNow()
         ConnectionUiAction.OpenCaptivePortal -> conn.openCaptivePortal()
-        ConnectionUiAction.OpenDiagnostics -> PendingUiAction.requestOpenServers()
+        ConnectionUiAction.OpenDiagnostics -> PendingUiAction.requestOpenDiagnostics()
         ConnectionUiAction.SignIn,
         ConnectionUiAction.PassCaptcha,
         -> context.startActivity(

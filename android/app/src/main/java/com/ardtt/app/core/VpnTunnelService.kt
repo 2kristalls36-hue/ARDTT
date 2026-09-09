@@ -158,6 +158,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val allowed = intent.getBooleanExtra(EXTRA_NET_OPS_ALLOWED, true)
                 (backend as? BypassBackend)?.setNetOpsAllowed(allowed)
                 parkedBypass?.setNetOpsAllowed(allowed)
+                if (intent.hasExtra(EXTRA_NETWORK_HANDLE)) {
+                    val handle = intent.getLongExtra(EXTRA_NETWORK_HANDLE, 0L)
+                    val kind = intent.getStringExtra(EXTRA_NETWORK_KIND) ?: "unknown"
+                    (backend as? BypassBackend)?.updateNetwork(kind, handle)
+                    parkedBypass?.updateNetwork(kind, handle)
+                }
                 return if (tunnelSessionActive) START_STICKY else START_NOT_STICKY
             }
             ACTION_START, null -> {
@@ -786,8 +792,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     if (!jobAlive) {
                         if (processDeadSinceMs == 0L) processDeadSinceMs = now
                         if (now - processDeadSinceMs >= PROCESS_DEAD_GRACE_MS) {
-                            AppLog.w(TAG, "watchdog: backend job dead → soft restart")
-                            requestSoftRestart(reason = "[ЗДОРОВЬЕ] Процесс туннеля не отвечает", force = false)
+                            AppLog.w(TAG, "watchdog: backend job dead → recovery")
+                            ConnectionManager.getOrNull()?.onWatchdogFault(
+                                VpnPath.Direct,
+                                "backend-job-dead",
+                            )
                             processDeadSinceMs = 0L
                         }
                         continue
@@ -849,9 +858,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         )
                     ) {
                         AppLog.w(TAG, "watchdog: zero workers for ${now - zeroWorkersSinceMs}ms")
-                        requestSoftRestart(
-                            reason = "[ЗДОРОВЬЕ] Нет активных TURN-воркеров — переподключаем обход",
-                            force = true,
+                        ConnectionManager.getOrNull()?.onWatchdogFault(
+                            VpnPath.Bypass,
+                            "zero-workers",
                         )
                         zeroWorkersSinceMs = 0L
                     }
@@ -873,9 +882,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             "watchdog: Bypass handshake-only traffic=${TransportHealth.trafficKb}KB " +
                                 "workers=$workers sinceHandoff=${now - lastHandoffAtMs}ms",
                         )
-                        requestSoftRestart(
-                            reason = "[ЗДОРОВЬЕ] Обход без полезного трафика — переподключаем TURN",
-                            force = true,
+                        ConnectionManager.getOrNull()?.onWatchdogFault(
+                            VpnPath.Bypass,
+                            "handshake-stall",
                         )
                     } else if (
                         shouldSoftRestartForTrafficStall(
@@ -894,9 +903,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         )
                         // Same path only. Re-probing Bypass as DirectOk (TCP :9100)
                         // after a dead-Direct fallback yanked a working Bypass.
-                        requestSoftRestart(
-                            reason = "[ЗДОРОВЬЕ] Трафик встал — переподключаем тот же путь",
-                            force = true,
+                        ConnectionManager.getOrNull()?.onWatchdogFault(
+                            path,
+                            "traffic-stall",
                         )
                     }
                 }
@@ -1206,6 +1215,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 )
                 lastValidatedNetworkId = id
                 lastPreferredUnderlayHandle = preferred ?: id
+                ConnectionManager.getOrNull()?.onUnderlyingNetworkLost()
                 if (
                     rebindBypassWhenValidated &&
                     TunnelSessionHolder.config?.path == VpnPath.Bypass &&
@@ -2205,6 +2215,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_RESTART_REASON = "restart_reason"
         const val EXTRA_REBUILD_TUN = "rebuild_tun"
         const val EXTRA_NET_OPS_ALLOWED = "net_ops_allowed"
+        const val EXTRA_NETWORK_HANDLE = "network_handle"
+        const val EXTRA_NETWORK_KIND = "network_kind"
         private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =
             "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42

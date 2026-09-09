@@ -60,6 +60,16 @@ object VpnLiveStats {
         // Keep awgHandle — DirectBackend owns lifecycle across soft-restarts.
     }
 
+    fun currentAwgHandshakeSec(): Long {
+        val h = awgHandle.get()
+        if (h < 0) return 0L
+        val cfg = runCatching {
+            org.amnezia.awg.GoBackend.awgGetConfig(h)
+        }.getOrNull()
+        if (cfg.isNullOrBlank()) return 0L
+        return parseAwgHandshakeSec(cfg) ?: 0L
+    }
+
     fun setAwgHandle(handle: Int) {
         awgHandle.set(handle)
         Log.i(TAG, "awg handle=$handle")
