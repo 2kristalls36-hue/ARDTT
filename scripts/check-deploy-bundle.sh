@@ -196,6 +196,11 @@ if grep -qE '^[[:space:]]*run:.*attach-server-packages-to-release\.sh' \
      "$ROOT/.github/workflows/android-build.yml"; then
   err "android-build must not attach server packages; that is tag-only in server-package.yml"
 fi
+ATTACH_WF="$ROOT/.github/workflows/attach-built-packages.yml"
+[ -f "$ATTACH_WF" ] || err "missing attach-built-packages.yml"
+grep -q 'pull_request' "$ATTACH_WF" && err "attach-built-packages must not run on pull_request"
+grep -q -- '--from-dir' "$ATTACH_WF" || err "attach-built-packages must pass --from-dir"
+grep -q 'ardtt-.*\.apk' "$ATTACH_WF" || err "attach-built-packages must upload the APK"
 bash -n "$ROOT/scripts/test-install-live-isolation.sh" || err "bash -n test-install-live-isolation"
 bash -n "$ROOT/scripts/make-fake-server-package.sh" || err "bash -n make-fake-server-package"
 python3 -m py_compile "$ROOT/scripts/safe-extract-package.py" || err "safe-extract-package.py"

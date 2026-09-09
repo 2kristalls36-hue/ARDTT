@@ -75,6 +75,9 @@ raw = subprocess.check_output(
 assets = {a["name"] for a in json.loads(raw).get("assets") or []}
 overlap = [p.name for p in upload if p.name in assets]
 if overlap:
+    if set(overlap) == {p.name for p in upload}:
+        print("already attached to https://github.com/%s/releases/tag/%s" % (repo, tag))
+        sys.exit(0)
     raise SystemExit(
         "refusing to overwrite existing release assets: " + ", ".join(overlap)
     )
