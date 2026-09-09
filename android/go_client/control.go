@@ -27,6 +27,10 @@ type ControlReply struct {
 	Command string
 }
 
+type deadlineSetter interface {
+	SetDeadline(time.Time) error
+}
+
 type SessionControl struct {
 	gen            atomic.Uint64
 	userDataPaused atomic.Int32
@@ -36,13 +40,27 @@ type SessionControl struct {
 	netEpoch       atomic.Uint64
 	socketsEpoch   atomic.Uint64
 	stage          atomic.Value // string
+
+	opMu          sync.Mutex
+	tracked       map[uint64]deadlineSetter
+	trackSeq      uint64
+	socketsCtx    context.Context
+	socketsCancel context.CancelFunc
+	opsCtx        context.Context
+	opsCancel     context.CancelFunc
 }
 
 func NewSessionControl() *SessionControl {
-	c := &SessionControl{}
+	c := &SessionControl{tracked: make(map[uint64]deadlineSetter)}
 	c.gen.Store(1)
 	c.netOpsAllowed.Store(1)
 	c.stage.Store("starting")
+	ctx, cancel := context.WithCancel(context.Background())
+	c.socketsCtx = ctx
+	c.socketsCancel = cancel
+	ops, opsCancel := context.WithCancel(context.Background())
+	c.opsCtx = ops
+	c.opsCancel = opsCancel
 	return c
 }
 
@@ -65,17 +83,98 @@ func (c *SessionControl) UserDataPaused() bool { return c.userDataPaused.Load() 
 func (c *SessionControl) SetNetOpsAllowed(v bool) {
 	if v {
 		c.netOpsAllowed.Store(1)
-	} else {
-		c.netOpsAllowed.Store(0)
+		c.opMu.Lock()
+		if c.opsCtx == nil || c.opsCtx.Err() != nil {
+			ops, cancel := context.WithCancel(context.Background())
+			c.opsCtx = ops
+			c.opsCancel = cancel
+		}
+		c.opMu.Unlock()
+		return
 	}
+	c.netOpsAllowed.Store(0)
+	c.opMu.Lock()
+	if c.opsCancel != nil {
+		c.opsCancel()
+	}
+	c.opMu.Unlock()
+	c.quiesceTracked(time.Now())
 }
 
 func (c *SessionControl) NetOpsAllowed() bool { return c.netOpsAllowed.Load() != 0 }
 
-func (c *SessionControl) ApplyNetwork(handle int64) uint64 {
+func shouldSendOnWire(ctrl *SessionControl) bool {
+	return ctrl == nil || ctrl.NetOpsAllowed()
+}
+
+func (c *SessionControl) TryNetOp(fn func()) bool {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	if !c.NetOpsAllowed() {
+		return false
+	}
+	fn()
+	return true
+}
+
+func (c *SessionControl) TrackConn(d deadlineSetter) func() {
+	if c == nil || d == nil {
+		return func() {}
+	}
+	c.opMu.Lock()
+	c.trackSeq++
+	id := c.trackSeq
+	if c.tracked == nil {
+		c.tracked = make(map[uint64]deadlineSetter)
+	}
+	c.tracked[id] = d
+	c.opMu.Unlock()
+	return func() {
+		c.opMu.Lock()
+		delete(c.tracked, id)
+		c.opMu.Unlock()
+	}
+}
+
+func (c *SessionControl) quiesceTracked(at time.Time) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	for _, d := range c.tracked {
+		_ = d.SetDeadline(at)
+	}
+}
+
+func (c *SessionControl) SocketsContext() context.Context {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	if c.socketsCtx == nil {
+		return context.Background()
+	}
+	return c.socketsCtx
+}
+
+func (c *SessionControl) rotateSocketsLocked() {
+	if c.socketsCancel != nil {
+		c.socketsCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.socketsCtx = ctx
+	c.socketsCancel = cancel
+}
+
+// ApplyNetwork is idempotent for the same handle. A real change bumps
+// socketsEpoch and cancels in-flight dials/keepalive of the old network.
+func (c *SessionControl) ApplyNetwork(handle int64) (sockEpoch uint64, changed bool) {
+	if c.netHandle.Load() == handle {
+		return c.socketsEpoch.Load(), false
+	}
 	c.netHandle.Store(handle)
 	c.netEpoch.Add(1)
-	return c.socketsEpoch.Add(1)
+	c.opMu.Lock()
+	c.rotateSocketsLocked()
+	c.opMu.Unlock()
+	c.quiesceTracked(time.Now())
+	return c.socketsEpoch.Add(1), true
 }
 
 func (c *SessionControl) NetworkHandle() int64 { return c.netHandle.Load() }
@@ -83,6 +182,42 @@ func (c *SessionControl) NetworkHandle() int64 { return c.netHandle.Load() }
 func (c *SessionControl) NetEpoch() uint64 { return c.netEpoch.Load() }
 
 func (c *SessionControl) SocketsEpoch() uint64 { return c.socketsEpoch.Load() }
+
+// BoundContext is cancelled when FORBID_NET_OPS lands or the selected
+// network changes. It does not cancel the logical CallSession.
+func (c *SessionControl) BoundContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if c == nil {
+		return context.WithCancel(parent)
+	}
+	c.opMu.Lock()
+	ops := c.opsCtx
+	sock := c.socketsCtx
+	allowed := c.NetOpsAllowed()
+	c.opMu.Unlock()
+	ctx, cancel := context.WithCancel(parent)
+	if !allowed {
+		cancel()
+		return ctx, cancel
+	}
+	go func() {
+		var opsDone <-chan struct{}
+		var sockDone <-chan struct{}
+		if ops != nil {
+			opsDone = ops.Done()
+		}
+		if sock != nil {
+			sockDone = sock.Done()
+		}
+		select {
+		case <-opsDone:
+			cancel()
+		case <-sockDone:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
 
 func (c *SessionControl) WaitNetOps(ctx context.Context) error {
 	for {
@@ -210,12 +345,22 @@ func (rt *controlRuntime) handle(ctx context.Context, cmd *ControlCmd) ControlRe
 				handle = parsed
 			}
 		}
-		sockEpoch := rt.ctrl.ApplyNetwork(handle)
-		payload := fmt.Sprintf("kind=%s|handle=%d|netEpoch=%d|socketsEpoch=%d", kind, handle, rt.ctrl.NetEpoch(), sockEpoch)
+		sockEpoch, changed := rt.ctrl.ApplyNetwork(handle)
+		bound := "unchanged"
+		if changed {
+			bound = "applied"
+		}
+		payload := fmt.Sprintf("kind=%s|handle=%d|netEpoch=%d|socketsEpoch=%d|bound=%s", kind, handle, rt.ctrl.NetEpoch(), sockEpoch, bound)
 		return controlAck(cmd, gen, "ok", payload)
 	case "SHUTDOWN":
 		ack := controlAck(cmd, gen, "ok", "")
 		rt.ctrl.BumpGeneration()
+		rt.ctrl.SetNetOpsAllowed(false)
+		if rt.ctrl.socketsCancel != nil {
+			rt.ctrl.opMu.Lock()
+			rt.ctrl.rotateSocketsLocked()
+			rt.ctrl.opMu.Unlock()
+		}
 		if rt.cancel != nil {
 			rt.cancel()
 		}

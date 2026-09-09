@@ -160,3 +160,44 @@ func TestRepeatGetconfSameSidIdempotent(t *testing.T) {
 		t.Fatalf("repeat GETCONF bumped %d -> %d", g1, g2)
 	}
 }
+
+func TestLateGetconfOfOldSidDoesNotReactivateOrReuseGen(t *testing.T) {
+	r := &rawRouter{sessions: make(map[string]*rawClientSessions)}
+	ip := "10.9.0.21"
+	oldC, oldS := net.Pipe()
+	defer oldC.Close()
+	go io.Copy(io.Discard, oldC)
+	g1 := r.generationForHandshake(ip, "sid-a", true)
+	wA := r.register(ip, oldS, "dev", g1)
+
+	newC, newS := net.Pipe()
+	defer newC.Close()
+	go io.Copy(io.Discard, newC)
+	g2 := r.generationForHandshake(ip, "sid-b", true)
+	if g2 == g1 {
+		t.Fatal("new sid must get a unique generation")
+	}
+	wB := r.register(ip, newS, "dev", g2)
+
+	lateGet := r.generationForHandshake(ip, "sid-a", true)
+	if lateGet != g1 {
+		t.Fatalf("late GETCONF(A) gen=%d want %d", lateGet, g1)
+	}
+	if r.currentGeneration(ip) != g2 {
+		t.Fatalf("active gen=%d want %d (B must stay active)", r.currentGeneration(ip), g2)
+	}
+	for i := 0; i < 8; i++ {
+		w := r.pickDownlinkConn(ip, 64)
+		if w == wA {
+			t.Fatal("late GETCONF(A) reactivated old downlink")
+		}
+		if w != wB {
+			t.Fatalf("unexpected worker")
+		}
+	}
+
+	g3 := r.generationForHandshake(ip, "sid-c", true)
+	if g3 == g1 || g3 == g2 {
+		t.Fatalf("session C reused generation g3=%d g1=%d g2=%d", g3, g1, g2)
+	}
+}

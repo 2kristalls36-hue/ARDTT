@@ -337,6 +337,48 @@ class NetworkProbeClassifyTest {
                 evidence.copy(networkKey = NetworkKey(2L, UnderlayKind.Cellular, 8, "cell2")),
             ),
         )
+        val open = evidence.copy(
+            bigtech = CheckOutcome.Success,
+            seriesCount = 4,
+        )
+        assertEquals(0, nextProbeSeriesCount(open, open.copy(measuredAtElapsedMs = 90L)))
+        assertEquals(
+            1,
+            nextProbeSeriesCount(
+                open,
+                evidence.copy(measuredAtElapsedMs = 90L),
+            ),
+        )
+        assertEquals(
+            1,
+            nextProbeSeriesCount(
+                evidence.copy(ttlUntilElapsedMs = 50L, seriesCount = 2),
+                evidence.copy(measuredAtElapsedMs = 80L),
+                elapsedMs = 80L,
+            ),
+        )
+        assertEquals(
+            0,
+            nextProbeSeriesCount(
+                evidence,
+                evidence.copy(
+                    measuredAtElapsedMs = 120L,
+                    yandex = CheckOutcome.Cancelled,
+                    bigtech = CheckOutcome.NotRun,
+                ),
+            ),
+        )
+        assertEquals(
+            1,
+            nextProbeSeriesCount(
+                evidence.copy(
+                    yandex = CheckOutcome.Cancelled,
+                    bigtech = CheckOutcome.NotRun,
+                    seriesCount = 4,
+                ),
+                evidence.copy(measuredAtElapsedMs = 121L),
+            ),
+        )
     }
 
     @Test

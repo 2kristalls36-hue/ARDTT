@@ -450,21 +450,28 @@ class ConnectionManager(
     fun saveCallHash(hash: String) {
         val cleaned = com.ardtt.app.bypass.VkUrl.strip(hash)
         if (!com.ardtt.app.bypass.VkUrl.isPlausibleHash(cleaned)) return
+        val token = PathConfirm.identityToken(cleaned)
         hashStore.setHash(profile?.name, cleaned)
         refreshHashFlag()
-        if (recoverySnapshot.intent.wantsConnected) {
-            dispatchRecovery(
-                ConnectionEvent.SessionParamsChanged(
-                    profileId = profile?.name,
-                    hasCallHash = true,
-                ),
-            )
-        }
+        dispatchRecovery(
+            ConnectionEvent.CallIdentityChanged(
+                profileId = profile?.name,
+                hashPresent = true,
+                identityToken = token,
+            ),
+        )
     }
 
     fun clearCallHash() {
         hashStore.clear()
         refreshHashFlag()
+        dispatchRecovery(
+            ConnectionEvent.CallIdentityChanged(
+                profileId = profile?.name,
+                hashPresent = false,
+                identityToken = "",
+            ),
+        )
     }
 
     fun callHashOrNull(): String? = hashStore.getHash(profile?.name)
@@ -639,19 +646,34 @@ class ConnectionManager(
             )
             return
         }
+        if (path == VpnPath.Direct && tunnelServiceLikelyRunning()) {
+            applySessionPath(path)
+            requestTransportRestart(
+                reason = "start Direct",
+                pathOverride = path,
+                rebuildTun = rebuildTun,
+            )
+            return
+        }
         launchConnectJob()
     }
 
     private fun requestGoUpdateNetwork(underlay: UnderlaySnapshot) {
-        val live = recoverySnapshot.transport == TransportLifecycle.Running ||
-            recoverySnapshot.transport == TransportLifecycle.Paused ||
-            recoverySnapshot.parkedRawAlive
-        if (!live) return
-        val handle = underlay.handle ?: return
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+        val cellularHandle = cm?.let { pickCellularUnderlayNetwork(it)?.networkHandle }
+        val target = goBypassNetworkTarget(
+            activePath = recoverySnapshot.activePath,
+            transport = recoverySnapshot.transport,
+            parkedRawAlive = recoverySnapshot.parkedRawAlive,
+            underlayHandle = underlay.handle,
+            underlayKind = underlay.kind,
+            cellularHandle = cellularHandle,
+        ) ?: return
         val intent = Intent(appContext, VpnTunnelService::class.java)
             .setAction(VpnTunnelService.ACTION_SESSION_CONTROL)
-            .putExtra(VpnTunnelService.EXTRA_NETWORK_HANDLE, handle)
-            .putExtra(VpnTunnelService.EXTRA_NETWORK_KIND, underlay.kind.name)
+            .putExtra(VpnTunnelService.EXTRA_NETWORK_HANDLE, target.handle)
+            .putExtra(VpnTunnelService.EXTRA_NETWORK_KIND, target.kind)
+            .putExtra(VpnTunnelService.EXTRA_NETWORK_SCOPE, target.scope)
         runCatching { appContext.startService(intent) }
     }
 
@@ -934,6 +956,7 @@ class ConnectionManager(
                 profileId = profile?.name,
                 hasCallHash = callHashOrNull() != null,
                 silentRecreate = silentRecreate,
+                callIdentityToken = PathConfirm.identityToken(callHashOrNull()),
             )
         } else {
             ConnectionEvent.UnderlayUpdated(underlay)
@@ -1717,7 +1740,7 @@ class ConnectionManager(
                     lastError = null,
                     softInfo = softInfoFor(_ui.value.probe),
                 )
-                if (!waitForBypassWorkers(generation)) {
+                if (!waitForBypassPathConfirm(generation, sessionEpoch, transportEpoch, networkKey)) {
                     if (generation != sessionGeneration.get()) return@launch
                     AppLog.e(TAG, "Bypass: no active TURN workers after ${BYPASS_WORKERS_WAIT_MS}ms")
                     onTunnelFailed("Обход недоступен: нет активных каналов. Проверьте код звонка и сеть.")
@@ -1726,7 +1749,7 @@ class ConnectionManager(
             }
             if (generation != sessionGeneration.get()) return@launch
             if (path == VpnPath.Direct) {
-                if (!waitForDirectPathConfirm(generation)) {
+                if (!waitForDirectPathConfirm(generation, sessionEpoch, transportEpoch, networkKey)) {
                     if (generation != sessionGeneration.get()) return@launch
                     dispatchRecovery(
                         ConnectionEvent.DirectFailed(
@@ -1745,6 +1768,7 @@ class ConnectionManager(
                         sessionEpoch = sessionEpoch,
                         transportEpoch = transportEpoch,
                         networkKey = networkKey,
+                        probeConfirmed = true,
                     ),
                 )
             } else {
@@ -1752,6 +1776,7 @@ class ConnectionManager(
                     ConnectionEvent.BypassConfirmed(
                         sessionEpoch = sessionEpoch,
                         transportEpoch = transportEpoch,
+                        probeConfirmed = true,
                     ),
                 )
             }
@@ -2454,35 +2479,72 @@ class ConnectionManager(
         appContext.startService(intent)
     }
 
-    private suspend fun waitForBypassWorkers(generation: Long = sessionGeneration.get()): Boolean {
+    private suspend fun waitForBypassPathConfirm(
+        generation: Long,
+        sessionEpoch: Long,
+        transportEpoch: Long,
+        networkKey: NetworkKey?,
+    ): Boolean {
         val deadline = System.currentTimeMillis() + BYPASS_WORKERS_WAIT_MS
+        var workersReady = false
         while (System.currentTimeMillis() < deadline) {
             if (generation != sessionGeneration.get()) return false
-            if (TransportHealth.activeWorkers > 0) return true
+            if (TransportHealth.activeWorkers > 0) {
+                workersReady = true
+                break
+            }
             delay(BYPASS_WORKERS_POLL_MS)
         }
-        return generation == sessionGeneration.get() && TransportHealth.activeWorkers > 0
+        if (!workersReady) return false
+        return confirmCapturedPath(
+            generation = generation,
+            sessionEpoch = sessionEpoch,
+            transportEpoch = transportEpoch,
+            networkKey = networkKey,
+        )
     }
 
-    private suspend fun waitForDirectPathConfirm(generation: Long): Boolean {
+    private suspend fun waitForDirectPathConfirm(
+        generation: Long,
+        sessionEpoch: Long,
+        transportEpoch: Long,
+        networkKey: NetworkKey?,
+    ): Boolean {
         val deadline = System.currentTimeMillis() + RecoverySettings.DIRECT_LIMITED_TRY_MS
         while (System.currentTimeMillis() < deadline) {
             if (generation != sessionGeneration.get()) return false
-            VpnLiveStats.sample()
-            if (RecoverySettings.directPathLooksConfirmed(
-                    VpnLiveStats.totalRx,
-                    VpnLiveStats.currentAwgHandshakeSec(),
-                )
-            ) {
+            if (confirmCapturedPath(generation, sessionEpoch, transportEpoch, networkKey)) {
                 return true
             }
             delay(250L)
         }
         if (generation != sessionGeneration.get()) return false
-        VpnLiveStats.sample()
-        return RecoverySettings.directPathLooksConfirmed(
-            VpnLiveStats.totalRx,
-            VpnLiveStats.currentAwgHandshakeSec(),
+        return confirmCapturedPath(generation, sessionEpoch, transportEpoch, networkKey)
+    }
+
+    private fun confirmCapturedPath(
+        generation: Long,
+        sessionEpoch: Long,
+        transportEpoch: Long,
+        networkKey: NetworkKey?,
+    ): Boolean {
+        if (generation != sessionGeneration.get()) return false
+        val endpoint = NetworkProbe.parseProvisionEndpoint(resolveProvisionUrl())
+        val probeOk = confirmRouteThroughVpn(
+            appContext,
+            endpoint?.first,
+            endpoint?.second ?: 9100,
+        )
+        return PathConfirm.looksConfirmed(
+            PathConfirmObservation(
+                capturedSessionEpoch = sessionEpoch,
+                capturedTransportEpoch = transportEpoch,
+                capturedNetworkKey = networkKey,
+                eventSessionEpoch = recoverySnapshot.sessionEpoch,
+                eventTransportEpoch = recoverySnapshot.transportEpoch,
+                eventNetworkKey = recoverySnapshot.underlay.key,
+                probeSucceeded = probeOk,
+            ),
         )
     }
 

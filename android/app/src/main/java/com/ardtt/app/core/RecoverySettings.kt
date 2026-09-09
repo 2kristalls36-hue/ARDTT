@@ -16,12 +16,14 @@ object RecoverySettings {
     const val DIRECT_LIMITED_TRY_MS = 8_000L
     const val DIRECT_LIMITED_TRY_AFTER_HANDOFF_MS = 4_000L
     const val NETWORK_RETURN_COALESCE_MS = 400L
+    const val DIRECT_REEVAL_WHILE_BYPASS_MS = 30_000L
+    const val PROBE_RESTRICTION_TTL_MS = 30_000L
 
     val retryBackoffMs: LongArray = longArrayOf(
         2_000L, 5_000L, 10_000L, 20_000L, 30_000L, 60_000L,
     )
 
-        fun retryDelayMs(failureIndex: Int, jitterPermille: Int = 0): Long {
+    fun retryDelayMs(failureIndex: Int, jitterPermille: Int = 0): Long {
         val idx = failureIndex.coerceAtLeast(0)
         val base = if (idx < retryBackoffMs.size) {
             retryBackoffMs[idx]
@@ -33,7 +35,7 @@ object RecoverySettings {
         return (base + delta).coerceAtLeast(0L)
     }
 
-    /** Local AWG start is not Connected; handshake or TUN RX must confirm the path. */
-    fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean =
-        totalRx > 0L || handshakeSec > 0L
+    /** Handshake/RX alone never confirm the path — see [PathConfirm]. */
+    @Suppress("UNUSED_PARAMETER")
+    fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean = false
 }

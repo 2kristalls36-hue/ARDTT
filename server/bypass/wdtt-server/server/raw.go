@@ -117,7 +117,10 @@ func (w *downlinkWorker) stop() {
 type rawClientSessions struct {
 	workers      []*downlinkWorker
 	activeGen    uint64
+	issuedGen    uint64
+	activeSid    string
 	sidGen       map[string]uint64
+	sidSeen      map[string]time.Time
 	rrIndex      int
 	rrCount      int
 	chunkStartTs int64 // unix millis начала текущего chunk'а — для downlinkMaxDwellMS
@@ -281,57 +284,99 @@ func liveGenerationWorkers(cs *rawClientSessions) []*downlinkWorker {
 	return live
 }
 
-// beginClientGeneration is the legacy GETCONF_RAW path (no transport sid).
-func (r *rawRouter) beginClientGeneration(ip string) uint64 {
-	return r.generationForHandshake(ip, "", true)
-}
-
-// generationForHandshake binds a RAW channel to a transport session.
-// Known sid: reuse gen; GETCONF activates it without bumping.
-// New sid: bump activeGen and map sid→gen (AUTH-before-GETCONF included).
-// Legacy empty sid: GETCONF bumps; AUTH joins the current generation.
-func (r *rawRouter) generationForHandshake(ip, sid string, isGetConf bool) uint64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *rawRouter) ensureSession(ip string) *rawClientSessions {
 	cs := r.sessions[ip]
 	if cs == nil {
-		cs = &rawClientSessions{sidGen: make(map[string]uint64)}
+		cs = &rawClientSessions{
+			sidGen:  make(map[string]uint64),
+			sidSeen: make(map[string]time.Time),
+		}
 		r.sessions[ip] = cs
 	}
 	if cs.sidGen == nil {
 		cs.sidGen = make(map[string]uint64)
 	}
+	if cs.sidSeen == nil {
+		cs.sidSeen = make(map[string]time.Time)
+	}
+	return cs
+}
+
+func (cs *rawClientSessions) nextIssued() uint64 {
+	cs.issuedGen++
+	if cs.issuedGen == 0 {
+		cs.issuedGen = 1
+	}
+	return cs.issuedGen
+}
+
+func (cs *rawClientSessions) activate(sid string, gen uint64) {
+	cs.activeSid = sid
+	cs.activeGen = gen
+	cs.rrIndex = 0
+	cs.rrCount = 0
+	cs.chunkStartTs = 0
+}
+
+func (cs *rawClientSessions) rememberSid(sid string, gen uint64) {
+	cs.sidGen[sid] = gen
+	cs.sidSeen[sid] = time.Now()
+	const maxSidHistory = 32
+	if len(cs.sidGen) <= maxSidHistory {
+		return
+	}
+	var oldest string
+	var oldestAt time.Time
+	for id, seen := range cs.sidSeen {
+		if id == cs.activeSid {
+			continue
+		}
+		if oldest == "" || seen.Before(oldestAt) {
+			oldest = id
+			oldestAt = seen
+		}
+	}
+	if oldest != "" {
+		delete(cs.sidGen, oldest)
+		delete(cs.sidSeen, oldest)
+	}
+}
+
+// generationForHandshake binds a RAW channel to a transport session.
+// Unique issued generations never decrease. A known stale sid is not
+// reactivated: late GETCONF/AUTH of A after B is live keep B as active.
+// Unknown sid (GETCONF or AUTH-before-GETCONF) confirms a new session.
+// Legacy empty sid: GETCONF issues a new generation; AUTH joins activeGen.
+func (r *rawRouter) generationForHandshake(ip, sid string, isGetConf bool) uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cs := r.ensureSession(ip)
 	if sid != "" {
 		if gen, ok := cs.sidGen[sid]; ok {
-			if isGetConf {
-				cs.activeGen = gen
+			cs.sidSeen[sid] = time.Now()
+			if isGetConf && sid == cs.activeSid {
+				return gen
 			}
 			return gen
 		}
-		cs.activeGen++
-		if cs.activeGen == 0 {
-			cs.activeGen = 1
-		}
-		cs.sidGen[sid] = cs.activeGen
-		cs.rrIndex = 0
-		cs.rrCount = 0
-		cs.chunkStartTs = 0
-		return cs.activeGen
+		gen := cs.nextIssued()
+		cs.rememberSid(sid, gen)
+		cs.activate(sid, gen)
+		return gen
 	}
 	if isGetConf {
-		cs.activeGen++
-		if cs.activeGen == 0 {
-			cs.activeGen = 1
-		}
-		cs.rrIndex = 0
-		cs.rrCount = 0
-		cs.chunkStartTs = 0
-		return cs.activeGen
+		gen := cs.nextIssued()
+		cs.activate("", gen)
+		return gen
 	}
 	if cs.activeGen == 0 {
-		cs.activeGen = 1
+		cs.activeGen = cs.nextIssued()
 	}
 	return cs.activeGen
+}
+
+func (r *rawRouter) beginClientGeneration(ip string) uint64 {
+	return r.generationForHandshake(ip, "", true)
 }
 
 func (r *rawRouter) currentGeneration(ip string) uint64 {
@@ -348,13 +393,12 @@ func (r *rawRouter) register(ip string, conn net.Conn, deviceID string, gen uint
 	w := newDownlinkWorker(conn, deviceID)
 	w.gen = gen
 	r.mu.Lock()
-	cs := r.sessions[ip]
-	if cs == nil {
-		cs = &rawClientSessions{activeGen: gen}
-		r.sessions[ip] = cs
-	}
+	cs := r.ensureSession(ip)
 	if cs.activeGen == 0 {
 		cs.activeGen = gen
+	}
+	if gen > cs.issuedGen {
+		cs.issuedGen = gen
 	}
 	cs.workers = append(cs.workers, w)
 	r.mu.Unlock()
@@ -374,9 +418,8 @@ func (r *rawRouter) unregister(ip string, w *downlinkWorker) {
 			cs.rrIndex = 0
 		}
 		cs.rrCount = 0
-		if len(cs.workers) == 0 {
-			delete(r.sessions, ip)
-		}
+		// Keep sid/generation history after the last worker leaves so a late
+		// GETCONF of an old sid cannot be mistaken for a brand-new session.
 	}
 	r.mu.Unlock()
 	// stop() вне r.mu — ждёт завершения writer-горутины (после close(sendCh)
