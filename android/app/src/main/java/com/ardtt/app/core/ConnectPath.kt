@@ -56,7 +56,7 @@ fun resolveConnectPath(
     @Suppress("UNUSED_PARAMETER") lastGood: ProbeResult?,
     fresh: ProbeResult,
     underlayKind: UnderlayKind = UnderlayKind.Other,
-    @Suppress("UNUSED_PARAMETER") bypassAllowed: Boolean = true,
+    bypassAllowed: Boolean = true,
     directFailedOnCurrentUnderlay: Boolean = false,
 ): VpnPath? {
     when (mode) {
