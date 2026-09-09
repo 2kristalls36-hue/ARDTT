@@ -28,7 +28,18 @@ data class ProbeResult(
     val provisionOk: Boolean,
     val message: String,
     val elapsedMs: Long,
+    val yandexOutcome: CheckOutcome = if (yandexOk) CheckOutcome.Success else CheckOutcome.NotRun,
+    val bigtechOutcome: CheckOutcome = if (bigtechOk) CheckOutcome.Success else CheckOutcome.NotRun,
+    val provisionOutcome: CheckOutcome = if (provisionOk) CheckOutcome.Success else CheckOutcome.NotRun,
+    val restriction: RestrictionHint = RestrictionHint.Unknown,
+    val networkKey: NetworkKey? = null,
+    val bindHandle: Long? = null,
 ) {
-    /** Operator whitelist: Yandex DNS lives, Cloudflare does not. */
-    val whitelistRestricted: Boolean get() = yandexOk && !bigtechOk
+    /**
+     * Indirect mobile-restriction hint. Never a final Auto Bypass lock:
+     * both outcomes must have actually run.
+     */
+    val whitelistRestricted: Boolean
+        get() = restriction == RestrictionHint.Suspected ||
+            restriction == RestrictionHint.Confirmed
 }

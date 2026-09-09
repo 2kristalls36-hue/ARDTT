@@ -98,7 +98,7 @@ func RequestRawConfig(conn net.Conn, deviceID, password string) (ip, dnsCSV stri
 	}
 
 	parts := strings.Split(strings.TrimPrefix(resp, "RAWCONF:"), "|")
-	if len(parts) != 3 {
+	if len(parts) < 3 {
 		return "", "", 0, fmt.Errorf("некорректный формат RAWCONF: %q", resp)
 	}
 	mtuVal, convErr := strconv.Atoi(strings.TrimSpace(parts[2]))

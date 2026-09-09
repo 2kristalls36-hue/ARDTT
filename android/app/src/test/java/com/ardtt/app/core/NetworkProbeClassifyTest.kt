@@ -7,7 +7,7 @@ import org.junit.Test
 
 class NetworkProbeClassifyTest {
     @Test
-    fun vpsIpOnWhitelistPicksBypass() {
+    fun cellularRestrictionHintStillTriesDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -15,31 +15,32 @@ class NetworkProbeClassifyTest {
             captive = false,
             awgUdpOk = false,
             provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
         assertEquals(NetworkClass.NeedBypass, r.networkClass)
         assertTrue(r.whitelistRestricted)
         assertTrue(r.provisionOk)
-        assertTrue(r.message.contains("белый список") || r.message.contains("обход"))
+        assertTrue(r.message.contains("ограничен"))
     }
 
     @Test
-    fun vpsOnWhitelistPicksBypassNotDirect() {
+    fun nonCellularYandexWithoutCloudflareIsNotMobileDiagnosis() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = false,
             captive = false,
             provisionOk = true,
+            underlayKind = UnderlayKind.Wifi,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
-        assertTrue(r.whitelistRestricted)
-        assertTrue(r.message.contains("белый список") || r.message.contains("обход"))
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertEquals(RestrictionHint.None, r.restriction)
     }
 
     @Test
-    fun vpsWithoutOpenCloudflareIsBypassNotDirect() {
+    fun vpsReachableWithoutPublicDnsStillTriesDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = false,
@@ -48,23 +49,21 @@ class NetworkProbeClassifyTest {
             awgUdpOk = false,
             provisionOk = true,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
     }
 
     @Test
-    fun mtsStyleTcpCloudflareWithoutTlsPicksBypass() {
-        // Lab on MTS: Yandex TCP/HTTP up, 1.1.1.1 TCP up but TLS/UDP dead,
-        // :9100 TCP up but /health dead. After the probe change bigtechOk and
-        // provisionOk are both false; even if /health later works, no TLS → Bypass.
+    fun cellularYandexWithoutCloudflareIsHintNotBypassLock() {
         val noHealth = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = false,
             captive = false,
             provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, noHealth.preselectedPath)
+        assertEquals(VpnPath.Direct, noHealth.preselectedPath)
         assertTrue(noHealth.whitelistRestricted)
         val healthButNoTls = NetworkProbe.classify(
             systemOnline = true,
@@ -72,13 +71,14 @@ class NetworkProbeClassifyTest {
             bigtechOk = false,
             captive = false,
             provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, healthButNoTls.preselectedPath)
+        assertEquals(VpnPath.Direct, healthButNoTls.preselectedPath)
         assertEquals(NetworkClass.NeedBypass, healthButNoTls.networkClass)
     }
 
     @Test
-    fun yandexWithoutVpsMeansBypass() {
+    fun yandexWithoutVpsOnCellularStillTriesDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -86,8 +86,9 @@ class NetworkProbeClassifyTest {
             captive = false,
             awgUdpOk = false,
             provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
         assertEquals(NetworkClass.NeedBypass, r.networkClass)
     }
 
@@ -106,22 +107,23 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun whitelistWithoutVpsPicksBypass() {
+    fun whitelistWithoutVpsOnCellularIsHint() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = false,
             captive = false,
             provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
         assertEquals(NetworkClass.NeedBypass, r.networkClass)
         assertTrue(r.whitelistRestricted)
-        assertTrue(r.message.contains("белый список"))
+        assertTrue(r.message.contains("ограничен"))
     }
 
     @Test
-    fun vpsAloneWithoutPublicDnsIsNotDirect() {
+    fun vpsAloneWithoutPublicDnsIsDirectCandidate() {
         val r = NetworkProbe.classify(
             systemOnline = false,
             yandexOk = false,
@@ -129,8 +131,8 @@ class NetworkProbeClassifyTest {
             captive = false,
             provisionOk = true,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
     }
 
     @Test
@@ -174,9 +176,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathWhitelistBypassEvenIfVpsTcpUp() {
+    fun decideProbePathDirectWhenYandexUpCloudflareDown() {
         assertEquals(
-            ProbePathHint.Bypass,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = true,
                 yandexOk = true,
@@ -200,9 +202,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathWhitelistBypassesWithoutWaitingVps() {
+    fun decideProbePathWaitsWhenCloudflareUnknown() {
         assertEquals(
-            ProbePathHint.Bypass,
+            ProbePathHint.Wait,
             NetworkProbe.decideProbePath(
                 provisionOk = null,
                 yandexOk = true,
@@ -213,9 +215,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathProvisionAloneIsNotDirect() {
+    fun decideProbePathProvisionAloneIsDirectCandidate() {
         assertEquals(
-            ProbePathHint.Bypass,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = true,
                 yandexOk = false,
@@ -226,9 +228,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathBypassWhenVpsDeadAndYandexLives() {
+    fun decideProbePathWaitsWhenCloudflareStillRunning() {
         assertEquals(
-            ProbePathHint.Bypass,
+            ProbePathHint.Wait,
             NetworkProbe.decideProbePath(
                 provisionOk = false,
                 yandexOk = true,

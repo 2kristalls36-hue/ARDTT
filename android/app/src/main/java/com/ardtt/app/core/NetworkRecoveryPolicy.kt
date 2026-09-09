@@ -334,11 +334,17 @@ data class ProbeStreak(
 enum class UnderlayKind {
     Wifi,
     Cellular,
+    Ethernet,
     Other,
 }
 
-fun classifyUnderlayKind(wifi: Boolean, cellular: Boolean): UnderlayKind = when {
+fun classifyUnderlayKind(
+    wifi: Boolean,
+    cellular: Boolean,
+    ethernet: Boolean = false,
+): UnderlayKind = when {
     wifi -> UnderlayKind.Wifi
+    ethernet -> UnderlayKind.Ethernet
     cellular -> UnderlayKind.Cellular
     else -> UnderlayKind.Other
 }
@@ -389,7 +395,7 @@ fun decideNetworkHandoverAction(
             NetworkHandoverDecision.NoAction
         }
     }
-    if (underlayKind == UnderlayKind.Wifi) {
+    if (underlayKind.prefersDirectInAuto()) {
         if (currentPath == VpnPath.Direct) {
             return if (underlayChanged) {
                 NetworkHandoverDecision.SoftRestartSamePath
@@ -397,7 +403,7 @@ fun decideNetworkHandoverAction(
                 NetworkHandoverDecision.NoAction
             }
         }
-        val canUpgradeToDirect = allowBypassToDirect && !directFailedOnCurrentUnderlay
+        val canUpgradeToDirect = allowBypassToDirect
         if (canUpgradeToDirect) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
         }
@@ -408,9 +414,12 @@ fun decideNetworkHandoverAction(
     }
     val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
     if (currentPath == VpnPath.Direct) {
-        val needBypass = probedPath == VpnPath.Bypass && bypassAllowed
-        if (needBypass && (underlayChanged || sameProbeStreak >= HANDOVER_DIRECT_TO_BYPASS_STREAK)) {
+        val needBypass = bypassAllowed && directFailedOnCurrentUnderlay
+        if (needBypass) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
+        }
+        if (probedPath == VpnPath.Bypass && currentPathHealthy) {
+            return NetworkHandoverDecision.NoAction
         }
         if (vpsUp) {
             return NetworkHandoverDecision.SoftRestartSamePath
@@ -434,7 +443,10 @@ fun decideNetworkHandoverAction(
     return NetworkHandoverDecision.NoAction
 }
 
-/** Keep libclient/TURN (the VK call) after Bypass→Direct so LTE return can redial the same hash. */
+/**
+ * Legacy warm-call timer. Call identity is no longer dropped after this
+ * interval; parked process may still be released to save battery.
+ */
 const val WARM_CALL_HOLD_MS = 5 * 60 * 1000L
 
 fun shouldParkBypassCall(from: VpnPath, to: VpnPath): Boolean =
@@ -444,8 +456,16 @@ fun shouldParkBypassCall(from: VpnPath, to: VpnPath): Boolean =
 fun preferWifiUnderlayKind(
     hasValidatedWifi: Boolean,
     pickBestKind: UnderlayKind,
-    @Suppress("UNUSED_PARAMETER") wifiConnected: Boolean = false,
-): UnderlayKind = if (hasValidatedWifi) UnderlayKind.Wifi else pickBestKind
+    wifiConnected: Boolean = false,
+    wifiCaptive: Boolean = false,
+    wifiUsable: Boolean = hasValidatedWifi,
+): UnderlayKind {
+    if (wifiCaptive) return pickBestKind
+    if (hasValidatedWifi || wifiUsable || (wifiConnected && pickBestKind != UnderlayKind.Cellular)) {
+        return UnderlayKind.Wifi
+    }
+    return pickBestKind
+}
 
 fun shouldReconnectTunnelAfterWake(
     activeWorkers: Int,

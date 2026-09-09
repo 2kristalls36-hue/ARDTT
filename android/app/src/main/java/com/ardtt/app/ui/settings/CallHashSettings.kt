@@ -33,6 +33,7 @@ import com.ardtt.app.bypass.VkUrl
 import com.ardtt.app.bypass.vkSessionAction
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
+import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.ui.components.control.ArdttButton
@@ -63,10 +64,7 @@ fun CallHashSettingsContent(
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
     var vkDisplayName by remember { mutableStateOf<String?>(null) }
 
-    val vpnActive = ui.state == ConnState.Connecting ||
-        ui.state == ConnState.Connected ||
-        ui.state == ConnState.PausedTrustedWifi ||
-        ui.state == ConnState.Disconnecting
+    val vpnActive = ui.state.holdsUserSession()
     val canEdit = profile != null && !vpnActive && !busy
     LaunchedEffect(vkLoggedIn) {
         vkDisplayName = if (vkLoggedIn) VkSession.resolveDisplayName() else null

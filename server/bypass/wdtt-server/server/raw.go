@@ -68,6 +68,7 @@ const downlinkWorkerBuf = 256
 type downlinkWorker struct {
 	conn     net.Conn
 	deviceID string
+	gen      uint64
 	sendCh   chan []byte
 	done     chan struct{}
 }
@@ -115,6 +116,7 @@ func (w *downlinkWorker) stop() {
 
 type rawClientSessions struct {
 	workers      []*downlinkWorker
+	activeGen    uint64
 	rrIndex      int
 	rrCount      int
 	chunkStartTs int64 // unix millis начала текущего chunk'а — для downlinkMaxDwellMS
@@ -241,7 +243,11 @@ func (r *rawRouter) pickDownlinkConn(dst string, pktSize int) *downlinkWorker {
 	if cs == nil || len(cs.workers) == 0 {
 		return nil
 	}
-	if cs.rrIndex >= len(cs.workers) {
+	live := liveGenerationWorkers(cs)
+	if len(live) == 0 {
+		return nil
+	}
+	if cs.rrIndex >= len(live) {
 		cs.rrIndex = 0
 	}
 
@@ -249,28 +255,75 @@ func (r *rawRouter) pickDownlinkConn(dst string, pktSize int) *downlinkWorker {
 	if cs.chunkStartTs == 0 {
 		cs.chunkStartTs = now
 	} else if now-cs.chunkStartTs >= downlinkMaxDwellMS {
-		cs.rrIndex = (cs.rrIndex + 1) % len(cs.workers)
+		cs.rrIndex = (cs.rrIndex + 1) % len(live)
 		cs.rrCount = 0
 		cs.chunkStartTs = now
 	}
 
-	w := cs.workers[cs.rrIndex]
+	w := live[cs.rrIndex]
 	cs.rrCount++
 	if cs.rrCount >= downlinkChunkSizeFor(pktSize) {
-		cs.rrIndex = (cs.rrIndex + 1) % len(cs.workers)
+		cs.rrIndex = (cs.rrIndex + 1) % len(live)
 		cs.rrCount = 0
 		cs.chunkStartTs = now
 	}
 	return w
 }
 
-func (r *rawRouter) register(ip string, conn net.Conn, deviceID string) *downlinkWorker {
-	w := newDownlinkWorker(conn, deviceID)
+func liveGenerationWorkers(cs *rawClientSessions) []*downlinkWorker {
+	live := make([]*downlinkWorker, 0, len(cs.workers))
+	for _, w := range cs.workers {
+		if w != nil && w.gen == cs.activeGen {
+			live = append(live, w)
+		}
+	}
+	return live
+}
+
+// beginClientGeneration is called on GETCONF_RAW only. A replaced client of
+// the same device/IP must not share downlink with leftover channels of the
+// previous process. AUTH workers join the current generation.
+// Servers without this bump keep stale channels until DISCONNECT_RAW or the
+// ~90s idle timeout — old clients remain compatible because RAWCONF is unchanged.
+func (r *rawRouter) beginClientGeneration(ip string) uint64 {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	cs := r.sessions[ip]
 	if cs == nil {
 		cs = &rawClientSessions{}
 		r.sessions[ip] = cs
+	}
+	cs.activeGen++
+	if cs.activeGen == 0 {
+		cs.activeGen = 1
+	}
+	cs.rrIndex = 0
+	cs.rrCount = 0
+	cs.chunkStartTs = 0
+	return cs.activeGen
+}
+
+func (r *rawRouter) currentGeneration(ip string) uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cs := r.sessions[ip]
+	if cs == nil || cs.activeGen == 0 {
+		return 1
+	}
+	return cs.activeGen
+}
+
+func (r *rawRouter) register(ip string, conn net.Conn, deviceID string, gen uint64) *downlinkWorker {
+	w := newDownlinkWorker(conn, deviceID)
+	w.gen = gen
+	r.mu.Lock()
+	cs := r.sessions[ip]
+	if cs == nil {
+		cs = &rawClientSessions{activeGen: gen}
+		r.sessions[ip] = cs
+	}
+	if cs.activeGen == 0 {
+		cs.activeGen = gen
 	}
 	cs.workers = append(cs.workers, w)
 	r.mu.Unlock()
@@ -469,9 +522,15 @@ func handleConnRaw(ctx context.Context, clientConn net.Conn, router *rawRouter) 
 	untrackCredential := trackCredentialConnection(password, deviceID, clientConn)
 	defer untrackCredential()
 
-	dlWorker := router.register(assignedIP, clientConn, deviceID)
+	var gen uint64
+	if isGetConf {
+		gen = router.beginClientGeneration(assignedIP)
+	} else {
+		gen = router.currentGeneration(assignedIP)
+	}
+	dlWorker := router.register(assignedIP, clientConn, deviceID, gen)
 	defer router.unregister(assignedIP, dlWorker)
-	log.Printf("[RAW] Сессия %s зарегистрирована (ip=%s, getConf=%v)", deviceID, assignedIP, isGetConf)
+	log.Printf("[RAW] Сессия %s зарегистрирована (ip=%s, getConf=%v, gen=%d)", deviceID, assignedIP, isGetConf, gen)
 	defer log.Printf("[RAW] Сессия %s (ip=%s) завершена", deviceID, assignedIP)
 
 	activeDevicesMu.Lock()

@@ -22,7 +22,12 @@ fun resolveLiveSwitchPath(
         ConnPathMode.Bypass -> if (hasCallHash) VpnPath.Bypass else null
         ConnPathMode.Auto -> {
             if (autoUsesDirectOnWifi(mode, underlayKind)) return VpnPath.Direct
-            val preferred = probePath ?: currentPath
+            if (underlayKind == UnderlayKind.Other) return currentPath
+            val preferred = if (probePath == VpnPath.Bypass && currentPath == VpnPath.Direct) {
+                currentPath
+            } else {
+                probePath ?: currentPath
+            }
             if (preferred == VpnPath.Bypass && !hasCallHash) VpnPath.Direct else preferred
         }
     }

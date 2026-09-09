@@ -62,6 +62,10 @@ fun shouldConnectAfterProbeJoin(state: ConnState): Boolean = when (state) {
     ConnState.Connecting,
     ConnState.Connected,
     ConnState.PausedTrustedWifi,
+    ConnState.WaitingForNetwork,
+    ConnState.Recovering,
+    ConnState.CaptivePortal,
+    ConnState.NeedsUserAction,
     ConnState.Disconnecting,
     -> false
 }

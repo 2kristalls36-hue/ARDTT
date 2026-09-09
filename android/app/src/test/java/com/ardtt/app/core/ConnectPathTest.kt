@@ -40,6 +40,17 @@ class ConnectPathTest {
                 probePreferred = VpnPath.Direct,
                 lastGood = directOk,
                 fresh = directOk,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Bypass,
+                lastGood = needBypass,
+                fresh = needBypass,
+                underlayKind = UnderlayKind.Cellular,
             ),
         )
         assertEquals(
@@ -49,6 +60,9 @@ class ConnectPathTest {
                 probePreferred = VpnPath.Bypass,
                 lastGood = needBypass,
                 fresh = needBypass,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                directFailedOnCurrentUnderlay = true,
             ),
         )
     }
@@ -89,7 +103,7 @@ class ConnectPathTest {
             ),
         )
         assertEquals(
-            VpnPath.Bypass,
+            VpnPath.Direct,
             resolveConnectPath(
                 mode = ConnPathMode.Auto,
                 probePreferred = VpnPath.Bypass,
@@ -110,7 +124,7 @@ class ConnectPathTest {
         assertTrue(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Cellular, hasCallHash = true))
         assertFalse(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Cellular, hasCallHash = false))
         assertFalse(autoMayUseBypass(ConnPathMode.Direct, UnderlayKind.Cellular, hasCallHash = true))
-        assertTrue(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Other, hasCallHash = true))
+        assertFalse(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Other, hasCallHash = true))
         assertEquals(
             VpnPath.Direct,
             resolveConnectPath(

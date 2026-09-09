@@ -11,14 +11,11 @@ internal enum class ProbePathHint {
 }
 
 /**
- * Pure Auto-path classifier (no Android).
+ * Pure probe classifier (no Android).
  *
- * 77.88.8.8 = internet even on operator whitelist.
- * 1.1.1.1 counts as open only after TLS or UDP :53 — a TCP connect to
- * :443 is not enough (MTS: TCP up, TLS dead, AmneziaWG UDP dead).
- * VPS [provisionOk] is HTTP /health, not TCP :9100 (MTS: connect works,
- * GET times out). Direct requires open Cloudflare. Reaching the VPS
- * alone is not Direct: that UDP :51820 path is what the whitelist drops.
+ * Cloudflare is not required for Direct. A Yandex-up / Cloudflare-down pair
+ * is only a mobile restriction hint after both checks actually ran.
+ * Auto still tries Direct first; Bypass is a recovery path.
  */
 internal object NetworkProbePolicy {
 
@@ -29,19 +26,11 @@ internal object NetworkProbePolicy {
         captive: Boolean?,
     ): ProbePathHint {
         if (captive == true) return ProbePathHint.Captive
-        if (cloudflareOk == true && provisionOk == true) return ProbePathHint.Direct
-        if (cloudflareOk == true && provisionOk == false) return ProbePathHint.Bypass
-        // Yandex lives and Cloudflare is not actually open → Bypass now.
-        // Do not wait for TCP :9100: that is not AmneziaWG UDP :51820.
-        if (yandexOk == true && cloudflareOk == false) return ProbePathHint.Bypass
-        val anyInternet = yandexOk == true || cloudflareOk == true
-        val internetDead = yandexOk == false && cloudflareOk == false
-        if (provisionOk == false && anyInternet) return ProbePathHint.Bypass
-        if (provisionOk == false && internetDead) return ProbePathHint.NoNetwork
-        if (provisionOk == true && cloudflareOk == false && yandexOk == false) {
-            return ProbePathHint.Bypass
-        }
-        return ProbePathHint.Wait
+        val allKnown = provisionOk != null && yandexOk != null && cloudflareOk != null
+        if (!allKnown) return ProbePathHint.Wait
+        val anyInternet = yandexOk == true || cloudflareOk == true || provisionOk == true
+        if (!anyInternet) return ProbePathHint.NoNetwork
+        return ProbePathHint.Direct
     }
 
     fun classify(
@@ -50,21 +39,38 @@ internal object NetworkProbePolicy {
         bigtechOk: Boolean,
         captive: Boolean,
         provisionOk: Boolean,
+        underlayKind: UnderlayKind = UnderlayKind.Other,
+        yandexOutcome: CheckOutcome? = null,
+        bigtechOutcome: CheckOutcome? = null,
+        provisionOutcome: CheckOutcome? = null,
     ): ProbeResult {
+        val yandex = yandexOutcome ?: if (yandexOk) CheckOutcome.Success else CheckOutcome.Timeout
+        val bigtech = bigtechOutcome ?: if (bigtechOk) CheckOutcome.Success else CheckOutcome.Timeout
+        val provision = provisionOutcome ?: if (provisionOk) CheckOutcome.Success else CheckOutcome.Timeout
+        val restriction = restrictionHint(
+            cellular = underlayKind == UnderlayKind.Cellular,
+            yandex = yandex,
+            bigtech = bigtech,
+            seriesCount = 1,
+        )
         if (captive) {
             return ProbeResult(
                 networkClass = NetworkClass.Captive,
                 preselectedPath = null,
                 systemOnline = systemOnline,
-                yandexOk = yandexOk,
-                bigtechOk = bigtechOk,
+                yandexOk = yandex.isSuccess,
+                bigtechOk = bigtech.isSuccess,
                 captive = true,
-                provisionOk = provisionOk,
+                provisionOk = provision.isSuccess,
                 message = "Войдите в сеть (captive portal)",
                 elapsedMs = 0,
+                yandexOutcome = yandex,
+                bigtechOutcome = bigtech,
+                provisionOutcome = provision,
+                restriction = RestrictionHint.Unknown,
             )
         }
-        if (!systemOnline && !yandexOk && !bigtechOk && !provisionOk) {
+        if (!systemOnline && !yandex.isSuccess && !bigtech.isSuccess && !provision.isSuccess) {
             return ProbeResult(
                 networkClass = NetworkClass.NoNetwork,
                 preselectedPath = null,
@@ -75,80 +81,76 @@ internal object NetworkProbePolicy {
                 provisionOk = false,
                 message = "Нет сети",
                 elapsedMs = 0,
+                yandexOutcome = yandex,
+                bigtechOutcome = bigtech,
+                provisionOutcome = provision,
+                restriction = RestrictionHint.Unknown,
             )
         }
-        if (provisionOk && bigtechOk) {
+        val internetOk = yandex.isSuccess || bigtech.isSuccess
+        if (provision.isFailure && internetOk && restriction == RestrictionHint.None) {
             return ProbeResult(
-                networkClass = NetworkClass.DirectOk,
+                networkClass = NetworkClass.OpenNeedBypass,
                 preselectedPath = VpnPath.Direct,
                 systemOnline = systemOnline,
-                yandexOk = yandexOk,
-                bigtechOk = true,
-                captive = false,
-                provisionOk = true,
-                message = "Готово: прямое",
-                elapsedMs = 0,
-            )
-        }
-        if (yandexOk && !bigtechOk) {
-            return ProbeResult(
-                networkClass = NetworkClass.NeedBypass,
-                preselectedPath = VpnPath.Bypass,
-                systemOnline = systemOnline,
-                yandexOk = true,
-                bigtechOk = false,
-                captive = false,
-                provisionOk = provisionOk,
-                message = if (provisionOk) {
-                    "Готово: обход (белый список — UDP до VPS, скорее всего, закрыт)"
-                } else {
-                    "Готово: обход (белый список, VPS недоступен)"
-                },
-                elapsedMs = 0,
-            )
-        }
-        if (provisionOk && !bigtechOk) {
-            return ProbeResult(
-                networkClass = NetworkClass.NeedBypass,
-                preselectedPath = VpnPath.Bypass,
-                systemOnline = systemOnline,
-                yandexOk = yandexOk,
-                bigtechOk = false,
-                captive = false,
-                provisionOk = true,
-                message = "Готово: обход (VPS отвечает, открытого интернета нет)",
-                elapsedMs = 0,
-            )
-        }
-        if (yandexOk || bigtechOk) {
-            val open = bigtechOk
-            return ProbeResult(
-                networkClass = if (open) NetworkClass.OpenNeedBypass else NetworkClass.NeedBypass,
-                preselectedPath = VpnPath.Bypass,
-                systemOnline = systemOnline,
-                yandexOk = yandexOk,
-                bigtechOk = bigtechOk,
+                yandexOk = yandex.isSuccess,
+                bigtechOk = bigtech.isSuccess,
                 captive = false,
                 provisionOk = false,
-                message = if (open) {
-                    "Готово: обход (VPS недоступен)"
-                } else {
-                    "Готово: обход (белый список, VPS недоступен)"
-                },
+                message = "Сеть есть, сервер не отвечает — пробуем прямое подключение",
                 elapsedMs = 0,
+                yandexOutcome = yandex,
+                bigtechOutcome = bigtech,
+                provisionOutcome = provision,
+                restriction = RestrictionHint.None,
             )
         }
+        val message = when {
+            restriction == RestrictionHint.Suspected ->
+                "Похоже на ограничения мобильной сети"
+            provision.isSuccess -> "Готово: прямое"
+            internetOk -> "Сеть подключена, доступ в интернет не подтверждён для всех целей"
+            else -> "Готово: прямое"
+        }
+        val networkClass = if (restriction == RestrictionHint.Suspected) {
+            NetworkClass.NeedBypass
+        } else {
+            NetworkClass.DirectOk
+        }
         return ProbeResult(
-            networkClass = NetworkClass.NoNetwork,
-            preselectedPath = null,
+            networkClass = networkClass,
+            preselectedPath = VpnPath.Direct,
             systemOnline = systemOnline,
-            yandexOk = yandexOk,
-            bigtechOk = bigtechOk,
+            yandexOk = yandex.isSuccess,
+            bigtechOk = bigtech.isSuccess,
             captive = false,
-            provisionOk = provisionOk,
-            message = "Нет сети",
+            provisionOk = provision.isSuccess,
+            message = message,
             elapsedMs = 0,
+            yandexOutcome = yandex,
+            bigtechOutcome = bigtech,
+            provisionOutcome = provision,
+            restriction = restriction,
         )
+    }
+
+    fun restrictionHint(
+        cellular: Boolean,
+        yandex: CheckOutcome,
+        bigtech: CheckOutcome,
+        seriesCount: Int,
+    ): RestrictionHint {
+        if (!cellular) return RestrictionHint.None
+        if (!yandex.ran || !bigtech.ran) return RestrictionHint.Unknown
+        if (yandex.isSuccess && bigtech.isFailure) {
+            return if (seriesCount >= RecoverySettings.RESTRICTION_CONFIRM_SERIES) {
+                RestrictionHint.Confirmed
+            } else {
+                RestrictionHint.Suspected
+            }
+        }
+        if (yandex.isSuccess && bigtech.isSuccess) return RestrictionHint.None
+        return RestrictionHint.Unknown
     }
 
     fun parseProvisionEndpoint(baseUrl: String?): Pair<String, Int>? {

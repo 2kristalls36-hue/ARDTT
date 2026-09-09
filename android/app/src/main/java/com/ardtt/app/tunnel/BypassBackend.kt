@@ -112,6 +112,39 @@ class BypassBackend(
     val isCallParked: Boolean
         get() = session.isCallParked
 
+    fun setNetOpsAllowed(allowed: Boolean) {
+        session.setNetOpsAllowed(allowed)
+    }
+
+    fun setParkedDeathHandler(handler: (() -> Unit)?) {
+        session.setParkedDeathHandler(handler)
+    }
+
+    suspend fun resumeParked(
+        service: VpnService,
+        onState: (TunnelBackendState) -> Unit,
+    ): Boolean = coroutineScope {
+        onState(TunnelBackendState.Starting)
+        val ok = session.resumeParked(
+            scope = this,
+            service = service,
+            establishTun = { ip, dnsCsv, mtu ->
+                (service as? TunEstablisher)?.establishTun(ip, dnsCsv, mtu)
+            },
+        ) { phase ->
+            when (phase) {
+                is BypassPhase.Running -> onState(TunnelBackendState.Running)
+                is BypassPhase.Failed -> onState(TunnelBackendState.Failed(phase.message))
+                is BypassPhase.Stopped -> onState(TunnelBackendState.Stopped)
+                else -> Unit
+            }
+        }
+        if (!ok) {
+            onState(TunnelBackendState.Failed("Не удалось возобновить обход с прежним звонком"))
+        }
+        ok
+    }
+
     companion object {
         private const val TAG = "BypassBackend"
     }
