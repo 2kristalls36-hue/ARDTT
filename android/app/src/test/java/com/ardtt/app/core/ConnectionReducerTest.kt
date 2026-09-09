@@ -765,7 +765,7 @@ class ConnectionReducerTest {
             ),
             elapsedMs = 0L,
         )
-        val connecting = failed.command == RecoveryCommand.StartBypass ||
+        val connecting = failed.command is RecoveryCommand.StartBypass ||
             failed.command == RecoveryCommand.ResumeParkedRaw ||
             failed.command == RecoveryCommand.RebuildRawSameCall
         assertTrue(connecting || failed.state.directNegative != null)
