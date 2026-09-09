@@ -207,6 +207,10 @@ class BypassSession {
         go?.sendControlFireAndForget(if (allowed) "ALLOW_NET_OPS" else "FORBID_NET_OPS")
     }
 
+    fun updateNetwork(kind: String, handle: Long) {
+        go?.sendControlFireAndForget("UPDATE_NETWORK", kind, handle.toString())
+    }
+
     suspend fun resumeParked(
         scope: CoroutineScope,
         @Suppress("UNUSED_PARAMETER") service: VpnService,

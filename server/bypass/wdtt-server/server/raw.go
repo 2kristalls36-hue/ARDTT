@@ -117,6 +117,7 @@ func (w *downlinkWorker) stop() {
 type rawClientSessions struct {
 	workers      []*downlinkWorker
 	activeGen    uint64
+	sidGen       map[string]uint64
 	rrIndex      int
 	rrCount      int
 	chunkStartTs int64 // unix millis начала текущего chunk'а — для downlinkMaxDwellMS
@@ -280,26 +281,56 @@ func liveGenerationWorkers(cs *rawClientSessions) []*downlinkWorker {
 	return live
 }
 
-// beginClientGeneration is called on GETCONF_RAW only. A replaced client of
-// the same device/IP must not share downlink with leftover channels of the
-// previous process. AUTH workers join the current generation.
-// Servers without this bump keep stale channels until DISCONNECT_RAW or the
-// ~90s idle timeout — old clients remain compatible because RAWCONF is unchanged.
+// beginClientGeneration is the legacy GETCONF_RAW path (no transport sid).
 func (r *rawRouter) beginClientGeneration(ip string) uint64 {
+	return r.generationForHandshake(ip, "", true)
+}
+
+// generationForHandshake binds a RAW channel to a transport session.
+// Known sid: reuse gen; GETCONF activates it without bumping.
+// New sid: bump activeGen and map sid→gen (AUTH-before-GETCONF included).
+// Legacy empty sid: GETCONF bumps; AUTH joins the current generation.
+func (r *rawRouter) generationForHandshake(ip, sid string, isGetConf bool) uint64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cs := r.sessions[ip]
 	if cs == nil {
-		cs = &rawClientSessions{}
+		cs = &rawClientSessions{sidGen: make(map[string]uint64)}
 		r.sessions[ip] = cs
 	}
-	cs.activeGen++
+	if cs.sidGen == nil {
+		cs.sidGen = make(map[string]uint64)
+	}
+	if sid != "" {
+		if gen, ok := cs.sidGen[sid]; ok {
+			if isGetConf {
+				cs.activeGen = gen
+			}
+			return gen
+		}
+		cs.activeGen++
+		if cs.activeGen == 0 {
+			cs.activeGen = 1
+		}
+		cs.sidGen[sid] = cs.activeGen
+		cs.rrIndex = 0
+		cs.rrCount = 0
+		cs.chunkStartTs = 0
+		return cs.activeGen
+	}
+	if isGetConf {
+		cs.activeGen++
+		if cs.activeGen == 0 {
+			cs.activeGen = 1
+		}
+		cs.rrIndex = 0
+		cs.rrCount = 0
+		cs.chunkStartTs = 0
+		return cs.activeGen
+	}
 	if cs.activeGen == 0 {
 		cs.activeGen = 1
 	}
-	cs.rrIndex = 0
-	cs.rrCount = 0
-	cs.chunkStartTs = 0
 	return cs.activeGen
 }
 
@@ -395,11 +426,15 @@ func handleConnRaw(ctx context.Context, clientConn net.Conn, router *rawRouter) 
 	}
 	deviceID := "unknown"
 	password := ""
+	sid := ""
 	if len(parts) > 0 {
 		deviceID = parts[0]
 	}
 	if len(parts) > 1 {
 		password = parts[1]
+	}
+	if len(parts) > 2 {
+		sid = strings.TrimSpace(parts[2])
 	}
 	if !connectionCredentialMatches(clientConn, password) {
 		clientConn.Write([]byte("DENIED:wrong_password"))
@@ -523,11 +558,7 @@ func handleConnRaw(ctx context.Context, clientConn net.Conn, router *rawRouter) 
 	defer untrackCredential()
 
 	var gen uint64
-	if isGetConf {
-		gen = router.beginClientGeneration(assignedIP)
-	} else {
-		gen = router.currentGeneration(assignedIP)
-	}
+	gen = router.generationForHandshake(assignedIP, sid, isGetConf)
 	dlWorker := router.register(assignedIP, clientConn, deviceID, gen)
 	defer router.unregister(assignedIP, dlWorker)
 	log.Printf("[RAW] Сессия %s зарегистрирована (ip=%s, getConf=%v, gen=%d)", deviceID, assignedIP, isGetConf, gen)

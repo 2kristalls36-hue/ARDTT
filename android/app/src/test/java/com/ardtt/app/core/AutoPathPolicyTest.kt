@@ -159,7 +159,10 @@ class AutoPathPolicyTest {
                 transport = TransportLifecycle.Failed,
                 hasCallHash = true,
                 call = CallSessionState(hashPresent = true),
-                directFailedOnNetwork = key,
+                directNegative = DirectNegativeEvidence(
+                    key = key,
+                    retryAfterElapsedMs = 60_000L,
+                ),
             ),
         )
         val bypass = d as AutoDecision.StartBypass
@@ -182,7 +185,10 @@ class AutoPathPolicyTest {
                 currentPath = VpnPath.Direct,
                 transport = TransportLifecycle.Failed,
                 hasCallHash = false,
-                directFailedOnNetwork = key,
+                directNegative = DirectNegativeEvidence(
+                    key = key,
+                    retryAfterElapsedMs = 60_000L,
+                ),
             ),
         )
         assertTrue(d is AutoDecision.ServerFault)
@@ -324,5 +330,71 @@ class AutoPathPolicyTest {
         val bypass = d as AutoDecision.StartBypass
         assertTrue(bypass.reuseCall)
         assertEquals("wifi-failed-return-mobile", bypass.reason)
+    }
+
+    @Test
+    fun expiredDirectEvidenceDoesNotTearWorkingBypass() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = null,
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
+                directNegative = DirectNegativeEvidence(
+                    key = key,
+                    failedAtElapsedMs = 0L,
+                    retryAfterElapsedMs = 1_000L,
+                ),
+                elapsedMs = 10_000L,
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), d)
+    }
+
+    @Test
+    fun expiredDirectEvidenceRetriesDirectWhenIdle() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = null,
+                currentPath = VpnPath.Direct,
+                transport = TransportLifecycle.Stopped,
+                hasCallHash = false,
+                directNegative = DirectNegativeEvidence(
+                    key = key,
+                    failedAtElapsedMs = 0L,
+                    retryAfterElapsedMs = 1_000L,
+                ),
+                elapsedMs = 10_000L,
+            ),
+        )
+        val start = d as AutoDecision.StartDirect
+        assertEquals("cellular-direct", start.reason)
+    }
+
+    @Test
+    fun deadBypassCallDoesNotBlockAutoDirect() {
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(),
+                evidence = null,
+                currentPath = null,
+                transport = TransportLifecycle.Stopped,
+                hasCallHash = true,
+                call = CallSessionState(
+                    hashPresent = true,
+                    validity = CallValidity.ConfirmedDead,
+                ),
+            ),
+        )
+        val start = d as AutoDecision.StartDirect
+        assertTrue(start.keepCall)
     }
 }

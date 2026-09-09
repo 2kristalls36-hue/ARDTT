@@ -208,7 +208,10 @@ class ConnectionReducerTest {
         assertTrue(confirmed.state.parkedRawAlive)
         val back = ConnectionReducer.reduce(
             confirmed.state.copy(
-                directFailedOnNetwork = wifiKey,
+                directNegative = DirectNegativeEvidence(
+                    key = wifiKey,
+                    retryAfterElapsedMs = Long.MAX_VALUE,
+                ),
                 wifiFailStreak = 1,
                 transport = TransportLifecycle.Failed,
             ),
@@ -320,6 +323,9 @@ class ConnectionReducerTest {
         assertEquals(RecoveryCommand.ResumeParkedRaw, back.command)
         assertEquals(RecoveryPhase.ReturningToMobile, back.state.recovery.phase)
         assertEquals(SessionDiagnostic.TransportResumed, back.diagnostic)
+        assertEquals("Восстанавливаем обход через существующий звонок", back.state.ui.message)
+    }
+
     @Test
     fun parkedProcessDeathClearsResumeWithoutNewCall() {
         val connected = ConnectionReducer.reduce(
@@ -345,5 +351,134 @@ class ConnectionReducerTest {
         assertEquals(RecoveryCommand.None, died.command)
         assertTrue(died.state.intent.wantsConnected)
         assertNull(died.diagnostic)
+    }
+
+    @Test
+    fun coldConnectOnUsableNetworkStartsOnceWithPermit() {
+        val r = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            elapsedMs = 10L,
+        )
+        assertTrue(r.command is RecoveryCommand.StartDirect)
+        assertFalse(r.state.recovery.permit.userStop)
+        assertTrue(r.state.recovery.permit.netOpsAllowed)
+        assertEquals(r.state.sessionEpoch, r.state.recovery.permit.sessionEpoch)
+        assertEquals(r.state.transportEpoch, r.state.recovery.permit.transportEpoch)
+        val again = ConnectionReducer.reduce(
+            r.state,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            elapsedMs = 11L,
+        )
+        assertTrue(again.state.sessionEpoch > r.state.sessionEpoch)
+        assertTrue(again.command is RecoveryCommand.StartDirect || again.command is RecoveryCommand.None)
+    }
+
+    @Test
+    fun disconnectThenConnectStartsNewSessionAndIgnoresStale() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", false, false),
+            1L,
+        )
+        val stopped = ConnectionReducer.reduce(started.state, ConnectionEvent.UserDisconnect, 2L)
+        val again = ConnectionReducer.reduce(
+            stopped.state.copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", false, false),
+            3L,
+        )
+        assertTrue(again.state.sessionEpoch > started.state.sessionEpoch)
+        assertTrue(again.command is RecoveryCommand.StartDirect)
+        assertFalse(again.state.recovery.permit.userStop)
+        val stale = ConnectionReducer.reduce(
+            again.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+            ),
+            4L,
+        )
+        assertEquals(RecoveryCommand.None, stale.command)
+        assertEquals(TransportLifecycle.Starting, stale.state.transport)
+    }
+
+    @Test
+    fun autoWithoutHashRetriesDirectAfterEvidenceExpires() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", false, false),
+            0L,
+        )
+        assertTrue(started.command is RecoveryCommand.StartDirect)
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                reason = "temp",
+            ),
+            elapsedMs = 0L,
+        )
+        assertEquals(RecoveryPhase.Backoff, failed.state.recovery.phase)
+        assertTrue(failed.command is RecoveryCommand.ScheduleRetry)
+        val due = failed.state.recovery.nextRetryAtElapsedMs ?: 0L
+        val retry = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.Clock(elapsedMs = due),
+            elapsedMs = due,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartDirect)
+        assertEquals(RecoveryPhase.ConnectingDirect, retry.state.recovery.phase)
+    }
+
+    @Test
+    fun retryNowDoesNotDoubleStartWithDueClock() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
+            0L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                reason = "temp",
+            ),
+            elapsedMs = 0L,
+        )
+        val retried = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.UserRetryNow,
+            elapsedMs = 1L,
+        )
+        assertTrue(retried.command is RecoveryCommand.StartDirect)
+        val clock = ConnectionReducer.reduce(
+            retried.state,
+            ConnectionEvent.Clock(elapsedMs = failed.state.recovery.nextRetryAtElapsedMs ?: 2_000L),
+            elapsedMs = failed.state.recovery.nextRetryAtElapsedMs ?: 2_000L,
+        )
+        assertEquals(RecoveryCommand.None, clock.command)
+    }
+
+    @Test
+    fun profileChangeDuringRecoveryUsesNewIntent() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "old", true, false),
+            1L,
+        )
+        val changed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.SessionParamsChanged(profileId = "new", hasCallHash = false),
+            2L,
+        )
+        assertEquals("new", changed.state.intent.profileId)
+        assertFalse(changed.state.intent.hasCallHash)
+        assertNull(changed.state.directNegative)
+        assertTrue(changed.command is RecoveryCommand.StartDirect || changed.command is RecoveryCommand.None)
     }
 }

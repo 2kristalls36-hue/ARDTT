@@ -227,6 +227,7 @@ class BypassGoProcess(
             writer.flush()
         }
         return withTimeoutOrNull(15_000) { ack.await() }
+            .also { pendingAcks.remove(reqId) }
     }
 
     fun sendControlFireAndForget(name: String, vararg args: String) {
@@ -274,7 +275,8 @@ class BypassGoProcess(
             return@withContext false
         }
         val reply = withTimeoutOrNull(15_000) { ack.await() }
-        reply != null && reply.contains("|ok")
+        pendingAcks.remove(reqId)
+        return reply != null && reply.contains("|ok") && !reply.contains("|stale")
     }
 
     private fun completeAckIfNeeded(line: String) {
@@ -285,6 +287,7 @@ class BypassGoProcess(
     fun stop() {
         parked.set(false)
         stopping.set(true)
+        sessionGen.incrementAndGet()
         pendingAcks.values.forEach { it.cancel() }
         pendingAcks.clear()
         logJob?.cancel()

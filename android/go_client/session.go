@@ -175,6 +175,16 @@ func RunSession(
 	var firstWireWrite uint32
 	var firstWireRead uint32
 
+	if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+		if err := ctrl.WaitNetOps(ctx); err != nil {
+			return false, err
+		}
+	}
+	startSocketsEpoch := uint64(0)
+	if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+		startSocketsEpoch = ctrl.SocketsEpoch()
+	}
+
 	if len(creds.TurnURLs) == 0 {
 		return false, fmt.Errorf("нет TURN URL в учетных данных")
 	}
@@ -462,7 +472,7 @@ func RunSession(
 
 	// Запрос конфига
 	if getConfig && configCh != nil && tp.RawMode {
-		ip, dnsCSV, mtu, confErr := RequestRawConfig(activeConn, deviceID, password)
+		ip, dnsCSV, mtu, confErr := RequestRawConfig(activeConn, deviceID, password, currentTransportSID())
 		if confErr != nil {
 			errStr := confErr.Error()
 			if strings.Contains(errStr, "FATAL_AUTH") {
@@ -503,7 +513,7 @@ func RunSession(
 			log.Printf("[ВОРКЕР #%d] Сервер ещё не выдал legacy-конфиг, повторим позже", sessionID)
 		}
 	} else {
-		if authErr := SendAuth(activeConn, deviceID, password); authErr != nil {
+		if authErr := SendAuth(activeConn, deviceID, password, currentTransportSID()); authErr != nil {
 			log.Printf("[ВОРКЕР #%d] Ошибка авторизации: %v", sessionID, authErr)
 		}
 	}
@@ -564,8 +574,13 @@ func RunSession(
 			case <-sessCtx.Done():
 				return
 			case <-t.C:
-				if ctrl := activeSessionCtrl.Load(); ctrl != nil && !ctrl.NetOpsAllowed() {
-					continue
+				if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+					if !ctrl.NetOpsAllowed() {
+						continue
+					}
+					if ctrl.SocketsEpoch() != startSocketsEpoch {
+						return
+					}
 				}
 				size := keepaliveMinSize + rand.Intn(keepaliveMaxSize)
 				pkt := getPktBuf(size)

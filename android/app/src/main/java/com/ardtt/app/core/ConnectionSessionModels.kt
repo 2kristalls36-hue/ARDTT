@@ -37,6 +37,20 @@ enum class TransportLifecycle {
     Failed,
 }
 
+data class DirectNegativeEvidence(
+    val key: NetworkKey,
+    val profileId: String? = null,
+    val reason: String = "",
+    val failedAtElapsedMs: Long = 0L,
+    val retryAfterElapsedMs: Long = 0L,
+) {
+    fun stillBlocks(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
+        if (key == null || key != this.key) return false
+        if (this.profileId != null && profileId != null && this.profileId != profileId) return false
+        return elapsedMs < retryAfterElapsedMs
+    }
+}
+
 data class RecoveryPermit(
     val sessionEpoch: Long = 0L,
     val networkEpoch: Long = 0L,
@@ -117,10 +131,12 @@ data class ConnectionSnapshot(
     val transportEpoch: Long = 0L,
     val wifiFailStreak: Int = 0,
     val wifiStableHits: Int = 0,
-    val directFailedOnNetwork: NetworkKey? = null,
+    val directNegative: DirectNegativeEvidence? = null,
     val lastConfirmedPath: VpnPath? = null,
     val ui: ConnectionUiModel = ConnectionUiModel(),
-)
+) {
+    val directFailedOnNetwork: NetworkKey? get() = directNegative?.key
+}
 
 fun ConnectionSnapshot.holdingSession(): Boolean =
     intent.wantsConnected && !recovery.permit.userStop

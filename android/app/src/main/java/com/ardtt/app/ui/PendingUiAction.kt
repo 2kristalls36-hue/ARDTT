@@ -93,6 +93,19 @@ object PendingUiAction {
         return true
     }
 
+    private val _openDiagnostics = MutableStateFlow(false)
+    val openDiagnostics: StateFlow<Boolean> = _openDiagnostics.asStateFlow()
+
+    fun requestOpenDiagnostics() {
+        _openDiagnostics.value = true
+    }
+
+    fun consumeOpenDiagnostics(): Boolean {
+        if (!_openDiagnostics.value) return false
+        _openDiagnostics.value = false
+        return true
+    }
+
     fun requestOpenServers() {
         _openServers.value = true
     }

@@ -35,7 +35,7 @@ data class AutoPathInput(
     val transport: TransportLifecycle,
     val hasCallHash: Boolean,
     val call: CallSessionState = CallSessionState(),
-    val directFailedOnNetwork: NetworkKey? = null,
+    val directNegative: DirectNegativeEvidence? = null,
     val lastConfirmedPath: VpnPath? = null,
     val wifiFailStreak: Int = 0,
     val wifiStableHits: Int = 0,
@@ -76,11 +76,13 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         UnderlayAvailability.Usable -> Unit
     }
 
-    if (input.call.validity == CallValidity.NeedsAuth) {
+    if (input.call.validity == CallValidity.NeedsAuth &&
+        input.mode == ConnPathMode.Bypass
+    ) {
         return AutoDecision.NeedsUserAction(UserActionKind.SignIn, "call-auth")
     }
     if (input.call.validity == CallValidity.ConfirmedDead &&
-        input.mode != ConnPathMode.Direct
+        input.mode == ConnPathMode.Bypass
     ) {
         return AutoDecision.NeedsUserAction(UserActionKind.CallDead, "call-dead")
     }
@@ -158,28 +160,38 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         )
     }
 
-    val sameNetworkFailed = input.directFailedOnNetwork != null &&
-        input.directFailedOnNetwork == underlay.key
+    val blocked = input.directNegative?.stillBlocks(
+        input.elapsedMs,
+        underlay.key,
+        input.profileId,
+    ) == true
     val restriction = input.evidence?.restriction ?: RestrictionHint.Unknown
     val internetOk = input.evidence?.yandex?.isSuccess == true ||
         input.evidence?.bigtech?.isSuccess == true
     val vpsRoutingBroken = internetOk &&
         input.evidence?.provision?.isFailure == true &&
-        sameNetworkFailed
+        blocked
 
     if (input.currentPath == VpnPath.Direct &&
         (input.transport == TransportLifecycle.Running ||
             input.transport == TransportLifecycle.Starting) &&
-        !sameNetworkFailed
+        !blocked
     ) {
         return AutoDecision.Stay(VpnPath.Direct, "direct-works")
+    }
+
+    if (input.currentPath == VpnPath.Bypass &&
+        (input.transport == TransportLifecycle.Running ||
+            input.transport == TransportLifecycle.Starting)
+    ) {
+        return AutoDecision.Stay(VpnPath.Bypass, "bypass-running")
     }
 
     if (vpsRoutingBroken && !input.hasCallHash) {
         return AutoDecision.ServerFault("vps-unreachable")
     }
 
-    if (!sameNetworkFailed) {
+    if (!blocked) {
         if (input.currentPath == VpnPath.Direct &&
             input.transport == TransportLifecycle.Starting
         ) {
@@ -188,7 +200,9 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         return AutoDecision.StartDirect(
             keepCall = input.hasCallHash,
             immediate = false,
-            reason = if (restriction == RestrictionHint.Suspected) {
+            reason = if (restriction == RestrictionHint.Suspected ||
+                restriction == RestrictionHint.Confirmed
+            ) {
                 "cellular-try-direct"
             } else {
                 "cellular-direct"
@@ -196,13 +210,7 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         )
     }
 
-    if (input.hasCallHash && input.call.validity != CallValidity.ConfirmedDead) {
-        if (input.currentPath == VpnPath.Bypass &&
-            (input.transport == TransportLifecycle.Running ||
-                input.transport == TransportLifecycle.Starting)
-        ) {
-            return AutoDecision.Stay(VpnPath.Bypass, "bypass-running")
-        }
+    if (input.hasCallHash && input.call.canReuse) {
         return AutoDecision.StartBypass(reuseCall = true, reason = "cellular-direct-failed")
     }
 

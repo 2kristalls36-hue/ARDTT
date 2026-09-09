@@ -175,6 +175,11 @@ func WorkerGroup(
 				if ctx.Err() != nil {
 					return
 				}
+				if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+					if err := ctrl.WaitNetOps(ctx); err != nil {
+						return
+					}
+				}
 
 				getConf := false
 				if shouldGetConfig && atomic.LoadInt32(&configSent) == 0 {

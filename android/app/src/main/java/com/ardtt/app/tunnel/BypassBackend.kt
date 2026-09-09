@@ -116,6 +116,10 @@ class BypassBackend(
         session.setNetOpsAllowed(allowed)
     }
 
+    fun updateNetwork(kind: String, handle: Long) {
+        session.updateNetwork(kind, handle)
+    }
+
     fun setParkedDeathHandler(handler: (() -> Unit)?) {
         session.setParkedDeathHandler(handler)
     }

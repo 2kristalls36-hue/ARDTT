@@ -19,6 +19,7 @@ import com.ardtt.app.bypass.VkLoginActivity
 import com.ardtt.app.bypass.VkSession
 import com.ardtt.app.bypass.decideDeadCallAction
 import com.ardtt.app.bypass.isDeadCallMessage
+import com.ardtt.app.bypass.userActionForBypassFailure
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.deploy.DeployHop
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.random.Random
 
 enum class ConnState {
     Idle,
@@ -116,6 +118,7 @@ class ConnectionManager(
     private var waitingNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var recoveryRetryJob: Job? = null
     @Volatile private var pendingConnectPath: VpnPath? = null
+    private val recoveryGate = Any()
 
     fun updateProfile(profile: VpnProfile?) {
         this.profile = profile
@@ -129,6 +132,14 @@ class ConnectionManager(
             workers = DEFAULT_WORKERS
             refreshHashFlag()
             reportPresenceAsync()
+            if (recoverySnapshot.intent.wantsConnected) {
+                dispatchRecovery(
+                    ConnectionEvent.SessionParamsChanged(
+                        profileId = profile.name,
+                        hasCallHash = hashStore.hasHash(profile.name),
+                    ),
+                )
+            }
         } else {
             directEndpoint = null
             provisionUrl = null
@@ -376,10 +387,10 @@ class ConnectionManager(
                     _ui.value.state == ConnState.Connecting ||
                     _ui.value.state == ConnState.PausedTrustedWifi
                 )
-        if (liveSwitch) {
-            maybeSwitchLivePath(mode)
-        } else if (recoverySnapshot.intent.wantsConnected) {
+        if (recoverySnapshot.intent.wantsConnected) {
             dispatchRecovery(ConnectionEvent.PathModeChanged(mode))
+        } else if (liveSwitch) {
+            maybeSwitchLivePath(mode)
         }
     }
 
@@ -449,6 +460,14 @@ class ConnectionManager(
         if (!com.ardtt.app.bypass.VkUrl.isPlausibleHash(cleaned)) return
         hashStore.setHash(profile?.name, cleaned)
         refreshHashFlag()
+        if (recoverySnapshot.intent.wantsConnected) {
+            dispatchRecovery(
+                ConnectionEvent.SessionParamsChanged(
+                    profileId = profile?.name,
+                    hasCallHash = true,
+                ),
+            )
+        }
     }
 
     fun clearCallHash() {
@@ -463,6 +482,8 @@ class ConnectionManager(
     fun sessionDiagnostics(): Map<SessionDiagnostic, Int> = diagnosticLog.counts()
 
     fun retryNow() {
+        recoveryRetryJob?.cancel()
+        recoveryRetryJob = null
         dispatchRecovery(ConnectionEvent.UserRetryNow)
     }
 
@@ -475,32 +496,44 @@ class ConnectionManager(
     }
 
     fun openCaptivePortal() {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+        val wifi = cm?.let { pickWifiUnderlayNetwork(it) } ?: pickBestUnderlayNetwork(appContext)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && cm != null && wifi != null) {
+            val ok = runCatching {
+                cm.startCaptivePortalApp(wifi)
+                true
+            }.getOrDefault(false)
+            if (ok) return
+        }
         runCatching {
             appContext.startActivity(captivePortalLoginIntent())
         }
     }
 
     private fun dispatchRecovery(event: ConnectionEvent, elapsedMs: Long = SystemClock.elapsedRealtime()): ReduceResult {
-        val result = ConnectionReducer.reduce(recoverySnapshot, event, elapsedMs)
-        recoverySnapshot = result.state
-        result.diagnostic?.let { kind ->
-            diagnosticLog.record(
-                SessionDiagnosticEvent(
-                    kind = kind,
-                    sessionEpoch = result.state.sessionEpoch,
-                    networkEpoch = result.state.networkEpoch,
-                    transportEpoch = result.state.transportEpoch,
-                    fromPath = _ui.value.activePath,
-                    toPath = result.state.activePath,
-                    attempt = result.state.recovery.failureIndex,
-                    durationMs = 0L,
-                    reason = kind.name,
-                ),
-            )
+        synchronized(recoveryGate) {
+            val jitter = Random.nextInt(0, 151)
+            val result = ConnectionReducer.reduce(recoverySnapshot, event, elapsedMs, jitterPermille = jitter)
+            recoverySnapshot = result.state
+            result.diagnostic?.let { kind ->
+                diagnosticLog.record(
+                    SessionDiagnosticEvent(
+                        kind = kind,
+                        sessionEpoch = result.state.sessionEpoch,
+                        networkEpoch = result.state.networkEpoch,
+                        transportEpoch = result.state.transportEpoch,
+                        fromPath = _ui.value.activePath,
+                        toPath = result.state.activePath,
+                        attempt = result.state.recovery.failureIndex,
+                        durationMs = 0L,
+                        reason = kind.name,
+                    ),
+                )
+            }
+            applyRecoveryUi(result.state)
+            executeRecoveryCommand(result)
+            return result
         }
-        applyRecoveryUi(result.state)
-        executeRecoveryCommand(result)
-        return result
     }
 
     private fun executeRecoveryCommand(result: ReduceResult) {
@@ -524,20 +557,48 @@ class ConnectionManager(
             is RecoveryCommand.StartDirect,
             RecoveryCommand.ParkBypassForDirect,
             -> {
+                recoveryRetryJob?.cancel()
+                recoveryRetryJob = null
                 stopWatchingUnderlay()
                 requestGoNetOps(allowed = true)
                 pendingConnectPath = VpnPath.Direct
                 launchConnectJob()
             }
-            is RecoveryCommand.StartBypass,
-            RecoveryCommand.ResumeParkedRaw,
-            RecoveryCommand.RebuildRawSameCall,
-            RecoveryCommand.RefreshCredentials,
-            -> {
+            is RecoveryCommand.StartBypass -> {
+                recoveryRetryJob?.cancel()
+                recoveryRetryJob = null
                 stopWatchingUnderlay()
                 requestGoNetOps(allowed = true)
                 pendingConnectPath = VpnPath.Bypass
                 launchConnectJob()
+            }
+            RecoveryCommand.ResumeParkedRaw -> {
+                recoveryRetryJob?.cancel()
+                recoveryRetryJob = null
+                stopWatchingUnderlay()
+                requestGoNetOps(allowed = true)
+                pendingConnectPath = VpnPath.Bypass
+                launchConnectJob()
+            }
+            RecoveryCommand.RebuildRawSameCall -> {
+                recoveryRetryJob?.cancel()
+                recoveryRetryJob = null
+                stopWatchingUnderlay()
+                requestGoNetOps(allowed = true)
+                pendingConnectPath = VpnPath.Bypass
+                launchConnectJob()
+            }
+            RecoveryCommand.RefreshCredentials -> {
+                recoveryRetryJob?.cancel()
+                recoveryRetryJob = null
+                requestGoNetOps(allowed = true)
+                val liveBypass = result.state.activePath == VpnPath.Bypass &&
+                    (result.state.transport == TransportLifecycle.Running ||
+                        result.state.parkedRawAlive)
+                if (!liveBypass) {
+                    pendingConnectPath = VpnPath.Bypass
+                    launchConnectJob()
+                }
             }
             is RecoveryCommand.ScheduleRetry -> {
                 recoveryRetryJob?.cancel()
@@ -547,6 +608,19 @@ class ConnectionManager(
                 }
             }
         }
+    }
+
+    private fun requestGoUpdateNetwork(underlay: UnderlaySnapshot) {
+        val live = recoverySnapshot.transport == TransportLifecycle.Running ||
+            recoverySnapshot.transport == TransportLifecycle.Paused ||
+            recoverySnapshot.parkedRawAlive
+        if (!live) return
+        val handle = underlay.handle ?: return
+        val intent = Intent(appContext, VpnTunnelService::class.java)
+            .setAction(VpnTunnelService.ACTION_SESSION_CONTROL)
+            .putExtra(VpnTunnelService.EXTRA_NETWORK_HANDLE, handle)
+            .putExtra(VpnTunnelService.EXTRA_NETWORK_KIND, underlay.kind.name)
+        runCatching { appContext.startService(intent) }
     }
 
     private fun requestGoNetOps(allowed: Boolean) {
@@ -583,6 +657,8 @@ class ConnectionManager(
         val network = pickBestUnderlayNetwork(appContext)
         val cm = appContext.getSystemService(ConnectivityManager::class.java)
         val caps = network?.let { cm?.getNetworkCapabilities(it) }
+        val lp = network?.let { cm?.getLinkProperties(it) }
+        val inventory = cm?.let { scanPhysicalNetworkPresence(it) } ?: PhysicalNetworkPresence()
         val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         val notVpn = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true
         val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
@@ -591,16 +667,20 @@ class ConnectionManager(
         } else {
             true
         }
+        val selectedWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        val selectedCellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        val selectedEthernet = caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+        val kind = classifyUnderlayKind(selectedWifi, selectedCellular, selectedEthernet)
         val dataSuspended = runCatching {
             val tm = appContext.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             tm?.dataState == TelephonyManager.DATA_SUSPENDED
         }.getOrDefault(false)
-        val notSuspended = notSuspendedCap && !dataSuspended
+        val notSuspended = selectedNotSuspended(
+            selectedKind = kind,
+            selectedNotSuspendedCap = notSuspendedCap,
+            cellularDataSuspended = dataSuspended,
+        )
         val captive = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
-        val wifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-        val cellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-        val ethernet = caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
-        val kind = classifyUnderlayKind(wifi, cellular, ethernet)
         val complete = caps != null
         val availability = classifyUnderlayAvailability(
             hasInternet = hasInternet,
@@ -613,12 +693,23 @@ class ConnectionManager(
         val simId = activeCellularSubscriptionId(appContext).takeIf {
             it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
         }
+        val presence = mergePhysicalPresence(
+            selectedWifi = selectedWifi,
+            selectedCellular = selectedCellular,
+            selectedEthernet = selectedEthernet,
+            inventoryWifi = inventory.wifi,
+            inventoryCellular = inventory.cellular,
+            inventoryEthernet = inventory.ethernet,
+        )
+        val fingerprint = fingerprintFromLinkProperties(lp).ifBlank {
+            "$handle|$kind|${simId ?: ""}"
+        }
         val key = if (handle != null && availability != UnderlayAvailability.None) {
             NetworkKey(
                 handle = handle,
                 transport = kind,
                 simId = if (kind == UnderlayKind.Cellular) simId else null,
-                configFingerprint = "$handle|$kind|${simId ?: ""}",
+                configFingerprint = fingerprint,
             )
         } else {
             null
@@ -633,17 +724,17 @@ class ConnectionManager(
             notSuspended = notSuspended,
             captivePortal = captive,
             simId = simId,
-            wifiConnected = wifi,
-            cellularConnected = cellular,
-            ethernetConnected = ethernet,
+            wifiConnected = presence.wifi,
+            cellularConnected = presence.cellular,
+            ethernetConnected = presence.ethernet,
             capabilitiesComplete = complete,
             networkEpoch = if (key != recoverySnapshot.underlay.key) epoch else recoverySnapshot.networkEpoch,
         )
     }
 
     private fun watchUnderlayUntilUsable() {
+        if (waitingNetworkCallback != null) return
         val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return
-        waitingNetworkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = maybeResumeAfterUnderlay("available")
             override fun onLost(network: Network) = maybeResumeAfterUnderlay("lost")
@@ -671,6 +762,7 @@ class ConnectionManager(
     private fun maybeResumeAfterUnderlay(reason: String) {
         scope.launch {
             val snap = readUnderlaySnapshot()
+            requestGoUpdateNetwork(snap)
             val result = dispatchRecovery(ConnectionEvent.UnderlayUpdated(snap))
             if (
                 result.command is RecoveryCommand.StartDirect ||
@@ -1505,6 +1597,7 @@ class ConnectionManager(
         if (!recoverySnapshot.intent.wantsConnected) return
         scope.launch {
             val snap = readUnderlaySnapshot()
+            requestGoUpdateNetwork(snap)
             dispatchRecovery(ConnectionEvent.UnderlayUpdated(snap))
         }
     }
@@ -1564,6 +1657,9 @@ class ConnectionManager(
 
     fun onTunnelRunning(path: VpnPath) {
         val generation = sessionGeneration.get()
+        val sessionEpoch = recoverySnapshot.sessionEpoch
+        val transportEpoch = recoverySnapshot.transportEpoch
+        val networkKey = recoverySnapshot.underlay.key
         runningNotifyJob?.cancel()
         runningNotifyJob = scope.launch {
             if (generation != sessionGeneration.get()) return@launch
@@ -1586,18 +1682,30 @@ class ConnectionManager(
             }
             if (generation != sessionGeneration.get()) return@launch
             if (path == VpnPath.Direct) {
+                if (!waitForDirectPathConfirm(generation)) {
+                    if (generation != sessionGeneration.get()) return@launch
+                    dispatchRecovery(
+                        ConnectionEvent.DirectFailed(
+                            sessionEpoch = sessionEpoch,
+                            transportEpoch = transportEpoch,
+                            networkKey = networkKey,
+                            reason = "direct-no-path-confirm",
+                        ),
+                    )
+                    return@launch
+                }
                 dispatchRecovery(
                     ConnectionEvent.DirectConfirmed(
-                        sessionEpoch = recoverySnapshot.sessionEpoch,
-                        transportEpoch = recoverySnapshot.transportEpoch,
-                        networkKey = recoverySnapshot.underlay.key,
+                        sessionEpoch = sessionEpoch,
+                        transportEpoch = transportEpoch,
+                        networkKey = networkKey,
                     ),
                 )
             } else {
                 dispatchRecovery(
                     ConnectionEvent.BypassConfirmed(
-                        sessionEpoch = recoverySnapshot.sessionEpoch,
-                        transportEpoch = recoverySnapshot.transportEpoch,
+                        sessionEpoch = sessionEpoch,
+                        transportEpoch = transportEpoch,
                     ),
                 )
             }
@@ -1658,8 +1766,15 @@ class ConnectionManager(
             return TunnelFailureAction.Ignore
         }
         val failedPath = TunnelSessionHolder.config?.path ?: _ui.value.activePath
+        val sessionEpoch = recoverySnapshot.sessionEpoch
+        val transportEpoch = recoverySnapshot.transportEpoch
         if (failedPath == VpnPath.Bypass && isDeadCallMessage(message)) {
             return onDeadCallFailed(message)
+        }
+        val bypassAction = if (failedPath == VpnPath.Bypass) {
+            userActionForBypassFailure(message)
+        } else {
+            null
         }
         val canFallback =
             autoMayUseBypass(
@@ -1685,22 +1800,21 @@ class ConnectionManager(
         val failed = dispatchRecovery(
             if (failedPath == VpnPath.Bypass) {
                 ConnectionEvent.BypassFailed(
-                    sessionEpoch = recoverySnapshot.sessionEpoch,
-                    transportEpoch = recoverySnapshot.transportEpoch,
+                    sessionEpoch = sessionEpoch,
+                    transportEpoch = transportEpoch,
                     reason = message,
+                    userAction = bypassAction,
                 )
             } else {
                 ConnectionEvent.DirectFailed(
-                    sessionEpoch = recoverySnapshot.sessionEpoch,
-                    transportEpoch = recoverySnapshot.transportEpoch,
+                    sessionEpoch = sessionEpoch,
+                    transportEpoch = transportEpoch,
                     networkKey = recoverySnapshot.underlay.key,
                     reason = message,
                 )
             },
         )
-        if (failed.state.intent.wantsConnected &&
-            failed.state.recovery.phase != RecoveryPhase.NeedsUserAction
-        ) {
+        if (failed.state.intent.wantsConnected) {
             AppLog.i(TAG, "Temporary tunnel failure — recovering: $message")
             return TunnelFailureAction.KeepRecovering
         }
@@ -1718,6 +1832,38 @@ class ConnectionManager(
     }
 
     private fun startCallRecreate(holdService: Boolean) {
+        val update = decideCallUpdate(
+            validity = CallValidity.ConfirmedDead,
+            underlayAllowsOps = recoverySnapshot.underlay.allowsNetworkOps,
+            userRequestedNew = !holdService,
+            autoRecreate = silentRecreate,
+            createInFlight = callRecreateJob?.isActive == true,
+        )
+        if (update == CallUpdateDecision.WaitForNetwork) {
+            AppLog.w(TAG, "Call recreate deferred — no underlay")
+            watchUnderlayUntilUsable()
+            return
+        }
+        if (update == CallUpdateDecision.WaitUserAction) {
+            AppLog.w(TAG, "Call recreate already in progress or needs user")
+            return
+        }
+        if (!shouldCreateNewCall(
+                ipChanged = false,
+                simChanged = false,
+                networkHandleChanged = false,
+                timeout = false,
+                turnQuota = false,
+                staleNonce = false,
+                allocationMismatch = false,
+                anonymTokenOutdated = false,
+                credentialsExpired = false,
+                callConfirmedDead = true,
+                userRequested = !holdService,
+            ) && update != CallUpdateDecision.CreateNewCall
+        ) {
+            return
+        }
         if (callRecreateJob?.isActive == true) {
             AppLog.w(TAG, "Call recreate already in progress")
             return
@@ -1734,30 +1880,40 @@ class ConnectionManager(
             recreateAttempts = callRecreateAttempts,
         )
         AppLog.i(TAG, "Dead VK call action=$action attempts=$callRecreateAttempts silent=$silentRecreate")
+        val sessionEpoch = recoverySnapshot.sessionEpoch
         return when (action) {
             DeadCallAction.SilentRecreate -> {
                 startCallRecreate(holdService = true)
                 TunnelFailureAction.HoldForCallRecreate
             }
             DeadCallAction.AskUser -> {
-                failToError(
-                    message = message,
-                    prompt = CallRecreatePrompt.Ask,
-                    status = "Звонок закрыт",
+                dispatchRecovery(
+                    ConnectionEvent.CallValidityChanged(
+                        sessionEpoch = sessionEpoch,
+                        validity = CallValidity.ConfirmedDead,
+                    ),
                 )
-                TunnelFailureAction.Stop
+                _ui.value = _ui.value.copy(callRecreatePrompt = CallRecreatePrompt.Ask)
+                TunnelFailureAction.KeepRecovering
             }
             DeadCallAction.NeedVkLogin -> {
-                failToError(
-                    message = "Звонок закрыт. Войдите во ВКонтакте, чтобы создать новый код.",
-                    prompt = CallRecreatePrompt.NeedLogin,
-                    status = "Нужна авторизация ВКонтакте",
+                dispatchRecovery(
+                    ConnectionEvent.CallValidityChanged(
+                        sessionEpoch = sessionEpoch,
+                        validity = CallValidity.NeedsAuth,
+                    ),
                 )
-                TunnelFailureAction.Stop
+                _ui.value = _ui.value.copy(callRecreatePrompt = CallRecreatePrompt.NeedLogin)
+                TunnelFailureAction.KeepRecovering
             }
             DeadCallAction.GiveUp -> {
-                failToError("Не удалось обновить звонок. Создайте код вручную в настройках.")
-                TunnelFailureAction.Stop
+                dispatchRecovery(
+                    ConnectionEvent.CallValidityChanged(
+                        sessionEpoch = sessionEpoch,
+                        validity = CallValidity.ConfirmedDead,
+                    ),
+                )
+                TunnelFailureAction.KeepRecovering
             }
         }
     }
@@ -2252,6 +2408,31 @@ class ConnectionManager(
             delay(BYPASS_WORKERS_POLL_MS)
         }
         return generation == sessionGeneration.get() && TransportHealth.activeWorkers > 0
+    }
+
+    private suspend fun waitForDirectPathConfirm(generation: Long): Boolean {
+        val deadline = System.currentTimeMillis() + RecoverySettings.DIRECT_LIMITED_TRY_MS
+        while (System.currentTimeMillis() < deadline) {
+            if (generation != sessionGeneration.get()) return false
+            VpnLiveStats.sample()
+            if (VpnLiveStats.totalRx > 0L) return true
+            if (VpnLiveStats.currentAwgHandshakeSec() > 0L) return true
+            delay(250L)
+        }
+        if (generation != sessionGeneration.get()) return false
+        VpnLiveStats.sample()
+        return VpnLiveStats.totalRx > 0L || VpnLiveStats.currentAwgHandshakeSec() > 0L
+    }
+
+    fun onWatchdogFault(path: VpnPath, reason: String) {
+        AppLog.w(TAG, "watchdog fact: $reason")
+        dispatchRecovery(
+            ConnectionEvent.TransportDied(
+                sessionEpoch = recoverySnapshot.sessionEpoch,
+                transportEpoch = recoverySnapshot.transportEpoch,
+                path = path,
+            ),
+        )
     }
 
     companion object {

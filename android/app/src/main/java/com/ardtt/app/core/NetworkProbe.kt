@@ -163,6 +163,7 @@ object NetworkProbe {
         provisionOk: Boolean,
         awgUdpOk: Boolean = false,
         underlayKind: UnderlayKind = UnderlayKind.Other,
+        seriesCount: Int = 1,
     ): ProbeResult = NetworkProbePolicy.classify(
         systemOnline = systemOnline,
         yandexOk = yandexOk,
@@ -170,6 +171,7 @@ object NetworkProbe {
         captive = captive,
         provisionOk = provisionOk,
         underlayKind = underlayKind,
+        seriesCount = seriesCount,
     ).copy(awgUdpOk = awgUdpOk)
 
     private fun boolOutcome(value: Boolean?): CheckOutcome = when (value) {

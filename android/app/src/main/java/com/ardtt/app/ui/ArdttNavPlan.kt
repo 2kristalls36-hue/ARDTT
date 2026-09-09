@@ -94,6 +94,9 @@ object ArdttNavPlan {
         return parent
     }
 
+    fun diagnosticsRoute(admin: Boolean): String =
+        if (admin) AppDestination.Diagnostics.route else AppDestination.Logs.route
+
     fun navBadgeRoute(admin: Boolean, isRecording: Boolean): String? {
         if (!isRecording) return null
         return if (admin) AppDestination.Diagnostics.route else AppDestination.Logs.route

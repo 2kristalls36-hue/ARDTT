@@ -284,4 +284,72 @@ class NetworkProbeClassifyTest {
         assertTrue(!NetworkProbe.provisionHealthAccepted(404))
         assertTrue(!NetworkProbe.provisionReachable(null, 200, bindNetwork = null))
     }
+
+    @Test
+    fun secondCompletedCellularSeriesConfirmsRestriction() {
+        val first = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            seriesCount = 1,
+        )
+        assertEquals(RestrictionHint.Suspected, first.restriction)
+        val second = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            seriesCount = 2,
+        )
+        assertEquals(RestrictionHint.Confirmed, second.restriction)
+        assertEquals(VpnPath.Direct, second.preselectedPath)
+    }
+
+    @Test
+    fun sameSnapshotIsNotANewProbeSeries() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val evidence = ReachabilityEvidence(
+            networkKey = key,
+            profileId = "p",
+            measuredAtElapsedMs = 40L,
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Timeout,
+            seriesCount = 1,
+            bindHandle = 1L,
+        )
+        assertEquals(1, nextProbeSeriesCount(evidence, evidence))
+        assertEquals(
+            2,
+            nextProbeSeriesCount(
+                evidence,
+                evidence.copy(measuredAtElapsedMs = 80L),
+            ),
+        )
+        assertEquals(
+            1,
+            nextProbeSeriesCount(
+                evidence,
+                evidence.copy(networkKey = NetworkKey(2L, UnderlayKind.Cellular, 8, "cell2")),
+            ),
+        )
+    }
+
+    @Test
+    fun wifiIsNotOperatorWhitelistEvenAfterSeries() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Wifi,
+            seriesCount = 4,
+        )
+        assertEquals(RestrictionHint.None, r.restriction)
+    }
 }
