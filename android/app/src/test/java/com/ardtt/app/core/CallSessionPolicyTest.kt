@@ -91,9 +91,9 @@ class RecoverySettingsTest {
     @Test
     fun localAwgStartWithoutHandshakeIsNotConnected() {
         assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 0L))
-        assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 12L, handshakeSec = 0L))
-        assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 3L))
-        assertFalse(
+        assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 12L, handshakeSec = 0L))
+        assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 3L))
+        assertTrue(
             PathConfirm.looksConfirmed(
                 PathConfirmObservation(
                     capturedSessionEpoch = 1L,
@@ -104,6 +104,21 @@ class RecoverySettingsTest {
                     eventNetworkKey = NetworkKey(1L, UnderlayKind.Cellular, null, "c"),
                     usefulRxDelta = 12L,
                     handshakeGrew = true,
+                    probeSucceeded = false,
+                ),
+            ),
+        )
+        assertFalse(
+            PathConfirm.looksConfirmed(
+                PathConfirmObservation(
+                    capturedSessionEpoch = 1L,
+                    capturedTransportEpoch = 1L,
+                    capturedNetworkKey = NetworkKey(1L, UnderlayKind.Cellular, null, "c"),
+                    eventSessionEpoch = 1L,
+                    eventTransportEpoch = 1L,
+                    eventNetworkKey = NetworkKey(1L, UnderlayKind.Cellular, null, "c"),
+                    usefulRxDelta = 0L,
+                    handshakeGrew = false,
                     probeSucceeded = false,
                 ),
             ),
@@ -121,6 +136,39 @@ class RecoverySettingsTest {
                 ),
             ),
         )
+        assertFalse(
+            PathConfirm.looksConfirmed(
+                PathConfirmObservation(
+                    capturedSessionEpoch = 1L,
+                    capturedTransportEpoch = 1L,
+                    capturedNetworkKey = NetworkKey(1L, UnderlayKind.Cellular, null, "c"),
+                    eventSessionEpoch = 2L,
+                    eventTransportEpoch = 1L,
+                    eventNetworkKey = NetworkKey(1L, UnderlayKind.Cellular, null, "c"),
+                    handshakeGrew = true,
+                    usefulRxDelta = 40L,
+                ),
+            ),
+        )
+        assertFalse(
+            PathConfirm.looksConfirmed(
+                PathConfirmObservation(
+                    capturedSessionEpoch = 1L,
+                    capturedTransportEpoch = 1L,
+                    capturedNetworkKey = NetworkKey(1L, UnderlayKind.Cellular, null, "c"),
+                    eventSessionEpoch = 1L,
+                    eventTransportEpoch = 1L,
+                    eventNetworkKey = NetworkKey(1L, UnderlayKind.Cellular, null, "c"),
+                    tunWriteErrDelta = 3L,
+                    tunWriteOkDelta = 0L,
+                    handshakeGrew = true,
+                ),
+            ),
+        )
+        assertEquals(
+            PathConfirmResult.Unsupported("provision-tcp-not-awg"),
+            provisionTcpIsNotPathProof(),
+        )
     }
 }
 
@@ -136,6 +184,23 @@ class ConnectionUiPhaseTest {
         )
         assertEquals("Нет подключения. Включите Wi‑Fi или мобильный интернет", wait.message)
         assertTrue(wait.actions.contains(ConnectionUiAction.OpenNetworkSettings))
+        val probing = connectionUiModel(
+            phase = RecoveryPhase.Probing,
+            activePath = null,
+            restriction = RestrictionHint.Unknown,
+            transport = TransportLifecycle.Starting,
+            retryInMs = null,
+        )
+        assertEquals("Сеть подключена, ожидаем передачу данных", probing.message)
+        val connectingCell = connectionUiModel(
+            phase = RecoveryPhase.ConnectingDirect,
+            activePath = null,
+            restriction = RestrictionHint.Unknown,
+            transport = TransportLifecycle.Starting,
+            retryInMs = null,
+            underlayKind = UnderlayKind.Cellular,
+        )
+        assertEquals("Подключаемся напрямую через мобильную сеть", connectingCell.message)
         val recovering = connectionUiModel(
             phase = RecoveryPhase.Backoff,
             activePath = VpnPath.Direct,
@@ -152,7 +217,7 @@ class ConnectionUiPhaseTest {
             transport = TransportLifecycle.Running,
             retryInMs = null,
         )
-        assertEquals("Подключено напрямую", suspected.message)
+        assertEquals("Прямое подключение работает. Возможны ограничения мобильной сети", suspected.message)
         assertEquals(ConnectionUiPhase.DirectDespiteRestriction, suspected.phase)
     }
 }

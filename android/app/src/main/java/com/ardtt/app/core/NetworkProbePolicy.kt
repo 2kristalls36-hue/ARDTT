@@ -13,9 +13,8 @@ internal enum class ProbePathHint {
 /**
  * Pure probe classifier (no Android).
  *
- * Cloudflare is not required for Direct. A Yandex-up / Cloudflare-down pair
- * is only a mobile restriction hint after both checks actually ran.
- * Auto still tries Direct first; Bypass is a recovery path.
+ * Direct does not wait for Cloudflare. Restriction needs a control success
+ * plus two independent ordinary-target failures on cellular.
  */
 internal object NetworkProbePolicy {
 
@@ -24,13 +23,21 @@ internal object NetworkProbePolicy {
         yandexOk: Boolean?,
         cloudflareOk: Boolean?,
         captive: Boolean?,
+        googleOk: Boolean? = null,
     ): ProbePathHint {
         if (captive == true) return ProbePathHint.Captive
-        val allKnown = provisionOk != null && yandexOk != null && cloudflareOk != null
-        if (!allKnown) return ProbePathHint.Wait
-        val anyInternet = yandexOk == true || cloudflareOk == true || provisionOk == true
-        if (!anyInternet) return ProbePathHint.NoNetwork
-        return ProbePathHint.Direct
+        if (provisionOk == true ||
+            yandexOk == true ||
+            googleOk == true ||
+            cloudflareOk == true
+        ) {
+            return ProbePathHint.Direct
+        }
+        val known = listOf(provisionOk, yandexOk, cloudflareOk, googleOk)
+        if (known.all { it == false }) {
+            return if (captive == false) ProbePathHint.NoNetwork else ProbePathHint.Wait
+        }
+        return ProbePathHint.Wait
     }
 
     fun classify(
@@ -43,15 +50,19 @@ internal object NetworkProbePolicy {
         yandexOutcome: CheckOutcome? = null,
         bigtechOutcome: CheckOutcome? = null,
         provisionOutcome: CheckOutcome? = null,
+        googleOk: Boolean = false,
+        googleOutcome: CheckOutcome? = null,
         seriesCount: Int = 1,
     ): ProbeResult {
         val yandex = yandexOutcome ?: if (yandexOk) CheckOutcome.Success else CheckOutcome.Timeout
         val bigtech = bigtechOutcome ?: if (bigtechOk) CheckOutcome.Success else CheckOutcome.Timeout
         val provision = provisionOutcome ?: if (provisionOk) CheckOutcome.Success else CheckOutcome.Timeout
+        val google = googleOutcome ?: if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun
         val restriction = restrictionHint(
             cellular = underlayKind == UnderlayKind.Cellular,
             yandex = yandex,
             bigtech = bigtech,
+            google = google,
             seriesCount = seriesCount.coerceAtLeast(1),
         )
         if (captive) {
@@ -61,34 +72,48 @@ internal object NetworkProbePolicy {
                 systemOnline = systemOnline,
                 yandexOk = yandex.isSuccess,
                 bigtechOk = bigtech.isSuccess,
+                googleOk = google.isSuccess,
                 captive = true,
                 provisionOk = provision.isSuccess,
                 message = "Войдите в сеть (captive portal)",
                 elapsedMs = 0,
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
+                googleOutcome = google,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.Unknown,
+                routeReason = "captive",
+                restrictionReason = null,
             )
         }
-        if (!yandex.isSuccess && !bigtech.isSuccess && !provision.isSuccess) {
+        if (!yandex.isSuccess && !bigtech.isSuccess && !google.isSuccess && !provision.isSuccess) {
             return ProbeResult(
                 networkClass = NetworkClass.NoNetwork,
                 preselectedPath = null,
                 systemOnline = systemOnline,
                 yandexOk = false,
                 bigtechOk = false,
+                googleOk = false,
                 captive = false,
                 provisionOk = false,
                 message = "Нет сети",
                 elapsedMs = 0,
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
+                googleOutcome = google,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.Unknown,
+                routeReason = "data-unconfirmed",
+                restrictionReason = null,
             )
         }
-        val internetOk = yandex.isSuccess || bigtech.isSuccess
+        val internetOk = yandex.isSuccess || bigtech.isSuccess || google.isSuccess
+        val restrictionReason = when (restriction) {
+            RestrictionHint.Suspected -> "control-ok-two-ordinary-down"
+            RestrictionHint.Confirmed -> "two-series-ordinary-down"
+            RestrictionHint.None -> null
+            RestrictionHint.Unknown -> null
+        }
         if (provision.isFailure && internetOk && restriction == RestrictionHint.None) {
             return ProbeResult(
                 networkClass = NetworkClass.OpenNeedBypass,
@@ -96,24 +121,32 @@ internal object NetworkProbePolicy {
                 systemOnline = systemOnline,
                 yandexOk = yandex.isSuccess,
                 bigtechOk = bigtech.isSuccess,
+                googleOk = google.isSuccess,
                 captive = false,
                 provisionOk = false,
                 message = "Сеть есть, сервер не отвечает — пробуем прямое подключение",
                 elapsedMs = 0,
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
+                googleOutcome = google,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.None,
+                routeReason = "direct-unavailable",
+                restrictionReason = null,
             )
         }
         val message = when {
-            restriction == RestrictionHint.Suspected ->
-                "Похоже на ограничения мобильной сети"
+            restriction == RestrictionHint.Confirmed ||
+                restriction == RestrictionHint.Suspected ->
+                "Прямое подключение к VPS проверяется. Возможны ограничения мобильной сети"
             provision.isSuccess -> "Готово: прямое"
             internetOk -> "Сеть подключена, доступ в интернет не подтверждён для всех целей"
             else -> "Готово: прямое"
         }
-        val networkClass = if (restriction == RestrictionHint.Suspected) {
+        val networkClass = if (
+            restriction == RestrictionHint.Suspected ||
+            restriction == RestrictionHint.Confirmed
+        ) {
             NetworkClass.NeedBypass
         } else {
             NetworkClass.DirectOk
@@ -124,14 +157,18 @@ internal object NetworkProbePolicy {
             systemOnline = systemOnline,
             yandexOk = yandex.isSuccess,
             bigtechOk = bigtech.isSuccess,
+            googleOk = google.isSuccess,
             captive = false,
             provisionOk = provision.isSuccess,
             message = message,
             elapsedMs = 0,
             yandexOutcome = yandex,
             bigtechOutcome = bigtech,
+            googleOutcome = google,
             provisionOutcome = provision,
             restriction = restriction,
+            routeReason = "direct",
+            restrictionReason = restrictionReason,
         )
     }
 
@@ -139,18 +176,23 @@ internal object NetworkProbePolicy {
         cellular: Boolean,
         yandex: CheckOutcome,
         bigtech: CheckOutcome,
+        google: CheckOutcome = CheckOutcome.NotRun,
         seriesCount: Int,
     ): RestrictionHint {
         if (!cellular) return RestrictionHint.None
-        if (!yandex.ran || !bigtech.ran) return RestrictionHint.Unknown
-        if (yandex.isSuccess && bigtech.isFailure) {
+        if (!yandex.ran) return RestrictionHint.Unknown
+        val ordinaryOk = listOf(bigtech, google).count { it.isSuccess }
+        val ordinaryFailed = listOf(bigtech, google).count { it.countsAsOrdinaryBlock() }
+        if (yandex.isSuccess && ordinaryOk >= 1 && ordinaryFailed < 2) {
+            return RestrictionHint.None
+        }
+        if (yandex.isSuccess && ordinaryFailed >= 2) {
             return if (seriesCount >= RecoverySettings.RESTRICTION_CONFIRM_SERIES) {
                 RestrictionHint.Confirmed
             } else {
                 RestrictionHint.Suspected
             }
         }
-        if (yandex.isSuccess && bigtech.isSuccess) return RestrictionHint.None
         return RestrictionHint.Unknown
     }
 
@@ -171,15 +213,22 @@ internal object NetworkProbePolicy {
     }
 }
 
-fun isRestrictionSeriesSample(yandex: CheckOutcome, bigtech: CheckOutcome): Boolean =
-    yandex.ran && bigtech.ran && yandex.isSuccess && bigtech.isFailure
+fun isRestrictionSeriesSample(
+    yandex: CheckOutcome,
+    bigtech: CheckOutcome,
+    google: CheckOutcome = CheckOutcome.NotRun,
+): Boolean =
+    yandex.ran &&
+        yandex.isSuccess &&
+        bigtech.countsAsOrdinaryBlock() &&
+        google.countsAsOrdinaryBlock()
 
 fun nextProbeSeriesCount(
     previous: ReachabilityEvidence?,
     next: ReachabilityEvidence,
     elapsedMs: Long = next.measuredAtElapsedMs,
 ): Int {
-    if (!isRestrictionSeriesSample(next.yandex, next.bigtech)) {
+    if (!isRestrictionSeriesSample(next.yandex, next.bigtech, next.google)) {
         return 0
     }
     if (previous == null) return 1
@@ -189,13 +238,13 @@ fun nextProbeSeriesCount(
     if (elapsedMs > previous.ttlUntilElapsedMs && previous.ttlUntilElapsedMs > 0L) {
         return 1
     }
-    if (!previous.yandex.ran || !previous.bigtech.ran) return 1
+    if (!previous.yandex.ran || !previous.bigtech.ran || !previous.google.ran) return 1
     if (previous.measuredAtElapsedMs == next.measuredAtElapsedMs &&
         previous.bindHandle == next.bindHandle
     ) {
         return previous.seriesCount.coerceAtLeast(1)
     }
-    if (!isRestrictionSeriesSample(previous.yandex, previous.bigtech)) {
+    if (!isRestrictionSeriesSample(previous.yandex, previous.bigtech, previous.google)) {
         return 1
     }
     if (previous.seriesCount <= 0) return 1

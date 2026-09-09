@@ -681,6 +681,7 @@ class NetworkRecoveryPolicyTest {
         assertEquals(BYPASS_NETWORK_SETTLE_MS, bypass.networkSettleDelayMs)
         assertEquals(BYPASS_RECONNECT_MIN_INTERVAL_MS, bypass.reconnectMinIntervalMs)
         assertEquals(DIRECT_NETWORK_SETTLE_MS, direct.networkSettleDelayMs)
+        assertTrue(direct.networkSettleDelayMs < 400L)
         assertTrue(bypass.networkSettleDelayMs > 400L)
         assertTrue(bypass.reconnectMinIntervalMs > 4_000L)
         assertTrue(direct.networkSettleDelayMs < bypass.networkSettleDelayMs)
@@ -759,9 +760,9 @@ class NetworkRecoveryPolicyTest {
         assertFalse(shouldSkipValidatedWait(VpnPath.Bypass, UnderlayKind.Wifi))
         assertTrue(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Cellular))
         assertTrue(shouldSkipValidatedWait(VpnPath.Bypass, UnderlayKind.Cellular))
-        assertFalse(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Wifi))
+        assertTrue(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Wifi))
         assertEquals(
-            BYPASS_UNVALIDATED_SETTLE_MS,
+            DIRECT_NETWORK_SETTLE_MS,
             extraNetworkSettleDelayMs(
                 VpnPath.Direct,
                 validatedPresent = false,

@@ -21,6 +21,8 @@ data class ProbeResult(
     val yandexOk: Boolean,
     /** 1.1.1.1 — Cloudflare TLS or UDP :53. TCP :443 alone is not open internet. */
     val bigtechOk: Boolean,
+    /** 8.8.8.8 — Google public DNS, independent of Cloudflare. */
+    val googleOk: Boolean = false,
     val captive: Boolean,
     /** AWG UDP handshake response from direct.endpoint (not used in live probe). */
     val awgUdpOk: Boolean = false,
@@ -30,8 +32,11 @@ data class ProbeResult(
     val elapsedMs: Long,
     val yandexOutcome: CheckOutcome = if (yandexOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val bigtechOutcome: CheckOutcome = if (bigtechOk) CheckOutcome.Success else CheckOutcome.NotRun,
+    val googleOutcome: CheckOutcome = if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val provisionOutcome: CheckOutcome = if (provisionOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val restriction: RestrictionHint = RestrictionHint.Unknown,
+    val routeReason: String = "direct",
+    val restrictionReason: String? = null,
     val networkKey: NetworkKey? = null,
     val bindHandle: Long? = null,
 ) {

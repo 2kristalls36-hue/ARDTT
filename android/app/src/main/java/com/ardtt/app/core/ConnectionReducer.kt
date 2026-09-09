@@ -92,6 +92,7 @@ sealed class RecoveryCommand {
     data object RefreshCredentials : RecoveryCommand()
     data object PauseNetOps : RecoveryCommand()
     data class ScheduleRetry(val delayMs: Long) : RecoveryCommand()
+    data class ScheduleReeval(val delayMs: Long) : RecoveryCommand()
 }
 
 data class ReduceResult(
@@ -267,11 +268,14 @@ object ConnectionReducer {
             return ReduceResult(state.copy(underlay = snapshot, networkEpoch = snapshot.networkEpoch), RecoveryCommand.None)
         }
         val networkChanged = snapshot.key != state.underlay.key
+        val leftWifiEpisode = !snapshot.kind.prefersDirectInAuto()
         val next = state.copy(
             underlay = snapshot,
             networkEpoch = snapshot.networkEpoch,
             directNegative = if (networkChanged) null else state.directNegative,
             evidence = if (networkChanged) null else state.evidence,
+            wifiFailStreak = if (leftWifiEpisode) 0 else state.wifiFailStreak,
+            wifiStableHits = if (leftWifiEpisode) 0 else state.wifiStableHits,
             call = if (snapshot.availability == UnderlayAvailability.None) {
                 state.call.copy(
                     validity = if (state.call.validity == CallValidity.ConfirmedDead) {
@@ -337,6 +341,7 @@ object ConnectionReducer {
             cellular = state.underlay.kind == UnderlayKind.Cellular,
             yandex = event.evidence.yandex,
             bigtech = event.evidence.bigtech,
+            google = event.evidence.google,
             seriesCount = series,
         )
         val next = state.copy(
@@ -425,11 +430,10 @@ object ConnectionReducer {
         if (!state.recovery.permit.accepts(event.sessionEpoch, transportEpoch = event.transportEpoch)) {
             return ReduceResult(state, RecoveryCommand.None)
         }
-        val due = state.directNegative?.retryAfterElapsedMs
-        val nextRetry = when {
-            due == null -> null
-            due > elapsedMs -> due
-            else -> elapsedMs + RecoverySettings.NETWORK_RETURN_COALESCE_MS
+        val delay = if (state.intent.mode == ConnPathMode.Auto) {
+            bypassReevalDelayMs(state.directNegative?.retryAfterElapsedMs, elapsedMs)
+        } else {
+            null
         }
         val next = state.copy(
             activePath = VpnPath.Bypass,
@@ -440,12 +444,17 @@ object ConnectionReducer {
                 phase = RecoveryPhase.Connected,
                 failureIndex = 0,
                 inFlight = false,
-                nextRetryAtElapsedMs = nextRetry,
+                nextRetryAtElapsedMs = delay?.let { elapsedMs + it },
                 permit = permitFrom(state, netOps = true, inFlight = false),
                 callOpInFlight = false,
             ),
         )
-        return ReduceResult(withUi(next, nowElapsedMs = elapsedMs), RecoveryCommand.None)
+        val command = if (delay != null) {
+            RecoveryCommand.ScheduleReeval(delay)
+        } else {
+            RecoveryCommand.None
+        }
+        return ReduceResult(withUi(next, nowElapsedMs = elapsedMs), command)
     }
 
     private fun onBypassFailed(
@@ -896,6 +905,7 @@ object ConnectionReducer {
                 restriction = state.evidence?.restriction ?: RestrictionHint.Unknown,
                 transport = state.transport,
                 retryInMs = remaining,
+                underlayKind = state.underlay.kind,
             ),
         )
     }

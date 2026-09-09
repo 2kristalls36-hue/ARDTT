@@ -220,13 +220,9 @@ class ConnectionReducerTest {
             ConnectionEvent.UnderlayUpdated(usableCellular(epoch = 3L)),
             4L,
         )
-        assertTrue(
-            back.command == RecoveryCommand.ResumeParkedRaw ||
-                back.command is RecoveryCommand.StartBypass,
-        )
-        if (back.command == RecoveryCommand.ResumeParkedRaw) {
-            assertEquals(SessionDiagnostic.TransportResumed, back.diagnostic)
-        }
+        assertTrue(back.command is RecoveryCommand.StartDirect)
+        assertTrue(back.state.parkedRawAlive)
+        assertEquals(0, back.state.wifiFailStreak)
     }
 
     @Test
@@ -800,6 +796,7 @@ class ConnectionReducerTest {
         )
         assertEquals(RecoveryPhase.Connected, ok.state.recovery.phase)
         assertEquals(VpnPath.Bypass, ok.state.activePath)
+        assertTrue(ok.command is RecoveryCommand.ScheduleReeval)
         val due = ok.state.recovery.nextRetryAtElapsedMs
         assertTrue(due != null)
         val reeval = ConnectionReducer.reduce(
@@ -810,6 +807,35 @@ class ConnectionReducerTest {
         assertTrue(
             reeval.command == RecoveryCommand.ParkBypassForDirect ||
                 reeval.command is RecoveryCommand.StartDirect,
+        )
+    }
+
+    @Test
+    fun bypassWithoutNegativeEvidenceUsesReevalBudget() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            0L,
+        )
+        val ok = ConnectionReducer.reduce(
+            started.state.copy(
+                activePath = VpnPath.Bypass,
+                transport = TransportLifecycle.Starting,
+                parkedRawAlive = true,
+                directNegative = null,
+            ),
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                probeConfirmed = true,
+            ),
+            elapsedMs = 1_000L,
+        )
+        val cmd = ok.command as RecoveryCommand.ScheduleReeval
+        assertEquals(RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS, cmd.delayMs)
+        assertEquals(
+            1_000L + RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
+            ok.state.recovery.nextRetryAtElapsedMs,
         )
     }
 }

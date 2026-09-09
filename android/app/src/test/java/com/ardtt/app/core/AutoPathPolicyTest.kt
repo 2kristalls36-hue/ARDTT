@@ -295,7 +295,7 @@ class AutoPathPolicyTest {
     }
 
     @Test
-    fun failedWifiReturnsToParkedMobileCall() {
+    fun failedWifiOnNewLteTriesDirectAndKeepsParkedCall() {
         val d = decideAutoPath(
             AutoPathInput(
                 mode = ConnPathMode.Auto,
@@ -308,9 +308,9 @@ class AutoPathPolicyTest {
                 parkedRawAlive = true,
             ),
         )
-        val bypass = d as AutoDecision.StartBypass
-        assertTrue(bypass.reuseCall)
-        assertEquals("wifi-failed-return-mobile", bypass.reason)
+        val start = d as AutoDecision.StartDirect
+        assertTrue(start.keepCall)
+        assertEquals("cellular-direct", start.reason)
     }
 
     @Test

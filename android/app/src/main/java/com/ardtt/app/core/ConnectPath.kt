@@ -22,10 +22,12 @@ fun wifiAutoDirectProbe(elapsedMs: Long = 0): ProbeResult = ProbeResult(
     provisionOk = false,
     message = "Авто на Wi‑Fi: прямое подключение",
     elapsedMs = elapsedMs,
-    yandexOutcome = CheckOutcome.NotRun,
-    bigtechOutcome = CheckOutcome.NotRun,
-    provisionOutcome = CheckOutcome.NotRun,
-    restriction = RestrictionHint.None,
+        yandexOutcome = CheckOutcome.NotRun,
+        bigtechOutcome = CheckOutcome.NotRun,
+        googleOutcome = CheckOutcome.NotRun,
+        provisionOutcome = CheckOutcome.NotRun,
+        restriction = RestrictionHint.None,
+        routeReason = "direct",
 )
 
 /** Auto on Wi‑Fi never follows a Bypass probe; measured outcomes are kept. */

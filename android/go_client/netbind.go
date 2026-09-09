@@ -45,3 +45,7 @@ func dialerForCurrentNetwork(timeout time.Duration) *net.Dialer {
 		Control: bindControl(currentNetworkHandle()),
 	}
 }
+
+func tlsClientDialer() net.Dialer {
+	return *dialerForCurrentNetwork(20 * time.Second)
+}

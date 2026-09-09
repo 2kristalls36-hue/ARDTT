@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
@@ -117,6 +118,19 @@ class ConnectionManager(
     private var recoverySnapshot = ConnectionSnapshot()
     private var waitingNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var recoveryRetryJob: Job? = null
+    private val recoveryTimer = RecoveryTimer(
+        arm = { delayMs, fire ->
+            recoveryRetryJob?.cancel()
+            recoveryRetryJob = scope.launch {
+                delay(delayMs.coerceAtLeast(0L))
+                fire()
+            }
+        },
+        cancel = {
+            recoveryRetryJob?.cancel()
+            recoveryRetryJob = null
+        },
+    )
     @Volatile private var pendingConnectPath: VpnPath? = null
     private val recoveryGate = Any()
 
@@ -174,13 +188,11 @@ class ConnectionManager(
     }
 
     /** On whitelist / Bypass path, provision :9100 is only reachable through the tunnel. */
+    @Suppress("UNUSED_PARAMETER")
     private fun shouldProvisionViaVpn(probe: ProbeResult? = _ui.value.probe): Boolean {
         val path = _ui.value.activePath ?: TunnelSessionHolder.config?.path
         if (path == VpnPath.Bypass) return true
-        val p = probe ?: return false
-        return p.preselectedPath == VpnPath.Bypass ||
-            p.networkClass == NetworkClass.NeedBypass ||
-            p.networkClass == NetworkClass.OpenNeedBypass
+        return false
     }
 
     private suspend fun syncHideIpToProvision(
@@ -481,8 +493,7 @@ class ConnectionManager(
     fun sessionDiagnostics(): Map<SessionDiagnostic, Int> = diagnosticLog.counts()
 
     fun retryNow() {
-        recoveryRetryJob?.cancel()
-        recoveryRetryJob = null
+        recoveryTimer.clear()
         dispatchRecovery(ConnectionEvent.UserRetryNow)
     }
 
@@ -513,9 +524,13 @@ class ConnectionManager(
 
     private fun dispatchRecovery(event: ConnectionEvent, elapsedMs: Long = SystemClock.elapsedRealtime()): ReduceResult {
         synchronized(recoveryGate) {
+            val previousToken = recoverySnapshot.call.identityToken
             val jitter = Random.nextInt(0, 151)
             val result = ConnectionReducer.reduce(recoverySnapshot, event, elapsedMs, jitterPermille = jitter)
             recoverySnapshot = result.state
+            if (result.state.call.identityToken != previousToken) {
+                requestDiscardParkedCall("call-identity-changed")
+            }
             result.diagnostic?.let { kind ->
                 diagnosticLog.record(
                     SessionDiagnosticEvent(
@@ -543,8 +558,7 @@ class ConnectionManager(
         when (val cmd = result.command) {
             RecoveryCommand.None -> Unit
             RecoveryCommand.StopAll -> {
-                recoveryRetryJob?.cancel()
-                recoveryRetryJob = null
+                recoveryTimer.clear()
                 stopWatchingUnderlay()
             }
             RecoveryCommand.PauseNetOps -> {
@@ -580,8 +594,7 @@ class ConnectionManager(
                 rebuildTun = true,
             )
             RecoveryCommand.RefreshCredentials -> {
-                recoveryRetryJob?.cancel()
-                recoveryRetryJob = null
+                recoveryTimer.clear()
                 requestGoNetOps(allowed = true)
                 if (tunnelServiceLikelyRunning()) {
                     bumpSessionGeneration("refresh-credentials")
@@ -597,9 +610,14 @@ class ConnectionManager(
                 }
             }
             is RecoveryCommand.ScheduleRetry -> {
-                recoveryRetryJob?.cancel()
-                recoveryRetryJob = scope.launch {
-                    delay(cmd.delayMs.coerceAtLeast(0L))
+                recoveryTimer.schedule(cmd.delayMs) {
+                    dispatchRecovery(ConnectionEvent.Clock(SystemClock.elapsedRealtime()))
+                }
+            }
+            is RecoveryCommand.ScheduleReeval -> {
+                AppLog.i(TAG, "auto-stage reeval_scheduled delayMs=${cmd.delayMs}")
+                recoveryTimer.schedule(cmd.delayMs) {
+                    AppLog.i(TAG, "auto-stage reeval_fired")
                     dispatchRecovery(ConnectionEvent.Clock(SystemClock.elapsedRealtime()))
                 }
             }
@@ -618,8 +636,7 @@ class ConnectionManager(
         resumeExisting: Boolean,
         rebuildTun: Boolean,
     ) {
-        recoveryRetryJob?.cancel()
-        recoveryRetryJob = null
+        recoveryTimer.clear()
         stopWatchingUnderlay()
         requestGoNetOps(allowed = true)
         pendingConnectPath = path
@@ -1222,8 +1239,7 @@ class ConnectionManager(
             AppLog.v(TAG, "Disconnect ignored: already disconnecting")
             return
         }
-        recoveryRetryJob?.cancel()
-        recoveryRetryJob = null
+        recoveryTimer.clear()
         if (state == ConnState.Probing) {
             connectWhenReadyJob?.cancel()
             connectWhenReadyJob = null
@@ -2134,11 +2150,14 @@ class ConnectionManager(
                         measuredAtElapsedMs = SystemClock.elapsedRealtime(),
                         yandex = shown.yandexOutcome,
                         bigtech = shown.bigtechOutcome,
+                        google = shown.googleOutcome,
                         provision = shown.provisionOutcome,
                         restriction = shown.restriction,
                         captive = shown.captive,
                         ttlUntilElapsedMs = SystemClock.elapsedRealtime() + RecoverySettings.PROBE_CACHE_TTL_MS,
                         bindHandle = shown.bindHandle,
+                        routeReason = shown.routeReason,
+                        restrictionReason = shown.restrictionReason,
                     ),
                     sessionEpoch = sessionEpoch,
                     networkEpoch = networkEpoch,
@@ -2184,15 +2203,11 @@ class ConnectionManager(
         when (result.networkClass) {
             NetworkClass.NeedBypass ->
                 if (pathMode == ConnPathMode.Auto && !wifiAuto) {
-                    parts += if (result.provisionOk && result.whitelistRestricted) {
-                        "Белый список: UDP до VPS, скорее всего, закрыт — сразу обход."
-                    } else {
-                        "Похоже на белый список, VPS не отвечает — будет обход."
-                    }
+                    parts += "Возможны ограничения мобильной сети. Прямое подключение к VPS всё равно проверяется."
                 }
             NetworkClass.OpenNeedBypass ->
                 if (pathMode == ConnPathMode.Auto && !wifiAuto) {
-                    parts += "VPS недоступен — будет обход."
+                    parts += "Прямое подключение к VPS недоступно. Подключаемся через обход, без диагноза белых списков."
                 }
             NetworkClass.Captive ->
                 parts += "Обнаружена страница авторизации сети. Сначала выполните вход в Wi‑Fi."
@@ -2485,23 +2500,30 @@ class ConnectionManager(
         transportEpoch: Long,
         networkKey: NetworkKey?,
     ): Boolean {
-        val deadline = System.currentTimeMillis() + BYPASS_WORKERS_WAIT_MS
-        var workersReady = false
-        while (System.currentTimeMillis() < deadline) {
+        val deadline = SystemClock.elapsedRealtime() + BYPASS_WORKERS_WAIT_MS
+        val baselineWorkers = TransportHealth.activeWorkers
+        val baselineRx = withContext(Dispatchers.IO) {
+            VpnLiveStats.sample()
+            TransportHealth.downBytes
+        }
+        while (SystemClock.elapsedRealtime() < deadline) {
             if (generation != sessionGeneration.get()) return false
-            if (TransportHealth.activeWorkers > 0) {
-                workersReady = true
-                break
+            val confirmed = withContext(Dispatchers.IO) {
+                observeCurrentPath(
+                    generation = generation,
+                    sessionEpoch = sessionEpoch,
+                    transportEpoch = transportEpoch,
+                    networkKey = networkKey,
+                    handshakeGrew = false,
+                    usefulRxDelta = (TransportHealth.downBytes - baselineRx).coerceAtLeast(0L),
+                    workersReady = TransportHealth.activeWorkers > 0 &&
+                        (TransportHealth.activeWorkers > baselineWorkers || baselineWorkers == 0),
+                )
             }
+            if (confirmed) return true
             delay(BYPASS_WORKERS_POLL_MS)
         }
-        if (!workersReady) return false
-        return confirmCapturedPath(
-            generation = generation,
-            sessionEpoch = sessionEpoch,
-            transportEpoch = transportEpoch,
-            networkKey = networkKey,
-        )
+        return false
     }
 
     private suspend fun waitForDirectPathConfirm(
@@ -2510,31 +2532,47 @@ class ConnectionManager(
         transportEpoch: Long,
         networkKey: NetworkKey?,
     ): Boolean {
-        val deadline = System.currentTimeMillis() + RecoverySettings.DIRECT_LIMITED_TRY_MS
-        while (System.currentTimeMillis() < deadline) {
+        val deadline = SystemClock.elapsedRealtime() + RecoverySettings.DIRECT_LIMITED_TRY_MS
+        val baselineRx = withContext(Dispatchers.IO) {
+            VpnLiveStats.sample()
+            VpnLiveStats.totalRx
+        }
+        while (SystemClock.elapsedRealtime() < deadline) {
             if (generation != sessionGeneration.get()) return false
-            if (confirmCapturedPath(generation, sessionEpoch, transportEpoch, networkKey)) {
+            val confirmed = withContext(Dispatchers.IO) {
+                VpnLiveStats.sample()
+                val rxDelta = (VpnLiveStats.totalRx - baselineRx).coerceAtLeast(0L)
+                val handshakeGrew = VpnLiveStats.currentAwgHandshakeSec() > 0L
+                observeCurrentPath(
+                    generation = generation,
+                    sessionEpoch = sessionEpoch,
+                    transportEpoch = transportEpoch,
+                    networkKey = networkKey,
+                    handshakeGrew = handshakeGrew,
+                    usefulRxDelta = rxDelta,
+                    workersReady = false,
+                )
+            }
+            if (confirmed) {
+                AppLog.i(TAG, "auto-stage path_confirmed path=direct gen=$generation")
                 return true
             }
             delay(250L)
         }
-        if (generation != sessionGeneration.get()) return false
-        return confirmCapturedPath(generation, sessionEpoch, transportEpoch, networkKey)
+        AppLog.i(TAG, "auto-stage path_confirm_timeout path=direct gen=$generation")
+        return false
     }
 
-    private fun confirmCapturedPath(
+    private fun observeCurrentPath(
         generation: Long,
         sessionEpoch: Long,
         transportEpoch: Long,
         networkKey: NetworkKey?,
+        handshakeGrew: Boolean,
+        usefulRxDelta: Long,
+        workersReady: Boolean,
     ): Boolean {
         if (generation != sessionGeneration.get()) return false
-        val endpoint = NetworkProbe.parseProvisionEndpoint(resolveProvisionUrl())
-        val probeOk = confirmRouteThroughVpn(
-            appContext,
-            endpoint?.first,
-            endpoint?.second ?: 9100,
-        )
         return PathConfirm.looksConfirmed(
             PathConfirmObservation(
                 capturedSessionEpoch = sessionEpoch,
@@ -2543,9 +2581,19 @@ class ConnectionManager(
                 eventSessionEpoch = recoverySnapshot.sessionEpoch,
                 eventTransportEpoch = recoverySnapshot.transportEpoch,
                 eventNetworkKey = recoverySnapshot.underlay.key,
-                probeSucceeded = probeOk,
+                usefulRxDelta = usefulRxDelta,
+                handshakeGrew = handshakeGrew,
+                probeSucceeded = workersReady,
             ),
         )
+    }
+
+    private fun requestDiscardParkedCall(reason: String) {
+        val intent = Intent(appContext, VpnTunnelService::class.java)
+            .setAction(VpnTunnelService.ACTION_SESSION_CONTROL)
+            .putExtra(VpnTunnelService.EXTRA_DISCARD_PARKED, true)
+        AppLog.i(TAG, "discard parked process ($reason)")
+        runCatching { appContext.startService(intent) }
     }
 
     fun onWatchdogFault(path: VpnPath, reason: String) {

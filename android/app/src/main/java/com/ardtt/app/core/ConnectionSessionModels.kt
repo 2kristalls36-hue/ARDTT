@@ -104,12 +104,15 @@ data class ReachabilityEvidence(
     val measuredAtElapsedMs: Long = 0L,
     val yandex: CheckOutcome = CheckOutcome.NotRun,
     val bigtech: CheckOutcome = CheckOutcome.NotRun,
+    val google: CheckOutcome = CheckOutcome.NotRun,
     val provision: CheckOutcome = CheckOutcome.NotRun,
     val restriction: RestrictionHint = RestrictionHint.Unknown,
     val captive: Boolean = false,
     val ttlUntilElapsedMs: Long = 0L,
     val seriesCount: Int = 1,
     val bindHandle: Long? = null,
+    val routeReason: String = "unverified",
+    val restrictionReason: String? = null,
 ) {
     fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
         if (elapsedMs > ttlUntilElapsedMs) return false

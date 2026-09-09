@@ -126,6 +126,43 @@ func TestUpdateNetworkDoesNotAllowNetOps(t *testing.T) {
 	}
 }
 
+func TestTlsClientDialerUsesCurrentHandle(t *testing.T) {
+	ctrl := NewSessionControl()
+	if _, changed := ctrl.ApplyNetwork(55); !changed {
+		t.Fatal("first handle must apply")
+	}
+	activeSessionCtrl.Store(ctrl)
+	defer activeSessionCtrl.Store(nil)
+
+	var seen []int64
+	recordBind = func(_ int, handle int64) { seen = append(seen, handle) }
+	defer func() { recordBind = nil }()
+
+	dialer := tlsClientDialer()
+	if dialer.Control == nil {
+		t.Fatal("tls-client dialer must carry bind Control")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, acceptErr := ln.Accept()
+		if acceptErr == nil {
+			_ = c.Close()
+		}
+	}()
+	conn, err := dialer.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	if len(seen) == 0 || seen[len(seen)-1] != 55 {
+		t.Fatalf("tls-client dialer bound handle=%v want 55", seen)
+	}
+}
+
 func TestForbidCancelsBoundContext(t *testing.T) {
 	c := NewSessionControl()
 	ctx, cancel := c.BoundContext(context.Background())

@@ -145,21 +145,6 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         )
     }
 
-    if (input.parkedRawAlive &&
-        input.hasCallHash &&
-        input.wifiFailStreak > 0
-    ) {
-        if (input.currentPath == VpnPath.Bypass &&
-            input.transport == TransportLifecycle.Running
-        ) {
-            return AutoDecision.Stay(VpnPath.Bypass, "wifi-failed-keep-mobile")
-        }
-        return AutoDecision.StartBypass(
-            reuseCall = true,
-            reason = "wifi-failed-return-mobile",
-        )
-    }
-
     val blocked = input.directNegative?.stillBlocks(
         input.elapsedMs,
         underlay.key,

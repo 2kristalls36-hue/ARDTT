@@ -18,10 +18,9 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
-        assertTrue(r.whitelistRestricted)
-        assertTrue(r.provisionOk)
-        assertTrue(r.message.contains("ограничен"))
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertEquals(RestrictionHint.Unknown, r.restriction)
+        assertTrue(!r.whitelistRestricted)
     }
 
     @Test
@@ -64,7 +63,7 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, noHealth.preselectedPath)
-        assertTrue(noHealth.whitelistRestricted)
+        assertTrue(!noHealth.whitelistRestricted)
         val healthButNoTls = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -74,7 +73,8 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, healthButNoTls.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, healthButNoTls.networkClass)
+        assertEquals(NetworkClass.DirectOk, healthButNoTls.networkClass)
+        assertEquals(RestrictionHint.Unknown, healthButNoTls.restriction)
     }
 
     @Test
@@ -89,7 +89,8 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertEquals(RestrictionHint.Unknown, r.restriction)
     }
 
     @Test
@@ -117,9 +118,9 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
-        assertTrue(r.whitelistRestricted)
-        assertTrue(r.message.contains("ограничен"))
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertTrue(!r.whitelistRestricted)
+        assertEquals(RestrictionHint.Unknown, r.restriction)
     }
 
     @Test
@@ -163,9 +164,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathWaitsForCloudflareWhenVpsUp() {
+    fun decideProbePathDirectWhenVpsUpWithoutWaitingForCloudflare() {
         assertEquals(
-            ProbePathHint.Wait,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = true,
                 yandexOk = null,
@@ -202,9 +203,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathWaitsWhenCloudflareUnknown() {
+    fun decideProbePathDirectWhenYandexKnownEvenIfProvisionUnknown() {
         assertEquals(
-            ProbePathHint.Wait,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = null,
                 yandexOk = true,
@@ -228,9 +229,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathWaitsWhenCloudflareStillRunning() {
+    fun decideProbePathDirectWhenYandexUpBeforeCloudflareFinishes() {
         assertEquals(
-            ProbePathHint.Wait,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = false,
                 yandexOk = true,
@@ -295,8 +296,10 @@ class NetworkProbeClassifyTest {
             provisionOk = true,
             underlayKind = UnderlayKind.Cellular,
             seriesCount = 1,
+            googleOutcome = CheckOutcome.Timeout,
         )
         assertEquals(RestrictionHint.Suspected, first.restriction)
+        assertEquals(VpnPath.Direct, first.preselectedPath)
         val second = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -305,9 +308,11 @@ class NetworkProbeClassifyTest {
             provisionOk = true,
             underlayKind = UnderlayKind.Cellular,
             seriesCount = 2,
+            googleOutcome = CheckOutcome.Timeout,
         )
         assertEquals(RestrictionHint.Confirmed, second.restriction)
         assertEquals(VpnPath.Direct, second.preselectedPath)
+        assertEquals(NetworkClass.NeedBypass, second.networkClass)
     }
 
     @Test
@@ -319,6 +324,7 @@ class NetworkProbeClassifyTest {
             measuredAtElapsedMs = 40L,
             yandex = CheckOutcome.Success,
             bigtech = CheckOutcome.Timeout,
+            google = CheckOutcome.Timeout,
             seriesCount = 1,
             bindHandle = 1L,
         )
@@ -393,5 +399,67 @@ class NetworkProbeClassifyTest {
             seriesCount = 4,
         )
         assertEquals(RestrictionHint.None, r.restriction)
+    }
+
+    @Test
+    fun cloudflareAndGoogleFailuresAreTwoIndependentOrdinaryTargets() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Timeout,
+        )
+        assertEquals(RestrictionHint.Suspected, r.restriction)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals("direct", r.routeReason)
+    }
+
+    @Test
+    fun tlsFailureIsNotARestrictionSample() {
+        assertTrue(
+            !isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.TlsFailure,
+                CheckOutcome.Timeout,
+            ),
+        )
+        assertTrue(
+            !isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+                CheckOutcome.BindFailure,
+            ),
+        )
+        assertEquals(
+            RestrictionHint.Unknown,
+            NetworkProbePolicy.restrictionHint(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.TlsFailure,
+                google = CheckOutcome.Timeout,
+                seriesCount = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun dnsReplyMustMatchIdAndBeAResponse() {
+        val query = NetworkProbe.buildDnsQuery()
+        val ok = query.copyOf(64)
+        ok[2] = (ok[2].toInt() or 0x80).toByte()
+        assertTrue(NetworkProbe.dnsReplyLooksValid(query, ok, 12))
+        val wrongId = ok.copyOf()
+        wrongId[1] = (wrongId[1].toInt() xor 0x01).toByte()
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, wrongId, 12))
+        val notResponse = query.copyOf(64)
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, notResponse, 12))
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, ByteArray(8), 8))
+        assertEquals(CheckOutcome.Timeout, NetworkProbe.classifyCheckFailure(java.net.SocketTimeoutException("t")))
+        assertEquals(CheckOutcome.TlsFailure, NetworkProbe.classifyCheckFailure(javax.net.ssl.SSLHandshakeException("c")))
+        assertEquals(CheckOutcome.BindFailure, NetworkProbe.classifyCheckFailure(java.net.SocketException("Permission denied")))
+        assertEquals(CheckOutcome.Refused, NetworkProbe.classifyCheckFailure(java.net.ConnectException("Connection refused")))
     }
 }
