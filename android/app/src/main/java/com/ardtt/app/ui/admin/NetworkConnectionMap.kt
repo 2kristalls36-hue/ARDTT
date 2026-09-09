@@ -81,7 +81,22 @@ internal fun networkMapCacheKey(
 )
 
 /** Keep filled cards across Connecting (soft reconnect). Drop them once the tunnel is down. */
-internal fun networkMapKeepCards(state: ConnState): Boolean = state.holdsUserSession()
+internal fun networkMapKeepCards(state: ConnState): Boolean = when (state) {
+    ConnState.Connected,
+    ConnState.Connecting,
+    ConnState.Recovering,
+    ConnState.WaitingForNetwork,
+    ConnState.CaptivePortal,
+    ConnState.NeedsUserAction,
+    -> true
+    ConnState.Idle,
+    ConnState.Probing,
+    ConnState.Ready,
+    ConnState.PausedTrustedWifi,
+    ConnState.Disconnecting,
+    ConnState.Error,
+    -> false
+}
 
 internal fun shouldClearNetworkMapCards(previous: ConnState, next: ConnState): Boolean =
     networkMapKeepCards(previous) && !networkMapKeepCards(next)

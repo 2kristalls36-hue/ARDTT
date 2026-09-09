@@ -52,8 +52,8 @@ fun displayedAutoProbe(
  */
 fun resolveConnectPath(
     mode: ConnPathMode,
-    probePreferred: VpnPath?,
-    lastGood: ProbeResult?,
+    @Suppress("UNUSED_PARAMETER") probePreferred: VpnPath?,
+    @Suppress("UNUSED_PARAMETER") lastGood: ProbeResult?,
     fresh: ProbeResult,
     underlayKind: UnderlayKind = UnderlayKind.Other,
     @Suppress("UNUSED_PARAMETER") bypassAllowed: Boolean = true,
@@ -71,11 +71,7 @@ fun resolveConnectPath(
     }
     if (fresh.networkClass == NetworkClass.Captive) return null
     if (directFailedOnCurrentUnderlay && bypassAllowed) return VpnPath.Bypass
-    if (fresh.preselectedPath == VpnPath.Direct) return VpnPath.Direct
-    lastGood?.takeIf {
-        it.networkClass != NetworkClass.NoNetwork && !it.captive
-    }
-    return probePreferred ?: VpnPath.Direct
+    return VpnPath.Direct
 }
 
 /**

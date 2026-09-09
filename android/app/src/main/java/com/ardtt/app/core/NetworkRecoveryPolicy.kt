@@ -403,7 +403,7 @@ fun decideNetworkHandoverAction(
                 NetworkHandoverDecision.NoAction
             }
         }
-        val canUpgradeToDirect = allowBypassToDirect
+        val canUpgradeToDirect = allowBypassToDirect && !directFailedOnCurrentUnderlay
         if (canUpgradeToDirect) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Direct)
         }
@@ -418,20 +418,17 @@ fun decideNetworkHandoverAction(
         if (needBypass) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
         }
-        if (probedPath == VpnPath.Bypass && currentPathHealthy) {
+        if (probedPath == VpnPath.Bypass &&
+            currentPathHealthy &&
+            sameProbeStreak >= HANDOVER_DIRECT_TO_BYPASS_STREAK &&
+            !underlayChanged
+        ) {
             return NetworkHandoverDecision.NoAction
         }
-        if (vpsUp) {
+        if (vpsUp || probedPath == VpnPath.Bypass || underlayChanged || !currentPathHealthy) {
             return NetworkHandoverDecision.SoftRestartSamePath
         }
-        if (probedPath == VpnPath.Bypass) {
-            return NetworkHandoverDecision.SoftRestartSamePath
-        }
-        return if (underlayChanged || !currentPathHealthy) {
-            NetworkHandoverDecision.SoftRestartSamePath
-        } else {
-            NetworkHandoverDecision.NoAction
-        }
+        return NetworkHandoverDecision.NoAction
     }
     // Cellular / other: never Auto-upgrade Bypass→Direct here. Wi‑Fi upgrade
     // already returned above. A ghost TCP :9100 on LTE must not yank Bypass.

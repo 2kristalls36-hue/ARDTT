@@ -71,11 +71,11 @@ internal object NetworkProbePolicy {
                 restriction = RestrictionHint.Unknown,
             )
         }
-        if (!systemOnline && !yandex.isSuccess && !bigtech.isSuccess && !provision.isSuccess) {
+        if (!yandex.isSuccess && !bigtech.isSuccess && !provision.isSuccess) {
             return ProbeResult(
                 networkClass = NetworkClass.NoNetwork,
                 preselectedPath = null,
-                systemOnline = false,
+                systemOnline = systemOnline,
                 yandexOk = false,
                 bigtechOk = false,
                 captive = false,
