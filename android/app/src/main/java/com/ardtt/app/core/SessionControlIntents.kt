@@ -48,7 +48,13 @@ fun goBypassNetworkTarget(
 }
 
 /** Absent extra must not be treated as ALLOW. */
-fun sessionControlNetOpsDelta(intent: Intent): Boolean? {
-    if (!intent.hasExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED)) return null
-    return intent.getBooleanExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED, false)
+fun sessionControlNetOpsDelta(hasNetOpsExtra: Boolean, allowed: Boolean): Boolean? {
+    if (!hasNetOpsExtra) return null
+    return allowed
 }
+
+fun sessionControlNetOpsDelta(intent: Intent): Boolean? =
+    sessionControlNetOpsDelta(
+        intent.hasExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED),
+        intent.getBooleanExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED, false),
+    )

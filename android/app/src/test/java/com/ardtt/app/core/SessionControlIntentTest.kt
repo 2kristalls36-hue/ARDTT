@@ -1,6 +1,5 @@
 package com.ardtt.app.core
 
-import android.content.Intent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -8,12 +7,10 @@ import org.junit.Test
 class SessionControlIntentTest {
     @Test
     fun updateNetworkAloneDoesNotAllowNetOps() {
-        val onlyHandle = Intent().putExtra(VpnTunnelService.EXTRA_NETWORK_HANDLE, 9L)
-        assertNull(sessionControlNetOpsDelta(onlyHandle))
-        val allow = Intent().putExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED, true)
-        assertEquals(true, sessionControlNetOpsDelta(allow))
-        val forbid = Intent().putExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED, false)
-        assertEquals(false, sessionControlNetOpsDelta(forbid))
+        assertNull(sessionControlNetOpsDelta(hasNetOpsExtra = false, allowed = true))
+        assertNull(sessionControlNetOpsDelta(hasNetOpsExtra = false, allowed = false))
+        assertEquals(true, sessionControlNetOpsDelta(hasNetOpsExtra = true, allowed = true))
+        assertEquals(false, sessionControlNetOpsDelta(hasNetOpsExtra = true, allowed = false))
     }
 
     @Test
