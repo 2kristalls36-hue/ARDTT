@@ -72,7 +72,15 @@ func WorkerGroup(
 			}
 		}
 		log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
-		user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
+		credCtx := ctx
+		var cancelCred context.CancelFunc
+		if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+			credCtx, cancelCred = ctrl.BoundContext(ctx)
+		}
+		user, pass, turnURLs, err := GetCreds(credCtx, hash, credStreamID)
+		if cancelCred != nil {
+			cancelCred()
+		}
 		if err == nil {
 			creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
 			break
@@ -117,7 +125,15 @@ func WorkerGroup(
 		if getVkAuthMode() == "account" {
 			invalidateInjectedTurnCreds(hash)
 		}
-		u, p, urls, refreshErr := GetCreds(ctx, hash, credStreamID)
+		credCtx := ctx
+		var cancelCred context.CancelFunc
+		if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+			credCtx, cancelCred = ctrl.BoundContext(ctx)
+		}
+		u, p, urls, refreshErr := GetCreds(credCtx, hash, credStreamID)
+		if cancelCred != nil {
+			cancelCred()
+		}
 		if refreshErr != nil {
 			log.Printf("[TURN] Не удалось обновить креды после %s: %v", reason, refreshErr)
 			return false

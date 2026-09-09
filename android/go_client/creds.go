@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
@@ -912,6 +913,9 @@ func setupGlobalResolver(arg string) {
 	dialer := &net.Dialer{
 		Timeout:   3 * time.Second,
 		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			return bindControl(currentNetworkHandle())(network, address, c)
+		},
 	}
 	servers := goDNSServersForArg(arg)
 	log.Printf(

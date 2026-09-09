@@ -171,22 +171,33 @@ internal object NetworkProbePolicy {
     }
 }
 
+fun isRestrictionSeriesSample(yandex: CheckOutcome, bigtech: CheckOutcome): Boolean =
+    yandex.ran && bigtech.ran && yandex.isSuccess && bigtech.isFailure
+
 fun nextProbeSeriesCount(
     previous: ReachabilityEvidence?,
     next: ReachabilityEvidence,
+    elapsedMs: Long = next.measuredAtElapsedMs,
 ): Int {
-    if (!next.yandex.ran || !next.bigtech.ran) {
-        return previous?.seriesCount ?: 1
+    if (!isRestrictionSeriesSample(next.yandex, next.bigtech)) {
+        return 0
     }
     if (previous == null) return 1
     if (previous.networkKey != next.networkKey || previous.profileId != next.profileId) {
+        return 1
+    }
+    if (elapsedMs > previous.ttlUntilElapsedMs && previous.ttlUntilElapsedMs > 0L) {
         return 1
     }
     if (!previous.yandex.ran || !previous.bigtech.ran) return 1
     if (previous.measuredAtElapsedMs == next.measuredAtElapsedMs &&
         previous.bindHandle == next.bindHandle
     ) {
-        return previous.seriesCount
+        return previous.seriesCount.coerceAtLeast(1)
     }
+    if (!isRestrictionSeriesSample(previous.yandex, previous.bigtech)) {
+        return 1
+    }
+    if (previous.seriesCount <= 0) return 1
     return previous.seriesCount + 1
 }

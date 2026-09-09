@@ -216,6 +216,15 @@ fun scanPhysicalNetworkPresence(cm: ConnectivityManager): PhysicalNetworkPresenc
     return PhysicalNetworkPresence(wifi = wifi, cellular = cellular, ethernet = ethernet)
 }
 
+fun pickCellularUnderlayNetwork(cm: ConnectivityManager): Network? = runCatching {
+    cm.allNetworks.firstOrNull { network ->
+        val caps = cm.getNetworkCapabilities(network) ?: return@firstOrNull false
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+    }
+}.getOrNull()
+
 fun pickWifiUnderlayNetwork(cm: ConnectivityManager): Network? = runCatching {
     cm.allNetworks.firstOrNull { network ->
         val caps = cm.getNetworkCapabilities(network) ?: return@firstOrNull false

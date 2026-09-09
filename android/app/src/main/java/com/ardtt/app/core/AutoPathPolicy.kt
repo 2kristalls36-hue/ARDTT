@@ -184,6 +184,13 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         (input.transport == TransportLifecycle.Running ||
             input.transport == TransportLifecycle.Starting)
     ) {
+        if (!blocked) {
+            return AutoDecision.StartDirect(
+                keepCall = input.hasCallHash,
+                immediate = false,
+                reason = "reeval-direct",
+            )
+        }
         return AutoDecision.Stay(VpnPath.Bypass, "bypass-running")
     }
 

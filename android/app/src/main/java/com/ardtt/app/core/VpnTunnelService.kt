@@ -155,14 +155,18 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 return START_STICKY
             }
             ACTION_SESSION_CONTROL -> {
-                val allowed = intent.getBooleanExtra(EXTRA_NET_OPS_ALLOWED, true)
-                (backend as? BypassBackend)?.setNetOpsAllowed(allowed)
-                parkedBypass?.setNetOpsAllowed(allowed)
+                sessionControlNetOpsDelta(intent)?.let { allowed ->
+                    (backend as? BypassBackend)?.setNetOpsAllowed(allowed)
+                    parkedBypass?.setNetOpsAllowed(allowed)
+                }
                 if (intent.hasExtra(EXTRA_NETWORK_HANDLE)) {
                     val handle = intent.getLongExtra(EXTRA_NETWORK_HANDLE, 0L)
                     val kind = intent.getStringExtra(EXTRA_NETWORK_KIND) ?: "unknown"
-                    (backend as? BypassBackend)?.updateNetwork(kind, handle)
-                    parkedBypass?.updateNetwork(kind, handle)
+                    val scope = intent.getStringExtra(EXTRA_NETWORK_SCOPE) ?: NETWORK_SCOPE_ACTIVE
+                    when (scope) {
+                        NETWORK_SCOPE_PARKED -> parkedBypass?.updateNetwork(kind, handle)
+                        else -> (backend as? BypassBackend)?.updateNetwork(kind, handle)
+                    }
                 }
                 return if (tunnelSessionActive) START_STICKY else START_NOT_STICKY
             }
@@ -2219,6 +2223,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_NET_OPS_ALLOWED = "net_ops_allowed"
         const val EXTRA_NETWORK_HANDLE = "network_handle"
         const val EXTRA_NETWORK_KIND = "network_kind"
+        const val EXTRA_NETWORK_SCOPE = "network_scope"
+        const val NETWORK_SCOPE_ACTIVE = "active"
+        const val NETWORK_SCOPE_PARKED = "parked"
         private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =
             "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42

@@ -21,6 +21,8 @@ data class CallSessionState(
     val validity: CallValidity = CallValidity.Valid,
     val profileId: String? = null,
     val createdThisGeneration: Boolean = false,
+    val identityToken: String = "",
+    val callEpoch: Long = 0L,
 ) {
     val canReuse: Boolean
         get() = hashPresent &&

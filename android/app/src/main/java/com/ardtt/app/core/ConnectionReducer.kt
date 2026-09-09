@@ -6,6 +6,7 @@ sealed class ConnectionEvent {
         val profileId: String?,
         val hasCallHash: Boolean,
         val silentRecreate: Boolean,
+        val callIdentityToken: String = "",
     ) : ConnectionEvent()
 
     data object UserDisconnect : ConnectionEvent()
@@ -25,6 +26,7 @@ sealed class ConnectionEvent {
         val sessionEpoch: Long,
         val transportEpoch: Long,
         val networkKey: NetworkKey?,
+        val probeConfirmed: Boolean = false,
     ) : ConnectionEvent()
 
     data class DirectFailed(
@@ -37,6 +39,7 @@ sealed class ConnectionEvent {
     data class BypassConfirmed(
         val sessionEpoch: Long,
         val transportEpoch: Long,
+        val probeConfirmed: Boolean = false,
     ) : ConnectionEvent()
 
     data class BypassFailed(
@@ -64,6 +67,13 @@ sealed class ConnectionEvent {
     data class SessionParamsChanged(
         val profileId: String?,
         val hasCallHash: Boolean,
+        val identityToken: String = "",
+    ) : ConnectionEvent()
+
+    data class CallIdentityChanged(
+        val profileId: String?,
+        val hashPresent: Boolean,
+        val identityToken: String,
     ) : ConnectionEvent()
 
     data class Clock(val elapsedMs: Long) : ConnectionEvent()
@@ -114,12 +124,13 @@ object ConnectionReducer {
             is ConnectionEvent.ProbeFinished -> onProbe(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.DirectConfirmed -> onDirectOk(state, event)
             is ConnectionEvent.DirectFailed -> onDirectFailed(state, event, elapsedMs, jitterPermille)
-            is ConnectionEvent.BypassConfirmed -> onBypassOk(state, event)
+            is ConnectionEvent.BypassConfirmed -> onBypassOk(state, event, elapsedMs)
             is ConnectionEvent.BypassFailed -> onBypassFailed(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.ParkedProcessDied -> onParkedDied(state, event)
             is ConnectionEvent.TransportDied -> onTransportDied(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.CallValidityChanged -> onCallValidity(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.SessionParamsChanged -> onSessionParams(state, event, elapsedMs, jitterPermille)
+            is ConnectionEvent.CallIdentityChanged -> onCallIdentity(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.Clock -> onClock(state, event.elapsedMs, jitterPermille)
             is ConnectionEvent.TrustedWifiChanged ->
                 state.copy(
@@ -176,6 +187,8 @@ object ConnectionReducer {
     ): ReduceResult {
         val sessionEpoch = state.sessionEpoch + 1L
         val transportEpoch = state.transportEpoch + 1L
+        val identityChanged = event.callIdentityToken.isNotEmpty() &&
+            event.callIdentityToken != state.call.identityToken
         val started = state.copy(
             intent = UserConnectionIntent(
                 wantsConnected = true,
@@ -188,8 +201,15 @@ object ConnectionReducer {
                 hashPresent = event.hasCallHash,
                 profileId = event.profileId,
                 createdThisGeneration = false,
-                validity = if (event.hasCallHash) state.call.validity else CallValidity.Valid,
+                identityToken = event.callIdentityToken.ifEmpty { state.call.identityToken },
+                callEpoch = if (identityChanged) state.call.callEpoch + 1L else state.call.callEpoch,
+                validity = when {
+                    !event.hasCallHash -> CallValidity.Valid
+                    identityChanged -> CallValidity.Valid
+                    else -> state.call.validity
+                },
             ),
+            parkedRawAlive = if (identityChanged) false else state.parkedRawAlive,
             sessionEpoch = sessionEpoch,
             transportEpoch = transportEpoch,
             wifiFailStreak = 0,
@@ -312,7 +332,7 @@ object ConnectionReducer {
         if (!state.recovery.permit.accepts(event.sessionEpoch, event.networkEpoch)) {
             return ReduceResult(state, RecoveryCommand.None)
         }
-        val series = nextProbeSeriesCount(state.evidence, event.evidence)
+        val series = nextProbeSeriesCount(state.evidence, event.evidence, elapsedMs)
         val restriction = NetworkProbePolicy.restrictionHint(
             cellular = state.underlay.kind == UnderlayKind.Cellular,
             yandex = event.evidence.yandex,
@@ -322,6 +342,7 @@ object ConnectionReducer {
         val next = state.copy(
             evidence = event.evidence.copy(
                 seriesCount = series,
+                ttlUntilElapsedMs = elapsedMs + RecoverySettings.PROBE_RESTRICTION_TTL_MS,
                 restriction = if (state.underlay.kind == UnderlayKind.Cellular) {
                     restriction
                 } else {
@@ -336,7 +357,16 @@ object ConnectionReducer {
         state: ConnectionSnapshot,
         event: ConnectionEvent.DirectConfirmed,
     ): ReduceResult {
+        if (!event.probeConfirmed) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
         if (!state.recovery.permit.accepts(event.sessionEpoch, transportEpoch = event.transportEpoch)) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (event.networkKey != null &&
+            state.underlay.key != null &&
+            event.networkKey != state.underlay.key
+        ) {
             return ReduceResult(state, RecoveryCommand.None)
         }
         val next = state.copy(
@@ -352,6 +382,7 @@ object ConnectionReducer {
                 inFlight = false,
                 nextRetryAtElapsedMs = null,
                 permit = permitFrom(state, netOps = true, inFlight = false),
+                callOpInFlight = false,
             ),
         )
         return ReduceResult(withUi(next, nowElapsedMs = 0L), RecoveryCommand.None)
@@ -386,9 +417,19 @@ object ConnectionReducer {
     private fun onBypassOk(
         state: ConnectionSnapshot,
         event: ConnectionEvent.BypassConfirmed,
+        elapsedMs: Long,
     ): ReduceResult {
+        if (!event.probeConfirmed) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
         if (!state.recovery.permit.accepts(event.sessionEpoch, transportEpoch = event.transportEpoch)) {
             return ReduceResult(state, RecoveryCommand.None)
+        }
+        val due = state.directNegative?.retryAfterElapsedMs
+        val nextRetry = when {
+            due == null -> null
+            due > elapsedMs -> due
+            else -> elapsedMs + RecoverySettings.NETWORK_RETURN_COALESCE_MS
         }
         val next = state.copy(
             activePath = VpnPath.Bypass,
@@ -399,11 +440,12 @@ object ConnectionReducer {
                 phase = RecoveryPhase.Connected,
                 failureIndex = 0,
                 inFlight = false,
-                nextRetryAtElapsedMs = null,
+                nextRetryAtElapsedMs = nextRetry,
                 permit = permitFrom(state, netOps = true, inFlight = false),
+                callOpInFlight = false,
             ),
         )
-        return ReduceResult(withUi(next, nowElapsedMs = 0L), RecoveryCommand.None)
+        return ReduceResult(withUi(next, nowElapsedMs = elapsedMs), RecoveryCommand.None)
     }
 
     private fun onBypassFailed(
@@ -500,6 +542,8 @@ object ConnectionReducer {
         jitterPermille: Int,
     ): ReduceResult {
         val profileChanged = state.intent.profileId != event.profileId
+        val identityChanged = event.identityToken.isNotEmpty() &&
+            event.identityToken != state.call.identityToken
         val next = state.copy(
             intent = state.intent.copy(
                 profileId = event.profileId,
@@ -508,9 +552,46 @@ object ConnectionReducer {
             call = state.call.copy(
                 hashPresent = event.hasCallHash,
                 profileId = event.profileId,
+                identityToken = event.identityToken.ifEmpty { state.call.identityToken },
+                validity = when {
+                    identityChanged -> CallValidity.Valid
+                    profileChanged -> CallValidity.Valid
+                    else -> state.call.validity
+                },
+                callEpoch = if (identityChanged) state.call.callEpoch + 1L else state.call.callEpoch,
             ),
+            parkedRawAlive = if (identityChanged) false else state.parkedRawAlive,
             evidence = if (profileChanged) null else state.evidence,
             directNegative = if (profileChanged) null else state.directNegative,
+            recovery = state.recovery.copy(callOpInFlight = false),
+        )
+        if (!next.intent.wantsConnected) {
+            return ReduceResult(next, RecoveryCommand.None)
+        }
+        return decideNext(next, elapsedMs, jitterPermille)
+    }
+
+    private fun onCallIdentity(
+        state: ConnectionSnapshot,
+        event: ConnectionEvent.CallIdentityChanged,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult {
+        val identityChanged = event.identityToken != state.call.identityToken
+        val next = state.copy(
+            intent = state.intent.copy(
+                profileId = event.profileId ?: state.intent.profileId,
+                hasCallHash = event.hashPresent,
+            ),
+            call = CallSessionState(
+                hashPresent = event.hashPresent,
+                validity = if (identityChanged) CallValidity.Valid else state.call.validity,
+                profileId = event.profileId ?: state.call.profileId,
+                identityToken = event.identityToken,
+                callEpoch = if (identityChanged) state.call.callEpoch + 1L else state.call.callEpoch,
+            ),
+            parkedRawAlive = if (identityChanged) false else state.parkedRawAlive,
+            recovery = state.recovery.copy(callOpInFlight = false),
         )
         if (!next.intent.wantsConnected) {
             return ReduceResult(next, RecoveryCommand.None)

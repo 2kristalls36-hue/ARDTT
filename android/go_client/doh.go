@@ -12,6 +12,7 @@ import (
 	neturl "net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -143,6 +144,9 @@ func newDoHBootstrapDialer() *net.Dialer {
 	return &net.Dialer{
 		Timeout:   5 * time.Second,
 		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			return bindControl(currentNetworkHandle())(network, address, c)
+		},
 		Resolver: &net.Resolver{
 			PreferGo: false, // системный DNS, не DoH — иначе рекурсия
 		},
