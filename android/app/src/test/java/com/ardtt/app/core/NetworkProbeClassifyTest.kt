@@ -242,6 +242,19 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
+    fun decideProbePathWaitsForGoogleWhenOthersAlreadyFailed() {
+        assertEquals(
+            ProbePathHint.Wait,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = false,
+                cloudflareOk = false,
+                captive = false,
+            ),
+        )
+    }
+
+    @Test
     fun decideProbePathNoNetworkWhenEverythingFailed() {
         assertEquals(
             ProbePathHint.NoNetwork,
@@ -250,6 +263,7 @@ class NetworkProbeClassifyTest {
                 yandexOk = false,
                 cloudflareOk = false,
                 captive = false,
+                googleOk = false,
             ),
         )
     }
