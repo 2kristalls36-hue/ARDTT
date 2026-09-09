@@ -481,4 +481,182 @@ class ConnectionReducerTest {
         assertNull(changed.state.directNegative)
         assertTrue(changed.command is RecoveryCommand.StartDirect || changed.command is RecoveryCommand.None)
     }
+
+    @Test
+    fun sameNetworkDuringBackoffDoesNotDoubleSchedule() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
+            0L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                reason = "temp",
+            ),
+            elapsedMs = 0L,
+        )
+        assertTrue(failed.command is RecoveryCommand.ScheduleRetry)
+        val idx = failed.state.recovery.failureIndex
+        val again = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.UnderlayUpdated(usableCellular()),
+            elapsedMs = 100L,
+        )
+        assertEquals(RecoveryCommand.None, again.command)
+        assertEquals(idx, again.state.recovery.failureIndex)
+        assertEquals(RecoveryPhase.Backoff, again.state.recovery.phase)
+    }
+
+    @Test
+    fun networkChangeAfterDirectFailStartsImmediately() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            0L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                reason = "temp",
+            ),
+            elapsedMs = 0L,
+        )
+        val wifi = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.UnderlayUpdated(usableWifi()),
+            elapsedMs = 50L,
+        )
+        assertTrue(
+            wifi.command is RecoveryCommand.StartDirect ||
+                wifi.command == RecoveryCommand.ParkBypassForDirect,
+        )
+        assertEquals(TransportLifecycle.Starting, wifi.state.transport)
+    }
+
+    @Test
+    fun parkedDeathThenReturnToMobileRebuildsSameCall() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(
+                underlay = usableWifi(),
+                parkedRawAlive = false,
+                activePath = VpnPath.Direct,
+                transport = TransportLifecycle.Failed,
+                wifiFailStreak = 2,
+                call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
+            ),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        )
+        val back = ConnectionReducer.reduce(
+            started.state.copy(
+                parkedRawAlive = false,
+                activePath = VpnPath.Direct,
+                transport = TransportLifecycle.Failed,
+                wifiFailStreak = 2,
+                call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
+                recovery = started.state.recovery.copy(inFlight = false, nextRetryAtElapsedMs = null),
+            ),
+            ConnectionEvent.UnderlayUpdated(usableWifi().copy(cellularConnected = true)),
+            2L,
+        )
+        assertEquals(RecoveryCommand.RebuildRawSameCall, back.command)
+        assertEquals(SessionDiagnostic.TransportRebuilt, back.diagnostic)
+        assertEquals(RecoveryPhase.ReturningToMobile, back.state.recovery.phase)
+    }
+
+    @Test
+    fun parkedRawSurvivesFifteenMinutesWithoutFixedKill() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableWifi(), parkedRawAlive = true),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        )
+        val ok = ConnectionReducer.reduce(
+            started.state.copy(parkedRawAlive = true, activePath = VpnPath.Direct),
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = wifiKey,
+            ),
+            2L,
+        )
+        assertTrue(ok.state.parkedRawAlive)
+        val sixMin = ConnectionReducer.reduce(
+            ok.state,
+            ConnectionEvent.Clock(elapsedMs = 6L * 60_000L),
+            elapsedMs = 6L * 60_000L,
+        )
+        assertTrue(sixMin.state.parkedRawAlive)
+        assertTrue(sixMin.state.intent.wantsConnected)
+        assertEquals(RecoveryCommand.None, sixMin.command)
+        val fifteen = ConnectionReducer.reduce(
+            sixMin.state,
+            ConnectionEvent.Clock(elapsedMs = 15L * 60_000L),
+            elapsedMs = 15L * 60_000L,
+        )
+        assertTrue(fifteen.state.parkedRawAlive)
+        assertEquals(RecoveryCommand.None, fifteen.command)
+        assertEquals(RecoveryPhase.Connected, fifteen.state.recovery.phase)
+    }
+
+    @Test
+    fun captchaNeedsUserActionThenAutoCanRetryDirect() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        )
+        val bypassing = started.state.copy(
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Starting,
+            recovery = started.state.recovery.copy(inFlight = true),
+        )
+        val captcha = ConnectionReducer.reduce(
+            bypassing,
+            ConnectionEvent.BypassFailed(
+                sessionEpoch = bypassing.sessionEpoch,
+                transportEpoch = bypassing.transportEpoch,
+                reason = "captcha required",
+                userAction = UserActionKind.Captcha,
+            ),
+            2L,
+        )
+        assertEquals(RecoveryPhase.NeedsUserAction, captcha.state.recovery.phase)
+        assertEquals(RecoveryCommand.None, captcha.command)
+        assertTrue(captcha.state.intent.wantsConnected)
+        val retry = ConnectionReducer.reduce(
+            captcha.state,
+            ConnectionEvent.UserRetryNow,
+            elapsedMs = 3L,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartDirect)
+        assertEquals(RecoveryPhase.ConnectingDirect, retry.state.recovery.phase)
+    }
+
+    @Test
+    fun pathModeChangeDuringRecoveryUsesNewMode() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        )
+        val forced = ConnectionReducer.reduce(
+            started.state.copy(recovery = started.state.recovery.copy(inFlight = false)),
+            ConnectionEvent.PathModeChanged(ConnPathMode.Bypass),
+            2L,
+        )
+        assertEquals(ConnPathMode.Bypass, forced.state.intent.mode)
+        assertTrue(
+            forced.command is RecoveryCommand.StartBypass ||
+                forced.command == RecoveryCommand.ResumeParkedRaw ||
+                forced.command == RecoveryCommand.RefreshCredentials,
+        )
+    }
 }

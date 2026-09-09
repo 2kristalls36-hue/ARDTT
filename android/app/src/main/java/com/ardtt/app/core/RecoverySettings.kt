@@ -21,7 +21,7 @@ object RecoverySettings {
         2_000L, 5_000L, 10_000L, 20_000L, 30_000L, 60_000L,
     )
 
-    fun retryDelayMs(failureIndex: Int, jitterPermille: Int = 0): Long {
+        fun retryDelayMs(failureIndex: Int, jitterPermille: Int = 0): Long {
         val idx = failureIndex.coerceAtLeast(0)
         val base = if (idx < retryBackoffMs.size) {
             retryBackoffMs[idx]
@@ -32,4 +32,8 @@ object RecoverySettings {
         val delta = base * jitterPermille / 1000L
         return (base + delta).coerceAtLeast(0L)
     }
+
+    /** Local AWG start is not Connected; handshake or TUN RX must confirm the path. */
+    fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean =
+        totalRx > 0L || handshakeSec > 0L
 }

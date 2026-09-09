@@ -16,7 +16,10 @@ class ConnectionUiActionsTest {
 
     @Test
     fun openDiagnosticsRequestsDiagnosticsTab() {
+        PendingUiAction.consumeOpenServers()
+        PendingUiAction.consumeOpenDiagnostics()
         PendingUiAction.requestOpenDiagnostics()
+        assertEquals(false, PendingUiAction.consumeOpenServers())
         assertEquals(true, PendingUiAction.consumeOpenDiagnostics())
         assertEquals(false, PendingUiAction.consumeOpenDiagnostics())
         assertEquals(AppDestination.Diagnostics.route, ArdttNavPlan.diagnosticsRoute(admin = true))

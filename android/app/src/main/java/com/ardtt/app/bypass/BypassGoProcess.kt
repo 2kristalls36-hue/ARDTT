@@ -220,14 +220,24 @@ class BypassGoProcess(
         }
         val ack = CompletableDeferred<String>()
         pendingAcks[reqId] = ack
-        synchronized(stdinLock) {
-            val writer = stdinWriter ?: return null
-            writer.write(line)
-            writer.newLine()
-            writer.flush()
+        val written = synchronized(stdinLock) {
+            val writer = stdinWriter
+            if (writer == null) {
+                false
+            } else {
+                writer.write(line)
+                writer.newLine()
+                writer.flush()
+                true
+            }
         }
-        return withTimeoutOrNull(15_000) { ack.await() }
-            .also { pendingAcks.remove(reqId) }
+        if (!written) {
+            pendingAcks.remove(reqId)
+            return null
+        }
+        val reply = withTimeoutOrNull(15_000) { ack.await() }
+        pendingAcks.remove(reqId)
+        return reply?.takeIf { controlAckSucceeded(it) }
     }
 
     fun sendControlFireAndForget(name: String, vararg args: String) {
@@ -276,7 +286,7 @@ class BypassGoProcess(
         }
         val reply = withTimeoutOrNull(15_000) { ack.await() }
         pendingAcks.remove(reqId)
-        return reply != null && reply.contains("|ok") && !reply.contains("|stale")
+        return@withContext controlAckSucceeded(reply)
     }
 
     private fun completeAckIfNeeded(line: String) {
@@ -287,6 +297,7 @@ class BypassGoProcess(
     fun stop() {
         parked.set(false)
         stopping.set(true)
+        sendControlFireAndForget("SHUTDOWN")
         sessionGen.incrementAndGet()
         pendingAcks.values.forEach { it.cancel() }
         pendingAcks.clear()
@@ -350,6 +361,12 @@ class BypassGoProcess(
             val parts = line.split("|")
             if (parts.size < 6 || parts[3] != "ACK") return null
             return ControlAck(reqId = parts[1], line = line)
+        }
+
+        fun controlAckSucceeded(reply: String?): Boolean {
+            if (reply.isNullOrBlank()) return false
+            if (reply.contains("|stale")) return false
+            return reply.contains("|ok")
         }
     }
 }

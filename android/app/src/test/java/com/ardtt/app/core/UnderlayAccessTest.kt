@@ -2,6 +2,7 @@ package com.ardtt.app.core
 
 import android.telephony.TelephonyManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -305,5 +306,10 @@ class UnderlayAccessTest {
         )
         assertTrue(merged.wifi)
         assertTrue(merged.cellular)
+    }
+
+    @Test
+    fun emptyLinkPropertiesFingerprintIsBlank() {
+        assertEquals("", fingerprintFromLinkProperties(null))
     }
 }
