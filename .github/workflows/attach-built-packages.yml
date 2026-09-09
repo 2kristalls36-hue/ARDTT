@@ -1,0 +1,147 @@
+# Put the already-built 0.5.258 APK and 1.0.46 server archives on the
+# existing GitHub Release. Does not rebuild the image or APK.
+# PRs never touch Releases.
+name: Attach built packages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/attach-built-packages.yml"
+      - "scripts/attach-server-packages-to-release.sh"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing APK release tag (empty = v + versionName)
+        required: false
+        default: ""
+      android_run_id:
+        description: Successful Android build run id (empty = latest on main)
+        required: false
+        default: ""
+      server_run_id:
+        description: Successful Server package run id (empty = latest on main)
+        required: false
+        default: ""
+
+concurrency:
+  group: attach-built-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  attach:
+    name: Attach APK and server packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve tag and source runs
+        id: src
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
+          INPUT_ANDROID: ${{ github.event_name == 'workflow_dispatch' && inputs.android_run_id || '' }}
+          INPUT_SERVER: ${{ github.event_name == 'workflow_dispatch' && inputs.server_run_id || '' }}
+        run: |
+          set -euo pipefail
+          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
+          test -n "$version_name"
+          if [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="v${version_name}"
+          fi
+          android_id="$INPUT_ANDROID"
+          if [ -z "$android_id" ]; then
+            android_id="$(gh run list --workflow 'Android build' --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          fi
+          server_id="$INPUT_SERVER"
+          if [ -z "$server_id" ]; then
+            server_id="$(gh run list --workflow 'Server package' --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          fi
+          test -n "$android_id"
+          test -n "$server_id"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "android_run=$android_id" >> "$GITHUB_OUTPUT"
+          echo "server_run=$server_id" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag android=$android_id server=$server_id"
+
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.src.outputs.android_run }}
+          pattern: ardtt-${{ steps.src.outputs.version_name }}-*
+          merge-multiple: true
+          path: apk-dist
+
+      - name: Download server package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.src.outputs.server_run }}
+          pattern: ardtt-server-*
+          merge-multiple: true
+          path: server-dist
+
+      - name: Ensure release exists and APKs are on it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.src.outputs.tag }}
+          VERSION_NAME: ${{ steps.src.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(apk-dist/ardtt-"${VERSION_NAME}"-*.apk)
+          test "${#apks[@]}" -ge 1
+          ls -lh apk-dist/
+          python3 - <<'PY'
+import hashlib, json, os, pathlib
+tag = os.environ["TAG"]
+version = os.environ["VERSION_NAME"]
+repo = os.environ["GITHUB_REPOSITORY"]
+apk = pathlib.Path(f"apk-dist/ardtt-{version}-arm64-v8a.apk")
+if not apk.is_file():
+    raise SystemExit(f"missing {apk}")
+sha = hashlib.sha256(apk.read_bytes()).hexdigest()
+size = apk.stat().st_size
+path = pathlib.Path("apk-dist/ardtt-update.json")
+data = {}
+if path.is_file():
+    data = json.loads(path.read_text(encoding="utf-8"))
+data["versionName"] = version
+data["apkUrl"] = (
+    f"https://github.com/{repo}/releases/download/{tag}/ardtt-{version}-arm64-v8a.apk"
+)
+data["sha256"] = sha
+data["sizeBytes"] = size
+path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print("rewrote ardtt-update.json apkUrl", data["apkUrl"])
+PY
+          (
+            cd apk-dist
+            sha256sum ardtt-"${VERSION_NAME}"-*.apk ardtt-update.json > SHA256SUMS.txt
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" apk-dist/ardtt-"${VERSION_NAME}"-*.apk apk-dist/ardtt-update.json apk-dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" apk-dist/ardtt-"${VERSION_NAME}"-*.apk apk-dist/ardtt-update.json apk-dist/SHA256SUMS.txt \
+              --title "ARDTT ${TAG}" --generate-notes --latest --target "$GITHUB_SHA"
+          fi
+          echo "APKs on https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+
+      - name: Attach server packages without clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ls -lh server-dist/
+          bash scripts/attach-server-packages-to-release.sh --tag "${{ steps.src.outputs.tag }}" --from-dir server-dist
