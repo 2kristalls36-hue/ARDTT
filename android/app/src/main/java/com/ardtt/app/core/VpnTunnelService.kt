@@ -159,6 +159,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     (backend as? BypassBackend)?.setNetOpsAllowed(allowed)
                     parkedBypass?.setNetOpsAllowed(allowed)
                 }
+                if (sessionControlShouldDiscardParked(
+                        intent.hasExtra(EXTRA_DISCARD_PARKED),
+                        intent.getBooleanExtra(EXTRA_DISCARD_PARKED, false),
+                    )
+                ) {
+                    discardParkedCall("session-control identity")
+                }
                 if (intent.hasExtra(EXTRA_NETWORK_HANDLE)) {
                     val handle = intent.getLongExtra(EXTRA_NETWORK_HANDLE, 0L)
                     val kind = intent.getStringExtra(EXTRA_NETWORK_KIND) ?: "unknown"
@@ -2224,6 +2231,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_NETWORK_HANDLE = "network_handle"
         const val EXTRA_NETWORK_KIND = "network_kind"
         const val EXTRA_NETWORK_SCOPE = "network_scope"
+        const val EXTRA_DISCARD_PARKED = "discard_parked"
         const val NETWORK_SCOPE_ACTIVE = "active"
         const val NETWORK_SCOPE_PARKED = "parked"
         private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =

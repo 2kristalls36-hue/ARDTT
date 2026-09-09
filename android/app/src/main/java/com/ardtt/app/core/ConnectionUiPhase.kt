@@ -51,6 +51,7 @@ fun connectionUiModel(
     retryInMs: Long?,
     userActionKind: UserActionKind? = null,
     trustedWifi: Boolean = false,
+    underlayKind: UnderlayKind = UnderlayKind.Other,
 ): ConnectionUiModel {
     if (trustedWifi) {
         return ConnectionUiModel(
@@ -91,7 +92,7 @@ fun connectionUiModel(
         )
         RecoveryPhase.Probing -> ConnectionUiModel(
             phase = ConnectionUiPhase.InternetUnconfirmed,
-            message = "Проверяем доступ в интернет",
+            message = "Сеть подключена, ожидаем передачу данных",
             actions = listOf(ConnectionUiAction.RetryProbe, ConnectionUiAction.Disconnect),
             connState = ConnState.Connecting,
         )
@@ -113,10 +114,18 @@ fun connectionUiModel(
                 )
                 else -> ConnectionUiModel(
                     phase = ConnectionUiPhase.Connecting,
-                    message = if (phase == RecoveryPhase.ConnectingBypass) {
-                        "Подключение через обход…"
-                    } else {
-                        "Подключение…"
+                    message = when {
+                        phase == RecoveryPhase.ConnectingBypass &&
+                            restriction != RestrictionHint.Suspected &&
+                            restriction != RestrictionHint.Confirmed ->
+                            "Прямое подключение недоступно. Подключаемся через обход"
+                        phase == RecoveryPhase.ConnectingBypass ->
+                            "Подключение через обход…"
+                        underlayKind == UnderlayKind.Cellular ->
+                            "Подключаемся напрямую через мобильную сеть"
+                        underlayKind.prefersDirectInAuto() ->
+                            "Подключаемся напрямую через Wi‑Fi"
+                        else -> "Подключение…"
                     },
                     actions = disconnect,
                     connState = ConnState.Connecting,
@@ -139,9 +148,9 @@ fun connectionUiModel(
             phase = ConnectionUiPhase.Recovering,
             message = if (retryInMs != null && retryInMs > 0L) {
                 val seconds = ((retryInMs + 999L) / 1000L).coerceAtLeast(1L)
-                "Восстанавливаем соединение. Следующая попытка через $seconds с"
+                "Связь прервалась. Восстановим подключение автоматически. Следующая попытка через $seconds с"
             } else {
-                "Восстанавливаем соединение"
+                "Связь прервалась. Восстановим подключение автоматически"
             },
             actions = listOf(ConnectionUiAction.RetryNow, ConnectionUiAction.Disconnect),
             connState = ConnState.Recovering,
@@ -170,8 +179,11 @@ fun connectionUiModel(
             val despite = restriction == RestrictionHint.Suspected ||
                 restriction == RestrictionHint.Confirmed
             val connectedMessage = when {
-                despite && activePath == VpnPath.Direct -> "Подключено напрямую"
+                despite && activePath == VpnPath.Direct ->
+                    "Прямое подключение работает. Возможны ограничения мобильной сети"
                 activePath == VpnPath.Direct -> "Прямое подключение"
+                activePath == VpnPath.Bypass && !despite ->
+                    "Прямое подключение недоступно. Подключаемся через обход"
                 activePath == VpnPath.Bypass -> "Обход"
                 else -> "Подключено"
             }
@@ -192,10 +204,12 @@ fun connectionUiModel(
             ConnectionUiModel(
                 phase = phaseUi,
                 message = connectedMessage,
-                details = if (restriction == RestrictionHint.Suspected) {
-                    "Похоже на ограничения мобильной сети"
-                } else {
-                    null
+                details = when {
+                    despite && activePath == VpnPath.Direct ->
+                        "Возможны ограничения мобильной сети"
+                    restriction == RestrictionHint.Suspected ->
+                        "Похоже на ограничения мобильной сети"
+                    else -> null
                 },
                 actions = actions,
                 connState = ConnState.Connected,

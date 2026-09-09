@@ -53,6 +53,9 @@ fun sessionControlNetOpsDelta(hasNetOpsExtra: Boolean, allowed: Boolean): Boolea
     return allowed
 }
 
+fun sessionControlShouldDiscardParked(hasDiscardExtra: Boolean, discard: Boolean): Boolean =
+    hasDiscardExtra && discard
+
 fun sessionControlNetOpsDelta(intent: Intent): Boolean? =
     sessionControlNetOpsDelta(
         intent.hasExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED),

@@ -11,6 +11,9 @@ class SessionControlIntentTest {
         assertNull(sessionControlNetOpsDelta(hasNetOpsExtra = false, allowed = false))
         assertEquals(true, sessionControlNetOpsDelta(hasNetOpsExtra = true, allowed = true))
         assertEquals(false, sessionControlNetOpsDelta(hasNetOpsExtra = true, allowed = false))
+        assertEquals(false, sessionControlShouldDiscardParked(hasDiscardExtra = false, discard = true))
+        assertEquals(false, sessionControlShouldDiscardParked(hasDiscardExtra = true, discard = false))
+        assertEquals(true, sessionControlShouldDiscardParked(hasDiscardExtra = true, discard = true))
     }
 
     @Test

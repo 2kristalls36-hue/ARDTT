@@ -28,17 +28,19 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Does NOT bring up VpnService.
  *
  * Classification (fail-fast, no DNS on the internet/БС checks):
- * - **77.88.8.8** (Yandex DNS) — TCP :443/:53 even on operator whitelist (БС).
- * - **1.1.1.1** (Cloudflare) — open-internet signal; not required for Direct.
+ * - **77.88.8.8** (Yandex DNS) — control group; TCP :443/:53 even on operator whitelist (БС).
+ * - **1.1.1.1** (Cloudflare) — one ordinary provider (TLS or UDP :53).
+ * - **8.8.8.8** (Google) — independent ordinary provider.
  * - **VPS /health** — HTTP, not TCP :9100 and not AmneziaWG.
  *
- * Auto still tries Direct first. A Yandex-up / Cloudflare-down pair is only a
- * mobile restriction hint after both checks actually ran on cellular.
+ * Auto still tries Direct first. Restriction needs control + two ordinary
+ * failures on cellular; one Cloudflare miss is not two providers.
  */
 object NetworkProbe {
 
     const val YANDEX_DNS_IP = "77.88.8.8"
     const val CLOUDFLARE_IP = "1.1.1.1"
+    const val GOOGLE_DNS_IP = "8.8.8.8"
     const val DEFAULT_VPS_PROBE_PORT = 9100
 
     suspend fun probe(
@@ -59,34 +61,39 @@ object NetworkProbe {
             result = coroutineScope {
                 val systemOnline = isSystemOnline(context, bindNetwork)
                 val underlayKind = probeUnderlayKind(context, bindNetwork)
-                val yandexDef = async { ipReachable(YANDEX_DNS_IP, tcpMs, bindNetwork) }
-                val cloudflareDef = async { cloudflareOpen(tlsMs, udpMs, bindNetwork) }
-                val provisionDef = async { provisionReachable(provisionBaseUrl, healthMs, bindNetwork) }
+                val yandexDef = async { ipReachableOutcome(YANDEX_DNS_IP, tcpMs, bindNetwork) }
+                val cloudflareDef = async { cloudflareOpenOutcome(tlsMs, udpMs, bindNetwork) }
+                val googleDef = async { ipReachableOutcome(GOOGLE_DNS_IP, tcpMs, bindNetwork) }
+                val provisionDef = async { provisionReachableOutcome(provisionBaseUrl, healthMs, bindNetwork) }
 
-                var yandexOk: Boolean? = null
-                var cloudflareOk: Boolean? = null
-                var provisionOk: Boolean? = null
+                var yandex: CheckOutcome? = null
+                var cloudflare: CheckOutcome? = null
+                var google: CheckOutcome? = null
+                var provision: CheckOutcome? = null
                 var captiveChecked = false
                 var captive = false
 
                 fun snapshot(): ProbeResult = NetworkProbePolicy.classify(
                     systemOnline = systemOnline,
-                    yandexOk = yandexOk == true,
-                    bigtechOk = cloudflareOk == true,
+                    yandexOk = yandex?.isSuccess == true,
+                    bigtechOk = cloudflare?.isSuccess == true,
                     captive = captive,
-                    provisionOk = provisionOk == true,
+                    provisionOk = provision?.isSuccess == true,
                     underlayKind = underlayKind,
-                    yandexOutcome = boolOutcome(yandexOk),
-                    bigtechOutcome = boolOutcome(cloudflareOk),
-                    provisionOutcome = boolOutcome(provisionOk),
+                    yandexOutcome = yandex ?: CheckOutcome.NotRun,
+                    bigtechOutcome = cloudflare ?: CheckOutcome.NotRun,
+                    provisionOutcome = provision ?: CheckOutcome.NotRun,
+                    googleOk = google?.isSuccess == true,
+                    googleOutcome = google ?: CheckOutcome.NotRun,
                 )
 
                 while (true) {
                     val hint = NetworkProbePolicy.decideProbePath(
-                        provisionOk = provisionOk,
-                        yandexOk = yandexOk,
-                        cloudflareOk = cloudflareOk,
+                        provisionOk = provision?.toProbeFlag(),
+                        yandexOk = yandex?.toProbeFlag(),
+                        cloudflareOk = cloudflare?.toProbeFlag(),
                         captive = if (captiveChecked) captive else null,
+                        googleOk = google?.toProbeFlag(),
                     )
                     when (hint) {
                         ProbePathHint.Wait -> Unit
@@ -98,6 +105,7 @@ object NetworkProbe {
                             }
                             yandexDef.cancel()
                             cloudflareDef.cancel()
+                            googleDef.cancel()
                             provisionDef.cancel()
                             return@coroutineScope snapshot()
                         }
@@ -105,35 +113,39 @@ object NetworkProbe {
                         ProbePathHint.Direct,
                         ProbePathHint.Bypass,
                         -> {
-                            // Tiny drain so UI can show 1.1.1.1 / 77.88.8.8 without
-                            // waiting for a black-holed Cloudflare on БС.
                             withTimeoutOrNull(80) {
-                                if (yandexOk == null) yandexOk = yandexDef.await()
-                                if (cloudflareOk == null) cloudflareOk = cloudflareDef.await()
+                                if (yandex == null) yandex = yandexDef.await()
+                                if (cloudflare == null) cloudflare = cloudflareDef.await()
+                                if (google == null) google = googleDef.await()
                             }
                             yandexDef.cancel()
                             cloudflareDef.cancel()
+                            googleDef.cancel()
                             provisionDef.cancel()
                             if (hint == ProbePathHint.Captive) captive = true
                             return@coroutineScope snapshot()
                         }
                     }
 
-                    val waitingProvision = provisionOk == null
-                    val waitingYandex = yandexOk == null
-                    val waitingCf = cloudflareOk == null
-                    if (!waitingProvision && !waitingYandex && !waitingCf) {
+                    val waitingProvision = provision == null
+                    val waitingYandex = yandex == null
+                    val waitingCf = cloudflare == null
+                    val waitingGoogle = google == null
+                    if (!waitingProvision && !waitingYandex && !waitingCf && !waitingGoogle) {
                         return@coroutineScope snapshot()
                     }
                     select {
                         if (waitingProvision) {
-                            provisionDef.onAwait { provisionOk = it }
+                            provisionDef.onAwait { provision = it }
                         }
                         if (waitingYandex) {
-                            yandexDef.onAwait { yandexOk = it }
+                            yandexDef.onAwait { yandex = it }
                         }
                         if (waitingCf) {
-                            cloudflareDef.onAwait { cloudflareOk = it }
+                            cloudflareDef.onAwait { cloudflare = it }
+                        }
+                        if (waitingGoogle) {
+                            googleDef.onAwait { google = it }
                         }
                     }
                 }
@@ -148,11 +160,13 @@ object NetworkProbe {
         yandexOk: Boolean?,
         cloudflareOk: Boolean?,
         captive: Boolean?,
+        googleOk: Boolean? = null,
     ): ProbePathHint = NetworkProbePolicy.decideProbePath(
         provisionOk = provisionOk,
         yandexOk = yandexOk,
         cloudflareOk = cloudflareOk,
         captive = captive,
+        googleOk = googleOk,
     )
 
     internal fun classify(
@@ -164,6 +178,11 @@ object NetworkProbe {
         awgUdpOk: Boolean = false,
         underlayKind: UnderlayKind = UnderlayKind.Other,
         seriesCount: Int = 1,
+        googleOk: Boolean = false,
+        googleOutcome: CheckOutcome? = null,
+        yandexOutcome: CheckOutcome? = null,
+        bigtechOutcome: CheckOutcome? = null,
+        provisionOutcome: CheckOutcome? = null,
     ): ProbeResult = NetworkProbePolicy.classify(
         systemOnline = systemOnline,
         yandexOk = yandexOk,
@@ -172,13 +191,12 @@ object NetworkProbe {
         provisionOk = provisionOk,
         underlayKind = underlayKind,
         seriesCount = seriesCount,
+        googleOk = googleOk,
+        googleOutcome = googleOutcome,
+        yandexOutcome = yandexOutcome,
+        bigtechOutcome = bigtechOutcome,
+        provisionOutcome = provisionOutcome,
     ).copy(awgUdpOk = awgUdpOk)
-
-    private fun boolOutcome(value: Boolean?): CheckOutcome = when (value) {
-        true -> CheckOutcome.Success
-        false -> CheckOutcome.Timeout
-        null -> CheckOutcome.NotRun
-    }
 
     private fun probeUnderlayKind(context: Context, bindNetwork: Network?): UnderlayKind {
         val network = bindNetwork ?: pickBestUnderlayNetwork(context) ?: return UnderlayKind.Other
@@ -249,19 +267,25 @@ object NetworkProbe {
 
     /**
      * Open-internet check for 1.1.1.1. TLS or UDP DNS — not TCP connect.
-     * T-Mobile textbook БС fails both quickly; MTS accepts TCP and fails here.
+     * Cloudflare TLS and Cloudflare DNS are one provider.
      */
     internal suspend fun cloudflareOpen(
         tlsMs: Int,
         udpMs: Int,
         bindNetwork: Network?,
-    ): Boolean = coroutineScope {
-        val tls = async { tlsReachable(CLOUDFLARE_IP, 443, tlsMs, bindNetwork) }
-        val udp = async { udpDnsReachable(CLOUDFLARE_IP, udpMs, bindNetwork) }
+    ): Boolean = cloudflareOpenOutcome(tlsMs, udpMs, bindNetwork).isSuccess
+
+    internal suspend fun cloudflareOpenOutcome(
+        tlsMs: Int,
+        udpMs: Int,
+        bindNetwork: Network?,
+    ): CheckOutcome = coroutineScope {
+        val tls = async { tlsReachableOutcome(CLOUDFLARE_IP, 443, tlsMs, bindNetwork) }
+        val udp = async { udpDnsReachableOutcome(CLOUDFLARE_IP, udpMs, bindNetwork) }
         try {
             select {
-                tls.onAwait { ok -> if (ok) true else udp.await() }
-                udp.onAwait { ok -> if (ok) true else tls.await() }
+                tls.onAwait { ok -> if (ok.isSuccess) ok else udp.await() }
+                udp.onAwait { ok -> if (ok.isSuccess) ok else tls.await() }
             }
         } finally {
             tls.cancel()
@@ -274,7 +298,14 @@ object NetworkProbe {
         port: Int,
         timeoutMs: Int,
         bindNetwork: Network?,
-    ): Boolean {
+    ): Boolean = tlsReachableOutcome(host, port, timeoutMs, bindNetwork).isSuccess
+
+    internal suspend fun tlsReachableOutcome(
+        host: String,
+        port: Int,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): CheckOutcome {
         val raw = Socket()
         var ssl: SSLSocket? = null
         val closeAll = {
@@ -285,7 +316,13 @@ object NetworkProbe {
         return try {
             val addr = numericIpv4(host)
             raw.tcpNoDelay = true
-            bindNetwork?.bindSocket(raw)
+            if (bindNetwork != null) {
+                try {
+                    bindNetwork.bindSocket(raw)
+                } catch (_: Exception) {
+                    return CheckOutcome.BindFailure
+                }
+            }
             if (addr != null) {
                 raw.connect(InetSocketAddress(addr, port), timeoutMs)
             } else {
@@ -297,9 +334,10 @@ object NetworkProbe {
             applyHttpsEndpointIdentification(ssl)
             ssl.soTimeout = timeoutMs
             ssl.startHandshake()
-            ssl.session != null && ssl.session.isValid
-        } catch (_: Exception) {
-            false
+            if (ssl.session != null && ssl.session.isValid) CheckOutcome.Success else CheckOutcome.TlsFailure
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            classifyCheckFailure(t)
         } finally {
             cancelHook.dispose()
             closeAll()
@@ -316,13 +354,25 @@ object NetworkProbe {
         ip: String,
         timeoutMs: Int,
         bindNetwork: Network?,
-    ): Boolean {
+    ): Boolean = udpDnsReachableOutcome(ip, timeoutMs, bindNetwork).isSuccess
+
+    internal suspend fun udpDnsReachableOutcome(
+        ip: String,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): CheckOutcome {
         val socket = DatagramSocket()
         val cancelHook = coroutineContext.job.invokeOnCompletion {
             runCatching { socket.close() }
         }
         return try {
-            bindNetwork?.bindSocket(socket)
+            if (bindNetwork != null) {
+                try {
+                    bindNetwork.bindSocket(socket)
+                } catch (_: Exception) {
+                    return CheckOutcome.BindFailure
+                }
+            }
             socket.soTimeout = timeoutMs
             val query = buildDnsQuery()
             val addr = numericIpv4(ip) ?: InetAddress.getByName(ip)
@@ -330,9 +380,14 @@ object NetworkProbe {
             val buf = ByteArray(512)
             val reply = DatagramPacket(buf, buf.size)
             socket.receive(reply)
-            reply.length > 0
-        } catch (_: Exception) {
-            false
+            if (dnsReplyLooksValid(query, buf, reply.length)) {
+                CheckOutcome.Success
+            } else {
+                CheckOutcome.TransportFailure
+            }
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            classifyCheckFailure(t)
         } finally {
             cancelHook.dispose()
             runCatching { socket.close() }
@@ -344,13 +399,19 @@ object NetworkProbe {
         ip: String,
         timeoutMs: Int,
         bindNetwork: Network?,
-    ): Boolean = coroutineScope {
-        val https = async { tcpReachable(ip, 443, timeoutMs, bindNetwork) }
-        val dns = async { tcpReachable(ip, 53, timeoutMs, bindNetwork) }
+    ): Boolean = ipReachableOutcome(ip, timeoutMs, bindNetwork).isSuccess
+
+    internal suspend fun ipReachableOutcome(
+        ip: String,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): CheckOutcome = coroutineScope {
+        val https = async { tcpReachableOutcome(ip, 443, timeoutMs, bindNetwork) }
+        val dns = async { tcpReachableOutcome(ip, 53, timeoutMs, bindNetwork) }
         try {
             select {
-                https.onAwait { ok -> if (ok) true else dns.await() }
-                dns.onAwait { ok -> if (ok) true else https.await() }
+                https.onAwait { ok -> if (ok.isSuccess) ok else dns.await() }
+                dns.onAwait { ok -> if (ok.isSuccess) ok else https.await() }
             }
         } finally {
             https.cancel()
@@ -358,48 +419,35 @@ object NetworkProbe {
         }
     }
 
-    private fun tcpReachable(
+    private fun tcpReachableOutcome(
         host: String,
         port: Int,
         timeoutMs: Int,
         bindNetwork: Network?,
-    ): Boolean {
-        val addr = numericIpv4(host) ?: return tcpReachableHost(host, port, timeoutMs, bindNetwork)
-        return tcpReachableAddr(addr, port, timeoutMs, bindNetwork)
-    }
-
-    private fun tcpReachableHost(
-        host: String,
-        port: Int,
-        timeoutMs: Int,
-        bindNetwork: Network?,
-    ): Boolean {
+    ): CheckOutcome {
+        val addr = numericIpv4(host)
+        val socket = Socket()
+        val closeAll = { runCatching { socket.close() } }
         return try {
-            Socket().use { socket ->
-                socket.tcpNoDelay = true
-                bindNetwork?.bindSocket(socket)
-                socket.connect(InetSocketAddress(host, port), timeoutMs)
-                true
+            socket.tcpNoDelay = true
+            if (bindNetwork != null) {
+                try {
+                    bindNetwork.bindSocket(socket)
+                } catch (_: Exception) {
+                    return CheckOutcome.BindFailure
+                }
             }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun tcpReachableAddr(
-        addr: InetAddress,
-        port: Int,
-        timeoutMs: Int,
-        bindNetwork: Network?,
-    ): Boolean {
-        return try {
-            Socket().use { socket ->
-                bindNetwork?.bindSocket(socket)
+            if (addr != null) {
                 socket.connect(InetSocketAddress(addr, port), timeoutMs)
-                true
+            } else {
+                socket.connect(InetSocketAddress(host, port), timeoutMs)
             }
-        } catch (_: Exception) {
-            false
+            CheckOutcome.Success
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            classifyCheckFailure(t)
+        } finally {
+            closeAll()
         }
     }
 
@@ -413,6 +461,41 @@ object NetworkProbe {
             bytes[i] = n.toByte()
         }
         return InetAddress.getByAddress(bytes)
+    }
+
+    internal fun dnsReplyLooksValid(query: ByteArray, reply: ByteArray, replyLen: Int): Boolean {
+        if (query.size < 12 || replyLen < 12 || reply.size < 12) return false
+        if (reply[0] != query[0] || reply[1] != query[1]) return false
+        val qr = (reply[2].toInt() and 0x80) != 0
+        if (!qr) return false
+        val rcode = reply[3].toInt() and 0x0f
+        if (rcode != 0) return false
+        val questions = ((reply[4].toInt() and 0xff) shl 8) or (reply[5].toInt() and 0xff)
+        if (questions != 1) return false
+        return true
+    }
+
+    internal fun classifyCheckFailure(t: Throwable): CheckOutcome = when (t) {
+        is java.net.SocketTimeoutException -> CheckOutcome.Timeout
+        is java.net.UnknownHostException -> CheckOutcome.DnsFailure
+        is java.net.ConnectException -> {
+            val msg = t.message.orEmpty()
+            if (msg.contains("refused", ignoreCase = true)) CheckOutcome.Refused else CheckOutcome.TransportFailure
+        }
+        is java.net.NoRouteToHostException -> CheckOutcome.NetworkLost
+        is javax.net.ssl.SSLHandshakeException,
+        is javax.net.ssl.SSLPeerUnverifiedException,
+        is javax.net.ssl.SSLException,
+        -> CheckOutcome.TlsFailure
+        is java.net.SocketException -> {
+            val msg = t.message.orEmpty()
+            when {
+                msg.contains("unreachable", ignoreCase = true) -> CheckOutcome.NetworkLost
+                msg.contains("Permission denied", ignoreCase = true) -> CheckOutcome.BindFailure
+                else -> CheckOutcome.TransportFailure
+            }
+        }
+        else -> CheckOutcome.TransportFailure
     }
 
     /**
@@ -473,8 +556,14 @@ object NetworkProbe {
         baseUrl: String?,
         timeoutMs: Int,
         bindNetwork: Network?,
-    ): Boolean {
-        val healthUrl = provisionHealthUrl(baseUrl) ?: return false
+    ): Boolean = provisionReachableOutcome(baseUrl, timeoutMs, bindNetwork).isSuccess
+
+    internal fun provisionReachableOutcome(
+        baseUrl: String?,
+        timeoutMs: Int,
+        bindNetwork: Network?,
+    ): CheckOutcome {
+        val healthUrl = provisionHealthUrl(baseUrl) ?: return CheckOutcome.NotRun
         return try {
             val conn = openHttp(URL(healthUrl), bindNetwork).apply {
                 instanceFollowRedirects = false
@@ -484,9 +573,10 @@ object NetworkProbe {
             }
             val code = conn.responseCode
             conn.disconnect()
-            provisionHealthAccepted(code)
-        } catch (_: Exception) {
-            false
+            if (provisionHealthAccepted(code)) CheckOutcome.Success else CheckOutcome.TransportFailure
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            classifyCheckFailure(t)
         }
     }
 

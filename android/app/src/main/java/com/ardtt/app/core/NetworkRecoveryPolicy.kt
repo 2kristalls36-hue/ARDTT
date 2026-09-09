@@ -56,7 +56,10 @@ fun extraNetworkSettleDelayMs(
     validatedPresent: Boolean,
     skipValidatedWait: Boolean = false,
 ): Long {
-    if (skipValidatedWait || (path == VpnPath.Bypass && !validatedPresent)) {
+    if (path == VpnPath.Direct) {
+        return DIRECT_NETWORK_SETTLE_MS
+    }
+    if (skipValidatedWait || !validatedPresent) {
         return BYPASS_UNVALIDATED_SETTLE_MS
     }
     return transportRecoveryPolicy(path).networkSettleDelayMs
@@ -65,8 +68,8 @@ fun extraNetworkSettleDelayMs(
 /** Bypass: VK join cooldown — Wi‑Fi↔LTE must not enqueue a second anonym chain. */
 const val BYPASS_RECONNECT_MIN_INTERVAL_MS = 20_000L
 
-/** Direct: AWG UDP sockets need a quicker rebind than Path B. */
-const val DIRECT_NETWORK_SETTLE_MS = 1_200L
+/** Direct: short coalesce only — VALIDATED must not gate a VPS attempt. */
+const val DIRECT_NETWORK_SETTLE_MS = 200L
 
 const val DIRECT_RECONNECT_MIN_INTERVAL_MS = 6_000L
 
@@ -78,7 +81,7 @@ const val VALIDATED_WAIT_TIMEOUT_MS = 12_000L
  * do not sit the full [VALIDATED_WAIT_TIMEOUT_MS] — Android often never
  * marks LTE VALIDATED while the VPN is up.
  */
-const val VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS = 2_500L
+const val VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS = 400L
 
 const val VALIDATED_WAIT_POLL_MS = 300L
 
@@ -100,7 +103,7 @@ fun validatedWaitTimeoutMs(
 fun shouldSkipValidatedWait(
     path: VpnPath,
     underlayKind: UnderlayKind,
-): Boolean = underlayKind == UnderlayKind.Cellular
+): Boolean = path == VpnPath.Direct || underlayKind == UnderlayKind.Cellular
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,

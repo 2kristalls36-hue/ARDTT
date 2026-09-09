@@ -35,7 +35,7 @@ object RecoverySettings {
         return (base + delta).coerceAtLeast(0L)
     }
 
-    /** Handshake/RX alone never confirm the path — see [PathConfirm]. */
-    @Suppress("UNUSED_PARAMETER")
-    fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean = false
+    /** Handshake or useful RX on this attempt is protocol-ready. */
+    fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean =
+        totalRx > 0L || handshakeSec > 0L
 }
