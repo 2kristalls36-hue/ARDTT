@@ -5,7 +5,10 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
+import android.os.SystemClock
+import android.telephony.TelephonyManager
 import android.util.Log
 import com.ardtt.app.bypass.CallHashStore
 import com.ardtt.app.bypass.CallRecreatePrompt
@@ -43,6 +46,12 @@ enum class ConnState {
     Connected,
     /** VPN paused on trusted Wi‑Fi; service may still be foreground waiting to resume. */
     PausedTrustedWifi,
+    /** User wants VPN; no usable physical underlay. */
+    WaitingForNetwork,
+    /** Temporary failure; next attempt is scheduled. */
+    Recovering,
+    CaptivePortal,
+    NeedsUserAction,
     Disconnecting,
     Error,
 }
@@ -59,6 +68,7 @@ data class ConnUiState(
     val lastError: String? = null,
     val hasCallHash: Boolean = false,
     val callRecreatePrompt: CallRecreatePrompt? = null,
+    val uiModel: ConnectionUiModel = ConnectionUiModel(),
 )
 
 class ConnectionManager(
@@ -101,6 +111,11 @@ class ConnectionManager(
      */
     private var deadDirectBindHandle: Long? = null
     private var blockBypassToDirectUntilUnderlayChange: Boolean = false
+    private val diagnosticLog = SessionDiagnosticLog()
+    private var recoverySnapshot = ConnectionSnapshot()
+    private var waitingNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var recoveryRetryJob: Job? = null
+    @Volatile private var pendingConnectPath: VpnPath? = null
 
     fun updateProfile(profile: VpnProfile?) {
         this.profile = profile
@@ -355,8 +370,16 @@ class ConnectionManager(
             pathMode = mode,
             softInfo = softInfoFor(_ui.value.probe),
         )
-        if (switchLive) {
+        val liveSwitch = switchLive &&
+            (
+                _ui.value.state == ConnState.Connected ||
+                    _ui.value.state == ConnState.Connecting ||
+                    _ui.value.state == ConnState.PausedTrustedWifi
+                )
+        if (liveSwitch) {
             maybeSwitchLivePath(mode)
+        } else if (recoverySnapshot.intent.wantsConnected) {
+            dispatchRecovery(ConnectionEvent.PathModeChanged(mode))
         }
     }
 
@@ -435,6 +458,232 @@ class ConnectionManager(
 
     fun callHashOrNull(): String? = hashStore.getHash(profile?.name)
 
+    fun recoveryPermit(): RecoveryPermit = recoverySnapshot.recovery.permit
+
+    fun sessionDiagnostics(): Map<SessionDiagnostic, Int> = diagnosticLog.counts()
+
+    fun retryNow() {
+        dispatchRecovery(ConnectionEvent.UserRetryNow)
+    }
+
+    fun openNetworkSettings() {
+        runCatching {
+            appContext.startActivity(internetConnectivitySettingsIntent())
+        }.onFailure {
+            AppLog.w(TAG, "network settings: ${it.message}")
+        }
+    }
+
+    fun openCaptivePortal() {
+        runCatching {
+            appContext.startActivity(captivePortalLoginIntent())
+        }
+    }
+
+    private fun dispatchRecovery(event: ConnectionEvent, elapsedMs: Long = SystemClock.elapsedRealtime()): ReduceResult {
+        val result = ConnectionReducer.reduce(recoverySnapshot, event, elapsedMs)
+        recoverySnapshot = result.state
+        result.diagnostic?.let { kind ->
+            diagnosticLog.record(
+                SessionDiagnosticEvent(
+                    kind = kind,
+                    sessionEpoch = result.state.sessionEpoch,
+                    networkEpoch = result.state.networkEpoch,
+                    transportEpoch = result.state.transportEpoch,
+                    fromPath = _ui.value.activePath,
+                    toPath = result.state.activePath,
+                    attempt = result.state.recovery.failureIndex,
+                    durationMs = 0L,
+                    reason = kind.name,
+                ),
+            )
+        }
+        applyRecoveryUi(result.state)
+        executeRecoveryCommand(result)
+        return result
+    }
+
+    private fun executeRecoveryCommand(result: ReduceResult) {
+        when (val cmd = result.command) {
+            RecoveryCommand.None -> Unit
+            RecoveryCommand.StopAll -> {
+                recoveryRetryJob?.cancel()
+                recoveryRetryJob = null
+                stopWatchingUnderlay()
+            }
+            RecoveryCommand.PauseNetOps -> {
+                watchUnderlayUntilUsable()
+                if (result.state.transport == TransportLifecycle.Paused ||
+                    result.state.transport == TransportLifecycle.Running ||
+                    result.state.parkedRawAlive
+                ) {
+                    requestGoNetOps(allowed = false)
+                }
+            }
+            RecoveryCommand.Probe -> startInitialProbe()
+            is RecoveryCommand.StartDirect,
+            RecoveryCommand.ParkBypassForDirect,
+            -> {
+                stopWatchingUnderlay()
+                requestGoNetOps(allowed = true)
+                pendingConnectPath = VpnPath.Direct
+                launchConnectJob()
+            }
+            is RecoveryCommand.StartBypass,
+            RecoveryCommand.ResumeParkedRaw,
+            RecoveryCommand.RebuildRawSameCall,
+            RecoveryCommand.RefreshCredentials,
+            -> {
+                stopWatchingUnderlay()
+                requestGoNetOps(allowed = true)
+                pendingConnectPath = VpnPath.Bypass
+                launchConnectJob()
+            }
+            is RecoveryCommand.ScheduleRetry -> {
+                recoveryRetryJob?.cancel()
+                recoveryRetryJob = scope.launch {
+                    delay(cmd.delayMs.coerceAtLeast(0L))
+                    dispatchRecovery(ConnectionEvent.Clock(SystemClock.elapsedRealtime()))
+                }
+            }
+        }
+    }
+
+    private fun requestGoNetOps(allowed: Boolean) {
+        val live = recoverySnapshot.transport == TransportLifecycle.Running ||
+            recoverySnapshot.transport == TransportLifecycle.Paused ||
+            recoverySnapshot.parkedRawAlive
+        if (!live) return
+        val intent = Intent(appContext, VpnTunnelService::class.java)
+            .setAction(VpnTunnelService.ACTION_SESSION_CONTROL)
+            .putExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED, allowed)
+        runCatching { appContext.startService(intent) }
+    }
+
+    private fun applyRecoveryUi(snapshot: ConnectionSnapshot) {
+        val model = snapshot.ui
+        _ui.value = _ui.value.copy(
+            state = model.connState,
+            statusText = model.message,
+            softInfo = model.details ?: _ui.value.softInfo,
+            connectEnabled = true,
+            lastError = if (model.connState == ConnState.Error ||
+                model.connState == ConnState.NeedsUserAction
+            ) {
+                model.message
+            } else {
+                null
+            },
+            uiModel = model,
+            activePath = snapshot.activePath ?: _ui.value.activePath,
+        )
+    }
+
+    internal fun readUnderlaySnapshot(): UnderlaySnapshot {
+        val network = pickBestUnderlayNetwork(appContext)
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+        val caps = network?.let { cm?.getNetworkCapabilities(it) }
+        val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        val notVpn = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true
+        val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        val notSuspendedCap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) != false
+        } else {
+            true
+        }
+        val dataSuspended = runCatching {
+            val tm = appContext.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            tm?.dataState == TelephonyManager.DATA_SUSPENDED
+        }.getOrDefault(false)
+        val notSuspended = notSuspendedCap && !dataSuspended
+        val captive = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
+        val wifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        val cellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        val ethernet = caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+        val kind = classifyUnderlayKind(wifi, cellular, ethernet)
+        val complete = caps != null
+        val availability = classifyUnderlayAvailability(
+            hasInternet = hasInternet,
+            notVpn = notVpn,
+            capabilitiesComplete = complete,
+            notSuspended = notSuspended,
+            captivePortal = captive,
+        )
+        val handle = network?.networkHandle
+        val simId = activeCellularSubscriptionId(appContext).takeIf {
+            it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        }
+        val key = if (handle != null && availability != UnderlayAvailability.None) {
+            NetworkKey(
+                handle = handle,
+                transport = kind,
+                simId = if (kind == UnderlayKind.Cellular) simId else null,
+                configFingerprint = "$handle|$kind|${simId ?: ""}",
+            )
+        } else {
+            null
+        }
+        val epoch = recoverySnapshot.networkEpoch + if (key != recoverySnapshot.underlay.key) 1L else 0L
+        return UnderlaySnapshot(
+            key = key,
+            kind = kind,
+            availability = availability,
+            handle = handle,
+            validated = validated,
+            notSuspended = notSuspended,
+            captivePortal = captive,
+            simId = simId,
+            wifiConnected = wifi,
+            cellularConnected = cellular,
+            ethernetConnected = ethernet,
+            capabilitiesComplete = complete,
+            networkEpoch = if (key != recoverySnapshot.underlay.key) epoch else recoverySnapshot.networkEpoch,
+        )
+    }
+
+    private fun watchUnderlayUntilUsable() {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return
+        waitingNetworkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = maybeResumeAfterUnderlay("available")
+            override fun onLost(network: Network) = maybeResumeAfterUnderlay("lost")
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+                maybeResumeAfterUnderlay("caps")
+        }
+        waitingNetworkCallback = cb
+        runCatching {
+            cm.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .build(),
+                cb,
+            )
+        }
+    }
+
+    private fun stopWatchingUnderlay() {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return
+        waitingNetworkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+        waitingNetworkCallback = null
+    }
+
+    private fun maybeResumeAfterUnderlay(reason: String) {
+        scope.launch {
+            val snap = readUnderlaySnapshot()
+            val result = dispatchRecovery(ConnectionEvent.UnderlayUpdated(snap))
+            if (
+                result.command is RecoveryCommand.StartDirect ||
+                result.command is RecoveryCommand.StartBypass ||
+                result.command is RecoveryCommand.ParkBypassForDirect ||
+                result.command is RecoveryCommand.ResumeParkedRaw
+            ) {
+                stopWatchingUnderlay()
+            }
+        }
+        AppLog.v(TAG, "underlay watch $reason")
+    }
+
     private fun refreshHashFlag() {
         _ui.value = _ui.value.copy(
             hasCallHash = hashStore.hasHash(profile?.name),
@@ -443,12 +692,7 @@ class ConnectionManager(
     }
 
     fun startInitialProbe() {
-        val busy =
-            _ui.value.state == ConnState.Connecting ||
-                _ui.value.state == ConnState.Connected ||
-                _ui.value.state == ConnState.PausedTrustedWifi ||
-                _ui.value.state == ConnState.Disconnecting
-        if (busy) {
+        if (_ui.value.state.holdsUserSession()) {
             AppLog.v(TAG, "Probe skipped — tunnel busy (${_ui.value.state})")
             return
         }
@@ -537,8 +781,13 @@ class ConnectionManager(
     fun connect() {
         val current = _ui.value
         val mode = pathMode
-        val probePreferred = current.probe?.preselectedPath
-        if (current.state == ConnState.Probing || current.state == ConnState.Connecting) {
+        if (current.state == ConnState.Probing) {
+            AppLog.w(TAG, "Connect ignored (state=${current.state} mode=$mode)")
+            return
+        }
+        if (current.state == ConnState.Connecting && recoverySnapshot.recovery.inFlight &&
+            recoverySnapshot.transport == TransportLifecycle.Starting
+        ) {
             AppLog.w(TAG, "Connect ignored (state=${current.state} mode=$mode)")
             return
         }
@@ -547,18 +796,26 @@ class ConnectionManager(
             AppLog.i(TAG, "Connect ignored — paused on trusted Wi‑Fi (leave network or disable feature)")
             return
         }
-        if (connectNeedsInitialProbe(
-                mode,
-                probePreferred,
-                currentAutoUnderlayKind(),
-                callHashOrNull() != null,
+        val underlay = readUnderlaySnapshot()
+        recoverySnapshot = recoverySnapshot.copy(underlay = underlay, networkEpoch = underlay.networkEpoch)
+        val connectEvent = if (!recoverySnapshot.intent.wantsConnected) {
+            ConnectionEvent.UserConnect(
+                mode = mode,
+                profileId = profile?.name,
+                hasCallHash = callHashOrNull() != null,
+                silentRecreate = silentRecreate,
             )
-        ) {
-            AppLog.w(TAG, "Connect ignored (auto, no probe path)")
-            return
+        } else {
+            ConnectionEvent.UnderlayUpdated(underlay)
         }
+        val reduced = dispatchRecovery(connectEvent)
+        AppLog.v(TAG, "Connect dispatch phase=${reduced.state.recovery.phase} cmd=${reduced.command}")
+    }
+
+    private fun launchConnectJob() {
         if (profile == null) {
             AppLog.w(TAG, "Connect ignored — no profile")
+            pendingConnectPath = null
             return
         }
         handoverProbeStreak = ProbeStreak()
@@ -571,7 +828,7 @@ class ConnectionManager(
         connectWhenReadyJob = null
 
         // Sync Hide-IP preference to VPS (policy route via warp0). WARP must be up.
-        if (current.hideIp) {
+        if (_ui.value.hideIp) {
             AppLog.v(TAG, "Hide-IP on — asking provision to route host via WARP")
         }
 
@@ -583,9 +840,15 @@ class ConnectionManager(
                 val liveMode = pathMode
                 val kind = currentAutoUnderlayKind()
                 val bypassAllowed = callHashOrNull() != null
-                val skipProbe = shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
-                val wifiAutoDirect = autoUsesDirectOnWifi(liveMode, kind)
+                val forced = pendingConnectPath
+                pendingConnectPath = null
+                val skipProbe = forced == VpnPath.Bypass ||
+                    shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
+                val wifiAutoDirect = forced == VpnPath.Direct ||
+                    autoUsesDirectOnWifi(liveMode, kind)
+                val probePreferred = snap.probe?.preselectedPath
                 val labelPreferred = when {
+                    forced != null -> forced
                     liveMode == ConnPathMode.Direct -> VpnPath.Direct
                     liveMode == ConnPathMode.Bypass || skipProbe -> VpnPath.Bypass
                     wifiAutoDirect -> VpnPath.Direct
@@ -701,7 +964,7 @@ class ConnectionManager(
                         quick = true,
                     )
                 }
-                usePath = resolveConnectPath(
+                usePath = forced ?: resolveConnectPath(
                     liveModeNow,
                     probePreferred,
                     lastGood,
@@ -716,12 +979,9 @@ class ConnectionManager(
                 )
                 if (usePath == null) {
                     applyProbe(fresh)
-                    _ui.value = _ui.value.copy(
-                        state = ConnState.Error,
-                        lastError = fresh.message ?: "Нет доступного пути",
-                        connectEnabled = false,
-                    )
-                    AppLog.e(TAG, "Connect aborted: ${fresh.message}")
+                    val underlay = readUnderlaySnapshot()
+                    dispatchRecovery(ConnectionEvent.UnderlayUpdated(underlay))
+                    AppLog.w(TAG, "Connect deferred — no path yet: ${fresh.message}")
                     return@launch
                 }
                 if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
@@ -803,6 +1063,8 @@ class ConnectionManager(
             AppLog.v(TAG, "Disconnect ignored: already disconnecting")
             return
         }
+        recoveryRetryJob?.cancel()
+        recoveryRetryJob = null
         if (state == ConnState.Probing) {
             connectWhenReadyJob?.cancel()
             connectWhenReadyJob = null
@@ -821,10 +1083,16 @@ class ConnectionManager(
         if (
             state != ConnState.Connected &&
             state != ConnState.Connecting &&
-            state != ConnState.PausedTrustedWifi
+            state != ConnState.PausedTrustedWifi &&
+            state != ConnState.WaitingForNetwork &&
+            state != ConnState.Recovering &&
+            state != ConnState.CaptivePortal &&
+            state != ConnState.NeedsUserAction
         ) {
             return
         }
+        stopWatchingUnderlay()
+        dispatchRecovery(ConnectionEvent.UserDisconnect)
         softRestartInProgress = false
         handoverProbeStreak = ProbeStreak()
         lastHandoverBindHandle = null
@@ -1206,44 +1474,44 @@ class ConnectionManager(
         ) {
             DeadDirectDecision.KeepWatching -> Unit
             DeadDirectDecision.SwitchToBypass -> {
-                AppLog.w(TAG, "Dead Direct (no TUN rx) — Auto → Bypass")
+                AppLog.w(TAG, "Dead Direct (no TUN rx) — Auto recovery → Bypass")
                 handoverProbeStreak = ProbeStreak(VpnPath.Bypass, 1)
                 deadDirectBindHandle = lastHandoverBindHandle
                 blockBypassToDirectUntilUnderlayChange = true
-                applySessionPath(VpnPath.Bypass)
-                _ui.value = _ui.value.copy(
-                    state = ConnState.Connecting,
-                    activePath = VpnPath.Bypass,
-                    statusText = "Прямое без выхода в сеть. Выполняется переход на обход…",
-                    lastError = null,
-                    connectEnabled = true,
-                )
-                requestTransportRestart(
-                    reason = "Прямое без выхода в сеть — переход на обход",
-                    pathOverride = VpnPath.Bypass,
+                dispatchRecovery(
+                    ConnectionEvent.DirectFailed(
+                        sessionEpoch = recoverySnapshot.sessionEpoch,
+                        transportEpoch = recoverySnapshot.transportEpoch,
+                        networkKey = recoverySnapshot.underlay.key,
+                        reason = "direct-no-rx",
+                    ),
                 )
             }
             DeadDirectDecision.FailSession -> {
-                AppLog.w(TAG, "Dead Direct (no TUN rx) — stop VPN to avoid blackhole")
-                onTunnelFailed(
-                    "Прямое подключение без выхода в сеть. Туннель остановлен, чтобы телефон не остался без интернета.",
+                AppLog.w(TAG, "Dead Direct (no TUN rx) — recover or wait, no stopSelf by attempt count")
+                dispatchRecovery(
+                    ConnectionEvent.DirectFailed(
+                        sessionEpoch = recoverySnapshot.sessionEpoch,
+                        transportEpoch = recoverySnapshot.transportEpoch,
+                        networkKey = recoverySnapshot.underlay.key,
+                        reason = "direct-no-rx",
+                    ),
                 )
             }
         }
     }
 
     fun onUnderlyingNetworkLost() {
-        if (_ui.value.state != ConnState.Connected && _ui.value.state != ConnState.Connecting) return
+        if (!recoverySnapshot.intent.wantsConnected) return
         scope.launch {
-            _ui.value = _ui.value.copy(
-                statusText = "Ожидание сети…",
-                softInfo = "Подключение будет восстановлено при появлении сети.",
-            )
+            val snap = readUnderlaySnapshot()
+            dispatchRecovery(ConnectionEvent.UnderlayUpdated(snap))
         }
     }
 
     fun onTrustedWifiWaiting(ssid: String) {
         softRestartInProgress = false
+        dispatchRecovery(ConnectionEvent.TrustedWifiChanged(waiting = true))
         scope.launch {
             _ui.value = _ui.value.copy(
                 state = ConnState.PausedTrustedWifi,
@@ -1282,6 +1550,7 @@ class ConnectionManager(
     }
 
     fun onTrustedWifiResuming() {
+        dispatchRecovery(ConnectionEvent.TrustedWifiChanged(waiting = false))
         scope.launch {
             _ui.value = _ui.value.copy(
                 state = ConnState.Connecting,
@@ -1316,6 +1585,22 @@ class ConnectionManager(
                 }
             }
             if (generation != sessionGeneration.get()) return@launch
+            if (path == VpnPath.Direct) {
+                dispatchRecovery(
+                    ConnectionEvent.DirectConfirmed(
+                        sessionEpoch = recoverySnapshot.sessionEpoch,
+                        transportEpoch = recoverySnapshot.transportEpoch,
+                        networkKey = recoverySnapshot.underlay.key,
+                    ),
+                )
+            } else {
+                dispatchRecovery(
+                    ConnectionEvent.BypassConfirmed(
+                        sessionEpoch = recoverySnapshot.sessionEpoch,
+                        transportEpoch = recoverySnapshot.transportEpoch,
+                    ),
+                )
+            }
             _ui.value = _ui.value.copy(
                 state = ConnState.Connected,
                 activePath = path,
@@ -1355,6 +1640,12 @@ class ConnectionManager(
         }
     }
 
+    fun onParkedBypassDied() {
+        dispatchRecovery(
+            ConnectionEvent.ParkedProcessDied(sessionEpoch = recoverySnapshot.sessionEpoch),
+        )
+    }
+
     /**
      * @return what VpnTunnelService should do instead of blindly stopping.
      */
@@ -1380,17 +1671,38 @@ class ConnectionManager(
                 _ui.value.state != ConnState.Disconnecting &&
                 _ui.value.state != ConnState.Ready
         if (canFallback) {
-            AppLog.i(TAG, "Direct failed — Auto fallback to Bypass: $message")
-            applySessionPath(VpnPath.Bypass)
-            _ui.value = _ui.value.copy(
-                state = ConnState.Connecting,
-                activePath = VpnPath.Bypass,
-                statusText = "Прямое подключение недоступно. Выполняется переход на обход…",
-                lastError = null,
-                callRecreatePrompt = null,
-                connectEnabled = true,
+            AppLog.i(TAG, "Direct failed — Auto recovery may start Bypass: $message")
+            dispatchRecovery(
+                ConnectionEvent.DirectFailed(
+                    sessionEpoch = recoverySnapshot.sessionEpoch,
+                    transportEpoch = recoverySnapshot.transportEpoch,
+                    networkKey = recoverySnapshot.underlay.key,
+                    reason = message,
+                ),
             )
-            return TunnelFailureAction.SwitchToBypass
+            return TunnelFailureAction.KeepRecovering
+        }
+        val failed = dispatchRecovery(
+            if (failedPath == VpnPath.Bypass) {
+                ConnectionEvent.BypassFailed(
+                    sessionEpoch = recoverySnapshot.sessionEpoch,
+                    transportEpoch = recoverySnapshot.transportEpoch,
+                    reason = message,
+                )
+            } else {
+                ConnectionEvent.DirectFailed(
+                    sessionEpoch = recoverySnapshot.sessionEpoch,
+                    transportEpoch = recoverySnapshot.transportEpoch,
+                    networkKey = recoverySnapshot.underlay.key,
+                    reason = message,
+                )
+            },
+        )
+        if (failed.state.intent.wantsConnected &&
+            failed.state.recovery.phase != RecoveryPhase.NeedsUserAction
+        ) {
+            AppLog.i(TAG, "Temporary tunnel failure — recovering: $message")
+            return TunnelFailureAction.KeepRecovering
         }
         failToError(message)
         return TunnelFailureAction.Stop
@@ -1578,6 +1890,32 @@ class ConnectionManager(
 
     private fun applyProbe(result: ProbeResult) {
         val shown = displayedAutoProbe(pathMode, currentAutoUnderlayKind(), result)
+        if (recoverySnapshot.intent.wantsConnected) {
+            dispatchRecovery(
+                ConnectionEvent.ProbeFinished(
+                    evidence = ReachabilityEvidence(
+                        networkKey = recoverySnapshot.underlay.key,
+                        profileId = recoverySnapshot.intent.profileId,
+                        measuredAtElapsedMs = SystemClock.elapsedRealtime(),
+                        yandex = shown.yandexOutcome,
+                        bigtech = shown.bigtechOutcome,
+                        provision = shown.provisionOutcome,
+                        restriction = shown.restriction,
+                        captive = shown.captive,
+                        ttlUntilElapsedMs = SystemClock.elapsedRealtime() + RecoverySettings.PROBE_CACHE_TTL_MS,
+                        bindHandle = shown.bindHandle,
+                    ),
+                    sessionEpoch = recoverySnapshot.sessionEpoch,
+                    networkEpoch = recoverySnapshot.networkEpoch,
+                ),
+            )
+            _ui.value = _ui.value.copy(
+                probe = shown,
+                softInfo = softInfoFor(shown),
+            )
+            refreshHashFlag()
+            return
+        }
         _ui.value = _ui.value.copy(
             state = ConnState.Ready,
             probe = shown,
@@ -1683,6 +2021,21 @@ class ConnectionManager(
                 showTotals = false,
                 showWhitelistIcon = appsWhitelist,
                 statusText = t,
+            )
+        }
+        if (
+            u.state == ConnState.WaitingForNetwork ||
+            u.state == ConnState.Recovering ||
+            u.state == ConnState.CaptivePortal ||
+            u.state == ConnState.NeedsUserAction
+        ) {
+            return ShadeContent(
+                title = title,
+                ip = "—",
+                pathLabel = pathShort,
+                showTotals = false,
+                showWhitelistIcon = appsWhitelist,
+                statusText = u.uiModel.message.ifBlank { u.statusText },
             )
         }
         if (softRestartInProgress || u.state == ConnState.Connecting) {

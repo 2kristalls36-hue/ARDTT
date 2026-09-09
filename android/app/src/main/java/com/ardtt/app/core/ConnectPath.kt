@@ -1,42 +1,54 @@
 package com.ardtt.app.core
 
 /**
- * Auto on Wi‑Fi always uses Direct. Probe → Bypass stays for cellular (and
- * later). Manual Bypass still uses Path B on any underlay.
+ * Auto on Wi‑Fi / Ethernet always uses Direct. Probe → Bypass stays for
+ * confirmed cellular after Direct failed. Unknown underlay is not mobile.
  */
 fun autoUsesDirectOnWifi(mode: ConnPathMode, underlayKind: UnderlayKind): Boolean =
-    mode == ConnPathMode.Auto && underlayKind == UnderlayKind.Wifi
+    mode == ConnPathMode.Auto && underlayKind.prefersDirectInAuto()
 
-/** Auto may start or fall back to Path B only on cellular (and unknown). */
+/** Auto may start or fall back to Path B only on cellular. */
 fun autoMayUseBypass(mode: ConnPathMode, underlayKind: UnderlayKind, hasCallHash: Boolean): Boolean =
-    mode == ConnPathMode.Auto && hasCallHash && !autoUsesDirectOnWifi(mode, underlayKind)
+    mode == ConnPathMode.Auto && hasCallHash && underlayKind == UnderlayKind.Cellular
 
 fun wifiAutoDirectProbe(elapsedMs: Long = 0): ProbeResult = ProbeResult(
     networkClass = NetworkClass.DirectOk,
     preselectedPath = VpnPath.Direct,
     systemOnline = true,
-    yandexOk = true,
-    bigtechOk = true,
+    yandexOk = false,
+    bigtechOk = false,
     captive = false,
-    awgUdpOk = true,
-    provisionOk = true,
+    awgUdpOk = false,
+    provisionOk = false,
     message = "Авто на Wi‑Fi: прямое подключение",
     elapsedMs = elapsedMs,
+    yandexOutcome = CheckOutcome.NotRun,
+    bigtechOutcome = CheckOutcome.NotRun,
+    provisionOutcome = CheckOutcome.NotRun,
+    restriction = RestrictionHint.None,
 )
 
-/** Auto on Wi‑Fi never shows or follows a Bypass probe. */
+/** Auto on Wi‑Fi never follows a Bypass probe; measured outcomes are kept. */
 fun displayedAutoProbe(
     mode: ConnPathMode,
     underlayKind: UnderlayKind,
     measured: ProbeResult,
 ): ProbeResult =
-    if (autoUsesDirectOnWifi(mode, underlayKind)) wifiAutoDirectProbe(measured.elapsedMs) else measured
+    if (autoUsesDirectOnWifi(mode, underlayKind)) {
+        measured.copy(
+            networkClass = NetworkClass.DirectOk,
+            preselectedPath = VpnPath.Direct,
+            message = "Авто на Wi‑Fi: прямое подключение",
+            restriction = RestrictionHint.None,
+        )
+    } else {
+        measured
+    }
 
 /**
- * Initial Connect path. Auto on Wi‑Fi is always Direct. On cellular (and
- * unknown underlay) Auto follows the probe: open internet + VPS :9100 → Direct;
- * Yandex-only whitelist → Bypass even if :9100 answers. Forced Direct/Bypass
- * ignore the probe.
+ * Initial Connect path. Auto on Wi‑Fi/Ethernet is Direct. On cellular Auto
+ * tries Direct unless Direct already failed on this underlay. NoNetwork and
+ * Captive do not reuse a previous successful path.
  */
 fun resolveConnectPath(
     mode: ConnPathMode,
@@ -45,6 +57,7 @@ fun resolveConnectPath(
     fresh: ProbeResult,
     underlayKind: UnderlayKind = UnderlayKind.Other,
     @Suppress("UNUSED_PARAMETER") bypassAllowed: Boolean = true,
+    directFailedOnCurrentUnderlay: Boolean = false,
 ): VpnPath? {
     when (mode) {
         ConnPathMode.Direct -> return VpnPath.Direct
@@ -52,16 +65,22 @@ fun resolveConnectPath(
         ConnPathMode.Auto -> Unit
     }
     if (autoUsesDirectOnWifi(mode, underlayKind)) return VpnPath.Direct
-    return fresh.preselectedPath ?: probePreferred.takeIf {
-        lastGood?.networkClass == NetworkClass.DirectOk || lastGood?.preselectedPath != null
+    if (underlayKind == UnderlayKind.Other) return null
+    if (fresh.networkClass == NetworkClass.NoNetwork || fresh.captive) {
+        return null
     }
+    if (fresh.networkClass == NetworkClass.Captive) return null
+    if (directFailedOnCurrentUnderlay && bypassAllowed) return VpnPath.Bypass
+    if (fresh.preselectedPath == VpnPath.Direct) return VpnPath.Direct
+    lastGood?.takeIf {
+        it.networkClass != NetworkClass.NoNetwork && !it.captive
+    }
+    return probePreferred ?: VpnPath.Direct
 }
 
 /**
- * Forced Bypass starts RAW without waiting on VPS /health. Auto on cellular
- * always probes: open LTE (Cloudflare TLS + /health) must not skip into Bypass. Auto on Wi‑Fi
- * does not skip here either — [autoUsesDirectOnWifi] takes Direct without
- * using this Bypass-only shortcut.
+ * Forced Bypass starts RAW without waiting on VPS /health. Auto always
+ * probes: a working Direct must not be skipped.
  */
 fun shouldSkipConnectProbe(
     pathMode: ConnPathMode,

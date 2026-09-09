@@ -96,8 +96,8 @@ fun scoreUnderlayCandidate(
     activeDataSubId: Int,
 ): Int {
     if (!hasInternet || !notVpn) return -1
-    var s = 1
-    if (validated) s += 10 else s -= 6
+    var s = 4
+    if (validated) s += 8 else if (cellularTransport) s += 2
     when {
         // Captive / half-up Wi‑Fi must not beat VALIDATED LTE (21 vs 13).
         wifiTransport && validated -> s += 26

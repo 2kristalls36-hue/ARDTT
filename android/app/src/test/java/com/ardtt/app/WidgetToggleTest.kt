@@ -13,6 +13,8 @@ class WidgetToggleTest {
         assertTrue(widgetTunnelIsRunning(ConnState.Connected))
         assertTrue(widgetTunnelIsRunning(ConnState.Connecting))
         assertTrue(widgetTunnelIsRunning(ConnState.PausedTrustedWifi))
+        assertTrue(widgetTunnelIsRunning(ConnState.WaitingForNetwork))
+        assertTrue(widgetTunnelIsRunning(ConnState.Recovering))
         assertFalse(widgetTunnelIsRunning(ConnState.Idle))
         assertFalse(widgetTunnelIsRunning(ConnState.Ready))
         assertFalse(widgetTunnelIsRunning(ConnState.Error))

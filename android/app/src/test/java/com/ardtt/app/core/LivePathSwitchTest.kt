@@ -59,7 +59,7 @@ class LivePathSwitchTest {
             ),
         )
         assertEquals(
-            VpnPath.Bypass,
+            VpnPath.Direct,
             resolveLiveSwitchPath(
                 mode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,

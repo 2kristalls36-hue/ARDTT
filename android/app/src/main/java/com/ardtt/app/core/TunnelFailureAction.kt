@@ -13,4 +13,7 @@ sealed class TunnelFailureAction {
 
     /** Keep the service; ConnectionManager will recreate the VK call and restart Bypass. */
     data object HoldForCallRecreate : TunnelFailureAction()
+
+    /** Keep the service and wait for RecoveryController to retry. */
+    data object KeepRecovering : TunnelFailureAction()
 }

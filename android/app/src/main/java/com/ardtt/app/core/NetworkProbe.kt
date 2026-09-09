@@ -29,13 +29,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * Classification (fail-fast, no DNS on the internet/БС checks):
  * - **77.88.8.8** (Yandex DNS) — TCP :443/:53 even on operator whitelist (БС).
- * - **1.1.1.1** (Cloudflare) — open internet only after TLS :443 or UDP :53.
- *   TCP connect is not enough (MTS: SYN/ACK, TLS dead, AWG UDP dropped).
- * - **VPS /health** — HTTP, not TCP :9100 (MTS: connect works, GET times out).
- *   That TCP path is **not** AWG UDP :51820.
+ * - **1.1.1.1** (Cloudflare) — open-internet signal; not required for Direct.
+ * - **VPS /health** — HTTP, not TCP :9100 and not AmneziaWG.
  *
- * Direct only when Cloudflare is actually open. Yandex-up + Cloudflare-down
- * is Bypass without waiting for :9100.
+ * Auto still tries Direct first. A Yandex-up / Cloudflare-down pair is only a
+ * mobile restriction hint after both checks actually ran on cellular.
  */
 object NetworkProbe {
 
@@ -60,6 +58,7 @@ object NetworkProbe {
         val elapsed = measureTimeMillis {
             result = coroutineScope {
                 val systemOnline = isSystemOnline(context, bindNetwork)
+                val underlayKind = probeUnderlayKind(context, bindNetwork)
                 val yandexDef = async { ipReachable(YANDEX_DNS_IP, tcpMs, bindNetwork) }
                 val cloudflareDef = async { cloudflareOpen(tlsMs, udpMs, bindNetwork) }
                 val provisionDef = async { provisionReachable(provisionBaseUrl, healthMs, bindNetwork) }
@@ -76,6 +75,10 @@ object NetworkProbe {
                     bigtechOk = cloudflareOk == true,
                     captive = captive,
                     provisionOk = provisionOk == true,
+                    underlayKind = underlayKind,
+                    yandexOutcome = boolOutcome(yandexOk),
+                    bigtechOutcome = boolOutcome(cloudflareOk),
+                    provisionOutcome = boolOutcome(provisionOk),
                 )
 
                 while (true) {
@@ -159,13 +162,32 @@ object NetworkProbe {
         captive: Boolean,
         provisionOk: Boolean,
         awgUdpOk: Boolean = false,
+        underlayKind: UnderlayKind = UnderlayKind.Other,
     ): ProbeResult = NetworkProbePolicy.classify(
         systemOnline = systemOnline,
         yandexOk = yandexOk,
         bigtechOk = bigtechOk,
         captive = captive,
         provisionOk = provisionOk,
+        underlayKind = underlayKind,
     ).copy(awgUdpOk = awgUdpOk)
+
+    private fun boolOutcome(value: Boolean?): CheckOutcome = when (value) {
+        true -> CheckOutcome.Success
+        false -> CheckOutcome.Timeout
+        null -> CheckOutcome.NotRun
+    }
+
+    private fun probeUnderlayKind(context: Context, bindNetwork: Network?): UnderlayKind {
+        val network = bindNetwork ?: pickBestUnderlayNetwork(context) ?: return UnderlayKind.Other
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return UnderlayKind.Other
+        val caps = cm.getNetworkCapabilities(network) ?: return UnderlayKind.Other
+        return classifyUnderlayKind(
+            wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+            cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+            ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+        )
+    }
 
     /**
      * Host:port to probe for “can we reach our VPS IP”.

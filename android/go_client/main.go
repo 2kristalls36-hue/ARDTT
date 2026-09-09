@@ -132,14 +132,35 @@ func main() {
 	}()
 
 	var pauseFlag int32
+	ctrl := NewSessionControl()
+	activeSessionCtrl.Store(ctrl)
 
-	// STDIN для PAUSE/RESUME/STOP и CAPTCHA_RESULT
+	// STDIN для PAUSE/RESUME/STOP, V1 IPC и CAPTCHA_RESULT
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if !strings.Contains(line, "error:tunnel stopped") {
 				log.Printf("[STDIN] %s", line)
+			}
+			if strings.HasPrefix(line, controlVersion+"|") {
+				cmd, err := parseControlLine(line)
+				if err != nil {
+					log.Printf("[STDIN] control parse: %v", err)
+					continue
+				}
+				rt := controlRT.Load()
+				if rt == nil {
+					continue
+				}
+				reply := rt.handle(ctx, cmd)
+				if reply.Stale {
+					continue
+				}
+				if reply.Line != "" {
+					fmt.Println(reply.Line)
+				}
+				continue
 			}
 			switch {
 			case line == "PAUSE":
@@ -342,6 +363,12 @@ func main() {
 
 	disp := NewDispatcherPendingTUN(ctx, stats)
 	defer disp.Shutdown()
+	controlRT.Store(&controlRuntime{
+		ctrl:    ctrl,
+		disp:    disp,
+		tunSock: *tunFdSock,
+		cancel:  cancel,
+	})
 
 	configCh := make(chan string, 1)
 	configDone := make(chan struct{})
@@ -355,7 +382,7 @@ func main() {
 
 			if strings.HasPrefix(rawConf, "RAWCONF:") {
 				parts := strings.Split(strings.TrimPrefix(rawConf, "RAWCONF:"), "|")
-				if len(parts) != 3 {
+				if len(parts) < 3 {
 					log.Printf("[RAW] Некорректный RAWCONF: %q", rawConf)
 					return
 				}
@@ -391,7 +418,10 @@ func main() {
 					}
 				}
 				rawDiagf("recvTunFD успешен на попытке #%d, fd=%v", attempt, tunFile.Fd())
-				disp.AttachTUN(tunFile)
+				if err := disp.AttachTUN(tunFile); err != nil {
+					log.Printf("[RAW] AttachTUN: %v", err)
+					return
+				}
 				log.Println("[RAW] TUN подключён, трафик пошёл")
 				return
 			}

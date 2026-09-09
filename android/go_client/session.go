@@ -564,6 +564,9 @@ func RunSession(
 			case <-sessCtx.Done():
 				return
 			case <-t.C:
+				if ctrl := activeSessionCtrl.Load(); ctrl != nil && !ctrl.NetOpsAllowed() {
+					continue
+				}
 				size := keepaliveMinSize + rand.Intn(keepaliveMaxSize)
 				pkt := getPktBuf(size)
 				pkt[0] = keepaliveByte

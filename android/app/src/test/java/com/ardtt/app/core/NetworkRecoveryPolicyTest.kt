@@ -328,9 +328,9 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
-    fun handoverAutoSwitchesToBypassOnWhitelist() {
+    fun handoverAutoDoesNotLeaveWorkingDirectForBypassProbe() {
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -341,9 +341,8 @@ class NetworkRecoveryPolicyTest {
                 sameProbeStreak = 2,
             ),
         )
-        // TCP :9100 up is not AWG UDP — whitelist still leaves Direct.
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -352,6 +351,20 @@ class NetworkRecoveryPolicyTest {
                 currentPathHealthy = true,
                 underlayVpsReachable = true,
                 sameProbeStreak = 2,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                currentPathHealthy = false,
+                underlayVpsReachable = false,
+                sameProbeStreak = 2,
+                directFailedOnCurrentUnderlay = true,
+                underlayKind = UnderlayKind.Cellular,
             ),
         )
     }
@@ -483,7 +496,7 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -890,7 +903,7 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            NetworkHandoverDecision.SoftRestartSamePath,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -902,7 +915,7 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            NetworkHandoverDecision.SoftRestartSamePath,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -911,6 +924,19 @@ class NetworkRecoveryPolicyTest {
                 underlayVpsReachable = true,
                 underlayChanged = true,
                 underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayVpsReachable = false,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
+                directFailedOnCurrentUnderlay = true,
             ),
         )
         assertEquals(

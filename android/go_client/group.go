@@ -62,16 +62,31 @@ func WorkerGroup(
 	if len(shortHash) > 8 {
 		shortHash = shortHash[:8]
 	}
-	log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
 
-	credStreamID := groupID * 100
-	user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
 	var creds *Credentials
-	if err == nil {
-		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
-	} else {
+	credStreamID := groupID * 100
+	for {
+		if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+			if err := ctrl.WaitNetOps(ctx); err != nil {
+				return
+			}
+		}
+		log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
+		user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
+		if err == nil {
+			creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
+			break
+		}
 		log.Printf("[ГРУППА #%d] Ошибка кредов: %v", groupID, err)
-		return
+		errStr := err.Error()
+		if strings.Contains(errStr, "хеш мёртв") || strings.Contains(errStr, "FATAL_AUTH") {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
 	}
 
 	log.Printf("[ГРУППА #%d] Креды OK, TURN: %v, %d воркеров", groupID, creds.TurnURLs, len(workerIDs))
@@ -93,6 +108,11 @@ func WorkerGroup(
 			return true
 		}
 
+		if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+			if err := ctrl.WaitNetOps(ctx); err != nil {
+				return false
+			}
+		}
 		getStreamCache(credStreamID).invalidate(credStreamID)
 		if getVkAuthMode() == "account" {
 			invalidateInjectedTurnCreds(hash)

@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.widget.Toast
 import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
+import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.vpnPermissionDeniedHint
 import com.ardtt.app.profile.ProfileRepository
@@ -114,7 +115,4 @@ internal fun widgetToggleLaunchFlags(): Int =
         Intent.FLAG_ACTIVITY_NO_ANIMATION or
         Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
 
-internal fun widgetTunnelIsRunning(state: ConnState): Boolean =
-    state == ConnState.Connected ||
-        state == ConnState.Connecting ||
-        state == ConnState.PausedTrustedWifi
+internal fun widgetTunnelIsRunning(state: ConnState): Boolean = state.holdsUserSession()

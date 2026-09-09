@@ -154,6 +154,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 startForegroundNotification(path, "refresh")
                 return START_STICKY
             }
+            ACTION_SESSION_CONTROL -> {
+                val allowed = intent.getBooleanExtra(EXTRA_NET_OPS_ALLOWED, true)
+                (backend as? BypassBackend)?.setNetOpsAllowed(allowed)
+                parkedBypass?.setNetOpsAllowed(allowed)
+                return if (tunnelSessionActive) START_STICKY else START_NOT_STICKY
+            }
             ACTION_START, null -> {
                 userStopRequested = false
                 trustedWifiWaiting = false
@@ -268,8 +274,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             AppLog.i(TAG, "Parking VK call while switching to Direct")
             parkBypassCall(currentBackend)
         } else {
-            val keepParkedUntilBypassUp = path == VpnPath.Bypass && parkedBypass != null
-            if (!keepParkedUntilBypassUp) {
+            val keepParked = parkedBypass != null &&
+                (path == VpnPath.Direct || path == VpnPath.Bypass)
+            if (!keepParked) {
                 discardParkedCall("launch ${path.name}")
             }
             if (reuseBypassTun && currentBackend is BypassBackend) {
@@ -281,6 +288,46 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         sessionJob?.cancel()
         sessionJob = null
         backend = null
+        if (path == VpnPath.Bypass && parkedBypass?.isCallParked == true) {
+            val parked = parkedBypass
+            parkedBypass = null
+            parked?.setParkedDeathHandler(null)
+            if (parked != null) {
+                AppLog.i(TAG, "Resuming parked RAW process (same VK call)")
+                backend = parked
+                sessionJob = scope.launch {
+                    val epochResume = epoch
+                    val ok = parked.resumeParked(this@VpnTunnelService) { state ->
+                        if (epochResume != backendEpoch) return@resumeParked
+                        when (state) {
+                            is TunnelBackendState.Running -> {
+                                tunnelSessionActive = true
+                                TransportHealth.backendAlive = true
+                                ConnectionManager.getOrNull()?.onTunnelRunning(VpnPath.Bypass)
+                                updateNotification(
+                                    VpnPath.Bypass,
+                                    ConnectionManager.getOrNull()?.notificationRunningText()
+                                        ?: getString(R.string.notif_running),
+                                )
+                            }
+                            is TunnelBackendState.Failed -> {
+                                if (!userStopRequested && !trustedWifiWaiting) {
+                                    applyTunnelFailureAction(state.message)
+                                }
+                            }
+                            else -> Unit
+                        }
+                    }
+                    if (!ok && epochResume == backendEpoch && !userStopRequested) {
+                        AppLog.w(TAG, "Parked RAW resume failed — rebuilding transport, same call")
+                        parked.stop()
+                        backend = null
+                        applyTunnelFailureAction("Не удалось возобновить обход с прежним звонком")
+                    }
+                }
+                return
+            }
+        }
         if (!reuseBypassTun) {
             forgetTun()
         } else {
@@ -306,8 +353,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     if (created == null) {
                         AppLog.e(TAG, "TUN establish failed")
                         softRestartInProgress = false
-                        ConnectionManager.getOrNull()?.onTunnelFailed(vpnPermissionDeniedHint(this))
-                        if (!softRestart && !trustedWifiWaiting) stopSelf()
+                        applyTunnelFailureAction(vpnPermissionDeniedHint(this))
                     } else {
                         AppLog.v(TAG, "TUN ok ip=$address mtu=$mtu soft=$softRestart")
                     }
@@ -392,6 +438,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 tunnelSessionActive = true
                 val path = TunnelSessionHolder.config?.path ?: VpnPath.Bypass
                 updateNotification(path, "Обновление звонка…")
+            }
+            TunnelFailureAction.KeepRecovering -> {
+                AppLog.i(TAG, "Holding VPN for recovery backoff")
+                softRestartInProgress = false
+                tunnelSessionActive = true
             }
             TunnelFailureAction.Stop -> stopSelf()
         }
@@ -784,6 +835,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     continue
                 }
                 val workers = TransportHealth.activeWorkers
+                val permit = ConnectionManager.getOrNull()?.recoveryPermit()
+                if (permit?.allowsWatchdogRestart == false) {
+                    continue
+                }
                 if (workers <= 0) {
                     if (zeroWorkersSinceMs == 0L) zeroWorkersSinceMs = now
                     if (
@@ -1713,6 +1768,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
      * OnePlus (Android 16) — the fd is already connected.
      */
     fun pinProcessToUnderlay(): String {
+        if (parkedBypass != null) return "skipped-parked-bypass"
         val cm = connectivityManager
             ?: getSystemService(ConnectivityManager::class.java)
             ?: return "no-cm"
@@ -1797,19 +1853,22 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
     private fun parkBypassCall(backend: BypassBackend) {
         parkedCallExpireJob?.cancel()
+        parkedCallExpireJob = null
         if (parkedBypass !== backend) {
+            parkedBypass?.setParkedDeathHandler(null)
             parkedBypass?.stop()
         }
         backend.parkCall()
         parkedBypass = backend
-        parkedCallExpireJob = scope.launch {
-            delay(WARM_CALL_HOLD_MS)
+        backend.setParkedDeathHandler {
+            AppLog.w(TAG, "Parked RAW process died — call identity kept, resume disabled")
             if (parkedBypass === backend) {
-                AppLog.i(TAG, "Warm VK call released after ${WARM_CALL_HOLD_MS}ms")
-                backend.stop()
                 parkedBypass = null
             }
+            backend.setParkedDeathHandler(null)
+            ConnectionManager.getOrNull()?.onParkedBypassDied()
         }
+        AppLog.i(TAG, "Parked VK call kept without 5-minute expiry")
     }
 
     private fun discardParkedCall(reason: String) {
@@ -1819,6 +1878,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         parkedBypass = null
         if (parked != null) {
             AppLog.i(TAG, "Stopping parked VK call ($reason)")
+            parked.setParkedDeathHandler(null)
             parked.stop()
         }
     }
@@ -2138,11 +2198,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val ACTION_STOP = "com.ardtt.app.action.STOP"
         const val ACTION_RESTART_TRANSPORT = "com.ardtt.app.action.RESTART_TRANSPORT"
         const val ACTION_REFRESH_NOTIFICATION = "com.ardtt.app.action.REFRESH_NOTIFICATION"
+        const val ACTION_SESSION_CONTROL = "com.ardtt.app.action.SESSION_CONTROL"
         const val EXTRA_PATH = "path"
         const val EXTRA_HIDE_IP = "hide_ip"
         const val EXTRA_TUN_ADDRESS = "tun_address"
         const val EXTRA_RESTART_REASON = "restart_reason"
         const val EXTRA_REBUILD_TUN = "rebuild_tun"
+        const val EXTRA_NET_OPS_ALLOWED = "net_ops_allowed"
         private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =
             "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42
