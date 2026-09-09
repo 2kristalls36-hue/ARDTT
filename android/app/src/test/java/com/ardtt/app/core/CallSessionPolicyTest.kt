@@ -87,6 +87,13 @@ class RecoverySettingsTest {
         assertEquals(60_000L, RecoverySettings.retryDelayMs(99))
         assertEquals(7_200L, RecoverySettings.retryDelayMs(1, jitterPermille = 440))
     }
+
+    @Test
+    fun localAwgStartWithoutHandshakeIsNotConnected() {
+        assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 0L))
+        assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 12L, handshakeSec = 0L))
+        assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 3L))
+    }
 }
 
 class ConnectionUiPhaseTest {
