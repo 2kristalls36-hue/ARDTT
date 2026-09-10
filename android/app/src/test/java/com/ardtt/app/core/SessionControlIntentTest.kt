@@ -2,6 +2,7 @@ package com.ardtt.app.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionControlIntentTest {
@@ -14,6 +15,30 @@ class SessionControlIntentTest {
         assertEquals(false, sessionControlShouldDiscardParked(hasDiscardExtra = false, discard = true))
         assertEquals(false, sessionControlShouldDiscardParked(hasDiscardExtra = true, discard = false))
         assertEquals(true, sessionControlShouldDiscardParked(hasDiscardExtra = true, discard = true))
+        assertTrue(
+            sessionControlShouldApplyDiscard(
+                hasDiscardExtra = true,
+                discard = true,
+                extraCallEpoch = 4L,
+                liveCallEpoch = 4L,
+            ),
+        )
+        assertTrue(
+            !sessionControlShouldApplyDiscard(
+                hasDiscardExtra = true,
+                discard = true,
+                extraCallEpoch = 3L,
+                liveCallEpoch = 5L,
+            ),
+        )
+        assertTrue(
+            sessionControlShouldApplyDiscard(
+                hasDiscardExtra = true,
+                discard = true,
+                extraCallEpoch = null,
+                liveCallEpoch = 5L,
+            ),
+        )
     }
 
     @Test

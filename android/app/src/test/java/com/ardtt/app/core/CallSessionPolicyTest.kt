@@ -92,7 +92,8 @@ class RecoverySettingsTest {
     fun localAwgStartWithoutHandshakeIsNotConnected() {
         assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 0L))
         assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 12L, handshakeSec = 0L))
-        assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 3L))
+        assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 3L))
+        assertTrue(RecoverySettings.directProtocolReady(handshakeSec = 3L))
         assertTrue(
             PathConfirm.looksConfirmed(
                 PathConfirmObservation(
@@ -105,6 +106,7 @@ class RecoverySettingsTest {
                     usefulRxDelta = 12L,
                     handshakeGrew = true,
                     probeSucceeded = false,
+                    source = PathConfirmSource.DirectAwg,
                 ),
             ),
         )
@@ -118,12 +120,13 @@ class RecoverySettingsTest {
                     eventTransportEpoch = 1L,
                     eventNetworkKey = NetworkKey(1L, UnderlayKind.Cellular, null, "c"),
                     usefulRxDelta = 0L,
-                    handshakeGrew = false,
+                    handshakeGrew = true,
                     probeSucceeded = false,
+                    source = PathConfirmSource.DirectAwg,
                 ),
             ),
         )
-        assertTrue(
+        assertFalse(
             PathConfirm.looksConfirmed(
                 PathConfirmObservation(
                     capturedSessionEpoch = 1L,

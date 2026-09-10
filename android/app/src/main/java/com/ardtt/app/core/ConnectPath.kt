@@ -60,6 +60,7 @@ fun resolveConnectPath(
     underlayKind: UnderlayKind = UnderlayKind.Other,
     bypassAllowed: Boolean = true,
     directFailedOnCurrentUnderlay: Boolean = false,
+    underlayUsable: Boolean = false,
 ): VpnPath? {
     when (mode) {
         ConnPathMode.Direct -> return VpnPath.Direct
@@ -68,10 +69,11 @@ fun resolveConnectPath(
     }
     if (autoUsesDirectOnWifi(mode, underlayKind)) return VpnPath.Direct
     if (underlayKind == UnderlayKind.Other) return null
-    if (fresh.networkClass == NetworkClass.NoNetwork || fresh.captive) {
-        return null
+    if (fresh.captive || fresh.networkClass == NetworkClass.Captive) return null
+    if (fresh.networkClass == NetworkClass.NoNetwork) {
+        return if (underlayUsable) VpnPath.Direct else null
     }
-    if (fresh.networkClass == NetworkClass.Captive) return null
+    if (fresh.networkClass == NetworkClass.DataUnconfirmed) return VpnPath.Direct
     if (directFailedOnCurrentUnderlay && bypassAllowed) return VpnPath.Bypass
     return VpnPath.Direct
 }
@@ -90,14 +92,42 @@ fun shouldSkipConnectProbe(
     ConnPathMode.Auto -> false
 }
 
-/** Widget / shortcut: Auto on cellular needs a probe before [ConnectionManager.connect]. */
+/** Usable physical underlay: start Direct without waiting for public/provision probes. */
+fun shouldStartDirectWithoutDiagnostic(
+    mode: ConnPathMode,
+    underlayKind: UnderlayKind,
+    underlayUsable: Boolean,
+): Boolean {
+    if (!underlayUsable) return false
+    return when (mode) {
+        ConnPathMode.Direct -> true
+        ConnPathMode.Auto ->
+            underlayKind == UnderlayKind.Cellular || underlayKind.prefersDirectInAuto()
+        ConnPathMode.Bypass -> false
+    }
+}
+
+fun connectSnapshotChanged(
+    capturedMode: ConnPathMode,
+    liveMode: ConnPathMode,
+    capturedKind: UnderlayKind,
+    liveKind: UnderlayKind,
+    capturedProfileId: String?,
+    liveProfileId: String?,
+): Boolean = capturedMode != liveMode ||
+    capturedKind != liveKind ||
+    capturedProfileId != liveProfileId
+
+/** Widget / shortcut: usable underlay starts Direct; do not wait for initial probe. */
 internal fun connectNeedsInitialProbe(
     mode: ConnPathMode,
     probePreferred: VpnPath?,
     underlayKind: UnderlayKind,
     bypassAllowed: Boolean,
+    underlayUsable: Boolean = false,
 ): Boolean {
     if (mode != ConnPathMode.Auto || probePreferred != null) return false
+    if (shouldStartDirectWithoutDiagnostic(mode, underlayKind, underlayUsable)) return false
     return !autoUsesDirectOnWifi(mode, underlayKind) &&
         !shouldSkipConnectProbe(mode, bypassAllowed, underlayKind)
 }

@@ -29,6 +29,18 @@ object TransportHealth {
     /** Last time the ↓ counter increased — not TX or a repeated 0.00 МБ tick. */
     @Volatile var lastInboundGrowthAtMs: Long = 0L
         private set
+    @Volatile var tunGen: Long = 0L
+        private set
+    @Volatile var tunWriteOk: Long = 0L
+        private set
+    @Volatile var tunWriteErr: Long = 0L
+        private set
+    @Volatile var lastTunWriteOkMs: Long = 0L
+        private set
+    @Volatile var exactDownBytes: Long = 0L
+        private set
+    @Volatile var exactUpBytes: Long = 0L
+        private set
 
     fun reset() {
         activeWorkers = 0
@@ -39,6 +51,12 @@ object TransportHealth {
         upBytes = 0L
         lastTrafficGrowthAtMs = 0L
         lastInboundGrowthAtMs = 0L
+        tunGen = 0L
+        tunWriteOk = 0L
+        tunWriteErr = 0L
+        lastTunWriteOkMs = 0L
+        exactDownBytes = 0L
+        exactUpBytes = 0L
     }
 
     fun noteBackendStarted() {
@@ -50,6 +68,12 @@ object TransportHealth {
         upBytes = 0L
         lastTrafficGrowthAtMs = 0L
         lastInboundGrowthAtMs = 0L
+        tunGen = 0L
+        tunWriteOk = 0L
+        tunWriteErr = 0L
+        lastTunWriteOkMs = 0L
+        exactDownBytes = 0L
+        exactUpBytes = 0L
     }
 
     fun noteBackendStopped() {
@@ -62,7 +86,43 @@ object TransportHealth {
         backendAlive = true
     }
 
+    fun applyStructuredTelemetry(payload: String) {
+        val keys = parseKeyValues(payload)
+        if (keys.isEmpty()) return
+        lastStatsAtMs = System.currentTimeMillis()
+        backendAlive = true
+        keys["channels"]?.toIntOrNull()?.let { activeWorkers = it }
+        keys["tunGen"]?.toLongOrNull()?.let { tunGen = it }
+        keys["tunWriteOk"]?.toLongOrNull()?.let { tunWriteOk = it }
+        keys["tunWriteErr"]?.toLongOrNull()?.let { tunWriteErr = it }
+        keys["lastTunWriteOk"]?.toLongOrNull()?.let { lastTunWriteOkMs = it }
+        keys["down"]?.toLongOrNull()?.let { down ->
+            if (down > exactDownBytes) {
+                lastInboundGrowthAtMs = lastStatsAtMs
+            }
+            exactDownBytes = down
+            downBytes = down
+        }
+        keys["up"]?.toLongOrNull()?.let { up ->
+            exactUpBytes = up
+            upBytes = up
+        }
+        val total = exactDownBytes + exactUpBytes
+        if (total > trafficKb * 1024L) {
+            trafficKb = total / 1024L
+            lastTrafficGrowthAtMs = lastStatsAtMs
+        }
+    }
+
+    fun applyControlAck(reply: String) {
+        applyStructuredTelemetry(payloadFromControlAck(reply) ?: reply)
+    }
+
     fun onLogLine(line: String) {
+        if (line.contains("tunWriteOk=") || line.contains("channels=")) {
+            applyStructuredTelemetry(line)
+            return
+        }
         val match = statsRe.find(line) ?: return
         activeWorkers = match.groupValues[1].toIntOrNull() ?: return
         lastStatsAtMs = System.currentTimeMillis()
@@ -106,6 +166,27 @@ object TransportHealth {
         }
         val total = totalRe.find(line)?.groupValues?.get(1)?.toDoubleOrNull() ?: return null
         return (total * 1024.0).toLong()
+    }
+
+    internal fun parseKeyValues(payload: String): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        val body = payloadFromControlAck(payload) ?: payload
+        for (part in body.split('|')) {
+            val idx = part.indexOf('=')
+            if (idx <= 0) continue
+            val key = part.substring(0, idx).trim()
+            val value = part.substring(idx + 1).trim()
+            if (key.isNotEmpty()) out[key] = value
+        }
+        return out
+    }
+
+    internal fun payloadFromControlAck(reply: String): String? {
+        val parts = reply.split('|')
+        if (parts.size >= 7 && parts.getOrNull(3) == "ACK") {
+            return parts.drop(6).joinToString("|")
+        }
+        return null
     }
 
     /** Convert go_client `↓X.XX МБ / ↑Y.YY МБ` into approximate byte totals. */

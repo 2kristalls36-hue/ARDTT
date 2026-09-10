@@ -6,9 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import java.net.InetSocketAddress
 import java.net.Socket
-import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 
 fun vpnTunnelNetwork(cm: ConnectivityManager): Network? = runCatching {
@@ -54,25 +52,23 @@ internal suspend fun connectBoundSocketCancellable(
     timeoutMs: Int,
 ): PathConfirmResult = withContext(Dispatchers.IO) {
     val socket = Socket()
-    val closeAll = { runCatching { socket.close() } }
-    val cancelHook = coroutineContext.job.invokeOnCompletion { closeAll() }
+    val closeAll: () -> Unit = { runCatching { socket.close() }; Unit }
     try {
-        if (bindNetwork != null) {
-            runCatching { bindNetwork.bindSocket(socket) }
-                .onFailure { return@withContext PathConfirmResult.BindFailure }
-        }
-        socket.connect(InetSocketAddress(host, port), timeoutMs)
-        if (socket.isConnected) {
-            PathConfirmResult.Unsupported("tcp-connect-is-not-path-proof")
-        } else {
-            PathConfirmResult.Timeout("connect")
+        closeOnCancel(closeAll) {
+            if (bindNetwork != null) {
+                runCatching { bindNetwork.bindSocket(socket) }
+                    .onFailure { return@closeOnCancel PathConfirmResult.BindFailure }
+            }
+            socket.connect(InetSocketAddress(host, port), timeoutMs)
+            if (socket.isConnected) {
+                PathConfirmResult.Unsupported("tcp-connect-is-not-path-proof")
+            } else {
+                PathConfirmResult.Timeout("connect")
+            }
         }
     } catch (t: Throwable) {
         if (t is kotlinx.coroutines.CancellationException) throw t
         classifySocketFailure(t)
-    } finally {
-        cancelHook.dispose()
-        closeAll()
     }
 }
 

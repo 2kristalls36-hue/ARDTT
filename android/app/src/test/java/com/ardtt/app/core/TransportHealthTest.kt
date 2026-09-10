@@ -56,4 +56,23 @@ class TransportHealthTest {
         TransportHealth.reset()
         assertFalse(TransportHealth.hasFreshInboundSince(0L))
     }
+
+    @Test
+    fun parsesStructuredTelemetryAndControlAck() {
+        TransportHealth.applyStructuredTelemetry(
+            "channels=2|tunGen=4|tunWriteOk=9|tunWriteErr=1|down=1200|up=80",
+        )
+        assertEquals(2, TransportHealth.activeWorkers)
+        assertEquals(4L, TransportHealth.tunGen)
+        assertEquals(9L, TransportHealth.tunWriteOk)
+        assertEquals(1L, TransportHealth.tunWriteErr)
+        assertEquals(1200L, TransportHealth.exactDownBytes)
+        TransportHealth.applyControlAck(
+            "V1|k1|1|ACK|GET_TELEMETRY|ok|stage=running|channels=3|tunGen=4|tunWriteOk=10|down=1500|up=90",
+        )
+        assertEquals(3, TransportHealth.activeWorkers)
+        assertEquals(10L, TransportHealth.tunWriteOk)
+        assertEquals(1500L, TransportHealth.exactDownBytes)
+        assertTrue(1500L < 0.01 * 1024 * 1024)
+    }
 }

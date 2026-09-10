@@ -2,6 +2,7 @@ package com.ardtt.app.core
 
 enum class NetworkClass {
     NoNetwork,
+    DataUnconfirmed,
     Captive,
     DirectOk,
     NeedBypass,
@@ -39,6 +40,7 @@ data class ProbeResult(
     val restrictionReason: String? = null,
     val networkKey: NetworkKey? = null,
     val bindHandle: Long? = null,
+    val seriesId: String = "",
 ) {
     /**
      * Indirect mobile-restriction hint. Never a final Auto Bypass lock:

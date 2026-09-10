@@ -201,7 +201,11 @@ class BypassGoProcess(
         parked.set(true)
     }
 
-    suspend fun sendControl(name: String, vararg args: String): String? {
+    suspend fun sendControl(
+        name: String,
+        vararg args: String,
+        timeoutMs: Long = 15_000L,
+    ): String? {
         val proc = processRef.get() ?: return null
         if (!proc.isAlive) return null
         val reqId = "k${reqSeq.getAndIncrement()}"
@@ -235,7 +239,7 @@ class BypassGoProcess(
             pendingAcks.remove(reqId)
             return null
         }
-        val reply = withTimeoutOrNull(15_000) { ack.await() }
+        val reply = withTimeoutOrNull(timeoutMs) { ack.await() }
         pendingAcks.remove(reqId)
         return reply?.takeIf { controlAckSucceeded(it) }
     }

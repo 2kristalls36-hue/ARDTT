@@ -86,6 +86,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     /** libclient kept in the VK call after Auto Bypass→Direct on Wi‑Fi. */
     private var parkedBypass: BypassBackend? = null
     private var parkedCallExpireJob: Job? = null
+    @Volatile private var parkedCallEpoch: Long = 0L
+    @Volatile private var activeCallEpoch: Long = 0L
     private fun recoveryPolicy(): TransportRecoveryPolicy =
         transportRecoveryPolicy(TunnelSessionHolder.config?.path ?: VpnPath.Direct)
 
@@ -159,12 +161,31 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     (backend as? BypassBackend)?.setNetOpsAllowed(allowed)
                     parkedBypass?.setNetOpsAllowed(allowed)
                 }
-                if (sessionControlShouldDiscardParked(
+                if (sessionControlShouldApplyDiscard(
                         intent.hasExtra(EXTRA_DISCARD_PARKED),
                         intent.getBooleanExtra(EXTRA_DISCARD_PARKED, false),
+                        if (intent.hasExtra(EXTRA_CALL_EPOCH)) {
+                            intent.getLongExtra(EXTRA_CALL_EPOCH, -1L)
+                        } else {
+                            null
+                        },
+                        parkedCallEpoch,
                     )
                 ) {
                     discardParkedCall("session-control identity")
+                }
+                if (sessionControlShouldApplyDiscard(
+                        intent.hasExtra(EXTRA_DISCARD_ACTIVE),
+                        intent.getBooleanExtra(EXTRA_DISCARD_ACTIVE, false),
+                        if (intent.hasExtra(EXTRA_CALL_EPOCH)) {
+                            intent.getLongExtra(EXTRA_CALL_EPOCH, -1L)
+                        } else {
+                            null
+                        },
+                        activeCallEpoch,
+                    )
+                ) {
+                    discardActiveBypass("session-control identity")
                 }
                 if (intent.hasExtra(EXTRA_NETWORK_HANDLE)) {
                     val handle = intent.getLongExtra(EXTRA_NETWORK_HANDLE, 0L)
@@ -312,6 +333,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             if (parked != null) {
                 AppLog.i(TAG, "Resuming parked RAW process (same VK call)")
                 backend = parked
+                activeCallEpoch = parkedCallEpoch
+                parkedCallEpoch = 0L
                 sessionJob = scope.launch {
                     val epochResume = epoch
                     val ok = parked.resumeParked(this@VpnTunnelService) { state ->
@@ -358,6 +381,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             VpnPath.Bypass -> BypassBackend()
         }
         backend = chosen
+        activeCallEpoch = config.callEpoch
 
         val fd: ParcelFileDescriptor? = when (path) {
             VpnPath.Direct -> {
@@ -1883,6 +1907,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
         backend.parkCall()
         parkedBypass = backend
+        parkedCallEpoch = activeCallEpoch
         backend.setParkedDeathHandler {
             AppLog.w(TAG, "Parked RAW process died — call identity kept, resume disabled")
             if (parkedBypass === backend) {
@@ -1904,6 +1929,18 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             parked.setParkedDeathHandler(null)
             parked.stop()
         }
+        parkedCallEpoch = 0L
+    }
+
+    private fun discardActiveBypass(reason: String) {
+        val current = backend as? BypassBackend ?: return
+        AppLog.i(TAG, "Stopping active Bypass ($reason)")
+        current.setParkedDeathHandler(null)
+        current.stop()
+        if (backend === current) {
+            backend = null
+        }
+        activeCallEpoch = 0L
     }
 
     private fun applyExcludedHostRoutes(builder: Builder, hosts: Set<String>) {
@@ -2232,6 +2269,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_NETWORK_KIND = "network_kind"
         const val EXTRA_NETWORK_SCOPE = "network_scope"
         const val EXTRA_DISCARD_PARKED = "discard_parked"
+        const val EXTRA_DISCARD_ACTIVE = "discard_active"
+        const val EXTRA_CALL_EPOCH = "call_epoch"
+        const val EXTRA_IDENTITY_TOKEN = "identity_token"
         const val NETWORK_SCOPE_ACTIVE = "active"
         const val NETWORK_SCOPE_PARKED = "parked"
         private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -125,4 +126,17 @@ func TestAttachTUNDoesNotRaceWithReadLoop(t *testing.T) {
 		_ = w.Close()
 	}
 	cancel()
+}
+
+func TestTelemetryIncludesTunCounters(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d := NewDispatcherPendingTUN(ctx, NewStats())
+	defer d.Shutdown()
+	line := d.Telemetry()
+	for _, key := range []string{"channels=", "tunGen=", "tunWriteOk=", "tunWriteErr=", "down=", "up="} {
+		if !strings.Contains(line, key) {
+			t.Fatalf("telemetry missing %s: %s", key, line)
+		}
+	}
 }

@@ -141,7 +141,8 @@ class BypassSession {
 
                 setPhase(BypassPhase.Running, onPhase)
                 while (isActive && running.get() && process.isAlive) {
-                    delay(5_000)
+                    pollTelemetry(process)
+                    delay(250)
                 }
                 if (running.get() && !process.isAlive) {
                     val msg = process.lastError ?: "Процесс обхода завершился"
@@ -240,13 +241,21 @@ class BypassSession {
         setPhase(BypassPhase.Running, onPhase)
         job = scope.launch {
             while (isActive && running.get() && process.isAlive) {
-                delay(5_000)
+                pollTelemetry(process)
+                delay(250)
             }
             if (running.get() && !process.isAlive) {
                 setPhase(BypassPhase.Failed(process.lastError ?: "Процесс обхода завершился"), onPhase)
             }
         }
         return true
+    }
+
+    private suspend fun pollTelemetry(process: BypassGoProcess) {
+        val reply = process.sendControl("GET_TELEMETRY", timeoutMs = 400L)
+        if (!reply.isNullOrBlank()) {
+            TransportHealth.applyControlAck(reply)
+        }
     }
 
     private fun cleanup(keepTun: Boolean = false) {
