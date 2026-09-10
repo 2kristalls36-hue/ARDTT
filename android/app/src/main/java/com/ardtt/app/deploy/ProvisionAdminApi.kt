@@ -13,12 +13,15 @@ object ProvisionAdminApi {
     data class HealthInfo(
         val ok: Boolean,
         val deployVersion: String = "",
+        /** Newest stack version known to the VPS (GitHub Releases), if reported. */
+        val latestDeployVersion: String = "",
         /** HTTP RTT of GET /health, milliseconds. */
         val pingMs: Long = -1L,
         val cascade: Boolean = false,
         val role: String = "",
         /** Exit VPS host when this provision is a cascade entry. */
         val cascadeHost: String = "",
+        val cascadePublicKey: String = "",
     )
 
     data class LiveCascadeInfo(
@@ -82,10 +85,12 @@ object ProvisionAdminApi {
             HealthInfo(
                 ok = ok,
                 deployVersion = o?.optString("deployVersion").orEmpty().trim(),
+                latestDeployVersion = o?.optString("latestDeployVersion").orEmpty().trim(),
                 pingMs = pingMs,
                 cascade = o?.optBoolean("cascade", false) == true,
                 role = o?.optString("role").orEmpty().trim(),
                 cascadeHost = cascadeHostFromHealth(o),
+                cascadePublicKey = o?.optString("cascadePublicKey").orEmpty().trim(),
             )
         }
     }

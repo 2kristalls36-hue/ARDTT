@@ -150,7 +150,12 @@ grep -q 'ardtt_require_container_netns' "$ROOT/server/direct/entrypoint.sh" || e
 grep -q 'ARDTT_CASCADE_ROLE:-${ARDTT_ROLE:-entry}' "$ROOT/server/direct/cascade-entrypoint.sh" \
   || err "cascade must inherit ARDTT_ROLE"
 grep -q '/ready' "$ROOT/server/provision/main.go" || err "provision missing /ready"
-grep -q 'publicProvisionPort' "$ROOT/server/provision/main.go" || err "health must expose provisionPort"
+grep -q 'latestDeployVersion' "$ROOT/server/provision/main.go" || err "health must expose latestDeployVersion"
+grep -q '/v1/cascade/peer' "$ROOT/server/provision/main.go" || err "provision must accept cascade peer pubkey"
+grep -q 'push_entry_pubkey_to_exit' "$INSTALLER" || err "install.sh must push entry cascade pubkey to exit"
+grep -q 'Запись ключа входа через туннель' \
+  "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt" \
+  && err "DeployEngine must not SSH a third hop to write cascade.peer.pub"
 grep -q 'envPort("ARDTT_DIRECT_PORT")' "$ROOT/server/provision/main.go" || err "provision must sync DirectPort"
 
 if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/warp/entrypoint.sh" >/dev/null; then

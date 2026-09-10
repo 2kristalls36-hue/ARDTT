@@ -211,6 +211,18 @@ class ServerDeployCardLogicTest {
         val outdated = healthStatusParts(HealthUi.Online("1.0.5"), "1.0.6")
         assertEquals("Требуется обновление · 1.0.5 → 1.0.6", outdated.deploy)
         assertEquals("● Онлайн", outdated.presence)
+        val fromServer = healthStatusParts(
+            HealthUi.Online("1.0.45", latestDeployVersion = "1.0.47"),
+            "1.0.46",
+        )
+        assertEquals("Требуется обновление · 1.0.45 → 1.0.47", fromServer.deploy)
+        assertEquals(
+            "1.0.47",
+            effectiveExpectedVersion(
+                HealthUi.Online("1.0.45", latestDeployVersion = "1.0.47"),
+                "1.0.46",
+            ),
+        )
     }
 
     @Test

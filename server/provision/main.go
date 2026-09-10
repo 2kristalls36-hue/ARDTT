@@ -196,18 +196,50 @@ func runServer(store *Store, listen string) error {
 			cascadeHost = cascadeHostFromPeer(peer)
 		}
 		writeJSON(w, map[string]any{
-			"ok":             true,
-			"service":        "provision",
-			"deployVersion":  resolveDeployVersion(),
-			"role":           strings.TrimSpace(envOr("ARDTT_ROLE", "entry")),
-			"cascade":        cascade,
-			"cascadePeer":    peer,
-			"cascadeHost":    cascadeHost,
-			"directPort":     store.Config.DirectPort,
-			"bypassPort":     store.Config.BypassPort,
-			"provisionPort":  publicProvisionPort(),
-			"telemetryPort":  publicTelemetryPort(),
+			"ok":                  true,
+			"service":             "provision",
+			"deployVersion":       resolveDeployVersion(),
+			"latestDeployVersion": resolveLatestDeployVersion(),
+			"cascadePublicKey":    readCascadePublicKey(filepath.Dir(store.path)),
+			"role":                strings.TrimSpace(envOr("ARDTT_ROLE", "entry")),
+			"cascade":             cascade,
+			"cascadePeer":         peer,
+			"cascadeHost":         cascadeHost,
+			"directPort":          store.Config.DirectPort,
+			"bypassPort":          store.Config.BypassPort,
+			"provisionPort":       publicProvisionPort(),
+			"telemetryPort":       publicTelemetryPort(),
 		})
+	})
+	mux.HandleFunc("/v1/cascade/peer", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			PublicKey string `json:"publicKey"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+			return
+		}
+		pub := strings.TrimSpace(body.PublicKey)
+		if pub == "" || strings.ContainsAny(pub, " \n\r\t") {
+			http.Error(w, `{"error":"publicKey required"}`, http.StatusBadRequest)
+			return
+		}
+		dataDir := filepath.Dir(store.path)
+		if err := os.MkdirAll(dataDir, 0o700); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+		path := filepath.Join(dataDir, "cascade.peer.pub")
+		if err := os.WriteFile(path, []byte(pub+"\n"), 0o644); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("cascade peer public key updated (%d bytes)", len(pub))
+		writeJSON(w, map[string]any{"ok": true, "path": "cascade.peer.pub"})
 	})
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		out, err := exec.Command("/opt/ardtt/ready.sh").CombinedOutput()
@@ -1431,6 +1463,109 @@ func resolveDeployVersion() string {
 		}
 	}
 	return "unknown"
+}
+
+func readCascadePublicKey(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(dataDir, "cascade.pub"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+var (
+	latestDeployMu     sync.Mutex
+	latestDeployCached string
+	latestDeployAt     time.Time
+)
+
+// resolveLatestDeployVersion reports the newest ardtt-server-* on GitHub Releases
+// (cached ~1h). Falls back to the installed deployVersion when GitHub is unreachable.
+func resolveLatestDeployVersion() string {
+	if v := strings.TrimSpace(os.Getenv("ARDTT_LATEST_DEPLOY_VERSION")); v != "" {
+		return v
+	}
+	latestDeployMu.Lock()
+	defer latestDeployMu.Unlock()
+	if latestDeployCached != "" && time.Since(latestDeployAt) < time.Hour {
+		return latestDeployCached
+	}
+	if v := fetchLatestDeployFromGitHub(); v != "" {
+		latestDeployCached = v
+		latestDeployAt = time.Now()
+		return v
+	}
+	if latestDeployCached != "" {
+		return latestDeployCached
+	}
+	return resolveDeployVersion()
+}
+
+func fetchLatestDeployFromGitHub() string {
+	repo := strings.TrimSpace(os.Getenv("ARDTT_GITHUB_REPO"))
+	if repo == "" {
+		repo = "2kristalls36-hue/ARDTT"
+	}
+	api := strings.TrimSpace(os.Getenv("ARDTT_GITHUB_API"))
+	if api == "" {
+		api = "https://api.github.com"
+	}
+	url := fmt.Sprintf("%s/repos/%s/releases?per_page=30", strings.TrimRight(api, "/"), repo)
+	client := &http.Client{Timeout: 2500 * time.Millisecond}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "ARDTT-provision/latest-deploy")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var releases []struct {
+		Draft  bool `json:"draft"`
+		Assets []struct {
+			Name string `json:"name"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return ""
+	}
+	prefix := "ardtt-server-"
+	suffixAmd := "-linux-amd64.tar.gz"
+	suffixArm := "-linux-arm64.tar.gz"
+	for _, rel := range releases {
+		if rel.Draft {
+			continue
+		}
+		for _, a := range rel.Assets {
+			name := a.Name
+			if !strings.HasPrefix(name, prefix) {
+				continue
+			}
+			ver := ""
+			switch {
+			case strings.HasSuffix(name, suffixAmd):
+				ver = strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffixAmd)
+			case strings.HasSuffix(name, suffixArm):
+				ver = strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffixArm)
+			default:
+				continue
+			}
+			if ver != "" && !strings.Contains(ver, "/") {
+				return ver
+			}
+		}
+	}
+	return ""
 }
 
 func clientIP(r *http.Request) string {

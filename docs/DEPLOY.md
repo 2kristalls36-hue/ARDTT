@@ -9,11 +9,11 @@
 
 Каталог по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). Старый `/opt/nonamevpn` при обновлении переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.46**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.47**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
 
 > [!IMPORTANT]
-> Стек **1.0.46** — самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (docker save + Engine).  
-> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.46. Нужен клиент с этой версии.
+> Стек **1.0.47** — самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (docker save + Engine).  
+> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.47. Нужен клиент с этой версии.
 
 ---
 
@@ -103,17 +103,17 @@ third-party.lock.json
 
 ## Путь 1 — деплой из Android
 
-Нужен APK этой линейки (стек **1.0.46**, клиент **0.5.258**). APK **0.5.257** ещё останавливает каскад на preflight, если Docker на VPS нет. Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят.
+Нужен APK этой линейки (стек **1.0.47**). APK **0.5.257** ещё останавливает каскад на preflight, если Docker на VPS нет. Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят.
 
 ### Что ещё привязано к телефону
 
 | Остаётся на телефоне | Можно ли отвязать дальше |
 |----------------------|---------------------------|
 | SSH как канал «запусти скрипт» | Да — webhook/agent на VPS, телефон только UI |
-| Preflight по SSH | Частично уже дублируется в `install.sh`; телефонный preflight можно убрать |
-| Оркестрация каскада (порядок exit→entry, запись peer key) | Да — entry после up сам дотягивает exit, или VPS1 гоняет VPS2 |
+| Preflight по SSH (опциональная кнопка) | Да — install.sh сам падает с `ARDTT_ERROR`; «Повторить установку» больше не ждёт отдельную проверку |
+| Оркестрация порядка каскада exit→entry | Частично снято: ключ входа VPS1→VPS2 через `POST /v1/cascade/peer` |
 | Карточка сервера / SSH-секреты | Да, если появится отдельный admin API с токеном |
-| Опрос «последняя версия стека» (лёгкий JSON Releases) | Да — provision может отдавать `latestDeployVersion` с CDN/манифеста |
+| Опрос Releases при старте APK | Частично снято: `/health.latestDeployVersion` с VPS |
 | APK self-update | Отдельно от деплоя VPS |
 
 ### UI
@@ -206,6 +206,9 @@ ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
 ```
 
 Порядок обновления каскада: сначала выход до этого `deployVersion`, потом вход.
+Вход после readiness сам `POST /v1/cascade/peer` на provision выхода (ключ входа).
+Телефону третий SSH-хоп для записи `cascade.peer.pub` не нужен.
+`GET /health` отдаёт `latestDeployVersion` (кэш Releases) и `cascadePublicKey`.
 
 ---
 

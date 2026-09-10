@@ -402,7 +402,7 @@ while kill -0 "${AWG_PID}" 2>/dev/null; do
       local_ok=1
     fi
     now="$(date +%s)"
-    # Grace after start so the phone can finish writing the exit peer.
+    # Grace after start so entry can finish pushing its pubkey to exit.
     if [ "${local_ok}" -eq 0 ] && [ $((now - STARTED_AT)) -lt "${STALE_SEC}" ]; then
       write_status starting
       continue
