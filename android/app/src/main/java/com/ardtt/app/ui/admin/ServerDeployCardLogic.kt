@@ -94,8 +94,9 @@ internal data class HealthStatusParts(
 
 internal fun effectiveExpectedVersion(health: HealthUi?, fallback: String): String {
     val fromServer = (health as? HealthUi.Online)?.latestDeployVersion?.trim().orEmpty()
-    if (fromServer.isNotEmpty()) return fromServer
-    return fallback.trim()
+    val fromApp = fallback.trim()
+    // Prefer the newer of VPS-reported Releases tip and the APK git deploy version.
+    return DeployBundle.maxVersion(fromServer, fromApp)
 }
 
 internal fun healthStatusParts(

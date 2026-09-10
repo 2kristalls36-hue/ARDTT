@@ -14,9 +14,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * Latest stack (deploy-part) version discovered from GitHub Releases.
- * Polled on every app launch so the APK does not hard-code the installable
- * server package version as the source of truth.
+ * Latest stack (deploy-part) version for UI / install targeting.
+ * Polls GitHub Releases on launch, then takes the max with the APK-bundled
+ * git [DeployBundle.FALLBACK_VERSION] so an unpublished git bump still shows
+ * as “needs update” against an older installed stack.
  */
 object DeployVersionCatalog {
     private const val TAG = "DeployVersionCatalog"
@@ -36,33 +37,38 @@ object DeployVersionCatalog {
     val latest: StateFlow<String?> = _latest.asStateFlow()
 
     fun expectedVersion(context: Context): String {
-        cached.get()?.takeIf { it.isNotBlank() }?.let { return it }
+        val bundled = DeployBundle.offlineFallback(context)
+        cached.get()?.takeIf { it.isNotBlank() }?.let {
+            return DeployBundle.maxVersion(it, bundled)
+        }
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY_LATEST, null)?.trim().orEmpty()
         if (stored.isNotEmpty()) {
-            cached.set(stored)
-            _latest.value = stored
-            return stored
+            val merged = DeployBundle.maxVersion(stored, bundled)
+            cached.set(merged)
+            _latest.value = merged
+            return merged
         }
-        return DeployBundle.offlineFallback(context)
+        return bundled
     }
 
     suspend fun refresh(context: Context): String = withContext(Dispatchers.IO) {
         val app = context.applicationContext
-        val resolved = runCatching { fetchLatestFromGitHub() }.getOrNull()
-        if (!resolved.isNullOrBlank()) {
-            cached.set(resolved)
-            _latest.value = resolved
-            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(KEY_LATEST, resolved)
-                .putLong(KEY_CHECKED_AT, System.currentTimeMillis())
-                .apply()
-            AppLog.i(TAG, "latest deploy version from GitHub: $resolved")
-            return@withContext resolved
+        val bundled = DeployBundle.offlineFallback(app)
+        val fromGithub = runCatching { fetchLatestFromGitHub() }.getOrNull()?.trim().orEmpty()
+        val resolved = DeployBundle.maxVersion(fromGithub, bundled)
+        cached.set(resolved)
+        _latest.value = resolved
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_LATEST, resolved)
+            .putLong(KEY_CHECKED_AT, System.currentTimeMillis())
+            .apply()
+        if (fromGithub.isNotEmpty()) {
+            AppLog.i(TAG, "deploy version: github=$fromGithub bundled=$bundled → $resolved")
+        } else {
+            AppLog.w(TAG, "deploy version poll failed; using bundled/git $resolved")
         }
-        val fallback = expectedVersion(app)
-        AppLog.w(TAG, "deploy version poll failed; using $fallback")
-        fallback
+        resolved
     }
 
     fun fetchLatestFromGitHub(): String? {
