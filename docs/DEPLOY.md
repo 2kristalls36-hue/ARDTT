@@ -24,14 +24,14 @@
 | Есть | Нет |
 |------|-----|
 | Linux amd64 или arm64 | Сборка образа на VPS |
-| python3, iptables, systemd | `get.docker.com`, apt/dnf установка Docker |
-| `/dev/net/tun` | `docker pull` / GHCR / Docker Hub на установке |
-| Compose v2 *или* `bin/docker-compose` из архива | `git clone` исходников |
-| | Хостовый hostnet |
+| python3, curl, iptables, systemd | `get.docker.com`, apt/dnf установка Docker |
+| исходящий HTTPS к GitHub Releases | `docker pull` / GHCR / Docker Hub на установке |
+| `/dev/net/tun` | `git clone` исходников |
+| Compose v2 *или* `bin/docker-compose` из архива | Хостовый hostnet |
 
 Если Engine уже работает, установщик его не обновляет и не перезапускает. Если CLI есть, а демон мёртв — отказ (чужой Engine не подменяем). Недостающий Compose берётся из того же архива в `/opt/ardtt/bin`.
 
-Клиент перед GitHub/SFTP проверяет оба узла тем же SSH-маршрутом, что и установка: сначала выход (VPS2 через VPS1), затем вход. Отсутствие Docker **не** ошибка: установка распакует Engine из архива. По-прежнему отказ: `DOCKER_NOT_RUNNING` (чужой демон мёртв), `DOCKER_ACCESS_DENIED`, `UNSUPPORTED_RUNTIME` (podman/kubelet/containerd без Docker), `PYTHON_MISSING`, `SSH_FAILED`.
+Клиент перед установкой проверяет оба узла тем же SSH-маршрутом: сначала выход (VPS2 через VPS1), затем вход. Отсутствие Docker **не** ошибка: установка распакует Engine из архива. По-прежнему отказ: `DOCKER_NOT_RUNNING` (чужой демон мёртв), `DOCKER_ACCESS_DENIED`, `UNSUPPORTED_RUNTIME` (podman/kubelet/containerd без Docker), `PYTHON_MISSING`, `SSH_FAILED`, а также `CURL_MISSING` / `GITHUB_UNREACHABLE` если VPS не может скачать пакет с Releases.
 
 Стек — **один контейнер** в своей netns и своей Docker bridge-сети. Hostnet из старой `.env` не восстанавливается. Привилегированный режим, host PID/IPC, `docker.sock` внутри контейнера и nsenter в хост не используются. Compose: `cap_drop: ALL`, затем `NET_ADMIN`, `NET_RAW`, `SETUID` и `SETGID` (иначе dnsmasq `setgid(dip)` падает с Operation not permitted). Подсеть bridge подбирается так, чтобы не пересечься с маршрутами хоста и сетями Docker: сначала `172.28.x.0/24` / `172.30.x.0/24`, а если хост анонсирует `172.16.0.0/12` (часто на облачных VPS) — `10.112.x.0/24` или `10.210.x.0/24`. Не задаётся одна жёсткая подсеть для всех машин.
 
@@ -68,8 +68,10 @@ third-party.lock.json
 
 | Способ | Когда | Что происходит |
 |--------|--------|----------------|
-| **Из приложения** | Админ с телефоном | SSH определяет arch → один актив релиза → SFTP файла → Engine из архива при необходимости → `docker load` + compose `--no-build --pull never` |
-| **Архив с Releases** | На VPS есть shell | Скачать актив, сверить SHA-256 с релизом, `install.sh` |
+| **Из приложения** | Админ с телефоном | SSH → на VPS запускается `fetch-and-install.sh` → **VPS** качает актив с GitHub Releases → Engine из архива → `docker load` + compose `--no-build --pull never` |
+| **Архив с Releases** | На VPS есть shell | Скачать актив, сверить SHA-256 с релизом, `install.sh` (или тот же `fetch-and-install.sh`) |
+
+Телефон **не** скачивает и **не** SFTP'ит multi‑MB пакет. Нужен только SSH к VPS; исходящий HTTPS к `api.github.com` / `github.com` — **на сервере**. Версия стека для UI опрашивается при запуске APK (`DeployVersionCatalog`); в APK зашит лишь offline fallback.
 
 Сборка из исходников (`docker-compose.dev.yml`) — путь **разработчика**, не продуктовая установка.
 
@@ -77,13 +79,13 @@ third-party.lock.json
 
 ```
 Телефон (админ)
-  HTTPS  GitHub Releases  ardtt-server-<ver>-linux-<arch>.tar.gz
-      │  SHA-256 с digest / SHA256SUMS релиза
-  SSH
-      │  SFTP  /opt/ardtt/incoming/*.tar.gz
-      │  extract + bash staging/install.sh
+  SSH  «запусти fetch-and-install»
+      │
       ▼
-    VPS  /opt/ardtt/current/     ← compose + .env этой версии
+    VPS  HTTPS  GitHub Releases  ardtt-server-<ver>-linux-<arch>.tar.gz
+         SHA-256 с digest / SHA256SUMS релиза
+         extract + bash staging/install.sh
+         /opt/ardtt/current/     ← compose + .env этой версии
          /opt/ardtt/previous/    ← прошлое, пока новая не прошла readiness
          /opt/ardtt/data         ← users.json, ключи, warp
          /opt/ardtt/logs
@@ -103,6 +105,17 @@ third-party.lock.json
 
 Нужен APK этой линейки (стек **1.0.46**, клиент **0.5.258**). APK **0.5.257** ещё останавливает каскад на preflight, если Docker на VPS нет. Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят.
 
+### Что ещё привязано к телефону
+
+| Остаётся на телефоне | Можно ли отвязать дальше |
+|----------------------|---------------------------|
+| SSH как канал «запусти скрипт» | Да — webhook/agent на VPS, телефон только UI |
+| Preflight по SSH | Частично уже дублируется в `install.sh`; телефонный preflight можно убрать |
+| Оркестрация каскада (порядок exit→entry, запись peer key) | Да — entry после up сам дотягивает exit, или VPS1 гоняет VPS2 |
+| Карточка сервера / SSH-секреты | Да, если появится отдельный admin API с токеном |
+| Опрос «последняя версия стека» (лёгкий JSON Releases) | Да — provision может отдавать `latestDeployVersion` с CDN/манифеста |
+| APK self-update | Отдельно от деплоя VPS |
+
 ### UI
 
 1. Настройки → режим администратора.
@@ -116,17 +129,20 @@ third-party.lock.json
 
 ### Что делает `DeployEngine`
 
-1. SSH: `uname -m` → `amd64` / `arm64` **на каждом** хопе. Каскад: сначала SSH на вход, затем `direct-tcpip` с входа на SSH выхода (телефон VPS 2 не набирает).
-2. HTTPS: потоковая загрузка актива в файл кеша, SHA-256 на потоке. Сначала тег `v<versionName>`, если на нём нет `ardtt-server-*.tar.gz` — другой опубликованный релиз с этой версией стека. Образ не держится в `ByteArray`. Кеш переиспользуется только при совпадении version/arch/digest.
-3. SFTP файла во временное имя, затем `mv`. Отдельный `install.sh` с GitHub не качается.
-4. На VPS: сверка SHA-256, безопасная распаковка, `install.sh` из архива.
-5. Протокол: `ARDTT_PROGRESS`, `ARDTT_WARN`, `ARDTT_ERROR`, `ARDTT_DONE`, `ARDTT_CASCADE_PUBLIC_KEY`. Фактические `provision_port` / `telemetry_port` пишутся в карточку.
+1. SSH: `uname -m` / preflight **на каждом** хопе. Каскад: сначала SSH на вход, затем `direct-tcpip` с входа на SSH выхода (телефон VPS 2 не набирает).
+2. На VPS: если есть `/opt/ardtt/current/fetch-and-install.sh` — запускает его; иначе SFTP **только** маленький bootstrap `fetch-and-install.sh` из assets APK.
+3. `fetch-and-install.sh` на VPS: HTTPS к GitHub Releases → SHA-256 → safe extract → `install.sh`. Пакет на телефон не качается.
+4. Протокол: `ARDTT_PROGRESS`, `ARDTT_WARN`, `ARDTT_ERROR`, `ARDTT_DONE`, `ARDTT_CASCADE_PUBLIC_KEY`. Фактические `provision_port` / `telemetry_port` пишутся в карточку.
+5. При каждом запуске APK `DeployVersionCatalog` опрашивает Releases и обновляет «ожидаемую» версию стека (сравнение с `/health`).
 
 Каскад: SSH к выходу всегда через вход (direct-tcpip / ProxyJump с телефона на VPS 1, дальше TCP до SSH VPS 2). Сначала выходной стек, потом входной. Общая установка не считается успешной, если один узел не готов. Пароль второго сервера в `.env` входа не пишется. На карточке укажите адрес выхода **как его видит VPS 1** (публичный IP или внутренний). `sshd` входа должен разрешать `AllowTcpForwarding`.
 
 Повторный «Обновить деплой» входа без флага каскада не сбрасывает живой hop (`preserve_live_cascade`). Снять: `ARDTT_CASCADE_FORCE_DISABLE=1`.
 
 Отмена = `session.disconnect()` (и jump-сессия входа, если каскад). Docker `builder prune` / `image prune` с телефона **не** вызываются.
+
+> [!NOTE]
+> Ошибка **«Контейнер ardtt не подтверждён как ARDTT — не останавливаем»** — защита установщика: чужой контейнер с именем `ardtt` не трогаем. Если контейнер уже снят `compose down`, повторная проверка больше не падает (считается «уже снят»). Если на хосте реально чужой `ardtt` без labels/`/opt/ardtt/data` — переименуйте/уберите его или дайте ARDTT имя `ardtt-<instanceId>`.
 
 ### Удаление
 

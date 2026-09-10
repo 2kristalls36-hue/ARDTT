@@ -433,7 +433,9 @@ do_install() {
   [ -f "$PKG_DIR/docker-compose.exit.yml" ] && cp -a "$PKG_DIR/docker-compose.exit.yml" "$release/"
   [ -f "$PKG_DIR/manifest.json" ] && cp -a "$PKG_DIR/manifest.json" "$release/"
   cp -a "$PKG_DIR/install.sh" "$release/" 2>/dev/null || true
+  [ -f "$PKG_DIR/fetch-and-install.sh" ] && cp -a "$PKG_DIR/fetch-and-install.sh" "$release/" && chmod 755 "$release/fetch-and-install.sh" || true
   [ -d "$PKG_DIR/install-lib" ] && cp -a "$PKG_DIR/install-lib" "$release/"
+  [ -d "$PKG_DIR/scripts" ] && cp -a "$PKG_DIR/scripts" "$release/"
   if [ -f "$PKG_DIR/ready.sh" ]; then
     cp -a "$PKG_DIR/ready.sh" "$release/"
   elif [ -f "$SCRIPT_DIR/ready.sh" ]; then

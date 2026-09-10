@@ -314,8 +314,8 @@ internal fun serverDeployFormHelp(
     expectedVersion: String,
 ): String {
     if (saved) {
-        return "Кнопка «Переустановить деплой» снова скачает стек версии $expectedVersion из репозитория и зальёт его на VPS. " +
-            "Ход установки откроется снизу, как при обновлении деплоя."
+        return "Кнопка «Переустановить деплой» запустит на VPS fetch-and-install для стека $expectedVersion " +
+            "(пакет скачает сам сервер с GitHub Releases). Ход установки откроется снизу."
     }
     val action = serverDeployActionLabel(saved = false, cascadeEnabled = cascadeEnabled)
     return "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «$action»."
@@ -323,7 +323,7 @@ internal fun serverDeployFormHelp(
 
 internal fun serverReinstallConfirmBody(host: String, expectedVersion: String): String {
     val target = host.trim().ifBlank { "VPS" }
-    return "Стек версии $expectedVersion будет снова скачан из репозитория и залит на $target по указанным SSH-данным."
+    return "На $target будет запущен fetch-and-install: VPS сам скачает стек версии $expectedVersion из GitHub Releases и поставит его. Телефон только запускает скрипт по SSH."
 }
 
 /** Same default as the first VPS SSH user field. */

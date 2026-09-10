@@ -165,6 +165,34 @@ class DeployStackSourceTest {
     }
 
     @Test
+    fun latestServerVersionPicksNewestPublishedAsset() {
+        val json = """
+            [
+              {
+                "tag_name": "v0.5.259",
+                "draft": false,
+                "assets": [
+                  {"name": "ardtt-0.5.259.apk", "browser_download_url": "https://x/a.apk"}
+                ]
+              },
+              {
+                "tag_name": "v0.5.258",
+                "draft": false,
+                "assets": [
+                  {
+                    "name": "ardtt-server-1.0.46-linux-amd64.tar.gz",
+                    "browser_download_url": "https://x/ardtt-server-1.0.46-linux-amd64.tar.gz"
+                  }
+                ]
+              }
+            ]
+        """.trimIndent()
+        assertEquals("1.0.46", DeployStackSource.latestServerVersion(json))
+        assertNull(DeployStackSource.latestServerVersion("[]"))
+        assertNull(DeployStackSource.latestServerVersion("{\"not\":\"array\"}"))
+    }
+
+    @Test
     fun gzipMagicAndInstallerSniff() {
         assertTrue(DeployStackFetcher.looksLikeGzip(byteArrayOf(0x1f, 0x8b.toByte(), 0x08)))
         assertFalse(DeployStackFetcher.looksLikeGzip("not gzip".toByteArray()))
