@@ -32,6 +32,8 @@ fi
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/common.sh"
 # shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/disk-cleanup.sh"
+# shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/engine.sh"
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/ports.sh"
@@ -70,8 +72,10 @@ CASCADE_PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-${NVPN_CASCADE_PEER_ENDPOI
 CASCADE_PEER_PUBLIC_KEY="${ARDTT_CASCADE_PEER_PUBLIC_KEY:-${NVPN_CASCADE_PEER_PUBLIC_KEY:-}}"
 CASCADE_PEER_PROVISION_PORT="${ARDTT_CASCADE_PEER_PROVISION_PORT:-9100}"
 CASCADE_DNS="${ARDTT_CASCADE_DNS:-${NVPN_CASCADE_DNS:-10.10.0.2}}"
-MIN_DISK_MB="${ARDTT_MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-2500}}"
+MIN_DISK_MB="${ARDTT_MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-1600}}"
 MIN_RAM_MB="${ARDTT_MIN_RAM_MB:-384}"
+# Opt-in only: never auto-prune the host. Phone / operator sets ARDTT_DISK_CLEANUP=1.
+DISK_CLEANUP="${ARDTT_DISK_CLEANUP:-${NVPN_DISK_CLEANUP:-0}}"
 DIRECT_LISTEN_PORT=51820
 BYPASS_LISTEN_PORT=56003
 NETWORK_MODE=isolated
@@ -147,18 +151,78 @@ preflight_tun() {
   [ -e /dev/net/tun ] || die "Нет /dev/net/tun. Загрузите модуль tun. Установщик не меняет sysctl хоста."
 }
 
+preflight_space_need_mb() {
+  local need="$MIN_DISK_MB" layers_mb=0
+  # Layered packages need far less peak space than a full uncompressed docker save.
+  if [ -f "${PKG_DIR:-}/images/layout.json" ]; then
+    layers_mb="$(python3 - "${PKG_DIR}/images/layout.json" <<'PY' 2>/dev/null || echo 0
+import json,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+gz=sum(int((x or {}).get("gzSize") or 0) for x in (d.get("layers") or []))
+print(max(0, (gz + 1024*1024 - 1)//(1024*1024)))
+PY
+)"
+    # staging already extracted: need headroom for one decompressed layer stream + compose swap.
+    local layered_need=$(( layers_mb / 3 + 700 ))
+    [ "$layered_need" -lt 1200 ] && layered_need=1200
+    [ "$layered_need" -lt "$need" ] && need="$layered_need"
+    # Same image already loaded → only host files / previous metadata.
+    if [ -n "${ARDTT_IMAGE:-}" ] && docker image inspect "${ARDTT_IMAGE}" >/dev/null 2>&1; then
+      if [ -n "${IMAGE_LAYOUT:-}" ] && loaded_image_matches_layout "$IMAGE_LAYOUT" "$ARDTT_IMAGE" 2>/dev/null; then
+        need=800
+      fi
+    fi
+  elif [ -f "${PKG_DIR:-}/images/ardtt.tar" ]; then
+    local tar_mb
+    tar_mb="$(du -m "${PKG_DIR}/images/ardtt.tar" 2>/dev/null | awk '{print $1}')"
+    if [ -n "${tar_mb:-}" ]; then
+      local mono_need=$(( tar_mb + 800 ))
+      [ "$mono_need" -gt "$need" ] && need="$mono_need"
+    fi
+  fi
+  printf '%s %s' "$need" "$layers_mb"
+}
+
+disk_full_hint() {
+  echo "Повторите с безопасной очисткой перед установкой (ARDTT_DISK_CLEANUP=1): логи Docker, apt-кэш, лишние linux-headers, хвосты ARDTT. Чужие контейнеры и /opt/ardtt/data не трогаем. Глобальная очистка сервера не выполняется."
+}
+
 preflight_space() {
-  local need="$MIN_DISK_MB" avail docker_root
+  local need layers_mb avail docker_root avail_docker cleaned=0
+  read -r need layers_mb <<<"$(preflight_space_need_mb)"
   avail="$(disk_avail_mb "$INSTALL_DIR")"
   docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
-  local avail_docker
   avail_docker="$(disk_avail_mb "$docker_root")"
-  echo "ARDTT_INFO|диск install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need} с запасом на load+слои+резерв)"
+  echo "ARDTT_INFO|диск install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need}; слои≈${layers_mb:-0} МБ gz)"
+
+  local short=0
   if [ -n "${avail:-}" ] && [ "$avail" -lt "$need" ] 2>/dev/null; then
-    die "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ на распаковку, слои и резерв предыдущей версии). Глобальная очистка сервера не выполняется."
+    short=1
   fi
   if [ -n "${avail_docker:-}" ] && [ "$avail_docker" -lt "$need" ] 2>/dev/null; then
-    die "Мало места в DockerRootDir ${docker_root}: свободно ${avail_docker} МБ (нужно ≥${need} МБ)."
+    short=1
+  fi
+
+  if [ "$short" = 1 ] && { [ "$DISK_CLEANUP" = "1" ] || [ "$DISK_CLEANUP" = "yes" ] || [ "$DISK_CLEANUP" = "true" ]; }; then
+    prog 0.19 "Очистка места на диске…"
+    ardtt_disk_cleanup
+    cleaned=1
+    avail="$(disk_avail_mb "$INSTALL_DIR")"
+    avail_docker="$(disk_avail_mb "$docker_root")"
+    echo "ARDTT_INFO|после очистки install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need})"
+  fi
+
+  if [ -n "${avail:-}" ] && [ "$avail" -lt "$need" ] 2>/dev/null; then
+    if [ "$cleaned" = 1 ]; then
+      die --code DISK_FULL "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ) даже после очистки. Освободите место вручную."
+    fi
+    die --code DISK_FULL "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ на распаковку, слои и резерв предыдущей версии). $(disk_full_hint)"
+  fi
+  if [ -n "${avail_docker:-}" ] && [ "$avail_docker" -lt "$need" ] 2>/dev/null; then
+    if [ "$cleaned" = 1 ]; then
+      die --code DISK_FULL "Мало места в DockerRootDir ${docker_root}: свободно ${avail_docker} МБ (нужно ≥${need} МБ) даже после очистки."
+    fi
+    die --code DISK_FULL "Мало места в DockerRootDir ${docker_root}: свободно ${avail_docker} МБ (нужно ≥${need} МБ). $(disk_full_hint)"
   fi
   local ram
   ram="$(mem_avail_mb)"
@@ -199,6 +263,10 @@ write_env_file() {
     warp_url="http://10.10.0.1:9100/v1/hide-ip-prefixes"
     DIRECT_PORT="$CASCADE_LISTEN_PORT"
   fi
+  local mem_limit cpus_limit
+  mem_limit="$(resolve_ardtt_mem_limit)"
+  cpus_limit="$(resolve_ardtt_cpus)"
+  echo "ARDTT_INFO|ресурсы compose: mem_limit=${mem_limit} cpus=${cpus_limit} (хост nproc=$(host_cpu_count))"
   cat > "$dest" <<EOF
 ARDTT_PUBLIC_HOST=$PUBLIC_HOST
 ARDTT_IMAGE=$ARDTT_IMAGE
@@ -221,8 +289,8 @@ ARDTT_TELEMETRY_LISTEN=0.0.0.0:9200
 ARDTT_SKIP_TELEMETRY=0
 ARDTT_DEPLOY_VERSION=$DEPLOY_VERSION
 ARDTT_WARP_GOMEMLIMIT=256MiB
-ARDTT_MEM_LIMIT=${ARDTT_MEM_LIMIT:-1g}
-ARDTT_CPUS=${ARDTT_CPUS:-2.0}
+ARDTT_MEM_LIMIT=$mem_limit
+ARDTT_CPUS=$cpus_limit
 ARDTT_PIDS_LIMIT=${ARDTT_PIDS_LIMIT:-512}
 ARDTT_ROLE=$ROLE
 ARDTT_CASCADE_ROLE=$ROLE
@@ -265,6 +333,40 @@ ensure_cascade_keys() {
   if [ -n "$pub" ]; then
     echo "ARDTT_CASCADE_PUBLIC_KEY|$pub"
   fi
+}
+
+# Entry → exit: publish cascade.pub to exit provision so the phone does not
+# need a third SSH hop to write /opt/ardtt/data/cascade.peer.pub.
+push_entry_pubkey_to_exit() {
+  [ "$ROLE" = "entry" ] || return 0
+  [ "$CASCADE_ENABLED" = "1" ] || return 0
+  local pub host port url i
+  pub="$(tr -d '[:space:]' <"${INSTALL_DIR}/data/cascade.pub" 2>/dev/null || true)"
+  [ -n "$pub" ] || {
+    echo "ARDTT_WARN|нет cascade.pub — ключ входа на выход не отправлен"
+    return 0
+  }
+  host="${CASCADE_PEER_ENDPOINT%%:*}"
+  host="$(printf '%s' "$host" | tr -d '[:space:]')"
+  [ -n "$host" ] || {
+    echo "ARDTT_WARN|нет CASCADE_PEER_ENDPOINT — ключ входа на выход не отправлен"
+    return 0
+  }
+  port="${CASCADE_PEER_PROVISION_PORT:-9100}"
+  url="http://${host}:${port}/v1/cascade/peer"
+  command -v curl >/dev/null 2>&1 || {
+    echo "ARDTT_WARN|нет curl — ключ входа на выход не отправлен (${url})"
+    return 0
+  }
+  for i in 1 2 3 4 5 6; do
+    if curl -fsS -m 12 -X POST -H 'Content-Type: application/json' \
+      -d "{\"publicKey\":\"${pub}\"}" "$url" >/dev/null 2>&1; then
+      echo "ARDTT_INFO|ключ входа отправлен на выход ${host}:${port}"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "ARDTT_WARN|не удалось отправить ключ входа на ${url} — проверьте доступ VPS1→VPS2 :${port}"
 }
 
 find_package_file() {
@@ -404,9 +506,21 @@ do_install() {
     return 0
   fi
 
-  prog 0.30 "docker load образа (без build и без pull)"
-  load_package_image "$IMAGE_TAR" "$ARDTT_IMAGE" "$PKG_IMAGE_ID"
+  prog 0.30 "docker load образа (слои или tar, без build/pull)"
+  # Drop the downloaded archive early — staging already holds the payload.
+  if [ -n "${ARDTT_PACKAGE:-}" ] && [ -f "${ARDTT_PACKAGE}" ]; then
+    rm -f "${ARDTT_PACKAGE}" "${ARDTT_PACKAGE}.partial" 2>/dev/null || true
+    echo "ARDTT_INFO|incoming-пакет удалён после распаковки (освобождение места)"
+  fi
+  load_package_image "${IMAGE_TAR:-}" "$ARDTT_IMAGE" "$PKG_IMAGE_ID" "${IMAGE_LAYOUT:-}"
   LOADED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$ARDTT_IMAGE")"
+  # Layer blobs are no longer needed after a successful load.
+  if [ -n "${IMAGE_LAYOUT:-}" ] && [ -d "${IMAGE_LAYOUT}/layers" ]; then
+    rm -rf "${IMAGE_LAYOUT}/layers" "${IMAGE_LAYOUT}/extras" 2>/dev/null || true
+  fi
+  if [ -n "${IMAGE_TAR:-}" ] && [ -f "${IMAGE_TAR}" ]; then
+    rm -f "${IMAGE_TAR}" 2>/dev/null || true
+  fi
 
   mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs"
   chmod 700 "$INSTALL_DIR/data"
@@ -433,7 +547,9 @@ do_install() {
   [ -f "$PKG_DIR/docker-compose.exit.yml" ] && cp -a "$PKG_DIR/docker-compose.exit.yml" "$release/"
   [ -f "$PKG_DIR/manifest.json" ] && cp -a "$PKG_DIR/manifest.json" "$release/"
   cp -a "$PKG_DIR/install.sh" "$release/" 2>/dev/null || true
+  [ -f "$PKG_DIR/fetch-and-install.sh" ] && cp -a "$PKG_DIR/fetch-and-install.sh" "$release/" && chmod 755 "$release/fetch-and-install.sh" || true
   [ -d "$PKG_DIR/install-lib" ] && cp -a "$PKG_DIR/install-lib" "$release/"
+  [ -d "$PKG_DIR/scripts" ] && cp -a "$PKG_DIR/scripts" "$release/"
   if [ -f "$PKG_DIR/ready.sh" ]; then
     cp -a "$PKG_DIR/ready.sh" "$release/"
   elif [ -f "$SCRIPT_DIR/ready.sh" ]; then
@@ -467,13 +583,21 @@ do_install() {
   ln -sfn "$release" "$INSTALL_DIR/current-release" 2>/dev/null || true
 
   prog 0.62 "Запуск compose --no-build --pull never"
+  local compose_log
+  compose_log="$(mktemp)"
   if ! (
     cd "$INSTALL_DIR/current"
     compose_up_cmd up -d --no-build --pull never
-  ); then
+  ) >"$compose_log" 2>&1; then
+    local compose_err
+    compose_err="$(tail -n 8 "$compose_log" 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
+    cat "$compose_log" >&2 || true
+    rm -f "$compose_log"
     restore_previous_release || true
-    die "docker compose up не удался. Код ≠ 0, ARDTT_DONE нет."
+    die --code COMPOSE_UP_FAILED "docker compose up не удался: ${compose_err:-код ≠ 0, ARDTT_DONE нет}"
   fi
+  cat "$compose_log" || true
+  rm -f "$compose_log"
 
   prog 0.80 "Readiness (процессы, интерфейсы, /health)"
   if ! wait_readiness; then
@@ -489,6 +613,10 @@ do_install() {
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
   write_instance
   clear_pending_instance
+  if [ "$ROLE" = "entry" ] && [ "$CASCADE_ENABLED" = "1" ]; then
+    prog 0.92 "Передача ключа каскада на выход"
+    push_entry_pubkey_to_exit
+  fi
   rm -rf "$PKG_DIR"
   # Keep previous until next successful install. Do not delete previous here.
   prog 1.00 "Готово"

@@ -7,7 +7,7 @@ import org.json.JSONObject
 
 /**
  * Where the phone gets the VPS payload: one GitHub Release asset
- * `ardtt-server-<DEPLOY_VERSION>-linux-<arch>.tar.gz` (docker save image).
+ * `ardtt-server-<DEPLOY_VERSION>-linux-<arch>.tar.gz` (gzipped image layers (or legacy docker save)).
  * No source tarball, main, or raw install.sh fallback.
  */
 object DeployStackSource {
@@ -128,6 +128,26 @@ object DeployStackSource {
             if (json.optBoolean("draft")) continue
             val text = json.toString()
             if (pickServerAsset(text, expectedVersion, arch) != null) return text
+        }
+        return null
+    }
+
+    /**
+     * Newest (first matching) `ardtt-server-<ver>-linux-*.tar.gz` across published releases.
+     * Releases API is reverse-chronological; used by [DeployVersionCatalog] on app launch.
+     */
+    fun latestServerVersion(releasesListJson: String): String? {
+        val releases = runCatching { JSONArray(releasesListJson) }.getOrNull() ?: return null
+        val pattern = Regex("""^ardtt-server-(\d+\.\d+\.\d+)-linux-(amd64|arm64)\.tar\.gz$""", RegexOption.IGNORE_CASE)
+        for (i in 0 until releases.length()) {
+            val json = releases.optJSONObject(i) ?: continue
+            if (json.optBoolean("draft")) continue
+            val assets = json.optJSONArray("assets") ?: continue
+            for (j in 0 until assets.length()) {
+                val name = assets.optJSONObject(j)?.optString("name").orEmpty()
+                val match = pattern.matchEntire(name) ?: continue
+                return match.groupValues[1]
+            }
         }
         return null
     }

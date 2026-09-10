@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeployInstallEnvTest {
-    private fun cmd(
+    private fun fetchCmd(
         role: String = "entry",
         cascadeEnabled: Boolean = false,
         autoPorts: Boolean = true,
@@ -15,21 +15,17 @@ class DeployInstallEnvTest {
         directPort: Int = 51820,
         bypassPort: Int = 56003,
         deployVersion: String = "1.0.45",
-        packagePath: String = "/opt/ardtt/incoming/ardtt-server-1.0.45-linux-amd64.tar.gz",
-        packageSha256: String = "abc123",
         cascadePeerEndpoint: String = "",
         cascadePeerPublicKey: String = "",
         cascadePeerProvisionPort: Int = 9100,
         provisionPort: Int = 9100,
         telemetryPort: Int = 9200,
-    ): String = DeployInstallEnv.command(
+    ): String = DeployInstallEnv.fetchAndInstallCommand(
         publicHost = publicHost,
         directPort = directPort,
         bypassPort = bypassPort,
         deployVersion = deployVersion,
         role = role,
-        packagePath = packagePath,
-        packageSha256 = packageSha256,
         cascadeEnabled = cascadeEnabled,
         cascadePeerEndpoint = cascadePeerEndpoint,
         cascadePeerPublicKey = cascadePeerPublicKey,
@@ -40,23 +36,56 @@ class DeployInstallEnvTest {
     )
 
     @Test
-    fun standaloneEntryHasNoCascadePeer() {
-        val command = cmd()
-        assertTrue(command.contains("ARDTT_ROLE='entry'"))
-        assertTrue(command.contains("ARDTT_CASCADE_ENABLED=0"))
-        assertTrue(command.contains("ARDTT_AUTO_PORTS=1"))
-        assertTrue(command.contains("ARDTT_PACKAGE="))
-        assertTrue(command.contains("ARDTT_PACKAGE_SHA256='abc123'"))
-        assertTrue(command.contains("sha256sum -c"))
-        assertFalse(command.contains("ARDTT_CASCADE_PEER_PUBLIC_KEY"))
-        assertFalse(command.contains("password"))
-        assertFalse(command.contains("ARDTT_GIT_REF"))
-        assertTrue(command.contains("bash \"\$STAGE/install.sh\"") || command.contains("install.sh"))
+    fun fetchCommandClampsCpusForSingleCoreHost() {
+        val command = DeployInstallEnv.fetchAndInstallCommand(
+            publicHost = "45.129.2.3",
+            directPort = 51820,
+            bypassPort = 56003,
+            deployVersion = "1.0.46",
+            role = "entry",
+            hostCpus = 1,
+        )
+        assertTrue(command.contains("ARDTT_CPUS=1.0"))
+        assertTrue(command.contains("ARDTT_MEM_LIMIT=512m"))
+    }
+
+    @Test
+    fun fetchCommandUsesTwoCpusWhenHostHasThem() {
+        val command = DeployInstallEnv.fetchAndInstallCommand(
+            publicHost = "45.129.2.3",
+            directPort = 51820,
+            bypassPort = 56003,
+            deployVersion = "1.0.46",
+            role = "entry",
+            hostCpus = 2,
+        )
+        assertTrue(command.contains("ARDTT_CPUS=2.0"))
+        assertFalse(command.contains("ARDTT_MEM_LIMIT=512m"))
+    }
+
+    @Test
+    fun fetchCommandIncludesDiskCleanupWhenRequested() {
+        val command = DeployInstallEnv.fetchAndInstallCommand(
+            publicHost = "45.129.2.3",
+            directPort = 51820,
+            bypassPort = 56003,
+            deployVersion = "1.0.49",
+            role = "entry",
+            diskCleanup = true,
+        )
+        assertTrue(command.contains("ARDTT_DISK_CLEANUP=1"))
+        assertTrue(command.contains("fetch-and-install.sh"))
+    }
+
+    @Test
+    fun fetchCommandOmitsDiskCleanupByDefault() {
+        val command = fetchCmd()
+        assertFalse(command.contains("ARDTT_DISK_CLEANUP"))
     }
 
     @Test
     fun manualPortsDisableAutoFlag() {
-        val command = cmd(autoPorts = false, directPort = 51821, bypassPort = 56004)
+        val command = fetchCmd(autoPorts = false, directPort = 51821, bypassPort = 56004)
         assertTrue(command.contains("ARDTT_AUTO_PORTS=0"))
         assertTrue(command.contains("ARDTT_DIRECT_PORT=51821"))
         assertTrue(command.contains("ARDTT_BYPASS_PORT=56004"))
@@ -66,7 +95,7 @@ class DeployInstallEnvTest {
 
     @Test
     fun exitRoleDoesNotEmbedSshPassword() {
-        val command = cmd(role = "exit", cascadeEnabled = true)
+        val command = fetchCmd(role = "exit", cascadeEnabled = true)
         assertTrue(command.contains("ARDTT_ROLE='exit'"))
         assertTrue(command.contains("ARDTT_CASCADE_ENABLED=1"))
         assertFalse(command.contains("ARDTT_CASCADE_PASSWORD"))
@@ -75,7 +104,7 @@ class DeployInstallEnvTest {
 
     @Test
     fun entryCascadePassesPeerKeyEndpointAndProvisionPort() {
-        val command = cmd(
+        val command = fetchCmd(
             cascadeEnabled = true,
             cascadePeerEndpoint = "2.26.125.160:51820",
             cascadePeerPublicKey = "abc+DEF/123=",
@@ -89,7 +118,7 @@ class DeployInstallEnvTest {
 
     @Test
     fun noGitFallbackInCommand() {
-        val command = cmd()
+        val command = fetchCmd()
         assertFalse(command.contains("ARDTT_GIT_REPO"))
         assertFalse(command.contains("ARDTT_GIT_REF"))
         assertFalse(command.contains("raw.githubusercontent.com"))

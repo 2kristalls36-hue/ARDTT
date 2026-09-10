@@ -13,11 +13,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * Admin deploy: probe VPS arch over SSH, stream one GitHub Release package
- * (`ardtt-server-<ver>-linux-<arch>.tar.gz`) to a cache file, SFTP it, run
- * the installer from that archive. Cascade exit is reached only through the
- * entry SSH session (ProxyJump / direct-tcpip). No git/main/raw fallback,
- * no docker prune. Protocol and VPS layout: docs/DEPLOY.md.
+ * Admin deploy: SSH to the VPS and run fetch-and-install.sh there.
+ * The VPS downloads `ardtt-server-*.tar.gz` from GitHub Releases itself.
+ * The phone never needs GitHub access for the multi‑MB package (only a
+ * lightweight version poll for the UI). Cascade exit is reached only through
+ * the entry SSH session (ProxyJump / direct-tcpip). Protocol: docs/DEPLOY.md.
  */
 class DeployEngine(private val appContext: Context) {
     private val running = AtomicBoolean(false)
@@ -60,6 +60,8 @@ class DeployEngine(private val appContext: Context) {
     @Volatile private var jumpSession: Session? = null
     @Volatile private var activeHost: String = ""
     @Volatile private var pendingTarget: DeployTarget? = null
+    /** Opt-in: next install passes ARDTT_DISK_CLEANUP=1 for safe VPS reclaim. */
+    @Volatile private var pendingDiskCleanup: Boolean = false
 
     val activeHostValue: String get() = activeHost
 
@@ -78,9 +80,16 @@ class DeployEngine(private val appContext: Context) {
     fun enqueueUninstall(target: DeployTarget): Boolean =
         enqueue(target, DeployJobKind.Uninstall)
 
-    fun enqueue(target: DeployTarget, kind: DeployJobKind): Boolean {
+    fun enqueue(
+        target: DeployTarget,
+        kind: DeployJobKind,
+        diskCleanup: Boolean = false,
+    ): Boolean {
         if (!running.compareAndSet(false, true)) return false
         pendingTarget = target
+        pendingDiskCleanup = diskCleanup &&
+            kind != DeployJobKind.Uninstall &&
+            kind != DeployJobKind.Preflight
         _isUpdate.value = kind == DeployJobKind.Update
         _isUninstall.value = kind == DeployJobKind.Uninstall
         _isPreflight.value = kind == DeployJobKind.Preflight
@@ -100,6 +109,7 @@ class DeployEngine(private val appContext: Context) {
                 .put("target_id", target.id)
                 .put("is_update", kind == DeployJobKind.Update)
                 .put("is_uninstall", kind == DeployJobKind.Uninstall)
+                .put("disk_cleanup", pendingDiskCleanup)
                 .put("job_kind", kind.name.lowercase())
                 .put("target_name", target.name),
         )
@@ -111,6 +121,7 @@ class DeployEngine(private val appContext: Context) {
             running.set(false)
             _busy.value = false
             pendingTarget = null
+            pendingDiskCleanup = false
             _activeTargetId.value = null
             _outcome.value = "Не удалось запустить фоновую задачу"
             _failure.value = DeployIssue.of(DeployIssue.INSTALL_FAILED, "Не удалось запустить фоновую задачу")
@@ -124,16 +135,18 @@ class DeployEngine(private val appContext: Context) {
             ?: return Result.failure(IllegalStateException("Нет задания деплоя"))
         val uninstall = _isUninstall.value
         val preflightOnly = _isPreflight.value
+        val diskCleanup = pendingDiskCleanup
         return try {
             when {
                 uninstall -> executeUninstall(target)
                 preflightOnly -> execute(target, preflightOnly = true)
-                else -> execute(target, preflightOnly = false)
+                else -> execute(target, preflightOnly = false, diskCleanup = diskCleanup)
             }
         } finally {
             running.set(false)
             _busy.value = false
             pendingTarget = null
+            pendingDiskCleanup = false
             // Keep isUpdate / isUninstall / activeTargetId until the finished notification is built.
         }
     }
@@ -141,6 +154,7 @@ class DeployEngine(private val appContext: Context) {
     private suspend fun execute(
         target: DeployTarget,
         preflightOnly: Boolean = false,
+        diskCleanup: Boolean = false,
     ): Result<String> = withContext(Dispatchers.IO) {
         var session: Session? = null
         var client: SshClient? = null
@@ -161,39 +175,13 @@ class DeployEngine(private val appContext: Context) {
                     .put("cascade_ssh_via_entry", target.cascadeEnabled),
             )
             append("Старт деплоя ${target.name.ifBlank { target.host }}")
-            val deployVersion = DeployBundle.expectedVersion(appContext)
-            val payloads = mutableMapOf<String, DeployPayload>()
-            fun payloadFor(arch: String, progressStart: Float, progressEnd: Float): DeployPayload {
-                val linuxArch = DeployStackSource.linuxArch(arch)
-                payloads[linuxArch]?.let { return it }
-                emit(progressStart, "Загрузка пакета $deployVersion ($linuxArch) из GitHub…")
-                val span = (progressEnd - progressStart).coerceAtLeast(0.02f)
-                val payload = DeployStackFetcher(appContext, deployVersion).fetch(
-                    arch = linuxArch,
-                    onProgress = { frac ->
-                        emit(
-                            progressStart + span * frac.coerceIn(0f, 1f),
-                            "Загрузка пакета $linuxArch из GitHub…",
-                        )
-                    },
-                    isCancelled = { _log.value.any { it.contains("Отменено") } },
-                )
-                payloads[linuxArch] = payload
-                append(
-                    "Пакет $deployVersion $linuxArch ← ${payload.sourceLabel} (${payload.sizeBytes / 1024} КБ)",
-                )
-                TelemetryBridge.deploy(
-                    "bundle_downloaded",
-                    activeHost,
-                    JSONObject()
-                        .put("deploy_version", deployVersion)
-                        .put("source", payload.sourceLabel)
-                        .put("git_ref", payload.gitRef)
-                        .put("arch", linuxArch)
-                        .put("archive_bytes", payload.sizeBytes)
-                        .put("sha256", payload.sha256),
-                )
-                return payload
+            // Prefer live Releases catalog; VPS fetches the package itself.
+            val deployVersion = runCatching {
+                DeployVersionCatalog.refresh(appContext)
+            }.getOrElse { DeployBundle.expectedVersion(appContext) }
+            append("Целевая версия стека: $deployVersion (VPS скачает пакет с GitHub)")
+            if (diskCleanup) {
+                append("Перед установкой: безопасная очистка места на VPS (ARDTT_DISK_CLEANUP=1)")
             }
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
             val entryHost = target.host.trim()
@@ -265,30 +253,32 @@ class DeployEngine(private val appContext: Context) {
                 emitOn(exitHost, 0.10f, "$verb выходного стека…")
                 withExitViaJump(target) { exitSsh ->
                     client = exitSsh
-                    val exitPayload = payloadFor(exitArch, 0.10f, 0.18f)
-                    val installed = uploadAndInstall(
+                    val exitCpus = ServerOsProbe.probeHostCpus(exitSsh)
+                    append("CPU выхода: $exitCpus")
+                    val installed = triggerRemoteInstall(
                         ssh = exitSsh,
                         hostLabel = exitHost,
                         publicHost = exitHost,
-                        payload = exitPayload,
                         deployVersion = deployVersion,
-                        command = DeployInstallEnv.command(
+                        progressStart = 0.12f,
+                        progressEnd = 0.48f,
+                        hopRole = "exit",
+                    ) { scriptPath ->
+                        DeployInstallEnv.fetchAndInstallCommand(
                             publicHost = exitHost,
                             directPort = target.directPort,
                             bypassPort = target.bypassPort,
                             deployVersion = deployVersion,
                             role = "exit",
-                            packagePath = DeployInstallEnv.packageRemotePath(deployVersion, exitArch),
-                            packageSha256 = exitPayload.sha256,
                             cascadeEnabled = true,
                             autoPorts = target.autoPorts,
                             provisionPort = target.cascadeProvisionPort,
                             telemetryPort = target.cascadeTelemetryPort,
-                        ),
-                        progressStart = 0.18f,
-                        progressEnd = 0.48f,
-                        hopRole = "exit",
-                    )
+                            diskCleanup = diskCleanup,
+                            hostCpus = exitCpus,
+                            scriptPath = scriptPath,
+                        )
+                    }
                     exitPub = installed.cascadePublicKey
                     if (exitPub.isBlank()) {
                         error("Выходной VPS не отдал ключ каскада (ARDTT_CASCADE_PUBLIC_KEY)")
@@ -309,43 +299,40 @@ class DeployEngine(private val appContext: Context) {
                 emitOn(entryHost, 0.12f, "$verb входного стека…")
             }
             val ssh = entrySsh
-            val entryPayload = payloadFor(
-                entryArch,
-                if (target.cascadeEnabled) 0.50f else 0.12f,
-                if (target.cascadeEnabled) 0.56f else 0.22f,
-            )
+            val entryCpus = ServerOsProbe.probeHostCpus(ssh)
+            append("CPU входа: $entryCpus")
 
-            val entryCmd = DeployInstallEnv.command(
-                publicHost = publicHost,
-                directPort = target.directPort,
-                bypassPort = target.bypassPort,
-                deployVersion = deployVersion,
-                role = "entry",
-                packagePath = DeployInstallEnv.packageRemotePath(deployVersion, entryArch),
-                packageSha256 = entryPayload.sha256,
-                cascadeEnabled = target.cascadeEnabled,
-                cascadePeerEndpoint = if (target.cascadeEnabled) {
-                    DeployInstallEnv.peerEndpoint(target.cascadeHost, exitCascadeListen)
-                } else {
-                    ""
-                },
-                cascadePeerPublicKey = exitPub,
-                cascadePeerProvisionPort = exitProvision,
-                autoPorts = target.autoPorts,
-                provisionPort = target.provisionPort,
-                telemetryPort = target.telemetryPort,
-            )
-            val entryInstalled = uploadAndInstall(
+            val entryInstalled = triggerRemoteInstall(
                 ssh = ssh,
                 hostLabel = entryHost,
                 publicHost = publicHost,
-                payload = entryPayload,
                 deployVersion = deployVersion,
-                command = entryCmd,
-                progressStart = if (target.cascadeEnabled) 0.56f else 0.22f,
+                progressStart = if (target.cascadeEnabled) 0.52f else 0.14f,
                 progressEnd = if (target.cascadeEnabled) 0.92f else 0.96f,
                 hopRole = "entry",
-            )
+            ) { scriptPath ->
+                DeployInstallEnv.fetchAndInstallCommand(
+                    publicHost = publicHost,
+                    directPort = target.directPort,
+                    bypassPort = target.bypassPort,
+                    deployVersion = deployVersion,
+                    role = "entry",
+                    cascadeEnabled = target.cascadeEnabled,
+                    cascadePeerEndpoint = if (target.cascadeEnabled) {
+                        DeployInstallEnv.peerEndpoint(target.cascadeHost, exitCascadeListen)
+                    } else {
+                        ""
+                    },
+                    cascadePeerPublicKey = exitPub,
+                    cascadePeerProvisionPort = exitProvision,
+                    autoPorts = target.autoPorts,
+                    provisionPort = target.provisionPort,
+                    telemetryPort = target.telemetryPort,
+                    diskCleanup = diskCleanup,
+                    hostCpus = entryCpus,
+                    scriptPath = scriptPath,
+                )
+            }
             val entryPub = entryInstalled.cascadePublicKey
             entryInstalled.directPort?.let { resolvedDirect = it }
             entryInstalled.bypassPort?.let { resolvedBypass = it }
@@ -354,23 +341,10 @@ class DeployEngine(private val appContext: Context) {
             markTrackedHostDone(entryHost)
 
             if (target.cascadeEnabled) {
-                val exitHost = SshJump.targetHost(target.cascadeHost)
-                emitOn(exitHost, 0.94f, "Запись ключа входа через туннель…")
-                withExitViaJump(target) { exitSsh ->
-                    if (entryPub.isBlank()) {
-                        error("Входной VPS не отдал ключ каскада")
-                    }
-                    exitSsh.exec(
-                        "install -d -m 700 /opt/ardtt/data && " +
-                            "printf '%s\\n' ${SshClient.shellQuote(entryPub)} " +
-                            "> /opt/ardtt/data/cascade.peer.pub && " +
-                            "chmod 644 /opt/ardtt/data/cascade.peer.pub && " +
-                            "if [ -f /opt/ardtt/current/docker-compose.yml ]; then " +
-                            "(cd /opt/ardtt/current && docker compose restart); " +
-                            "elif [ -f /opt/ardtt/stack/docker-compose.yml ]; then " +
-                            "(cd /opt/ardtt/stack && docker compose restart); fi",
-                    )
-                    append("Пир входа записан на $exitHost")
+                if (entryPub.isNotBlank()) {
+                    append("Ключ входа получен; VPS1 сам передаёт его на выход (без третьего SSH)")
+                } else {
+                    append("Предупреждение: вход не отдал ARDTT_CASCADE_PUBLIC_KEY — проверьте install.log")
                 }
             }
 
@@ -699,60 +673,67 @@ class DeployEngine(private val appContext: Context) {
         }
     }
 
-    private fun uploadAndInstall(
+    /**
+     * Ensure fetch-and-install.sh is on the VPS, then run it.
+     * Prefer `/opt/ardtt/current/fetch-and-install.sh` (from the last package);
+     * otherwise SFTP the small bootstrap from APK assets.
+     */
+    private fun triggerRemoteInstall(
         ssh: SshClient,
         hostLabel: String,
         publicHost: String,
-        payload: DeployPayload,
         deployVersion: String,
-        command: String,
         progressStart: Float,
         progressEnd: Float,
         hopRole: String? = null,
+        commandFor: (scriptPath: String) -> String,
     ): DeployInstallResult {
-        emitOn(hostLabel, progressStart, "Подготовка каталога /opt/ardtt/incoming…")
+        emitOn(hostLabel, progressStart, "Подготовка fetch-and-install на VPS…")
         ssh.exec(
             "if [ -d /opt/nonamevpn ] && [ ! -e /opt/ardtt ]; then mv /opt/nonamevpn /opt/ardtt; fi; " +
-                "mkdir -p /opt/ardtt/incoming && chmod 755 /opt/ardtt /opt/ardtt/incoming",
+                "mkdir -p /opt/ardtt/bin /opt/ardtt/incoming && chmod 755 /opt/ardtt /opt/ardtt/bin /opt/ardtt/incoming",
         )
-
         val span = (progressEnd - progressStart).coerceAtLeast(0.05f)
-        val remoteFinal = DeployInstallEnv.packageRemotePath(deployVersion, payload.arch)
-        val remotePartial = "$remoteFinal.partial"
-        emitOn(
-            hostLabel,
-            progressStart + span * 0.06f,
-            "SFTP пакета на VPS (${payload.sizeBytes / 1024} КБ)…",
-        )
-        ssh.exec("rm -f ${SshClient.shellQuote(remotePartial)}")
-        ssh.upload(payload.packageFile, remotePartial) { copied, total ->
-            val frac = if (total > 0L) (copied.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
-            emitOn(
-                hostLabel,
-                progressStart + span * (0.06f + 0.28f * frac),
-                "SFTP пакета (${copied / 1024} / ${total / 1024} КБ)…",
+        val hasCurrent = ssh.exec(
+            "if [ -f ${SshClient.shellQuote(DeployInstallEnv.FETCH_SCRIPT_CURRENT)} ]; then echo yes; else echo no; fi",
+            timeoutMs = 15_000L,
+        ).trim() == "yes"
+        val scriptPath = if (hasCurrent) {
+            append("На $hostLabel используем ${DeployInstallEnv.FETCH_SCRIPT_CURRENT}")
+            DeployInstallEnv.FETCH_SCRIPT_CURRENT
+        } else {
+            emitOn(hostLabel, progressStart + span * 0.05f, "SFTP bootstrap fetch-and-install.sh…")
+            val local = java.io.File(appContext.cacheDir, "fetch-and-install.sh")
+            appContext.assets.open(DeployInstallEnv.FETCH_ASSET).use { input ->
+                local.outputStream().use { output -> input.copyTo(output) }
+            }
+            local.setExecutable(true)
+            val remote = DeployInstallEnv.FETCH_SCRIPT_REMOTE
+            val partial = "$remote.partial"
+            ssh.exec("rm -f ${SshClient.shellQuote(partial)}")
+            ssh.upload(local, partial)
+            ssh.exec(
+                "mv -f ${SshClient.shellQuote(partial)} ${SshClient.shellQuote(remote)} && " +
+                    "chmod 755 ${SshClient.shellQuote(remote)}",
             )
+            append("Bootstrap fetch-and-install.sh залит на $hostLabel")
+            remote
         }
-        ssh.exec(
-            "mv -f ${SshClient.shellQuote(remotePartial)} ${SshClient.shellQuote(remoteFinal)}",
-        )
-        append("Загружен ${payload.packageFile.name} на $hostLabel (${payload.sizeBytes / 1024} КБ)")
+        val runCommand = commandFor(scriptPath)
         TelemetryBridge.deploy(
-            "bundle_uploaded",
+            "remote_fetch_started",
             hostLabel,
             JSONObject()
                 .put("deploy_version", deployVersion)
-                .put("archive_bytes", payload.sizeBytes)
-                .put("sha256", payload.sha256)
-                .put("arch", payload.arch)
+                .put("script", scriptPath)
                 .put("public_host", publicHost),
         )
 
-        emitOn(hostLabel, progressStart + span * 0.36f, "Запуск install.sh из пакета…")
+        emitOn(hostLabel, progressStart + span * 0.12f, "VPS загружает пакет с GitHub и ставит стек…")
         var failed: String? = null
         var cascadePub = ""
         var doneFields = emptyMap<String, String>()
-        val code = ssh.execStreaming(command, timeoutMs = 45 * 60_000L) { line ->
+        val code = ssh.execStreaming(runCommand, timeoutMs = 45 * 60_000L) { line ->
             append(line)
             DeployInstallEnv.publicKeyFromLine(line)?.let { cascadePub = it }
             when {
@@ -760,14 +741,14 @@ class DeployEngine(private val appContext: Context) {
                     val parts = line.split('|', limit = 3)
                     val frac = parts.getOrNull(1)?.toFloatOrNull() ?: 0f
                     val step = parts.getOrNull(2)?.take(160).orEmpty()
-                    val mapped = (progressStart + span * (0.36f + 0.64f * frac.coerceIn(0f, 1f)))
+                    val mapped = (progressStart + span * (0.12f + 0.88f * frac.coerceIn(0f, 1f)))
                         .coerceIn(0f, 1f)
                     if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
                 }
                 line.startsWith("ARDTT_ERROR|") -> failed = line.removePrefix("ARDTT_ERROR|")
                 line.startsWith("ARDTT_DONE|") -> {
                     doneFields = DeployInstallEnv.doneFields(line)
-                    emitOn(hostLabel, progressEnd, "install.sh завершился")
+                    emitOn(hostLabel, progressEnd, "установка на VPS завершилась")
                 }
             }
         }
@@ -792,6 +773,9 @@ class DeployEngine(private val appContext: Context) {
                 code == -1 ->
                     " — SSH-сессия оборвалась во время установки (Wi‑Fi/фон). " +
                         "Повторите деплой: предыдущий стек не переключается до readiness"
+                hint.contains("GITHUB_UNREACHABLE", ignoreCase = true) ||
+                    hint.contains("api.github.com", ignoreCase = true) ->
+                    " — VPS не достучался до GitHub Releases (нужен исходящий HTTPS)"
                 hint.contains("no space", ignoreCase = true) ||
                     hint.contains("write /") ||
                     hint.contains("Мало места") ->
@@ -805,12 +789,7 @@ class DeployEngine(private val appContext: Context) {
                     .put("exit_code", code)
                     .put("log_tail", hint),
             )
-            error("install.sh exit=$code на $hostLabel$detail")
-        }
-        runCatching {
-            ssh.exec(
-                "rm -f ${SshClient.shellQuote(remoteFinal)} ${SshClient.shellQuote(remotePartial)}",
-            )
+            error("fetch-and-install exit=$code на $hostLabel$detail")
         }
         return DeployInstallResult(
             cascadePublicKey = cascadePub,

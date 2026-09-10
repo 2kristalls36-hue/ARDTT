@@ -131,7 +131,11 @@ stop_legacy_owned() {
     ) || true
   fi
   if [ -n "${LEGACY_CONTAINER:-}" ]; then
-    if object_owned_by_us container "$LEGACY_CONTAINER" || container_looks_like_legacy_ardtt "$LEGACY_CONTAINER"; then
+    # compose down above (or stop_owned_stack earlier) may already have removed it.
+    # A missing container is success — do not die with a misleading ownership error.
+    if ! docker inspect "$LEGACY_CONTAINER" >/dev/null 2>&1; then
+      echo "ARDTT_INFO|контейнер ${LEGACY_CONTAINER} уже снят"
+    elif object_owned_by_us container "$LEGACY_CONTAINER" || container_looks_like_legacy_ardtt "$LEGACY_CONTAINER"; then
       docker stop "$LEGACY_CONTAINER" >/dev/null 2>&1 || true
       docker rm -f "$LEGACY_CONTAINER" >/dev/null 2>&1 || true
     else

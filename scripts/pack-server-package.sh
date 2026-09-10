@@ -60,6 +60,13 @@ mkdir -p "$STAGE/images" "$STAGE/bin" "$STAGE/install-lib" "$STAGE/scripts" "$ST
 
 docker save -o "$STAGE/images/ardtt.tar" "$IMAGE"
 test -s "$STAGE/images/ardtt.tar"
+python3 "$ROOT/scripts/split-docker-save.py" "$STAGE/images/ardtt.tar" "$STAGE/images"
+test -f "$STAGE/images/layout.json"
+# Keep the installer lean: ship gzipped layers, not the monolithic save tar.
+rm -f "$STAGE/images/ardtt.tar"
+cp -f "$ROOT/scripts/assemble-docker-save.py" "$STAGE/scripts/assemble-docker-save.py"
+cp -f "$ROOT/scripts/split-docker-save.py" "$STAGE/scripts/split-docker-save.py" 2>/dev/null || true
+chmod 755 "$STAGE/scripts/assemble-docker-save.py"
 
 COMPOSE_URL="https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-linux-${UNAME_ARCH}"
 curl -fsSL -o "$STAGE/bin/docker-compose" "$COMPOSE_URL"
@@ -72,10 +79,15 @@ echo "${ENGINE_SHA}  $STAGE/vendor/docker.tgz" | sha256sum -c -
 test -s "$STAGE/vendor/docker.tgz"
 
 cp -f "$ROOT/server/install.sh" "$STAGE/install.sh"
+cp -f "$ROOT/server/fetch-and-install.sh" "$STAGE/fetch-and-install.sh"
+chmod 755 "$STAGE/fetch-and-install.sh"
 cp -f "$ROOT/server/ready.sh" "$STAGE/ready.sh"
 chmod 755 "$STAGE/ready.sh"
 cp -a "$ROOT/server/install-lib/." "$STAGE/install-lib/"
 cp -f "$ROOT/scripts/safe-extract-package.py" "$STAGE/scripts/safe-extract-package.py"
+# Bootstrap copy for the Android app (cold install: phone SFTPs only this small script).
+mkdir -p "$ASSET_DIR"
+cp -f "$ROOT/server/fetch-and-install.sh" "$ASSET_DIR/fetch-and-install.sh"
 cp -f "$ROOT/server/docker-compose.yml" "$STAGE/docker-compose.yml"
 cp -f "$ROOT/server/docker-compose.exit.yml" "$STAGE/docker-compose.exit.yml"
 cp -f "$ROOT/server/.env.example" "$STAGE/.env.example"
@@ -93,9 +105,11 @@ This archive is the only software payload a VPS needs.
 - systemd (to start bundled dockerd when Engine is missing)
 
 This archive includes \`vendor/docker.tgz\` (Engine ${ENGINE_VER}) and
-\`bin/docker-compose\`. The installer unpacks Engine only when \`docker info\`
-fails. It will **not** fetch a network Engine installer, apt/dnf, or docker pull.
-A working Engine is left alone.
+\`bin/docker-compose\`. The image is shipped as gzipped Docker layers
+(\`images/layout.json\` + \`images/layers/\`) and streamed into \`docker load\`
+on the VPS — no second full \`ardtt.tar\` is written. The installer unpacks
+Engine only when \`docker info\` fails. It will **not** fetch a network Engine
+installer, apt/dnf, or docker pull. A working Engine is left alone.
 
 ## Install
 
@@ -118,11 +132,12 @@ Update is the same command. Uninstall: \`ARDTT_ACTION=uninstall bash /opt/ardtt/
 (add \`ARDTT_PURGE_DATA=1\` to delete /opt/ardtt/data). Rollback: \`ARDTT_ACTION=rollback\`.
 EOF
 
-IMAGE_SHA256="$(sha256sum "$STAGE/images/ardtt.tar" | awk '{print $1}')"
+LAYOUT_SHA256="$(sha256sum "$STAGE/images/layout.json" | awk '{print $1}')"
 INSTALL_SHA="$(sha256sum "$STAGE/install.sh" | awk '{print $1}')"
 READY_SHA="$(sha256sum "$STAGE/ready.sh" | awk '{print $1}')"
 COMPOSE_FILE_SHA="$(sha256sum "$STAGE/docker-compose.yml" | awk '{print $1}')"
 ENGINE_FILE_SHA="$(sha256sum "$STAGE/vendor/docker.tgz" | awk '{print $1}')"
+LAYER_COUNT="$(python3 -c 'import json; print(len(json.load(open("'"$STAGE/images/layout.json"'"))["layers"]))')"
 
 python3 - "$STAGE/manifest.json" <<PY
 import json, os, pathlib, sys
@@ -137,10 +152,12 @@ manifest = {
   "image": {
     "tag": "${IMAGE}",
     "id": "${IMAGE_ID}",
-    "note": "image.id is the docker image ID after load, not a registry RepoDigest",
+    "layout": "images/layout.json",
+    "layerCount": int("${LAYER_COUNT}"),
+    "note": "image.id is the docker image ID after load, not a registry RepoDigest; payload is gzipped layers",
   },
   "files": {
-    "images/ardtt.tar": "${IMAGE_SHA256}",
+    "images/layout.json": "${LAYOUT_SHA256}",
     "install.sh": "${INSTALL_SHA}",
     "ready.sh": "${READY_SHA}",
     "docker-compose.yml": "${COMPOSE_FILE_SHA}",
@@ -156,6 +173,7 @@ manifest = {
     "minApi": "1.44",
     "pull": "never",
     "build": False,
+    "imageFormat": "ardtt-image-layers-v1",
   },
   "thirdPartyLock": "third-party.lock.json",
 }
@@ -164,7 +182,10 @@ PY
 
 (
   cd "$STAGE"
-  sha256sum install.sh ready.sh docker-compose.yml docker-compose.exit.yml images/ardtt.tar bin/docker-compose vendor/docker.tgz manifest.json third-party.lock.json > SHA256SUMS
+  sha256sum install.sh ready.sh docker-compose.yml docker-compose.exit.yml \
+    images/layout.json images/config.json bin/docker-compose vendor/docker.tgz \
+    manifest.json third-party.lock.json scripts/assemble-docker-save.py > SHA256SUMS
+  find images/layers -type f -name '*.tar.gz' -print0 | sort -z | xargs -0 sha256sum >> SHA256SUMS
 )
 
 tar -czf "$OUT" -C "$STAGE" \
