@@ -147,11 +147,21 @@ class ConnectionManager(
             workers = DEFAULT_WORKERS
             refreshHashFlag()
             reportPresenceAsync()
+            val revision = PathConfirm.directConfigRevision(profile)
+            val existing = TunnelSessionHolder.config
+            if (existing != null && existing.profile != null) {
+                val oldRev = PathConfirm.directConfigRevision(existing.profile)
+                if (oldRev != revision) {
+                    // Apply the new Direct/Bypass parameters to the live session holder.
+                    TunnelSessionHolder.config = existing.copy(profile = profile)
+                }
+            }
             if (recoverySnapshot.intent.wantsConnected) {
                 dispatchRecovery(
                     ConnectionEvent.SessionParamsChanged(
                         profileId = profile.name,
                         hasCallHash = hashStore.hasHash(profile.name),
+                        directConfigRevision = revision,
                     ),
                 )
             }
@@ -930,6 +940,7 @@ class ConnectionManager(
                 sessionEpoch = probeSessionEpoch,
                 networkEpoch = probeNetworkEpoch,
                 capturedNetworkKey = capturedKey,
+                capturedProfileId = recoverySnapshot.intent.profileId,
             )
         }
     }
@@ -941,6 +952,7 @@ class ConnectionManager(
         diagnosticJob?.cancel()
         val seriesId = java.util.UUID.randomUUID().toString()
         val capturedKey = recoverySnapshot.underlay.key
+        val capturedProfileId = recoverySnapshot.intent.profileId
         val bind = pickBestUnderlayNetwork(appContext)
         diagnosticJob = scope.launch {
             AppLog.i(TAG, "auto-stage probe_round_started series=$seriesId")
@@ -960,6 +972,13 @@ class ConnectionManager(
                 AppLog.v(TAG, "diagnostic discarded — network changed")
                 return@launch
             }
+            if (capturedProfileId != null &&
+                recoverySnapshot.intent.profileId != null &&
+                capturedProfileId != recoverySnapshot.intent.profileId
+            ) {
+                AppLog.v(TAG, "diagnostic discarded — profile changed")
+                return@launch
+            }
             AppLog.i(
                 TAG,
                 "auto-stage probe_round_completed series=$seriesId " +
@@ -971,15 +990,30 @@ class ConnectionManager(
                 sessionEpoch = sessionEpoch,
                 networkEpoch = networkEpoch,
                 capturedNetworkKey = capturedKey,
+                capturedProfileId = capturedProfileId,
             )
             val evidence = recoverySnapshot.evidence
-            if (recoverySnapshot.underlay.kind == UnderlayKind.Cellular &&
-                (evidence?.seriesCount ?: 0) < RecoverySettings.RESTRICTION_CONFIRM_SERIES
-            ) {
-                delay(RecoverySettings.DIAGNOSTIC_SERIES_GAP_MS)
-                if (recoverySnapshot.networkEpoch != networkEpoch) return@launch
-                launchBackgroundDiagnostic(sessionEpoch, recoverySnapshot.networkEpoch)
-            }
+            if (recoverySnapshot.underlay.kind != UnderlayKind.Cellular) return@launch
+            val now = SystemClock.elapsedRealtime()
+            val restriction = evidence?.restrictionAt(
+                now,
+                recoverySnapshot.underlay.key,
+                recoverySnapshot.intent.profileId,
+            ) ?: RestrictionHint.Unknown
+            val delayMs = RecoverySettings.nextDiagnosticDelayMs(
+                completedSeries = evidence?.completedSeries ?: 0,
+                restriction = restriction,
+                seriesCount = evidence?.seriesCount ?: 0,
+            ) ?: return@launch
+            AppLog.i(
+                TAG,
+                "auto-stage probe_next_in_ms=$delayMs completed=${evidence?.completedSeries ?: 0} " +
+                    "restriction=$restriction seriesCount=${evidence?.seriesCount ?: 0}",
+            )
+            delay(delayMs)
+            if (recoverySnapshot.networkEpoch != networkEpoch) return@launch
+            if (recoverySnapshot.sessionEpoch != sessionEpoch) return@launch
+            launchBackgroundDiagnostic(sessionEpoch, recoverySnapshot.networkEpoch)
         }
     }
 
@@ -1053,6 +1087,7 @@ class ConnectionManager(
                 hasCallHash = callHashOrNull() != null,
                 silentRecreate = silentRecreate,
                 callIdentityToken = PathConfirm.identityToken(callHashOrNull()),
+                directConfigRevision = PathConfirm.directConfigRevision(profile),
             )
         } else {
             ConnectionEvent.UnderlayUpdated(underlay)
@@ -1864,19 +1899,76 @@ class ConnectionManager(
         val transportEpoch = recoverySnapshot.transportEpoch
         val callEpoch = recoverySnapshot.call.callEpoch
         val networkKey = recoverySnapshot.underlay.key
-        runningNotifyJob?.cancel()
+        // Cancel only our previous verifier for this session; a newer generation
+        // owns its own job and must not be cleared by a stale callback.
+        val previousJob = runningNotifyJob
         runningNotifyJob = scope.launch {
             if (generation != sessionGeneration.get()) return@launch
             softRestartInProgress = false
             var pathConfirmed = false
             var protocolReady = false
             var backendRunning = false
+            var earlyEmitted = false
+            suspend fun emitPartial(verdict: PathConfirmVerdict) {
+                if (earlyEmitted) return
+                if (verdict != PathConfirmVerdict.ProtocolReady &&
+                    verdict != PathConfirmVerdict.BackendRunning &&
+                    verdict != PathConfirmVerdict.PathConfirmed
+                ) {
+                    return
+                }
+                earlyEmitted = true
+                val pc = verdict == PathConfirmVerdict.PathConfirmed
+                val pr = verdict == PathConfirmVerdict.ProtocolReady || pc
+                val br = PathConfirm.bypassMayConnect(verdict)
+                if (path == VpnPath.Direct) {
+                    dispatchRecovery(
+                        ConnectionEvent.DirectConfirmed(
+                            sessionEpoch = sessionEpoch,
+                            transportEpoch = transportEpoch,
+                            networkKey = networkKey,
+                            probeConfirmed = false,
+                            pathConfirmed = pc,
+                            protocolReady = pr,
+                            callEpoch = callEpoch,
+                        ),
+                    )
+                } else {
+                    dispatchRecovery(
+                        ConnectionEvent.BypassConfirmed(
+                            sessionEpoch = sessionEpoch,
+                            transportEpoch = transportEpoch,
+                            probeConfirmed = false,
+                            pathConfirmed = pc,
+                            protocolReady = pr,
+                            backendRunning = br,
+                            callEpoch = callEpoch,
+                        ),
+                    )
+                }
+                _ui.value = _ui.value.copy(
+                    state = ConnState.Connected,
+                    activePath = path,
+                    statusText = when {
+                        pc && path == VpnPath.Direct -> "Подключено: прямое" + hideSuffix()
+                        pc && path == VpnPath.Bypass -> "Подключено: обход" + hideSuffix()
+                        pr && path == VpnPath.Direct ->
+                            "Прямое подключение установлено. Ожидаем обмен данными…"
+                        path == VpnPath.Bypass ->
+                            "Обход запущен. Ожидаем обмен данными…"
+                        else -> "Подключение…"
+                    },
+                    connectEnabled = true,
+                    lastError = null,
+                    softInfo = softInfoFor(_ui.value.probe),
+                )
+            }
             if (path == VpnPath.Bypass) {
                 _ui.value = _ui.value.copy(
                     state = ConnState.Connecting,
                     activePath = path,
                     statusText = "Ожидание каналов обхода…",
-                    connectEnabled = false,
+                    connectEnabled = true,
                     lastError = null,
                     softInfo = softInfoFor(_ui.value.probe),
                 )
@@ -1886,8 +1978,17 @@ class ConnectionManager(
                     transportEpoch,
                     networkKey,
                     callEpoch,
+                    onPartial = { emitPartial(it) },
                 )
-                if (generation != sessionGeneration.get() || verdict == PathConfirmVerdict.Stale) {
+                if (generation != sessionGeneration.get()) return@launch
+                if (verdict == PathConfirmVerdict.Stale) {
+                    // Stale only if a successor owns the attempt; otherwise fail closed.
+                    if (recoverySnapshot.transportEpoch == transportEpoch &&
+                        recoverySnapshot.recovery.inFlight
+                    ) {
+                        AppLog.w(TAG, "Bypass confirm stale without successor — failing attempt")
+                        onTunnelFailed("Обход недоступен: устаревшая попытка подтверждения.")
+                    }
                     return@launch
                 }
                 if (!PathConfirm.bypassMayConnect(verdict)) {
@@ -1912,8 +2013,24 @@ class ConnectionManager(
                     transportEpoch,
                     networkKey,
                     callEpoch,
+                    onPartial = { emitPartial(it) },
                 )
-                if (generation != sessionGeneration.get() || verdict == PathConfirmVerdict.Stale) {
+                if (generation != sessionGeneration.get()) return@launch
+                if (verdict == PathConfirmVerdict.Stale) {
+                    if (recoverySnapshot.transportEpoch == transportEpoch &&
+                        recoverySnapshot.recovery.inFlight
+                    ) {
+                        AppLog.w(TAG, "Direct confirm stale without successor — failing attempt")
+                        dispatchRecovery(
+                            ConnectionEvent.DirectFailed(
+                                sessionEpoch = sessionEpoch,
+                                transportEpoch = transportEpoch,
+                                networkKey = networkKey,
+                                reason = "direct-stale-confirm",
+                                callEpoch = callEpoch,
+                            ),
+                        )
+                    }
                     return@launch
                 }
                 if (!PathConfirm.directMayConnect(verdict)) {
@@ -1963,9 +2080,17 @@ class ConnectionManager(
             _ui.value = _ui.value.copy(
                 state = ConnState.Connected,
                 activePath = path,
-                statusText = when (path) {
-                    VpnPath.Direct -> "Подключено: прямое" + hideSuffix()
-                    VpnPath.Bypass -> "Подключено: обход" + hideSuffix()
+                statusText = when {
+                    pathConfirmed && path == VpnPath.Direct -> "Подключено: прямое" + hideSuffix()
+                    pathConfirmed && path == VpnPath.Bypass -> "Подключено: обход" + hideSuffix()
+                    protocolReady && path == VpnPath.Direct ->
+                        "Прямое подключение установлено. Ожидаем обмен данными…"
+                    path == VpnPath.Bypass ->
+                        "Обход запущен. Ожидаем обмен данными…"
+                    else -> when (path) {
+                        VpnPath.Direct -> "Подключено: прямое" + hideSuffix()
+                        VpnPath.Bypass -> "Подключено: обход" + hideSuffix()
+                    }
                 },
                 connectEnabled = true,
                 lastError = null,
@@ -1997,6 +2122,7 @@ class ConnectionManager(
             scheduleEgressIpRefresh("tunnel-up")
             schedulePresenceHeartbeat()
         }
+        previousJob?.cancel()
     }
 
     fun onParkedBypassDied() {
@@ -2308,15 +2434,31 @@ class ConnectionManager(
         sessionEpoch: Long,
         networkEpoch: Long,
         capturedNetworkKey: NetworkKey? = null,
+        capturedProfileId: String? = null,
     ) {
         val shown = displayedAutoProbe(pathMode, currentAutoUnderlayKind(), result)
         val capturedKey = result.networkKey ?: capturedNetworkKey
+        val profileId = capturedProfileId ?: recoverySnapshot.intent.profileId
+        if (capturedProfileId != null &&
+            recoverySnapshot.intent.profileId != null &&
+            capturedProfileId != recoverySnapshot.intent.profileId
+        ) {
+            AppLog.v(TAG, "probe UI skipped — profile changed since capture")
+            return
+        }
+        if (capturedKey != null &&
+            recoverySnapshot.underlay.key != null &&
+            capturedKey != recoverySnapshot.underlay.key
+        ) {
+            AppLog.v(TAG, "probe UI skipped — network changed since capture")
+            return
+        }
         if (recoverySnapshot.intent.wantsConnected) {
             dispatchRecovery(
                 ConnectionEvent.ProbeFinished(
                     evidence = ReachabilityEvidence(
                         networkKey = capturedKey,
-                        profileId = recoverySnapshot.intent.profileId,
+                        profileId = profileId,
                         measuredAtElapsedMs = SystemClock.elapsedRealtime(),
                         yandex = shown.yandexOutcome,
                         bigtech = shown.bigtechOutcome,
@@ -2674,15 +2816,34 @@ class ConnectionManager(
         transportEpoch: Long,
         networkKey: NetworkKey?,
         callEpoch: Long,
+        onPartial: suspend (PathConfirmVerdict) -> Unit = {},
     ): PathConfirmVerdict {
         val deadline = SystemClock.elapsedRealtime() + BYPASS_WORKERS_WAIT_MS
-        val baselineOk = TransportHealth.tunWriteOk
-        val baselineErr = TransportHealth.tunWriteErr
-        val baselineDown = maxOf(TransportHealth.exactDownBytes, TransportHealth.downBytes)
-        val capturedTunGen = TransportHealth.tunGen
+        var baseline = TransportHealth.snapshot()
+        var capturedTunGen = baseline.tunGen
+        var baselineOk = baseline.tunWriteOk
+        var baselineErr = baseline.tunWriteErr
+        var baselineDown = baseline.exactDownBytes
         var last = PathConfirmVerdict.NotReady
         while (SystemClock.elapsedRealtime() < deadline) {
             if (generation != sessionGeneration.get()) return PathConfirmVerdict.Stale
+            val snap = TransportHealth.snapshot()
+            // Adopt the first known TUN generation of this operation as the baseline.
+            if (capturedTunGen < 0L && snap.tunGen >= 0L &&
+                snap.processId == baseline.processId &&
+                snap.operationId == baseline.operationId
+            ) {
+                capturedTunGen = snap.tunGen
+                baselineOk = snap.tunWriteOk
+                baselineErr = snap.tunWriteErr
+                baselineDown = snap.exactDownBytes
+                baseline = snap
+                AppLog.i(
+                    TAG,
+                    "auto-stage bypass_baseline_adopted tunGen=$capturedTunGen " +
+                        "op=${snap.operationId} process=${snap.processId}",
+                )
+            }
             val verdict = withContext(Dispatchers.IO) {
                 PathConfirm.verdict(
                     PathConfirm.assembleBypass(
@@ -2695,14 +2856,15 @@ class ConnectionManager(
                         capturedCallEpoch = callEpoch,
                         eventCallEpoch = recoverySnapshot.call.callEpoch,
                         capturedTunGen = capturedTunGen,
-                        eventTunGen = TransportHealth.tunGen,
-                        tunWriteOkDelta = (TransportHealth.tunWriteOk - baselineOk).coerceAtLeast(0L),
-                        tunWriteErrDelta = (TransportHealth.tunWriteErr - baselineErr).coerceAtLeast(0L),
-                        usefulRxDelta = (
-                            maxOf(TransportHealth.exactDownBytes, TransportHealth.downBytes) -
-                                baselineDown
-                            ).coerceAtLeast(0L),
-                        workersPresent = TransportHealth.activeWorkers > 0,
+                        eventTunGen = snap.tunGen,
+                        tunWriteOkDelta = (snap.tunWriteOk - baselineOk).coerceAtLeast(0L),
+                        tunWriteErrDelta = (snap.tunWriteErr - baselineErr).coerceAtLeast(0L),
+                        usefulRxDelta = (snap.exactDownBytes - baselineDown).coerceAtLeast(0L),
+                        workersPresent = snap.activeWorkers > 0,
+                        capturedProcessId = baseline.processId,
+                        eventProcessId = snap.processId,
+                        capturedOperationId = baseline.operationId,
+                        eventOperationId = snap.operationId,
                     ),
                 )
             }
@@ -2713,6 +2875,11 @@ class ConnectionManager(
             }
             if (verdict == PathConfirmVerdict.Stale || verdict == PathConfirmVerdict.WriteFailed) {
                 return verdict
+            }
+            if (verdict == PathConfirmVerdict.BackendRunning ||
+                verdict == PathConfirmVerdict.ProtocolReady
+            ) {
+                onPartial(verdict)
             }
             delay(BYPASS_WORKERS_POLL_MS)
         }
@@ -2726,17 +2893,22 @@ class ConnectionManager(
         transportEpoch: Long,
         networkKey: NetworkKey?,
         callEpoch: Long,
+        onPartial: suspend (PathConfirmVerdict) -> Unit = {},
     ): PathConfirmVerdict {
         val deadline = SystemClock.elapsedRealtime() + RecoverySettings.DIRECT_LIMITED_TRY_MS
-        val baseline = withContext(Dispatchers.IO) { VpnLiveStats.readDirectAwgSample() }
-        val capturedHandle = (baseline?.handle ?: -1).toLong()
-        val handshakeBaseline = baseline?.handshakeSec ?: 0L
-        val rxBaseline = baseline?.rx ?: 0L
+        // Prefer the pre-awgTurnOn operation baseline so early handshake/RX are not lost.
+        val opBaseline = VpnLiveStats.currentDirectOperation()
+        val capturedOpId = opBaseline?.operationId ?: -1L
+        val handshakeBaseline = opBaseline?.handshakeSecAtStart ?: 0L
+        val rxBaseline = opBaseline?.rxAtStart ?: 0L
+        val capturedHandle = (opBaseline?.handleAtStart?.takeIf { it >= 0 }
+            ?: VpnLiveStats.currentAwgHandle()).toLong()
         var last = PathConfirmVerdict.NotReady
         while (SystemClock.elapsedRealtime() < deadline) {
             if (generation != sessionGeneration.get()) return PathConfirmVerdict.Stale
             val verdict = withContext(Dispatchers.IO) {
                 val sample = VpnLiveStats.readDirectAwgSample()
+                val liveOp = VpnLiveStats.currentDirectOperation()
                 val source = if (sample != null) {
                     PathConfirmSource.DirectAwg
                 } else {
@@ -2759,6 +2931,9 @@ class ConnectionManager(
                         rxBaseline = rxBaseline,
                         rxNow = sample?.rx ?: 0L,
                         source = source,
+                        capturedOperationId = capturedOpId,
+                        eventOperationId = liveOp?.operationId ?: -1L,
+                        requireCallEpoch = false,
                     ),
                 )
             }
@@ -2768,6 +2943,9 @@ class ConnectionManager(
                 return verdict
             }
             if (verdict == PathConfirmVerdict.Stale) return verdict
+            if (verdict == PathConfirmVerdict.ProtocolReady) {
+                onPartial(verdict)
+            }
             delay(250L)
         }
         if (last == PathConfirmVerdict.ProtocolReady) {

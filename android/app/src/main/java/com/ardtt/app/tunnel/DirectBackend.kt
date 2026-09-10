@@ -74,6 +74,9 @@ class DirectBackend : TunnelBackend {
 
         val tunService = service as? VpnTunnelService
         var processPin = "skip"
+        // Capture observation baseline before awgTurnOn so an early handshake is not lost.
+        val opBaseline = VpnLiveStats.beginDirectOperation()
+        AppLog.i(TAG, "direct_op_started id=${opBaseline.operationId}")
         val h = try {
             processPin = tunService?.pinProcessToUnderlay() ?: "no-service"
             val started = GoBackend.awgTurnOn(IFACE, tunFd, goConfig)
@@ -88,7 +91,7 @@ class DirectBackend : TunnelBackend {
                 val bind6 = bindAwgToUnderlay(service, sock6)
                 AppLog.i(
                     TAG,
-                    "tunnel up handle=$started protect v4=$sock4 v6=$sock6 " +
+                    "tunnel up handle=$started op=${opBaseline.operationId} protect v4=$sock4 v6=$sock6 " +
                         "process=$processPin underlay v4=$bind4 v6=$bind6",
                 )
                 logAwgSnapshot(started, "up")

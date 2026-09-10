@@ -250,6 +250,12 @@ fun nextProbeSeriesCount(
         return 0
     }
     if (previous == null) return 1
+    if (previous.seriesId.isNotEmpty() &&
+        next.seriesId.isNotEmpty() &&
+        previous.seriesId == next.seriesId
+    ) {
+        return previous.seriesCount.coerceAtLeast(1)
+    }
     if (previous.networkKey != next.networkKey || previous.profileId != next.profileId) {
         return 1
     }

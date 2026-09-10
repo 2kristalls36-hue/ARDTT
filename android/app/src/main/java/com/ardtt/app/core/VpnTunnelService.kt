@@ -342,7 +342,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         when (state) {
                             is TunnelBackendState.Running -> {
                                 tunnelSessionActive = true
-                                TransportHealth.backendAlive = true
                                 ConnectionManager.getOrNull()?.onTunnelRunning(VpnPath.Bypass)
                                 updateNotification(
                                     VpnPath.Bypass,
@@ -417,7 +416,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             AppLog.v(TAG, "Running path=$path")
                             softRestartInProgress = false
                             tunnelSessionActive = true
-                            TransportHealth.backendAlive = true
                             if (path == VpnPath.Bypass) {
                                 discardParkedCall("Bypass running")
                             }

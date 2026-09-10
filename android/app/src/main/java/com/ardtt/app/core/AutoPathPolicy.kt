@@ -158,9 +158,15 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         underlay.key,
         input.profileId,
     ) == true
-    val restriction = input.evidence?.restriction ?: RestrictionHint.Unknown
-    val internetOk = input.evidence?.yandex?.isSuccess == true ||
-        input.evidence?.bigtech?.isSuccess == true
+    val restriction = input.evidence?.restrictionAt(
+        input.elapsedMs,
+        underlay.key,
+        input.profileId,
+    ) ?: RestrictionHint.Unknown
+    val internetOk = input.evidence?.let { ev ->
+        ev.usableAt(input.elapsedMs, underlay.key, input.profileId) &&
+            (ev.yandex.isSuccess || ev.bigtech.isSuccess)
+    } == true
     val vpsRoutingBroken = internetOk &&
         input.evidence?.provision?.isFailure == true &&
         blocked

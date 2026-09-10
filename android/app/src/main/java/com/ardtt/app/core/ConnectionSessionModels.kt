@@ -6,6 +6,8 @@ data class UserConnectionIntent(
     val profileId: String? = null,
     val hasCallHash: Boolean = false,
     val silentRecreate: Boolean = false,
+    /** Fingerprint of Direct/Bypass transport parameters; independent of VK CallSession. */
+    val directConfigRevision: String = "",
 )
 
 enum class CallValidity {
@@ -37,6 +39,15 @@ enum class TransportLifecycle {
     Paused,
     Parked,
     Failed,
+}
+
+/** How far the current transport attempt has been proven. */
+enum class PathReadiness {
+    None,
+    BackendRunning,
+    ProtocolReady,
+    PathConfirmed,
+    Unsupported,
 }
 
 data class DirectNegativeEvidence(
@@ -119,6 +130,8 @@ data class ReachabilityEvidence(
     val captive: Boolean = false,
     val ttlUntilElapsedMs: Long = 0L,
     val seriesCount: Int = 1,
+    /** Completed diagnostic rounds for this network/profile (schedule, not БС confidence). */
+    val completedSeries: Int = 0,
     val bindHandle: Long? = null,
     val routeReason: String = "unverified",
     val restrictionReason: String? = null,
@@ -129,6 +142,11 @@ data class ReachabilityEvidence(
         if (key != networkKey) return false
         if (profileId != this.profileId) return false
         return true
+    }
+
+    fun restrictionAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): RestrictionHint {
+        if (!usableAt(elapsedMs, key, profileId)) return RestrictionHint.Unknown
+        return restriction
     }
 }
 
@@ -148,6 +166,7 @@ data class ConnectionSnapshot(
     val wifiStableHits: Int = 0,
     val directNegative: DirectNegativeEvidence? = null,
     val lastConfirmedPath: VpnPath? = null,
+    val pathReadiness: PathReadiness = PathReadiness.None,
     val ui: ConnectionUiModel = ConnectionUiModel(),
 ) {
     val directFailedOnNetwork: NetworkKey? get() = directNegative?.key
