@@ -9,7 +9,7 @@
 | [DEPLOY.md](DEPLOY.md) | Стек **1.0.51**: архив `ardtt-server-*-linux-<arch>.tar.gz`; Engine в `vendor/docker.tgz` |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
 | [UI.md](UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
-| [android/README.md](../android/README.md) | Сборка клиента 0.5.263-test, keystore, GitHub Releases |
+| [android/README.md](../android/README.md) | Сборка клиента 0.5.263, keystore, GitHub Releases |
 | [server/README.md](../server/README.md) | Единый контейнер `ardtt`: provision, direct, bypass, dns, warp, cascade, telemetry |
 
 Бренд-исходник иконки: квадрат [assets/brand/ardtt-icon-source.png](assets/brand/ardtt-icon-source.png), круг [assets/brand/ardtt-icon-round-source.png](assets/brand/ardtt-icon-round-source.png).

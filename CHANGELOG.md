@@ -1,8 +1,8 @@
 # ARDTT v0.5.263
 
-Клиент **0.5.263-test** (`versionCode` 281). Серверный стек **1.0.51** (`DEPLOY_VERSION`).
+Клиент **0.5.263** (`versionCode` 281). Серверный стек **1.0.51** (`DEPLOY_VERSION`).
 
-Тестовый `versionName` → APK в **Actions → Artifacts**, не в GitHub Releases. Стабильная публикация APK и `ardtt-server-1.0.51-*.tar.gz` — после снятия суффикса `test` и тега `v*`.
+GitHub Release `v0.5.263`: APK, `ardtt-update.json`, `ardtt-server-1.0.51-linux-{amd64,arm64}.tar.gz`.
 
 ## 0.5.263 / стек 1.0.51
 
@@ -10,7 +10,7 @@
 - **Диск.** Мягкий пол места (~1600 МБ), gzip-слои образа без второго полного `ardtt.tar` на диске. При `DISK_FULL` — опциональная безопасная очистка (`ARDTT_DISK_CLEANUP=1`) и кнопка «Очистить место и повторить».
 - **1 vCPU.** Compose `cpus` / mem clamp по `nproc` хоста (`ARDTT_CPUS` / `ARDTT_MEM_LIMIT` с телефона). Иначе на 1-ядерном VPS `docker compose up` падал с «range of CPUs is from 0.01 to 1.00».
 - **Метрики хоста.** В `GET /health` — объект `host` (CPU/RAM cgroup, диск `/data`). В карточке сервера кольца загрузки, опрос ~10 с + pull-to-refresh.
-- **Версия обновления.** Ожидаемый стек = max(tip GitHub Releases, `DEPLOY_VERSION` из git/APK). Если в git уже 1.0.51, а на Releases ещё 1.0.46 — UI показывает «нужно обновить». Установка по-прежнему качает только актив с Releases: пакет **1.0.51** должен быть прикреплён к релизу (workflow `server-package` с тега `v*`).
+- **Версия обновления.** Ожидаемый стек = max(tip GitHub Releases, `DEPLOY_VERSION` из git/APK). UI показывает обновление, если на VPS старше, чем tip Releases / APK.
 
 Промежуточные стеки в этой линейке: **1.0.47** (fetch на VPS), **1.0.48** (layered/gzip + мягкий диск), **1.0.49–1.0.51** (cleanup, CPU clamp, host metrics, prefer-git version).
 
