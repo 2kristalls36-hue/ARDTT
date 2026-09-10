@@ -167,14 +167,6 @@ private fun rememberEnqueueDeploy(
     }
 }
 
-@Composable
-private fun rememberStartDeploy(engine: DeployEngine): (DeployTarget, Boolean) -> Boolean {
-    val enqueue = rememberEnqueueDeploy(engine)
-    return { target, isUpdate ->
-        enqueue(target, if (isUpdate) DeployJobKind.Update else DeployJobKind.Install, false)
-    }
-}
-
 private sealed class ServersNavScreen {
     data object List : ServersNavScreen()
     data class Overview(val serverId: String) : ServersNavScreen()
