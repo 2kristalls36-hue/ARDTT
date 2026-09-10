@@ -2437,6 +2437,12 @@ class ConnectionManager(
         capturedProfileId: String? = null,
     ) {
         val shown = displayedAutoProbe(pathMode, currentAutoUnderlayKind(), result)
+        if (shown.yandexOk) {
+            OfficialRestrictionBulletin.scheduleRefresh(
+                bindNetwork = pickBestUnderlayNetwork(appContext),
+                urgent = shown.whitelistRestricted,
+            )
+        }
         val capturedKey = result.networkKey ?: capturedNetworkKey
         val profileId = capturedProfileId ?: recoverySnapshot.intent.profileId
         if (capturedProfileId != null &&

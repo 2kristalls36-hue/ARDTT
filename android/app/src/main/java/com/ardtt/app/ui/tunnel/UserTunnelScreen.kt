@@ -67,6 +67,7 @@ import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.ConnectionUiAction
+import com.ardtt.app.core.OfficialRestrictionBulletin
 import com.ardtt.app.core.VpnPath
 import com.ardtt.app.ui.performConnectionUiAction
 import com.ardtt.app.profile.ProfileCatalog
@@ -238,6 +239,7 @@ private fun UserTunnelSimpleScreen(
         }
     }
 
+    val officialBulletin by OfficialRestrictionBulletin.headline.collectAsStateWithLifecycle()
     val connected = ui.state == ConnState.Connected
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
     val modeBadge = themeModeVisualKey(themeMode)
@@ -317,6 +319,7 @@ private fun UserTunnelSimpleScreen(
                 hasCallHash = ui.hasCallHash,
                 activePath = ui.activePath,
                 hideIp = ui.hideIp,
+                officialBulletin = officialBulletin,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
             ConnectionActionChips(
@@ -348,6 +351,7 @@ private fun UserConnectStatusBlock(
     hasCallHash: Boolean,
     activePath: VpnPath?,
     hideIp: Boolean,
+    officialBulletin: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
@@ -399,6 +403,16 @@ private fun UserConnectStatusBlock(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        if (!officialBulletin.isNullOrBlank()) {
+            Text(
+                text = officialBulletin,
+                style = detailsTextStyle,
+                color = Color.White.copy(alpha = 0.86f),
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
