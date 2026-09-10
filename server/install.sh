@@ -507,10 +507,17 @@ do_install() {
   fi
 
   prog 0.30 "docker load образа (слои или tar, без build/pull)"
-  # Drop the downloaded archive early — staging already holds the payload.
+  # Free VPS disk after extract: only delete packages under our incoming/.
+  # Never rm a caller-owned path (CI dist/, developer copy, etc.).
   if [ -n "${ARDTT_PACKAGE:-}" ] && [ -f "${ARDTT_PACKAGE}" ]; then
-    rm -f "${ARDTT_PACKAGE}" "${ARDTT_PACKAGE}.partial" 2>/dev/null || true
-    echo "ARDTT_INFO|incoming-пакет удалён после распаковки (освобождение места)"
+    incoming="$(cd "$INSTALL_DIR/incoming" 2>/dev/null && pwd -P || true)"
+    pkg_dir="$(cd "$(dirname "${ARDTT_PACKAGE}")" 2>/dev/null && pwd -P || true)"
+    if [ -n "$incoming" ] && [ -n "$pkg_dir" ] && [ "$pkg_dir" = "$incoming" ]; then
+      rm -f "${ARDTT_PACKAGE}" "${ARDTT_PACKAGE}.partial" 2>/dev/null || true
+      echo "ARDTT_INFO|incoming-пакет удалён после распаковки (освобождение места)"
+    else
+      echo "ARDTT_INFO|пакет оставлен на месте (не under ${INSTALL_DIR}/incoming)"
+    fi
   fi
   load_package_image "${IMAGE_TAR:-}" "$ARDTT_IMAGE" "$PKG_IMAGE_ID" "${IMAGE_LAYOUT:-}"
   LOADED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$ARDTT_IMAGE")"
