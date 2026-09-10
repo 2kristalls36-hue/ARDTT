@@ -29,6 +29,9 @@ class ArdttApp : Application() {
         AppUpdateController.get(this).checkInBackground()
         AppShortcuts.refreshAsync(this)
         appScope.launch {
+            runCatching { com.ardtt.app.deploy.DeployVersionCatalog.refresh(this@ArdttApp) }
+        }
+        appScope.launch {
             runCatching { AppSettingsRepository(this@ArdttApp).clearLegacyWallpaperPreference() }
         }
         // Undo 0.5.113, which wrongly disabled the system Quick Settings tile.

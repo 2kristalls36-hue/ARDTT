@@ -72,10 +72,15 @@ echo "${ENGINE_SHA}  $STAGE/vendor/docker.tgz" | sha256sum -c -
 test -s "$STAGE/vendor/docker.tgz"
 
 cp -f "$ROOT/server/install.sh" "$STAGE/install.sh"
+cp -f "$ROOT/server/fetch-and-install.sh" "$STAGE/fetch-and-install.sh"
+chmod 755 "$STAGE/fetch-and-install.sh"
 cp -f "$ROOT/server/ready.sh" "$STAGE/ready.sh"
 chmod 755 "$STAGE/ready.sh"
 cp -a "$ROOT/server/install-lib/." "$STAGE/install-lib/"
 cp -f "$ROOT/scripts/safe-extract-package.py" "$STAGE/scripts/safe-extract-package.py"
+# Bootstrap copy for the Android app (cold install: phone SFTPs only this small script).
+mkdir -p "$ASSET_DIR"
+cp -f "$ROOT/server/fetch-and-install.sh" "$ASSET_DIR/fetch-and-install.sh"
 cp -f "$ROOT/server/docker-compose.yml" "$STAGE/docker-compose.yml"
 cp -f "$ROOT/server/docker-compose.exit.yml" "$STAGE/docker-compose.exit.yml"
 cp -f "$ROOT/server/.env.example" "$STAGE/.env.example"

@@ -211,11 +211,27 @@ if grep -q 'docker builder prune -af' "$ROOT/android/app/src/main/java/com/ardtt
   err "DeployEngine must not prune Docker on the VPS"
 fi
 if grep -q 'uploadBytes(stackBytes' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt"; then
-  err "DeployEngine must SFTP the package file, not uploadBytes of the image"
+  err "DeployEngine must not uploadBytes of the image"
 fi
-if grep -q 'ByteArrayOutputStream' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackFetcher.kt"; then
-  err "DeployStackFetcher must not buffer the whole package in a ByteArrayOutputStream"
+if grep -q 'DeployStackFetcher(' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt"; then
+  err "DeployEngine must not download the server package on the phone (VPS fetches it)"
 fi
+if grep -q 'SFTP пакета' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt"; then
+  err "DeployEngine must not SFTP the multi-MB server package"
+fi
+grep -q 'fetchAndInstallCommand\|triggerRemoteInstall\|fetch-and-install' \
+  "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt" \
+  || err "DeployEngine must trigger VPS-side fetch-and-install"
+[ -f "$ROOT/server/fetch-and-install.sh" ] || err "missing server/fetch-and-install.sh"
+bash -n "$ROOT/server/fetch-and-install.sh" || err "bash -n fetch-and-install.sh"
+grep -q 'api.github.com' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must use GitHub Releases API"
+grep -q 'git clone' "$ROOT/server/fetch-and-install.sh" && err "fetch-and-install must not git clone"
+grep -q 'fetch-and-install.sh' "$PACK_SERVER" || err "pack-server-package must include fetch-and-install.sh"
+[ -f "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" ] \
+  || err "assets must ship fetch-and-install.sh bootstrap"
+grep -q 'DeployVersionCatalog' "$ROOT/android/app/src/main/java/com/ardtt/app/ArdttApp.kt" \
+  || err "app launch must poll DeployVersionCatalog"
+grep -q 'latestServerVersion' "$STACK_SOURCE_KT" || err "DeployStackSource must parse latest server version"
 
 if [ -f "$ROOT/android/app/src/main/assets/deploy/install.sh" ]; then
   err "assets/deploy/install.sh must not be bundled"
@@ -311,6 +327,9 @@ if [ -f "$ROOT/scripts/test-instance-metadata-rollback.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-live-isolation-guard.sh" ]; then
   bash "$ROOT/scripts/test-install-live-isolation-guard.sh" || err "live isolation guard"
+fi
+if [ -f "$ROOT/scripts/test-fetch-and-install-resolve.sh" ]; then
+  bash "$ROOT/scripts/test-fetch-and-install-resolve.sh" || err "fetch-and-install resolve"
 fi
 
 if [ "$fail" -ne 0 ]; then

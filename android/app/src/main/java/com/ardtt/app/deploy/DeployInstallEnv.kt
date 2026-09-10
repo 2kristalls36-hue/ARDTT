@@ -1,15 +1,77 @@
 package com.ardtt.app.deploy
 
-/** Shell env + installer invocation uploaded to the VPS. Never includes SSH passwords. */
+/** Shell env + installer invocation on the VPS. Never includes SSH passwords. */
 object DeployInstallEnv {
     const val CASCADE_DNS = "10.10.0.2"
     const val CASCADE_LISTEN_PORT = 51820
     const val PACKAGE_DIR = "/opt/ardtt/incoming"
     const val STAGING_DIR = "/opt/ardtt/staging"
+    const val FETCH_SCRIPT_REMOTE = "/opt/ardtt/bin/fetch-and-install.sh"
+    const val FETCH_SCRIPT_CURRENT = "/opt/ardtt/current/fetch-and-install.sh"
+    const val FETCH_ASSET = "deploy/fetch-and-install.sh"
 
     fun packageRemotePath(deployVersion: String, arch: String): String =
         "$PACKAGE_DIR/${DeployStackSource.serverAssetName(deployVersion, arch)}"
 
+    /**
+     * VPS-centric install: run [fetch-and-install.sh] on the server.
+     * The script downloads the package from GitHub Releases, verifies SHA-256,
+     * extracts, and runs install.sh. The phone never SFTPs the multi‑MB archive.
+     */
+    fun fetchAndInstallCommand(
+        publicHost: String,
+        directPort: Int,
+        bypassPort: Int,
+        deployVersion: String,
+        role: String,
+        cascadeEnabled: Boolean = false,
+        cascadeListenPort: Int = CASCADE_LISTEN_PORT,
+        cascadePeerEndpoint: String = "",
+        cascadePeerPublicKey: String = "",
+        cascadeDns: String = CASCADE_DNS,
+        cascadePeerProvisionPort: Int = 9100,
+        autoPorts: Boolean = true,
+        provisionPort: Int = 9100,
+        telemetryPort: Int = 9200,
+        scriptPath: String = FETCH_SCRIPT_REMOTE,
+    ): String = buildString {
+        append("set -euo pipefail; ")
+        append("SCRIPT="); append(SshClient.shellQuote(scriptPath)); append("; ")
+        append("test -f \"\$SCRIPT\"; ")
+        append("ARDTT_PUBLIC_HOST="); append(SshClient.shellQuote(publicHost)); append(' ')
+        append("ARDTT_DIRECT_PORT="); append(directPort); append(' ')
+        append("ARDTT_BYPASS_PORT="); append(bypassPort); append(' ')
+        append("ARDTT_PROVISION_PORT="); append(provisionPort); append(' ')
+        append("ARDTT_TELEMETRY_PORT="); append(telemetryPort); append(' ')
+        append("ARDTT_AUTO_PORTS="); append(if (autoPorts) "1" else "0"); append(' ')
+        if (deployVersion.isNotBlank()) {
+            append("ARDTT_DEPLOY_VERSION="); append(SshClient.shellQuote(deployVersion)); append(' ')
+        }
+        append("ARDTT_ROLE="); append(SshClient.shellQuote(role)); append(' ')
+        append("ARDTT_CASCADE_ENABLED="); append(if (cascadeEnabled) "1" else "0"); append(' ')
+        if (cascadeEnabled) {
+            append("ARDTT_CASCADE_LISTEN_PORT="); append(cascadeListenPort); append(' ')
+            append("ARDTT_CASCADE_DNS="); append(SshClient.shellQuote(cascadeDns)); append(' ')
+            if (cascadePeerEndpoint.isNotBlank()) {
+                append("ARDTT_CASCADE_PEER_ENDPOINT=")
+                append(SshClient.shellQuote(cascadePeerEndpoint))
+                append(' ')
+            }
+            if (cascadePeerPublicKey.isNotBlank()) {
+                append("ARDTT_CASCADE_PEER_PUBLIC_KEY=")
+                append(SshClient.shellQuote(cascadePeerPublicKey))
+                append(' ')
+            }
+            if (cascadePeerProvisionPort in 1..65535) {
+                append("ARDTT_CASCADE_PEER_PROVISION_PORT=")
+                append(cascadePeerProvisionPort)
+                append(' ')
+            }
+        }
+        append("bash \"\$SCRIPT\"")
+    }
+
+    /** @deprecated Prefer [fetchAndInstallCommand]; kept for tests of the legacy local-package path. */
     fun command(
         publicHost: String,
         directPort: Int,
