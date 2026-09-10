@@ -13,6 +13,7 @@ import android.util.Log
 import android.widget.Toast
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.qsTileOpensCallHashSettings
 import com.ardtt.app.ui.qsToggleTileSubtitle
@@ -74,9 +75,7 @@ class QuickToggleTileService : TileService() {
 
     private fun isRunning(): Boolean {
         val state = ConnectionManager.getOrNull()?.ui?.value?.state ?: return false
-        return state == ConnState.Connected ||
-            state == ConnState.Connecting ||
-            state == ConnState.PausedTrustedWifi
+        return state.holdsUserSession()
     }
 
     private fun updateTile() {

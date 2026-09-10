@@ -1,5 +1,9 @@
 package com.ardtt.app.core
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -7,7 +11,7 @@ import org.junit.Test
 
 class NetworkProbeClassifyTest {
     @Test
-    fun vpsIpOnWhitelistPicksBypass() {
+    fun cellularRestrictionHintStillTriesDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -15,31 +19,31 @@ class NetworkProbeClassifyTest {
             captive = false,
             awgUdpOk = false,
             provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
-        assertTrue(r.whitelistRestricted)
-        assertTrue(r.provisionOk)
-        assertTrue(r.message.contains("белый список") || r.message.contains("обход"))
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertEquals(RestrictionHint.Unknown, r.restriction)
+        assertTrue(!r.whitelistRestricted)
     }
 
     @Test
-    fun vpsOnWhitelistPicksBypassNotDirect() {
+    fun nonCellularYandexWithoutCloudflareIsNotMobileDiagnosis() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = false,
             captive = false,
             provisionOk = true,
+            underlayKind = UnderlayKind.Wifi,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
-        assertTrue(r.whitelistRestricted)
-        assertTrue(r.message.contains("белый список") || r.message.contains("обход"))
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertEquals(RestrictionHint.None, r.restriction)
     }
 
     @Test
-    fun vpsWithoutOpenCloudflareIsBypassNotDirect() {
+    fun vpsReachableWithoutPublicDnsStillTriesDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = false,
@@ -48,37 +52,37 @@ class NetworkProbeClassifyTest {
             awgUdpOk = false,
             provisionOk = true,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
     }
 
     @Test
-    fun mtsStyleTcpCloudflareWithoutTlsPicksBypass() {
-        // Lab on MTS: Yandex TCP/HTTP up, 1.1.1.1 TCP up but TLS/UDP dead,
-        // :9100 TCP up but /health dead. After the probe change bigtechOk and
-        // provisionOk are both false; even if /health later works, no TLS → Bypass.
+    fun cellularYandexWithoutCloudflareIsHintNotBypassLock() {
         val noHealth = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = false,
             captive = false,
             provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, noHealth.preselectedPath)
-        assertTrue(noHealth.whitelistRestricted)
+        assertEquals(VpnPath.Direct, noHealth.preselectedPath)
+        assertTrue(!noHealth.whitelistRestricted)
         val healthButNoTls = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = false,
             captive = false,
             provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, healthButNoTls.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, healthButNoTls.networkClass)
+        assertEquals(VpnPath.Direct, healthButNoTls.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, healthButNoTls.networkClass)
+        assertEquals(RestrictionHint.Unknown, healthButNoTls.restriction)
     }
 
     @Test
-    fun yandexWithoutVpsMeansBypass() {
+    fun yandexWithoutVpsOnCellularStillTriesDirect() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -86,9 +90,11 @@ class NetworkProbeClassifyTest {
             captive = false,
             awgUdpOk = false,
             provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertEquals(RestrictionHint.Unknown, r.restriction)
     }
 
     @Test
@@ -101,27 +107,29 @@ class NetworkProbeClassifyTest {
             awgUdpOk = false,
             provisionOk = false,
         )
-        assertNull(r.preselectedPath)
-        assertEquals(NetworkClass.NoNetwork, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DataUnconfirmed, r.networkClass)
+        assertEquals("Передача данных не подтверждена", r.message)
     }
 
     @Test
-    fun whitelistWithoutVpsPicksBypass() {
+    fun whitelistWithoutVpsOnCellularIsHint() {
         val r = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
             bigtechOk = false,
             captive = false,
             provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
-        assertTrue(r.whitelistRestricted)
-        assertTrue(r.message.contains("белый список"))
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
+        assertTrue(!r.whitelistRestricted)
+        assertEquals(RestrictionHint.Unknown, r.restriction)
     }
 
     @Test
-    fun vpsAloneWithoutPublicDnsIsNotDirect() {
+    fun vpsAloneWithoutPublicDnsIsDirectCandidate() {
         val r = NetworkProbe.classify(
             systemOnline = false,
             yandexOk = false,
@@ -129,8 +137,8 @@ class NetworkProbeClassifyTest {
             captive = false,
             provisionOk = true,
         )
-        assertEquals(VpnPath.Bypass, r.preselectedPath)
-        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DirectOk, r.networkClass)
     }
 
     @Test
@@ -156,14 +164,15 @@ class NetworkProbeClassifyTest {
             captive = false,
             provisionOk = false,
         )
-        assertNull(r.preselectedPath)
-        assertEquals(NetworkClass.NoNetwork, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DataUnconfirmed, r.networkClass)
+        assertEquals("Передача данных не подтверждена", r.message)
     }
 
     @Test
-    fun decideProbePathWaitsForCloudflareWhenVpsUp() {
+    fun decideProbePathDirectWhenVpsUpWithoutWaitingForCloudflare() {
         assertEquals(
-            ProbePathHint.Wait,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = true,
                 yandexOk = null,
@@ -174,9 +183,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathWhitelistBypassEvenIfVpsTcpUp() {
+    fun decideProbePathDirectWhenYandexUpCloudflareDown() {
         assertEquals(
-            ProbePathHint.Bypass,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = true,
                 yandexOk = true,
@@ -200,9 +209,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathWhitelistBypassesWithoutWaitingVps() {
+    fun decideProbePathDirectWhenYandexKnownEvenIfProvisionUnknown() {
         assertEquals(
-            ProbePathHint.Bypass,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = null,
                 yandexOk = true,
@@ -213,9 +222,9 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathProvisionAloneIsNotDirect() {
+    fun decideProbePathProvisionAloneIsDirectCandidate() {
         assertEquals(
-            ProbePathHint.Bypass,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = true,
                 yandexOk = false,
@@ -226,14 +235,27 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun decideProbePathBypassWhenVpsDeadAndYandexLives() {
+    fun decideProbePathDirectWhenYandexUpBeforeCloudflareFinishes() {
         assertEquals(
-            ProbePathHint.Bypass,
+            ProbePathHint.Direct,
             NetworkProbe.decideProbePath(
                 provisionOk = false,
                 yandexOk = true,
                 cloudflareOk = null,
                 captive = null,
+            ),
+        )
+    }
+
+    @Test
+    fun decideProbePathWaitsForGoogleWhenOthersAlreadyFailed() {
+        assertEquals(
+            ProbePathHint.Wait,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = false,
+                cloudflareOk = false,
+                captive = false,
             ),
         )
     }
@@ -247,6 +269,7 @@ class NetworkProbeClassifyTest {
                 yandexOk = false,
                 cloudflareOk = false,
                 captive = false,
+                googleOk = false,
             ),
         )
     }
@@ -281,5 +304,295 @@ class NetworkProbeClassifyTest {
         assertTrue(!NetworkProbe.provisionHealthAccepted(302))
         assertTrue(!NetworkProbe.provisionHealthAccepted(404))
         assertTrue(!NetworkProbe.provisionReachable(null, 200, bindNetwork = null))
+    }
+
+    @Test
+    fun secondCompletedCellularSeriesConfirmsRestriction() {
+        val first = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            seriesCount = 1,
+            googleOutcome = CheckOutcome.Timeout,
+        )
+        assertEquals(RestrictionHint.Suspected, first.restriction)
+        assertEquals(VpnPath.Direct, first.preselectedPath)
+        val second = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            seriesCount = 2,
+            googleOutcome = CheckOutcome.Timeout,
+        )
+        assertEquals(RestrictionHint.Confirmed, second.restriction)
+        assertEquals(VpnPath.Direct, second.preselectedPath)
+        assertEquals(NetworkClass.NeedBypass, second.networkClass)
+    }
+
+    @Test
+    fun sameSnapshotIsNotANewProbeSeries() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val evidence = ReachabilityEvidence(
+            networkKey = key,
+            profileId = "p",
+            measuredAtElapsedMs = 40L,
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Timeout,
+            google = CheckOutcome.Timeout,
+            seriesCount = 1,
+            bindHandle = 1L,
+        )
+        assertEquals(1, nextProbeSeriesCount(evidence, evidence))
+        assertEquals(
+            2,
+            nextProbeSeriesCount(
+                evidence,
+                evidence.copy(measuredAtElapsedMs = 80L),
+            ),
+        )
+        assertEquals(
+            1,
+            nextProbeSeriesCount(
+                evidence,
+                evidence.copy(networkKey = NetworkKey(2L, UnderlayKind.Cellular, 8, "cell2")),
+            ),
+        )
+        val open = evidence.copy(
+            bigtech = CheckOutcome.Success,
+            seriesCount = 4,
+        )
+        assertEquals(0, nextProbeSeriesCount(open, open.copy(measuredAtElapsedMs = 90L)))
+        assertEquals(
+            1,
+            nextProbeSeriesCount(
+                open,
+                evidence.copy(measuredAtElapsedMs = 90L),
+            ),
+        )
+        assertEquals(
+            1,
+            nextProbeSeriesCount(
+                evidence.copy(ttlUntilElapsedMs = 50L, seriesCount = 2),
+                evidence.copy(measuredAtElapsedMs = 80L),
+                elapsedMs = 80L,
+            ),
+        )
+        assertEquals(
+            0,
+            nextProbeSeriesCount(
+                evidence,
+                evidence.copy(
+                    measuredAtElapsedMs = 120L,
+                    yandex = CheckOutcome.Cancelled,
+                    bigtech = CheckOutcome.NotRun,
+                ),
+            ),
+        )
+        assertEquals(
+            1,
+            nextProbeSeriesCount(
+                evidence.copy(
+                    yandex = CheckOutcome.Cancelled,
+                    bigtech = CheckOutcome.NotRun,
+                    seriesCount = 4,
+                ),
+                evidence.copy(measuredAtElapsedMs = 121L),
+            ),
+        )
+        assertEquals(
+            0,
+            nextProbeSeriesCount(
+                evidence,
+                evidence.copy(
+                    yandex = CheckOutcome.NetworkLost,
+                    measuredAtElapsedMs = 90L,
+                ),
+            ),
+        )
+        assertTrue(
+            !isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+                CheckOutcome.NetworkLost,
+            ),
+        )
+    }
+
+    @Test
+    fun wifiIsNotOperatorWhitelistEvenAfterSeries() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Wifi,
+            seriesCount = 4,
+        )
+        assertEquals(RestrictionHint.None, r.restriction)
+    }
+
+    @Test
+    fun cloudflareAndGoogleFailuresAreTwoIndependentOrdinaryTargets() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Timeout,
+        )
+        assertEquals(RestrictionHint.Suspected, r.restriction)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals("direct", r.routeReason)
+    }
+
+    @Test
+    fun tlsFailureIsNotARestrictionSample() {
+        assertTrue(
+            !isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.TlsFailure,
+                CheckOutcome.Timeout,
+            ),
+        )
+        assertTrue(
+            !isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+                CheckOutcome.BindFailure,
+            ),
+        )
+        assertEquals(
+            RestrictionHint.Unknown,
+            NetworkProbePolicy.restrictionHint(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.TlsFailure,
+                google = CheckOutcome.Timeout,
+                seriesCount = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun dnsReplyMustMatchIdQuestionAndAnswers() {
+        val query = NetworkProbe.buildDnsQuery()
+        val headerOnly = query.copyOf(12)
+        headerOnly[2] = (headerOnly[2].toInt() or 0x80).toByte()
+        headerOnly[7] = 1
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, headerOnly, 12))
+        val ok = dnsReplyWithCopiedQuestion(query)
+        assertTrue(NetworkProbe.dnsReplyLooksValid(query, ok, ok.size))
+        val wrongId = ok.copyOf()
+        wrongId[1] = (wrongId[1].toInt() xor 0x01).toByte()
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, wrongId, ok.size))
+        val notResponse = query.copyOf(ok.size)
+        query.copyInto(notResponse)
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, notResponse, query.size))
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, ByteArray(8), 8))
+        val noAnswers = dnsReplyWithCopiedQuestion(query, answers = 0)
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, noAnswers, noAnswers.size))
+        assertEquals(CheckOutcome.Timeout, NetworkProbe.classifyCheckFailure(java.net.SocketTimeoutException("t")))
+        assertEquals(CheckOutcome.TlsFailure, NetworkProbe.classifyCheckFailure(javax.net.ssl.SSLHandshakeException("c")))
+        assertEquals(CheckOutcome.BindFailure, NetworkProbe.classifyCheckFailure(java.net.SocketException("Permission denied")))
+        assertEquals(CheckOutcome.Refused, NetworkProbe.classifyCheckFailure(java.net.ConnectException("Connection refused")))
+        assertEquals(0, remainingTimeoutMs(1_000L, 1_000L, 700))
+        assertEquals(100, remainingTimeoutMs(1_100L, 1_000L, 700))
+        assertEquals(0, remainingTimeoutMs(900L, 1_000L, 700))
+    }
+
+    @Test
+    fun offlineWithoutPhysicalNetIsNoNetwork() {
+        val r = NetworkProbe.classify(
+            systemOnline = false,
+            yandexOk = false,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = false,
+            underlayKind = UnderlayKind.Other,
+        )
+        assertNull(r.preselectedPath)
+        assertEquals(NetworkClass.NoNetwork, r.networkClass)
+        assertEquals("Нет сети", r.message)
+    }
+
+    @Test
+    fun provisionFailKeepsDirectPathAndDoesNotPromiseBypass() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = true,
+            captive = false,
+            provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
+        )
+        assertEquals(NetworkClass.OpenNeedBypass, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertTrue(!r.message.contains("обход"))
+    }
+
+    @Test
+    fun cancelAbortsHungTlsHandshakeBeforeSocketTimeout() {
+        val server = java.net.ServerSocket(0)
+        val acceptor = Thread {
+            runCatching {
+                val client = server.accept()
+                Thread.sleep(30_000)
+                client.close()
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+        try {
+            runBlocking {
+                val job = launch(Dispatchers.IO) {
+                    NetworkProbe.tlsReachableOutcome("127.0.0.1", server.localPort, 8_000, null)
+                }
+                delay(250)
+                val started = System.currentTimeMillis()
+                job.cancel()
+                job.join()
+                val elapsed = System.currentTimeMillis() - started
+                assertTrue("cancel waited ${elapsed}ms", elapsed < 2_000L)
+            }
+        } finally {
+            runCatching { server.close() }
+            acceptor.interrupt()
+        }
+    }
+
+    private fun dnsReplyWithCopiedQuestion(query: ByteArray, answers: Int = 1): ByteArray {
+        val reply = ByteArray(query.size + 16)
+        query.copyInto(reply)
+        reply[2] = (reply[2].toInt() or 0x80).toByte()
+        reply[6] = 0
+        reply[7] = answers.toByte()
+        var i = query.size
+        reply[i++] = 0xc0.toByte()
+        reply[i++] = 0x0c
+        reply[i++] = 0
+        reply[i++] = 1
+        reply[i++] = 0
+        reply[i++] = 1
+        reply[i++] = 0
+        reply[i++] = 0
+        reply[i++] = 0
+        reply[i++] = 60
+        reply[i++] = 0
+        reply[i++] = 4
+        reply[i++] = 1
+        reply[i++] = 2
+        reply[i++] = 3
+        reply[i++] = 4
+        return reply
     }
 }

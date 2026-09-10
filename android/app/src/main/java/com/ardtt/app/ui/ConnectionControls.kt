@@ -6,6 +6,9 @@ import com.ardtt.app.core.BypassWorkers
 import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.core.blocksProfileSwitch
+import com.ardtt.app.core.disconnectsOnPowerClick
+import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.settings.AppSettingsRepository
 
 /** Path / Hide-IP chips stay locked during a session unless the user unlocked them. */
@@ -15,33 +18,29 @@ internal fun connectionControlsLocked(
 ): Boolean = sessionActive && !unlockWhileConnected
 
 /** Live VPN session — do not switch the active profile / user. */
-internal fun vpnSessionBlocksProfileSwitch(state: ConnState): Boolean = when (state) {
-    ConnState.Connecting,
-    ConnState.Connected,
-    ConnState.PausedTrustedWifi,
-    ConnState.Disconnecting -> true
-    else -> false
-}
+internal fun vpnSessionBlocksProfileSwitch(state: ConnState): Boolean = state.blocksProfileSwitch()
 
-/**
- * Opening Tunnel runs a silent [ConnState.Probing] network check.
- * That is not a live connect — the CTA must stay Connect, not Stop / Cancel.
- */
 internal fun tunnelStickyCtaLabel(state: ConnState): String = when (state) {
     ConnState.Connecting -> "Отменить"
+    ConnState.WaitingForNetwork -> "Отменить ожидание"
+    ConnState.Recovering, ConnState.CaptivePortal, ConnState.NeedsUserAction -> "Отключить"
     ConnState.Connected, ConnState.PausedTrustedWifi -> "Отключить"
     else -> "Подключиться"
 }
 
-internal fun tunnelStickyCtaIsDestructive(state: ConnState): Boolean = when (state) {
-    ConnState.Connecting, ConnState.Connected, ConnState.PausedTrustedWifi -> true
-    else -> false
-}
+internal fun tunnelStickyCtaIsDestructive(state: ConnState): Boolean = state.disconnectsOnPowerClick() &&
+    state != ConnState.Disconnecting
 
 internal fun tunnelStickyCtaEnabled(state: ConnState, connectEnabled: Boolean): Boolean = when (state) {
-    ConnState.Connecting, ConnState.Connected, ConnState.PausedTrustedWifi -> true
+    ConnState.Connecting,
+    ConnState.Connected,
+    ConnState.PausedTrustedWifi,
+    ConnState.WaitingForNetwork,
+    ConnState.Recovering,
+    ConnState.CaptivePortal,
+    ConnState.NeedsUserAction,
+    -> true
     ConnState.Disconnecting -> false
-    // Keep the idle blue Connect look; connect() ignores taps while probing.
     ConnState.Probing -> true
     else -> connectEnabled
 }
@@ -49,32 +48,32 @@ internal fun tunnelStickyCtaEnabled(state: ConnState, connectEnabled: Boolean): 
 internal fun tunnelPowerBusy(state: ConnState): Boolean =
     state == ConnState.Connecting || state == ConnState.Disconnecting
 
-/** Visual loading must not block cancel while Connecting. */
 internal fun tunnelPowerClickEnabled(state: ConnState, connectEnabled: Boolean): Boolean =
     tunnelPowerToggleEnabled(state, connectEnabled)
 
-internal fun tunnelPowerSessionLit(state: ConnState): Boolean = when (state) {
-    ConnState.Connecting,
-    ConnState.Connected,
-    ConnState.Disconnecting,
-    ConnState.PausedTrustedWifi -> true
-    else -> false
-}
+internal fun tunnelPowerSessionLit(state: ConnState): Boolean = state.holdsUserSession()
 
 internal fun tunnelPowerToggleEnabled(state: ConnState, connectEnabled: Boolean): Boolean = when (state) {
-    ConnState.Connecting -> true
+    ConnState.Connecting,
+    ConnState.WaitingForNetwork,
+    ConnState.Recovering,
+    ConnState.CaptivePortal,
+    ConnState.NeedsUserAction,
+    -> true
     ConnState.Disconnecting -> false
     ConnState.Probing -> connectEnabled
     ConnState.Connected, ConnState.PausedTrustedWifi -> true
     else -> connectEnabled
 }
 
-internal fun tunnelPowerClickDisconnects(state: ConnState): Boolean = when (state) {
-    ConnState.Connected,
-    ConnState.Connecting,
-    ConnState.Disconnecting,
-    ConnState.PausedTrustedWifi -> true
-    else -> false
+internal fun tunnelPowerClickDisconnects(state: ConnState): Boolean = state.disconnectsOnPowerClick()
+
+internal fun tunnelPowerContentDescription(state: ConnState, connected: Boolean): String = when (state) {
+    ConnState.Connecting -> "Отменить подключение"
+    ConnState.WaitingForNetwork -> "Отменить ожидание сети"
+    ConnState.Disconnecting -> "Отключение"
+    ConnState.PausedTrustedWifi -> "Отключить паузу Wi‑Fi"
+    else -> if (connected || state.holdsUserSession()) "Отключить туннель" else "Подключить туннель"
 }
 
 internal fun tunnelProfileCenterOpensImport(count: Int): Boolean = count <= 0
@@ -83,13 +82,6 @@ internal fun tunnelProfileCenterOpensManage(count: Int): Boolean = count >= 1
 
 internal const val PROFILE_SWITCH_LOCKED_MESSAGE =
     "Отключите туннель, чтобы сменить профиль."
-
-internal fun tunnelPowerContentDescription(state: ConnState, connected: Boolean): String = when (state) {
-    ConnState.Connecting -> "Отменить подключение"
-    ConnState.Disconnecting -> "Отключение"
-    ConnState.PausedTrustedWifi -> "Отключить паузу Wi‑Fi"
-    else -> if (connected) "Отключить туннель" else "Подключить туннель"
-}
 
 internal fun pathModeNeedsCallHash(mode: ConnPathMode, hasCallHash: Boolean): Boolean =
     mode == ConnPathMode.Bypass && !hasCallHash

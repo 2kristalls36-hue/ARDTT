@@ -830,8 +830,13 @@ class DeployEngine(private val appContext: Context) {
         val result = DeployPreflight.run(ssh)
         result.fields.forEach { (k, v) -> append("preflight $hostLabel $k=$v") }
         if (result.ok) {
+            val dockerNote = if (result.dockerPresent) {
+                "Docker ${result.dockerVersion.ifBlank { "ok" }}"
+            } else {
+                "Docker будет установлен из пакета"
+            }
             append(
-                "Проверка $hostLabel: Docker ${result.dockerVersion.ifBlank { "ok" }} " +
+                "Проверка $hostLabel: $dockerNote " +
                     "${result.osId} ${result.arch}".trim(),
             )
             return

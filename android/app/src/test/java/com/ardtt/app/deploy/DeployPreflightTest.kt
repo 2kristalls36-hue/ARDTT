@@ -7,7 +7,7 @@ import org.junit.Test
 
 class DeployPreflightTest {
     @Test
-    fun parseDockerMissing() {
+    fun parseDockerMissingIsOkPackageWillInstall() {
         val parsed = DeployPreflight.parse(
             """
             ARDTT_PREFLIGHT|os_id=ubuntu
@@ -15,14 +15,16 @@ class DeployPreflightTest {
             ARDTT_PREFLIGHT|arch=x86_64
             ARDTT_PREFLIGHT|python=1
             ARDTT_PREFLIGHT|tun=1
-            ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_MISSING|message=docker-cli-missing
+            ARDTT_PREFLIGHT|docker=missing
+            ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-package
             """.trimIndent(),
         )
-        assertFalse(parsed.ok)
-        assertEquals(DeployIssue.DOCKER_MISSING, parsed.code)
+        assertTrue(parsed.ok)
+        assertEquals(null, parsed.code)
         assertEquals("ubuntu", parsed.osId)
         assertEquals("26.04", parsed.osVersion)
         assertEquals("missing", parsed.docker)
+        assertFalse(parsed.dockerPresent)
         assertTrue(parsed.python)
         assertTrue(parsed.tun)
     }
@@ -79,7 +81,17 @@ class DeployPreflightTest {
     @Test
     fun remoteScriptDoesNotUseUnquotedPipeAsShell() {
         assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("echo \"ARDTT_PREFLIGHT|os_id="))
-        assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("echo ARDTT_PREFLIGHT|"))
-        assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("'"))
+        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("docker-from-package"))
+        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("systemctl"))
+        assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("code=DOCKER_MISSING"))
+    }
+
+    @Test
+    fun parseMissingSystemdWithoutDockerIsFailure() {
+        val parsed = DeployPreflight.parse(
+            "ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_NOT_RUNNING|message=no-systemd",
+        )
+        assertFalse(parsed.ok)
+        assertEquals(DeployIssue.DOCKER_NOT_RUNNING, parsed.code)
     }
 }

@@ -57,6 +57,7 @@ import com.ardtt.app.core.NetcheckReport
 import com.ardtt.app.core.NetcheckTone
 import com.ardtt.app.core.NetcheckUiRow
 import com.ardtt.app.core.VpnPath
+import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.readUnderlayAccessLabel
 import com.ardtt.app.core.underlayIdentity
 import com.ardtt.app.deploy.DeployHop
@@ -87,6 +88,7 @@ import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.performConnectionUiAction
 import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.qsProfileTileLabel
 import com.ardtt.app.ui.settings.BypassMethodDialog
@@ -206,7 +208,7 @@ fun TunnelScreen(
     val disconnecting = ui.state == ConnState.Disconnecting
     val showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state)
     val vpnLocked = connectionControlsLocked(
-        sessionActive = connecting || connected || pausedTrusted || disconnecting,
+        sessionActive = ui.state.holdsUserSession(),
         unlockWhileConnected = unlockConnControls,
     )
     var netcheck by remember { mutableStateOf<NetcheckReport?>(null) }
@@ -495,7 +497,9 @@ fun TunnelScreen(
 
             // ═══ Статус сессии — структурированная панель ═══
             TunnelStatusPanel(
-                statusText = sessionCardStatusText(ui.state, publicIp, ui.lastError),
+                statusText = ui.uiModel.message.ifBlank {
+                    sessionCardStatusText(ui.state, publicIp, ui.lastError)
+                },
                 statusColor = when {
                     pausedTrusted -> warningStatusColor()
                     connected -> connectedStatusColor()
@@ -554,6 +558,13 @@ fun TunnelScreen(
                 netcheckRows = NetcheckClient.uiRows(netcheck, probeActive = netcheckActive),
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
+            )
+            ConnectionActionChips(
+                actions = ui.uiModel.actions,
+                onAction = { action ->
+                    haptics.tick()
+                    performConnectionUiAction(context, conn, action)
+                },
             )
     }
     BypassMethodDialog(

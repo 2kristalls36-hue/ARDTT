@@ -66,7 +66,9 @@ import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.core.ConnectionUiAction
 import com.ardtt.app.core.VpnPath
+import com.ardtt.app.ui.performConnectionUiAction
 import com.ardtt.app.profile.ProfileCatalog
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
@@ -180,6 +182,10 @@ fun UserTunnelScreen(
                 PendingUiAction.requestOpenProfiles()
             }
         },
+        onConnectionAction = { action ->
+            haptics.tick()
+            performConnectionUiAction(context, conn, action)
+        },
         showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state),
         onDismissDonate = { scope.launch { settings.setDonateBannerDismissed(true) } },
     )
@@ -198,6 +204,7 @@ private fun UserTunnelSimpleScreen(
     onSelectPreviousProfile: () -> Unit,
     onSelectNextProfile: () -> Unit,
     onOpenProfiles: () -> Unit,
+    onConnectionAction: (ConnectionUiAction) -> Unit,
     showDonateBanner: Boolean,
     onDismissDonate: () -> Unit,
 ) {
@@ -302,12 +309,19 @@ private fun UserTunnelSimpleScreen(
             )
             UserConnectStatusBlock(
                 state = ui.state,
-                softInfo = ui.softInfo,
-                activePath = ui.activePath,
-                hideIp = ui.hideIp,
+                statusMessage = ui.uiModel.message.ifBlank {
+                    userModeStatusPrimary(ui.state, ui.activePath)
+                },
+                details = ui.uiModel.details ?: ui.softInfo,
                 lastError = ui.lastError,
                 hasCallHash = ui.hasCallHash,
+                activePath = ui.activePath,
+                hideIp = ui.hideIp,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+            ConnectionActionChips(
+                actions = ui.uiModel.actions,
+                onAction = onConnectionAction,
             )
             if (showDonateBanner) {
                 DonateSupportBanner(onDismiss = onDismissDonate)
@@ -328,24 +342,25 @@ private fun UserTunnelSimpleScreen(
 @Composable
 private fun UserConnectStatusBlock(
     state: ConnState,
-    softInfo: String?,
-    activePath: VpnPath?,
-    hideIp: Boolean,
+    statusMessage: String,
+    details: String?,
     lastError: String?,
     hasCallHash: Boolean,
+    activePath: VpnPath?,
+    hideIp: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
-    val primaryLine = userModeStatusPrimary(state, activePath)
-    val details = when {
+    val primaryLine = statusMessage.ifBlank { userModeStatusPrimary(state, activePath) }
+    val resolvedDetails = when {
         !hasCallHash && !connectedLike && (
             activePath == VpnPath.Bypass ||
-                softInfo?.contains("обход", ignoreCase = true) == true ||
-                softInfo?.contains("звонка", ignoreCase = true) == true ||
-                softInfo?.contains("hash", ignoreCase = true) == true
+                details?.contains("обход", ignoreCase = true) == true ||
+                details?.contains("звонка", ignoreCase = true) == true ||
+                details?.contains("hash", ignoreCase = true) == true
             ) ->
             "Для режима «Обход» добавьте код звонка в настройках."
-        else -> userModeStatusDetails(state, softInfo, lastError, activePath, hideIp)
+        else -> details ?: userModeStatusDetails(state, details, lastError, activePath, hideIp)
     }
     val statusShadow = Shadow(
         color = Color.Black.copy(alpha = 0.45f),
@@ -372,13 +387,13 @@ private fun UserConnectStatusBlock(
             color = Color.White,
             textAlign = TextAlign.Center,
             minLines = 2,
-            maxLines = 2,
+            maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = details.orEmpty(),
+            text = resolvedDetails.orEmpty(),
             style = detailsTextStyle,
-            color = Color.White.copy(alpha = if (details != null) 0.92f else 0f),
+            color = Color.White.copy(alpha = if (resolvedDetails != null) 0.92f else 0f),
             textAlign = TextAlign.Center,
             minLines = 2,
             maxLines = 2,

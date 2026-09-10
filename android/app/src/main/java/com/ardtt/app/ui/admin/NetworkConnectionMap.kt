@@ -2,6 +2,7 @@ package com.ardtt.app.ui.admin
 
 import androidx.compose.ui.graphics.Color
 import com.ardtt.app.core.ConnState
+import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.core.VpnPath
@@ -81,8 +82,20 @@ internal fun networkMapCacheKey(
 
 /** Keep filled cards across Connecting (soft reconnect). Drop them once the tunnel is down. */
 internal fun networkMapKeepCards(state: ConnState): Boolean = when (state) {
-    ConnState.Connected, ConnState.Connecting -> true
-    else -> false
+    ConnState.Connected,
+    ConnState.Connecting,
+    ConnState.Recovering,
+    ConnState.WaitingForNetwork,
+    ConnState.CaptivePortal,
+    ConnState.NeedsUserAction,
+    -> true
+    ConnState.Idle,
+    ConnState.Probing,
+    ConnState.Ready,
+    ConnState.PausedTrustedWifi,
+    ConnState.Disconnecting,
+    ConnState.Error,
+    -> false
 }
 
 internal fun shouldClearNetworkMapCards(previous: ConnState, next: ConnState): Boolean =

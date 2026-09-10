@@ -1,8 +1,10 @@
 package com.ardtt.app.bypass
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BypassGoProcessTest {
@@ -32,12 +34,27 @@ class BypassGoProcessTest {
     }
 
     @Test
-    fun parsesRawConfLine() {
-        val conf = BypassGoProcess.parseRawConfLine("RAWCONF:10.9.0.5|1.1.1.1|1280")
+    fun parsesRawConfLineWithExtraFields() {
+        val conf = BypassGoProcess.parseRawConfLine("RAWCONF:10.9.0.5|1.1.1.1|1280|gen=2")
         assertNotNull(conf)
         assertEquals("10.9.0.5", conf!!.ip)
-        assertEquals("1.1.1.1", conf.dnsCsv)
         assertEquals(1280, conf.mtu)
+    }
+
+    @Test
+    fun parsesControlAck() {
+        val ack = BypassGoProcess.parseControlAck("V1|k3|1|ACK|DETACH_TUN|ok")
+        assertNotNull(ack)
+        assertEquals("k3", ack!!.reqId)
+        assertNull(BypassGoProcess.parseControlAck("PAUSE"))
+    }
+
+    @Test
+    fun staleControlAckIsFailure() {
+        assertTrue(BypassGoProcess.controlAckSucceeded("V1|k3|1|ACK|ATTACH_TUN|ok"))
+        assertFalse(BypassGoProcess.controlAckSucceeded("V1|k3|2|ACK|ATTACH_TUN|stale"))
+        assertFalse(BypassGoProcess.controlAckSucceeded("V1|k3|1|ACK|ATTACH_TUN|err|timeout"))
+        assertFalse(BypassGoProcess.controlAckSucceeded(null))
     }
 
     @Test

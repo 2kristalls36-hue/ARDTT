@@ -71,14 +71,14 @@ class TunnelWallpaperTest {
     }
 
     @Test
-    fun autoModeEveningWhenProbeNeedsBypass() {
-        assertTrue(
+    fun autoModeEveningOnlyWhenBypassPathIsActive() {
+        assertFalse(
             wallpaperBypassActive(
                 pathMode = ConnPathMode.Auto,
                 networkClass = NetworkClass.NeedBypass,
             ),
         )
-        assertTrue(
+        assertFalse(
             wallpaperBypassActive(
                 pathMode = ConnPathMode.Auto,
                 networkClass = NetworkClass.OpenNeedBypass,

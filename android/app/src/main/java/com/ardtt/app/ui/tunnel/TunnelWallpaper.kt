@@ -53,14 +53,11 @@ data class TunnelWallpaperId(
 fun wallpaperBypassActive(
     pathMode: ConnPathMode,
     activePath: VpnPath? = null,
-    networkClass: NetworkClass? = null,
+    @Suppress("UNUSED_PARAMETER") networkClass: NetworkClass? = null,
 ): Boolean = when (pathMode) {
     ConnPathMode.Bypass -> true
     ConnPathMode.Direct -> false
-    ConnPathMode.Auto ->
-        activePath == VpnPath.Bypass ||
-            networkClass == NetworkClass.NeedBypass ||
-            networkClass == NetworkClass.OpenNeedBypass
+    ConnPathMode.Auto -> activePath == VpnPath.Bypass
 }
 
 fun resolveTunnelWallpaperTime(

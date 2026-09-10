@@ -2,6 +2,7 @@ package com.ardtt.app.core
 
 import android.telephony.TelephonyManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -261,5 +262,54 @@ class UnderlayAccessTest {
         assertEquals(42, subscriptionIdFromSpecifier(FakeSpec()))
         assertEquals(-1, subscriptionIdFromSpecifier(null))
         assertEquals(-1, subscriptionIdFromSpecifier("nope"))
+    }
+
+    @Test
+    fun fingerprintChangesWhenAddressesChange() {
+        assertTrue(
+            networkConfigFingerprint(listOf("10.0.0.2"), listOf("1.1.1.1"), "wlan0") !=
+                networkConfigFingerprint(listOf("10.0.0.3"), listOf("1.1.1.1"), "wlan0"),
+        )
+        assertEquals(
+            "wlan0|10.0.0.2|1.1.1.1",
+            networkConfigFingerprint(listOf("10.0.0.2"), listOf("1.1.1.1"), "wlan0"),
+        )
+    }
+
+    @Test
+    fun cellularDataSuspendedDoesNotApplyToWifi() {
+        assertTrue(
+            selectedNotSuspended(
+                selectedKind = UnderlayKind.Wifi,
+                selectedNotSuspendedCap = true,
+                cellularDataSuspended = true,
+            ),
+        )
+        assertFalse(
+            selectedNotSuspended(
+                selectedKind = UnderlayKind.Cellular,
+                selectedNotSuspendedCap = true,
+                cellularDataSuspended = true,
+            ),
+        )
+    }
+
+    @Test
+    fun inventoryPresenceIncludesNonSelectedTransports() {
+        val merged = mergePhysicalPresence(
+            selectedWifi = true,
+            selectedCellular = false,
+            selectedEthernet = false,
+            inventoryWifi = true,
+            inventoryCellular = true,
+            inventoryEthernet = false,
+        )
+        assertTrue(merged.wifi)
+        assertTrue(merged.cellular)
+    }
+
+    @Test
+    fun emptyLinkPropertiesFingerprintIsBlank() {
+        assertEquals("", fingerprintFromLinkProperties(null))
     }
 }

@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
@@ -96,8 +98,8 @@ fun scoreUnderlayCandidate(
     activeDataSubId: Int,
 ): Int {
     if (!hasInternet || !notVpn) return -1
-    var s = 1
-    if (validated) s += 10 else s -= 6
+    var s = 4
+    if (validated) s += 8 else if (cellularTransport) s += 2
     when {
         // Captive / half-up Wi‑Fi must not beat VALIDATED LTE (21 vs 13).
         wifiTransport && validated -> s += 26
@@ -187,6 +189,50 @@ fun pickBestUnderlayNetwork(context: Context): android.net.Network? {
         cm.allNetworks.maxByOrNull { score(it) }?.takeIf { score(it) > 0 }
     }.getOrNull()
 }
+
+fun fingerprintFromLinkProperties(lp: LinkProperties?): String {
+    if (lp == null) return ""
+    val addresses = lp.linkAddresses.mapNotNull { la ->
+        la.address.hostAddress?.takeIf { it.isNotBlank() }
+    }
+    val dns = lp.dnsServers.mapNotNull { it.hostAddress?.takeIf { it.isNotBlank() } }
+    return networkConfigFingerprint(addresses, dns, lp.interfaceName)
+}
+
+fun scanPhysicalNetworkPresence(cm: ConnectivityManager): PhysicalNetworkPresence {
+    var wifi = false
+    var cellular = false
+    var ethernet = false
+    runCatching {
+        for (network in cm.allNetworks) {
+            val caps = cm.getNetworkCapabilities(network) ?: continue
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) wifi = true
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) cellular = true
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) ethernet = true
+        }
+    }
+    return PhysicalNetworkPresence(wifi = wifi, cellular = cellular, ethernet = ethernet)
+}
+
+fun pickCellularUnderlayNetwork(cm: ConnectivityManager): Network? = runCatching {
+    cm.allNetworks.firstOrNull { network ->
+        val caps = cm.getNetworkCapabilities(network) ?: return@firstOrNull false
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+    }
+}.getOrNull()
+
+fun pickWifiUnderlayNetwork(cm: ConnectivityManager): Network? = runCatching {
+    cm.allNetworks.firstOrNull { network ->
+        val caps = cm.getNetworkCapabilities(network) ?: return@firstOrNull false
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+    }
+}.getOrNull()
 
 fun readCellularOperatorInfo(context: Context): CellularOperatorInfo {
     val app = context.applicationContext

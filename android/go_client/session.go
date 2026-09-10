@@ -132,23 +132,27 @@ func (c *connectedUDPConn) WriteTo(p []byte, _ net.Addr) (int, error) { return c
 // TURN-relay душится/дропается, а TCP до того же relay проходит — сравни
 // github.com/anton48/vk-turn-proxy-ios, который к той же VK/OK TURN-инфре
 // (calls.okcdn.ru) по умолчанию ходит именно через TCP.
-func dialTURNConn(turnAddr string, tcp bool) (net.PacketConn, io.Closer, error) {
+func dialTURNConn(ctx context.Context, turnAddr string, tcp bool) (net.PacketConn, io.Closer, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	d := dialerForCurrentNetwork(10 * time.Second)
 	if !tcp {
-		resolved, err := net.ResolveUDPAddr("udp", turnAddr)
-		if err != nil {
-			return nil, nil, fmt.Errorf("резолв TURN: %w", err)
-		}
-		c, err := net.DialUDP("udp", nil, resolved)
+		c, err := d.DialContext(ctx, "udp", turnAddr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("подключение TURN UDP: %w", err)
 		}
-		_ = c.SetReadBuffer(socketBufSize)
-		_ = c.SetWriteBuffer(socketBufSize)
-		return &connectedUDPConn{c}, c, nil
+		uc, ok := c.(*net.UDPConn)
+		if !ok {
+			_ = c.Close()
+			return nil, nil, fmt.Errorf("подключение TURN UDP: unexpected %T", c)
+		}
+		_ = uc.SetReadBuffer(socketBufSize)
+		_ = uc.SetWriteBuffer(socketBufSize)
+		return &connectedUDPConn{uc}, uc, nil
 	}
 
-	d := net.Dialer{Timeout: 10 * time.Second}
-	c, err := d.Dial("tcp", turnAddr)
+	c, err := d.DialContext(ctx, "tcp", turnAddr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("подключение TURN TCP: %w", err)
 	}
@@ -175,6 +179,26 @@ func RunSession(
 	var firstWireWrite uint32
 	var firstWireRead uint32
 
+	if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+		if err := ctrl.WaitNetOps(ctx); err != nil {
+			return false, err
+		}
+		sockCtx, cancelSock := context.WithCancel(ctx)
+		defer cancelSock()
+		go func() {
+			select {
+			case <-ctrl.SocketsContext().Done():
+				cancelSock()
+			case <-sockCtx.Done():
+			}
+		}()
+		ctx = sockCtx
+	}
+	startSocketsEpoch := uint64(0)
+	if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+		startSocketsEpoch = ctrl.SocketsEpoch()
+	}
+
 	if len(creds.TurnURLs) == 0 {
 		return false, fmt.Errorf("нет TURN URL в учетных данных")
 	}
@@ -192,11 +216,22 @@ func RunSession(
 	}
 	turnAddr := net.JoinHostPort(urlhost, urlport)
 
-	turnConn, turnConnCloser, err := dialTURNConn(turnAddr, tp.TCPTransport)
+	dialCtx := ctx
+	if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+		var cancelDial context.CancelFunc
+		dialCtx, cancelDial = ctrl.BoundContext(ctx)
+		defer cancelDial()
+	}
+	turnConn, turnConnCloser, err := dialTURNConn(dialCtx, turnAddr, tp.TCPTransport)
 	if err != nil {
 		return false, err
 	}
 	defer turnConnCloser.Close()
+	if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+		if ds, ok := turnConnCloser.(deadlineSetter); ok {
+			defer ctrl.TrackConn(ds)()
+		}
+	}
 
 	if tp.TCPTransport {
 		log.Printf("[СЕССИЯ #%d] TURN TCP (%s)", sessionID, turnAddr)
@@ -250,6 +285,14 @@ func RunSession(
 			return false, ctx.Err()
 		}
 	}
+	if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+		if err := ctrl.WaitNetOps(ctx); err != nil {
+			return false, err
+		}
+		if !ctrl.NetOpsAllowed() {
+			return false, fmt.Errorf("TURN Allocate: net ops forbidden")
+		}
+	}
 
 	relay, err := tc.Allocate()
 	if err != nil {
@@ -284,7 +327,14 @@ func RunSession(
 			case <-sessCtx.Done():
 				return
 			case <-t.C:
-				tc.SendBindingRequest()
+				ctrl := activeSessionCtrl.Load()
+				if ctrl != nil {
+					if !ctrl.TryNetOp(func() { tc.SendBindingRequest() }) {
+						continue
+					}
+				} else {
+					tc.SendBindingRequest()
+				}
 			}
 		}
 	}()
@@ -462,7 +512,7 @@ func RunSession(
 
 	// Запрос конфига
 	if getConfig && configCh != nil && tp.RawMode {
-		ip, dnsCSV, mtu, confErr := RequestRawConfig(activeConn, deviceID, password)
+		ip, dnsCSV, mtu, confErr := RequestRawConfig(activeConn, deviceID, password, currentTransportSID())
 		if confErr != nil {
 			errStr := confErr.Error()
 			if strings.Contains(errStr, "FATAL_AUTH") {
@@ -503,7 +553,7 @@ func RunSession(
 			log.Printf("[ВОРКЕР #%d] Сервер ещё не выдал legacy-конфиг, повторим позже", sessionID)
 		}
 	} else {
-		if authErr := SendAuth(activeConn, deviceID, password); authErr != nil {
+		if authErr := SendAuth(activeConn, deviceID, password, currentTransportSID()); authErr != nil {
 			log.Printf("[ВОРКЕР #%d] Ошибка авторизации: %v", sessionID, authErr)
 		}
 	}
@@ -564,6 +614,14 @@ func RunSession(
 			case <-sessCtx.Done():
 				return
 			case <-t.C:
+				if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+					if !ctrl.NetOpsAllowed() {
+						continue
+					}
+					if ctrl.SocketsEpoch() != startSocketsEpoch {
+						return
+					}
+				}
 				size := keepaliveMinSize + rand.Intn(keepaliveMaxSize)
 				pkt := getPktBuf(size)
 				pkt[0] = keepaliveByte
@@ -620,6 +678,19 @@ func RunSession(
 			}
 			if !ok {
 				return
+			}
+			if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+				if !shouldSendOnWire(ctrl) {
+					putPktBuf(pkt)
+					if err := ctrl.WaitNetOps(sessCtx); err != nil {
+						return
+					}
+					continue
+				}
+				if ctrl.SocketsEpoch() != startSocketsEpoch {
+					putPktBuf(pkt)
+					return
+				}
 			}
 			// 3с, не sessionReadTimeout (30 мин). Запись пишет в
 			// UDP-сокет к TURN relay, а не читает долгоживущее соединение;
@@ -737,7 +808,7 @@ func RunPing(
 	}
 	turnAddr := net.JoinHostPort(urlhost, urlport)
 
-	turnConn, turnConnCloser, err := dialTURNConn(turnAddr, tp.TCPTransport)
+	turnConn, turnConnCloser, err := dialTURNConn(ctx, turnAddr, tp.TCPTransport)
 	if err != nil {
 		return 0, err
 	}

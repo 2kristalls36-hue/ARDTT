@@ -15,6 +15,9 @@ fi
 if grep -q '/var/lib/docker/buildkit' "$ROOT/server/install.sh" "$ROOT/server/install-lib/"*.sh; then
   err "installer still touches BuildKit dir"
 fi
-grep -q 'Docker Engine не найден' "$ROOT/server/install.sh" || err "must require preinstalled Docker"
+grep -q 'ensure_docker_engine' "$ROOT/server/install.sh" || err "must install bundled Engine when missing"
+if grep -q 'get.docker.com' "$ROOT/server/install.sh" "$ROOT/server/install-lib/"*.sh; then
+  err "must not fetch Engine from the network"
+fi
 ok "installer does not stop Docker or wipe BuildKit"
 exit 0

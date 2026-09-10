@@ -72,12 +72,40 @@ raw = subprocess.check_output(
     ["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
     text=True,
 )
-assets = {a["name"] for a in json.loads(raw).get("assets") or []}
+remote_assets = json.loads(raw).get("assets") or []
+by_name = {a["name"]: a for a in remote_assets}
+assets = set(by_name)
 overlap = [p.name for p in upload if p.name in assets]
 if overlap:
-    raise SystemExit(
-        "refusing to overwrite existing release assets: " + ", ".join(overlap)
-    )
+    if set(overlap) != {p.name for p in upload}:
+        raise SystemExit(
+            "refusing to overwrite existing release assets: " + ", ".join(overlap)
+        )
+    mismatches = []
+    for path in upload:
+        remote = by_name[path.name]
+        local_digest = sha256(path)
+        remote_digest = (remote.get("digest") or "").lower().removeprefix("sha256:")
+        remote_size = int(remote.get("size") or 0)
+        local_size = path.stat().st_size
+        if remote_digest:
+            if remote_digest != local_digest:
+                mismatches.append(
+                    f"{path.name}: release {remote_digest} != local {local_digest}"
+                )
+        elif remote_size and remote_size != local_size:
+            mismatches.append(
+                f"{path.name}: release size {remote_size} != local {local_size}"
+            )
+        elif not remote_digest:
+            mismatches.append(f"{path.name}: release asset has no digest to compare")
+    if mismatches:
+        raise SystemExit(
+            "release already has different server assets; not overwriting:\n  "
+            + "\n  ".join(mismatches)
+        )
+    print("already attached (digest match) to https://github.com/%s/releases/tag/%s" % (repo, tag))
+    sys.exit(0)
 
 print("Attach to https://github.com/%s/releases/tag/%s" % (repo, tag))
 for path in upload:

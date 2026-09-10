@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Replace host-side files in an existing ardtt-server-*.tar.gz with this
-# checkout (install.sh, ready.sh, Compose, install-lib). Keeps images/ardtt.tar
-# and bin/docker-compose so a 1.0.45 image artifact can ship installer fixes
-# without rebuilding the image.
+# checkout (install.sh, ready.sh, Compose, install-lib). Keeps images/ardtt.tar,
+# bin/docker-compose and vendor/docker.tgz so a 1.0.46 image artifact can ship
+# installer fixes without rebuilding the image or re-downloading Engine.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="${1:-}"
@@ -58,23 +58,28 @@ files["ready.sh"] = sha("ready.sh")
 files["docker-compose.yml"] = sha("docker-compose.yml")
 if (stage / "images/ardtt.tar").is_file():
     files["images/ardtt.tar"] = sha("images/ardtt.tar")
+if (stage / "vendor/docker.tgz").is_file():
+    files["vendor/docker.tgz"] = sha("vendor/docker.tgz")
 man["commit"] = commit
 path.write_text(json.dumps(man, indent=2) + "\n", encoding="utf-8")
 PY
 
 (
   cd "$STAGE"
-  sha256sum install.sh ready.sh docker-compose.yml docker-compose.exit.yml \
-    images/ardtt.tar bin/docker-compose manifest.json third-party.lock.json \
-    > SHA256SUMS
+  sums=(install.sh ready.sh docker-compose.yml docker-compose.exit.yml
+    images/ardtt.tar bin/docker-compose manifest.json third-party.lock.json)
+  [ -f vendor/docker.tgz ] && sums+=(vendor/docker.tgz)
+  sha256sum "${sums[@]}" > SHA256SUMS
 )
 
 tmp="${PKG}.repack.$$"
+extra=()
+[ -d "$STAGE/vendor" ] && extra+=(vendor)
 tar -czf "$tmp" -C "$STAGE" \
   manifest.json SHA256SUMS README.md DEPLOY_VERSION third-party.lock.json \
   install.sh ready.sh install-lib scripts \
   docker-compose.yml docker-compose.exit.yml .env.example \
-  images bin
+  images bin "${extra[@]}"
 mv -f "$tmp" "$PKG"
 sha256sum "$PKG" | awk '{print $1}' > "${PKG}.sha256"
 echo "Repacked host files into $PKG (image unchanged, commit=$COMMIT)"

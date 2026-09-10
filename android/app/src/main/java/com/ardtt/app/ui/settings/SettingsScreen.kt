@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
+import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.TrustedWifiAccessProblem
 import com.ardtt.app.core.TrustedWifiPermissionAsk
@@ -131,10 +132,7 @@ fun SettingsScreen(
     val openAppearanceSettings by PendingUiAction.openAppearanceSettings.collectAsStateWithLifecycle()
     val appearanceBringIntoView = remember { BringIntoViewRequester() }
     val scrollState = rememberScrollState()
-    val vpnSessionActive = connUi.state == ConnState.Connecting ||
-        connUi.state == ConnState.Connected ||
-        connUi.state == ConnState.PausedTrustedWifi ||
-        connUi.state == ConnState.Disconnecting
+    val vpnSessionActive = connUi.state.holdsUserSession()
     val vpnLocked = connectionControlsLocked(vpnSessionActive, unlockConnControls)
     val scope = rememberCoroutineScope()
     var adminHint by remember { mutableStateOf<String?>(null) }
