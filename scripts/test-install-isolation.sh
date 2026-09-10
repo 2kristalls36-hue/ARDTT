@@ -19,9 +19,7 @@ forbidden=(
   'killall'
   'pkill dockerd'
   'docker builder prune'
-  'docker image prune'
   'docker system prune'
-  'journalctl --vacuum'
   '/proc/sys/vm/drop_caches'
   'swapoff /swapfile'
   'fallocate'
@@ -39,6 +37,22 @@ for pat in "${forbidden[@]}"; do
     ok "absent: $pat"
   fi
 done
+
+# Opt-in disk reclaim may prune dangling images / vacuum journal — only in disk-cleanup.sh.
+for pat in 'docker image prune' 'journalctl --vacuum'; do
+  if grep -F "$pat" "$INSTALLER" >/dev/null 2>&1; then
+    err "$pat must not appear in install.sh (only disk-cleanup.sh)"
+  fi
+  hits="$(grep -lF "$pat" "$ROOT/server/install-lib/"*.sh 2>/dev/null || true)"
+  for f in $hits; do
+    base="$(basename "$f")"
+    if [ "$base" != "disk-cleanup.sh" ]; then
+      err "$pat forbidden outside disk-cleanup.sh (found in $base)"
+    fi
+  done
+done
+grep -q 'docker image prune' "$ROOT/server/install-lib/disk-cleanup.sh" || err "disk-cleanup should prune dangling images"
+grep -q 'ARDTT_DISK_CLEANUP' "$INSTALLER" || err "install.sh must gate cleanup on ARDTT_DISK_CLEANUP"
 
 if grep -q 'apt-get purge' "$UNINSTALL_KT"; then
   err "ServerUninstall.kt still purges Docker"

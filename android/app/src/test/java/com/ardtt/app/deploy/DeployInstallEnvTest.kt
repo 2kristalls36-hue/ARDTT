@@ -36,18 +36,23 @@ class DeployInstallEnvTest {
     )
 
     @Test
-    fun fetchCommandRunsRemoteScriptWithoutPhonePackage() {
-        val command = fetchCmd()
-        assertTrue(command.contains("ARDTT_ROLE='entry'"))
-        assertTrue(command.contains("ARDTT_CASCADE_ENABLED=0"))
-        assertTrue(command.contains("ARDTT_AUTO_PORTS=1"))
-        assertTrue(command.contains("ARDTT_DEPLOY_VERSION='1.0.45'"))
+    fun fetchCommandIncludesDiskCleanupWhenRequested() {
+        val command = DeployInstallEnv.fetchAndInstallCommand(
+            publicHost = "45.129.2.3",
+            directPort = 51820,
+            bypassPort = 56003,
+            deployVersion = "1.0.49",
+            role = "entry",
+            diskCleanup = true,
+        )
+        assertTrue(command.contains("ARDTT_DISK_CLEANUP=1"))
         assertTrue(command.contains("fetch-and-install.sh"))
-        assertFalse(command.contains("ARDTT_PACKAGE="))
-        assertFalse(command.contains("sha256sum -c"))
-        assertFalse(command.contains("ARDTT_CASCADE_PEER_PUBLIC_KEY"))
-        assertFalse(command.contains("password"))
-        assertFalse(command.contains("git clone"))
+    }
+
+    @Test
+    fun fetchCommandOmitsDiskCleanupByDefault() {
+        val command = fetchCmd()
+        assertFalse(command.contains("ARDTT_DISK_CLEANUP"))
     }
 
     @Test

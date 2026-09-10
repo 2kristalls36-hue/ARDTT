@@ -32,6 +32,8 @@ fi
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/common.sh"
 # shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/disk-cleanup.sh"
+# shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/engine.sh"
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/ports.sh"
@@ -72,6 +74,8 @@ CASCADE_PEER_PROVISION_PORT="${ARDTT_CASCADE_PEER_PROVISION_PORT:-9100}"
 CASCADE_DNS="${ARDTT_CASCADE_DNS:-${NVPN_CASCADE_DNS:-10.10.0.2}}"
 MIN_DISK_MB="${ARDTT_MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-1600}}"
 MIN_RAM_MB="${ARDTT_MIN_RAM_MB:-384}"
+# Opt-in only: never auto-prune the host. Phone / operator sets ARDTT_DISK_CLEANUP=1.
+DISK_CLEANUP="${ARDTT_DISK_CLEANUP:-${NVPN_DISK_CLEANUP:-0}}"
 DIRECT_LISTEN_PORT=51820
 BYPASS_LISTEN_PORT=56003
 NETWORK_MODE=isolated
@@ -147,8 +151,8 @@ preflight_tun() {
   [ -e /dev/net/tun ] || die "Нет /dev/net/tun. Загрузите модуль tun. Установщик не меняет sysctl хоста."
 }
 
-preflight_space() {
-  local need="$MIN_DISK_MB" avail docker_root layers_mb=0
+preflight_space_need_mb() {
+  local need="$MIN_DISK_MB" layers_mb=0
   # Layered packages need far less peak space than a full uncompressed docker save.
   if [ -f "${PKG_DIR:-}/images/layout.json" ]; then
     layers_mb="$(python3 - "${PKG_DIR}/images/layout.json" <<'PY' 2>/dev/null || echo 0
@@ -176,16 +180,49 @@ PY
       [ "$mono_need" -gt "$need" ] && need="$mono_need"
     fi
   fi
+  printf '%s %s' "$need" "$layers_mb"
+}
+
+disk_full_hint() {
+  echo "Повторите с безопасной очисткой перед установкой (ARDTT_DISK_CLEANUP=1): логи Docker, apt-кэш, лишние linux-headers, хвосты ARDTT. Чужие контейнеры и /opt/ardtt/data не трогаем. Глобальная очистка сервера не выполняется."
+}
+
+preflight_space() {
+  local need layers_mb avail docker_root avail_docker cleaned=0
+  read -r need layers_mb <<<"$(preflight_space_need_mb)"
   avail="$(disk_avail_mb "$INSTALL_DIR")"
   docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
-  local avail_docker
   avail_docker="$(disk_avail_mb "$docker_root")"
   echo "ARDTT_INFO|диск install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need}; слои≈${layers_mb:-0} МБ gz)"
+
+  local short=0
   if [ -n "${avail:-}" ] && [ "$avail" -lt "$need" ] 2>/dev/null; then
-    die "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ на распаковку, слои и резерв предыдущей версии). Глобальная очистка сервера не выполняется."
+    short=1
   fi
   if [ -n "${avail_docker:-}" ] && [ "$avail_docker" -lt "$need" ] 2>/dev/null; then
-    die "Мало места в DockerRootDir ${docker_root}: свободно ${avail_docker} МБ (нужно ≥${need} МБ)."
+    short=1
+  fi
+
+  if [ "$short" = 1 ] && { [ "$DISK_CLEANUP" = "1" ] || [ "$DISK_CLEANUP" = "yes" ] || [ "$DISK_CLEANUP" = "true" ]; }; then
+    prog 0.19 "Очистка места на диске…"
+    ardtt_disk_cleanup
+    cleaned=1
+    avail="$(disk_avail_mb "$INSTALL_DIR")"
+    avail_docker="$(disk_avail_mb "$docker_root")"
+    echo "ARDTT_INFO|после очистки install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need})"
+  fi
+
+  if [ -n "${avail:-}" ] && [ "$avail" -lt "$need" ] 2>/dev/null; then
+    if [ "$cleaned" = 1 ]; then
+      die --code DISK_FULL "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ) даже после очистки. Освободите место вручную."
+    fi
+    die --code DISK_FULL "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ на распаковку, слои и резерв предыдущей версии). $(disk_full_hint)"
+  fi
+  if [ -n "${avail_docker:-}" ] && [ "$avail_docker" -lt "$need" ] 2>/dev/null; then
+    if [ "$cleaned" = 1 ]; then
+      die --code DISK_FULL "Мало места в DockerRootDir ${docker_root}: свободно ${avail_docker} МБ (нужно ≥${need} МБ) даже после очистки."
+    fi
+    die --code DISK_FULL "Мало места в DockerRootDir ${docker_root}: свободно ${avail_docker} МБ (нужно ≥${need} МБ). $(disk_full_hint)"
   fi
   local ram
   ram="$(mem_avail_mb)"
