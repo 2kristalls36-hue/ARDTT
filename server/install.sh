@@ -267,6 +267,40 @@ ensure_cascade_keys() {
   fi
 }
 
+# Entry → exit: publish cascade.pub to exit provision so the phone does not
+# need a third SSH hop to write /opt/ardtt/data/cascade.peer.pub.
+push_entry_pubkey_to_exit() {
+  [ "$ROLE" = "entry" ] || return 0
+  [ "$CASCADE_ENABLED" = "1" ] || return 0
+  local pub host port url i
+  pub="$(tr -d '[:space:]' <"${INSTALL_DIR}/data/cascade.pub" 2>/dev/null || true)"
+  [ -n "$pub" ] || {
+    echo "ARDTT_WARN|нет cascade.pub — ключ входа на выход не отправлен"
+    return 0
+  }
+  host="${CASCADE_PEER_ENDPOINT%%:*}"
+  host="$(printf '%s' "$host" | tr -d '[:space:]')"
+  [ -n "$host" ] || {
+    echo "ARDTT_WARN|нет CASCADE_PEER_ENDPOINT — ключ входа на выход не отправлен"
+    return 0
+  }
+  port="${CASCADE_PEER_PROVISION_PORT:-9100}"
+  url="http://${host}:${port}/v1/cascade/peer"
+  command -v curl >/dev/null 2>&1 || {
+    echo "ARDTT_WARN|нет curl — ключ входа на выход не отправлен (${url})"
+    return 0
+  }
+  for i in 1 2 3 4 5 6; do
+    if curl -fsS -m 12 -X POST -H 'Content-Type: application/json' \
+      -d "{\"publicKey\":\"${pub}\"}" "$url" >/dev/null 2>&1; then
+      echo "ARDTT_INFO|ключ входа отправлен на выход ${host}:${port}"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "ARDTT_WARN|не удалось отправить ключ входа на ${url} — проверьте доступ VPS1→VPS2 :${port}"
+}
+
 find_package_file() {
   if [ -n "${ARDTT_PACKAGE:-}" ] && [ -f "$ARDTT_PACKAGE" ]; then
     printf '%s' "$ARDTT_PACKAGE"
@@ -491,6 +525,10 @@ do_install() {
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
   write_instance
   clear_pending_instance
+  if [ "$ROLE" = "entry" ] && [ "$CASCADE_ENABLED" = "1" ]; then
+    prog 0.92 "Передача ключа каскада на выход"
+    push_entry_pubkey_to_exit
+  fi
   rm -rf "$PKG_DIR"
   # Keep previous until next successful install. Do not delete previous here.
   prog 1.00 "Готово"

@@ -316,23 +316,10 @@ class DeployEngine(private val appContext: Context) {
             markTrackedHostDone(entryHost)
 
             if (target.cascadeEnabled) {
-                val exitHost = SshJump.targetHost(target.cascadeHost)
-                emitOn(exitHost, 0.94f, "Запись ключа входа через туннель…")
-                withExitViaJump(target) { exitSsh ->
-                    if (entryPub.isBlank()) {
-                        error("Входной VPS не отдал ключ каскада")
-                    }
-                    exitSsh.exec(
-                        "install -d -m 700 /opt/ardtt/data && " +
-                            "printf '%s\\n' ${SshClient.shellQuote(entryPub)} " +
-                            "> /opt/ardtt/data/cascade.peer.pub && " +
-                            "chmod 644 /opt/ardtt/data/cascade.peer.pub && " +
-                            "if [ -f /opt/ardtt/current/docker-compose.yml ]; then " +
-                            "(cd /opt/ardtt/current && docker compose restart); " +
-                            "elif [ -f /opt/ardtt/stack/docker-compose.yml ]; then " +
-                            "(cd /opt/ardtt/stack && docker compose restart); fi",
-                    )
-                    append("Пир входа записан на $exitHost")
+                if (entryPub.isNotBlank()) {
+                    append("Ключ входа получен; VPS1 сам передаёт его на выход (без третьего SSH)")
+                } else {
+                    append("Предупреждение: вход не отдал ARDTT_CASCADE_PUBLIC_KEY — проверьте install.log")
                 }
             }
 

@@ -277,9 +277,10 @@ private fun ServerHealthStatusRow(
 ) {
     val parts = healthStatusParts(health, expectedVersion)
     if (parts.deploy.isNullOrEmpty() && parts.pingLabel.isEmpty()) return
+    val expected = effectiveExpectedVersion(health, expectedVersion)
     val deployColor = when (health) {
         is HealthUi.Online ->
-            if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
+            if (DeployBundle.isCurrent(health.deployVersion, expected)) {
                 connectedStatusColor()
             } else {
                 warningStatusColor()
@@ -1307,7 +1308,7 @@ private fun ServerOverviewHost(
                 failure = failure,
                 onRetryPreflight = { startPreflight(server) },
                 onRetryInstall = { startRedeploy(server) },
-                retryInstallEnabled = lastPreflightOk && !busy,
+                retryInstallEnabled = !busy,
                 onCancel = { engine.cancel() },
                 onClose = { showRedeployProgress = false },
             )
@@ -2121,7 +2122,7 @@ fun DeployScreen(
                 failure = failure,
                 onRetryPreflight = { startFormPreflight() },
                 onRetryInstall = { startServerDeploy() },
-                retryInstallEnabled = lastPreflightOk && !busy,
+                retryInstallEnabled = !busy,
                 onCancel = { engine.cancel() },
                 onClose = { showDeployProgress = false },
             )
