@@ -137,15 +137,8 @@ jobs:
           pkg="dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
           bash scripts/verify-server-package.sh "$pkg"
 
-      - name: Live isolation without touching foreign containers
-        if: matrix.arch == 'amd64'
-        shell: bash
-        env:
-          ARDTT_REQUIRE_READY: "0"
-        run: |
-          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
-          bash scripts/test-install-live-isolation.sh "dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
-
+      # Upload before live isolation: install.sh used to delete ARDTT_PACKAGE
+      # (the dist tarball) after extract, so amd64 artifacts were only .sha256.
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
@@ -155,6 +148,32 @@ jobs:
             dist/ardtt-server-*-linux-${{ matrix.arch }}.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Require packed tarball in artifact paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
+          pkg="dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
+          test -f "$pkg"
+          test -s "$pkg"
+          sz="$(stat -c%s "$pkg")"
+          # Real packages are hundreds of MB; refuse empty/sha-only leftovers.
+          test "$sz" -gt 1048576
+          echo "package bytes=$sz"
+
+      - name: Live isolation without touching foreign containers
+        if: matrix.arch == 'amd64'
+        shell: bash
+        env:
+          ARDTT_REQUIRE_READY: "0"
+        run: |
+          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
+          # Copy so a buggy installer cannot erase the uploaded source path.
+          src="dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
+          cp -f "$src" "${src}.live"
+          cp -f "${src}.sha256" "${src}.live.sha256"
+          bash scripts/test-install-live-isolation.sh "${src}.live"
 
   publish:
     name: Attach packages to GitHub Release
