@@ -1202,6 +1202,16 @@ private fun ServerOverviewHost(
         health = probeServerHealthUi(target, serversRepo)
     }
 
+    // Live host gauges while the overview is open (also refreshed by pull-to-refresh).
+    LaunchedEffect(serverId, server?.host, server?.publicHost) {
+        val target = server ?: return@LaunchedEffect
+        while (true) {
+            delay(10_000)
+            if (busy) continue
+            health = probeServerHealthUi(target, serversRepo)
+        }
+    }
+
     if (server == null && !showDeleteProgress) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -1439,6 +1449,13 @@ private fun ServerOverviewScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                 ) {
+            item {
+                val online = health as? HealthUi.Online
+                val host = online?.host
+                if (host != null) {
+                    ServerHostMetricsCard(host = host)
+                }
+            }
             item {
                 ServerCard(
                     server = server,

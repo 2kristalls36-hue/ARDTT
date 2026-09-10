@@ -17,6 +17,7 @@ internal sealed class HealthUi {
         val pingMs: Long = -1L,
         /** From provision `/health` when the VPS knows a newer stack release. */
         val latestDeployVersion: String = "",
+        val host: ProvisionAdminApi.HostMetrics? = null,
     ) : HealthUi()
     /** SSH/auth failed — host or credentials unreachable. */
     data object Unreachable : HealthUi()
@@ -33,6 +34,7 @@ internal fun healthUiFromProbes(
             deployVersion = info.deployVersion,
             pingMs = info.pingMs,
             latestDeployVersion = info.latestDeployVersion,
+            host = info.host,
         )
     }
     return if (sshAuthOk) HealthUi.NotInstalled else HealthUi.Unreachable
@@ -532,4 +534,44 @@ internal fun deployFreshnessChipText(health: HealthUi?, expectedVersion: String)
     val want = expected.ifBlank { "—" }
     return "Требуется обновление · $installed → $want"
 }
+
+internal fun formatHostCpuCores(cores: Float): String {
+    if (cores <= 0f) return "—"
+    val label = if (cores == cores.toInt().toFloat()) {
+        cores.toInt().toString()
+    } else {
+        String.format(java.util.Locale.US, "%.1f", cores)
+    }
+    val n = cores
+    val word = when {
+        n == 1f -> "ядро"
+        n < 5f -> "ядра"
+        else -> "ядер"
+    }
+    return "$label $word"
+}
+
+internal fun formatHostGiB(bytes: Long): String {
+    if (bytes <= 0L) return "0"
+    val gib = bytes / (1024.0 * 1024.0 * 1024.0)
+    return when {
+        gib < 10.0 -> String.format(java.util.Locale.US, "%.2f", gib)
+        gib < 100.0 -> String.format(java.util.Locale.US, "%.1f", gib)
+        else -> String.format(java.util.Locale.US, "%.0f", gib)
+    }
+}
+
+internal fun formatHostMemDetail(host: ProvisionAdminApi.HostMetrics): String {
+    if (!host.hasMem) return "— / — ГБ"
+    return "${formatHostGiB(host.memUsedBytes)} / ${formatHostGiB(host.memTotalBytes)} ГБ"
+}
+
+internal fun formatHostDiskDetail(host: ProvisionAdminApi.HostMetrics): String {
+    if (!host.hasDisk) return "— / — ГБ"
+    return "${formatHostGiB(host.diskUsedBytes)} / ${formatHostGiB(host.diskTotalBytes)} ГБ"
+}
+
+internal fun formatHostPercent(pct: Float): String =
+    "${pct.toInt().coerceIn(0, 100)}%"
+
 

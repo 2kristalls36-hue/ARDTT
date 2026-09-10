@@ -10,6 +10,23 @@ import org.junit.Test
 
 class ServerDeployCardLogicTest {
     @Test
+    fun hostMetricFormatters() {
+        assertEquals("1 ядро", formatHostCpuCores(1f))
+        assertEquals("3.5 ядра", formatHostCpuCores(3.5f))
+        assertEquals("8 ядер", formatHostCpuCores(8f))
+        assertEquals("0.14", formatHostGiB((0.14 * 1024 * 1024 * 1024).toLong()))
+        assertEquals("12%", formatHostPercent(12.4f))
+        val host = ProvisionAdminApi.HostMetrics(
+            memUsedBytes = (0.07 * 1024 * 1024 * 1024).toLong(),
+            memTotalBytes = (4.45 * 1024 * 1024 * 1024).toLong(),
+            diskUsedBytes = 0,
+            diskTotalBytes = 0,
+        )
+        assertTrue(formatHostMemDetail(host).contains("ГБ"))
+        assertEquals("— / — ГБ", formatHostDiskDetail(host))
+    }
+
+    @Test
     fun publicHostHiddenWhenSameAsSshHost() {
         assertNull(distinctPublicHost("159.194.225.162", "159.194.225.162"))
         assertNull(distinctPublicHost("159.194.225.162", " 159.194.225.162 "))

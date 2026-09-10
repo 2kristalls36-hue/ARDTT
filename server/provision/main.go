@@ -209,6 +209,7 @@ func runServer(store *Store, listen string) error {
 			"bypassPort":          store.Config.BypassPort,
 			"provisionPort":       publicProvisionPort(),
 			"telemetryPort":       publicTelemetryPort(),
+			"host":                collectHostStats(),
 		})
 	})
 	mux.HandleFunc("/v1/cascade/peer", func(w http.ResponseWriter, r *http.Request) {
