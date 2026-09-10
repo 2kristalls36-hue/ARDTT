@@ -15,7 +15,7 @@ object DeployBundle {
     const val ASSET_VERSION_FILE = "deploy/DEPLOY_VERSION"
 
     /** Offline fallback when Releases cannot be reached (must match server/DEPLOY_VERSION). */
-    const val FALLBACK_VERSION = "1.0.50"
+    const val FALLBACK_VERSION = "1.0.51"
 
     fun expectedVersion(context: Context): String =
         DeployVersionCatalog.expectedVersion(context)

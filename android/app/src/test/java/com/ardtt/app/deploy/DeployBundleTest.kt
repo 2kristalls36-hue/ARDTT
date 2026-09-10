@@ -26,7 +26,7 @@ class DeployBundleTest {
 
     @Test
     fun fallbackMatchesServerDeployVersion() {
-        assertEquals("1.0.50", DeployBundle.FALLBACK_VERSION)
+        assertEquals("1.0.51", DeployBundle.FALLBACK_VERSION)
     }
 
     @Test
