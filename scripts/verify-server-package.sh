@@ -22,7 +22,16 @@ python3 "$ROOT/scripts/safe-extract-package.py" "$PKG" "$STAGE"
 test -f "$STAGE/manifest.json"
 test -f "$STAGE/install.sh"
 test -f "$STAGE/docker-compose.yml"
-test -f "$STAGE/images/ardtt.tar"
+if [ -f "$STAGE/images/layout.json" ]; then
+  test -d "$STAGE/images/layers"
+  test -f "$STAGE/scripts/assemble-docker-save.py"
+  echo "OK layered image layout"
+elif [ -f "$STAGE/images/ardtt.tar" ]; then
+  echo "OK legacy images/ardtt.tar"
+else
+  echo "missing images/layout.json and images/ardtt.tar" >&2
+  exit 1
+fi
 test -f "$STAGE/vendor/docker.tgz"
 # Do not `tar -tzf | grep -q`: grep -q closes the pipe and tar's SIGPIPE
 # fails the script under pipefail even when dockerd is present.
@@ -59,7 +68,11 @@ fi
 
 IMAGE_TAG="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image"]["tag"])' "$STAGE/manifest.json")"
 WANT_ARCH="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["arch"])' "$STAGE/manifest.json")"
-docker load -i "$STAGE/images/ardtt.tar"
+if [ -f "$STAGE/images/layout.json" ]; then
+  python3 "$STAGE/scripts/assemble-docker-save.py" "$STAGE/images" | docker load
+else
+  docker load -i "$STAGE/images/ardtt.tar"
+fi
 got_arch="$(docker image inspect -f '{{.Architecture}}' "$IMAGE_TAG")"
 [ "$got_arch" = "$WANT_ARCH" ] || { echo "image arch $got_arch != $WANT_ARCH" >&2; exit 1; }
 echo "OK docker load $IMAGE_TAG ($got_arch)"

@@ -261,6 +261,17 @@ class ServerDeployCardLogicTest {
             ProvisionAdminApi.HealthInfo(ok = true, deployVersion = "1.0.12", pingMs = 18L),
         )
         assertEquals(HealthUi.Online("1.0.12", 18L), online)
+        assertEquals(
+            HealthUi.Online("1.0.12", 18L, latestDeployVersion = "1.0.47"),
+            healthUiOf(
+                ProvisionAdminApi.HealthInfo(
+                    ok = true,
+                    deployVersion = "1.0.12",
+                    latestDeployVersion = "1.0.47",
+                    pingMs = 18L,
+                ),
+            ),
+        )
         assertEquals(HealthUi.Unreachable, healthUiOf(null))
         assertEquals(
             HealthUi.Unreachable,

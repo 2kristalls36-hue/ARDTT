@@ -70,7 +70,7 @@ CASCADE_PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-${NVPN_CASCADE_PEER_ENDPOI
 CASCADE_PEER_PUBLIC_KEY="${ARDTT_CASCADE_PEER_PUBLIC_KEY:-${NVPN_CASCADE_PEER_PUBLIC_KEY:-}}"
 CASCADE_PEER_PROVISION_PORT="${ARDTT_CASCADE_PEER_PROVISION_PORT:-9100}"
 CASCADE_DNS="${ARDTT_CASCADE_DNS:-${NVPN_CASCADE_DNS:-10.10.0.2}}"
-MIN_DISK_MB="${ARDTT_MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-2500}}"
+MIN_DISK_MB="${ARDTT_MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-1600}}"
 MIN_RAM_MB="${ARDTT_MIN_RAM_MB:-384}"
 DIRECT_LISTEN_PORT=51820
 BYPASS_LISTEN_PORT=56003
@@ -148,12 +148,39 @@ preflight_tun() {
 }
 
 preflight_space() {
-  local need="$MIN_DISK_MB" avail docker_root
+  local need="$MIN_DISK_MB" avail docker_root layers_mb=0
+  # Layered packages need far less peak space than a full uncompressed docker save.
+  if [ -f "${PKG_DIR:-}/images/layout.json" ]; then
+    layers_mb="$(python3 - "${PKG_DIR}/images/layout.json" <<'PY' 2>/dev/null || echo 0
+import json,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+gz=sum(int((x or {}).get("gzSize") or 0) for x in (d.get("layers") or []))
+print(max(0, (gz + 1024*1024 - 1)//(1024*1024)))
+PY
+)"
+    # staging already extracted: need headroom for one decompressed layer stream + compose swap.
+    local layered_need=$(( layers_mb / 3 + 700 ))
+    [ "$layered_need" -lt 1200 ] && layered_need=1200
+    [ "$layered_need" -lt "$need" ] && need="$layered_need"
+    # Same image already loaded → only host files / previous metadata.
+    if [ -n "${ARDTT_IMAGE:-}" ] && docker image inspect "${ARDTT_IMAGE}" >/dev/null 2>&1; then
+      if [ -n "${IMAGE_LAYOUT:-}" ] && loaded_image_matches_layout "$IMAGE_LAYOUT" "$ARDTT_IMAGE" 2>/dev/null; then
+        need=800
+      fi
+    fi
+  elif [ -f "${PKG_DIR:-}/images/ardtt.tar" ]; then
+    local tar_mb
+    tar_mb="$(du -m "${PKG_DIR}/images/ardtt.tar" 2>/dev/null | awk '{print $1}')"
+    if [ -n "${tar_mb:-}" ]; then
+      local mono_need=$(( tar_mb + 800 ))
+      [ "$mono_need" -gt "$need" ] && need="$mono_need"
+    fi
+  fi
   avail="$(disk_avail_mb "$INSTALL_DIR")"
   docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
   local avail_docker
   avail_docker="$(disk_avail_mb "$docker_root")"
-  echo "ARDTT_INFO|диск install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need} с запасом на load+слои+резерв)"
+  echo "ARDTT_INFO|диск install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need}; слои≈${layers_mb:-0} МБ gz)"
   if [ -n "${avail:-}" ] && [ "$avail" -lt "$need" ] 2>/dev/null; then
     die "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ на распаковку, слои и резерв предыдущей версии). Глобальная очистка сервера не выполняется."
   fi
@@ -438,9 +465,21 @@ do_install() {
     return 0
   fi
 
-  prog 0.30 "docker load образа (без build и без pull)"
-  load_package_image "$IMAGE_TAR" "$ARDTT_IMAGE" "$PKG_IMAGE_ID"
+  prog 0.30 "docker load образа (слои или tar, без build/pull)"
+  # Drop the downloaded archive early — staging already holds the payload.
+  if [ -n "${ARDTT_PACKAGE:-}" ] && [ -f "${ARDTT_PACKAGE}" ]; then
+    rm -f "${ARDTT_PACKAGE}" "${ARDTT_PACKAGE}.partial" 2>/dev/null || true
+    echo "ARDTT_INFO|incoming-пакет удалён после распаковки (освобождение места)"
+  fi
+  load_package_image "${IMAGE_TAR:-}" "$ARDTT_IMAGE" "$PKG_IMAGE_ID" "${IMAGE_LAYOUT:-}"
   LOADED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$ARDTT_IMAGE")"
+  # Layer blobs are no longer needed after a successful load.
+  if [ -n "${IMAGE_LAYOUT:-}" ] && [ -d "${IMAGE_LAYOUT}/layers" ]; then
+    rm -rf "${IMAGE_LAYOUT}/layers" "${IMAGE_LAYOUT}/extras" 2>/dev/null || true
+  fi
+  if [ -n "${IMAGE_TAR:-}" ] && [ -f "${IMAGE_TAR}" ]; then
+    rm -f "${IMAGE_TAR}" 2>/dev/null || true
+  fi
 
   mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs"
   chmod 700 "$INSTALL_DIR/data"

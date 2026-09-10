@@ -53,6 +53,19 @@ PY
   grep -q 'safe_extract_package' "$INSTALLER" || err "installer must extract safely"
   grep -q 'docker load' "$INSTALLER" || err "installer must docker load"
   grep -q 'load_package_image' "$INSTALLER" || err "installer must load_package_image (retag manifest ID)"
+  grep -q 'images/layout.json\|IMAGE_LAYOUT\|ardtt-image-layers-v1' "$ROOT/server/install-lib/package.sh" \
+    || err "package.sh must load layered images"
+  grep -q 'assemble-docker-save.py' "$ROOT/scripts/pack-server-package.sh" \
+    || err "pack-server-package must ship assemble-docker-save.py"
+  grep -q 'split-docker-save.py' "$ROOT/scripts/pack-server-package.sh" \
+    || err "pack-server-package must split docker save into layers"
+  grep -q 'MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-1600}' "$INSTALLER" \
+    || err "disk floor default must be 1600 (softer than 2500)"
+  if grep -q 'MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-2500}' "$INSTALLER"; then
+    err "disk floor must not stay at 2500"
+  fi
+  python3 -m py_compile "$ROOT/scripts/split-docker-save.py" || err "split-docker-save.py"
+  python3 -m py_compile "$ROOT/scripts/assemble-docker-save.py" || err "assemble-docker-save.py"
   grep -q 'loaded_image_matches_tar' "$ROOT/server/install-lib/package.sh" || err "package load must compare image tar layers"
   grep -q -- '--no-build --pull never' "$INSTALLER" || err "installer must up --no-build --pull never"
   grep -q 'wait_readiness' "$INSTALLER" || err "installer must wait readiness"
@@ -335,6 +348,9 @@ if [ -f "$ROOT/scripts/test-install-live-isolation-guard.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-fetch-and-install-resolve.sh" ]; then
   bash "$ROOT/scripts/test-fetch-and-install-resolve.sh" || err "fetch-and-install resolve"
+fi
+if [ -f "$ROOT/scripts/test-image-layers.sh" ]; then
+  bash "$ROOT/scripts/test-image-layers.sh" || err "image layers split/assemble"
 fi
 
 if [ "$fail" -ne 0 ]; then
