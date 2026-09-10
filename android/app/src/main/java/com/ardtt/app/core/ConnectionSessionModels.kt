@@ -138,9 +138,9 @@ data class ReachabilityEvidence(
     val seriesId: String = "",
 ) {
     fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
-        if (elapsedMs > ttlUntilElapsedMs) return false
-        if (key != networkKey) return false
-        if (profileId != this.profileId) return false
+        if (ttlUntilElapsedMs > 0L && elapsedMs > ttlUntilElapsedMs) return false
+        if (networkKey != null && key != null && networkKey != key) return false
+        if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return true
     }
 

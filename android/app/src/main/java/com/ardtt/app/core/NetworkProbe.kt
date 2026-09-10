@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
@@ -181,6 +182,7 @@ object NetworkProbe {
                     }
 
                     val waitMs = (deadlineAt - now).coerceAtLeast(1L)
+                    @OptIn(ExperimentalCoroutinesApi::class)
                     select {
                         if (yandex == null) yandexDef.onAwait { yandex = it }
                         if (cloudflare == null) cloudflareDef.onAwait { cloudflare = it }

@@ -98,15 +98,7 @@ object PathConfirm {
         ) {
             return false
         }
-        // Backend/handle identity: required when both sides know it. A new operation
-        // replaces the backend; reused numeric handles alone are not enough.
-        if (obs.capturedBackendId >= 0L &&
-            obs.eventBackendId >= 0L &&
-            obs.capturedBackendId != obs.eventBackendId &&
-            (obs.capturedOperationId < 0L || obs.eventOperationId < 0L)
-        ) {
-            return false
-        }
+        // Handle alone is not operation identity — do not Stale solely on handle change.
         // Unknown tunGen (-1) is not comparable; first known gen of this operation is adopted.
         if (obs.capturedTunGen >= 0L &&
             obs.eventTunGen >= 0L &&
