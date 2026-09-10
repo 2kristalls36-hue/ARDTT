@@ -46,9 +46,11 @@ class BypassSession {
     private var job: Job? = null
     private var go: BypassGoProcess? = null
     private var tun: ParcelFileDescriptor? = null
+    @Volatile private var lastConf: RawConf? = null
     @Volatile private var keepTunOnStop = false
     /** Keep libclient after TUN close so the VK call stays allocated. */
     @Volatile private var keepProcessOnCleanup = false
+    @Volatile private var parkedDeathHandler: (() -> Unit)? = null
     @Volatile var phase: BypassPhase = BypassPhase.Idle
         private set
 
@@ -97,7 +99,9 @@ class BypassSession {
                         if (!rawReady.isCompleted) rawReady.complete(conf)
                     },
                     onLog = { line ->
-                        TransportHealth.onLogLine(line)
+                        if (!keepProcessOnCleanup) {
+                            TransportHealth.onLogLine(line)
+                        }
                         AppLog.i("go_client", line.take(300))
                         when {
                             line.contains("[VKCalls]") || line.contains("[VK Auth]") ->
@@ -108,6 +112,10 @@ class BypassSession {
                     },
                     onFatal = { msg ->
                         AppLog.e(TAG, msg)
+                        if (keepProcessOnCleanup && msg == "parked-process-exited") {
+                            parkedDeathHandler?.invoke()
+                            return@start
+                        }
                         if (!fatal.isCompleted) fatal.complete(msg)
                     },
                 )
@@ -121,6 +129,7 @@ class BypassSession {
 
                 setPhase(BypassPhase.Wrapping, onPhase)
                 AppLog.i(TAG, "RAWCONF ip=${conf.ip} dns=${conf.dnsCsv} mtu=${conf.mtu}")
+                lastConf = conf
                 Log.i(TAG, "RAWCONF ip=${conf.ip} dns=${conf.dnsCsv} mtu=${conf.mtu}")
                 val pfd = establishTun(conf.ip, conf.dnsCsv, conf.mtu)
                 if (pfd == null) {
@@ -132,7 +141,8 @@ class BypassSession {
 
                 setPhase(BypassPhase.Running, onPhase)
                 while (isActive && running.get() && process.isAlive) {
-                    delay(5_000)
+                    pollTelemetry(process)
+                    delay(250)
                 }
                 if (running.get() && !process.isAlive) {
                     val msg = process.lastError ?: "Процесс обхода завершился"
@@ -174,9 +184,11 @@ class BypassSession {
         keepTunOnStop = false
         running.set(false)
         TransportHealth.noteBackendStopped()
+        go?.detachLogs()
+        go?.sendControlFireAndForget("PAUSE_USER_DATA")
+        go?.sendControlFireAndForget("DETACH_TUN")
         runCatching { tun?.close() }
         tun = null
-        go?.detachLogs()
         job?.cancel()
         job = null
         phase = BypassPhase.Stopped
@@ -184,6 +196,70 @@ class BypassSession {
 
     val isCallParked: Boolean
         get() = keepProcessOnCleanup && go?.isAlive == true
+
+    val parkedProcessAlive: Boolean
+        get() = go?.isAlive == true
+
+    fun setParkedDeathHandler(handler: (() -> Unit)?) {
+        parkedDeathHandler = handler
+    }
+
+    fun setNetOpsAllowed(allowed: Boolean) {
+        go?.sendControlFireAndForget(if (allowed) "ALLOW_NET_OPS" else "FORBID_NET_OPS")
+    }
+
+    fun updateNetwork(kind: String, handle: Long) {
+        go?.sendControlFireAndForget("UPDATE_NETWORK", kind, handle.toString())
+    }
+
+    suspend fun resumeParked(
+        scope: CoroutineScope,
+        @Suppress("UNUSED_PARAMETER") service: VpnService,
+        establishTun: (ip: String, dnsCsv: String, mtu: Int) -> ParcelFileDescriptor?,
+        onPhase: (BypassPhase) -> Unit,
+    ): Boolean {
+        val process = go ?: return false
+        val conf = lastConf ?: return false
+        if (!process.isAlive) return false
+        keepProcessOnCleanup = false
+        keepTunOnStop = false
+        running.set(true)
+        TransportHealth.noteAttachStarted()
+        if (!BypassGoProcess.controlAckSucceeded(process.sendControl("ALLOW_NET_OPS"))) {
+            running.set(false)
+            return false
+        }
+        val pfd = establishTun(conf.ip, conf.dnsCsv, conf.mtu) ?: return false
+        tun = pfd
+        if (!process.attachTun(pfd)) {
+            runCatching { pfd.close() }
+            tun = null
+            return false
+        }
+        if (!BypassGoProcess.controlAckSucceeded(process.sendControl("RESUME_CHANNELS"))) {
+            return false
+        }
+        // First telemetry after attach establishes the new tunGen for this operation.
+        pollTelemetry(process)
+        setPhase(BypassPhase.Running, onPhase)
+        job = scope.launch {
+            while (isActive && running.get() && process.isAlive) {
+                pollTelemetry(process)
+                delay(250)
+            }
+            if (running.get() && !process.isAlive) {
+                setPhase(BypassPhase.Failed(process.lastError ?: "Процесс обхода завершился"), onPhase)
+            }
+        }
+        return true
+    }
+
+    private suspend fun pollTelemetry(process: BypassGoProcess) {
+        val reply = process.sendControl("GET_TELEMETRY", timeoutMs = 400L)
+        if (!reply.isNullOrBlank()) {
+            TransportHealth.applyControlAck(reply)
+        }
+    }
 
     private fun cleanup(keepTun: Boolean = false) {
         if (!keepProcessOnCleanup) {

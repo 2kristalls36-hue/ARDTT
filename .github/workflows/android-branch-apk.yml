@@ -76,6 +76,29 @@ jobs:
           keyPassword=$KEY_PASSWORD
           EOF
 
+      - name: Android unit tests
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          cd android
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          ./gradlew :app:testDebugUnitTest --no-daemon
+
+      - name: Go client tests
+        shell: bash
+        run: |
+          cd android/go_client
+          go test ./...
+          go test -race ./...
+
+      - name: RAW server tests
+        shell: bash
+        run: |
+          cd server/bypass/wdtt-server
+          go test ./server/
+          go test -race ./server/
+
       - name: Build arm64-v8a release APK
         shell: bash
         env:

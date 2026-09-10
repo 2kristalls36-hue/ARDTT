@@ -40,6 +40,17 @@ class ConnectPathTest {
                 probePreferred = VpnPath.Direct,
                 lastGood = directOk,
                 fresh = directOk,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Bypass,
+                lastGood = needBypass,
+                fresh = needBypass,
+                underlayKind = UnderlayKind.Cellular,
             ),
         )
         assertEquals(
@@ -49,6 +60,9 @@ class ConnectPathTest {
                 probePreferred = VpnPath.Bypass,
                 lastGood = needBypass,
                 fresh = needBypass,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                directFailedOnCurrentUnderlay = true,
             ),
         )
     }
@@ -89,7 +103,7 @@ class ConnectPathTest {
             ),
         )
         assertEquals(
-            VpnPath.Bypass,
+            VpnPath.Direct,
             resolveConnectPath(
                 mode = ConnPathMode.Auto,
                 probePreferred = VpnPath.Bypass,
@@ -110,7 +124,7 @@ class ConnectPathTest {
         assertTrue(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Cellular, hasCallHash = true))
         assertFalse(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Cellular, hasCallHash = false))
         assertFalse(autoMayUseBypass(ConnPathMode.Direct, UnderlayKind.Cellular, hasCallHash = true))
-        assertTrue(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Other, hasCallHash = true))
+        assertFalse(autoMayUseBypass(ConnPathMode.Auto, UnderlayKind.Other, hasCallHash = true))
         assertEquals(
             VpnPath.Direct,
             resolveConnectPath(
@@ -213,6 +227,78 @@ class ConnectPathTest {
                 probePreferred = null,
                 underlayKind = UnderlayKind.Cellular,
                 bypassAllowed = true,
+            ),
+        )
+        assertFalse(
+            connectNeedsInitialProbe(
+                mode = ConnPathMode.Auto,
+                probePreferred = null,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                underlayUsable = true,
+            ),
+        )
+        assertTrue(shouldStartDirectWithoutDiagnostic(ConnPathMode.Auto, UnderlayKind.Cellular, true))
+        assertFalse(shouldStartDirectWithoutDiagnostic(ConnPathMode.Auto, UnderlayKind.Cellular, false))
+        assertFalse(shouldStartDirectWithoutDiagnostic(ConnPathMode.Bypass, UnderlayKind.Cellular, true))
+        assertTrue(
+            connectSnapshotChanged(
+                ConnPathMode.Auto,
+                ConnPathMode.Bypass,
+                UnderlayKind.Cellular,
+                UnderlayKind.Cellular,
+                "p",
+                "p",
+            ),
+        )
+        assertFalse(
+            connectSnapshotChanged(
+                ConnPathMode.Auto,
+                ConnPathMode.Auto,
+                UnderlayKind.Cellular,
+                UnderlayKind.Cellular,
+                "p",
+                "p",
+            ),
+        )
+    }
+
+    @Test
+    fun noNetworkWithUsableUnderlayStillStartsDirect() {
+        val none = ProbeResult(
+            networkClass = NetworkClass.NoNetwork,
+            preselectedPath = null,
+            systemOnline = false,
+            yandexOk = false,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = false,
+            message = "Нет сети",
+            elapsedMs = 10,
+        )
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = null,
+                lastGood = null,
+                fresh = none,
+                underlayKind = UnderlayKind.Cellular,
+                underlayUsable = true,
+            ),
+        )
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = null,
+                lastGood = null,
+                fresh = none.copy(
+                    networkClass = NetworkClass.DataUnconfirmed,
+                    preselectedPath = VpnPath.Direct,
+                    message = "Передача данных не подтверждена",
+                ),
+                underlayKind = UnderlayKind.Cellular,
             ),
         )
     }
