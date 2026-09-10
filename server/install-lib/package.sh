@@ -81,12 +81,17 @@ PY
     die "production Compose в пакете содержит build: — отказ"
   fi
   IMAGE_TAR=""
+  IMAGE_LAYOUT=""
+  if [ -f "$PKG_DIR/images/layout.json" ]; then
+    IMAGE_LAYOUT="$PKG_DIR/images"
+  fi
   if [ -f "$PKG_DIR/images/ardtt.tar" ]; then
     IMAGE_TAR="$PKG_DIR/images/ardtt.tar"
   elif [ -f "$PKG_DIR/ardtt.tar" ]; then
     IMAGE_TAR="$PKG_DIR/ardtt.tar"
-  else
-    die "В пакете нет docker save образа (images/ardtt.tar)"
+  fi
+  if [ -z "$IMAGE_LAYOUT" ] && [ -z "$IMAGE_TAR" ]; then
+    die "В пакете нет образа (images/layout.json или images/ardtt.tar)"
   fi
 }
 
@@ -170,13 +175,77 @@ if not want["layers"]:
 PY
 }
 
+loaded_image_matches_layout() {
+  local layout_dir="$1" tag="$2"
+  python3 - "$layout_dir" "$tag" <<'PY'
+import json, subprocess, sys
+from pathlib import Path
+
+root, tag = Path(sys.argv[1]), sys.argv[2]
+layout = json.loads((root / "layout.json").read_text(encoding="utf-8"))
+cfg = json.loads((root / layout["configFile"]).read_text(encoding="utf-8"))
+
+def normalize_layers(raw):
+    out = []
+    for layer in raw or []:
+        layer = str(layer)
+        if "sha256/" in layer:
+            out.append("sha256:" + layer.rsplit("sha256/", 1)[-1])
+        elif layer.startswith("sha256:"):
+            out.append(layer)
+        elif "/" in layer:
+            out.append("sha256:" + layer.split("/", 1)[0])
+        else:
+            out.append("sha256:" + layer)
+    return out
+
+conf = cfg.get("config") or {}
+rootfs = cfg.get("rootfs") or {}
+want = {
+    "layers": normalize_layers(rootfs.get("diff_ids") or layout.get("diffIds")),
+    "entrypoint": conf.get("Entrypoint"),
+    "cmd": conf.get("Cmd"),
+    "env": conf.get("Env"),
+    "user": conf.get("User") or "",
+    "workingdir": conf.get("WorkingDir") or "",
+    "os": cfg.get("os") or "",
+    "architecture": cfg.get("architecture") or "",
+}
+ins = json.loads(subprocess.check_output(["docker", "image", "inspect", tag], text=True))[0]
+got_conf = ins.get("Config") or {}
+got_root = ins.get("RootFS") or {}
+got = {
+    "layers": normalize_layers(got_root.get("Layers")),
+    "entrypoint": got_conf.get("Entrypoint"),
+    "cmd": got_conf.get("Cmd"),
+    "env": got_conf.get("Env"),
+    "user": got_conf.get("User") or "",
+    "workingdir": got_conf.get("WorkingDir") or "",
+    "os": ins.get("Os") or "",
+    "architecture": ins.get("Architecture") or "",
+}
+for key in ("layers", "entrypoint", "cmd", "env", "user", "workingdir", "os", "architecture"):
+    if want[key] != got[key]:
+        sys.stderr.write("image identity mismatch on %s\n" % key)
+        raise SystemExit(1)
+if not want["layers"]:
+    raise SystemExit("could not read layers from layout")
+PY
+}
+
 verify_loaded_image() {
-  local tag="$1" expect_id="$2" tar="${3:-}" got_id got_arch
+  local tag="$1" expect_id="$2" tar="${3:-}" layout_dir="${4:-}" got_id got_arch
   got_id="$(docker image inspect -f '{{.Id}}' "$tag" 2>/dev/null || true)"
   [ -n "$got_id" ] || die "docker load не дал образ $tag"
   got_arch="$(docker image inspect -f '{{.Architecture}}' "$tag" 2>/dev/null || true)"
   [ "$got_arch" = "$(host_arch)" ] || die "Архитектура образа ${got_arch} не совпадает с VPS ($(host_arch))"
   if [ -n "$expect_id" ] && [ "$got_id" = "$expect_id" ]; then
+    return 0
+  fi
+  if [ -n "$layout_dir" ] && [ -f "$layout_dir/layout.json" ] && loaded_image_matches_layout "$layout_dir" "$tag"; then
+    if [ -n "$expect_id" ] && [ "$got_id" != "$expect_id" ]; then
+      echo "ARDTT_INFO|образ $got_id совпал с layout по config+слоям (в манифесте $expect_id — Id другого Docker store)"
+    fi
     return 0
   fi
   if [ -n "$tar" ] && loaded_image_matches_tar "$tar" "$tag"; then
@@ -188,11 +257,64 @@ verify_loaded_image() {
   die "Image ID после docker load ($got_id) не совпал с манифестом (${expect_id:-нет}) или config/слои пакета. Это не registry RepoDigest."
 }
 
-# docker load may leave an existing repo:tag pointing at another Id.
-# Prefer tagging the manifest Id when this engine can address it; otherwise
-# require the tagged image's RootFS to match images/ardtt.tar.
+find_assemble_script() {
+  local c
+  for c in \
+    "${PKG_DIR:-}/scripts/assemble-docker-save.py" \
+    "${INSTALL_DIR:-/opt/ardtt}/current/scripts/assemble-docker-save.py" \
+    "${INSTALL_LIB_DIR}/../../scripts/assemble-docker-save.py"
+  do
+    [ -f "$c" ] && printf '%s' "$c" && return 0
+  done
+  return 1
+}
+
+# Prefer layered layout (stream into docker load). Fall back to monolithic tar.
+# Skip load when the tagged image already matches package layers+config.
 load_package_image() {
-  local tar="$1" tag="$2" expect_id="$3"
+  local tar="${1:-}" tag="$2" expect_id="$3" layout_dir="${4:-}"
+  if [ -z "$layout_dir" ] && [ -n "${IMAGE_LAYOUT:-}" ]; then
+    layout_dir="$IMAGE_LAYOUT"
+  fi
+  if [ -z "$tar" ] && [ -n "${IMAGE_TAR:-}" ]; then
+    tar="$IMAGE_TAR"
+  fi
+
+  if [ -n "$layout_dir" ] && [ -f "$layout_dir/layout.json" ]; then
+    if docker image inspect "$tag" >/dev/null 2>&1 && loaded_image_matches_layout "$layout_dir" "$tag"; then
+      echo "ARDTT_INFO|образ $tag уже совпадает со слоями пакета — docker load пропущен"
+      verify_loaded_image "$tag" "$expect_id" "" "$layout_dir"
+      return 0
+    fi
+    local assemble
+    assemble="$(find_assemble_script)" || die "нет scripts/assemble-docker-save.py для слоёв образа"
+    echo "ARDTT_INFO|docker load из gzip-слоёв (без записи полного ardtt.tar)"
+    python3 "$assemble" "$layout_dir" | docker load >/dev/null
+    if [ -n "$expect_id" ] && docker image inspect "$expect_id" >/dev/null 2>&1; then
+      docker tag "$expect_id" "$tag"
+    fi
+    # Ensure repo tag from layout when load only applied digest ids.
+    local layout_tag
+    layout_tag="$(python3 - "$layout_dir/layout.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+tags=d.get("repoTags") or []
+print(tags[0] if tags else "")
+PY
+)"
+    if [ -n "$layout_tag" ] && docker image inspect "$layout_tag" >/dev/null 2>&1; then
+      docker tag "$layout_tag" "$tag" 2>/dev/null || true
+    fi
+    verify_loaded_image "$tag" "$expect_id" "" "$layout_dir"
+    return 0
+  fi
+
+  [ -n "$tar" ] && [ -f "$tar" ] || die "Нет образа для docker load"
+  if docker image inspect "$tag" >/dev/null 2>&1 && loaded_image_matches_tar "$tar" "$tag"; then
+    echo "ARDTT_INFO|образ $tag уже совпадает с пакетом — docker load пропущен"
+    verify_loaded_image "$tag" "$expect_id" "$tar"
+    return 0
+  fi
   docker load -i "$tar" >/dev/null
   if [ -n "$expect_id" ] && docker image inspect "$expect_id" >/dev/null 2>&1; then
     docker tag "$expect_id" "$tag"

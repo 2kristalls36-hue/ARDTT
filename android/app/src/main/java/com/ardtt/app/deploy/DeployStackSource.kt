@@ -7,7 +7,7 @@ import org.json.JSONObject
 
 /**
  * Where the phone gets the VPS payload: one GitHub Release asset
- * `ardtt-server-<DEPLOY_VERSION>-linux-<arch>.tar.gz` (docker save image).
+ * `ardtt-server-<DEPLOY_VERSION>-linux-<arch>.tar.gz` (gzipped image layers (or legacy docker save)).
  * No source tarball, main, or raw install.sh fallback.
  */
 object DeployStackSource {

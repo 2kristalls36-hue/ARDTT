@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Replace host-side files in an existing ardtt-server-*.tar.gz with this
-# checkout (install.sh, ready.sh, Compose, install-lib). Keeps images/ardtt.tar,
-# bin/docker-compose and vendor/docker.tgz so a 1.0.46 image artifact can ship
-# installer fixes without rebuilding the image or re-downloading Engine.
+# checkout (install.sh, ready.sh, Compose, install-lib). Keeps the image
+# payload (images/layout.json + layers/ or legacy images/ardtt.tar),
+# bin/docker-compose and vendor/docker.tgz.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="${1:-}"
@@ -13,7 +13,10 @@ trap 'rm -rf "$STAGE"' EXIT
 
 python3 "$ROOT/scripts/safe-extract-package.py" "$PKG" "$STAGE"
 test -f "$STAGE/manifest.json"
-test -f "$STAGE/images/ardtt.tar"
+if [ ! -f "$STAGE/images/layout.json" ] && [ ! -f "$STAGE/images/ardtt.tar" ]; then
+  echo "package missing images/layout.json and images/ardtt.tar" >&2
+  exit 1
+fi
 pkg_ver="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deployVersion"])' "$STAGE/manifest.json")"
 [ "$pkg_ver" = "$VER" ] || {
   echo "package version $pkg_ver != DEPLOY_VERSION $VER" >&2
@@ -30,6 +33,8 @@ cp -f "$ROOT/server/docker-compose.yml" "$STAGE/docker-compose.yml"
 cp -f "$ROOT/server/docker-compose.exit.yml" "$STAGE/docker-compose.exit.yml"
 cp -f "$ROOT/server/.env.example" "$STAGE/.env.example"
 cp -f "$ROOT/scripts/safe-extract-package.py" "$STAGE/scripts/safe-extract-package.py"
+cp -f "$ROOT/scripts/assemble-docker-save.py" "$STAGE/scripts/assemble-docker-save.py"
+chmod 755 "$STAGE/scripts/assemble-docker-save.py"
 # DEPLOY_VERSION, third-party.lock.json, images/, bin/ stay with the image.
 
 grep -q 'SETGID' "$STAGE/docker-compose.yml" || {
@@ -56,6 +61,8 @@ files = man.setdefault("files", {})
 files["install.sh"] = sha("install.sh")
 files["ready.sh"] = sha("ready.sh")
 files["docker-compose.yml"] = sha("docker-compose.yml")
+if (stage / "images/layout.json").is_file():
+    files["images/layout.json"] = sha("images/layout.json")
 if (stage / "images/ardtt.tar").is_file():
     files["images/ardtt.tar"] = sha("images/ardtt.tar")
 if (stage / "vendor/docker.tgz").is_file():
@@ -67,8 +74,11 @@ PY
 (
   cd "$STAGE"
   sums=(install.sh ready.sh docker-compose.yml docker-compose.exit.yml
-    images/ardtt.tar bin/docker-compose manifest.json third-party.lock.json)
+    bin/docker-compose manifest.json third-party.lock.json)
+  [ -f images/layout.json ] && sums+=(images/layout.json)
+  [ -f images/ardtt.tar ] && sums+=(images/ardtt.tar)
   [ -f vendor/docker.tgz ] && sums+=(vendor/docker.tgz)
+  [ -f scripts/assemble-docker-save.py ] && sums+=(scripts/assemble-docker-save.py)
   sha256sum "${sums[@]}" > SHA256SUMS
 )
 
