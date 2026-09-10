@@ -33,6 +33,7 @@ object DeployInstallEnv {
         autoPorts: Boolean = true,
         provisionPort: Int = 9100,
         telemetryPort: Int = 9200,
+        diskCleanup: Boolean = false,
         scriptPath: String = FETCH_SCRIPT_REMOTE,
     ): String = buildString {
         append("set -euo pipefail; ")
@@ -49,6 +50,9 @@ object DeployInstallEnv {
         }
         append("ARDTT_ROLE="); append(SshClient.shellQuote(role)); append(' ')
         append("ARDTT_CASCADE_ENABLED="); append(if (cascadeEnabled) "1" else "0"); append(' ')
+        if (diskCleanup) {
+            append("ARDTT_DISK_CLEANUP=1 ")
+        }
         if (cascadeEnabled) {
             append("ARDTT_CASCADE_LISTEN_PORT="); append(cascadeListenPort); append(' ')
             append("ARDTT_CASCADE_DNS="); append(SshClient.shellQuote(cascadeDns)); append(' ')

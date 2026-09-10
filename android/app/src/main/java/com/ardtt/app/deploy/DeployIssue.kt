@@ -23,6 +23,7 @@ data class DeployIssue(
         const val PYTHON_MISSING = "PYTHON_MISSING"
         const val UNSUPPORTED_RUNTIME = "UNSUPPORTED_RUNTIME"
         const val PREFLIGHT_FAILED = "PREFLIGHT_FAILED"
+        const val DISK_FULL = "DISK_FULL"
         const val INSTALL_FAILED = "INSTALL_FAILED"
         const val BUSY = "BUSY"
 
@@ -53,14 +54,30 @@ data class DeployIssue(
             entryInstallStarted: Boolean,
         ): DeployIssue {
             val (code, message) = parseArdttError(raw)
+            val resolved = when {
+                !code.isNullOrBlank() -> code
+                message.contains("Мало места") ||
+                    message.contains("no space", ignoreCase = true) -> DISK_FULL
+                else -> INSTALL_FAILED
+            }
             return of(
-                code = code ?: INSTALL_FAILED,
+                code = resolved,
                 message = message.ifBlank { raw },
                 hopRole = hopRole,
                 hopHost = hopHost,
                 entryInstallStarted = entryInstallStarted,
                 detail = raw,
             )
+        }
+
+        /** True when the operator can opt into safe VPS disk reclaim and retry. */
+        fun offersDiskCleanup(issue: DeployIssue?): Boolean {
+            if (issue == null) return false
+            if (issue.code == DISK_FULL) return true
+            val text = "${issue.summary} ${issue.detail}"
+            return text.contains("Мало места") ||
+                text.contains("DISK_FULL") ||
+                text.contains("no space", ignoreCase = true)
         }
 
         fun of(
@@ -120,6 +137,8 @@ data class DeployIssue(
                     "Не удалось открыть SSH${hopHostPart(hopRole, hop)}."
                 PREFLIGHT_FAILED ->
                     "$hop не прошёл предварительную проверку."
+                DISK_FULL ->
+                    "$hop: мало места на диске. Можно очистить кэш/логи и повторить.$entryNote"
                 else -> message.ifBlank { "$hop: установка не завершилась." }
             }
         }

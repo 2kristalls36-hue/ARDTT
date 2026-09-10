@@ -60,6 +60,8 @@ class DeployEngine(private val appContext: Context) {
     @Volatile private var jumpSession: Session? = null
     @Volatile private var activeHost: String = ""
     @Volatile private var pendingTarget: DeployTarget? = null
+    /** Opt-in: next install passes ARDTT_DISK_CLEANUP=1 for safe VPS reclaim. */
+    @Volatile private var pendingDiskCleanup: Boolean = false
 
     val activeHostValue: String get() = activeHost
 
@@ -78,9 +80,16 @@ class DeployEngine(private val appContext: Context) {
     fun enqueueUninstall(target: DeployTarget): Boolean =
         enqueue(target, DeployJobKind.Uninstall)
 
-    fun enqueue(target: DeployTarget, kind: DeployJobKind): Boolean {
+    fun enqueue(
+        target: DeployTarget,
+        kind: DeployJobKind,
+        diskCleanup: Boolean = false,
+    ): Boolean {
         if (!running.compareAndSet(false, true)) return false
         pendingTarget = target
+        pendingDiskCleanup = diskCleanup &&
+            kind != DeployJobKind.Uninstall &&
+            kind != DeployJobKind.Preflight
         _isUpdate.value = kind == DeployJobKind.Update
         _isUninstall.value = kind == DeployJobKind.Uninstall
         _isPreflight.value = kind == DeployJobKind.Preflight
@@ -100,6 +109,7 @@ class DeployEngine(private val appContext: Context) {
                 .put("target_id", target.id)
                 .put("is_update", kind == DeployJobKind.Update)
                 .put("is_uninstall", kind == DeployJobKind.Uninstall)
+                .put("disk_cleanup", pendingDiskCleanup)
                 .put("job_kind", kind.name.lowercase())
                 .put("target_name", target.name),
         )
@@ -111,6 +121,7 @@ class DeployEngine(private val appContext: Context) {
             running.set(false)
             _busy.value = false
             pendingTarget = null
+            pendingDiskCleanup = false
             _activeTargetId.value = null
             _outcome.value = "Не удалось запустить фоновую задачу"
             _failure.value = DeployIssue.of(DeployIssue.INSTALL_FAILED, "Не удалось запустить фоновую задачу")
@@ -124,16 +135,18 @@ class DeployEngine(private val appContext: Context) {
             ?: return Result.failure(IllegalStateException("Нет задания деплоя"))
         val uninstall = _isUninstall.value
         val preflightOnly = _isPreflight.value
+        val diskCleanup = pendingDiskCleanup
         return try {
             when {
                 uninstall -> executeUninstall(target)
                 preflightOnly -> execute(target, preflightOnly = true)
-                else -> execute(target, preflightOnly = false)
+                else -> execute(target, preflightOnly = false, diskCleanup = diskCleanup)
             }
         } finally {
             running.set(false)
             _busy.value = false
             pendingTarget = null
+            pendingDiskCleanup = false
             // Keep isUpdate / isUninstall / activeTargetId until the finished notification is built.
         }
     }
@@ -141,6 +154,7 @@ class DeployEngine(private val appContext: Context) {
     private suspend fun execute(
         target: DeployTarget,
         preflightOnly: Boolean = false,
+        diskCleanup: Boolean = false,
     ): Result<String> = withContext(Dispatchers.IO) {
         var session: Session? = null
         var client: SshClient? = null
@@ -166,6 +180,9 @@ class DeployEngine(private val appContext: Context) {
                 DeployVersionCatalog.refresh(appContext)
             }.getOrElse { DeployBundle.expectedVersion(appContext) }
             append("Целевая версия стека: $deployVersion (VPS скачает пакет с GitHub)")
+            if (diskCleanup) {
+                append("Перед установкой: безопасная очистка места на VPS (ARDTT_DISK_CLEANUP=1)")
+            }
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
             val entryHost = target.host.trim()
             val verb = if (_isUpdate.value) "обновление" else if (preflightOnly) "проверка" else "установка"
@@ -255,6 +272,7 @@ class DeployEngine(private val appContext: Context) {
                             autoPorts = target.autoPorts,
                             provisionPort = target.cascadeProvisionPort,
                             telemetryPort = target.cascadeTelemetryPort,
+                            diskCleanup = diskCleanup,
                             scriptPath = scriptPath,
                         )
                     }
@@ -305,6 +323,7 @@ class DeployEngine(private val appContext: Context) {
                     autoPorts = target.autoPorts,
                     provisionPort = target.provisionPort,
                     telemetryPort = target.telemetryPort,
+                    diskCleanup = diskCleanup,
                     scriptPath = scriptPath,
                 )
             }

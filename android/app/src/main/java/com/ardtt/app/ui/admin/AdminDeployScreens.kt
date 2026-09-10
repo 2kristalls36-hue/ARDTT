@@ -143,25 +143,26 @@ import kotlinx.coroutines.launch
 @Composable
 private fun rememberEnqueueDeploy(
     engine: DeployEngine,
-): (DeployTarget, DeployJobKind) -> Boolean {
+): (DeployTarget, DeployJobKind, Boolean) -> Boolean {
     val context = LocalContext.current
-    val pending = remember { mutableStateOf<Pair<DeployTarget, DeployJobKind>?>(null) }
+    data class Pending(val target: DeployTarget, val kind: DeployJobKind, val diskCleanup: Boolean)
+    val pending = remember { mutableStateOf<Pending?>(null) }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
         val job = pending.value ?: return@rememberLauncherForActivityResult
         pending.value = null
-        engine.enqueue(job.first, job.second)
+        engine.enqueue(job.target, job.kind, diskCleanup = job.diskCleanup)
     }
-    return { target, kind ->
+    return { target, kind, diskCleanup ->
         if (needsNotificationPermission(context) &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
         ) {
-            pending.value = target to kind
+            pending.value = Pending(target, kind, diskCleanup)
             launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
             true
         } else {
-            engine.enqueue(target, kind)
+            engine.enqueue(target, kind, diskCleanup = diskCleanup)
         }
     }
 }
@@ -170,7 +171,7 @@ private fun rememberEnqueueDeploy(
 private fun rememberStartDeploy(engine: DeployEngine): (DeployTarget, Boolean) -> Boolean {
     val enqueue = rememberEnqueueDeploy(engine)
     return { target, isUpdate ->
-        enqueue(target, if (isUpdate) DeployJobKind.Update else DeployJobKind.Install)
+        enqueue(target, if (isUpdate) DeployJobKind.Update else DeployJobKind.Install, false)
     }
 }
 
@@ -816,6 +817,7 @@ private fun DeployProgressSheet(
     failure: DeployIssue? = null,
     onRetryPreflight: (() -> Unit)? = null,
     onRetryInstall: (() -> Unit)? = null,
+    onDiskCleanupRetry: (() -> Unit)? = null,
     retryInstallEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
@@ -827,6 +829,7 @@ private fun DeployProgressSheet(
         finishedSuccess = finishedOk,
     )
     var showLog by remember { mutableStateOf(false) }
+    var showDiskCleanupConfirm by remember { mutableStateOf(false) }
     val redacted = remember(log) { DeployIssue.redactLog(log.joinToString("\n")) }
     val headline = when {
         failure != null -> failure.summary
@@ -834,6 +837,9 @@ private fun DeployProgressSheet(
         else -> null
     }
     val dockerMissing = failure?.code == DeployIssue.DOCKER_MISSING
+    val offerDiskCleanup = !busy && !isUninstall &&
+        DeployIssue.offersDiskCleanup(failure) &&
+        onDiskCleanupRetry != null
     val prepareLabel = if (failure?.hopRole == "exit") "Подготовить VPS2" else "Подготовить VPS"
     ArdttDialog(
         title = deployProgressSheetTitle(
@@ -914,6 +920,18 @@ private fun DeployProgressSheet(
                 fillMaxWidth = true,
             )
         }
+        if (offerDiskCleanup) {
+            Text(
+                "Можно освободить место на VPS (логи Docker, кэш apt, лишние headers, хвосты ARDTT) и сразу повторить установку. Данные ARDTT и чужие контейнеры не удаляются.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ArdttButton(
+                text = "Очистить место и повторить",
+                onClick = { showDiskCleanupConfirm = true },
+                fillMaxWidth = true,
+            )
+        }
         if (!busy && !isUninstall) {
             if (onRetryPreflight != null) {
                 ArdttButton(
@@ -961,6 +979,29 @@ private fun DeployProgressSheet(
             ArdttTerminalCard(
                 text = redacted.ifBlank { log.takeLast(24).joinToString("\n") },
                 maxHeight = 200.dp,
+            )
+        }
+    }
+    if (showDiskCleanupConfirm && onDiskCleanupRetry != null) {
+        ArdttDialog(
+            title = "Очистить место на VPS?",
+            onDismissRequest = { showDiskCleanupConfirm = false },
+            confirmAction = ArdttDialogAction(
+                text = "Очистить и установить",
+                onClick = {
+                    showDiskCleanupConfirm = false
+                    onDiskCleanupRetry()
+                },
+            ),
+            dismissAction = ArdttDialogAction(
+                text = "Отмена",
+                onClick = { showDiskCleanupConfirm = false },
+            ),
+        ) {
+            Text(
+                "Будут очищены: большие логи Docker, кэш apt, неиспользуемые linux-headers, хвосты неудачной установки ARDTT. Не трогаем: /opt/ardtt/data, работающие контейнеры, образы в использовании.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -1106,7 +1147,7 @@ private fun ServerOverviewHost(
         health = probeServerHealthUi(target, serversRepo)
     }
 
-    fun startRedeploy(target: DeployTarget) {
+    fun startRedeploy(target: DeployTarget, diskCleanup: Boolean = false) {
         showRedeployConfirm = false
         showRedeployProgress = true
         redeployStatus = null
@@ -1116,7 +1157,7 @@ private fun ServerOverviewHost(
         } else {
             DeployJobKind.Install
         }
-        if (!enqueueJob(target, kind)) {
+        if (!enqueueJob(target, kind, diskCleanup)) {
             localFailure = deployBusyIssue()
             redeployStatus = localFailure?.summary
         }
@@ -1126,7 +1167,7 @@ private fun ServerOverviewHost(
         showRedeployProgress = true
         redeployStatus = null
         localFailure = null
-        if (!enqueueJob(target, DeployJobKind.Preflight)) {
+        if (!enqueueJob(target, DeployJobKind.Preflight, false)) {
             localFailure = deployBusyIssue()
             redeployStatus = localFailure?.summary
         }
@@ -1137,7 +1178,7 @@ private fun ServerOverviewHost(
         showDeleteProgress = true
         deleteStatus = null
         localFailure = null
-        if (!enqueueJob(target, DeployJobKind.Uninstall)) {
+        if (!enqueueJob(target, DeployJobKind.Uninstall, false)) {
             localFailure = deployBusyIssue()
             deleteStatus = localFailure?.summary
         }
@@ -1308,6 +1349,7 @@ private fun ServerOverviewHost(
                 failure = failure,
                 onRetryPreflight = { startPreflight(server) },
                 onRetryInstall = { startRedeploy(server) },
+                onDiskCleanupRetry = { startRedeploy(server, diskCleanup = true) },
                 retryInstallEnabled = !busy,
                 onCancel = { engine.cancel() },
                 onClose = { showRedeployProgress = false },
@@ -1569,7 +1611,6 @@ fun DeployScreen(
     onSaved: (serverId: String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
-    val startDeploy = rememberStartDeploy(engine)
     val enqueueJob = rememberEnqueueDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
     val progress by engine.progress.collectAsStateWithLifecycle()
@@ -1716,7 +1757,7 @@ fun DeployScreen(
         return null
     }
 
-    fun startServerDeploy() {
+    fun startServerDeploy(diskCleanup: Boolean = false) {
         formValidationError()?.let {
             status = it
             return
@@ -1727,7 +1768,8 @@ fun DeployScreen(
         showDeployProgress = true
         deployStatus = null
         localFailure = null
-        if (!startDeploy(target, isUpdate)) {
+        val kind = if (isUpdate) DeployJobKind.Update else DeployJobKind.Install
+        if (!enqueueJob(target, kind, diskCleanup)) {
             localFailure = deployBusyIssue()
             deployStatus = localFailure?.summary
         }
@@ -1744,7 +1786,7 @@ fun DeployScreen(
         showDeployProgress = true
         deployStatus = null
         localFailure = null
-        if (!enqueueJob(target, DeployJobKind.Preflight)) {
+        if (!enqueueJob(target, DeployJobKind.Preflight, false)) {
             localFailure = deployBusyIssue()
             deployStatus = localFailure?.summary
         }
@@ -2122,6 +2164,7 @@ fun DeployScreen(
                 failure = failure,
                 onRetryPreflight = { startFormPreflight() },
                 onRetryInstall = { startServerDeploy() },
+                onDiskCleanupRetry = { startServerDeploy(diskCleanup = true) },
                 retryInstallEnabled = !busy,
                 onCancel = { engine.cancel() },
                 onClose = { showDeployProgress = false },

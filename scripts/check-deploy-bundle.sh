@@ -28,6 +28,7 @@ DOCKERFILE="$ROOT/server/Dockerfile"
 [ -f "$ROOT/server/ready.sh" ] || err "missing ready.sh"
 [ -f "$ROOT/server/netns-guard.sh" ] || err "missing netns-guard.sh"
 [ -f "$ROOT/server/install-lib/engine.sh" ] || err "missing install-lib/engine.sh"
+[ -f "$ROOT/server/install-lib/disk-cleanup.sh" ] || err "missing install-lib/disk-cleanup.sh"
 PREFLIGHT_KT="$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployPreflight.kt"
 
 if [ -f "$INSTALLER" ]; then

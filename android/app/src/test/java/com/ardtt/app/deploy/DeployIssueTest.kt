@@ -8,6 +8,31 @@ import org.junit.Test
 
 class DeployIssueTest {
     @Test
+    fun diskFullFromInstallerCode() {
+        val issue = DeployIssue.fromInstallerLine(
+            raw = "ARDTT_ERROR|code=DISK_FULL|message=Мало места на /opt/ardtt: свободно 2430 МБ",
+            hopRole = "entry",
+            hopHost = "1.2.3.4",
+            entryInstallStarted = false,
+        )
+        assertEquals(DeployIssue.DISK_FULL, issue.code)
+        assertTrue(DeployIssue.offersDiskCleanup(issue))
+        assertTrue(issue.summary.contains("мало места", ignoreCase = true))
+    }
+
+    @Test
+    fun diskFullInferredFromLegacyMessage() {
+        val issue = DeployIssue.fromInstallerLine(
+            raw = "Мало места на /opt/ardtt: свободно 2430 МБ (нужно ≥2500 МБ).",
+            hopRole = "entry",
+            hopHost = "1.2.3.4",
+            entryInstallStarted = true,
+        )
+        assertEquals(DeployIssue.DISK_FULL, issue.code)
+        assertTrue(DeployIssue.offersDiskCleanup(issue))
+    }
+
+    @Test
     fun parseArdttErrorSplitsCodeAndMessage() {
         val (code, message) = DeployIssue.parseArdttError(
             "ARDTT_ERROR|code=DOCKER_MISSING|message=Docker CLI не найден (command -v docker).",

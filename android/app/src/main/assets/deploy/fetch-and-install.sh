@@ -12,6 +12,7 @@
 #   ARDTT_GITHUB_REPO      — owner/name (default 2kristalls36-hue/ARDTT)
 #   ARDTT_GITHUB_API       — API base (default https://api.github.com)
 #   ARDTT_ROLE, ports, cascade_* — forwarded to install.sh
+#   ARDTT_DISK_CLEANUP=1 — safe reclaim (logs/apt/headers/ARDTT leftovers) if disk preflight fails
 set -euo pipefail
 
 die() {
