@@ -48,17 +48,20 @@ Entry и exit используют один образ своей архитек
 manifest.json          # format ardtt-server-v1, version, arch, image tag/id
 SHA256SUMS             # суммы файлов внутри (не источник доверия)
 install.sh + install-lib/
-ready.sh               # overlay в контейнер (пока образ 1.0.45 со старым скриптом)
+fetch-and-install.sh   # VPS сам качает релиз с GitHub
+ready.sh               # overlay в контейнер
 docker-compose.yml     # production: image + pull_policy: never, без build:
 docker-compose.exit.yml
 .env.example
-images/ardtt.tar       # docker save
-bin/docker-compose      # закреплённый Compose CLI этой arch
+images/layout.json     # ardtt-image-layers-v1 — манифест gzip-слоёв
+images/config.json
+images/layers/*.tar.gz # слои образа (вместо одного images/ardtt.tar)
+bin/docker-compose     # закреплённый Compose CLI этой arch
 vendor/docker.tgz       # статический Docker Engine (ставится, если docker info не проходит)
 third-party.lock.json
 ```
 
-Доверие к архиву — **внешняя SHA-256** актива GitHub Release (`digest` или `SHA256SUMS` того же релиза), не суммы внутри tar. Image ID в манифесте пакета — не registry RepoDigest: на классическом Docker это config blob, на containerd — digest манифеста. После `docker load` установщик сверяет **слои** `images/ardtt.tar` с загруженным образом.
+Доверие к архиву — **внешняя SHA-256** актива GitHub Release (`digest` или `SHA256SUMS` того же релиза), не суммы внутри tar. Image ID в манифесте пакета — не registry RepoDigest. Установщик собирает слои в поток и делает `docker load` **без** записи второго полного `ardtt.tar` на диск; если локальный образ уже совпадает по config+слоям — load пропускается. Порог места по умолчанию **1600 МБ** (раньше 2500); для layered-пакета считается динамически.
 
 Сборка в GitHub Actions: [`.github/workflows/server-package.yml`](../.github/workflows/server-package.yml) (`scripts/build-server-image.sh` + `scripts/pack-server-package.sh`). Push в `main` собирает пакеты в Artifacts (30 дней) и **не** прикрепляет их к GitHub Release. Публикация ассетов — только с явного тега `v*` (`scripts/attach-server-packages-to-release.sh --tag … --from-dir …`, без `--clobber`). Android-сборка APK серверные пакеты не трогает. Сторонние исходники (Debian, pinned GitHub tarball'ы) допустимы **в CI**; на VPS пользователь получает только этот архив.
 
