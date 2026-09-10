@@ -1,6 +1,6 @@
 # Сервер ARDTT
 
-Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.46** (`DEPLOY_VERSION`).  
+Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.51** (`DEPLOY_VERSION`).  
 Продуктовая установка — готовый архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` из GitHub Releases: [DEPLOY.md](../docs/DEPLOY.md).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
 
