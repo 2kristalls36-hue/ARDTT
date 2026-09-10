@@ -263,6 +263,10 @@ write_env_file() {
     warp_url="http://10.10.0.1:9100/v1/hide-ip-prefixes"
     DIRECT_PORT="$CASCADE_LISTEN_PORT"
   fi
+  local mem_limit cpus_limit
+  mem_limit="$(resolve_ardtt_mem_limit)"
+  cpus_limit="$(resolve_ardtt_cpus)"
+  echo "ARDTT_INFO|ресурсы compose: mem_limit=${mem_limit} cpus=${cpus_limit} (хост nproc=$(host_cpu_count))"
   cat > "$dest" <<EOF
 ARDTT_PUBLIC_HOST=$PUBLIC_HOST
 ARDTT_IMAGE=$ARDTT_IMAGE
@@ -285,8 +289,8 @@ ARDTT_TELEMETRY_LISTEN=0.0.0.0:9200
 ARDTT_SKIP_TELEMETRY=0
 ARDTT_DEPLOY_VERSION=$DEPLOY_VERSION
 ARDTT_WARP_GOMEMLIMIT=256MiB
-ARDTT_MEM_LIMIT=${ARDTT_MEM_LIMIT:-1g}
-ARDTT_CPUS=${ARDTT_CPUS:-2.0}
+ARDTT_MEM_LIMIT=$mem_limit
+ARDTT_CPUS=$cpus_limit
 ARDTT_PIDS_LIMIT=${ARDTT_PIDS_LIMIT:-512}
 ARDTT_ROLE=$ROLE
 ARDTT_CASCADE_ROLE=$ROLE
@@ -579,13 +583,21 @@ do_install() {
   ln -sfn "$release" "$INSTALL_DIR/current-release" 2>/dev/null || true
 
   prog 0.62 "Запуск compose --no-build --pull never"
+  local compose_log
+  compose_log="$(mktemp)"
   if ! (
     cd "$INSTALL_DIR/current"
     compose_up_cmd up -d --no-build --pull never
-  ); then
+  ) >"$compose_log" 2>&1; then
+    local compose_err
+    compose_err="$(tail -n 8 "$compose_log" 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
+    cat "$compose_log" >&2 || true
+    rm -f "$compose_log"
     restore_previous_release || true
-    die "docker compose up не удался. Код ≠ 0, ARDTT_DONE нет."
+    die --code COMPOSE_UP_FAILED "docker compose up не удался: ${compose_err:-код ≠ 0, ARDTT_DONE нет}"
   fi
+  cat "$compose_log" || true
+  rm -f "$compose_log"
 
   prog 0.80 "Readiness (процессы, интерфейсы, /health)"
   if ! wait_readiness; then

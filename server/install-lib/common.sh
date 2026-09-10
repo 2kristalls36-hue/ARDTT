@@ -44,6 +44,52 @@ disk_avail_mb() {
   df -Pm "$path" 2>/dev/null | awk 'NR==2 {print $4}'
 }
 
+host_cpu_count() {
+  local n
+  n="$(nproc 2>/dev/null || true)"
+  if [ -n "$n" ] && [ "$n" -ge 1 ] 2>/dev/null; then
+    printf '%s' "$n"
+  else
+    printf '1'
+  fi
+}
+
+# Docker rejects cpus above the host total (1-vCPU VPS cannot use 2.0).
+resolve_ardtt_cpus() {
+  local host want
+  host="$(host_cpu_count)"
+  want="${ARDTT_CPUS:-}"
+  if [ -z "$want" ]; then
+    if [ "$host" -ge 2 ] 2>/dev/null; then
+      printf '2.0'
+    else
+      printf '1.0'
+    fi
+    return 0
+  fi
+  awk -v w="$want" -v h="$host" 'BEGIN {
+    if (w + 0 < 0.01) w = 0.01
+    if (w + 0 > h + 0) w = h + 0
+    printf "%.2f", w
+  }'
+}
+
+# Soft cap memory reservation on tiny VPS (Compose mem_limit).
+resolve_ardtt_mem_limit() {
+  local want="${ARDTT_MEM_LIMIT:-}" total
+  total="$(awk '/MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+  if [ -z "$want" ]; then
+    if [ "${total:-0}" -gt 0 ] && [ "$total" -lt 1500 ] 2>/dev/null; then
+      printf '512m'
+    else
+      printf '1g'
+    fi
+    return 0
+  fi
+  printf '%s' "$want"
+}
+
+
 json_get() {
   local file="$1" key="$2"
   [ -f "$file" ] || return 0

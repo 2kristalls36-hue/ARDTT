@@ -24,6 +24,7 @@ data class DeployIssue(
         const val UNSUPPORTED_RUNTIME = "UNSUPPORTED_RUNTIME"
         const val PREFLIGHT_FAILED = "PREFLIGHT_FAILED"
         const val DISK_FULL = "DISK_FULL"
+        const val COMPOSE_UP_FAILED = "COMPOSE_UP_FAILED"
         const val INSTALL_FAILED = "INSTALL_FAILED"
         const val BUSY = "BUSY"
 
@@ -139,6 +140,8 @@ data class DeployIssue(
                     "$hop не прошёл предварительную проверку."
                 DISK_FULL ->
                     "$hop: мало места на диске. Можно очистить кэш/логи и повторить.$entryNote"
+                COMPOSE_UP_FAILED ->
+                    "$hop: не удалось запустить контейнер (docker compose up).$entryNote"
                 else -> message.ifBlank { "$hop: установка не завершилась." }
             }
         }

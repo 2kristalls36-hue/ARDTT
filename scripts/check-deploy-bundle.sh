@@ -326,7 +326,13 @@ if [ -f "$ROOT/scripts/test-package-extract.sh" ]; then
 fi
 
 if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
+if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
+  bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
+fi
   bash "$ROOT/scripts/test-install-disk-guard.sh" || err "disk guard"
+if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
+  bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
+fi
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"
