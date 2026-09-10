@@ -167,6 +167,7 @@ func vkCallsCredentialChain(ctx context.Context, link string, streamID int) (str
 		tlsclient.WithTimeoutSeconds(20),
 		tlsclient.WithClientProfile(profiles.Chrome_146),
 		tlsclient.WithCookieJar(tlsclient.NewCookieJar()),
+		tlsclient.WithDialer(tlsClientDialer()),
 	)
 	if err != nil {
 		return "", "", nil, newVKCallsFailure("setup", vkCallsFailureSetup, fmt.Errorf("create tls client: %w", err))

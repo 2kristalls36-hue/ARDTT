@@ -51,6 +51,15 @@ fun userMessageForBypassFatal(kind: BypassFatalKind): String = when (kind) {
     BypassFatalKind.DialFailed -> "Не удалось получить TURN (vkcalls/legacy)"
 }
 
+fun userActionForBypassFailure(message: String): com.ardtt.app.core.UserActionKind? {
+    return when (classifyBypassFatalKind(message)) {
+        BypassFatalKind.WrapAuth -> com.ardtt.app.core.UserActionKind.Profile
+        BypassFatalKind.Captcha -> com.ardtt.app.core.UserActionKind.Captcha
+        BypassFatalKind.DeadCall -> com.ardtt.app.core.UserActionKind.CallDead
+        BypassFatalKind.DialFailed, null -> null
+    }
+}
+
 fun isDeadCallMessage(message: String): Boolean = isDeadCallLog(message.lowercase())
 
 fun decideDeadCallAction(

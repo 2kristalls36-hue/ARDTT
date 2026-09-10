@@ -34,6 +34,19 @@
       "arm64": "b83bc4961b33aa3ec0399c801a97c2c47766462991ffa488a4cbaee1ab3e0bff"
     }
   },
+  "dockerEngineStatic": {
+    "version": "29.7.2",
+    "url": "https://download.docker.com/linux/static/stable/${UNAME_ARCH}/docker-29.7.2.tgz",
+    "unameArch": {
+      "amd64": "x86_64",
+      "arm64": "aarch64"
+    },
+    "sha256": {
+      "amd64": "803d433f226db4776e1768fd319fc6c6e4935a456acf84fcc0080818b854bc8f",
+      "arm64": "43d143448adf2c2787704e7d7704fd6d62d367a54c5edaef0a3f75509cb0938d"
+    },
+    "note": "Shipped as vendor/docker.tgz. install.sh unpacks to /usr/local/lib/ardtt-docker when Engine is missing. Never get.docker.com on the VPS. A working Engine is not replaced."
+  },
   "dockerComposeCli": {
     "version": "2.32.4",
     "url": "https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-${UNAME_ARCH}",

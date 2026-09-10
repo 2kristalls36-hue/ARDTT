@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -89,7 +90,11 @@ type WorkerSlot struct {
 type Dispatcher struct {
 	localConn     net.PacketConn
 	tunFile       *os.File // не nil в -mode rawtun: сырые IP-пакеты вместо локального WG-loopback
+	tunMu         sync.RWMutex
+	tunGen        uint64
+	userDataPaused int32
 	ready         chan struct{}
+	readyOnce     sync.Once
 	clientAddr    atomic.Pointer[net.Addr]
 	mu            sync.Mutex
 	workers       []*WorkerSlot
@@ -116,6 +121,9 @@ type Dispatcher struct {
 	tunReadCount    uint64
 	tunSentCount    uint64
 	tunDroppedCount uint64
+	tunWriteOkCount uint64
+	tunWriteErrCount uint64
+	lastTunWriteOkUnix atomic.Int64
 }
 
 func NewDispatcher(ctx context.Context, localConn net.PacketConn, stats *Stats) *Dispatcher {
@@ -158,11 +166,78 @@ func NewDispatcherPendingTUN(ctx context.Context, stats *Stats) *Dispatcher {
 	return d
 }
 
-// AttachTUN подключает полученный от Android TUN-fd к уже запущенному
-// диспетчеру и снимает блокировку с readLoop/writeLoop.
-func (d *Dispatcher) AttachTUN(f *os.File) {
+// AttachTUN подключает полученный от Android TUN-fd. Повторный вызов
+// заменяет fd и увеличивает поколение — пакеты старого TUN не пишутся в новый.
+func (d *Dispatcher) AttachTUN(f *os.File) error {
+	if f == nil {
+		return fmt.Errorf("tun fd is nil")
+	}
+	d.tunMu.Lock()
+	old := d.tunFile
 	d.tunFile = f
-	close(d.ready)
+	d.tunGen++
+	d.tunMu.Unlock()
+	closeRetiredTUN(old, f)
+	d.readyOnce.Do(func() { close(d.ready) })
+	return nil
+}
+
+func (d *Dispatcher) DetachTUN() {
+	d.tunMu.Lock()
+	old := d.tunFile
+	d.tunFile = nil
+	d.tunGen++
+	d.tunMu.Unlock()
+	closeRetiredTUN(old, nil)
+}
+
+// closeRetiredTUN unblocks in-flight Read/Write on the old fd, then closes it.
+// File.Fd() is never used here: it would flip the TUN to non-blocking as a
+// side effect and race with Close if called without tunMu.
+func closeRetiredTUN(old, current *os.File) {
+	if old == nil || old == current {
+		return
+	}
+	_ = old.SetDeadline(time.Now())
+	_ = old.Close()
+}
+
+func (d *Dispatcher) SetUserDataPaused(v bool) {
+	if v {
+		atomic.StoreInt32(&d.userDataPaused, 1)
+	} else {
+		atomic.StoreInt32(&d.userDataPaused, 0)
+	}
+}
+
+func (d *Dispatcher) TunGeneration() uint64 {
+	d.tunMu.RLock()
+	defer d.tunMu.RUnlock()
+	return d.tunGen
+}
+
+func (d *Dispatcher) currentTUN() (*os.File, uint64) {
+	d.tunMu.RLock()
+	defer d.tunMu.RUnlock()
+	return d.tunFile, d.tunGen
+}
+
+func (d *Dispatcher) Telemetry() string {
+	d.mu.Lock()
+	channels := len(d.workers)
+	d.mu.Unlock()
+	last := d.lastTunWriteOkUnix.Load()
+	return fmt.Sprintf(
+		"channels=%d|tunGen=%d|tunRead=%d|tunWriteOk=%d|tunWriteErr=%d|lastTunWriteOk=%d|down=%d|up=%d",
+		channels,
+		d.TunGeneration(),
+		atomic.LoadUint64(&d.tunReadCount),
+		atomic.LoadUint64(&d.tunWriteOkCount),
+		atomic.LoadUint64(&d.tunWriteErrCount),
+		last,
+		d.stats.TotalBytesDown.Load(),
+		d.stats.TotalBytesUp.Load(),
+	)
 }
 
 func (d *Dispatcher) Shutdown() {
@@ -218,8 +293,10 @@ func (d *Dispatcher) readLoop() {
 		return
 	case <-d.ready:
 	}
-	if d.tunFile != nil {
-		rawDiagf("readLoop: разблокирован, начинаю читать из tunFile (fd=%v)", d.tunFile.Fd())
+	if _, gen := d.currentTUN(); gen > 0 {
+		rawDiagf("readLoop: разблокирован, начинаю читать TUN gen=%d", gen)
+	} else {
+		rawDiagf("readLoop: разблокирован, TUN ещё не прикреплён")
 	}
 
 	buf := make([]byte, readBufSize)
@@ -231,10 +308,18 @@ func (d *Dispatcher) readLoop() {
 		var n int
 		var addr net.Addr
 		var err error
-		if d.tunFile != nil {
-			n, err = d.tunFile.Read(buf)
-		} else {
+		if atomic.LoadInt32(&d.userDataPaused) != 0 {
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+		tun, tunGen := d.currentTUN()
+		if tun != nil {
+			n, err = tun.Read(buf)
+		} else if d.localConn != nil {
 			n, addr, err = d.localConn.ReadFrom(buf)
+		} else {
+			time.Sleep(20 * time.Millisecond)
+			continue
 		}
 		if err != nil {
 			if d.ctx.Err() != nil {
@@ -242,7 +327,7 @@ func (d *Dispatcher) readLoop() {
 			}
 			if atomic.CompareAndSwapUint32(&d.firstReadErr, 0, 1) {
 				src := "localConn"
-				if d.tunFile != nil {
+				if tun != nil {
 					src = "tunFile"
 				}
 				rawDiagf("readLoop: первая ошибка чтения из %s: %v", src, err)
@@ -250,13 +335,20 @@ func (d *Dispatcher) readLoop() {
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
+		if tun != nil {
+			_, nowGen := d.currentTUN()
+			if nowGen != tunGen {
+				continue
+			}
+		}
 
-		if d.tunFile == nil {
+		usedTun := tun != nil
+		if !usedTun {
 			d.clientAddr.Store(&addr)
 		}
 		d.stats.TotalBytesUp.Add(int64(n))
 
-		if d.tunFile != nil {
+		if usedTun {
 			c := atomic.AddUint64(&d.tunReadCount, 1)
 			if c%200 == 0 {
 				rawDiagf("readLoop: прочитано из TUN=%d отправлено=%d дропнуто=%d",
@@ -265,7 +357,7 @@ func (d *Dispatcher) readLoop() {
 		}
 
 		if atomic.CompareAndSwapUint32(&d.firstPktUp, 0, 1) {
-			if d.tunFile != nil {
+			if usedTun {
 				log.Printf("[ДИСП] [ДЕБАГ] Получен ПЕРВЫЙ пакет от TUN (%d байт)", n)
 			} else {
 				log.Printf("[ДИСП] [ДЕБАГ] Получен ПЕРВЫЙ пакет от локального loopback (%d байт) с адреса %s", n, addr.String())
@@ -318,7 +410,7 @@ func (d *Dispatcher) readLoop() {
 				}
 			}
 			if sentPrio {
-				if d.tunFile != nil {
+				if usedTun {
 					atomic.AddUint64(&d.tunSentCount, 1)
 				}
 				d.mu.Unlock()
@@ -372,7 +464,7 @@ func (d *Dispatcher) readLoop() {
 		}
 
 		if sent {
-			if d.tunFile != nil {
+			if usedTun {
 				atomic.AddUint64(&d.tunSentCount, 1)
 			}
 		} else {
@@ -380,7 +472,7 @@ func (d *Dispatcher) readLoop() {
 			d.rrIndex = (idx + 1) % nw
 			d.rrCount = 0
 			putPktBuf(pkt)
-			if d.tunFile != nil {
+			if usedTun {
 				c := atomic.AddUint64(&d.tunDroppedCount, 1)
 				if c == 1 || c%50 == 0 {
 					rawDiagf("readLoop: пакет из TUN ДРОПНУТ — все воркеры перегружены (дропнуто всего=%d)", c)
@@ -405,11 +497,17 @@ func (d *Dispatcher) writeLoop() {
 		case <-d.ctx.Done():
 			return
 		case pkt := <-d.ReturnCh:
-			if d.tunFile != nil {
+			if atomic.LoadInt32(&d.userDataPaused) != 0 {
+				putPktBuf(pkt)
+				continue
+			}
+			tun, tunGen := d.currentTUN()
+			if tun != nil {
 				if atomic.CompareAndSwapUint32(&d.firstPktDown, 0, 1) {
 					log.Printf("[ДИСП] [ДЕБАГ] Отправляем ПЕРВЫЙ пакет обратно в TUN (%d байт)", len(pkt))
 				}
-				if _, err := d.tunFile.Write(pkt); err != nil {
+				if _, err := tun.Write(pkt); err != nil {
+					atomic.AddUint64(&d.tunWriteErrCount, 1)
 					if d.ctx.Err() != nil {
 						putPktBuf(pkt)
 						return
@@ -417,7 +515,16 @@ func (d *Dispatcher) writeLoop() {
 					if atomic.CompareAndSwapUint32(&d.firstWriteErr, 0, 1) {
 						rawDiagf("writeLoop: первая ошибка записи в tunFile: %v", err)
 					}
+					putPktBuf(pkt)
+					continue
 				}
+				_, nowGen := d.currentTUN()
+				if nowGen != tunGen {
+					putPktBuf(pkt)
+					continue
+				}
+				atomic.AddUint64(&d.tunWriteOkCount, 1)
+				d.lastTunWriteOkUnix.Store(time.Now().UnixMilli())
 				d.stats.TotalBytesDown.Add(int64(len(pkt)))
 				putPktBuf(pkt)
 				continue

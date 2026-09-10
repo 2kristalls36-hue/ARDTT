@@ -23,6 +23,18 @@ test -f "$STAGE/manifest.json"
 test -f "$STAGE/install.sh"
 test -f "$STAGE/docker-compose.yml"
 test -f "$STAGE/images/ardtt.tar"
+test -f "$STAGE/vendor/docker.tgz"
+# Do not `tar -tzf | grep -q`: grep -q closes the pipe and tar's SIGPIPE
+# fails the script under pipefail even when dockerd is present.
+python3 - "$STAGE/vendor/docker.tgz" <<'PY'
+import sys, tarfile
+path = sys.argv[1]
+with tarfile.open(path, "r:gz") as tf:
+    names = tf.getnames()
+if "docker/dockerd" not in names:
+    raise SystemExit("vendor/docker.tgz must contain docker/dockerd")
+print("OK vendor/docker.tgz dockerd")
+PY
 if grep -qE '^[[:space:]]*build:' "$STAGE/docker-compose.yml"; then
   echo "production compose must not contain build:" >&2
   exit 1

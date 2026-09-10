@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
+
+const tunFDWaitTimeout = 8 * time.Second
 
 // recvTunFD слушает unix-сокет sockPath и получает ровно один файловый
 // дескриптор, переданный Android-стороной через SCM_RIGHTS (см.
@@ -23,18 +26,29 @@ import (
 // гонку полностью — go_client уже слушает задолго до того, как Android вообще
 // начнёт establish().
 func recvTunFD(sockPath string) (*os.File, error) {
-	rawDiagf("recvTunFD: listen unix %q", sockPath)
+	return recvTunFDTimeout(sockPath, tunFDWaitTimeout)
+}
+
+func recvTunFDTimeout(sockPath string, d time.Duration) (*os.File, error) {
+	rawDiagf("recvTunFD: listen unix %q timeout=%s", sockPath, d)
 	addr, err := net.ResolveUnixAddr("unix", sockPath)
 	if err != nil {
 		rawDiagf("recvTunFD: ResolveUnixAddr FAILED: %v", err)
 		return nil, fmt.Errorf("tun-fd-sock resolve: %w", err)
 	}
+	_ = os.Remove(sockPath)
 	ln, err := net.ListenUnix("unix", addr)
 	if err != nil {
 		rawDiagf("recvTunFD: ListenUnix FAILED: %v", err)
 		return nil, fmt.Errorf("tun-fd-sock listen: %w", err)
 	}
 	defer ln.Close()
+	if d > 0 {
+		if err := ln.SetDeadline(time.Now().Add(d)); err != nil {
+			rawDiagf("recvTunFD: SetDeadline FAILED: %v", err)
+			return nil, fmt.Errorf("tun-fd-sock deadline: %w", err)
+		}
+	}
 	rawDiagf("recvTunFD: listening, waiting for Android to connect...")
 
 	uc, err := ln.AcceptUnix()
@@ -43,6 +57,9 @@ func recvTunFD(sockPath string) (*os.File, error) {
 		return nil, fmt.Errorf("tun-fd-sock accept: %w", err)
 	}
 	defer uc.Close()
+	if d > 0 {
+		_ = uc.SetDeadline(time.Now().Add(d))
+	}
 	rawDiagf("recvTunFD: accept OK, waiting for SCM_RIGHTS...")
 
 	buf := make([]byte, 4)

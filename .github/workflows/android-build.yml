@@ -12,7 +12,6 @@ on:
       - "scripts/build-bypass-client.sh"
       - "scripts/build-release-apk.sh"
       - "scripts/pack-stack.sh"
-      - "scripts/pack-deploy-assets.sh"
       - "server/**"
       - ".github/workflows/android-build.yml"
     tags:
@@ -34,6 +33,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
@@ -233,9 +233,10 @@ jobs:
           fi
           echo "Published https://github.com/${{ github.repository }}/releases/tag/${tag}"
 
-      # Server packages attach from server-package.yml on an explicit git tag
-      # (--from-dir after that workflow's own artifacts). Do not call the
-      # attach script here: it no longer fetches Actions artifacts.
+      # Server packages are attached only by server-package.yml on an explicit
+      # v* tag (--from-dir, no clobber). This job must not call
+      # attach-server-packages-to-release.sh: the script requires a local
+      # --from-dir, and main must not mix a new installer with an older image.
 
       - name: Write job summary
         if: always()
@@ -255,6 +256,7 @@ jobs:
             echo "- GitHub Release: \`$PUBLISH\` (channel \`$CHANNEL\`)"
             if [[ "$PUBLISH" == true ]]; then
               echo "- release: https://github.com/${{ github.repository }}/releases/tag/${TAG}"
+              echo "- server packages: tag-only via Server package workflow (not this job)"
             else
               echo "- APK is on this run's **Artifacts** tab (not Releases). Retention 30 days."
             fi

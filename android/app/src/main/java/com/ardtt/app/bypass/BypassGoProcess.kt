@@ -1,13 +1,19 @@
 package com.ardtt.app.bypass
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.ardtt.app.core.AppLog
 import java.io.BufferedReader
+import java.io.BufferedWriter
 import java.io.File
 import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class RawConf(
     val ip: String,
@@ -47,6 +54,13 @@ class BypassGoProcess(
     private val parked = AtomicBoolean(false)
     private val logScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var logJob: Job? = null
+    private val stdinLock = Any()
+    private val pendingAcks = ConcurrentHashMap<String, CompletableDeferred<String>>()
+    private val reqSeq = AtomicLong(1)
+    private val sessionGen = AtomicLong(1)
+    @Volatile var tunSockName: String? = null
+        private set
+    private var stdinWriter: BufferedWriter? = null
     @Volatile var lastError: String? = null
         private set
 
@@ -66,6 +80,8 @@ class BypassGoProcess(
         stopping.set(false)
         parked.set(false)
         lastError = null
+        sessionGen.set(1)
+        tunSockName = args.tunSockName
         val bin = binaryPath()
         if (!File(bin).isFile) {
             throw IllegalStateException("libclient.so не найден — соберите scripts/build-bypass-client.sh")
@@ -104,6 +120,7 @@ class BypassGoProcess(
         AppLog.i(TAG, "state dir=${stateDir.absolutePath}")
         val proc = pb.start()
         processRef.set(proc)
+        stdinWriter = BufferedWriter(OutputStreamWriter(proc.outputStream))
 
         var collectingRaw = false
         val rawBox = StringBuilder()
@@ -114,6 +131,7 @@ class BypassGoProcess(
                 BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
                     while (isActive) {
                         val line = reader.readLine() ?: break
+                        completeAckIfNeeded(line)
                         onLog(line)
                         Log.d(TAG, line)
 
@@ -157,8 +175,14 @@ class BypassGoProcess(
                     AppLog.w(TAG, "log reader stopped: ${t.message ?: t.javaClass.simpleName}")
                 }
             } finally {
-                if (parked.get()) return@launch
                 val code = runCatching { proc.waitFor() }.getOrDefault(-1)
+                if (parked.get()) {
+                    if (!stopping.get()) {
+                        lastError = "parked-process-exited"
+                        onFatal("parked-process-exited")
+                    }
+                    return@launch
+                }
                 if (!rawDelivered && !stopping.get()) {
                     val msg = lastError ?: "Модуль обхода завершился (код $code) без конфигурации. Проверьте код звонка."
                     lastError = msg
@@ -171,19 +195,122 @@ class BypassGoProcess(
     /**
      * Stop reading logs without destroying the process (warm VK call park).
      * Must not [Process.waitFor] — the child stays alive until [stop].
+     * Prefer keeping the reader alive via [parked] so the stdout pipe cannot fill.
      */
     fun detachLogs() {
         parked.set(true)
-        logJob?.cancel()
-        logJob = null
+    }
+
+    suspend fun sendControl(
+        name: String,
+        vararg args: String,
+        timeoutMs: Long = 15_000L,
+    ): String? {
+        val proc = processRef.get() ?: return null
+        if (!proc.isAlive) return null
+        val reqId = "k${reqSeq.getAndIncrement()}"
+        val gen = sessionGen.get()
+        val line = buildString {
+            append("V1|")
+            append(reqId)
+            append('|')
+            append(gen)
+            append('|')
+            append(name)
+            args.forEach { arg ->
+                append('|')
+                append(arg)
+            }
+        }
+        val ack = CompletableDeferred<String>()
+        pendingAcks[reqId] = ack
+        val written = synchronized(stdinLock) {
+            val writer = stdinWriter
+            if (writer == null) {
+                false
+            } else {
+                writer.write(line)
+                writer.newLine()
+                writer.flush()
+                true
+            }
+        }
+        if (!written) {
+            pendingAcks.remove(reqId)
+            return null
+        }
+        val reply = withTimeoutOrNull(timeoutMs) { ack.await() }
+        pendingAcks.remove(reqId)
+        return reply?.takeIf { controlAckSucceeded(it) }
+    }
+
+    fun sendControlFireAndForget(name: String, vararg args: String) {
+        val proc = processRef.get() ?: return
+        if (!proc.isAlive) return
+        val reqId = "k${reqSeq.getAndIncrement()}"
+        val gen = sessionGen.get()
+        val line = buildString {
+            append("V1|")
+            append(reqId)
+            append('|')
+            append(gen)
+            append('|')
+            append(name)
+            args.forEach { arg ->
+                append('|')
+                append(arg)
+            }
+            append('\n')
+        }
+        runCatching {
+            synchronized(stdinLock) {
+                stdinWriter?.write(line)
+                stdinWriter?.flush()
+            }
+        }
+    }
+
+    suspend fun attachTun(pfd: ParcelFileDescriptor): Boolean = withContext(Dispatchers.IO) {
+        val sock = tunSockName ?: return@withContext false
+        val reqId = "k${reqSeq.getAndIncrement()}"
+        val gen = sessionGen.get()
+        val line = "V1|$reqId|$gen|ATTACH_TUN"
+        val ack = CompletableDeferred<String>()
+        pendingAcks[reqId] = ack
+        synchronized(stdinLock) {
+            val writer = stdinWriter ?: return@withContext false
+            writer.write(line)
+            writer.newLine()
+            writer.flush()
+        }
+        runCatching { TunFdBridge.sendOnce(sock, pfd) }.onFailure {
+            AppLog.e(TAG, "ATTACH_TUN fd send: ${it.message}")
+            pendingAcks.remove(reqId)
+            return@withContext false
+        }
+        val reply = withTimeoutOrNull(15_000) { ack.await() }
+        pendingAcks.remove(reqId)
+        return@withContext controlAckSucceeded(reply)
+    }
+
+    private fun completeAckIfNeeded(line: String) {
+        val parsed = parseControlAck(line) ?: return
+        pendingAcks.remove(parsed.reqId)?.complete(parsed.line)
     }
 
     fun stop() {
         parked.set(false)
         stopping.set(true)
+        sendControlFireAndForget("SHUTDOWN")
+        sessionGen.incrementAndGet()
+        pendingAcks.values.forEach { it.cancel() }
+        pendingAcks.clear()
         logJob?.cancel()
         logJob = null
         val p = processRef.getAndSet(null) ?: return
+        runCatching { stdinWriter?.close() }
+        stdinWriter = null
+        tunSockName = null
         runCatching {
             p.destroy()
             if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
@@ -216,7 +343,7 @@ class BypassGoProcess(
         fun parseRawConfLine(line: String): RawConf? {
             val body = line.removePrefix("RAWCONF:")
             val parts = body.split("|")
-            if (parts.size != 3) return null
+            if (parts.size < 3) return null
             val mtu = parts[2].trim().toIntOrNull() ?: return null
             val ip = parts[0].trim()
             if (ip.isBlank()) return null
@@ -226,6 +353,24 @@ class BypassGoProcess(
         internal fun classifyFatal(line: String): String? {
             val kind = classifyBypassFatalKind(line) ?: return null
             return userMessageForBypassFatal(kind)
+        }
+
+        data class ControlAck(
+            val reqId: String,
+            val line: String,
+        )
+
+        fun parseControlAck(line: String): ControlAck? {
+            if (!line.startsWith("V1|")) return null
+            val parts = line.split("|")
+            if (parts.size < 6 || parts[3] != "ACK") return null
+            return ControlAck(reqId = parts[1], line = line)
+        }
+
+        fun controlAckSucceeded(reply: String?): Boolean {
+            if (reply.isNullOrBlank()) return false
+            if (reply.contains("|stale")) return false
+            return reply.contains("|ok")
         }
     }
 }
