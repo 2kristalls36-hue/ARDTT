@@ -253,6 +253,8 @@ class DeployEngine(private val appContext: Context) {
                 emitOn(exitHost, 0.10f, "$verb выходного стека…")
                 withExitViaJump(target) { exitSsh ->
                     client = exitSsh
+                    val exitCpus = ServerOsProbe.probeHostCpus(exitSsh)
+                    append("CPU выхода: $exitCpus")
                     val installed = triggerRemoteInstall(
                         ssh = exitSsh,
                         hostLabel = exitHost,
@@ -273,6 +275,7 @@ class DeployEngine(private val appContext: Context) {
                             provisionPort = target.cascadeProvisionPort,
                             telemetryPort = target.cascadeTelemetryPort,
                             diskCleanup = diskCleanup,
+                            hostCpus = exitCpus,
                             scriptPath = scriptPath,
                         )
                     }
@@ -296,6 +299,8 @@ class DeployEngine(private val appContext: Context) {
                 emitOn(entryHost, 0.12f, "$verb входного стека…")
             }
             val ssh = entrySsh
+            val entryCpus = ServerOsProbe.probeHostCpus(ssh)
+            append("CPU входа: $entryCpus")
 
             val entryInstalled = triggerRemoteInstall(
                 ssh = ssh,
@@ -324,6 +329,7 @@ class DeployEngine(private val appContext: Context) {
                     provisionPort = target.provisionPort,
                     telemetryPort = target.telemetryPort,
                     diskCleanup = diskCleanup,
+                    hostCpus = entryCpus,
                     scriptPath = scriptPath,
                 )
             }

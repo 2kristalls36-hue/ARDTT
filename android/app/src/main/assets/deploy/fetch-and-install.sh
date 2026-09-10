@@ -261,6 +261,17 @@ export ARDTT_PKG_DIR="$STAGING"
 export ARDTT_DEPLOY_VERSION="${ARDTT_DEPLOY_VERSION:-$PKG_VER}"
 export ARDTT_INSTALL_DIR="$INSTALL_DIR"
 
+# 1-vCPU VPS: Docker rejects cpus: 2.0 from older package defaults.
+if [ -z "${ARDTT_CPUS:-}" ]; then
+  _n="$(nproc 2>/dev/null || echo 1)"
+  if [ "${_n:-1}" -lt 2 ] 2>/dev/null; then
+    export ARDTT_CPUS=1.0
+    export ARDTT_MEM_LIMIT="${ARDTT_MEM_LIMIT:-512m}"
+  else
+    export ARDTT_CPUS=2.0
+  fi
+fi
+
 prog 0.35 "Запуск install.sh (${ARDTT_DEPLOY_VERSION})"
 # install.sh emits its own 0..1 progress; remap is left to the phone if needed.
 bash "$STAGING/install.sh"

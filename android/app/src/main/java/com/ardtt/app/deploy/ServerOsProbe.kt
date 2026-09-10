@@ -172,6 +172,13 @@ object ServerOsProbe {
         return arch
     }
 
+    /** Host vCPU count for Compose `cpus` clamp (1-core VPS cannot use 2.0). */
+    fun probeHostCpus(ssh: SshClient): Int {
+        val raw = ssh.exec("nproc 2>/dev/null || echo 1", timeoutMs = 12_000L)
+        val n = raw.lineSequence().map { it.trim() }.lastOrNull { it.isNotEmpty() }?.toIntOrNull()
+        return n?.coerceAtLeast(1) ?: 1
+    }
+
     internal fun parse(raw: String): ServerOsInfo {
         val values = linkedMapOf<String, String>()
         raw.lineSequence().forEach { line ->

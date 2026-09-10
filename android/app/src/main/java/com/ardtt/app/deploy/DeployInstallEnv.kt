@@ -34,6 +34,8 @@ object DeployInstallEnv {
         provisionPort: Int = 9100,
         telemetryPort: Int = 9200,
         diskCleanup: Boolean = false,
+        /** Host vCPU count (from `nproc`); clamps ARDTT_CPUS for 1-core VPS. */
+        hostCpus: Int = 0,
         scriptPath: String = FETCH_SCRIPT_REMOTE,
     ): String = buildString {
         append("set -euo pipefail; ")
@@ -52,6 +54,18 @@ object DeployInstallEnv {
         append("ARDTT_CASCADE_ENABLED="); append(if (cascadeEnabled) "1" else "0"); append(' ')
         if (diskCleanup) {
             append("ARDTT_DISK_CLEANUP=1 ")
+        }
+        // 1-vCPU VPS: Docker rejects cpus: 2.0. Pass a safe limit for older packages too.
+        val cpusLimit = when {
+            hostCpus <= 0 -> null
+            hostCpus >= 2 -> "2.0"
+            else -> "1.0"
+        }
+        if (cpusLimit != null) {
+            append("ARDTT_CPUS="); append(cpusLimit); append(' ')
+        }
+        if (hostCpus in 1 until 2) {
+            append("ARDTT_MEM_LIMIT=512m ")
         }
         if (cascadeEnabled) {
             append("ARDTT_CASCADE_LISTEN_PORT="); append(cascadeListenPort); append(' ')

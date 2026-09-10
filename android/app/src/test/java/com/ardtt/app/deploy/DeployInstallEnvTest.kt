@@ -36,6 +36,34 @@ class DeployInstallEnvTest {
     )
 
     @Test
+    fun fetchCommandClampsCpusForSingleCoreHost() {
+        val command = DeployInstallEnv.fetchAndInstallCommand(
+            publicHost = "45.129.2.3",
+            directPort = 51820,
+            bypassPort = 56003,
+            deployVersion = "1.0.46",
+            role = "entry",
+            hostCpus = 1,
+        )
+        assertTrue(command.contains("ARDTT_CPUS=1.0"))
+        assertTrue(command.contains("ARDTT_MEM_LIMIT=512m"))
+    }
+
+    @Test
+    fun fetchCommandUsesTwoCpusWhenHostHasThem() {
+        val command = DeployInstallEnv.fetchAndInstallCommand(
+            publicHost = "45.129.2.3",
+            directPort = 51820,
+            bypassPort = 56003,
+            deployVersion = "1.0.46",
+            role = "entry",
+            hostCpus = 2,
+        )
+        assertTrue(command.contains("ARDTT_CPUS=2.0"))
+        assertFalse(command.contains("ARDTT_MEM_LIMIT=512m"))
+    }
+
+    @Test
     fun fetchCommandIncludesDiskCleanupWhenRequested() {
         val command = DeployInstallEnv.fetchAndInstallCommand(
             publicHost = "45.129.2.3",
