@@ -240,6 +240,21 @@ class ServerDeployCardLogicTest {
                 "1.0.46",
             ),
         )
+        // APK git deploy version wins when newer than VPS-reported Releases tip.
+        assertEquals(
+            "1.0.51",
+            effectiveExpectedVersion(
+                HealthUi.Online("1.0.46", latestDeployVersion = "1.0.46"),
+                "1.0.51",
+            ),
+        )
+        assertEquals(
+            "Требуется обновление · 1.0.46 → 1.0.51",
+            serverCardDeployText(
+                HealthUi.Online("1.0.46", latestDeployVersion = "1.0.46"),
+                "1.0.51",
+            ),
+        )
     }
 
     @Test
