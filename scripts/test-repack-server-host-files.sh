@@ -37,7 +37,8 @@ grep -q 'overlay_ready_script' "$WORKDIR/new/install.sh" || err "install.sh not 
 grep -q 'SETGID' "$WORKDIR/new/docker-compose.yml" || err "SETGID compose not restored"
 [ -f "$WORKDIR/new/ready.sh" ] || err "ready.sh missing after repack"
 image_after="$(sha256sum "$WORKDIR/new/images/ardtt.tar" | awk '{print $1}')"
-[ "$image_before" = "$image_after" ] || err "images/ardtt.tar must not change"
+[ "$image_before" = "$image_after" ] || err "image blob must not change"
+[ -f "$WORKDIR/new/scripts/assemble-docker-save.py" ] || err "assemble script missing after repack"
 grep -q 'ready.sh' "$WORKDIR/new/SHA256SUMS" || err "SHA256SUMS missing ready.sh"
 python3 - "$WORKDIR/new/manifest.json" <<'PY' || err "manifest ready.sh hash"
 import hashlib, json, pathlib, sys

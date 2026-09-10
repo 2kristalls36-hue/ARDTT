@@ -1,9 +1,9 @@
 package com.ardtt.app.deploy
 
 /**
- * Read-only host probe run over SSH before GitHub download / SFTP.
- * Does not install, upgrade, or restart Docker. Missing Engine is OK:
- * install.sh unpacks vendor/docker.tgz from the same archive.
+ * Read-only host probe over SSH. Optional UI check — install.sh is the
+ * source of truth and installs Engine from the package when Docker is missing.
+ * Missing Engine is OK: code=OK / docker-from-package.
  */
 data class DeployPreflightResult(
     val ok: Boolean,

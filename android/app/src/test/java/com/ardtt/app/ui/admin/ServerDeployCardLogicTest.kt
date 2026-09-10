@@ -10,6 +10,23 @@ import org.junit.Test
 
 class ServerDeployCardLogicTest {
     @Test
+    fun hostMetricFormatters() {
+        assertEquals("1 ядро", formatHostCpuCores(1f))
+        assertEquals("3.5 ядра", formatHostCpuCores(3.5f))
+        assertEquals("8 ядер", formatHostCpuCores(8f))
+        assertEquals("0.14", formatHostGiB((0.14 * 1024 * 1024 * 1024).toLong()))
+        assertEquals("12%", formatHostPercent(12.4f))
+        val host = ProvisionAdminApi.HostMetrics(
+            memUsedBytes = (0.07 * 1024 * 1024 * 1024).toLong(),
+            memTotalBytes = (4.45 * 1024 * 1024 * 1024).toLong(),
+            diskUsedBytes = 0,
+            diskTotalBytes = 0,
+        )
+        assertTrue(formatHostMemDetail(host).contains("ГБ"))
+        assertEquals("— / — ГБ", formatHostDiskDetail(host))
+    }
+
+    @Test
     fun publicHostHiddenWhenSameAsSshHost() {
         assertNull(distinctPublicHost("159.194.225.162", "159.194.225.162"))
         assertNull(distinctPublicHost("159.194.225.162", " 159.194.225.162 "))
@@ -211,6 +228,33 @@ class ServerDeployCardLogicTest {
         val outdated = healthStatusParts(HealthUi.Online("1.0.5"), "1.0.6")
         assertEquals("Требуется обновление · 1.0.5 → 1.0.6", outdated.deploy)
         assertEquals("● Онлайн", outdated.presence)
+        val fromServer = healthStatusParts(
+            HealthUi.Online("1.0.45", latestDeployVersion = "1.0.47"),
+            "1.0.46",
+        )
+        assertEquals("Требуется обновление · 1.0.45 → 1.0.47", fromServer.deploy)
+        assertEquals(
+            "1.0.47",
+            effectiveExpectedVersion(
+                HealthUi.Online("1.0.45", latestDeployVersion = "1.0.47"),
+                "1.0.46",
+            ),
+        )
+        // APK git deploy version wins when newer than VPS-reported Releases tip.
+        assertEquals(
+            "1.0.51",
+            effectiveExpectedVersion(
+                HealthUi.Online("1.0.46", latestDeployVersion = "1.0.46"),
+                "1.0.51",
+            ),
+        )
+        assertEquals(
+            "Требуется обновление · 1.0.46 → 1.0.51",
+            serverCardDeployText(
+                HealthUi.Online("1.0.46", latestDeployVersion = "1.0.46"),
+                "1.0.51",
+            ),
+        )
     }
 
     @Test
@@ -249,6 +293,17 @@ class ServerDeployCardLogicTest {
             ProvisionAdminApi.HealthInfo(ok = true, deployVersion = "1.0.12", pingMs = 18L),
         )
         assertEquals(HealthUi.Online("1.0.12", 18L), online)
+        assertEquals(
+            HealthUi.Online("1.0.12", 18L, latestDeployVersion = "1.0.47"),
+            healthUiOf(
+                ProvisionAdminApi.HealthInfo(
+                    ok = true,
+                    deployVersion = "1.0.12",
+                    latestDeployVersion = "1.0.47",
+                    pingMs = 18L,
+                ),
+            ),
+        )
         assertEquals(HealthUi.Unreachable, healthUiOf(null))
         assertEquals(
             HealthUi.Unreachable,
@@ -363,11 +418,11 @@ class ServerDeployCardLogicTest {
     @Test
     fun reinstallConfirmNamesHostAndVersion() {
         assertEquals(
-            "Стек версии 1.0.29 будет снова скачан из репозитория и залит на 10.0.0.1 по указанным SSH-данным.",
+            "На 10.0.0.1 будет запущен fetch-and-install: VPS сам скачает стек версии 1.0.29 из GitHub Releases и поставит его. Телефон только запускает скрипт по SSH.",
             serverReinstallConfirmBody("10.0.0.1", "1.0.29"),
         )
         assertEquals(
-            "Стек версии 1.0.29 будет снова скачан из репозитория и залит на VPS по указанным SSH-данным.",
+            "На VPS будет запущен fetch-and-install: VPS сам скачает стек версии 1.0.29 из GitHub Releases и поставит его. Телефон только запускает скрипт по SSH.",
             serverReinstallConfirmBody("  ", "1.0.29"),
         )
     }

@@ -13,13 +13,32 @@ object ProvisionAdminApi {
     data class HealthInfo(
         val ok: Boolean,
         val deployVersion: String = "",
+        /** Newest stack version known to the VPS (GitHub Releases), if reported. */
+        val latestDeployVersion: String = "",
         /** HTTP RTT of GET /health, milliseconds. */
         val pingMs: Long = -1L,
         val cascade: Boolean = false,
         val role: String = "",
         /** Exit VPS host when this provision is a cascade entry. */
         val cascadeHost: String = "",
+        val cascadePublicKey: String = "",
+        /** Host CPU/RAM/disk from provision (absent on older stacks). */
+        val host: HostMetrics? = null,
     )
+
+    data class HostMetrics(
+        val cpuPercent: Float = 0f,
+        val cpuCores: Float = 0f,
+        val memUsedBytes: Long = 0L,
+        val memTotalBytes: Long = 0L,
+        val memPercent: Float = 0f,
+        val diskUsedBytes: Long = 0L,
+        val diskTotalBytes: Long = 0L,
+        val diskPercent: Float = 0f,
+    ) {
+        val hasDisk: Boolean get() = diskTotalBytes > 0L
+        val hasMem: Boolean get() = memTotalBytes > 0L
+    }
 
     data class LiveCascadeInfo(
         val enabled: Boolean,
@@ -82,12 +101,34 @@ object ProvisionAdminApi {
             HealthInfo(
                 ok = ok,
                 deployVersion = o?.optString("deployVersion").orEmpty().trim(),
+                latestDeployVersion = o?.optString("latestDeployVersion").orEmpty().trim(),
                 pingMs = pingMs,
                 cascade = o?.optBoolean("cascade", false) == true,
                 role = o?.optString("role").orEmpty().trim(),
                 cascadeHost = cascadeHostFromHealth(o),
+                cascadePublicKey = o?.optString("cascadePublicKey").orEmpty().trim(),
+                host = hostMetricsFromHealth(o),
             )
         }
+    }
+
+    internal fun hostMetricsFromHealth(o: JSONObject?): HostMetrics? {
+        val h = o?.optJSONObject("host") ?: return null
+        val memTotal = h.optLong("memTotalBytes", 0L)
+        val diskTotal = h.optLong("diskTotalBytes", 0L)
+        if (memTotal <= 0L && diskTotal <= 0L && h.optDouble("cpuCores", 0.0) <= 0.0) {
+            return null
+        }
+        return HostMetrics(
+            cpuPercent = h.optDouble("cpuPercent", 0.0).toFloat().coerceIn(0f, 100f),
+            cpuCores = h.optDouble("cpuCores", 0.0).toFloat().coerceAtLeast(0f),
+            memUsedBytes = h.optLong("memUsedBytes", 0L).coerceAtLeast(0L),
+            memTotalBytes = memTotal.coerceAtLeast(0L),
+            memPercent = h.optDouble("memPercent", 0.0).toFloat().coerceIn(0f, 100f),
+            diskUsedBytes = h.optLong("diskUsedBytes", 0L).coerceAtLeast(0L),
+            diskTotalBytes = diskTotal.coerceAtLeast(0L),
+            diskPercent = h.optDouble("diskPercent", 0.0).toFloat().coerceIn(0f, 100f),
+        )
     }
 
     /** Convenience for callers that only need online boolean. */

@@ -28,6 +28,7 @@ DOCKERFILE="$ROOT/server/Dockerfile"
 [ -f "$ROOT/server/ready.sh" ] || err "missing ready.sh"
 [ -f "$ROOT/server/netns-guard.sh" ] || err "missing netns-guard.sh"
 [ -f "$ROOT/server/install-lib/engine.sh" ] || err "missing install-lib/engine.sh"
+[ -f "$ROOT/server/install-lib/disk-cleanup.sh" ] || err "missing install-lib/disk-cleanup.sh"
 PREFLIGHT_KT="$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployPreflight.kt"
 
 if [ -f "$INSTALLER" ]; then
@@ -53,6 +54,19 @@ PY
   grep -q 'safe_extract_package' "$INSTALLER" || err "installer must extract safely"
   grep -q 'docker load' "$INSTALLER" || err "installer must docker load"
   grep -q 'load_package_image' "$INSTALLER" || err "installer must load_package_image (retag manifest ID)"
+  grep -q 'images/layout.json\|IMAGE_LAYOUT\|ardtt-image-layers-v1' "$ROOT/server/install-lib/package.sh" \
+    || err "package.sh must load layered images"
+  grep -q 'assemble-docker-save.py' "$ROOT/scripts/pack-server-package.sh" \
+    || err "pack-server-package must ship assemble-docker-save.py"
+  grep -q 'split-docker-save.py' "$ROOT/scripts/pack-server-package.sh" \
+    || err "pack-server-package must split docker save into layers"
+  grep -q 'MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-1600}' "$INSTALLER" \
+    || err "disk floor default must be 1600 (softer than 2500)"
+  if grep -q 'MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-2500}' "$INSTALLER"; then
+    err "disk floor must not stay at 2500"
+  fi
+  python3 -m py_compile "$ROOT/scripts/split-docker-save.py" || err "split-docker-save.py"
+  python3 -m py_compile "$ROOT/scripts/assemble-docker-save.py" || err "assemble-docker-save.py"
   grep -q 'loaded_image_matches_tar' "$ROOT/server/install-lib/package.sh" || err "package load must compare image tar layers"
   grep -q -- '--no-build --pull never' "$INSTALLER" || err "installer must up --no-build --pull never"
   grep -q 'wait_readiness' "$INSTALLER" || err "installer must wait readiness"
@@ -150,7 +164,12 @@ grep -q 'ardtt_require_container_netns' "$ROOT/server/direct/entrypoint.sh" || e
 grep -q 'ARDTT_CASCADE_ROLE:-${ARDTT_ROLE:-entry}' "$ROOT/server/direct/cascade-entrypoint.sh" \
   || err "cascade must inherit ARDTT_ROLE"
 grep -q '/ready' "$ROOT/server/provision/main.go" || err "provision missing /ready"
-grep -q 'publicProvisionPort' "$ROOT/server/provision/main.go" || err "health must expose provisionPort"
+grep -q 'latestDeployVersion' "$ROOT/server/provision/main.go" || err "health must expose latestDeployVersion"
+grep -q '/v1/cascade/peer' "$ROOT/server/provision/main.go" || err "provision must accept cascade peer pubkey"
+grep -q 'push_entry_pubkey_to_exit' "$INSTALLER" || err "install.sh must push entry cascade pubkey to exit"
+grep -q 'Запись ключа входа через туннель' \
+  "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt" \
+  && err "DeployEngine must not SSH a third hop to write cascade.peer.pub"
 grep -q 'envPort("ARDTT_DIRECT_PORT")' "$ROOT/server/provision/main.go" || err "provision must sync DirectPort"
 
 if grep -E '^[^#]*conf/all/rp_filter' "$ROOT/server/warp/entrypoint.sh" >/dev/null; then
@@ -211,11 +230,27 @@ if grep -q 'docker builder prune -af' "$ROOT/android/app/src/main/java/com/ardtt
   err "DeployEngine must not prune Docker on the VPS"
 fi
 if grep -q 'uploadBytes(stackBytes' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt"; then
-  err "DeployEngine must SFTP the package file, not uploadBytes of the image"
+  err "DeployEngine must not uploadBytes of the image"
 fi
-if grep -q 'ByteArrayOutputStream' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployStackFetcher.kt"; then
-  err "DeployStackFetcher must not buffer the whole package in a ByteArrayOutputStream"
+if grep -q 'DeployStackFetcher(' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt"; then
+  err "DeployEngine must not download the server package on the phone (VPS fetches it)"
 fi
+if grep -q 'SFTP пакета' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt"; then
+  err "DeployEngine must not SFTP the multi-MB server package"
+fi
+grep -q 'fetchAndInstallCommand\|triggerRemoteInstall\|fetch-and-install' \
+  "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt" \
+  || err "DeployEngine must trigger VPS-side fetch-and-install"
+[ -f "$ROOT/server/fetch-and-install.sh" ] || err "missing server/fetch-and-install.sh"
+bash -n "$ROOT/server/fetch-and-install.sh" || err "bash -n fetch-and-install.sh"
+grep -q 'api.github.com' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must use GitHub Releases API"
+grep -q 'git clone' "$ROOT/server/fetch-and-install.sh" && err "fetch-and-install must not git clone"
+grep -q 'fetch-and-install.sh' "$PACK_SERVER" || err "pack-server-package must include fetch-and-install.sh"
+[ -f "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" ] \
+  || err "assets must ship fetch-and-install.sh bootstrap"
+grep -q 'DeployVersionCatalog' "$ROOT/android/app/src/main/java/com/ardtt/app/ArdttApp.kt" \
+  || err "app launch must poll DeployVersionCatalog"
+grep -q 'latestServerVersion' "$STACK_SOURCE_KT" || err "DeployStackSource must parse latest server version"
 
 if [ -f "$ROOT/android/app/src/main/assets/deploy/install.sh" ]; then
   err "assets/deploy/install.sh must not be bundled"
@@ -291,7 +326,13 @@ if [ -f "$ROOT/scripts/test-package-extract.sh" ]; then
 fi
 
 if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
+if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
+  bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
+fi
   bash "$ROOT/scripts/test-install-disk-guard.sh" || err "disk guard"
+if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
+  bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
+fi
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"
@@ -311,6 +352,12 @@ if [ -f "$ROOT/scripts/test-instance-metadata-rollback.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-live-isolation-guard.sh" ]; then
   bash "$ROOT/scripts/test-install-live-isolation-guard.sh" || err "live isolation guard"
+fi
+if [ -f "$ROOT/scripts/test-fetch-and-install-resolve.sh" ]; then
+  bash "$ROOT/scripts/test-fetch-and-install-resolve.sh" || err "fetch-and-install resolve"
+fi
+if [ -f "$ROOT/scripts/test-image-layers.sh" ]; then
+  bash "$ROOT/scripts/test-image-layers.sh" || err "image layers split/assemble"
 fi
 
 if [ "$fail" -ne 0 ]; then

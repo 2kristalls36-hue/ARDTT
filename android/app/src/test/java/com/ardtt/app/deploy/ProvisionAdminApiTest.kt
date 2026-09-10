@@ -66,6 +66,40 @@ class ProvisionAdminApiTest {
     }
 
     @Test
+    fun hostMetricsFromHealthParsesGauges() {
+        val o = JSONObject(
+            """
+            {
+              "ok": true,
+              "host": {
+                "cpuPercent": 12.5,
+                "cpuCores": 1.0,
+                "memUsedBytes": 148000000,
+                "memTotalBytes": 536870912,
+                "memPercent": 27.6,
+                "diskUsedBytes": 4900000000,
+                "diskTotalBytes": 8700000000,
+                "diskPercent": 56.3,
+                "diskPath": "/data"
+              }
+            }
+            """.trimIndent(),
+        )
+        val host = ProvisionAdminApi.hostMetricsFromHealth(o)!!
+        assertEquals(12.5f, host.cpuPercent, 0.01f)
+        assertEquals(1.0f, host.cpuCores, 0.01f)
+        assertEquals(536870912L, host.memTotalBytes)
+        assertTrue(host.hasDisk)
+        assertTrue(host.hasMem)
+    }
+
+    @Test
+    fun hostMetricsAbsentOnLegacyHealth() {
+        val o = JSONObject("""{"ok":true,"deployVersion":"1.0.46"}""")
+        assertNull(ProvisionAdminApi.hostMetricsFromHealth(o))
+    }
+
+    @Test
     fun provisionBaseUsesStoredPort() {
         val target = DeployTarget(
             id = "1",

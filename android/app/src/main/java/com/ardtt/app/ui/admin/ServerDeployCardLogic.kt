@@ -15,6 +15,9 @@ internal sealed class HealthUi {
     data class Online(
         val deployVersion: String = "",
         val pingMs: Long = -1L,
+        /** From provision `/health` when the VPS knows a newer stack release. */
+        val latestDeployVersion: String = "",
+        val host: ProvisionAdminApi.HostMetrics? = null,
     ) : HealthUi()
     /** SSH/auth failed — host or credentials unreachable. */
     data object Unreachable : HealthUi()
@@ -27,7 +30,12 @@ internal fun healthUiFromProbes(
     sshAuthOk: Boolean,
 ): HealthUi {
     if (info != null && info.ok) {
-        return HealthUi.Online(info.deployVersion, info.pingMs)
+        return HealthUi.Online(
+            deployVersion = info.deployVersion,
+            pingMs = info.pingMs,
+            latestDeployVersion = info.latestDeployVersion,
+            host = info.host,
+        )
     }
     return if (sshAuthOk) HealthUi.NotInstalled else HealthUi.Unreachable
 }
@@ -84,18 +92,28 @@ internal data class HealthStatusParts(
     val pingLabel: String get() = formatHealthPingMs(pingMs)
 }
 
+internal fun effectiveExpectedVersion(health: HealthUi?, fallback: String): String {
+    val fromServer = (health as? HealthUi.Online)?.latestDeployVersion?.trim().orEmpty()
+    val fromApp = fallback.trim()
+    // Prefer the newer of VPS-reported Releases tip and the APK git deploy version.
+    return DeployBundle.maxVersion(fromServer, fromApp)
+}
+
 internal fun healthStatusParts(
     health: HealthUi?,
     expectedVersion: String = "",
-): HealthStatusParts = when (health) {
-    null, HealthUi.Checking -> HealthStatusParts("● Проверка…")
-    is HealthUi.Online -> HealthStatusParts(
-        presence = "● Онлайн",
-        deploy = serverCardDeployText(health, expectedVersion),
-        pingMs = health.pingMs,
-    )
-    HealthUi.NotInstalled -> HealthStatusParts("● Не установлено")
-    HealthUi.Unreachable -> HealthStatusParts("● Нет связи")
+): HealthStatusParts {
+    val expected = effectiveExpectedVersion(health, expectedVersion)
+    return when (health) {
+        null, HealthUi.Checking -> HealthStatusParts("● Проверка…")
+        is HealthUi.Online -> HealthStatusParts(
+            presence = "● Онлайн",
+            deploy = serverCardDeployText(health, expected),
+            pingMs = health.pingMs,
+        )
+        HealthUi.NotInstalled -> HealthStatusParts("● Не установлено")
+        HealthUi.Unreachable -> HealthStatusParts("● Нет связи")
+    }
 }
 
 /** Version when current; the update sentence when the stack is behind. */
@@ -248,7 +266,8 @@ internal fun serverOsBadgeVersionText(osId: String, osVersion: String): String? 
  */
 internal fun isDeployOutdated(health: HealthUi?, expectedVersion: String): Boolean {
     val online = health as? HealthUi.Online ?: return true
-    return !DeployBundle.isCurrent(online.deployVersion, expectedVersion)
+    val expected = effectiveExpectedVersion(health, expectedVersion)
+    return !DeployBundle.isCurrent(online.deployVersion, expected)
 }
 
 /** Sticky «Обновить деплой» — hidden only when the stack is known-current. */
@@ -276,14 +295,17 @@ internal enum class ServerOverviewPrimaryAction {
 internal fun serverOverviewPrimaryAction(
     health: HealthUi?,
     expectedVersion: String,
-): ServerOverviewPrimaryAction = when (health) {
-    HealthUi.NotInstalled -> ServerOverviewPrimaryAction.Install
-    is HealthUi.Online -> if (DeployBundle.isCurrent(health.deployVersion, expectedVersion)) {
-        ServerOverviewPrimaryAction.Check
-    } else {
-        ServerOverviewPrimaryAction.Update
+): ServerOverviewPrimaryAction {
+    val expected = effectiveExpectedVersion(health, expectedVersion)
+    return when (health) {
+        HealthUi.NotInstalled -> ServerOverviewPrimaryAction.Install
+        is HealthUi.Online -> if (DeployBundle.isCurrent(health.deployVersion, expected)) {
+            ServerOverviewPrimaryAction.Check
+        } else {
+            ServerOverviewPrimaryAction.Update
+        }
+        else -> ServerOverviewPrimaryAction.Check
     }
-    else -> ServerOverviewPrimaryAction.Check
 }
 
 internal fun serverOverviewPrimaryLabel(action: ServerOverviewPrimaryAction): String = when (action) {
@@ -314,8 +336,8 @@ internal fun serverDeployFormHelp(
     expectedVersion: String,
 ): String {
     if (saved) {
-        return "Кнопка «Переустановить деплой» снова скачает стек версии $expectedVersion из репозитория и зальёт его на VPS. " +
-            "Ход установки откроется снизу, как при обновлении деплоя."
+        return "Кнопка «Переустановить деплой» запустит на VPS fetch-and-install для стека $expectedVersion " +
+            "(пакет скачает сам сервер с GitHub Releases). Ход установки откроется снизу."
     }
     val action = serverDeployActionLabel(saved = false, cascadeEnabled = cascadeEnabled)
     return "«Сохранить» только добавляет VPS в список. Установка стека — кнопка «$action»."
@@ -323,7 +345,7 @@ internal fun serverDeployFormHelp(
 
 internal fun serverReinstallConfirmBody(host: String, expectedVersion: String): String {
     val target = host.trim().ifBlank { "VPS" }
-    return "Стек версии $expectedVersion будет снова скачан из репозитория и залит на $target по указанным SSH-данным."
+    return "На $target будет запущен fetch-and-install: VPS сам скачает стек версии $expectedVersion из GitHub Releases и поставит его. Телефон только запускает скрипт по SSH."
 }
 
 /** Same default as the first VPS SSH user field. */
@@ -507,9 +529,50 @@ internal fun serverDeleteFinishedShouldLeave(busy: Boolean, status: String?): Bo
  */
 internal fun deployFreshnessChipText(health: HealthUi?, expectedVersion: String): String? {
     val online = health as? HealthUi.Online ?: return null
-    if (DeployBundle.isCurrent(online.deployVersion, expectedVersion)) return null
+    val expected = effectiveExpectedVersion(health, expectedVersion)
+    if (DeployBundle.isCurrent(online.deployVersion, expected)) return null
     val installed = online.deployVersion.trim().ifBlank { "—" }
-    val expected = expectedVersion.trim().ifBlank { "—" }
-    return "Требуется обновление · $installed → $expected"
+    val want = expected.ifBlank { "—" }
+    return "Требуется обновление · $installed → $want"
 }
+
+internal fun formatHostCpuCores(cores: Float): String {
+    if (cores <= 0f) return "—"
+    val label = if (cores == cores.toInt().toFloat()) {
+        cores.toInt().toString()
+    } else {
+        String.format(java.util.Locale.US, "%.1f", cores)
+    }
+    val n = cores
+    val word = when {
+        n == 1f -> "ядро"
+        n < 5f -> "ядра"
+        else -> "ядер"
+    }
+    return "$label $word"
+}
+
+internal fun formatHostGiB(bytes: Long): String {
+    if (bytes <= 0L) return "0"
+    val gib = bytes / (1024.0 * 1024.0 * 1024.0)
+    return when {
+        gib < 10.0 -> String.format(java.util.Locale.US, "%.2f", gib)
+        gib < 100.0 -> String.format(java.util.Locale.US, "%.1f", gib)
+        else -> String.format(java.util.Locale.US, "%.0f", gib)
+    }
+}
+
+internal fun formatHostMemDetail(host: ProvisionAdminApi.HostMetrics): String {
+    if (!host.hasMem) return "— / — ГБ"
+    return "${formatHostGiB(host.memUsedBytes)} / ${formatHostGiB(host.memTotalBytes)} ГБ"
+}
+
+internal fun formatHostDiskDetail(host: ProvisionAdminApi.HostMetrics): String {
+    if (!host.hasDisk) return "— / — ГБ"
+    return "${formatHostGiB(host.diskUsedBytes)} / ${formatHostGiB(host.diskTotalBytes)} ГБ"
+}
+
+internal fun formatHostPercent(pct: Float): String =
+    "${pct.toInt().coerceIn(0, 100)}%"
+
 

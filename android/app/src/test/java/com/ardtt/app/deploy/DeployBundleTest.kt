@@ -26,11 +26,22 @@ class DeployBundleTest {
 
     @Test
     fun fallbackMatchesServerDeployVersion() {
-        assertEquals("1.0.46", DeployBundle.FALLBACK_VERSION)
+        assertEquals("1.0.51", DeployBundle.FALLBACK_VERSION)
     }
 
     @Test
     fun assetPathMatchesPackScript() {
         assertEquals("deploy/DEPLOY_VERSION", DeployBundle.ASSET_VERSION_FILE)
+    }
+
+    @Test
+    fun compareAndMaxPreferNewerSemver() {
+        assertTrue(DeployBundle.compareVersions("1.0.51", "1.0.46") > 0)
+        assertTrue(DeployBundle.compareVersions("1.0.9", "1.0.51") < 0)
+        assertEquals(0, DeployBundle.compareVersions("1.0.51", "1.0.51"))
+        assertEquals("1.0.51", DeployBundle.maxVersion("1.0.46", "1.0.51"))
+        assertEquals("1.0.51", DeployBundle.maxVersion("1.0.51", "1.0.46"))
+        assertEquals("1.0.51", DeployBundle.maxVersion("", "1.0.51"))
+        assertEquals("1.0.51", DeployBundle.maxVersion("1.0.51", ""))
     }
 }
