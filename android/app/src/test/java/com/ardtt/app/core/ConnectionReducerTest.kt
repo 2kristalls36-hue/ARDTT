@@ -881,25 +881,182 @@ class ConnectionReducerTest {
     }
 
     @Test
-    fun protocolReadyConfirmsDirectWithoutPathConfirmed() {
+    fun protocolReadyKeepsDirectWithoutPathConfirmedOrBackoffReset() {
         val started = ConnectionReducer.reduce(
             idle().copy(underlay = usableCellular()),
             ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
             1L,
         )
+        val withFailures = started.state.copy(
+            recovery = started.state.recovery.copy(failureIndex = 3),
+            wifiFailStreak = 2,
+        )
         val ready = ConnectionReducer.reduce(
-            started.state,
+            withFailures,
             ConnectionEvent.DirectConfirmed(
-                sessionEpoch = started.state.sessionEpoch,
-                transportEpoch = started.state.transportEpoch,
+                sessionEpoch = withFailures.sessionEpoch,
+                transportEpoch = withFailures.transportEpoch,
                 networkKey = cellKey,
                 protocolReady = true,
-                callEpoch = started.state.call.callEpoch,
+                callEpoch = withFailures.call.callEpoch,
             ),
             2L,
         )
         assertEquals(RecoveryPhase.Connected, ready.state.recovery.phase)
         assertEquals(VpnPath.Direct, ready.state.activePath)
+        assertEquals(PathReadiness.ProtocolReady, ready.state.pathReadiness)
+        assertNull(ready.state.lastConfirmedPath)
+        assertEquals(3, ready.state.recovery.failureIndex)
+        assertEquals(2, ready.state.wifiFailStreak)
+        assertTrue(ready.state.ui.actions.contains(ConnectionUiAction.Disconnect))
+
+        val confirmed = ConnectionReducer.reduce(
+            ready.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = ready.state.sessionEpoch,
+                transportEpoch = ready.state.transportEpoch,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = ready.state.call.callEpoch,
+            ),
+            3L,
+        )
+        assertEquals(PathReadiness.PathConfirmed, confirmed.state.pathReadiness)
+        assertEquals(VpnPath.Direct, confirmed.state.lastConfirmedPath)
+        assertEquals(0, confirmed.state.recovery.failureIndex)
+        assertEquals(0, confirmed.state.wifiFailStreak)
+    }
+
+    @Test
+    fun identityChangeKeepsStartingDirectWithoutOrphanInFlight() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(
+                ConnPathMode.Direct,
+                "p",
+                true,
+                false,
+                callIdentityToken = "old",
+                directConfigRevision = "rev1",
+            ),
+            1L,
+        )
+        val starting = started.state.copy(
+            activePath = VpnPath.Direct,
+            transport = TransportLifecycle.Starting,
+            recovery = started.state.recovery.copy(
+                phase = RecoveryPhase.ConnectingDirect,
+                inFlight = true,
+                permit = started.state.recovery.permit.copy(
+                    userStop = false,
+                    netOpsAllowed = true,
+                    recoveryInFlight = true,
+                    callEpoch = started.state.call.callEpoch,
+                ),
+            ),
+        )
+        val transportEpochBefore = starting.transportEpoch
+        val swapped = ConnectionReducer.reduce(
+            starting,
+            ConnectionEvent.CallIdentityChanged(
+                profileId = "p",
+                hashPresent = true,
+                identityToken = "new",
+            ),
+            2L,
+        )
+        assertEquals(VpnPath.Direct, swapped.state.activePath)
+        assertEquals(TransportLifecycle.Starting, swapped.state.transport)
+        assertEquals(transportEpochBefore, swapped.state.transportEpoch)
+        assertTrue(swapped.state.recovery.inFlight)
+        val discard = swapped.command as RecoveryCommand.DiscardStaleCall
+        assertEquals(RecoveryCommand.None, discard.then)
+    }
+
+    @Test
+    fun profileConfigRevisionRestartsDirect() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(
+                ConnPathMode.Direct,
+                "p",
+                false,
+                false,
+                directConfigRevision = "rev1",
+            ),
+            1L,
+        )
+        val running = started.state.copy(
+            activePath = VpnPath.Direct,
+            transport = TransportLifecycle.Running,
+            pathReadiness = PathReadiness.ProtocolReady,
+            recovery = started.state.recovery.copy(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = started.state.recovery.permit.copy(
+                    userStop = false,
+                    netOpsAllowed = true,
+                ),
+            ),
+        )
+        val swapped = ConnectionReducer.reduce(
+            running,
+            ConnectionEvent.SessionParamsChanged(
+                profileId = "p",
+                hasCallHash = false,
+                directConfigRevision = "rev2",
+            ),
+            2L,
+        )
+        assertTrue(swapped.state.transportEpoch > running.transportEpoch)
+        assertEquals("rev2", swapped.state.intent.directConfigRevision)
+        assertTrue(
+            swapped.command is RecoveryCommand.DiscardStaleCall ||
+                swapped.command is RecoveryCommand.StartDirect,
+        )
+    }
+
+    @Test
+    fun duplicateProbeSeriesIdIsIgnored() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", false, false),
+            1L,
+        )
+        val evidence = ReachabilityEvidence(
+            networkKey = cellKey,
+            profileId = "p",
+            measuredAtElapsedMs = 10L,
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Success,
+            google = CheckOutcome.Success,
+            provision = CheckOutcome.Success,
+            restriction = RestrictionHint.None,
+            ttlUntilElapsedMs = 40_000L,
+            seriesId = "series-a",
+            completedSeries = 1,
+        )
+        val first = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.ProbeFinished(
+                evidence = evidence,
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            10L,
+        )
+        val second = ConnectionReducer.reduce(
+            first.state,
+            ConnectionEvent.ProbeFinished(
+                evidence = evidence.copy(measuredAtElapsedMs = 99L),
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            99L,
+        )
+        assertEquals(first.state.evidence?.completedSeries, second.state.evidence?.completedSeries)
+        assertEquals(first.state.evidence?.seriesCount, second.state.evidence?.seriesCount)
     }
 
     @Test

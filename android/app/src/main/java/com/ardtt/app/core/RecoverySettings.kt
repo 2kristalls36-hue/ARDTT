@@ -8,6 +8,10 @@ object RecoverySettings {
     const val FAST_PROBE_BUDGET_MS = 1_500L
     const val DIAGNOSTIC_ROUND_MS = 1_500L
     const val DIAGNOSTIC_SERIES_GAP_MS = 8_000L
+    /** Adaptive idle interval after a clean open-LTE diagnostic burst. */
+    const val DIAGNOSTIC_OPEN_INTERVAL_MS = 5 * 60_000L
+    /** Refresh while restriction is suspected/confirmed (aligned with TTL). */
+    const val DIAGNOSTIC_RESTRICTION_REFRESH_MS = 25_000L
     const val CONFIRM_PROBE_BUDGET_MS = 5_000L
     const val RESTRICTION_CONFIRM_SERIES = 2
     const val PROBE_CACHE_TTL_MS = 30_000L
@@ -20,6 +24,8 @@ object RecoverySettings {
     const val NETWORK_RETURN_COALESCE_MS = 400L
     const val DIRECT_REEVAL_WHILE_BYPASS_MS = 30_000L
     const val PROBE_RESTRICTION_TTL_MS = 30_000L
+    /** Max completed diagnostic rounds in the initial open-LTE burst. */
+    const val DIAGNOSTIC_OPEN_BURST_SERIES = 1
 
     val retryBackoffMs: LongArray = longArrayOf(
         2_000L, 5_000L, 10_000L, 20_000L, 30_000L, 60_000L,
@@ -43,4 +49,33 @@ object RecoverySettings {
     /** Useful RX from the current AWG backend is PathConfirmed. */
     fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean =
         totalRx > 0L
+
+    /**
+     * Next diagnostic delay for cellular. Restriction confidence ([seriesCount]) is
+     * separate from completed work ([completedSeries]).
+     */
+    fun nextDiagnosticDelayMs(
+        completedSeries: Int,
+        restriction: RestrictionHint,
+        seriesCount: Int,
+    ): Long? {
+        return when (restriction) {
+            RestrictionHint.Suspected, RestrictionHint.Confirmed ->
+                DIAGNOSTIC_RESTRICTION_REFRESH_MS
+            RestrictionHint.None ->
+                if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
+                    DIAGNOSTIC_SERIES_GAP_MS
+                } else {
+                    DIAGNOSTIC_OPEN_INTERVAL_MS
+                }
+            RestrictionHint.Unknown ->
+                if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
+                    DIAGNOSTIC_SERIES_GAP_MS
+                } else if (seriesCount > 0 && seriesCount < RESTRICTION_CONFIRM_SERIES) {
+                    DIAGNOSTIC_SERIES_GAP_MS
+                } else {
+                    DIAGNOSTIC_OPEN_INTERVAL_MS
+                }
+        }
+    }
 }

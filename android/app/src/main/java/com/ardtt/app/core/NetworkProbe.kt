@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 
@@ -179,11 +180,15 @@ object NetworkProbe {
                         return@coroutineScope snapshot()
                     }
 
+                    val waitMs = (deadlineAt - now).coerceAtLeast(1L)
                     select {
                         if (yandex == null) yandexDef.onAwait { yandex = it }
                         if (cloudflare == null) cloudflareDef.onAwait { cloudflare = it }
                         if (google == null) googleDef.onAwait { google = it }
                         if (provision == null) provisionDef.onAwait { provision = it }
+                        onTimeout(waitMs) {
+                            // Active series deadline: wake without waiting for hung children.
+                        }
                     }
                 }
                 error("probe loop exited")
@@ -622,13 +627,32 @@ object NetworkProbe {
         val closeAll: () -> Unit = { runCatching { conn?.disconnect() }; Unit }
         return try {
             closeOnCancel(closeAll) {
+                val started = android.os.SystemClock.elapsedRealtime()
+                val deadline = started + timeoutMs
                 val url = URL("http://connectivitycheck.gstatic.com/generate_204")
+                val connectBudget = remainingTimeoutMs(
+                    deadline,
+                    android.os.SystemClock.elapsedRealtime(),
+                    timeoutMs,
+                )
+                if (connectBudget <= 0) return@closeOnCancel false
                 conn = openHttp(url, bindNetwork).apply {
                     instanceFollowRedirects = false
-                    connectTimeout = timeoutMs
-                    readTimeout = timeoutMs
+                    connectTimeout = connectBudget
+                    readTimeout = remainingTimeoutMs(
+                        deadline,
+                        android.os.SystemClock.elapsedRealtime(),
+                        timeoutMs,
+                    )
                     requestMethod = "GET"
                 }
+                val readLeft = remainingTimeoutMs(
+                    deadline,
+                    android.os.SystemClock.elapsedRealtime(),
+                    timeoutMs,
+                )
+                if (readLeft <= 0) return@closeOnCancel false
+                conn!!.readTimeout = readLeft
                 val code = conn!!.responseCode
                 // 204 = OK online; 200/302/other often captive
                 code != 204 && code != -1
@@ -672,11 +696,13 @@ object NetworkProbe {
                 val deadline = started + timeoutMs
                 conn = openHttp(URL(healthUrl), bindNetwork).apply {
                     instanceFollowRedirects = false
-                    connectTimeout = remainingTimeoutMs(
+                    val connectBudget = remainingTimeoutMs(
                         deadline,
                         android.os.SystemClock.elapsedRealtime(),
                         timeoutMs,
                     )
+                    if (connectBudget <= 0) return@closeOnCancel CheckOutcome.Timeout
+                    connectTimeout = connectBudget
                     readTimeout = remainingTimeoutMs(
                         deadline,
                         android.os.SystemClock.elapsedRealtime(),

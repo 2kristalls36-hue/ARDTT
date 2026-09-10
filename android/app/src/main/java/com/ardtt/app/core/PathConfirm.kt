@@ -36,6 +36,11 @@ data class PathConfirmObservation(
     val eventTunGen: Long = -1L,
     val capturedBackendId: Long = -1L,
     val eventBackendId: Long = -1L,
+    val capturedProcessId: Long = -1L,
+    val eventProcessId: Long = -1L,
+    val capturedOperationId: Long = -1L,
+    val eventOperationId: Long = -1L,
+    val requireCallEpoch: Boolean = true,
     val tunWriteOkDelta: Long = 0L,
     val tunWriteErrDelta: Long = 0L,
     val usefulRxDelta: Long = 0L,
@@ -68,7 +73,8 @@ object PathConfirm {
     fun epochsMatch(obs: PathConfirmObservation): Boolean {
         if (obs.eventSessionEpoch != obs.capturedSessionEpoch) return false
         if (obs.eventTransportEpoch != obs.capturedTransportEpoch) return false
-        if (obs.capturedCallEpoch != 0L &&
+        if (obs.requireCallEpoch &&
+            obs.capturedCallEpoch != 0L &&
             obs.eventCallEpoch != 0L &&
             obs.capturedCallEpoch != obs.eventCallEpoch
         ) {
@@ -80,6 +86,28 @@ object PathConfirm {
         ) {
             return false
         }
+        if (obs.capturedProcessId >= 0L &&
+            obs.eventProcessId >= 0L &&
+            obs.capturedProcessId != obs.eventProcessId
+        ) {
+            return false
+        }
+        if (obs.capturedOperationId >= 0L &&
+            obs.eventOperationId >= 0L &&
+            obs.capturedOperationId != obs.eventOperationId
+        ) {
+            return false
+        }
+        // Backend/handle identity: required when both sides know it. A new operation
+        // replaces the backend; reused numeric handles alone are not enough.
+        if (obs.capturedBackendId >= 0L &&
+            obs.eventBackendId >= 0L &&
+            obs.capturedBackendId != obs.eventBackendId &&
+            (obs.capturedOperationId < 0L || obs.eventOperationId < 0L)
+        ) {
+            return false
+        }
+        // Unknown tunGen (-1) is not comparable; first known gen of this operation is adopted.
         if (obs.capturedTunGen >= 0L &&
             obs.eventTunGen >= 0L &&
             obs.capturedTunGen != obs.eventTunGen
@@ -139,6 +167,11 @@ object PathConfirm {
             verdict == PathConfirmVerdict.ProtocolReady ||
             verdict == PathConfirmVerdict.BackendRunning
 
+    /**
+     * Handshake grew for this operation. [newBackend] is only true when the
+     * operation identity says this is a fresh backend instance with its own
+     * baseline — never treat a foreign leftover handshake as ready.
+     */
     fun handshakeGrew(baselineSec: Long, currentSec: Long, newBackend: Boolean): Boolean {
         if (currentSec <= 0L) return false
         if (newBackend) return true
@@ -163,10 +196,25 @@ object PathConfirm {
         source: PathConfirmSource,
         tunWriteOkDelta: Long = 0L,
         tunWriteErrDelta: Long = 0L,
+        capturedOperationId: Long = -1L,
+        eventOperationId: Long = -1L,
+        requireCallEpoch: Boolean = false,
     ): PathConfirmObservation {
-        val newBackend = capturedHandle >= 0L &&
-            eventHandle >= 0L &&
-            capturedHandle != eventHandle
+        val sameOperation = capturedOperationId >= 0L &&
+            eventOperationId >= 0L &&
+            capturedOperationId == eventOperationId
+        // Numeric handle reuse is not identity. Only treat handle change as a new
+        // backend when operation ids are unavailable.
+        val newBackend = if (sameOperation) {
+            false
+        } else if (capturedOperationId >= 0L || eventOperationId >= 0L) {
+            // Different / missing operation id with a known handle: not automatic ready.
+            false
+        } else {
+            capturedHandle >= 0L &&
+                eventHandle >= 0L &&
+                capturedHandle != eventHandle
+        }
         val rxDelta = if (sourceCountsAsPath(source)) {
             (rxNow - rxBaseline).coerceAtLeast(0L)
         } else {
@@ -183,6 +231,9 @@ object PathConfirm {
             eventCallEpoch = eventCallEpoch,
             capturedBackendId = capturedHandle,
             eventBackendId = eventHandle,
+            capturedOperationId = capturedOperationId,
+            eventOperationId = eventOperationId,
+            requireCallEpoch = requireCallEpoch,
             tunWriteOkDelta = tunWriteOkDelta,
             tunWriteErrDelta = tunWriteErrDelta,
             usefulRxDelta = rxDelta,
@@ -208,6 +259,10 @@ object PathConfirm {
         tunWriteErrDelta: Long,
         usefulRxDelta: Long,
         workersPresent: Boolean,
+        capturedProcessId: Long = -1L,
+        eventProcessId: Long = -1L,
+        capturedOperationId: Long = -1L,
+        eventOperationId: Long = -1L,
     ): PathConfirmObservation = PathConfirmObservation(
         capturedSessionEpoch = capturedSessionEpoch,
         capturedTransportEpoch = capturedTransportEpoch,
@@ -219,6 +274,11 @@ object PathConfirm {
         eventCallEpoch = eventCallEpoch,
         capturedTunGen = capturedTunGen,
         eventTunGen = eventTunGen,
+        capturedProcessId = capturedProcessId,
+        eventProcessId = eventProcessId,
+        capturedOperationId = capturedOperationId,
+        eventOperationId = eventOperationId,
+        requireCallEpoch = true,
         tunWriteOkDelta = tunWriteOkDelta,
         tunWriteErrDelta = tunWriteErrDelta,
         usefulRxDelta = usefulRxDelta,
@@ -233,5 +293,37 @@ object PathConfirm {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(hash.toByteArray(Charsets.UTF_8))
         return digest.take(8).joinToString("") { b -> "%02x".format(b) }
+    }
+
+    /** Stable fingerprint of Direct transport parameters (no secrets logged). */
+    fun directConfigRevision(profile: com.ardtt.app.profile.VpnProfile?): String {
+        if (profile == null) return ""
+        val d = profile.direct
+        val material = buildString {
+            append(profile.name)
+            append('|')
+            append(d.endpoint)
+            append('|')
+            append(d.peerPublicKey)
+            append('|')
+            append(d.privateKey)
+            append('|')
+            append(d.address)
+            append('|')
+            append(d.dns.joinToString(","))
+            append('|')
+            append(d.mtu)
+            append('|')
+            append(d.awg.toSortedMap().entries.joinToString(",") { "${it.key}=${it.value}" })
+            append('|')
+            append(profile.bypass.peer)
+            append('|')
+            append(profile.bypass.password)
+            append('|')
+            append(profile.provisionPort)
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(material.toByteArray(Charsets.UTF_8))
+        return digest.take(12).joinToString("") { b -> "%02x".format(b) }
     }
 }

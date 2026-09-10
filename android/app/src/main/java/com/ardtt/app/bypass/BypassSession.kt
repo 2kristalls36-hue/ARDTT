@@ -224,6 +224,7 @@ class BypassSession {
         keepProcessOnCleanup = false
         keepTunOnStop = false
         running.set(true)
+        TransportHealth.noteAttachStarted()
         if (!BypassGoProcess.controlAckSucceeded(process.sendControl("ALLOW_NET_OPS"))) {
             running.set(false)
             return false
@@ -238,6 +239,8 @@ class BypassSession {
         if (!BypassGoProcess.controlAckSucceeded(process.sendControl("RESUME_CHANNELS"))) {
             return false
         }
+        // First telemetry after attach establishes the new tunGen for this operation.
+        pollTelemetry(process)
         setPhase(BypassPhase.Running, onPhase)
         job = scope.launch {
             while (isActive && running.get() && process.isAlive) {

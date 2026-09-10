@@ -52,6 +52,7 @@ fun connectionUiModel(
     userActionKind: UserActionKind? = null,
     trustedWifi: Boolean = false,
     underlayKind: UnderlayKind = UnderlayKind.Other,
+    pathReadiness: PathReadiness = PathReadiness.None,
 ): ConnectionUiModel {
     if (trustedWifi) {
         return ConnectionUiModel(
@@ -179,6 +180,14 @@ fun connectionUiModel(
             val despite = restriction == RestrictionHint.Suspected ||
                 restriction == RestrictionHint.Confirmed
             val connectedMessage = when {
+                pathReadiness == PathReadiness.Unsupported ->
+                    "Туннель поднят. Проверка данных недоступна на этом сервере"
+                pathReadiness == PathReadiness.BackendRunning && activePath == VpnPath.Bypass ->
+                    "Обход запущен. Ожидаем обмен данными…"
+                pathReadiness == PathReadiness.ProtocolReady && activePath == VpnPath.Direct ->
+                    "Прямое подключение установлено. Ожидаем обмен данными…"
+                pathReadiness == PathReadiness.ProtocolReady && activePath == VpnPath.Bypass ->
+                    "Обход готов. Ожидаем обмен данными…"
                 despite && activePath == VpnPath.Direct ->
                     "Прямое подключение работает. Возможны ограничения мобильной сети"
                 activePath == VpnPath.Direct -> "Прямое подключение"
@@ -188,6 +197,10 @@ fun connectionUiModel(
                 else -> "Подключено"
             }
             val phaseUi = when {
+                pathReadiness == PathReadiness.Unsupported ||
+                    pathReadiness == PathReadiness.BackendRunning ||
+                    pathReadiness == PathReadiness.ProtocolReady ->
+                    ConnectionUiPhase.Connected
                 despite && activePath == VpnPath.Direct ->
                     ConnectionUiPhase.DirectDespiteRestriction
                 restriction == RestrictionHint.Suspected && activePath == VpnPath.Bypass ->
@@ -195,6 +208,7 @@ fun connectionUiModel(
                 else -> ConnectionUiPhase.Connected
             }
             val actions = buildList {
+                add(ConnectionUiAction.Disconnect)
                 if (restriction == RestrictionHint.Suspected ||
                     restriction == RestrictionHint.Confirmed
                 ) {
@@ -205,6 +219,11 @@ fun connectionUiModel(
                 phase = phaseUi,
                 message = connectedMessage,
                 details = when {
+                    pathReadiness == PathReadiness.Unsupported ->
+                        "Опциональная проверка данных не поддерживается"
+                    pathReadiness != PathReadiness.PathConfirmed &&
+                        pathReadiness != PathReadiness.None ->
+                        "Маршрут ещё не подтверждён полезным обменом"
                     despite && activePath == VpnPath.Direct ->
                         "Возможны ограничения мобильной сети"
                     restriction == RestrictionHint.Suspected ->
