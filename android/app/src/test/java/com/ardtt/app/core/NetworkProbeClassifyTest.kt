@@ -1,5 +1,9 @@
 package com.ardtt.app.core
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -103,8 +107,9 @@ class NetworkProbeClassifyTest {
             awgUdpOk = false,
             provisionOk = false,
         )
-        assertNull(r.preselectedPath)
-        assertEquals(NetworkClass.NoNetwork, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DataUnconfirmed, r.networkClass)
+        assertEquals("Передача данных не подтверждена", r.message)
     }
 
     @Test
@@ -159,8 +164,9 @@ class NetworkProbeClassifyTest {
             captive = false,
             provisionOk = false,
         )
-        assertNull(r.preselectedPath)
-        assertEquals(NetworkClass.NoNetwork, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(NetworkClass.DataUnconfirmed, r.networkClass)
+        assertEquals("Передача данных не подтверждена", r.message)
     }
 
     @Test
@@ -399,6 +405,23 @@ class NetworkProbeClassifyTest {
                 evidence.copy(measuredAtElapsedMs = 121L),
             ),
         )
+        assertEquals(
+            0,
+            nextProbeSeriesCount(
+                evidence,
+                evidence.copy(
+                    yandex = CheckOutcome.NetworkLost,
+                    measuredAtElapsedMs = 90L,
+                ),
+            ),
+        )
+        assertTrue(
+            !isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+                CheckOutcome.NetworkLost,
+            ),
+        )
     }
 
     @Test
@@ -460,20 +483,116 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun dnsReplyMustMatchIdAndBeAResponse() {
+    fun dnsReplyMustMatchIdQuestionAndAnswers() {
         val query = NetworkProbe.buildDnsQuery()
-        val ok = query.copyOf(64)
-        ok[2] = (ok[2].toInt() or 0x80).toByte()
-        assertTrue(NetworkProbe.dnsReplyLooksValid(query, ok, 12))
+        val headerOnly = query.copyOf(12)
+        headerOnly[2] = (headerOnly[2].toInt() or 0x80).toByte()
+        headerOnly[7] = 1
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, headerOnly, 12))
+        val ok = dnsReplyWithCopiedQuestion(query)
+        assertTrue(NetworkProbe.dnsReplyLooksValid(query, ok, ok.size))
         val wrongId = ok.copyOf()
         wrongId[1] = (wrongId[1].toInt() xor 0x01).toByte()
-        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, wrongId, 12))
-        val notResponse = query.copyOf(64)
-        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, notResponse, 12))
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, wrongId, ok.size))
+        val notResponse = query.copyOf(ok.size)
+        query.copyInto(notResponse)
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, notResponse, query.size))
         assertTrue(!NetworkProbe.dnsReplyLooksValid(query, ByteArray(8), 8))
+        val noAnswers = dnsReplyWithCopiedQuestion(query, answers = 0)
+        assertTrue(!NetworkProbe.dnsReplyLooksValid(query, noAnswers, noAnswers.size))
         assertEquals(CheckOutcome.Timeout, NetworkProbe.classifyCheckFailure(java.net.SocketTimeoutException("t")))
         assertEquals(CheckOutcome.TlsFailure, NetworkProbe.classifyCheckFailure(javax.net.ssl.SSLHandshakeException("c")))
         assertEquals(CheckOutcome.BindFailure, NetworkProbe.classifyCheckFailure(java.net.SocketException("Permission denied")))
         assertEquals(CheckOutcome.Refused, NetworkProbe.classifyCheckFailure(java.net.ConnectException("Connection refused")))
+        assertEquals(0, remainingTimeoutMs(1_000L, 1_000L, 700))
+        assertEquals(100, remainingTimeoutMs(1_100L, 1_000L, 700))
+        assertEquals(0, remainingTimeoutMs(900L, 1_000L, 700))
+    }
+
+    @Test
+    fun offlineWithoutPhysicalNetIsNoNetwork() {
+        val r = NetworkProbe.classify(
+            systemOnline = false,
+            yandexOk = false,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = false,
+            underlayKind = UnderlayKind.Other,
+        )
+        assertNull(r.preselectedPath)
+        assertEquals(NetworkClass.NoNetwork, r.networkClass)
+        assertEquals("Нет сети", r.message)
+    }
+
+    @Test
+    fun provisionFailKeepsDirectPathAndDoesNotPromiseBypass() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = true,
+            captive = false,
+            provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
+        )
+        assertEquals(NetworkClass.OpenNeedBypass, r.networkClass)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertTrue(!r.message.contains("обход"))
+    }
+
+    @Test
+    fun cancelAbortsHungTlsHandshakeBeforeSocketTimeout() {
+        val server = java.net.ServerSocket(0)
+        val acceptor = Thread {
+            runCatching {
+                val client = server.accept()
+                Thread.sleep(30_000)
+                client.close()
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+        try {
+            runBlocking {
+                val job = launch(Dispatchers.IO) {
+                    NetworkProbe.tlsReachableOutcome("127.0.0.1", server.localPort, 8_000, null)
+                }
+                delay(250)
+                val started = System.currentTimeMillis()
+                job.cancel()
+                job.join()
+                val elapsed = System.currentTimeMillis() - started
+                assertTrue("cancel waited ${elapsed}ms", elapsed < 2_000L)
+            }
+        } finally {
+            runCatching { server.close() }
+            acceptor.interrupt()
+        }
+    }
+
+    private fun dnsReplyWithCopiedQuestion(query: ByteArray, answers: Int = 1): ByteArray {
+        val reply = ByteArray(query.size + 16)
+        query.copyInto(reply)
+        reply[2] = (reply[2].toInt() or 0x80).toByte()
+        reply[6] = 0
+        reply[7] = answers.toByte()
+        var i = query.size
+        reply[i++] = 0xc0.toByte()
+        reply[i++] = 0x0c
+        reply[i++] = 0
+        reply[i++] = 1
+        reply[i++] = 0
+        reply[i++] = 1
+        reply[i++] = 0
+        reply[i++] = 0
+        reply[i++] = 0
+        reply[i++] = 60
+        reply[i++] = 0
+        reply[i++] = 4
+        reply[i++] = 1
+        reply[i++] = 2
+        reply[i++] = 3
+        reply[i++] = 4
+        return reply
     }
 }

@@ -56,6 +56,17 @@ fun sessionControlNetOpsDelta(hasNetOpsExtra: Boolean, allowed: Boolean): Boolea
 fun sessionControlShouldDiscardParked(hasDiscardExtra: Boolean, discard: Boolean): Boolean =
     hasDiscardExtra && discard
 
+fun sessionControlShouldApplyDiscard(
+    hasDiscardExtra: Boolean,
+    discard: Boolean,
+    extraCallEpoch: Long?,
+    liveCallEpoch: Long,
+): Boolean {
+    if (!hasDiscardExtra || !discard) return false
+    if (extraCallEpoch == null) return true
+    return extraCallEpoch == liveCallEpoch
+}
+
 fun sessionControlNetOpsDelta(intent: Intent): Boolean? =
     sessionControlNetOpsDelta(
         intent.hasExtra(VpnTunnelService.EXTRA_NET_OPS_ALLOWED),

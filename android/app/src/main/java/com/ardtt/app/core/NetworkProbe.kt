@@ -13,24 +13,24 @@ import java.net.Socket
 import java.net.URL
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
-import kotlin.coroutines.coroutineContext
 import kotlin.system.measureTimeMillis
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Parallel lightweight probes at app start / before Connect / on network handover.
  * Does NOT bring up VpnService.
  *
- * Classification (fail-fast, no DNS on the internet/БС checks):
- * - **77.88.8.8** (Yandex DNS) — control group; TCP :443/:53 even on operator whitelist (БС).
+ * Classification (fail-fast, protocol replies on ordinary targets):
+ * - **77.88.8.8** (Yandex DNS) — control group; UDP DNS even on operator whitelist (БС).
  * - **1.1.1.1** (Cloudflare) — one ordinary provider (TLS or UDP :53).
- * - **8.8.8.8** (Google) — independent ordinary provider.
+ * - **8.8.8.8** (Google) — independent ordinary provider; UDP DNS.
  * - **VPS /health** — HTTP, not TCP :9100 and not AmneziaWG.
  *
  * Auto still tries Direct first. Restriction needs control + two ordinary
@@ -50,7 +50,16 @@ object NetworkProbe {
         bindNetwork: Network? = null,
         /** Shorter timeouts (handover / Connect re-probe). */
         quick: Boolean = false,
+        seriesId: String = java.util.UUID.randomUUID().toString(),
+        onFastDecision: ((ProbeResult) -> Unit)? = null,
     ): ProbeResult = withContext(Dispatchers.IO) {
+        val roundBudget = if (quick) {
+            RecoverySettings.FAST_PROBE_BUDGET_MS
+        } else {
+            RecoverySettings.DIAGNOSTIC_ROUND_MS
+        }
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val deadlineAt = startedAt + roundBudget
         val tcpMs = if (quick) 450 else 700
         val captiveMs = if (quick) 400 else 600
         val healthMs = if (quick) 600 else 900
@@ -59,19 +68,47 @@ object NetworkProbe {
         var result: ProbeResult
         val elapsed = measureTimeMillis {
             result = coroutineScope {
-                val systemOnline = isSystemOnline(context, bindNetwork)
-                val underlayKind = probeUnderlayKind(context, bindNetwork)
-                val yandexDef = async { ipReachableOutcome(YANDEX_DNS_IP, tcpMs, bindNetwork) }
-                val cloudflareDef = async { cloudflareOpenOutcome(tlsMs, udpMs, bindNetwork) }
-                val googleDef = async { ipReachableOutcome(GOOGLE_DNS_IP, tcpMs, bindNetwork) }
-                val provisionDef = async { provisionReachableOutcome(provisionBaseUrl, healthMs, bindNetwork) }
+                val bound = bindNetwork ?: pickBestUnderlayNetwork(context)
+                if (bound == null) {
+                    val systemOnline = isSystemOnline(context, null)
+                    val underlayKind = probeUnderlayKind(context, null)
+                    return@coroutineScope NetworkProbePolicy.classify(
+                        systemOnline = systemOnline,
+                        yandexOk = false,
+                        bigtechOk = false,
+                        captive = false,
+                        provisionOk = false,
+                        underlayKind = underlayKind,
+                        yandexOutcome = CheckOutcome.BindFailure,
+                        bigtechOutcome = CheckOutcome.BindFailure,
+                        googleOutcome = CheckOutcome.BindFailure,
+                        provisionOutcome = CheckOutcome.BindFailure,
+                    ).copy(
+                        bindHandle = null,
+                        seriesId = seriesId,
+                    )
+                }
+                val bindHandle = bound.networkHandle
+                val systemOnline = isSystemOnline(context, bound)
+                val underlayKind = probeUnderlayKind(context, bound)
+                val captiveFromCaps = captivePortalCapability(context, bound)
+                fun remaining(cap: Int): Int = remainingTimeoutMs(
+                    deadlineAt,
+                    android.os.SystemClock.elapsedRealtime(),
+                    cap,
+                )
+                val yandexDef = async { udpDnsReachableOutcome(YANDEX_DNS_IP, remaining(udpMs), bound) }
+                val cloudflareDef = async { cloudflareOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
+                val googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, remaining(udpMs), bound) }
+                val provisionDef = async { provisionReachableOutcome(provisionBaseUrl, remaining(healthMs), bound) }
 
                 var yandex: CheckOutcome? = null
                 var cloudflare: CheckOutcome? = null
                 var google: CheckOutcome? = null
                 var provision: CheckOutcome? = null
-                var captiveChecked = false
-                var captive = false
+                var captiveChecked = captiveFromCaps
+                var captive = captiveFromCaps
+                var publishedFast = false
 
                 fun snapshot(): ProbeResult = NetworkProbePolicy.classify(
                     systemOnline = systemOnline,
@@ -85,9 +122,13 @@ object NetworkProbe {
                     provisionOutcome = provision ?: CheckOutcome.NotRun,
                     googleOk = google?.isSuccess == true,
                     googleOutcome = google ?: CheckOutcome.NotRun,
+                ).copy(
+                    bindHandle = bindHandle,
+                    seriesId = seriesId,
                 )
 
                 while (true) {
+                    val now = android.os.SystemClock.elapsedRealtime()
                     val hint = NetworkProbePolicy.decideProbePath(
                         provisionOk = provision?.toProbeFlag(),
                         yandexOk = yandex?.toProbeFlag(),
@@ -95,58 +136,54 @@ object NetworkProbe {
                         captive = if (captiveChecked) captive else null,
                         googleOk = google?.toProbeFlag(),
                     )
-                    when (hint) {
-                        ProbePathHint.Wait -> Unit
-                        ProbePathHint.NoNetwork -> {
-                            if (!captiveChecked && systemOnline) {
-                                captive = detectCaptive(bindNetwork, captiveMs)
-                                captiveChecked = true
-                                continue
-                            }
-                            yandexDef.cancel()
-                            cloudflareDef.cancel()
-                            googleDef.cancel()
-                            provisionDef.cancel()
-                            return@coroutineScope snapshot()
-                        }
-                        ProbePathHint.Captive,
-                        ProbePathHint.Direct,
-                        ProbePathHint.Bypass,
-                        -> {
-                            withTimeoutOrNull(80) {
-                                if (yandex == null) yandex = yandexDef.await()
-                                if (cloudflare == null) cloudflare = cloudflareDef.await()
-                                if (google == null) google = googleDef.await()
-                            }
-                            yandexDef.cancel()
-                            cloudflareDef.cancel()
-                            googleDef.cancel()
-                            provisionDef.cancel()
-                            if (hint == ProbePathHint.Captive) captive = true
-                            return@coroutineScope snapshot()
+                    if (hint == ProbePathHint.Direct ||
+                        hint == ProbePathHint.Bypass ||
+                        hint == ProbePathHint.Captive
+                    ) {
+                        if (!publishedFast) {
+                            publishedFast = true
+                            onFastDecision?.invoke(snapshot())
                         }
                     }
-
-                    val waitingProvision = provision == null
-                    val waitingYandex = yandex == null
-                    val waitingCf = cloudflare == null
-                    val waitingGoogle = google == null
-                    if (!waitingProvision && !waitingYandex && !waitingCf && !waitingGoogle) {
+                    val allKnown = yandex != null && cloudflare != null &&
+                        google != null && provision != null
+                    val roundExpired = now >= deadlineAt
+                    if (hint == ProbePathHint.NoNetwork) {
+                        if (!captiveChecked && systemOnline && remaining(captiveMs) > 0) {
+                            captive = captiveFromCaps || detectCaptive(bound, remaining(captiveMs))
+                            captiveChecked = true
+                            continue
+                        }
+                    }
+                    if (allKnown || (roundExpired && publishedFast) || (roundExpired && allKnown)) {
+                        if (!captiveChecked && systemOnline && remaining(captiveMs) > 0) {
+                            captive = captiveFromCaps || detectCaptive(bound, remaining(captiveMs))
+                            captiveChecked = true
+                        }
+                        yandexDef.cancel()
+                        cloudflareDef.cancel()
+                        googleDef.cancel()
+                        provisionDef.cancel()
+                        if (hint == ProbePathHint.Captive) captive = true
                         return@coroutineScope snapshot()
                     }
+                    if (roundExpired) {
+                        if (yandex == null) yandex = CheckOutcome.Cancelled
+                        if (cloudflare == null) cloudflare = CheckOutcome.Cancelled
+                        if (google == null) google = CheckOutcome.Cancelled
+                        if (provision == null) provision = CheckOutcome.Cancelled
+                        yandexDef.cancel()
+                        cloudflareDef.cancel()
+                        googleDef.cancel()
+                        provisionDef.cancel()
+                        return@coroutineScope snapshot()
+                    }
+
                     select {
-                        if (waitingProvision) {
-                            provisionDef.onAwait { provision = it }
-                        }
-                        if (waitingYandex) {
-                            yandexDef.onAwait { yandex = it }
-                        }
-                        if (waitingCf) {
-                            cloudflareDef.onAwait { cloudflare = it }
-                        }
-                        if (waitingGoogle) {
-                            googleDef.onAwait { google = it }
-                        }
+                        if (yandex == null) yandexDef.onAwait { yandex = it }
+                        if (cloudflare == null) cloudflareDef.onAwait { cloudflare = it }
+                        if (google == null) googleDef.onAwait { google = it }
+                        if (provision == null) provisionDef.onAwait { provision = it }
                     }
                 }
                 error("probe loop exited")
@@ -198,6 +235,13 @@ object NetworkProbe {
         provisionOutcome = provisionOutcome,
     ).copy(awgUdpOk = awgUdpOk)
 
+    private fun captivePortalCapability(context: Context, bindNetwork: Network?): Boolean {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
+        val network = bindNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
+    }
+
     private fun probeUnderlayKind(context: Context, bindNetwork: Network?): UnderlayKind {
         val network = bindNetwork ?: pickBestUnderlayNetwork(context) ?: return UnderlayKind.Other
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return UnderlayKind.Other
@@ -229,11 +273,11 @@ object NetworkProbe {
         return host to DEFAULT_VPS_PROBE_PORT
     }
 
-    internal fun buildDnsQuery(name: String = "ya.ru"): ByteArray {
+    internal fun buildDnsQuery(name: String = "ya.ru", id: Int = newDnsId()): ByteArray {
         val encoded = encodeDnsName(name)
         val packet = ByteArray(12 + encoded.size + 4)
-        packet[0] = 0x12
-        packet[1] = 0x34
+        packet[0] = ((id ushr 8) and 0xff).toByte()
+        packet[1] = (id and 0xff).toByte()
         packet[2] = 0x01 // recursion desired
         packet[5] = 0x01 // 1 question
         encoded.copyInto(packet, 12)
@@ -242,6 +286,8 @@ object NetworkProbe {
         packet[q + 3] = 1 // IN
         return packet
     }
+
+    internal fun newDnsId(): Int = (1..0xfffe).random()
 
     internal fun encodeDnsName(host: String): ByteArray {
         val labels = host.split('.').filter { it.isNotEmpty() }
@@ -308,39 +354,55 @@ object NetworkProbe {
     ): CheckOutcome {
         val raw = Socket()
         var ssl: SSLSocket? = null
-        val closeAll = {
+        val closeAll: () -> Unit = {
             runCatching { ssl?.close() }
             runCatching { raw.close() }
+            Unit
         }
-        val cancelHook = coroutineContext.job.invokeOnCompletion { closeAll() }
+        if (timeoutMs <= 0) return CheckOutcome.Timeout
         return try {
-            val addr = numericIpv4(host)
-            raw.tcpNoDelay = true
-            if (bindNetwork != null) {
-                try {
-                    bindNetwork.bindSocket(raw)
-                } catch (_: Exception) {
-                    return CheckOutcome.BindFailure
+            closeOnCancel(closeAll) {
+                val started = android.os.SystemClock.elapsedRealtime()
+                val deadline = started + timeoutMs
+                fun left(): Int = remainingTimeoutMs(
+                    deadline,
+                    android.os.SystemClock.elapsedRealtime(),
+                    timeoutMs,
+                )
+                if (left() <= 0) return@closeOnCancel CheckOutcome.Timeout
+                val addr = numericIpv4(host)
+                raw.tcpNoDelay = true
+                if (bindNetwork != null) {
+                    try {
+                        bindNetwork.bindSocket(raw)
+                    } catch (_: Exception) {
+                        return@closeOnCancel CheckOutcome.BindFailure
+                    }
+                }
+                val connectMs = left()
+                if (connectMs <= 0) return@closeOnCancel CheckOutcome.Timeout
+                if (addr != null) {
+                    raw.connect(InetSocketAddress(addr, port), connectMs)
+                } else {
+                    raw.connect(InetSocketAddress(host, port), connectMs)
+                }
+                val handshakeMs = left()
+                if (handshakeMs <= 0) return@closeOnCancel CheckOutcome.Timeout
+                raw.soTimeout = handshakeMs
+                ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                    .createSocket(raw, host, port, true) as SSLSocket
+                applyHttpsEndpointIdentification(ssl!!)
+                ssl!!.soTimeout = handshakeMs
+                ssl!!.startHandshake()
+                if (ssl!!.session != null && ssl!!.session.isValid) {
+                    CheckOutcome.Success
+                } else {
+                    CheckOutcome.TlsFailure
                 }
             }
-            if (addr != null) {
-                raw.connect(InetSocketAddress(addr, port), timeoutMs)
-            } else {
-                raw.connect(InetSocketAddress(host, port), timeoutMs)
-            }
-            raw.soTimeout = timeoutMs
-            ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-                .createSocket(raw, host, port, true) as SSLSocket
-            applyHttpsEndpointIdentification(ssl)
-            ssl.soTimeout = timeoutMs
-            ssl.startHandshake()
-            if (ssl.session != null && ssl.session.isValid) CheckOutcome.Success else CheckOutcome.TlsFailure
         } catch (t: Throwable) {
-            if (t is kotlinx.coroutines.CancellationException) throw t
-            classifyCheckFailure(t)
-        } finally {
-            cancelHook.dispose()
-            closeAll()
+            if (t is CancellationException) throw t
+            if (!coroutineContext.isActive) CheckOutcome.Cancelled else classifyCheckFailure(t)
         }
     }
 
@@ -361,36 +423,37 @@ object NetworkProbe {
         timeoutMs: Int,
         bindNetwork: Network?,
     ): CheckOutcome {
+        if (timeoutMs <= 0) return CheckOutcome.Timeout
         val socket = DatagramSocket()
-        val cancelHook = coroutineContext.job.invokeOnCompletion {
-            runCatching { socket.close() }
-        }
+        val closeAll: () -> Unit = { runCatching { socket.close() }; Unit }
         return try {
-            if (bindNetwork != null) {
-                try {
-                    bindNetwork.bindSocket(socket)
-                } catch (_: Exception) {
-                    return CheckOutcome.BindFailure
+            closeOnCancel(closeAll) {
+                if (bindNetwork != null) {
+                    try {
+                        bindNetwork.bindSocket(socket)
+                    } catch (_: Exception) {
+                        return@closeOnCancel CheckOutcome.BindFailure
+                    }
+                }
+                socket.soTimeout = timeoutMs
+                val query = buildDnsQuery()
+                val addr = numericIpv4(ip) ?: InetAddress.getByName(ip)
+                socket.send(DatagramPacket(query, query.size, addr, 53))
+                val buf = ByteArray(512)
+                val reply = DatagramPacket(buf, buf.size)
+                socket.receive(reply)
+                if (reply.address != addr || reply.port != 53) {
+                    return@closeOnCancel CheckOutcome.TransportFailure
+                }
+                if (dnsReplyLooksValid(query, buf, reply.length)) {
+                    CheckOutcome.Success
+                } else {
+                    CheckOutcome.TransportFailure
                 }
             }
-            socket.soTimeout = timeoutMs
-            val query = buildDnsQuery()
-            val addr = numericIpv4(ip) ?: InetAddress.getByName(ip)
-            socket.send(DatagramPacket(query, query.size, addr, 53))
-            val buf = ByteArray(512)
-            val reply = DatagramPacket(buf, buf.size)
-            socket.receive(reply)
-            if (dnsReplyLooksValid(query, buf, reply.length)) {
-                CheckOutcome.Success
-            } else {
-                CheckOutcome.TransportFailure
-            }
         } catch (t: Throwable) {
-            if (t is kotlinx.coroutines.CancellationException) throw t
-            classifyCheckFailure(t)
-        } finally {
-            cancelHook.dispose()
-            runCatching { socket.close() }
+            if (t is CancellationException) throw t
+            if (!coroutineContext.isActive) CheckOutcome.Cancelled else classifyCheckFailure(t)
         }
     }
 
@@ -419,35 +482,36 @@ object NetworkProbe {
         }
     }
 
-    private fun tcpReachableOutcome(
+    internal suspend fun tcpReachableOutcome(
         host: String,
         port: Int,
         timeoutMs: Int,
         bindNetwork: Network?,
     ): CheckOutcome {
+        if (timeoutMs <= 0) return CheckOutcome.Timeout
         val addr = numericIpv4(host)
         val socket = Socket()
-        val closeAll = { runCatching { socket.close() } }
+        val closeAll: () -> Unit = { runCatching { socket.close() }; Unit }
         return try {
-            socket.tcpNoDelay = true
-            if (bindNetwork != null) {
-                try {
-                    bindNetwork.bindSocket(socket)
-                } catch (_: Exception) {
-                    return CheckOutcome.BindFailure
+            closeOnCancel(closeAll) {
+                socket.tcpNoDelay = true
+                if (bindNetwork != null) {
+                    try {
+                        bindNetwork.bindSocket(socket)
+                    } catch (_: Exception) {
+                        return@closeOnCancel CheckOutcome.BindFailure
+                    }
                 }
+                if (addr != null) {
+                    socket.connect(InetSocketAddress(addr, port), timeoutMs)
+                } else {
+                    socket.connect(InetSocketAddress(host, port), timeoutMs)
+                }
+                CheckOutcome.Success
             }
-            if (addr != null) {
-                socket.connect(InetSocketAddress(addr, port), timeoutMs)
-            } else {
-                socket.connect(InetSocketAddress(host, port), timeoutMs)
-            }
-            CheckOutcome.Success
         } catch (t: Throwable) {
-            if (t is kotlinx.coroutines.CancellationException) throw t
-            classifyCheckFailure(t)
-        } finally {
-            closeAll()
+            if (t is CancellationException) throw t
+            if (!coroutineContext.isActive) CheckOutcome.Cancelled else classifyCheckFailure(t)
         }
     }
 
@@ -464,7 +528,10 @@ object NetworkProbe {
     }
 
     internal fun dnsReplyLooksValid(query: ByteArray, reply: ByteArray, replyLen: Int): Boolean {
-        if (query.size < 12 || replyLen < 12 || reply.size < 12) return false
+        if (query.size < 12 || replyLen < 12 || reply.size < replyLen) return false
+        val questionLen = query.size - 12
+        if (questionLen < 5) return false
+        if (replyLen < 12 + questionLen) return false
         if (reply[0] != query[0] || reply[1] != query[1]) return false
         val qr = (reply[2].toInt() and 0x80) != 0
         if (!qr) return false
@@ -472,7 +539,29 @@ object NetworkProbe {
         if (rcode != 0) return false
         val questions = ((reply[4].toInt() and 0xff) shl 8) or (reply[5].toInt() and 0xff)
         if (questions != 1) return false
-        return true
+        val answers = ((reply[6].toInt() and 0xff) shl 8) or (reply[7].toInt() and 0xff)
+        if (answers < 1) return false
+        for (i in 0 until questionLen) {
+            if (reply[12 + i] != query[12 + i]) return false
+        }
+        return skipDnsName(query, query.size, 12) > 0
+    }
+
+    internal fun skipDnsName(buf: ByteArray, len: Int, start: Int): Int {
+        var i = start
+        var jumps = 0
+        while (i < len) {
+            val b = buf[i].toInt() and 0xff
+            if (b == 0) return i + 1
+            if (b and 0xc0 == 0xc0) {
+                return if (i + 1 < len) i + 2 else -1
+            }
+            if (b == 0 || i + 1 + b > len) return -1
+            i += 1 + b
+            jumps++
+            if (jumps > 16) return -1
+        }
+        return -1
     }
 
     internal fun classifyCheckFailure(t: Throwable): CheckOutcome = when (t) {
@@ -527,20 +616,25 @@ object NetworkProbe {
         }
     }
 
-    private fun detectCaptive(bindNetwork: Network?, timeoutMs: Int = 1500): Boolean {
+    private suspend fun detectCaptive(bindNetwork: Network?, timeoutMs: Int = 1500): Boolean {
+        if (timeoutMs <= 0) return false
+        var conn: HttpURLConnection? = null
+        val closeAll: () -> Unit = { runCatching { conn?.disconnect() }; Unit }
         return try {
-            val url = URL("http://connectivitycheck.gstatic.com/generate_204")
-            val conn = openHttp(url, bindNetwork).apply {
-                instanceFollowRedirects = false
-                connectTimeout = timeoutMs
-                readTimeout = timeoutMs
-                requestMethod = "GET"
+            closeOnCancel(closeAll) {
+                val url = URL("http://connectivitycheck.gstatic.com/generate_204")
+                conn = openHttp(url, bindNetwork).apply {
+                    instanceFollowRedirects = false
+                    connectTimeout = timeoutMs
+                    readTimeout = timeoutMs
+                    requestMethod = "GET"
+                }
+                val code = conn!!.responseCode
+                // 204 = OK online; 200/302/other often captive
+                code != 204 && code != -1
             }
-            val code = conn.responseCode
-            conn.disconnect()
-            // 204 = OK online; 200/302/other often captive
-            code != 204 && code != -1
-        } catch (_: Exception) {
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
             false
         }
     }
@@ -556,27 +650,53 @@ object NetworkProbe {
         baseUrl: String?,
         timeoutMs: Int,
         bindNetwork: Network?,
-    ): Boolean = provisionReachableOutcome(baseUrl, timeoutMs, bindNetwork).isSuccess
+    ): Boolean {
+        if (provisionHealthUrl(baseUrl) == null) return false
+        return kotlinx.coroutines.runBlocking {
+            provisionReachableOutcome(baseUrl, timeoutMs, bindNetwork).isSuccess
+        }
+    }
 
-    internal fun provisionReachableOutcome(
+    internal suspend fun provisionReachableOutcome(
         baseUrl: String?,
         timeoutMs: Int,
         bindNetwork: Network?,
     ): CheckOutcome {
         val healthUrl = provisionHealthUrl(baseUrl) ?: return CheckOutcome.NotRun
+        if (timeoutMs <= 0) return CheckOutcome.Timeout
+        var conn: HttpURLConnection? = null
+        val closeAll: () -> Unit = { runCatching { conn?.disconnect() }; Unit }
         return try {
-            val conn = openHttp(URL(healthUrl), bindNetwork).apply {
-                instanceFollowRedirects = false
-                connectTimeout = timeoutMs
-                readTimeout = timeoutMs
-                requestMethod = "GET"
+            closeOnCancel(closeAll) {
+                val started = android.os.SystemClock.elapsedRealtime()
+                val deadline = started + timeoutMs
+                conn = openHttp(URL(healthUrl), bindNetwork).apply {
+                    instanceFollowRedirects = false
+                    connectTimeout = remainingTimeoutMs(
+                        deadline,
+                        android.os.SystemClock.elapsedRealtime(),
+                        timeoutMs,
+                    )
+                    readTimeout = remainingTimeoutMs(
+                        deadline,
+                        android.os.SystemClock.elapsedRealtime(),
+                        timeoutMs,
+                    )
+                    requestMethod = "GET"
+                }
+                val readLeft = remainingTimeoutMs(
+                    deadline,
+                    android.os.SystemClock.elapsedRealtime(),
+                    timeoutMs,
+                )
+                if (readLeft <= 0) return@closeOnCancel CheckOutcome.Timeout
+                conn!!.readTimeout = readLeft
+                val code = conn!!.responseCode
+                if (provisionHealthAccepted(code)) CheckOutcome.Success else CheckOutcome.TransportFailure
             }
-            val code = conn.responseCode
-            conn.disconnect()
-            if (provisionHealthAccepted(code)) CheckOutcome.Success else CheckOutcome.TransportFailure
         } catch (t: Throwable) {
-            if (t is kotlinx.coroutines.CancellationException) throw t
-            classifyCheckFailure(t)
+            if (t is CancellationException) throw t
+            if (!coroutineContext.isActive) CheckOutcome.Cancelled else classifyCheckFailure(t)
         }
     }
 

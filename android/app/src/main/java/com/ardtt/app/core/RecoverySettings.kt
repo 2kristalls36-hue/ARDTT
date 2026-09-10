@@ -5,7 +5,9 @@ package com.ardtt.app.core
  * stay in their own modules — these values are not a global 2s cap.
  */
 object RecoverySettings {
-    const val FAST_PROBE_BUDGET_MS = 2_000L
+    const val FAST_PROBE_BUDGET_MS = 1_500L
+    const val DIAGNOSTIC_ROUND_MS = 1_500L
+    const val DIAGNOSTIC_SERIES_GAP_MS = 8_000L
     const val CONFIRM_PROBE_BUDGET_MS = 5_000L
     const val RESTRICTION_CONFIRM_SERIES = 2
     const val PROBE_CACHE_TTL_MS = 30_000L
@@ -35,7 +37,10 @@ object RecoverySettings {
         return (base + delta).coerceAtLeast(0L)
     }
 
-    /** Handshake or useful RX on this attempt is protocol-ready. */
+    /** Handshake on this attempt is protocol-ready, not PathConfirmed. */
+    fun directProtocolReady(handshakeSec: Long): Boolean = handshakeSec > 0L
+
+    /** Useful RX from the current AWG backend is PathConfirmed. */
     fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean =
-        totalRx > 0L || handshakeSec > 0L
+        totalRx > 0L
 }

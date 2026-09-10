@@ -87,16 +87,21 @@ internal object NetworkProbePolicy {
             )
         }
         if (!yandex.isSuccess && !bigtech.isSuccess && !google.isSuccess && !provision.isSuccess) {
+            val physical = systemOnline || underlayKind != UnderlayKind.Other
             return ProbeResult(
-                networkClass = NetworkClass.NoNetwork,
-                preselectedPath = null,
+                networkClass = if (physical) NetworkClass.DataUnconfirmed else NetworkClass.NoNetwork,
+                preselectedPath = if (physical) VpnPath.Direct else null,
                 systemOnline = systemOnline,
                 yandexOk = false,
                 bigtechOk = false,
                 googleOk = false,
                 captive = false,
                 provisionOk = false,
-                message = "Нет сети",
+                message = if (physical) {
+                    "Передача данных не подтверждена"
+                } else {
+                    "Нет сети"
+                },
                 elapsedMs = 0,
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
@@ -124,7 +129,7 @@ internal object NetworkProbePolicy {
                 googleOk = google.isSuccess,
                 captive = false,
                 provisionOk = false,
-                message = "Сеть есть, сервер не отвечает — пробуем прямое подключение",
+                message = "Сеть есть, сервер управления не ответил. Прямое подключение к VPS проверяется",
                 elapsedMs = 0,
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
@@ -217,17 +222,30 @@ fun isRestrictionSeriesSample(
     yandex: CheckOutcome,
     bigtech: CheckOutcome,
     google: CheckOutcome = CheckOutcome.NotRun,
-): Boolean =
-    yandex.ran &&
+): Boolean {
+    if (yandex.invalidatesRestrictionSeries() ||
+        bigtech.invalidatesRestrictionSeries() ||
+        google.invalidatesRestrictionSeries()
+    ) {
+        return false
+    }
+    return yandex.ran &&
         yandex.isSuccess &&
         bigtech.countsAsOrdinaryBlock() &&
         google.countsAsOrdinaryBlock()
+}
 
 fun nextProbeSeriesCount(
     previous: ReachabilityEvidence?,
     next: ReachabilityEvidence,
     elapsedMs: Long = next.measuredAtElapsedMs,
 ): Int {
+    if (next.yandex.invalidatesRestrictionSeries() ||
+        next.bigtech.invalidatesRestrictionSeries() ||
+        next.google.invalidatesRestrictionSeries()
+    ) {
+        return 0
+    }
     if (!isRestrictionSeriesSample(next.yandex, next.bigtech, next.google)) {
         return 0
     }

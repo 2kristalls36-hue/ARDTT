@@ -245,6 +245,27 @@ class AutoPathPolicyTest {
             ),
         )
         assertEquals(AutoDecision.Stay(VpnPath.Bypass, "wifi-hysteresis"), d)
+        val reeval = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = wifi(),
+                evidence = null,
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                wifiFailStreak = 2,
+                wifiStableHits = 0,
+                reevalDue = true,
+            ),
+        )
+        assertEquals(
+            AutoDecision.StartDirect(
+                keepCall = true,
+                immediate = false,
+                reason = "wifi-hysteresis-reeval",
+            ),
+            reeval,
+        )
     }
 
     @Test

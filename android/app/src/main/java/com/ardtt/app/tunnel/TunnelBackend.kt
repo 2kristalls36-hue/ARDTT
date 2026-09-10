@@ -15,6 +15,7 @@ data class TunnelSessionConfig(
     val workers: Int,
     val silentRecreate: Boolean,
     val dialPathName: String,
+    val callEpoch: Long = 0L,
 )
 
 sealed class TunnelBackendState {

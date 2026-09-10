@@ -28,14 +28,17 @@ enum class CheckOutcome {
     val ran: Boolean get() = this != NotRun && this != Cancelled
 }
 
-/** Ordinary-target timeout/refused — not TLS cert, bind, cancel, or auth. */
+fun CheckOutcome.invalidatesRestrictionSeries(): Boolean = when (this) {
+    CheckOutcome.NetworkLost,
+    CheckOutcome.Suspended,
+    -> true
+    else -> false
+}
+
+/** Ordinary-target timeout/refused — not TLS, bind, cancel, lost radio, or auth. */
 fun CheckOutcome.countsAsOrdinaryBlock(): Boolean = when (this) {
     CheckOutcome.Timeout,
-    CheckOutcome.NetworkLost,
     CheckOutcome.Refused,
-    CheckOutcome.TransportFailure,
-    CheckOutcome.DnsFailure,
-    CheckOutcome.Suspended,
     -> true
     else -> false
 }

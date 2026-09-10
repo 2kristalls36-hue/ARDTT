@@ -57,16 +57,25 @@ data class RecoveryPermit(
     val sessionEpoch: Long = 0L,
     val networkEpoch: Long = 0L,
     val transportEpoch: Long = 0L,
+    val callEpoch: Long = 0L,
     val netOpsAllowed: Boolean = false,
     val recoveryInFlight: Boolean = false,
     val callOpInFlight: Boolean = false,
     val userStop: Boolean = true,
 ) {
-    fun accepts(sessionEpoch: Long, networkEpoch: Long? = null, transportEpoch: Long? = null): Boolean {
+    fun accepts(
+        sessionEpoch: Long,
+        networkEpoch: Long? = null,
+        transportEpoch: Long? = null,
+        callEpoch: Long? = null,
+    ): Boolean {
         if (userStop) return false
         if (sessionEpoch != this.sessionEpoch) return false
         if (networkEpoch != null && networkEpoch != this.networkEpoch) return false
         if (transportEpoch != null && transportEpoch != this.transportEpoch) return false
+        if (callEpoch != null && callEpoch != 0L && this.callEpoch != 0L && callEpoch != this.callEpoch) {
+            return false
+        }
         return true
     }
 
@@ -113,6 +122,7 @@ data class ReachabilityEvidence(
     val bindHandle: Long? = null,
     val routeReason: String = "unverified",
     val restrictionReason: String? = null,
+    val seriesId: String = "",
 ) {
     fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
         if (elapsedMs > ttlUntilElapsedMs) return false

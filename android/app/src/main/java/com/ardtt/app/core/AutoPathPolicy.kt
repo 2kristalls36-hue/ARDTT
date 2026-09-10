@@ -42,6 +42,7 @@ data class AutoPathInput(
     val parkedRawAlive: Boolean = false,
     val elapsedMs: Long = 0L,
     val profileId: String? = null,
+    val reevalDue: Boolean = false,
 )
 
 fun UnderlayKind.prefersDirectInAuto(): Boolean =
@@ -110,6 +111,13 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
             input.currentPath == VpnPath.Bypass &&
             input.transport == TransportLifecycle.Running
         if (hysteresis) {
+            if (input.reevalDue) {
+                return AutoDecision.StartDirect(
+                    keepCall = input.hasCallHash || input.parkedRawAlive,
+                    immediate = false,
+                    reason = "wifi-hysteresis-reeval",
+                )
+            }
             return AutoDecision.Stay(VpnPath.Bypass, "wifi-hysteresis")
         }
         if (input.wifiFailStreak >= RecoverySettings.WIFI_DEGRADED_FAILS_BEFORE_HYSTERESIS &&
