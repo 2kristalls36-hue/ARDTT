@@ -48,8 +48,11 @@ func RequestConfig(conn net.Conn, localPort, deviceID, password string) (string,
 }
 
 // SendAuth отправляет команду авторизации, чтобы сервер мог связать соединение с устройством
-func SendAuth(conn net.Conn, deviceID, password string) error {
+func SendAuth(conn net.Conn, deviceID, password, sessionID string) error {
 	payload := fmt.Sprintf("AUTH:%s|%s", deviceID, password)
+	if sessionID != "" {
+		payload = fmt.Sprintf("AUTH:%s|%s|%s", deviceID, password, sessionID)
+	}
 	if _, err := conn.Write([]byte(payload)); err != nil {
 		return fmt.Errorf("отправка AUTH: %w", err)
 	}
@@ -60,8 +63,11 @@ func SendAuth(conn net.Conn, deviceID, password string) error {
 // RequestRawConfig запрашивает у сервера конфигурацию для raw-IP режима
 // (raw-IP) — сервер отвечает "RAWCONF:ip|dns|mtu" (см. server/raw.go
 // handleConnRaw). ip пусто на первый вызов, если сервер ещё не назначил его.
-func RequestRawConfig(conn net.Conn, deviceID, password string) (ip, dnsCSV string, mtu int, err error) {
+func RequestRawConfig(conn net.Conn, deviceID, password, sessionID string) (ip, dnsCSV string, mtu int, err error) {
 	payload := fmt.Sprintf("GETCONF_RAW:%s|%s", deviceID, password)
+	if sessionID != "" {
+		payload = fmt.Sprintf("GETCONF_RAW:%s|%s|%s", deviceID, password, sessionID)
+	}
 	if _, err = conn.Write([]byte(payload)); err != nil {
 		return "", "", 0, fmt.Errorf("отправка GETCONF_RAW: %w", err)
 	}
@@ -98,7 +104,7 @@ func RequestRawConfig(conn net.Conn, deviceID, password string) (ip, dnsCSV stri
 	}
 
 	parts := strings.Split(strings.TrimPrefix(resp, "RAWCONF:"), "|")
-	if len(parts) != 3 {
+	if len(parts) < 3 {
 		return "", "", 0, fmt.Errorf("некорректный формат RAWCONF: %q", resp)
 	}
 	mtuVal, convErr := strconv.Atoi(strings.TrimSpace(parts[2]))

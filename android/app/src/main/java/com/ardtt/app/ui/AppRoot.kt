@@ -312,6 +312,14 @@ fun AppRoot(
             navigateTab(AppDestination.Servers.route)
         }
     }
+    val openDiagnostics by PendingUiAction.openDiagnostics.collectAsStateWithLifecycle()
+    LaunchedEffect(openDiagnostics) {
+        if (!PendingUiAction.consumeOpenDiagnostics()) return@LaunchedEffect
+        val dest = ArdttNavPlan.diagnosticsRoute(admin)
+        if (currentRoute != dest) {
+            navigateTab(dest)
+        }
+    }
     val availableUpdateVersion = updateUi.available
         ?.takeIf { it.isNewer }
         ?.versionName

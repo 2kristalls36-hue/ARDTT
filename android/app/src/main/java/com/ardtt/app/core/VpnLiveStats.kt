@@ -7,6 +7,7 @@ import java.net.NetworkInterface
 import java.util.Collections
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Live VPN traffic for the shade notification.
@@ -42,6 +43,31 @@ object VpnLiveStats {
 
     /** Optional AmneziaWG handle for IPC transfer counters (Direct path). */
     private val awgHandle = AtomicInteger(-1)
+    private val directOpSeq = AtomicLong(0L)
+
+    /**
+     * Baseline captured at the start of a Direct backend operation — before
+     * [org.amnezia.awg.GoBackend.awgTurnOn] — so early handshake/RX are not
+     * absorbed into a late verifier baseline.
+     */
+    data class DirectOperationBaseline(
+        val operationId: Long,
+        val handshakeSecAtStart: Long = 0L,
+        val rxAtStart: Long = 0L,
+        val handleAtStart: Int = -1,
+    )
+
+    @Volatile
+    private var directOpBaseline: DirectOperationBaseline? = null
+
+    fun beginDirectOperation(): DirectOperationBaseline {
+        val baseline = DirectOperationBaseline(operationId = directOpSeq.incrementAndGet())
+        directOpBaseline = baseline
+        awgHandle.set(-1)
+        return baseline
+    }
+
+    fun currentDirectOperation(): DirectOperationBaseline? = directOpBaseline
 
     fun reset() {
         downBps = 0L
@@ -57,17 +83,51 @@ object VpnLiveStats {
         baselineTx = -1L
         lastLogAtMs = 0L
         lastRxGrowthAtMs = 0L
-        // Keep awgHandle — DirectBackend owns lifecycle across soft-restarts.
+        // Keep awgHandle / directOpBaseline — DirectBackend owns lifecycle across soft-restarts.
     }
+
+    fun currentAwgHandle(): Int = awgHandle.get()
+
+    data class DirectAwgSample(
+        val handle: Int,
+        val rx: Long,
+        val handshakeSec: Long,
+    )
+
+    /**
+     * Direct proof must come from this AWG handle. UID / parked RAW / sysfs
+     * VPN ifaces are display fallbacks only.
+     */
+    fun readDirectAwgSample(): DirectAwgSample? {
+        val h = awgHandle.get()
+        if (h < 0) return null
+        val cfg = runCatching {
+            org.amnezia.awg.GoBackend.awgGetConfig(h)
+        }.getOrNull()
+        if (cfg.isNullOrBlank()) return null
+        val rx = parseAwgTransfer(cfg)?.first ?: 0L
+        val handshake = parseAwgHandshakeSec(cfg) ?: 0L
+        return DirectAwgSample(handle = h, rx = rx, handshakeSec = handshake)
+    }
+
+    fun currentAwgHandshakeSec(): Long = readDirectAwgSample()?.handshakeSec ?: 0L
 
     fun setAwgHandle(handle: Int) {
         awgHandle.set(handle)
-        Log.i(TAG, "awg handle=$handle")
+        val op = directOpBaseline
+        if (op != null && op.handleAtStart < 0) {
+            directOpBaseline = op.copy(handleAtStart = handle)
+        }
+        Log.i(TAG, "awg handle=$handle op=${directOpBaseline?.operationId ?: -1}")
     }
 
     fun clearAwgHandle(handle: Int = -1) {
         if (handle < 0 || awgHandle.get() == handle) {
             awgHandle.set(-1)
+            val op = directOpBaseline
+            if (op != null && (handle < 0 || op.handleAtStart < 0 || op.handleAtStart == handle)) {
+                // Operation ends with the handle; leave id so late samples stay attributable.
+            }
         }
     }
 

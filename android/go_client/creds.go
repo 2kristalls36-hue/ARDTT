@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
@@ -419,6 +420,7 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 		tlsclient.WithTimeoutSeconds(20),
 		tlsclient.WithClientProfile(profiles.Chrome_146),
 		tlsclient.WithCookieJar(jar),
+		tlsclient.WithDialer(tlsClientDialer()),
 	)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to initialize tls_client: %w", err)
@@ -912,6 +914,9 @@ func setupGlobalResolver(arg string) {
 	dialer := &net.Dialer{
 		Timeout:   3 * time.Second,
 		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			return bindControl(currentNetworkHandle())(network, address, c)
+		},
 	}
 	servers := goDNSServersForArg(arg)
 	log.Printf(

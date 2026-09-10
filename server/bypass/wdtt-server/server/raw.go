@@ -68,6 +68,7 @@ const downlinkWorkerBuf = 256
 type downlinkWorker struct {
 	conn     net.Conn
 	deviceID string
+	gen      uint64
 	sendCh   chan []byte
 	done     chan struct{}
 }
@@ -115,6 +116,11 @@ func (w *downlinkWorker) stop() {
 
 type rawClientSessions struct {
 	workers      []*downlinkWorker
+	activeGen    uint64
+	issuedGen    uint64
+	activeSid    string
+	sidGen       map[string]uint64
+	sidSeen      map[string]time.Time
 	rrIndex      int
 	rrCount      int
 	chunkStartTs int64 // unix millis начала текущего chunk'а — для downlinkMaxDwellMS
@@ -241,7 +247,11 @@ func (r *rawRouter) pickDownlinkConn(dst string, pktSize int) *downlinkWorker {
 	if cs == nil || len(cs.workers) == 0 {
 		return nil
 	}
-	if cs.rrIndex >= len(cs.workers) {
+	live := liveGenerationWorkers(cs)
+	if len(live) == 0 {
+		return nil
+	}
+	if cs.rrIndex >= len(live) {
 		cs.rrIndex = 0
 	}
 
@@ -249,28 +259,146 @@ func (r *rawRouter) pickDownlinkConn(dst string, pktSize int) *downlinkWorker {
 	if cs.chunkStartTs == 0 {
 		cs.chunkStartTs = now
 	} else if now-cs.chunkStartTs >= downlinkMaxDwellMS {
-		cs.rrIndex = (cs.rrIndex + 1) % len(cs.workers)
+		cs.rrIndex = (cs.rrIndex + 1) % len(live)
 		cs.rrCount = 0
 		cs.chunkStartTs = now
 	}
 
-	w := cs.workers[cs.rrIndex]
+	w := live[cs.rrIndex]
 	cs.rrCount++
 	if cs.rrCount >= downlinkChunkSizeFor(pktSize) {
-		cs.rrIndex = (cs.rrIndex + 1) % len(cs.workers)
+		cs.rrIndex = (cs.rrIndex + 1) % len(live)
 		cs.rrCount = 0
 		cs.chunkStartTs = now
 	}
 	return w
 }
 
-func (r *rawRouter) register(ip string, conn net.Conn, deviceID string) *downlinkWorker {
-	w := newDownlinkWorker(conn, deviceID)
-	r.mu.Lock()
+func liveGenerationWorkers(cs *rawClientSessions) []*downlinkWorker {
+	live := make([]*downlinkWorker, 0, len(cs.workers))
+	for _, w := range cs.workers {
+		if w != nil && w.gen == cs.activeGen {
+			live = append(live, w)
+		}
+	}
+	return live
+}
+
+func (r *rawRouter) ensureSession(ip string) *rawClientSessions {
 	cs := r.sessions[ip]
 	if cs == nil {
-		cs = &rawClientSessions{}
+		cs = &rawClientSessions{
+			sidGen:  make(map[string]uint64),
+			sidSeen: make(map[string]time.Time),
+		}
 		r.sessions[ip] = cs
+	}
+	if cs.sidGen == nil {
+		cs.sidGen = make(map[string]uint64)
+	}
+	if cs.sidSeen == nil {
+		cs.sidSeen = make(map[string]time.Time)
+	}
+	return cs
+}
+
+func (cs *rawClientSessions) nextIssued() uint64 {
+	cs.issuedGen++
+	if cs.issuedGen == 0 {
+		cs.issuedGen = 1
+	}
+	return cs.issuedGen
+}
+
+func (cs *rawClientSessions) activate(sid string, gen uint64) {
+	cs.activeSid = sid
+	cs.activeGen = gen
+	cs.rrIndex = 0
+	cs.rrCount = 0
+	cs.chunkStartTs = 0
+}
+
+func (cs *rawClientSessions) rememberSid(sid string, gen uint64) {
+	cs.sidGen[sid] = gen
+	cs.sidSeen[sid] = time.Now()
+	const maxSidHistory = 32
+	if len(cs.sidGen) <= maxSidHistory {
+		return
+	}
+	var oldest string
+	var oldestAt time.Time
+	for id, seen := range cs.sidSeen {
+		if id == cs.activeSid {
+			continue
+		}
+		if oldest == "" || seen.Before(oldestAt) {
+			oldest = id
+			oldestAt = seen
+		}
+	}
+	if oldest != "" {
+		delete(cs.sidGen, oldest)
+		delete(cs.sidSeen, oldest)
+	}
+}
+
+// generationForHandshake binds a RAW channel to a transport session.
+// Unique issued generations never decrease. A known stale sid is not
+// reactivated: late GETCONF/AUTH of A after B is live keep B as active.
+// Unknown sid (GETCONF or AUTH-before-GETCONF) confirms a new session.
+// Legacy empty sid: GETCONF issues a new generation; AUTH joins activeGen.
+func (r *rawRouter) generationForHandshake(ip, sid string, isGetConf bool) uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cs := r.ensureSession(ip)
+	if sid != "" {
+		if gen, ok := cs.sidGen[sid]; ok {
+			cs.sidSeen[sid] = time.Now()
+			if isGetConf && sid == cs.activeSid {
+				return gen
+			}
+			return gen
+		}
+		gen := cs.nextIssued()
+		cs.rememberSid(sid, gen)
+		cs.activate(sid, gen)
+		return gen
+	}
+	if isGetConf {
+		gen := cs.nextIssued()
+		cs.activate("", gen)
+		return gen
+	}
+	if cs.activeGen == 0 {
+		cs.activeGen = cs.nextIssued()
+	}
+	return cs.activeGen
+}
+
+func (r *rawRouter) beginClientGeneration(ip string) uint64 {
+	return r.generationForHandshake(ip, "", true)
+}
+
+func (r *rawRouter) currentGeneration(ip string) uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cs := r.sessions[ip]
+	if cs == nil || cs.activeGen == 0 {
+		return 1
+	}
+	return cs.activeGen
+}
+
+func (r *rawRouter) register(ip string, conn net.Conn, deviceID string, gen uint64) *downlinkWorker {
+	w := newDownlinkWorker(conn, deviceID)
+	w.gen = gen
+	r.mu.Lock()
+	cs := r.ensureSession(ip)
+	if cs.activeGen == 0 {
+		cs.activeGen = gen
+	}
+	if gen > cs.issuedGen {
+		cs.issuedGen = gen
 	}
 	cs.workers = append(cs.workers, w)
 	r.mu.Unlock()
@@ -290,9 +418,8 @@ func (r *rawRouter) unregister(ip string, w *downlinkWorker) {
 			cs.rrIndex = 0
 		}
 		cs.rrCount = 0
-		if len(cs.workers) == 0 {
-			delete(r.sessions, ip)
-		}
+		// Keep sid/generation history after the last worker leaves so a late
+		// GETCONF of an old sid cannot be mistaken for a brand-new session.
 	}
 	r.mu.Unlock()
 	// stop() вне r.mu — ждёт завершения writer-горутины (после close(sendCh)
@@ -342,11 +469,15 @@ func handleConnRaw(ctx context.Context, clientConn net.Conn, router *rawRouter) 
 	}
 	deviceID := "unknown"
 	password := ""
+	sid := ""
 	if len(parts) > 0 {
 		deviceID = parts[0]
 	}
 	if len(parts) > 1 {
 		password = parts[1]
+	}
+	if len(parts) > 2 {
+		sid = strings.TrimSpace(parts[2])
 	}
 	if !connectionCredentialMatches(clientConn, password) {
 		clientConn.Write([]byte("DENIED:wrong_password"))
@@ -469,9 +600,11 @@ func handleConnRaw(ctx context.Context, clientConn net.Conn, router *rawRouter) 
 	untrackCredential := trackCredentialConnection(password, deviceID, clientConn)
 	defer untrackCredential()
 
-	dlWorker := router.register(assignedIP, clientConn, deviceID)
+	var gen uint64
+	gen = router.generationForHandshake(assignedIP, sid, isGetConf)
+	dlWorker := router.register(assignedIP, clientConn, deviceID, gen)
 	defer router.unregister(assignedIP, dlWorker)
-	log.Printf("[RAW] Сессия %s зарегистрирована (ip=%s, getConf=%v)", deviceID, assignedIP, isGetConf)
+	log.Printf("[RAW] Сессия %s зарегистрирована (ip=%s, getConf=%v, gen=%d)", deviceID, assignedIP, isGetConf, gen)
 	defer log.Printf("[RAW] Сессия %s (ip=%s) завершена", deviceID, assignedIP)
 
 	activeDevicesMu.Lock()

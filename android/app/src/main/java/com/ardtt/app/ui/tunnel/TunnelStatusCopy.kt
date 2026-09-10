@@ -3,6 +3,7 @@ package com.ardtt.app.ui.tunnel
 import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.VpnPath
+import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.ui.HideIpCopy
 
 /** Primary status line under the connect button in user mode. */
@@ -16,6 +17,10 @@ fun userModeStatusPrimary(
         null -> "Подключено"
     }
     ConnState.PausedTrustedWifi -> "Пауза"
+    ConnState.WaitingForNetwork -> "Нет подключения. Включите Wi‑Fi или мобильный интернет"
+    ConnState.Recovering -> "Восстанавливаем соединение"
+    ConnState.CaptivePortal -> "Войдите в сеть Wi‑Fi"
+    ConnState.NeedsUserAction -> "Требуется действие"
     ConnState.Probing -> "Проверка сети…"
     ConnState.Connecting -> when (activePath) {
         VpnPath.Bypass -> "Подключение через обход…"
@@ -38,6 +43,10 @@ fun userModeStatusDetails(
     ConnState.Connected -> if (hideIp) HideIpCopy.STATUS_HIDDEN else null
     ConnState.PausedTrustedWifi -> userModePausedDetails(activePath, softInfo)
     ConnState.Disconnecting -> null
+    ConnState.WaitingForNetwork -> "Ожидаем Wi‑Fi или мобильный интернет."
+    ConnState.Recovering -> userModeSoftInfo(softInfo) ?: "Следующая попытка скоро."
+    ConnState.CaptivePortal -> "Сеть требует входа через браузер."
+    ConnState.NeedsUserAction -> lastError?.trim()?.take(140)?.takeIf { it.isNotEmpty() }
     ConnState.Probing -> "Подготавливаем соединение…"
     ConnState.Connecting -> userModeSoftInfo(softInfo) ?: "Устанавливаем защищённое соединение…"
     ConnState.Error -> lastError?.trim()?.take(140)?.takeIf { it.isNotEmpty() }
@@ -101,6 +110,10 @@ fun sessionCardStatusText(
         ConnState.Connected -> "Подключено"
         ConnState.Connecting -> "Подключение…"
         ConnState.Probing -> "Проверка сети…"
+        ConnState.WaitingForNetwork -> "Нет сети"
+        ConnState.Recovering -> "Восстановление…"
+        ConnState.CaptivePortal -> "Вход в сеть"
+        ConnState.NeedsUserAction -> "Нужно действие"
         ConnState.Disconnecting -> "Отключение…"
         ConnState.PausedTrustedWifi -> "Пауза"
         ConnState.Error -> {
@@ -121,9 +134,7 @@ fun currentModeLabel(
     state: ConnState,
     activePath: VpnPath?,
 ): String {
-    val live = state == ConnState.Connected ||
-        state == ConnState.Connecting ||
-        state == ConnState.PausedTrustedWifi
+    val live = state.holdsUserSession()
     if (!live) return "—"
     return when (activePath) {
         VpnPath.Direct -> "Прямой"

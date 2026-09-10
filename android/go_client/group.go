@@ -62,16 +62,39 @@ func WorkerGroup(
 	if len(shortHash) > 8 {
 		shortHash = shortHash[:8]
 	}
-	log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
 
-	credStreamID := groupID * 100
-	user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
 	var creds *Credentials
-	if err == nil {
-		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
-	} else {
+	credStreamID := groupID * 100
+	for {
+		if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+			if err := ctrl.WaitNetOps(ctx); err != nil {
+				return
+			}
+		}
+		log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
+		credCtx := ctx
+		var cancelCred context.CancelFunc
+		if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+			credCtx, cancelCred = ctrl.BoundContext(ctx)
+		}
+		user, pass, turnURLs, err := GetCreds(credCtx, hash, credStreamID)
+		if cancelCred != nil {
+			cancelCred()
+		}
+		if err == nil {
+			creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
+			break
+		}
 		log.Printf("[ГРУППА #%d] Ошибка кредов: %v", groupID, err)
-		return
+		errStr := err.Error()
+		if strings.Contains(errStr, "хеш мёртв") || strings.Contains(errStr, "FATAL_AUTH") {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
 	}
 
 	log.Printf("[ГРУППА #%d] Креды OK, TURN: %v, %d воркеров", groupID, creds.TurnURLs, len(workerIDs))
@@ -93,11 +116,24 @@ func WorkerGroup(
 			return true
 		}
 
+		if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+			if err := ctrl.WaitNetOps(ctx); err != nil {
+				return false
+			}
+		}
 		getStreamCache(credStreamID).invalidate(credStreamID)
 		if getVkAuthMode() == "account" {
 			invalidateInjectedTurnCreds(hash)
 		}
-		u, p, urls, refreshErr := GetCreds(ctx, hash, credStreamID)
+		credCtx := ctx
+		var cancelCred context.CancelFunc
+		if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+			credCtx, cancelCred = ctrl.BoundContext(ctx)
+		}
+		u, p, urls, refreshErr := GetCreds(credCtx, hash, credStreamID)
+		if cancelCred != nil {
+			cancelCred()
+		}
 		if refreshErr != nil {
 			log.Printf("[TURN] Не удалось обновить креды после %s: %v", reason, refreshErr)
 			return false
@@ -154,6 +190,11 @@ func WorkerGroup(
 			for {
 				if ctx.Err() != nil {
 					return
+				}
+				if ctrl := activeSessionCtrl.Load(); ctrl != nil {
+					if err := ctrl.WaitNetOps(ctx); err != nil {
+						return
+					}
 				}
 
 				getConf := false
