@@ -29,7 +29,7 @@
 > Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несёт ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.263-test** (`versionCode` 281), пакет `com.ardtt.app`. Серверный стек **1.0.51** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — актив Releases, не `assets/` APK. Старые APK (ждут `ardtt-stack-*.tar.gz` / `main`) этот пакет не ставят.
+> Клиент **0.5.263** (`versionCode` 281), пакет `com.ardtt.app`. Серверный стек **1.0.51** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — актив Releases, не `assets/` APK. Старые APK (ждут `ardtt-stack-*.tar.gz` / `main`) этот пакет не ставят.
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -39,7 +39,7 @@
 
 | | |
 |---|---|
-| Клиент | **0.5.263-test** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Artifacts](https://github.com/2kristalls36-hue/ARDTT/actions) (стабильный канал — [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest)) |
+| Клиент | **0.5.263** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
 | Стек | **1.0.51** · `/opt/ardtt` · один контейнер, isolated netns, labels `com.ardtt.owner` · переменные `ARDTT_*` |
 | Откуда стек | GitHub Releases `ardtt-server-1.0.51-linux-<amd64\|arm64>.tar.gz` (docker save + Engine) — **не** APK, **не** исходники |
 | Compose | production без `build:`; provision/direct/bypass/dns/warp/cascade/telemetry; host-порты на 51820/56003/9100/9200 внутри |
