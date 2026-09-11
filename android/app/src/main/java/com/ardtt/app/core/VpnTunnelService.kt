@@ -1239,6 +1239,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val lostPreviousHandover = handoverPreviousNetworkId == lostId
                 if (lostPreviousHandover) handoverPreviousNetworkId = null
                 if (lostCurrentValidated) lastValidatedNetworkId = null
+                suspendedNetworks.remove(lostId)
+                // Only a VALIDATED event refreshes the preferred handle, and the
+                // replacement radio may never produce one; a dead handle here
+                // would reject every suspension on the network now carrying us.
+                if (lastPreferredUnderlayHandle == lostId) {
+                    lastPreferredUnderlayHandle =
+                        pickBestUnderlayNetwork(this@VpnTunnelService)?.networkHandle
+                }
 
                 val shouldTrack = shouldTrackUnderlyingNetworkLoss(
                     tunnelRunning = tunnelSessionActive,
@@ -1365,10 +1373,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
      */
     private fun handleDataSuspension(network: Network, caps: NetworkCapabilities): Boolean {
         val id = network.networkHandle
-        // The other SIM losing its bearer is not our problem; only the radio the
-        // tunnel rides can strand the transport.
-        val tracked = lastPreferredUnderlayHandle
-        if (tracked != null && tracked != id) {
+        if (!tracksSuspensionFor(id, lastPreferredUnderlayHandle)) {
             suspendedNetworks.remove(id)
             return false
         }

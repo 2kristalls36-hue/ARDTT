@@ -255,6 +255,14 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun aSuspensionIsTrackedOnlyForTheRadioTheTunnelRides() {
+        assertTrue(tracksSuspensionFor(networkHandle = 7L, preferredHandle = 7L))
+        assertFalse(tracksSuspensionFor(networkHandle = 7L, preferredHandle = 9L))
+        // Wi‑Fi lost with no VALIDATED replacement yet: track whatever suspends.
+        assertTrue(tracksSuspensionFor(networkHandle = 7L, preferredHandle = null))
+    }
+
+    @Test
     fun onlyASuspensionLongEnoughToKillTheRelayForcesARebind() {
         assertTrue(shouldRebindAfterDataResume(DATA_SUSPENSION_REBIND_MS))
         assertTrue(shouldRebindAfterDataResume(60_000L))

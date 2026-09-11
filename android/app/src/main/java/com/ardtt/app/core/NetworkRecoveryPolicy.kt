@@ -178,6 +178,16 @@ enum class DataSuspensionTransition {
     Resumed,
 }
 
+/**
+ * The other SIM losing its bearer is not our problem; only the radio the tunnel
+ * rides can strand the transport. An unknown preferred underlay tracks anything
+ * — rejecting every event there would silence the feature altogether.
+ */
+fun tracksSuspensionFor(
+    networkHandle: Long,
+    preferredHandle: Long?,
+): Boolean = preferredHandle == null || preferredHandle == networkHandle
+
 fun classifyDataSuspension(
     wasSuspended: Boolean,
     notSuspendedNow: Boolean,
