@@ -13,11 +13,13 @@ import com.ardtt.app.ui.AppDestination
 import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
+import com.ardtt.app.ui.telemetry.recordingAccentBorder
 import com.ardtt.app.ui.theme.ArdttLayout
 
 @Composable
 fun DiagnosticsScreen(
     testingVisible: Boolean,
+    isRecording: Boolean = false,
     onOpenNetwork: () -> Unit,
     onOpenLogs: () -> Unit,
     onOpenTesting: () -> Unit,
@@ -52,6 +54,7 @@ fun DiagnosticsScreen(
                         title = AppDestination.Testing.label,
                         subtitle = "Запись и отправка журналов автору",
                         onClick = onOpenTesting,
+                        border = recordingAccentBorder(isRecording),
                     )
                 }
             }
