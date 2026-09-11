@@ -117,7 +117,8 @@ class VpnLiveStatsTest {
     fun freshRxTracksGrowthAfterNetworkEvent() {
         VpnLiveStats.reset()
         assertFalse(VpnLiveStats.hasFreshRxSince(0L))
-        VpnLiveStats.recordRxGrowthForTest(40_000L, nowMs = 50_000L)
+        VpnLiveStats.recordCountersForTest(rx = 0L, tx = 0L, nowMs = 40_000L)
+        VpnLiveStats.recordCountersForTest(rx = 40_000L, tx = 0L, nowMs = 50_000L)
         assertTrue(VpnLiveStats.hasFreshRxSince(40_000L, nowMs = 51_000L))
         assertFalse(VpnLiveStats.hasFreshRxSince(60_000L, nowMs = 61_000L))
         VpnLiveStats.reset()
@@ -125,50 +126,44 @@ class VpnLiveStatsTest {
     }
 
     @Test
-    fun handshakeBytesAfterRestartAreNotFreshRx() {
+    fun growthIsMeasuredOverTheWindowNotFromTheLastMark() {
         VpnLiveStats.reset()
         // Restarted Direct on the blackholed cell: 412 B handshake response, then flat.
-        VpnLiveStats.recordRxGrowthForTest(412L, nowMs = 5_000L)
-        assertEquals(412L, VpnLiveStats.rxGrowthSince(0L))
-        assertFalse(VpnLiveStats.hasFreshRxSince(0L, nowMs = 6_000L))
-        VpnLiveStats.recordRxGrowthForTest(9_000L, nowMs = 8_000L)
-        assertTrue(VpnLiveStats.hasFreshRxSince(0L, nowMs = 9_000L))
-        // Growth is measured from the anchor, not from the session start.
-        VpnLiveStats.recordRxGrowthForTest(9_600L, nowMs = 12_000L)
-        assertEquals(600L, VpnLiveStats.rxGrowthSince(8_000L))
-        assertFalse(VpnLiveStats.hasFreshRxSince(8_000L, nowMs = 13_000L))
+        VpnLiveStats.recordCountersForTest(rx = 0L, tx = 0L, nowMs = 2_000L)
+        VpnLiveStats.recordCountersForTest(rx = 412L, tx = 5_000L, nowMs = 5_000L)
+        assertEquals(412L, VpnLiveStats.rxGrowthSince(2_000L))
+        assertEquals(5_000L, VpnLiveStats.txGrowthSince(2_000L))
+        assertFalse(VpnLiveStats.hasFreshRxSince(2_000L, nowMs = 6_000L))
+        // A 300 B / 3s trickle: no single step passes 1024 B, the window does.
+        var rx = 412L
+        for (step in 1..5) {
+            rx += 300L
+            VpnLiveStats.recordCountersForTest(rx = rx, tx = 5_000L, nowMs = 5_000L + step * 3_000L)
+        }
+        assertEquals(1_500L, VpnLiveStats.rxGrowthSince(5_000L))
+        assertTrue(
+            RecoverySettings.directRxLooksLikeData(VpnLiveStats.rxGrowthSince(5_000L)),
+        )
+        // Idle uplink: keepalives only.
+        VpnLiveStats.recordCountersForTest(rx = rx, tx = 5_032L, nowMs = 26_000L)
+        assertEquals(32L, VpnLiveStats.txGrowthSince(11_000L))
         VpnLiveStats.reset()
     }
 
     @Test
-    fun rxDataGrowthMarkIgnoresHandshakeSizedArrivals() {
+    fun growthAfterASamplingGapIsNotAttributedToTheWindow() {
         VpnLiveStats.reset()
-        assertEquals(0L, VpnLiveStats.lastRxDataGrowthAtMs)
-        VpnLiveStats.recordRxGrowthForTest(412L, nowMs = 1_000L)
-        assertEquals(0L, VpnLiveStats.lastRxDataGrowthAtMs)
-        // Keepalives keep the counter moving without ever reaching a payload's worth.
-        VpnLiveStats.recordRxGrowthForTest(444L, nowMs = 4_000L)
-        assertEquals(0L, VpnLiveStats.lastRxDataGrowthAtMs)
-        VpnLiveStats.recordRxGrowthForTest(9_000L, nowMs = 7_000L)
-        assertEquals(7_000L, VpnLiveStats.lastRxDataGrowthAtMs)
-        // Slow but live: growth accumulates from the last mark.
-        VpnLiveStats.recordRxGrowthForTest(9_600L, nowMs = 10_000L)
-        assertEquals(7_000L, VpnLiveStats.lastRxDataGrowthAtMs)
-        VpnLiveStats.recordRxGrowthForTest(10_200L, nowMs = 13_000L)
-        assertEquals(13_000L, VpnLiveStats.lastRxDataGrowthAtMs)
+        // Doze: last sample long before the window, then a fresh one with a huge delta.
+        VpnLiveStats.recordCountersForTest(rx = 1_000L, tx = 1_000L, nowMs = 10_000L)
+        VpnLiveStats.recordCountersForTest(rx = 900_000L, tx = 900_000L, nowMs = 300_000L)
+        assertEquals(0L, VpnLiveStats.rxGrowthSince(285_000L))
+        assertEquals(0L, VpnLiveStats.txGrowthSince(285_000L))
+        // Once sampling resumes the window is measurable again.
+        VpnLiveStats.recordCountersForTest(rx = 900_000L, tx = 904_000L, nowMs = 303_000L)
+        assertEquals(4_000L, VpnLiveStats.txGrowthSince(300_000L))
+        assertEquals(0L, VpnLiveStats.rxGrowthSince(300_000L))
         VpnLiveStats.reset()
-        assertEquals(0L, VpnLiveStats.lastRxDataGrowthAtMs)
-    }
-
-    @Test
-    fun txGrowthIsTrackedIndependentlyOfRx() {
-        VpnLiveStats.reset()
-        assertEquals(0L, VpnLiveStats.lastTxGrowthAtMs)
-        VpnLiveStats.recordTxGrowthForTest(9_000L, nowMs = 50_000L)
-        assertEquals(50_000L, VpnLiveStats.lastTxGrowthAtMs)
-        assertEquals(0L, VpnLiveStats.lastRxDataGrowthAtMs)
-        assertFalse(VpnLiveStats.hasFreshRxSince(40_000L, nowMs = 51_000L))
-        VpnLiveStats.reset()
-        assertEquals(0L, VpnLiveStats.lastTxGrowthAtMs)
+        assertEquals(0L, VpnLiveStats.rxGrowthSince(0L))
+        assertEquals(0L, VpnLiveStats.txGrowthSince(0L))
     }
 }

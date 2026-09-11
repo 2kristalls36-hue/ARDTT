@@ -1047,8 +1047,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 3_500L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                lastTxGrowthAtMs = 3_400L,
-                lastRxDataGrowthAtMs = 0L,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 0L,
             ),
         )
         assertFalse(
@@ -1056,8 +1056,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 50_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                lastTxGrowthAtMs = 49_000L,
-                lastRxDataGrowthAtMs = 49_000L,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 120_000L,
             ),
         )
         assertTrue(
@@ -1065,8 +1065,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 50_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                lastTxGrowthAtMs = 49_000L,
-                lastRxDataGrowthAtMs = 20_000L,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 0L,
             ),
         )
         // After a handoff, 3s no-rx is enough (skip the cold-start grace).
@@ -1075,8 +1075,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 14_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
-                lastTxGrowthAtMs = 13_000L,
-                lastRxDataGrowthAtMs = 0L,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 0L,
             ),
         )
         assertTrue(
@@ -1084,18 +1084,18 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 16_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
-                lastTxGrowthAtMs = 15_000L,
-                lastRxDataGrowthAtMs = 0L,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 0L,
             ),
         )
-        // Inbound data that arrived before the handoff is not an answer to it.
+        // Handshake response only (412 B in the field log) is not an answer.
         assertTrue(
             shouldTreatDirectAsDeadNoRx(
                 nowMs = 16_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
-                lastTxGrowthAtMs = 15_000L,
-                lastRxDataGrowthAtMs = 11_000L,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 412L,
             ),
         )
         assertEquals(
@@ -1125,81 +1125,78 @@ class NetworkRecoveryPolicyTest {
     fun idleDirectIsExemptButUnansweredUplinkIsDead() {
         val session = 1_000L
         val now = 600_000L
-        fun verdict(txAgeMs: Long, rxAgeMs: Long, nowMs: Long = now) =
+        fun verdict(txBytes: Long, rxBytes: Long, nowMs: Long = now) =
             shouldTreatDirectAsDeadNoRx(
                 nowMs = nowMs,
                 sessionStartedAtMs = session,
                 lastHandoffAtMs = 0L,
-                lastTxGrowthAtMs = nowMs - txAgeMs,
-                lastRxDataGrowthAtMs = nowMs - rxAgeMs,
+                txBytesInWindow = txBytes,
+                rxDataBytesInWindow = rxBytes,
             )
 
-        // Ticket 19: uplink still moving, no inbound data for 20s.
-        assertTrue(verdict(txAgeMs = 5_000L, rxAgeMs = 20_000L))
-        assertTrue(verdict(txAgeMs = 5_000L, rxAgeMs = DIRECT_UNANSWERED_UPLINK_MS + 1L))
-        // Answered within the window — a live path, however slow.
-        assertFalse(verdict(txAgeMs = 5_000L, rxAgeMs = 5_000L))
-        assertFalse(verdict(txAgeMs = 5_000L, rxAgeMs = DIRECT_UNANSWERED_UPLINK_MS))
-        // Idle tunnel: nobody is sending, so nothing is unanswered.
-        assertFalse(verdict(txAgeMs = 40_000L, rxAgeMs = 40_000L))
-        assertFalse(verdict(txAgeMs = DIRECT_UNANSWERED_UPLINK_MS + 1L, rxAgeMs = 60_000L))
-        // Start grace still protects the AWG handshake (nothing received yet).
-        assertFalse(
-            shouldTreatDirectAsDeadNoRx(
-                nowMs = session + 2_000L,
-                sessionStartedAtMs = session,
-                lastHandoffAtMs = 0L,
-                lastTxGrowthAtMs = session + 1_500L,
-                lastRxDataGrowthAtMs = 0L,
-            ),
-        )
+        // Idle screen-off tunnel: one 32 B keepalive per 25s, nothing inbound.
+        assertFalse(verdict(txBytes = 32L, rxBytes = 0L))
+        assertFalse(verdict(txBytes = 32L, rxBytes = 32L))
+        // Keepalive plus a handshake initiation is still not a user waiting for data.
+        assertFalse(verdict(txBytes = 180L, rxBytes = 0L))
+        assertFalse(verdict(txBytes = DIRECT_TX_DATA_MIN_BYTES - 1L, rxBytes = 0L))
+        // Ticket 19: real uplink, nothing but protocol chatter coming back.
+        assertTrue(verdict(txBytes = DIRECT_TX_DATA_MIN_BYTES, rxBytes = 0L))
+        assertTrue(verdict(txBytes = 14_208L, rxBytes = 0L))
+        assertTrue(verdict(txBytes = 14_208L, rxBytes = 412L))
+        // Answered inside the same window — a live path, however slow.
+        assertFalse(verdict(txBytes = 14_208L, rxBytes = 1_025L))
+        assertFalse(verdict(txBytes = 900_000L, rxBytes = 400_000L))
+        // Start grace still protects the AWG handshake.
+        assertFalse(verdict(txBytes = 40_000L, rxBytes = 0L, nowMs = session + 2_000L))
         assertTrue(
-            shouldTreatDirectAsDeadNoRx(
-                nowMs = session + DEAD_DIRECT_NO_RX_MS,
-                sessionStartedAtMs = session,
-                lastHandoffAtMs = 0L,
-                lastTxGrowthAtMs = session + 3_500L,
-                lastRxDataGrowthAtMs = 0L,
-            ),
-        )
-        // Never any tx / rx at all (fresh session, counters at 0) is not a verdict.
-        assertFalse(
-            shouldTreatDirectAsDeadNoRx(
-                nowMs = now,
-                sessionStartedAtMs = session,
-                lastHandoffAtMs = 0L,
-                lastTxGrowthAtMs = 0L,
-                lastRxDataGrowthAtMs = 0L,
-            ),
+            verdict(txBytes = 40_000L, rxBytes = 0L, nowMs = session + DEAD_DIRECT_NO_RX_MS),
         )
     }
 
     /**
-     * Ticket 19 replay at the watchdog's 3s cadence: rx froze at t=0 with tx
-     * still moving, so the verdict lands one poll after the 15s window.
+     * Ticket 19 replay at the watchdog's 3s cadence, uplink bytes taken from the
+     * field log: rx freezes while tx keeps climbing, and the verdict needs both a
+     * full window without inbound data and [DIRECT_TX_DATA_MIN_BYTES] of uplink.
      */
     @Test
-    fun ticketScenarioIsDeclaredDeadWithinOnePollAfterTheWindow() {
-        val session = 0L
+    fun ticketScenarioIsDeclaredDeadOncePerWindowUplinkIsReal() {
+        val session = 1_000L
         val rxFrozeAt = 2_268_000L
+        // Bytes sent in each 3s poll after the freeze (≈ the logged 15s deltas spread out).
+        val txPerPoll = longArrayOf(0, 0, 0, 0, 0, 1_200, 1_200, 1_200, 1_200, 1_296)
+        fun txInWindow(pollIndex: Int): Long {
+            val from = (pollIndex - 5).coerceAtLeast(0)
+            return (from until pollIndex).sumOf { txPerPoll.getOrElse(it) { 1_296L } }
+        }
+
         var deadAt = -1L
-        var t = rxFrozeAt
-        while (t <= rxFrozeAt + 60_000L) {
+        for (poll in 1..40) {
+            val nowMs = rxFrozeAt + poll * WATCHDOG_POLL_MS
             val dead = shouldTreatDirectAsDeadNoRx(
-                nowMs = t,
-                sessionStartedAtMs = session + 1L,
+                nowMs = nowMs,
+                sessionStartedAtMs = session,
                 lastHandoffAtMs = 0L,
-                // Uplink keeps growing at every poll; inbound data stopped at rxFrozeAt.
-                lastTxGrowthAtMs = t,
-                lastRxDataGrowthAtMs = rxFrozeAt,
+                txBytesInWindow = txInWindow(poll),
+                rxDataBytesInWindow = 0L,
             )
             if (dead) {
-                deadAt = t
+                deadAt = nowMs
                 break
             }
-            t += WATCHDOG_POLL_MS
         }
-        assertEquals(rxFrozeAt + DIRECT_UNANSWERED_UPLINK_MS + WATCHDOG_POLL_MS, deadAt)
+        // 15s of uplink at the logged rate first has to clear 4 KB: 27s after the freeze.
+        assertEquals(rxFrozeAt + 27_000L, deadAt)
+        // A user actually loading a page clears 4 KB inside the first window.
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = rxFrozeAt + DIRECT_UNANSWERED_UPLINK_MS + WATCHDOG_POLL_MS,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = 64_000L,
+                rxDataBytesInWindow = 0L,
+            ),
+        )
     }
 
     @Test

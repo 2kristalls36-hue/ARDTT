@@ -895,8 +895,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     VpnLiveStats.sample()
                     val nowDirect = System.currentTimeMillis()
                     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
-                    val lastTxGrowth = VpnLiveStats.lastTxGrowthAtMs
-                    val lastRxData = VpnLiveStats.lastRxDataGrowthAtMs
+                    val windowStart = nowDirect - DIRECT_UNANSWERED_UPLINK_MS
+                    val txInWindow = VpnLiveStats.txGrowthSince(windowStart)
+                    val rxInWindow = VpnLiveStats.rxGrowthSince(windowStart)
                     val handshakeLive = RecoverySettings.directHandshakeLive(
                         handshakeSec = VpnLiveStats.currentAwgHandshakeSec(),
                         nowSec = nowDirect / 1000L,
@@ -906,8 +907,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         AppLog.i(
                             TAG,
                             "watchdog: Direct rx=${VpnLiveStats.totalRx} tx=${VpnLiveStats.totalTx} " +
-                                "rxDataAge=${ageMs(nowDirect, lastRxData)} " +
-                                "txAge=${ageMs(nowDirect, lastTxGrowth)} hsLive=$handshakeLive " +
+                                "win15s ↓$rxInWindow ↑$txInWindow hsLive=$handshakeLive " +
                                 "src=${VpnLiveStats.source} up=${nowDirect - sessionStartedAtMs}ms",
                         )
                     }
@@ -916,16 +916,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             nowMs = nowDirect,
                             sessionStartedAtMs = sessionStartedAtMs,
                             lastHandoffAtMs = lastHandoffAtMs,
-                            lastTxGrowthAtMs = lastTxGrowth,
-                            lastRxDataGrowthAtMs = lastRxData,
+                            txBytesInWindow = txInWindow,
+                            rxDataBytesInWindow = rxInWindow,
                         ) &&
                         nowDirect - deadDirectHandledAtMs > 30_000L
                     ) {
                         deadDirectHandledAtMs = nowDirect
                         AppLog.w(
                             TAG,
-                            "watchdog: Direct uplink unanswered — tx ${ageMs(nowDirect, lastTxGrowth)}ms ago, " +
-                                "no inbound data for ${ageMs(nowDirect, lastRxData)}ms " +
+                            "watchdog: Direct uplink unanswered — sent $txInWindow B, " +
+                                "received $rxInWindow B in the last ${DIRECT_UNANSWERED_UPLINK_MS}ms " +
                                 "(up=${nowDirect - anchor}ms hsLive=$handshakeLive)",
                         )
                         ConnectionManager.getOrNull()?.onDeadDirectNoRx()
@@ -2464,9 +2464,5 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         private const val SOFT_RESTART_WAKELOCK_MS = 30_000L
         /** AWG-over-WARP underlay needs headroom under 1280. */
         const val DIRECT_TUN_MTU = 1200
-
-        /** Age of a counter-growth timestamp; -1 when the counter never moved. */
-        private fun ageMs(nowMs: Long, atMs: Long): Long =
-            if (atMs <= 0L) -1L else nowMs - atMs
     }
 }

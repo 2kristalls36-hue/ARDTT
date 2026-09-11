@@ -18,8 +18,11 @@ import java.util.concurrent.atomic.AtomicLong
 object VpnLiveStats {
     private const val TAG = "VpnLiveStats"
 
-    /** Anchors older than this fall back to the session total (see [rxGrowthSince]). */
-    private const val RX_HISTORY_MS = 180_000L
+    /** How far back windowed growth can be measured (see [rxGrowthSince]). */
+    private const val SAMPLE_HISTORY_MS = 180_000L
+
+    /** A baseline further than this before the window start means sampling stalled. */
+    private const val SAMPLE_GAP_SLACK_MS = 3 * WATCHDOG_POLL_MS
 
     @Volatile var downBps: Long = 0L
         private set
@@ -40,20 +43,11 @@ object VpnLiveStats {
     @Volatile var lastTxGrowthAtMs: Long = 0L
         private set
 
-    /**
-     * Last time rx grew by more than a handshake worth of bytes since the previous
-     * such mark. Growth accumulates, so a slow but live path still marks within a
-     * few samples while handshake responses / keepalives never do.
-     */
-    @Volatile var lastRxDataGrowthAtMs: Long = 0L
-        private set
+    private data class ByteSample(val atMs: Long, val bytes: Long)
 
-    private var rxAtLastDataMark = 0L
-
-    private data class RxSample(val atMs: Long, val rx: Long)
-
-    /** Recent session-relative rx so growth can be measured from an arbitrary anchor. */
-    private val rxHistory = ArrayDeque<RxSample>()
+    /** Recent session-relative counters so growth can be measured over a window. */
+    private val rxHistory = ArrayDeque<ByteSample>()
+    private val txHistory = ArrayDeque<ByteSample>()
 
     private var lastRx = -1L
     private var lastTx = -1L
@@ -105,9 +99,8 @@ object VpnLiveStats {
         lastLogAtMs = 0L
         lastRxGrowthAtMs = 0L
         lastTxGrowthAtMs = 0L
-        lastRxDataGrowthAtMs = 0L
-        rxAtLastDataMark = 0L
         synchronized(rxHistory) { rxHistory.clear() }
+        synchronized(txHistory) { txHistory.clear() }
         // Keep awgHandle / directOpBaseline — DirectBackend owns lifecycle across soft-restarts.
     }
 
@@ -175,7 +168,6 @@ object VpnLiveStats {
             lastRx = -1L
             lastTx = -1L
             lastAtMs = 0L
-            rxAtLastDataMark = 0L
         }
 
         val rx = (rxAbs - baselineRx).coerceAtLeast(0L)
@@ -187,8 +179,7 @@ object VpnLiveStats {
         if (lastTx >= 0L && tx > lastTx) {
             lastTxGrowthAtMs = now
         }
-        markRxDataGrowth(now, rx)
-        recordRxSample(now, rx)
+        recordSamples(now, rx, tx)
 
         if (lastAtMs > 0L && now > lastAtMs) {
             val dtSec = (now - lastAtMs) / 1000.0
@@ -209,33 +200,50 @@ object VpnLiveStats {
         }
     }
 
-    private fun markRxDataGrowth(atMs: Long, rx: Long) {
-        if (rx < rxAtLastDataMark) rxAtLastDataMark = rx
-        if (!RecoverySettings.directRxLooksLikeData(rx - rxAtLastDataMark)) return
-        rxAtLastDataMark = rx
-        lastRxDataGrowthAtMs = atMs
+    private fun recordSamples(atMs: Long, rx: Long, tx: Long) {
+        appendSample(rxHistory, atMs, rx)
+        appendSample(txHistory, atMs, tx)
     }
 
-    private fun recordRxSample(atMs: Long, rx: Long) {
-        synchronized(rxHistory) {
-            if (rxHistory.lastOrNull()?.atMs == atMs) rxHistory.removeLast()
-            rxHistory.addLast(RxSample(atMs, rx))
-            while (rxHistory.size > 1 && atMs - rxHistory.first().atMs > RX_HISTORY_MS) {
-                rxHistory.removeFirst()
+    private fun appendSample(history: ArrayDeque<ByteSample>, atMs: Long, bytes: Long) {
+        synchronized(history) {
+            if (history.lastOrNull()?.atMs == atMs) history.removeLast()
+            history.addLast(ByteSample(atMs, bytes))
+            while (history.size > 1 && atMs - history.first().atMs > SAMPLE_HISTORY_MS) {
+                history.removeFirst()
             }
         }
     }
 
     /**
-     * Session-relative rx growth since [sinceMs]. Counters are re-baselined when
-     * the transport restarts, so with no sample that old the total *is* the delta.
+     * Counter growth over `[sinceMs, now]`.
+     *
+     * The baseline must sit next to the window start: a sample from before a
+     * sampling gap (doze, a stalled watchdog) would attribute the whole gap to
+     * this window and turn any check built on it into a no-op. When the oldest
+     * sample we have is newer than [sinceMs] it becomes the baseline — that
+     * under-reports both directions equally, which is the safe way to be wrong.
      */
-    fun rxGrowthSince(sinceMs: Long): Long {
-        val base = synchronized(rxHistory) {
-            rxHistory.lastOrNull { it.atMs <= sinceMs }?.rx
-        } ?: return totalRx
-        return (totalRx - base).coerceAtLeast(0L)
+    private fun growthSince(
+        history: ArrayDeque<ByteSample>,
+        current: Long,
+        sinceMs: Long,
+    ): Long {
+        val base = synchronized(history) {
+            val atOrBefore = history.lastOrNull { it.atMs <= sinceMs }
+            when {
+                atOrBefore != null && sinceMs - atOrBefore.atMs <= SAMPLE_GAP_SLACK_MS -> atOrBefore
+                else -> history.firstOrNull()?.takeIf { it.atMs >= sinceMs }
+            }
+        } ?: return 0L
+        return (current - base.bytes).coerceAtLeast(0L)
     }
+
+    /** Inbound bytes since [sinceMs]; compare against [RecoverySettings.directRxLooksLikeData]. */
+    fun rxGrowthSince(sinceMs: Long): Long = growthSince(rxHistory, totalRx, sinceMs)
+
+    /** Outbound bytes since [sinceMs]; compare against [DIRECT_TX_DATA_MIN_BYTES]. */
+    fun txGrowthSince(sinceMs: Long): Long = growthSince(txHistory, totalTx, sinceMs)
 
     /** Fresh **data**: an AWG handshake response answered by a blackholing cell is not. */
     fun hasFreshRxSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
@@ -243,18 +251,13 @@ object VpnLiveStats {
             nowMs - lastRxGrowthAtMs < 90_000L &&
             RecoverySettings.directRxLooksLikeData(rxGrowthSince(sinceMs))
 
-    /** Test helper: pretend session-relative rx grew at [nowMs]. */
-    internal fun recordRxGrowthForTest(rx: Long, nowMs: Long) {
+    /** Test helper: pretend the session-relative counters read [rx]/[tx] at [nowMs]. */
+    internal fun recordCountersForTest(rx: Long, tx: Long, nowMs: Long) {
         if (rx > totalRx) lastRxGrowthAtMs = nowMs
-        totalRx = rx
-        markRxDataGrowth(nowMs, rx)
-        recordRxSample(nowMs, rx)
-    }
-
-    /** Test helper: pretend session-relative tx grew at [nowMs]. */
-    internal fun recordTxGrowthForTest(tx: Long, nowMs: Long) {
         if (tx > totalTx) lastTxGrowthAtMs = nowMs
+        totalRx = rx
         totalTx = tx
+        recordSamples(nowMs, rx, tx)
     }
 
     private fun maybeLog(now: Long, msg: String) {

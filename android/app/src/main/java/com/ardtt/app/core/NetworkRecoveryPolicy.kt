@@ -623,25 +623,35 @@ const val DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS = 3_000L
 const val DIRECT_UNANSWERED_UPLINK_MS = 15_000L
 
 /**
+ * Uplink bytes inside [DIRECT_UNANSWERED_UPLINK_MS] that mean the user (or an
+ * app) is really waiting for an answer. AmneziaWG sends a 32 B keepalive every
+ * `persistent_keepalive_interval` (25 s) and periodic handshake initiations of
+ * ~150 B, all of which land in tx_bytes: an idle tunnel must stay far below
+ * this or the watchdog would tear down a perfectly healthy screen-off session.
+ */
+const val DIRECT_TX_DATA_MIN_BYTES = 4096L
+
+/**
  * Direct mirror of [shouldSoftRestartForUnansweredUplink]: the phone keeps
  * writing into AWG and nothing comes back. An AWG handshake proves only the
  * control plane — an operator whitelist answers the rekey and drops the data
- * plane — so liveness comes from the uplink instead: an uplink that stopped
- * moving is an idle tunnel (nothing to answer), tx without rx is a blackhole.
+ * plane — so liveness comes from the uplink instead: without real uplink the
+ * tunnel is idle (nothing to answer), uplink without inbound data is a blackhole.
  *
- * [lastRxDataGrowthAtMs] must count payload only: handshake responses and
- * keepalives are excluded by [RecoverySettings.directRxLooksLikeData].
+ * Both inputs are byte counts over the same trailing [DIRECT_UNANSWERED_UPLINK_MS]
+ * window. [rxDataBytesInWindow] counts every inbound byte; the handshake/keepalive
+ * allowance lives in [RecoverySettings.directRxLooksLikeData].
  */
 fun shouldTreatDirectAsDeadNoRx(
     nowMs: Long,
     sessionStartedAtMs: Long,
     lastHandoffAtMs: Long,
-    lastTxGrowthAtMs: Long,
-    lastRxDataGrowthAtMs: Long,
+    txBytesInWindow: Long,
+    rxDataBytesInWindow: Long,
     startGraceMs: Long = DEAD_DIRECT_START_GRACE_MS,
     noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
     noRxAfterHandoffMs: Long = DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS,
-    unansweredUplinkMs: Long = DIRECT_UNANSWERED_UPLINK_MS,
+    minTxBytes: Long = DIRECT_TX_DATA_MIN_BYTES,
 ): Boolean {
     if (sessionStartedAtMs <= 0L) return false
     val afterHandoff = lastHandoffAtMs > sessionStartedAtMs
@@ -649,13 +659,8 @@ fun shouldTreatDirectAsDeadNoRx(
     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
     val requiredNoRx = if (afterHandoff) noRxAfterHandoffMs else noRxMs
     if (nowMs - anchor < requiredNoRx) return false
-    // Counters are zeroed at the anchor, so growth recorded before it is stale.
-    val uplinkMoving = lastTxGrowthAtMs >= anchor &&
-        nowMs - lastTxGrowthAtMs <= unansweredUplinkMs
-    if (!uplinkMoving) return false
-    val answered = lastRxDataGrowthAtMs >= anchor &&
-        nowMs - lastRxDataGrowthAtMs <= unansweredUplinkMs
-    return !answered
+    if (txBytesInWindow < minTxBytes) return false
+    return !RecoverySettings.directRxLooksLikeData(rxDataBytesInWindow)
 }
 
 fun decideDeadDirectAction(
