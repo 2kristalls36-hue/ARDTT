@@ -127,6 +127,8 @@ data class ReachabilityEvidence(
     val google: CheckOutcome = CheckOutcome.NotRun,
     val provision: CheckOutcome = CheckOutcome.NotRun,
     val restriction: RestrictionHint = RestrictionHint.Unknown,
+    /** 0–100 operator-whitelist confidence; persists across a flaky probe. */
+    val whitelistScorePercent: Int = 0,
     val captive: Boolean = false,
     val ttlUntilElapsedMs: Long = 0L,
     val seriesCount: Int = 1,

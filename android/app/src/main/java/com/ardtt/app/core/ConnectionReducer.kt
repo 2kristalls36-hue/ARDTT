@@ -375,26 +375,14 @@ object ConnectionReducer {
             // Duplicate delivery of the same series is not a second observation.
             return ReduceResult(state, RecoveryCommand.None)
         }
-        val series = nextProbeSeriesCount(previous, event.evidence, elapsedMs)
-        val completed = (previous?.completedSeries ?: 0) + 1
-        val restriction = NetworkProbePolicy.restrictionHint(
-            cellular = event.evidence.networkKey?.isCellular == true ||
-                (event.evidence.networkKey == null && state.underlay.kind == UnderlayKind.Cellular),
-            yandex = event.evidence.yandex,
-            bigtech = event.evidence.bigtech,
-            google = event.evidence.google,
-            seriesCount = series,
-        )
+        val cellular = event.evidence.networkKey?.isCellular == true ||
+            (event.evidence.networkKey == null && state.underlay.kind == UnderlayKind.Cellular)
         val next = state.copy(
-            evidence = event.evidence.copy(
-                seriesCount = series,
-                completedSeries = completed,
-                ttlUntilElapsedMs = elapsedMs + RecoverySettings.PROBE_RESTRICTION_TTL_MS,
-                restriction = if (state.underlay.kind == UnderlayKind.Cellular) {
-                    restriction
-                } else {
-                    RestrictionHint.None
-                },
+            evidence = foldReachabilityEvidence(
+                previous = previous,
+                incoming = event.evidence,
+                cellular = cellular,
+                elapsedMs = elapsedMs,
             ),
         )
         return decideNext(next, elapsedMs, jitterPermille)

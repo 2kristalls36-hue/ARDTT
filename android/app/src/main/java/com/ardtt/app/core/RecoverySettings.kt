@@ -14,6 +14,16 @@ object RecoverySettings {
     const val DIAGNOSTIC_RESTRICTION_REFRESH_MS = 25_000L
     const val CONFIRM_PROBE_BUDGET_MS = 5_000L
     const val RESTRICTION_CONFIRM_SERIES = 2
+    /** First complete БС sample (Yandex OK + both ordinary blocked) reaches enter. */
+    const val WHITELIST_SCORE_RISE = 80
+    /** One ordinary target blocked, the other not a success. */
+    const val WHITELIST_SCORE_WEAK = 25
+    /** Ordinary internet visible — decay, do not zero the score. */
+    const val WHITELIST_SCORE_FALL = -18
+    /** Score at or above this is treated as operator whitelist (БС). Tunable. */
+    const val WHITELIST_ENTER_PERCENT = 80
+    /** Stay on Bypass until the score falls below this (hysteresis). */
+    const val WHITELIST_EXIT_PERCENT = 55
     const val PROBE_CACHE_TTL_MS = 30_000L
     const val STABILIZE_AFTER_GAP_MS = 1_500L
     const val FIRST_WIFI_DIRECT_DELAY_MS = 0L

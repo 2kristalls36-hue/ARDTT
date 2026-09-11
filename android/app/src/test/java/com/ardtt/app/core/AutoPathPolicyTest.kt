@@ -126,7 +126,7 @@ class AutoPathPolicyTest {
     }
 
     @Test
-    fun cellularTriesDirectBeforeBypassWhenRestricted() {
+    fun cellularTriesDirectWhenWhitelistScoreIsWeak() {
         val d = decideAutoPath(
             AutoPathInput(
                 mode = ConnPathMode.Auto,
@@ -134,8 +134,10 @@ class AutoPathPolicyTest {
                 evidence = ReachabilityEvidence(
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.NotRun,
                     provision = CheckOutcome.NotRun,
                     restriction = RestrictionHint.Suspected,
+                    whitelistScorePercent = 25,
                 ),
                 currentPath = null,
                 transport = TransportLifecycle.Stopped,
@@ -145,6 +147,30 @@ class AutoPathPolicyTest {
         val start = d as AutoDecision.StartDirect
         assertEquals("cellular-try-direct", start.reason)
         assertTrue(start.keepCall)
+    }
+
+    @Test
+    fun cellularStartsBypassWhenWhitelistScoreIsHigh() {
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(),
+                evidence = ReachabilityEvidence(
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    provision = CheckOutcome.NotRun,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ),
+                currentPath = null,
+                transport = TransportLifecycle.Stopped,
+                hasCallHash = true,
+            ),
+        )
+        val bypass = d as AutoDecision.StartBypass
+        assertEquals("cellular-whitelist", bypass.reason)
+        assertTrue(bypass.reuseCall)
     }
 
     @Test
@@ -398,6 +424,20 @@ class AutoPathPolicyTest {
         val start = decideAutoPath(input.copy(reevalDue = true)) as AutoDecision.StartDirect
         assertEquals("reeval-direct", start.reason)
         assertTrue(start.keepCall)
+        val stayWhitelisted = decideAutoPath(
+            input.copy(
+                reevalDue = true,
+                evidence = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ),
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), stayWhitelisted)
     }
 
     @Test

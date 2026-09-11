@@ -145,11 +145,11 @@ class ConnectionControlsTest {
             PathModeCopy.help("awg", hasCallHash = false, compact = true),
         )
         assertEquals(
-            "В Wi‑Fi всегда прямое подключение. В мобильной сети — прямое, при недоступности обход.",
+            "В Wi‑Fi всегда прямое подключение. В мобильной сети при белом списке оператора — обход, иначе прямое.",
             PathModeCopy.help("auto", hasCallHash = false, compact = false),
         )
         assertEquals(
-            "На Wi‑Fi — прямое. В мобильной сети сначала прямое, иначе обход.",
+            "На Wi‑Fi — прямое. В мобильной сети при белом списке — обход.",
             PathModeCopy.help("auto", hasCallHash = true, compact = true),
         )
         assertEquals(

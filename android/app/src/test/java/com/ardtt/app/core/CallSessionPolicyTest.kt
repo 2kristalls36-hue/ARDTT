@@ -222,5 +222,17 @@ class ConnectionUiPhaseTest {
         )
         assertEquals("Прямое подключение работает. Возможны ограничения мобильной сети", suspected.message)
         assertEquals(ConnectionUiPhase.DirectDespiteRestriction, suspected.phase)
+        val whitelistBypass = connectionUiModel(
+            phase = RecoveryPhase.ConnectingBypass,
+            activePath = null,
+            restriction = RestrictionHint.Confirmed,
+            transport = TransportLifecycle.Starting,
+            retryInMs = null,
+            underlayKind = UnderlayKind.Cellular,
+        )
+        assertEquals(
+            "Похоже на белый список оператора. Подключаемся через обход",
+            whitelistBypass.message,
+        )
     }
 }
