@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -58,7 +57,6 @@ import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
-import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
@@ -84,8 +82,6 @@ private val LogTypeLineHeight = 18.sp
 @Composable
 fun LogsScreen(
     onBack: (() -> Unit)? = null,
-    testingVisible: Boolean = false,
-    onOpenTesting: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -428,15 +424,6 @@ fun LogsScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
-            }
-
-            if (testingVisible && onOpenTesting != null) {
-                ArdttDestinationRow(
-                    icon = Icons.Outlined.Science,
-                    title = "Тестирование",
-                    subtitle = "Запись и отправка журнала автору",
-                    onClick = onOpenTesting,
-                )
             }
         }
     }
