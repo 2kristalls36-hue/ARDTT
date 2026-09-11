@@ -5,6 +5,67 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+class CellularHandoverProbeTest {
+    @Test
+    fun anUnmeasuredCellIsProbedInsteadOfGuessed() {
+        assertTrue(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                hasScopedEvidence = false,
+            ),
+        )
+    }
+
+    @Test
+    fun aMeasuredCellSkipsTheBlockingRound() {
+        assertFalse(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                hasScopedEvidence = true,
+            ),
+        )
+    }
+
+    @Test
+    fun withoutABypassOptionTheProbeBuysNothing() {
+        assertFalse(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = false,
+                hasScopedEvidence = false,
+            ),
+        )
+        assertFalse(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Direct,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                hasScopedEvidence = false,
+            ),
+        )
+        // Stubbed transports never carry a whitelist verdict.
+        assertFalse(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Wifi,
+                bypassAllowed = true,
+                hasScopedEvidence = false,
+            ),
+        )
+    }
+
+    @Test
+    fun oneCleanRoundReachesTheEnterThreshold() {
+        val score = RestrictionScore.apply(0, RestrictionSample.Positive)
+        assertTrue(RestrictionScore.likely(score, alreadyBypass = false))
+    }
+}
+
 class ConnectPathTest {
     private val directOk = ProbeResult(
         networkClass = NetworkClass.DirectOk,

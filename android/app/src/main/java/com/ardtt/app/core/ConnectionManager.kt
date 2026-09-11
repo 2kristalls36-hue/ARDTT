@@ -1693,8 +1693,17 @@ class ConnectionManager(
             kind == UnderlayKind.Cellular &&
             whitelistLikely &&
             bypassAllowed
+        // An unmeasured cell must not be guessed as Direct: the quick probe is
+        // cheaper than a dead-Direct cycle followed by a transport switch.
+        val mustProbeCellular = shouldProbeCellularBeforeHandover(
+            mode = mode,
+            underlayKind = kind,
+            bypassAllowed = bypassAllowed,
+            hasScopedEvidence = evidenceForBind(bindNetwork) != null,
+        )
         val skipDirectNow = !skipWifiDirect &&
             !skipWhitelistBypass &&
+            !mustProbeCellular &&
             shouldStartDirectWithoutDiagnostic(mode, kind, underlayUsable = true)
         if (skipWifiDirect || skipDirectNow || skipWhitelistBypass) {
             val probed = if (skipWhitelistBypass) VpnPath.Bypass else VpnPath.Direct
@@ -1764,6 +1773,17 @@ class ConnectionManager(
             ?: currentPath
         val liveBypass = hashStore.hasHash(profile?.name)
         val liveKind = underlayKindOf(bindNetwork)
+        // The stored score can be absent on a cell we have never measured; a
+        // single clean round already reaches the enter threshold.
+        val measuredWhitelistLikely = RestrictionScore.likely(
+            maxOf(whitelistScoreForBind(bindNetwork), fresh.whitelistScorePercent),
+            alreadyBypass = livePath == VpnPath.Bypass,
+        )
+        // Fold the round into the evidence so the next handover can skip the probe.
+        launchBackgroundDiagnostic(
+            sessionEpoch = recoverySnapshot.sessionEpoch,
+            networkEpoch = recoverySnapshot.networkEpoch,
+        )
         if (!shouldApplyHandoverProbe(mode, liveMode, currentPath, livePath)) {
             AppLog.v(
                 TAG,
@@ -1783,7 +1803,7 @@ class ConnectionManager(
                 allowBypassToDirect = allowBypassToDirect,
                 directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
                 underlayKind = liveKind,
-                whitelistLikely = whitelistLikely,
+                whitelistLikely = measuredWhitelistLikely,
             )
             return liveDecision
         }
@@ -1814,7 +1834,7 @@ class ConnectionManager(
             allowBypassToDirect = allowBypassToDirect,
             directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
             underlayKind = liveKind,
-            whitelistLikely = whitelistLikely,
+            whitelistLikely = measuredWhitelistLikely,
         )
         applyHandoverDecisionUi(
             decision = decision,
@@ -1910,9 +1930,10 @@ class ConnectionManager(
         recoverySnapshot.intent.profileId ?: profile?.name,
     )
 
-    private fun whitelistScoreForBind(bindNetwork: Network?): Int {
+    private fun evidenceForBind(bindNetwork: Network?): ReachabilityEvidence? {
         val cm = appContext.getSystemService(ConnectivityManager::class.java)
-        val sim = activeCellularSubscriptionId(appContext).takeIf {
+        val activeSub = activeCellularSubscriptionId(appContext)
+        val sim = activeSub.takeIf {
             it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
         }
         val key = if (bindNetwork != null && cm != null) {
@@ -1920,13 +1941,16 @@ class ConnectionManager(
                 bindNetwork,
                 cm,
                 sim,
-                carrier = cellularCarrierId(appContext, activeCellularSubscriptionId(appContext)),
+                carrier = cellularCarrierId(appContext, activeSub),
             )
         } else {
             recoverySnapshot.underlay.key
         }
-        return liveWhitelistEvidence(key)?.whitelistScorePercent ?: 0
+        return liveWhitelistEvidence(key)
     }
+
+    private fun whitelistScoreForBind(bindNetwork: Network?): Int =
+        evidenceForBind(bindNetwork)?.whitelistScorePercent ?: 0
 
     private fun mobileDataEnabled(): Boolean = runCatching {
         val tm = appContext.getSystemService(TelephonyManager::class.java) ?: return false
@@ -2071,11 +2095,12 @@ class ConnectionManager(
             restriction = reduced.state.cellularEvidence?.restriction ?: RestrictionHint.Unknown,
             seriesCount = reduced.state.cellularEvidence?.seriesCount ?: 0,
         ) ?: RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS
+        // Holding the request between rounds keeps the modem attached for the
+        // whole Wi-Fi session; the next round re-acquires or re-requests it.
+        releaseCellularRequest()
         delay(delayMs)
         if (shouldPreProbeCellular(pathMode, currentAutoUnderlayKind())) {
             runCellularPreProbe("refresh")
-        } else {
-            releaseCellularRequest()
         }
     }
 

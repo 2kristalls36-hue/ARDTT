@@ -234,6 +234,59 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun aLiveBypassGetsTheLongerSettleBeforeWifiTakesOver() {
+        assertEquals(
+            RecoverySettings.WIFI_UPGRADE_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                path = VpnPath.Bypass,
+                validatedPresent = true,
+                underlayKind = UnderlayKind.Wifi,
+                pathMode = ConnPathMode.Auto,
+            ),
+        )
+        // Forced Bypass keeps the plain VK-join settle: no upgrade is coming.
+        assertEquals(
+            BYPASS_NETWORK_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                path = VpnPath.Bypass,
+                validatedPresent = true,
+                underlayKind = UnderlayKind.Wifi,
+                pathMode = ConnPathMode.Bypass,
+            ),
+        )
+        assertEquals(
+            BYPASS_NETWORK_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                path = VpnPath.Bypass,
+                validatedPresent = true,
+                underlayKind = UnderlayKind.Cellular,
+                pathMode = ConnPathMode.Auto,
+            ),
+        )
+        assertEquals(
+            DIRECT_NETWORK_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                path = VpnPath.Direct,
+                validatedPresent = true,
+                underlayKind = UnderlayKind.Wifi,
+                pathMode = ConnPathMode.Auto,
+            ),
+        )
+    }
+
+    @Test
+    fun wifiUpgradeSettleWidensPerFailedEpisodeAndSaturates() {
+        val steps = (0..6).map { RecoverySettings.wifiUpgradeSettleMs(it) }
+        assertEquals(steps.sorted(), steps)
+        assertEquals(RecoverySettings.WIFI_UPGRADE_SETTLE_MS, steps.first())
+        assertEquals(RecoverySettings.WIFI_UPGRADE_SETTLE_MAX_MS, steps.last())
+        assertEquals(
+            RecoverySettings.WIFI_UPGRADE_SETTLE_MS,
+            RecoverySettings.wifiUpgradeSettleMs(-3),
+        )
+    }
+
+    @Test
     fun unansweredUplinkCatchesADeadBypassOutsideTheHandoffWindow() {
         // Sending for the last 5 s, nothing inbound for 50 s: relay is one-way.
         assertTrue(
