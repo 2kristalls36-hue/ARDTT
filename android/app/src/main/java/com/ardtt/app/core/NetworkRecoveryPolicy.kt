@@ -166,6 +166,35 @@ fun shouldTreatInitialValidatedAsHandover(
     return nowMs - sessionStartedAtMs >= graceAfterStartMs
 }
 
+/**
+ * A voice call on a 2G/3G bearer suspends mobile data without changing the
+ * network id, so [classifyValidatedNetworkTransition] calls the resume
+ * UNCHANGED and nothing rebinds. By then the TURN allocation and the server's
+ * downlink slot are usually gone.
+ */
+enum class DataSuspensionTransition {
+    None,
+    Suspended,
+    Resumed,
+}
+
+fun classifyDataSuspension(
+    wasSuspended: Boolean,
+    notSuspendedNow: Boolean,
+): DataSuspensionTransition = when {
+    !notSuspendedNow -> if (wasSuspended) DataSuspensionTransition.None else DataSuspensionTransition.Suspended
+    wasSuspended -> DataSuspensionTransition.Resumed
+    else -> DataSuspensionTransition.None
+}
+
+/** Below this a suspension is a capability flap, not a bearer that went away. */
+const val DATA_SUSPENSION_REBIND_MS = 5_000L
+
+fun shouldRebindAfterDataResume(
+    suspendedForMs: Long,
+    minMs: Long = DATA_SUSPENSION_REBIND_MS,
+): Boolean = suspendedForMs >= minMs
+
 fun shouldScheduleAvailableNetworkHandover(
     previousNetworkWasLost: Boolean,
     availableRealNetworkCount: Int,

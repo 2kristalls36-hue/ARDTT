@@ -234,6 +234,35 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun aVoiceCallSuspendingDataIsSeenAsSuspendThenResume() {
+        assertEquals(
+            DataSuspensionTransition.Suspended,
+            classifyDataSuspension(wasSuspended = false, notSuspendedNow = false),
+        )
+        // Repeated events while still suspended are not a second suspension.
+        assertEquals(
+            DataSuspensionTransition.None,
+            classifyDataSuspension(wasSuspended = true, notSuspendedNow = false),
+        )
+        assertEquals(
+            DataSuspensionTransition.Resumed,
+            classifyDataSuspension(wasSuspended = true, notSuspendedNow = true),
+        )
+        assertEquals(
+            DataSuspensionTransition.None,
+            classifyDataSuspension(wasSuspended = false, notSuspendedNow = true),
+        )
+    }
+
+    @Test
+    fun onlyASuspensionLongEnoughToKillTheRelayForcesARebind() {
+        assertTrue(shouldRebindAfterDataResume(DATA_SUSPENSION_REBIND_MS))
+        assertTrue(shouldRebindAfterDataResume(60_000L))
+        assertFalse(shouldRebindAfterDataResume(DATA_SUSPENSION_REBIND_MS - 1))
+        assertFalse(shouldRebindAfterDataResume(0L))
+    }
+
+    @Test
     fun aLiveBypassGetsTheLongerSettleBeforeWifiTakesOver() {
         assertEquals(
             RecoverySettings.WIFI_UPGRADE_SETTLE_MS,

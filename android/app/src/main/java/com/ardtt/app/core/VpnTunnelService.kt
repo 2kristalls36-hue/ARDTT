@@ -62,6 +62,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var trustedWifiNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private val activeNetworks = ConcurrentHashMap.newKeySet<Network>()
+    /** Network handle → when its data bearer was suspended (voice call, bearer loss). */
+    private val suspendedNetworks = ConcurrentHashMap<Long, Long>()
     @Volatile private var lastValidatedNetworkId: Long? = null
     @Volatile private var lastPreferredUnderlayHandle: Long? = null
     @Volatile private var stableNetworkWasLost = false
@@ -1197,6 +1199,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         connectivityManager = cm
         activeNetworks.clear()
+        suspendedNetworks.clear()
         lastValidatedNetworkId = null
         lastPreferredUnderlayHandle = pickBestUnderlayNetwork(this)?.networkHandle
         stableNetworkWasLost = false
@@ -1269,6 +1272,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 if (trustedWifiWaiting) {
                     scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
                 }
+                if (handleDataSuspension(network, caps)) return
                 val usable =
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
@@ -1352,6 +1356,43 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             .build()
         runCatching { cm.registerNetworkCallback(request, networkCallback!!) }
             .onFailure { AppLog.e(TAG, "registerNetworkCallback failed: ${it.message}") }
+    }
+
+    /**
+     * @return true when the event was a data suspend/resume and the normal
+     * validated-transition path must not also run.
+     */
+    private fun handleDataSuspension(network: Network, caps: NetworkCapabilities): Boolean {
+        val id = network.networkHandle
+        val transition = classifyDataSuspension(
+            wasSuspended = suspendedNetworks.containsKey(id),
+            notSuspendedNow = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
+        )
+        val now = System.currentTimeMillis()
+        return when (transition) {
+            DataSuspensionTransition.Suspended -> {
+                suspendedNetworks[id] = now
+                AppLog.v(TAG, "underlay data suspended id=$id (voice call / bearer loss)")
+                ConnectionManager.getOrNull()?.onUnderlyingNetworkLost()
+                true
+            }
+            DataSuspensionTransition.Resumed -> {
+                val suspendedFor = now - (suspendedNetworks.remove(id) ?: now)
+                ConnectionManager.getOrNull()?.onUnderlyingNetworkLost()
+                if (shouldRebindAfterDataResume(suspendedFor)) {
+                    AppLog.v(TAG, "underlay data resumed after ${suspendedFor}ms — rebind")
+                    scheduleUnderlyingNetworkReconnect(
+                        reason = "Передача данных возобновлена",
+                        stickyUnderlayChanged = true,
+                    )
+                    true
+                } else {
+                    AppLog.v(TAG, "underlay data flap ${suspendedFor}ms — no rebind")
+                    false
+                }
+            }
+            DataSuspensionTransition.None -> false
+        }
     }
 
     private fun hasValidatedRealNetwork(): Boolean {
