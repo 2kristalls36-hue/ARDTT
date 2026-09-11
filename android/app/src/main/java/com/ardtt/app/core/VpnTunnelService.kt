@@ -112,6 +112,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private var dataSubReceiver: BroadcastReceiver? = null
     private var telephonyCallback: android.telephony.TelephonyCallback? = null
     private var notifLiveJob: Job? = null
+    @Volatile private var lastNotifFingerprint: String? = null
+    @Volatile private var lastNotifShowInShade: Boolean? = null
+    @Volatile private var lastQuickLaunchPushAtMs = 0L
     private var trustedWifiSettingsJob: Job? = null
 
     @Volatile private var trustedWifiWaiting = false
@@ -152,8 +155,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
             ACTION_REFRESH_NOTIFICATION -> {
                 val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
-                // Re-promote foreground so channel switches (shade ↔ silent) apply immediately.
-                startForegroundNotification(path, "refresh")
+                val showInShade = runCatching {
+                    kotlinx.coroutines.runBlocking { settingsRepo.vpnNotificationVisibleSnapshot() }
+                }.getOrDefault(true)
+                // Re-promote FGS only when the shade ↔ silent channel actually changes.
+                if (lastNotifShowInShade != null && lastNotifShowInShade != showInShade) {
+                    startForegroundNotification(path, "refresh")
+                } else {
+                    updateNotification(path, "refresh", force = true)
+                }
                 return START_STICKY
             }
             ACTION_SESSION_CONTROL -> {
@@ -2019,7 +2029,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         VpnLiveStats.sample()
                         val path = TunnelSessionHolder.config?.path
                         if (path != null) {
-                            updateNotification(path, "live")
+                            // Live stats: notify only when the plate content changes.
+                            updateNotification(path, "live", force = false, pushLaunchers = false)
                         }
                     }
                 }
@@ -2028,14 +2039,42 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
     }
 
-    private fun updateNotification(path: VpnPath, text: String) {
+    private fun updateNotification(
+        path: VpnPath,
+        text: String,
+        force: Boolean = true,
+        pushLaunchers: Boolean = true,
+    ) {
         val nm = getSystemService(NotificationManager::class.java) ?: return
-        nm.notify(NOTIF_ID, buildNotification(path, text))
-        pushQuickLaunchState()
+        val showInShade = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.vpnNotificationVisibleSnapshot() }
+        }.getOrDefault(true)
+        VpnNotificationChannels.ensure(this, nm, showInShade)
+        val fingerprint = notificationFingerprint(path, text, showInShade)
+        if (!vpnNotificationShouldRepost(lastNotifFingerprint, fingerprint, force)) {
+            return
+        }
+        lastNotifFingerprint = fingerprint
+        lastNotifShowInShade = showInShade
+        nm.notify(NOTIF_ID, buildNotification(path, text, showInShade))
+        if (pushLaunchers) {
+            pushQuickLaunchState()
+        } else {
+            maybePushQuickLaunchState()
+        }
     }
 
     private fun startForegroundNotification(path: VpnPath, text: String) {
-        val notification = buildNotification(path, text)
+        val showInShade = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.vpnNotificationVisibleSnapshot() }
+        }.getOrDefault(true)
+        val nm = getSystemService(NotificationManager::class.java)
+        if (nm != null) {
+            VpnNotificationChannels.ensure(this, nm, showInShade)
+        }
+        val notification = buildNotification(path, text, showInShade)
+        lastNotifFingerprint = notificationFingerprint(path, text, showInShade)
+        lastNotifShowInShade = showInShade
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceCompat.startForeground(
                 this,
@@ -2049,64 +2088,65 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         pushQuickLaunchState()
     }
 
+    private fun notificationFingerprint(path: VpnPath, text: String, showInShade: Boolean): String {
+        if (!showInShade) return vpnNotificationFingerprint(showInShade = false)
+        val appsWhitelist = runCatching {
+            kotlinx.coroutines.runBlocking { settingsRepo.appsWhitelistModeSnapshot() }
+        }.getOrDefault(false)
+        val shade = ConnectionManager.getOrNull()?.notificationShadeContent(
+            sessionStartedAtMs = sessionStartedAtMs,
+            appsWhitelist = appsWhitelist,
+        ) ?: ConnectionManager.ShadeContent(
+            title = when (path) {
+                VpnPath.Direct -> "Прямое подключение"
+                VpnPath.Bypass -> "Обход"
+            },
+            ip = "…",
+            pathLabel = when (path) {
+                VpnPath.Direct -> "Прямое"
+                VpnPath.Bypass -> "Обход"
+            },
+            showTotals = false,
+            showWhitelistIcon = appsWhitelist,
+            statusText = text.ifBlank { getString(R.string.notif_running) },
+        )
+        return vpnNotificationFingerprint(
+            showInShade = true,
+            title = shade.title,
+            ip = shade.ip,
+            rates = shade.rates,
+            statusText = shade.statusText,
+            showWarpIcon = shade.showWarpIcon,
+            showWhitelistIcon = shade.showWhitelistIcon,
+            sessionStartedAtMs = sessionStartedAtMs,
+            trustedWifiWaiting = trustedWifiWaiting,
+        )
+    }
+
     private fun pushQuickLaunchState() {
+        lastQuickLaunchPushAtMs = System.currentTimeMillis()
         com.ardtt.app.TunnelWidgetProvider.pushFromConnection(this)
         com.ardtt.app.QuickToggleTileService.requestTileUpdate(this)
         com.ardtt.app.AppShortcuts.refreshAsync(this)
     }
 
-    private fun buildNotification(path: VpnPath, text: String): Notification {
-        val showInShade = runCatching {
+    private fun maybePushQuickLaunchState() {
+        val now = System.currentTimeMillis()
+        if (now - lastQuickLaunchPushAtMs < 5_000L) return
+        pushQuickLaunchState()
+    }
+
+    private fun buildNotification(
+        path: VpnPath,
+        text: String,
+        showInShade: Boolean = runCatching {
             kotlinx.coroutines.runBlocking { settingsRepo.vpnNotificationVisibleSnapshot() }
-        }.getOrDefault(true)
-        val channelId = if (showInShade) CHANNEL_SHADE else CHANNEL_MIN
-        val importance = if (showInShade) {
-            NotificationManager.IMPORTANCE_DEFAULT
-        } else {
-            NotificationManager.IMPORTANCE_MIN
-        }
+        }.getOrDefault(true),
+    ): Notification {
+        val channelId = VpnNotificationChannels.id(showInShade)
         val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
-            listOf(
-                "ardtt_tunnel",
-                "ardtt_tunnel_min",
-                "ardtt_vpn_shade_v1",
-                "ardtt_vpn_min_v1",
-                "ardtt_vpn_shade_v2",
-                "ardtt_vpn_min_v2",
-                "ardtt_vpn_shade_v3",
-                "ardtt_vpn_min_v3",
-                "ardtt_vpn_shade_v4",
-                "ardtt_vpn_min_v4",
-            ).forEach { legacy ->
-                runCatching { nm.deleteNotificationChannel(legacy) }
-            }
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    channelId,
-                    if (showInShade) {
-                        getString(R.string.notif_channel_tunnel)
-                    } else {
-                        getString(R.string.notif_channel_tunnel_min)
-                    },
-                    importance,
-                ).apply {
-                    setShowBadge(false)
-                    setSound(null, null)
-                    enableVibration(false)
-                    enableLights(false)
-                    description = if (showInShade) {
-                        "Уведомление о состоянии подключения и команда остановки"
-                    } else {
-                        "Служебная запись службы подключения. Система не позволяет скрыть её полностью."
-                    }
-                    lockscreenVisibility = if (showInShade) {
-                        Notification.VISIBILITY_PUBLIC
-                    } else {
-                        Notification.VISIBILITY_SECRET
-                    }
-                },
-            )
+        if (nm != null) {
+            VpnNotificationChannels.ensure(this, nm, showInShade)
         }
 
         val open = PendingIntent.getActivity(
@@ -2278,8 +2318,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =
             "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42
-        private const val CHANNEL_SHADE = "ardtt_vpn_shade_v6"
-        private const val CHANNEL_MIN = "ardtt_vpn_min_v6"
         private const val TRUSTED_WIFI_RESUME_GUARD_MS = 8_000L
         /** AWG-over-WARP underlay needs headroom under 1280. */
         const val DIRECT_TUN_MTU = 1200
