@@ -58,6 +58,20 @@ class TransportHealthTest {
     }
 
     @Test
+    fun tracksUplinkGrowthSeparatelyFromInbound() {
+        TransportHealth.applyStructuredTelemetry("channels=3|down=1000|up=1000")
+        val inbound = TransportHealth.lastInboundGrowthAtMs
+        val uplink = TransportHealth.lastUplinkGrowthAtMs
+        assertTrue(inbound > 0L)
+        assertEquals(inbound, uplink)
+
+        Thread.sleep(5L)
+        TransportHealth.applyStructuredTelemetry("channels=3|down=1000|up=4000")
+        assertEquals(inbound, TransportHealth.lastInboundGrowthAtMs)
+        assertTrue(TransportHealth.lastUplinkGrowthAtMs > uplink)
+    }
+
+    @Test
     fun parsesStructuredTelemetryAndControlAck() {
         TransportHealth.applyStructuredTelemetry(
             "channels=2|tunGen=4|tunWriteOk=9|tunWriteErr=1|down=1200|up=80",

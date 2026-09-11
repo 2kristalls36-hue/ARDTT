@@ -100,6 +100,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var lastHandoffAtMs = 0L
     @Volatile private var stableNetworkEvidenceSinceMs = 0L
     @Volatile private var deadDirectHandledAtMs = 0L
+    @Volatile private var unansweredUplinkHandledAtMs = 0L
     @Volatile private var lastDirectHealthLogAtMs = 0L
     /** Bypass started before Android VALIDATED LTE — rebind once it does. */
     @Volatile private var rebindBypassWhenValidated = false
@@ -244,6 +245,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         sessionStartedAtMs = System.currentTimeMillis()
         lastHandoffAtMs = sessionStartedAtMs
         lastDirectHealthLogAtMs = 0L
+        unansweredUplinkHandledAtMs = 0L
         TransportHealth.reset()
         VpnLiveStats.reset()
         lastPreferredUnderlayHandle = pickBestUnderlayNetwork(this)?.networkHandle
@@ -965,6 +967,26 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         ConnectionManager.getOrNull()?.onWatchdogFault(
                             path,
                             "traffic-stall",
+                        )
+                    } else if (
+                        shouldSoftRestartForUnansweredUplink(
+                            bypassPath = bypass,
+                            activeWorkers = workers,
+                            lastUplinkGrowthAtMs = TransportHealth.lastUplinkGrowthAtMs,
+                            lastInboundGrowthAtMs = TransportHealth.lastInboundGrowthAtMs,
+                            nowMs = now,
+                        ) &&
+                        now - unansweredUplinkHandledAtMs > BYPASS_UNANSWERED_UPLINK_MS
+                    ) {
+                        unansweredUplinkHandledAtMs = now
+                        AppLog.w(
+                            TAG,
+                            "watchdog: Bypass uplink unanswered workers=$workers " +
+                                "up=${TransportHealth.exactUpBytes} down=${TransportHealth.exactDownBytes}",
+                        )
+                        ConnectionManager.getOrNull()?.onWatchdogFault(
+                            VpnPath.Bypass,
+                            "unanswered-uplink",
                         )
                     }
                 }

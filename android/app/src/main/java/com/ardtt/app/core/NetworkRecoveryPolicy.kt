@@ -609,6 +609,31 @@ fun shouldSoftRestartForTrafficStall(
     return stalledFor >= afterHandoffGraceMs
 }
 
+/**
+ * Path B, no recent handoff: the app keeps sending and nothing comes back.
+ *
+ * TURN workers survive the VPS going away — the relay allocation is still up, so
+ * neither the zero-worker nor the handoff stall check fires and a dead tunnel can
+ * sit there indefinitely. An idle tunnel is still not a fault: the uplink counter
+ * has to be moving for this to count.
+ */
+const val BYPASS_UNANSWERED_UPLINK_MS = 45_000L
+
+fun shouldSoftRestartForUnansweredUplink(
+    bypassPath: Boolean,
+    activeWorkers: Int,
+    lastUplinkGrowthAtMs: Long,
+    lastInboundGrowthAtMs: Long,
+    nowMs: Long,
+    graceMs: Long = BYPASS_UNANSWERED_UPLINK_MS,
+): Boolean {
+    if (!bypassPath || activeWorkers <= 0) return false
+    if (lastUplinkGrowthAtMs <= 0L) return false
+    if (nowMs - lastUplinkGrowthAtMs > graceMs) return false
+    if (lastInboundGrowthAtMs > lastUplinkGrowthAtMs) return false
+    return nowMs - lastInboundGrowthAtMs >= graceMs
+}
+
 /** Bypass up, but only TURN handshake — sockets glued to a not-yet-ready LTE. */
 fun shouldSoftRestartForHandshakeStall(
     bypassPath: Boolean,

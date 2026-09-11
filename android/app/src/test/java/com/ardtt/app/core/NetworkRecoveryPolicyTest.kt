@@ -234,6 +234,78 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun unansweredUplinkCatchesADeadBypassOutsideTheHandoffWindow() {
+        // Sending for the last 5 s, nothing inbound for 50 s: relay is one-way.
+        assertTrue(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 50_000L,
+                nowMs = 100_000L,
+            ),
+        )
+        // Never any inbound at all is the same fault.
+        assertTrue(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+            ),
+        )
+        // Idle tunnel: nobody is sending either, so there is nothing to answer.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 40_000L,
+                lastInboundGrowthAtMs = 40_000L,
+                nowMs = 100_000L,
+            ),
+        )
+        // Inbound is newer than the last uplink — the path answers.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 90_000L,
+                lastInboundGrowthAtMs = 95_000L,
+                nowMs = 100_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = false,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 0,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+            ),
+        )
+        // Fresh session with no telemetry yet must not restart itself.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 0L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+            ),
+        )
+    }
+
+    @Test
     fun healthObserveGatesOnInteractiveAndGrace() {
         assertTrue(
             shouldObserveTunnelHealth(
