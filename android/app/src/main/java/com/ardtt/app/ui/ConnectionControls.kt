@@ -6,6 +6,7 @@ import com.ardtt.app.core.BypassWorkers
 import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.core.ConnectionUiAction
 import com.ardtt.app.core.blocksProfileSwitch
 import com.ardtt.app.core.disconnectsOnPowerClick
 import com.ardtt.app.core.holdsUserSession
@@ -23,9 +24,9 @@ internal fun vpnSessionBlocksProfileSwitch(state: ConnState): Boolean = state.bl
 internal fun tunnelStickyCtaLabel(state: ConnState): String = when (state) {
     ConnState.Connecting -> "Отменить"
     ConnState.WaitingForNetwork -> "Отменить ожидание"
-    ConnState.Recovering, ConnState.CaptivePortal, ConnState.NeedsUserAction -> "Отключить"
-    ConnState.Connected, ConnState.PausedTrustedWifi -> "Отключить"
-    else -> "Подключиться"
+    ConnState.Recovering, ConnState.CaptivePortal, ConnState.NeedsUserAction -> "Остановить"
+    ConnState.Connected, ConnState.PausedTrustedWifi -> "Остановить"
+    else -> "Подключить"
 }
 
 internal fun tunnelStickyCtaIsDestructive(state: ConnState): Boolean = state.disconnectsOnPowerClick() &&
@@ -71,10 +72,17 @@ internal fun tunnelPowerClickDisconnects(state: ConnState): Boolean = state.disc
 internal fun tunnelPowerContentDescription(state: ConnState, connected: Boolean): String = when (state) {
     ConnState.Connecting -> "Отменить подключение"
     ConnState.WaitingForNetwork -> "Отменить ожидание сети"
-    ConnState.Disconnecting -> "Отключение"
-    ConnState.PausedTrustedWifi -> "Отключить паузу Wi‑Fi"
-    else -> if (connected || state.holdsUserSession()) "Отключить туннель" else "Подключить туннель"
+    ConnState.Disconnecting -> "Остановка"
+    ConnState.PausedTrustedWifi -> "Остановить паузу Wi‑Fi"
+    else -> if (connected || state.holdsUserSession()) "Остановить туннель" else "Подключить туннель"
 }
+
+/**
+ * Sticky CTA / power control already stop the session — do not also show
+ * [ConnectionUiAction.Disconnect] as a chip under the status panel.
+ */
+internal fun tunnelChromeActions(actions: List<ConnectionUiAction>): List<ConnectionUiAction> =
+    actions.filterNot { it == ConnectionUiAction.Disconnect }
 
 internal fun tunnelProfileCenterOpensImport(count: Int): Boolean = count <= 0
 
