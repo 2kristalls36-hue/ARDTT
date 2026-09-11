@@ -64,6 +64,7 @@ import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.terminalCardColor
 import com.ardtt.app.ui.components.surface.terminalCardElevation
+import com.ardtt.app.ui.telemetry.recordingAccentBorder
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttRadius
 import com.ardtt.app.ui.theme.ArdttShapes
@@ -85,6 +86,7 @@ private val LogTypeLineHeight = 18.sp
 fun LogsScreen(
     onBack: (() -> Unit)? = null,
     testingVisible: Boolean = false,
+    isRecording: Boolean = false,
     onOpenTesting: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -250,6 +252,7 @@ fun LogsScreen(
                     title = "Тестирование",
                     subtitle = "Запись и отправка журнала автору",
                     onClick = onOpenTesting,
+                    border = recordingAccentBorder(isRecording),
                 )
             }
             ArdttSectionCard(

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -26,9 +27,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.ardtt.app.telemetry.TelemetryRecorder
+import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 
 // Bright red — visible on dark surfaces; original #8B0000 was nearly invisible.
-private val RecordingRed = Color(0xFFFF3B30)
+internal val RecordingAccent = Color(0xFFFF3B30)
 
 @Composable
 fun TelemetryRecordingOverlay(
@@ -96,7 +98,7 @@ private fun RecordingBorder(
     alpha: Float,
     modifier: Modifier = Modifier,
 ) {
-    val borderColor = RecordingRed.copy(alpha = alpha)
+    val borderColor = RecordingAccent.copy(alpha = alpha)
     val strokeWidth = 6.dp
 
   // Pass touches through to the UI below; only draw the frame.
@@ -132,6 +134,17 @@ private fun rememberRecordingAlpha(isRecording: Boolean): androidx.compose.runti
     } else {
         androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     }
+}
+
+/** Pulsing red contour matching the screen recording frame. */
+@Composable
+fun recordingAccentBorder(active: Boolean): BorderStroke? {
+    if (!active) return null
+    val alpha by rememberRecordingAlpha(true)
+    return BorderStroke(
+        width = ArdttSectionCardDefaults.ContourWidth,
+        color = RecordingAccent.copy(alpha = alpha),
+    )
 }
 
 @Composable
