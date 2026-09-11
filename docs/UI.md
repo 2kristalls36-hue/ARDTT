@@ -60,6 +60,7 @@ ui/
 | Профили | `ArdttLazyFeedScaffold` | «Добавить», карточки с ключом `id` |
 | Обход | `ArdttScrollChrome` | поиск, «Очистить поиск», «Добавить» |
 | Логи | `ArdttScrollChrome` | follow / к последним / поиск / уровень (`LogsCatalog`) |
+| Диагностика | `ArdttFeedScaffold` + sticky | «Сеть» / «Журнал» / «Тестирование» снизу над таб-баром |
 | Настройки | `ArdttFeedScaffold` | `ArdttButton` Wi‑Fi, админ-сессия, код звонка |
 | Тестирование | `ArdttScrollChrome` | запись, отправка, история |
 
