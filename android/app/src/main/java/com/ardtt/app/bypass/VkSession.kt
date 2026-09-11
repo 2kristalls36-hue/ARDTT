@@ -3,7 +3,9 @@ package com.ardtt.app.bypass
 import android.os.Build
 import android.text.Html
 import android.webkit.CookieManager
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 /** Cookie helpers for VK login WebView → calls.start. */
@@ -49,11 +51,21 @@ object VkSession {
         }.distinct().joinToString("; ")
     }
 
-    fun clear() {
-        val cm = CookieManager.getInstance()
-        cm.removeAllCookies(null)
-        cm.flush()
+    /**
+     * Drops WebView cookies and waits until [CookieManager] reports completion so
+     * [hasSessionCookie] is trustworthy before the next UI read.
+     */
+    suspend fun clear() {
         cachedDisplayName = null
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { cont ->
+                val cm = CookieManager.getInstance()
+                cm.removeAllCookies {
+                    cm.flush()
+                    if (cont.isActive) cont.resume(Unit)
+                }
+            }
+        }
     }
 
     fun loginStartUrl(attempt: Int): String = when (attempt) {

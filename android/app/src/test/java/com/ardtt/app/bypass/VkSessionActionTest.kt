@@ -94,4 +94,12 @@ class VkSessionActionTest {
         assertFalse(login.enabled)
         assertFalse(logout.enabled)
     }
+
+    @Test
+    fun cancelledLoginFromLoggedOutClearsPartialCookie() {
+        assertTrue(vkShouldClearPartialSession(startedLoggedIn = false, attemptSucceeded = false))
+        assertFalse(vkShouldClearPartialSession(startedLoggedIn = false, attemptSucceeded = true))
+        assertFalse(vkShouldClearPartialSession(startedLoggedIn = true, attemptSucceeded = false))
+        assertFalse(vkShouldClearPartialSession(startedLoggedIn = true, attemptSucceeded = true))
+    }
 }
