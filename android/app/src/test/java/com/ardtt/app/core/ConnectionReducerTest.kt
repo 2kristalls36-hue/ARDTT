@@ -1496,4 +1496,154 @@ class ConnectionReducerTest {
         assertEquals(RecoveryCommand.None, updated.command)
         assertEquals(1L, updated.state.networkEpoch)
     }
+
+    @Test
+    fun cellularProbeOnWifiStoresStashWithoutTouchingWifiEvidence() {
+        val wifiEvidence = ReachabilityEvidence(
+            networkKey = wifiKey,
+            yandex = CheckOutcome.NotRun,
+            whitelistScorePercent = 0,
+        )
+        val connected = ConnectionReducer.reduce(
+            idle().copy(
+                underlay = usableWifi(),
+                evidence = wifiEvidence,
+            ),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        ).state.copy(
+            activePath = VpnPath.Direct,
+            transport = TransportLifecycle.Running,
+            lastConfirmedNetworkKey = wifiKey,
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 2L,
+                    transportEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val cellHandle = NetworkKey(9L, UnderlayKind.Cellular, 11, "pre")
+        val probed = ConnectionReducer.reduce(
+            connected,
+            ConnectionEvent.CellularProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellHandle,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    seriesId = "pre-wifi",
+                ),
+            ),
+            10L,
+        )
+        assertEquals(wifiKey, probed.state.evidence?.networkKey)
+        assertEquals(0, probed.state.evidence?.whitelistScorePercent ?: 0)
+        assertEquals(80, probed.state.cellularEvidence?.whitelistScorePercent)
+        assertEquals(RecoveryCommand.None, probed.command)
+        assertEquals(VpnPath.Direct, probed.state.activePath)
+    }
+
+    @Test
+    fun wifiToCellularRestoresPrewarmedScoreAndStartsBypass() {
+        val pre = NetworkKey(9L, UnderlayKind.Cellular, 11, "pre")
+        val running = ConnectionReducer.reduce(
+            idle().copy(underlay = usableWifi()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        ).state.copy(
+            activePath = VpnPath.Direct,
+            transport = TransportLifecycle.Running,
+            lastConfirmedPath = VpnPath.Direct,
+            lastConfirmedNetworkKey = wifiKey,
+            cellularEvidence = ReachabilityEvidence(
+                networkKey = pre,
+                profileId = "p",
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                restriction = RestrictionHint.Confirmed,
+                whitelistScorePercent = 80,
+            ),
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 2L,
+                    transportEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val back = ConnectionReducer.reduce(
+            running,
+            ConnectionEvent.UnderlayUpdated(usableCellular(epoch = 3L)),
+            20L,
+        )
+        assertEquals(80, back.state.evidence?.whitelistScorePercent)
+        assertEquals(cellKey, back.state.evidence?.networkKey)
+        assertTrue(back.command is RecoveryCommand.StartBypass)
+        assertEquals(VpnPath.Bypass, back.state.activePath)
+    }
+
+    @Test
+    fun prewarmedScoreOnOtherSimIsNotRestored() {
+        val other = NetworkKey(9L, UnderlayKind.Cellular, 99, "other-sim")
+        val idleWifi = idle().copy(
+            underlay = usableWifi(),
+            cellularEvidence = ReachabilityEvidence(
+                networkKey = other,
+                profileId = "p",
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                restriction = RestrictionHint.Confirmed,
+                whitelistScorePercent = 80,
+            ),
+        )
+        val toCell = ConnectionReducer.reduce(
+            idleWifi,
+            ConnectionEvent.UnderlayUpdated(usableCellular()),
+            5L,
+        )
+        assertNull(toCell.state.evidence)
+        val started = ConnectionReducer.reduce(
+            toCell.state,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            6L,
+        )
+        assertTrue(started.command is RecoveryCommand.StartDirect)
+    }
+
+    @Test
+    fun idleConnectUsesPrewarmedCellularScore() {
+        val pre = NetworkKey(9L, UnderlayKind.Cellular, 11, "pre")
+        val idleCell = idle().copy(
+            underlay = usableCellular(),
+            cellularEvidence = ReachabilityEvidence(
+                networkKey = pre,
+                profileId = "p",
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                restriction = RestrictionHint.Confirmed,
+                whitelistScorePercent = 80,
+            ),
+        )
+        val r = ConnectionReducer.reduce(
+            idleCell,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            10L,
+        )
+        assertTrue(r.command is RecoveryCommand.StartBypass)
+        assertEquals(80, r.state.evidence?.whitelistScorePercent)
+        assertEquals(cellKey, r.state.evidence?.networkKey)
+    }
 }

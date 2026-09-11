@@ -23,6 +23,11 @@ sealed class ConnectionEvent {
         val networkEpoch: Long,
     ) : ConnectionEvent()
 
+    /** Cellular underlay probe while Wi‑Fi may still be the default route. */
+    data class CellularProbeFinished(
+        val evidence: ReachabilityEvidence,
+    ) : ConnectionEvent()
+
     data class DirectConfirmed(
         val sessionEpoch: Long,
         val transportEpoch: Long,
@@ -140,6 +145,7 @@ object ConnectionReducer {
             is ConnectionEvent.UserRetryNow -> retryNow(state, elapsedMs, jitterPermille)
             is ConnectionEvent.UnderlayUpdated -> onUnderlay(state, event.snapshot, elapsedMs, jitterPermille)
             is ConnectionEvent.ProbeFinished -> onProbe(state, event, elapsedMs, jitterPermille)
+            is ConnectionEvent.CellularProbeFinished -> onCellularProbe(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.DirectConfirmed -> onDirectOk(state, event)
             is ConnectionEvent.DirectFailed -> onDirectFailed(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.BypassConfirmed -> onBypassOk(state, event, elapsedMs)
@@ -169,6 +175,7 @@ object ConnectionReducer {
             intent = state.intent.copy(wantsConnected = false),
             underlay = state.underlay,
             evidence = state.evidence,
+            cellularEvidence = state.cellularEvidence,
             call = CallSessionState(
                 hashPresent = state.call.hashPresent,
                 validity = state.call.validity,
@@ -235,8 +242,15 @@ object ConnectionReducer {
             wifiStableHits = 0,
             directNegative = null,
             lastConfirmedPath = null,
+            lastConfirmedNetworkKey = null,
             pathReadiness = PathReadiness.None,
             recovery = RecoveryState(phase = RecoveryPhase.Probing),
+            evidence = if (state.underlay.kind == UnderlayKind.Cellular) {
+                adoptCellularEvidence(state.cellularEvidence, state.underlay.key)
+                    ?: state.evidence
+            } else {
+                state.evidence
+            },
         )
         val permitted = started.copy(
             recovery = started.recovery.copy(
@@ -283,16 +297,19 @@ object ConnectionReducer {
         elapsedMs: Long,
         jitterPermille: Int,
     ): ReduceResult {
-        if (!state.intent.wantsConnected) {
-            return ReduceResult(state.copy(underlay = snapshot, networkEpoch = snapshot.networkEpoch), RecoveryCommand.None)
-        }
         val networkChanged = state.underlay.key.physicalIdentityChanged(snapshot.key)
+        val carried = carryWhitelistEvidence(state, snapshot, networkChanged)
+        if (!state.intent.wantsConnected) {
+            return ReduceResult(
+                carried.copy(underlay = snapshot, networkEpoch = snapshot.networkEpoch),
+                RecoveryCommand.None,
+            )
+        }
         val leftWifiEpisode = !snapshot.kind.prefersDirectInAuto()
-        val next = state.copy(
+        val next = carried.copy(
             underlay = snapshot,
             networkEpoch = snapshot.networkEpoch,
             directNegative = if (networkChanged) null else state.directNegative,
-            evidence = if (networkChanged) null else state.evidence,
             wifiFailStreak = if (leftWifiEpisode) 0 else state.wifiFailStreak,
             wifiStableHits = if (leftWifiEpisode) 0 else state.wifiStableHits,
             call = if (snapshot.availability == UnderlayAvailability.None) {
@@ -377,15 +394,69 @@ object ConnectionReducer {
         }
         val cellular = event.evidence.networkKey?.isCellular == true ||
             (event.evidence.networkKey == null && state.underlay.kind == UnderlayKind.Cellular)
+        val folded = foldReachabilityEvidence(
+            previous = previous,
+            incoming = event.evidence,
+            cellular = cellular,
+            elapsedMs = elapsedMs,
+        )
         val next = state.copy(
-            evidence = foldReachabilityEvidence(
-                previous = previous,
-                incoming = event.evidence,
-                cellular = cellular,
-                elapsedMs = elapsedMs,
-            ),
+            evidence = folded,
+            cellularEvidence = if (cellular) folded else state.cellularEvidence,
         )
         return decideNext(next, elapsedMs, jitterPermille)
+    }
+
+    private fun onCellularProbe(
+        state: ConnectionSnapshot,
+        event: ConnectionEvent.CellularProbeFinished,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult {
+        val incoming = event.evidence
+        if (incoming.networkKey != null && !incoming.networkKey.isCellular) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (incoming.profileId != null &&
+            state.intent.profileId != null &&
+            incoming.profileId != state.intent.profileId
+        ) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (incoming.seriesId.isNotEmpty() &&
+            state.cellularEvidence?.seriesId == incoming.seriesId
+        ) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        val folded = foldReachabilityEvidence(
+            previous = state.cellularEvidence,
+            incoming = incoming,
+            cellular = true,
+            elapsedMs = elapsedMs,
+        )
+        val liveCellular = state.underlay.kind == UnderlayKind.Cellular
+        val appliesNow = liveCellular &&
+            (incoming.networkKey == null ||
+                incoming.networkKey.matchesCellularUnderlay(state.underlay.key) ||
+                state.underlay.key == null)
+        val next = state.copy(
+            cellularEvidence = folded,
+            evidence = if (appliesNow) {
+                foldReachabilityEvidence(
+                    previous = state.evidence,
+                    incoming = incoming.copy(networkKey = state.underlay.key ?: incoming.networkKey),
+                    cellular = true,
+                    elapsedMs = elapsedMs,
+                )
+            } else {
+                state.evidence
+            },
+        )
+        return if (state.intent.wantsConnected && appliesNow) {
+            decideNext(next, elapsedMs, jitterPermille)
+        } else {
+            ReduceResult(next, RecoveryCommand.None)
+        }
     }
 
     private fun onDirectOk(
@@ -420,6 +491,11 @@ object ConnectionReducer {
             transport = TransportLifecycle.Running,
             pathReadiness = readiness,
             lastConfirmedPath = if (pathConfirmed) VpnPath.Direct else state.lastConfirmedPath,
+            lastConfirmedNetworkKey = if (pathConfirmed) {
+                event.networkKey ?: state.underlay.key
+            } else {
+                state.lastConfirmedNetworkKey
+            },
             wifiFailStreak = if (pathConfirmed) 0 else state.wifiFailStreak,
             wifiStableHits = if (pathConfirmed) state.wifiStableHits + 1 else state.wifiStableHits,
             directNegative = if (pathConfirmed) null else state.directNegative,
@@ -830,6 +906,7 @@ object ConnectionReducer {
                 call = state.call,
                 directNegative = state.directNegative,
                 lastConfirmedPath = state.lastConfirmedPath,
+                lastConfirmedNetworkKey = state.lastConfirmedNetworkKey,
                 wifiFailStreak = state.wifiFailStreak,
                 wifiStableHits = state.wifiStableHits,
                 parkedRawAlive = state.parkedRawAlive,
@@ -1099,6 +1176,36 @@ object ConnectionReducer {
         callOpInFlight = state.recovery.callOpInFlight,
         userStop = !state.intent.wantsConnected,
     )
+
+    /**
+     * Wi‑Fi samples stay in [ConnectionSnapshot.evidence]; cellular score lives
+     * in [ConnectionSnapshot.cellularEvidence] until LTE becomes the underlay.
+     */
+    private fun carryWhitelistEvidence(
+        state: ConnectionSnapshot,
+        snapshot: UnderlaySnapshot,
+        networkChanged: Boolean,
+    ): ConnectionSnapshot {
+        val liveCellular = snapshot.kind == UnderlayKind.Cellular
+        val adopted = if (liveCellular) {
+            adoptCellularEvidence(state.cellularEvidence, snapshot.key)
+        } else {
+            null
+        }
+        val stash = if (liveCellular) {
+            adopted ?: state.cellularEvidence
+        } else {
+            state.cellularEvidence?.takeIf {
+                it.networkKey == null || it.networkKey.isCellular
+            }
+        }
+        val evidence = when {
+            !networkChanged -> state.evidence
+            liveCellular -> adopted
+            else -> null
+        }
+        return state.copy(evidence = evidence, cellularEvidence = stash)
+    }
 
     private fun withUi(state: ConnectionSnapshot, nowElapsedMs: Long): ConnectionSnapshot {
         val retryAt = state.recovery.nextRetryAtElapsedMs

@@ -395,8 +395,10 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
 
 /**
  * Auto handover:
- * - Direct → Bypass only after Direct actually failed on this underlay.
- *   A working Direct is not restarted because provision or Cloudflare answered.
+ * - Direct → Bypass after Direct actually failed on this underlay, or when
+ *   the underlay became cellular and a pre-warmed whitelist score is likely.
+ *   A working Direct on the same cellular radio is not restarted because
+ *   provision or Cloudflare answered.
  * - Bypass → Direct on Wi‑Fi Auto whenever Direct is allowed.
  *   Cellular Bypass stays until the recovery timer reevals Direct.
  * - Forced Direct/Bypass only rebind when the underlay actually changed.
@@ -414,6 +416,7 @@ fun decideNetworkHandoverAction(
     allowBypassToDirect: Boolean = true,
     directFailedOnCurrentUnderlay: Boolean = false,
     underlayKind: UnderlayKind = UnderlayKind.Other,
+    whitelistLikely: Boolean = false,
 ): NetworkHandoverDecision {
     val inGrace = sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS
     if (inGrace && !underlayChanged) {
@@ -447,7 +450,12 @@ fun decideNetworkHandoverAction(
         return NetworkHandoverDecision.NoAction
     }
     if (currentPath == VpnPath.Direct) {
-        val needBypass = bypassAllowed && directFailedOnCurrentUnderlay
+        val needBypass = bypassAllowed && (
+            directFailedOnCurrentUnderlay ||
+                (underlayChanged &&
+                    underlayKind == UnderlayKind.Cellular &&
+                    whitelistLikely)
+            )
         if (needBypass) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
         }
