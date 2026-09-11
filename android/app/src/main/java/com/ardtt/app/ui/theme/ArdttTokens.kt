@@ -184,6 +184,9 @@ object ArdttAlpha {
     /** Tinted background of a status badge or selected chip. */
     const val Fill = 0.18f
 
+    /** Softer tint for a strip on an already light card (light theme). */
+    const val FillSoft = 0.12f
+
     /** Border of a selected control. */
     const val Outline = 0.22f
 
