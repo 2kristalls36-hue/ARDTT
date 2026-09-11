@@ -71,7 +71,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.deploy.DeployBundle
@@ -119,6 +122,7 @@ import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.components.surface.ArdttTerminalCard
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
@@ -434,14 +438,13 @@ private fun ServerListScreen(
             return
         }
         healthById = snapshot.associate { it.id to HealthUi.Checking }
-        coroutineScope {
+        // One state write for the whole batch instead of one list recomposition per server.
+        val results = coroutineScope {
             snapshot.map { target ->
-                async {
-                    val status = probeServerHealthUi(target, serversRepo)
-                    healthById = healthById + (target.id to status)
-                }
+                async { target.id to probeServerHealthUi(target, serversRepo) }
             }.awaitAll()
         }
+        healthById = healthById + results
     }
 
     val serverIds = remember(servers) { servers.map { it.id }.joinToString(",") }
@@ -1177,12 +1180,16 @@ private fun ServerOverviewHost(
     }
 
     // Live host gauges while the overview is open (also refreshed by pull-to-refresh).
-    LaunchedEffect(serverId, server?.host, server?.publicHost) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(serverId, server?.host, server?.publicHost, lifecycleOwner) {
         val target = server ?: return@LaunchedEffect
-        while (true) {
-            delay(10_000)
-            if (busy) continue
-            health = probeServerHealthUi(target, serversRepo)
+        // Health re-probe only while the overview is on screen.
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(ServerOverviewDefaults.HealthPollMs)
+                if (busy) continue
+                health = probeServerHealthUi(target, serversRepo)
+            }
         }
     }
 
@@ -2091,6 +2098,18 @@ private fun serverOsMarkDrawable(mark: ServerOsMark): Int = when (mark) {
     ServerOsMark.Unknown -> R.drawable.ic_os_unknown
 }
 
+private object ServerOsBadgeDefaults {
+    /** Long distro names + version still leave room for the server title. */
+    val MaxWidth = 200.dp
+    /** Same vertical padding as ArdttStatusChip: below the spacing scale on purpose. */
+    val VerticalPadding = 3.dp
+}
+
+private object ServerOverviewDefaults {
+    /** Health re-probe cadence while the overview is visible. */
+    const val HealthPollMs = 10_000L
+}
+
 @Composable
 private fun ServerOsBadge(
     osId: String,
@@ -2101,15 +2120,18 @@ private fun ServerOsBadge(
     val version = serverOsBadgeVersionText(osId, osVersion)
     val description = listOfNotNull(label, version).joinToString(" ")
     Surface(
-        modifier = Modifier.widthIn(max = 200.dp),
+        modifier = Modifier.widthIn(max = ServerOsBadgeDefaults.MaxWidth),
         shape = ArdttShapes.Badge,
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = ArdttAlpha.FillSoft),
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            modifier = Modifier.padding(horizontal = ArdttSpacing.Small, vertical = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+            modifier = Modifier.padding(
+                horizontal = ArdttSpacing.Small,
+                vertical = ServerOsBadgeDefaults.VerticalPadding,
+            ),
         ) {
             Image(
                 painter = painterResource(serverOsMarkDrawable(mark)),

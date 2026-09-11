@@ -20,9 +20,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 
 @Composable
@@ -77,7 +78,7 @@ private fun HostMetricCell(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.padding(horizontal = 2.dp),
+        modifier = modifier.padding(horizontal = ArdttSpacing.Hairline),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
     ) {
@@ -86,7 +87,7 @@ private fun HostMetricCell(
             color = ringColor,
             label = formatHostPercent(percent),
         )
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline)) {
             Text(
                 title,
                 style = MaterialTheme.typography.labelLarge,
@@ -108,10 +109,10 @@ private fun HostMetricRing(
     percent: Float,
     color: Color,
     label: String,
-    size: Dp = 44.dp,
-    stroke: Dp = 4.dp,
+    size: Dp = ArdttSize.Chip,
+    stroke: Dp = ArdttSpacing.Tiny,
 ) {
-    val track = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    val track = MaterialTheme.colorScheme.outlineVariant.copy(alpha = ArdttAlpha.Muted)
     val sweep = (percent.coerceIn(0f, 100f) / 100f) * 360f
     BoxWithRing(
         size = size,
