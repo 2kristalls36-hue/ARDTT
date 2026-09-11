@@ -62,20 +62,20 @@ class ServerDeployCardLogicTest {
     @Test
     fun cardMetaOmitsHostWhenTitleIsTheHost() {
         assertEquals(
-            "SSH 22",
-            serverCardMetaLine("159.194.225.162", "159.194.225.162", 22, "159.194.225.162"),
+            "",
+            serverCardMetaLine("159.194.225.162", "159.194.225.162", "159.194.225.162"),
         )
         assertEquals(
-            "10.0.0.1 · SSH 22",
-            serverCardMetaLine("Edge", "10.0.0.1", 22, "10.0.0.1"),
+            "10.0.0.1",
+            serverCardMetaLine("Edge", "10.0.0.1", "10.0.0.1"),
         )
         assertEquals(
-            "10.0.0.1 · SSH 22 · pub 203.0.113.10",
-            serverCardMetaLine("Edge", "10.0.0.1", 22, "203.0.113.10"),
+            "10.0.0.1 · pub 203.0.113.10",
+            serverCardMetaLine("Edge", "10.0.0.1", "203.0.113.10"),
         )
         assertEquals(
-            "SSH 2200 · pub 203.0.113.10",
-            serverCardMetaLine("10.0.0.1", "10.0.0.1", 2200, "203.0.113.10"),
+            "pub 203.0.113.10",
+            serverCardMetaLine("10.0.0.1", "10.0.0.1", "203.0.113.10"),
         )
     }
 
@@ -106,37 +106,34 @@ class ServerDeployCardLogicTest {
             ),
         )
         assertEquals(
-            "10.0.0.1 → 2.26.125.160 · SSH 22",
+            "10.0.0.1 → 2.26.125.160",
             serverCardMetaLine(
                 name = "Edge",
                 host = "10.0.0.1",
-                sshPort = 22,
                 publicHost = "10.0.0.1",
                 cascadeEnabled = true,
                 cascadeHost = "2.26.125.160",
             ),
         )
         assertEquals(
-            "SSH 22",
+            "",
             serverCardMetaLine(
                 name = "10.0.0.1",
                 host = "10.0.0.1",
-                sshPort = 22,
                 publicHost = "10.0.0.1",
                 cascadeEnabled = true,
                 cascadeHost = "2.26.125.160",
             ),
         )
         assertEquals(
-            "10.0.0.1 · SSH 22",
-            serverCardMetaLine("Edge", "10.0.0.1", 22, "10.0.0.1", cascadeEnabled = true, cascadeHost = ""),
+            "10.0.0.1",
+            serverCardMetaLine("Edge", "10.0.0.1", "10.0.0.1", cascadeEnabled = true, cascadeHost = ""),
         )
         assertEquals(
-            "203.0.113.10 → 2.26.125.160 · SSH 22",
+            "203.0.113.10 → 2.26.125.160",
             serverCardMetaLine(
                 name = "Edge",
                 host = "10.0.0.1",
-                sshPort = 22,
                 publicHost = "203.0.113.10",
                 cascadeEnabled = true,
                 cascadeHost = "2.26.125.160",
@@ -164,7 +161,6 @@ class ServerDeployCardLogicTest {
             serverCardMetaParts(
                 name = "Edge",
                 host = "10.0.0.1",
-                sshPort = 22,
                 publicHost = "10.0.0.1",
                 cascadeEnabled = true,
                 cascadeHost = "2.26.125.160",

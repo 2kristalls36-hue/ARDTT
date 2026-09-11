@@ -2,6 +2,7 @@ package com.ardtt.app.ui
 
 import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
+import com.ardtt.app.core.ConnectionUiAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -34,12 +35,12 @@ class ConnectionControlsTest {
 
     @Test
     fun idleProbeKeepsConnectChromeNotStop() {
-        assertEquals("Подключиться", tunnelStickyCtaLabel(ConnState.Probing))
-        assertEquals("Подключиться", tunnelStickyCtaLabel(ConnState.Idle))
-        assertEquals("Подключиться", tunnelStickyCtaLabel(ConnState.Ready))
+        assertEquals("Подключить", tunnelStickyCtaLabel(ConnState.Probing))
+        assertEquals("Подключить", tunnelStickyCtaLabel(ConnState.Idle))
+        assertEquals("Подключить", tunnelStickyCtaLabel(ConnState.Ready))
         assertEquals("Отменить", tunnelStickyCtaLabel(ConnState.Connecting))
-        assertEquals("Отключить", tunnelStickyCtaLabel(ConnState.Connected))
-        assertEquals("Отключить", tunnelStickyCtaLabel(ConnState.PausedTrustedWifi))
+        assertEquals("Остановить", tunnelStickyCtaLabel(ConnState.Connected))
+        assertEquals("Остановить", tunnelStickyCtaLabel(ConnState.PausedTrustedWifi))
 
         assertFalse(tunnelStickyCtaIsDestructive(ConnState.Probing))
         assertFalse(tunnelStickyCtaIsDestructive(ConnState.Idle))
@@ -99,6 +100,23 @@ class ConnectionControlsTest {
         assertTrue(tunnelProfileCenterOpensManage(3))
         assertFalse(tunnelProfileCenterOpensManage(0))
         assertEquals("Отменить подключение", tunnelPowerContentDescription(ConnState.Connecting, connected = false))
+    }
+
+    @Test
+    fun tunnelChromeHidesDuplicateDisconnectChip() {
+        assertEquals(
+            listOf(ConnectionUiAction.OpenDiagnostics),
+            tunnelChromeActions(
+                listOf(ConnectionUiAction.Disconnect, ConnectionUiAction.OpenDiagnostics),
+            ),
+        )
+        assertEquals(
+            listOf(ConnectionUiAction.RetryNow),
+            tunnelChromeActions(
+                listOf(ConnectionUiAction.RetryNow, ConnectionUiAction.Disconnect),
+            ),
+        )
+        assertTrue(tunnelChromeActions(listOf(ConnectionUiAction.Disconnect)).isEmpty())
     }
 
     @Test

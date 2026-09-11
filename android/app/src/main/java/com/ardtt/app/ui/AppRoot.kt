@@ -414,7 +414,6 @@ fun AppRoot(
                                 onRequestConnect = { requestVpnThenConnect() },
                                 isAdmin = admin,
                                 classicAppearance = classicAppearance,
-                                onOpenExceptions = { navigateTab(AppDestination.Exceptions.route) },
                             )
                         }
                         composable(AppDestination.Servers.route) {
@@ -437,7 +436,7 @@ fun AppRoot(
                             ExceptionsScreen(
                                 settings = settings,
                                 onBack = if (admin) {
-                                    { navigateTab(AppDestination.Tunnel.route) }
+                                    { navigateTab(AppDestination.Settings.route) }
                                 } else {
                                     null
                                 },
@@ -477,6 +476,7 @@ fun AppRoot(
                                 settings = settings,
                                 isRecording = isRecording,
                                 onOpenTesting = { navigateTab(AppDestination.Testing.route) },
+                                onOpenExceptions = { navigateTab(AppDestination.Exceptions.route) },
                             )
                         }
                         composable(AppDestination.Testing.route) {

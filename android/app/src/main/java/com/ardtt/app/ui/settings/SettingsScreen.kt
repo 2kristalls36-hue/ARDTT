@@ -20,6 +20,7 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -102,6 +103,7 @@ fun SettingsScreen(
     settings: AppSettingsRepository,
     isRecording: Boolean = false,
     onOpenTesting: (() -> Unit)? = null,
+    onOpenExceptions: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -310,9 +312,6 @@ fun SettingsScreen(
             }
         }
 
-        // User-facing WiFi pause controls should always be available in Settings.
-        TrustedWifiSettingsCard(settings = settings)
-
         ArdttSectionCard(
             modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
             contentPadding = PaddingValues(ArdttSpacing.Large),
@@ -342,6 +341,18 @@ fun SettingsScreen(
             )
             CallHashSettingsContent(showHeader = false)
         }
+
+        if (admin && onOpenExceptions != null) {
+            ArdttDestinationRow(
+                icon = Icons.Outlined.FilterList,
+                title = "Правила обхода",
+                subtitle = "Приложения и сайты вне туннеля",
+                onClick = onOpenExceptions,
+            )
+        }
+
+        // User-facing WiFi pause controls should always be available in Settings.
+        TrustedWifiSettingsCard(settings = settings)
 
         val appearanceHighlightAlpha by animateFloatAsState(
             targetValue = if (highlightAppearanceCard) 1f else 0f,
