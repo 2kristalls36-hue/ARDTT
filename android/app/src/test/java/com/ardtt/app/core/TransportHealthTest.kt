@@ -89,4 +89,24 @@ class TransportHealthTest {
         assertEquals(1500L, TransportHealth.exactDownBytes)
         assertTrue(1500L < 0.01 * 1024 * 1024)
     }
+
+    @Test
+    fun telemetryPollLinesAreRecognisedForLogSuppression() {
+        assertTrue(
+            TransportHealth.isTelemetryPollLine(
+                "V1|k2|1|ACK|GET_TELEMETRY|ok|stage=starting|channels=3|down=5385|up=3904",
+            ),
+        )
+        assertTrue(
+            TransportHealth.isTelemetryPollLine(
+                "2026/09/11 18:58:36.712264 [STDIN] V1|k1|1|GET_TELEMETRY",
+            ),
+        )
+        assertFalse(
+            TransportHealth.isTelemetryPollLine("V1|k7|1|ACK|UPDATE_NETWORK|ok|channels=3"),
+        )
+        assertFalse(
+            TransportHealth.isTelemetryPollLine("[СТАТИСТИКА] Активных: 3 Трафик: 1.20 МБ"),
+        )
+    }
 }

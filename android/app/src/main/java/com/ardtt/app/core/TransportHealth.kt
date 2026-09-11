@@ -222,6 +222,18 @@ object TransportHealth {
         return out
     }
 
+    /**
+     * GET_TELEMETRY is polled every 250 ms. Its stdin echo and ACK are consumed by
+     * [applyControlAck]; forwarding them to the log adds 4 lines/s of noise.
+     */
+    fun isTelemetryPollLine(line: String): Boolean {
+        val start = line.indexOf("V1|")
+        if (start < 0) return false
+        val parts = line.substring(start).split('|')
+        if (parts.getOrNull(3) == "GET_TELEMETRY") return true
+        return parts.getOrNull(3) == "ACK" && parts.getOrNull(4) == "GET_TELEMETRY"
+    }
+
     internal fun payloadFromControlAck(reply: String): String? {
         val parts = reply.split('|')
         if (parts.size >= 7 && parts.getOrNull(3) == "ACK") {
