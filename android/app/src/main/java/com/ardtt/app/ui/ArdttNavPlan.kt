@@ -69,7 +69,7 @@ object ArdttNavPlan {
             currentRoute
         }
         AppDestination.Exceptions.route -> if (admin) {
-            AppDestination.Tunnel.route
+            AppDestination.Settings.route
         } else {
             AppDestination.Exceptions.route
         }
