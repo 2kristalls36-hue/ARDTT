@@ -34,6 +34,8 @@ fi
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/disk-cleanup.sh"
 # shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/hostdeps.sh"
+# shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/engine.sh"
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/ports.sh"

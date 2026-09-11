@@ -27,9 +27,27 @@
 #   ARDTT_DISK_CLEANUP=1 — safe reclaim (logs/apt/headers/ARDTT leftovers) if disk preflight fails
 set -euo pipefail
 
+# die "CODE|message" or die --code CODE "message" → ARDTT_ERROR|code=CODE|message
+# (the `code=` form is what the phone maps to a readable summary; install-lib
+# helpers sourced from the package use the --code form).
 die() {
-  local msg="$*"
-  printf 'ARDTT_ERROR|%s\n' "$msg"
+  local code="" msg
+  if [ "${1:-}" = "--code" ]; then
+    code="$2"
+    shift 2
+    msg="$*"
+  else
+    msg="$*"
+    if [[ "$msg" =~ ^([A-Z][A-Z0-9_]*)\|(.*)$ ]]; then
+      code="${BASH_REMATCH[1]}"
+      msg="${BASH_REMATCH[2]}"
+    fi
+  fi
+  if [ -n "$code" ]; then
+    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg"
+  else
+    printf 'ARDTT_ERROR|%s\n' "$msg"
+  fi
   exit 1
 }
 
@@ -270,11 +288,14 @@ ARCH="$(detect_arch)"
 WANT_VER="${ARDTT_DEPLOY_VERSION:-}"
 prog 0.02 "Определение пакета (${ARCH}${WANT_VER:+, версия $WANT_VER})"
 
-# Docker Engine needs the distro iptables binary and the package never installs
-# distro packages (see install-lib/engine.sh). Say so before downloading 170 MB.
-if [ "${ARDTT_DRY_RUN:-0}" != 1 ] && ! { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; } \
+# Docker Engine needs the distro iptables binary. When Docker has to come from
+# the package and iptables is absent, install-lib/hostdeps.sh installs it from
+# the distro repository (before Engine/layers are downloaded). If the operator
+# forbids that (ARDTT_INSTALL_IPTABLES=0), say so before downloading anything.
+if [ "${ARDTT_DRY_RUN:-0}" != 1 ] && [ "${ARDTT_INSTALL_IPTABLES:-1}" = "0" ] \
+   && ! { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; } \
    && ! command -v iptables >/dev/null 2>&1; then
-  die "IPTABLES_MISSING|на VPS нет iptables — без него Docker не поднимет сети. Поставьте пакет дистрибутива и повторите: Debian/Ubuntu 'apt install iptables', RHEL/Fedora 'dnf install iptables-nft'. Пакет ARDTT ничего не ставит из сети, кроме своего релиза."
+  die "IPTABLES_MISSING|на VPS нет iptables — без него Docker не поднимет сети, а ARDTT_INSTALL_IPTABLES=0 запрещает ставить его из репозитория дистрибутива. Поставьте вручную (Debian/Ubuntu: apt install iptables · RHEL/Fedora: dnf install iptables-nft) и повторите."
 fi
 
 mkdir -p "$INCOMING" "$STAGING"
@@ -630,6 +651,13 @@ if ! command -v docker >/dev/null 2>&1; then
     NEED_ENGINE=1
   else
     warn "на VPS нет docker, а в релизе нет отдельного Engine — install.sh сообщит DOCKER_MISSING"
+  fi
+  # dockerd needs iptables: take the distro package now (56 KB of host files are
+  # in, 80 MB of Engine are not yet) instead of failing after the downloads.
+  if [ "${ARDTT_DRY_RUN:-0}" != 1 ] && [ -f "$STAGING/install-lib/hostdeps.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$STAGING/install-lib/hostdeps.sh"
+    ensure_host_iptables
   fi
 fi
 # Compose: host plugin or our /opt/ardtt/bin copy with the same SHA-256 is enough.

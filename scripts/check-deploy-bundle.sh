@@ -91,6 +91,19 @@ PY
   fi
   grep -q 'get.docker.com' "$PACK_SERVER" && err "pack-server-package must not call get.docker.com"
   grep -q 'ensure_docker_engine' "$INSTALLER" || err "installer must install Engine from vendor/docker.tgz when missing"
+# The only distro package the installer may take is iptables (dockerd needs it):
+# hostdeps.sh, called from engine.sh and from the fetcher before the Engine download.
+[ -f "$ROOT/server/install-lib/hostdeps.sh" ] || err "missing install-lib/hostdeps.sh"
+grep -q 'INSTALL_LIB_DIR/hostdeps.sh' "$INSTALLER" || err "install.sh must source hostdeps.sh"
+grep -q 'ensure_host_iptables' "$ROOT/server/install-lib/engine.sh" || err "engine.sh must ensure iptables via hostdeps.sh"
+grep -q 'ensure_host_iptables' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must ensure iptables before downloading Engine"
+grep -q 'ARDTT_INSTALL_IPTABLES' "$ROOT/server/install-lib/hostdeps.sh" || err "hostdeps must honour ARDTT_INSTALL_IPTABLES=0"
+if grep -E 'apt-get install|dnf install|yum install|apk add|zypper .*install' "$ROOT/server/install-lib/hostdeps.sh" | grep -vqE 'iptables'; then
+  err "hostdeps.sh may install iptables only"
+fi
+if grep -E 'apt-get install|dnf install|yum install|apk add' "$ROOT/server/install-lib/hostdeps.sh" | grep -qiE 'docker|containerd|compose'; then
+  err "hostdeps.sh must never install Docker from distro repositories"
+fi
   grep -q 'vendor/docker.tgz' "$PACK_SERVER" || err "pack-server-package must include vendor/docker.tgz"
   grep -q 'download.docker.com/linux/static' "$PACK_SERVER" || err "pack must fetch Engine static tarball in CI"
   if grep -q 'cat > /lib/systemd/system/docker.service' "$ROOT/server/install-lib/engine.sh"; then

@@ -148,7 +148,7 @@ ok "A partial install on a bare VPS"
 # --- B: Docker + Compose present, unpinned → newest 1.0.47 is tampered? no: 1.0.47 hostfiles are corrupt → SHA mismatch
 RUN_PATH="$TMP/withdocker:$TMP/nodocker" run_fetch B
 [ "$RUN_RC" != 0 ] || err "B tampered hostfiles must fail"
-grep -q 'ARDTT_ERROR|SHA256_MISMATCH' "$RUN_OUT" || err "B expected SHA256_MISMATCH: $(tail -3 "$RUN_OUT")"
+grep -q 'ARDTT_ERROR|code=SHA256_MISMATCH|' "$RUN_OUT" || err "B expected SHA256_MISMATCH: $(tail -3 "$RUN_OUT")"
 grep -q 'ARDTT_DONE' "$RUN_OUT" && err "B must not print ARDTT_DONE"
 [ "$(grep -c "layer-0[0-9]-" "$RUN_REQ")" = 0 ] || err "B must stop before layers"
 ok "B tampered asset rejected before anything is staged"
@@ -193,13 +193,13 @@ ok "F pre-index release still installs"
 # --- G: partial requested but release has no index
 RUN_PATH="$TMP/withdocker:$TMP/nodocker" RUN_API="$BASE/legacy" run_fetch G ARDTT_FETCH_MODE=partial
 [ "$RUN_RC" != 0 ] || err "G must fail"
-grep -q 'ARDTT_ERROR|INDEX_MISSING' "$RUN_OUT" || err "G expected INDEX_MISSING"
+grep -q 'ARDTT_ERROR|code=INDEX_MISSING|' "$RUN_OUT" || err "G expected INDEX_MISSING"
 ok "G INDEX_MISSING"
 
 # --- H: unknown pinned version
 RUN_PATH="$TMP/withdocker:$TMP/nodocker" run_fetch H ARDTT_DEPLOY_VERSION=9.9.9
 [ "$RUN_RC" != 0 ] || err "H must fail"
-grep -q 'ARDTT_ERROR|PACKAGE_RESOLVE' "$RUN_OUT" || err "H expected PACKAGE_RESOLVE"
+grep -q 'ARDTT_ERROR|code=PACKAGE_RESOLVE|' "$RUN_OUT" || err "H expected PACKAGE_RESOLVE"
 ok "H PACKAGE_RESOLVE"
 
 # --- I: cold cache but the image is already loaded → layers come from `docker save`, not the network
@@ -254,19 +254,55 @@ grep -q 'deploy_version=1.0.46' "$RUN_OUT" || err "J version"
 [ "$(reqs "ardtt-docker-engine-29.7.2-linux-${ARCH}.tgz")" = 0 ] || err "J Engine must not be downloaded when docker exists"
 ok "J urllib downloader without curl"
 
-# --- K: no docker and no iptables (fresh minimal image) → fail before any download
+# --- K: no docker, no iptables, operator forbids distro packages → fail before any download
 if ! command -v iptables >/dev/null 2>&1; then
   before_k="$(wc -l < "$LOG")"
   set +e
   env -i PATH="$TMP/nodocker" HOME="$TMP" ARDTT_GITHUB_API="$BASE/api" ARDTT_GITHUB_REPO=o/r \
     ARDTT_INSTALL_DIR="$INSTALL" ARDTT_PUBLIC_HOST=203.0.113.9 ARDTT_SKIP_ROOT_CHECK=1 \
+    ARDTT_INSTALL_IPTABLES=0 \
     bash "$ROOT/server/fetch-and-install.sh" > "$TMP/out-K.txt" 2>&1
   rc_k=$?
   set -e
-  [ "$rc_k" != 0 ] || err "K must fail without iptables"
-  grep -q 'ARDTT_ERROR|IPTABLES_MISSING' "$TMP/out-K.txt" || err "K expected IPTABLES_MISSING: $(tail -2 "$TMP/out-K.txt")"
+  [ "$rc_k" != 0 ] || err "K must fail without iptables when ARDTT_INSTALL_IPTABLES=0"
+  grep -q 'ARDTT_ERROR|code=IPTABLES_MISSING|' "$TMP/out-K.txt" || err "K expected IPTABLES_MISSING: $(tail -2 "$TMP/out-K.txt")"
   [ "$(wc -l < "$LOG")" = "$before_k" ] || err "K must not download anything before the iptables check"
-  ok "K iptables missing is reported before any download"
+  ok "K ARDTT_INSTALL_IPTABLES=0 is reported before any download"
+
+  # --- L: one-button path — iptables is installed from the distro repo (fake apt-get)
+  #        after the 56 KB host files and before the 80 MB Engine download.
+  mkdir -p "$TMP/fakeapt"
+  cat > "$TMP/fakeapt/apt-get" <<EOF
+#!/bin/sh
+case "\$*" in
+  *install*iptables*) printf '#!/bin/sh\necho "iptables v1.8.11 (fake)"\n' > "$TMP/fakeapt/iptables"; chmod +x "$TMP/fakeapt/iptables"; echo "fake apt: installed iptables" ;;
+  *update*) echo "fake apt: update" ;;
+esac
+exit 0
+EOF
+  chmod +x "$TMP/fakeapt/apt-get"
+  rm -f "$TMP/fakeapt/iptables"
+  before_l="$(wc -l < "$LOG")"
+  set +e
+  env -i PATH="$TMP/fakeapt:$TMP/nodocker" HOME="$TMP" ARDTT_GITHUB_API="$BASE/api" ARDTT_GITHUB_REPO=o/r \
+    ARDTT_INSTALL_DIR="$INSTALL" ARDTT_PUBLIC_HOST=203.0.113.9 ARDTT_SKIP_ROOT_CHECK=1 \
+    ARDTT_DEPLOY_VERSION=1.0.45 ARDTT_ENGINE_LIB="$TMP/engine-lib" ARDTT_ENGINE_BINDIR="$TMP/engine-bin" \
+    bash "$ROOT/server/fetch-and-install.sh" > "$TMP/out-L.txt" 2>&1
+  set -e
+  grep -q 'ARDTT_PROGRESS|0.15|Установка iptables из репозитория дистрибутива (apt)' "$TMP/out-L.txt" \
+    || err "L must install iptables via apt before Engine: $(grep -E 'ARDTT_(ERROR|PROGRESS)' "$TMP/out-L.txt" | head -5)"
+  grep -q 'ARDTT_INFO|iptables поставлен из репозитория дистрибутива (apt)' "$TMP/out-L.txt" || err "L must report the installed iptables"
+  [ -x "$TMP/fakeapt/iptables" ] || err "L fake apt did not run the install"
+  sed -n "$((before_l + 1)),\$p" "$LOG" | grep -q "ardtt-docker-engine-29.7.2-linux-${ARCH}.tgz" \
+    || err "L Engine must be downloaded after iptables is in place: $(sed -n "$((before_l + 1)),\$p" "$LOG" | awk '{print $7}')"
+  # Order: host files first, then iptables, then Engine.
+  python3 - "$TMP/out-L.txt" <<'PY' || err "L wrong order of host files / iptables / Engine"
+import sys
+t = open(sys.argv[1], encoding="utf-8").read()
+a, b, c = t.find("Файлы установщика"), t.find("Установка iptables"), t.find("Docker Engine 29.7.2 из релиза")
+assert 0 <= a < b < c, (a, b, c)
+PY
+  ok "L iptables installed from the distro repo between host files and Engine"
 fi
 
 # Bootstrap copy in APK assets must be the same script.

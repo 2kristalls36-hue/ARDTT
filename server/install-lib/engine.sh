@@ -181,7 +181,9 @@ ensure_docker_engine() {
     || [ -f /lib/systemd/system/docker.socket ] || [ -f /usr/lib/systemd/system/docker.socket ]; then
     die --code DOCKER_NOT_RUNNING "На хосте есть unit docker.service, но нет рабочего CLI. Чужой Engine не трогаем."
   fi
-  command -v iptables >/dev/null 2>&1 || die --code IPTABLES_MISSING "Нужен iptables на хосте — без него Docker не поднимет сети. Поставьте пакет дистрибутива (Debian/Ubuntu: apt install iptables; RHEL/Fedora: dnf install iptables-nft) и повторите. Пакет не ставит его из сети."
+  # The one distro package the installer takes when Docker comes from the archive
+  # (install-lib/hostdeps.sh); refused with IPTABLES_MISSING under ARDTT_INSTALL_IPTABLES=0.
+  ensure_host_iptables
   prog 0.16 "Установка Docker Engine из архива ARDTT"
   install_engine_binaries "$tarfile"
   write_engine_units "$ARDTT_ENGINE_LIB"
