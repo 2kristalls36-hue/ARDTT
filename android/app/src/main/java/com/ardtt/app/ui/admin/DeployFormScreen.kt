@@ -26,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
@@ -40,6 +39,7 @@ import com.ardtt.app.ui.components.control.ArdttDigitsField
 import com.ardtt.app.ui.components.control.ArdttPasswordField
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.control.ArdttTextField
+import com.ardtt.app.ui.components.control.ArdttTextFieldDefaults
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
@@ -314,7 +314,7 @@ fun DeployScreen(
             value = privateKey,
             onValueChange = { privateKey = it },
             label = "SSH private key PEM (опционально)",
-            modifier = Modifier.heightIn(min = 80.dp),
+            modifier = Modifier.heightIn(min = ArdttTextFieldDefaults.MultilineMinHeight),
             singleLine = false,
             minLines = 3,
             enabled = !busy,
@@ -424,7 +424,7 @@ fun DeployScreen(
                     value = cascadePrivateKey,
                     onValueChange = { cascadePrivateKey = it },
                     label = "SSH private key PEM (опционально)",
-                    modifier = Modifier.heightIn(min = 80.dp),
+                    modifier = Modifier.heightIn(min = ArdttTextFieldDefaults.MultilineMinHeight),
                     singleLine = false,
                     minLines = 3,
                     enabled = !busy,

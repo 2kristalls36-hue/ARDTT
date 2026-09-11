@@ -23,6 +23,8 @@ import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttShapes
 import kotlinx.coroutines.delay
@@ -182,4 +184,10 @@ fun Modifier.bringIntoViewWhenFocused(): Modifier {
 object ArdttTextFieldDefaults {
     /** Wait for the IME animation before scrolling the field into view. */
     const val FocusScrollDelayMs: Long = (ArdttMotion.Fast + ArdttMotion.Quick / 2).toLong()
+
+    /** Minimum height of a multi-line field that starts empty (PEM key). */
+    val MultilineMinHeight: Dp = 80.dp
+
+    /** Fixed height of a paste area for config / JSON blobs. */
+    val PasteAreaHeight: Dp = 180.dp
 }

@@ -42,7 +42,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.AppLog
@@ -70,6 +69,7 @@ import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttTextField
+import com.ardtt.app.ui.components.control.ArdttTextFieldDefaults
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
@@ -450,7 +450,7 @@ fun ProfilesScreen(
             ArdttTextField(
                 value = pasteText,
                 onValueChange = { pasteText = it },
-                modifier = Modifier.height(180.dp),
+                modifier = Modifier.height(ArdttTextFieldDefaults.PasteAreaHeight),
                 placeholder = "ardtt://config?… или { \"name\": … }",
                 singleLine = false,
             )

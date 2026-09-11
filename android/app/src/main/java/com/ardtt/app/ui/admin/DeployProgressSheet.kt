@@ -38,6 +38,11 @@ import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.util.copyToClipboard
 import com.ardtt.app.ui.util.shareText
 
+private object DeployProgressDefaults {
+    /** Inline deploy log inside the progress sheet: short enough to keep the actions visible. */
+    val LogMaxHeight = 200.dp
+}
+
 
 @Composable
 internal fun DeployProgressSheet(
@@ -216,7 +221,7 @@ internal fun DeployProgressSheet(
         if (showLog) {
             ArdttTerminalCard(
                 text = redacted.ifBlank { log.takeLast(24).joinToString("\n") },
-                maxHeight = 200.dp,
+                maxHeight = DeployProgressDefaults.LogMaxHeight,
             )
         }
     }
