@@ -39,6 +39,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Long-press on QS tiles: open the app, not the profile picker. -->
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -132,14 +137,9 @@
 
         <activity
             android:name=".QsProfilePickerActivity"
-            android:exported="true"
+            android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@style/Theme.Ardtt.QsDialog">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.Ardtt.QsDialog" />
 
         <service
             android:name=".deploy.DeployService"

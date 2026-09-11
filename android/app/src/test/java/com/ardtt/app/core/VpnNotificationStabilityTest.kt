@@ -76,4 +76,12 @@ class VpnNotificationStabilityTest {
         assertEquals("ardtt_vpn_shade_v6", VpnNotificationChannels.id(showInShade = true))
         assertEquals("ardtt_vpn_min_v6", VpnNotificationChannels.id(showInShade = false))
     }
+
+    @Test
+    fun openAppFlagsAllowColdStartFromShade() {
+        val flags = notificationOpenAppFlags()
+        assertTrue(flags and android.content.Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        assertTrue(flags and android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
+        assertTrue(flags and android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP != 0)
+    }
 }
