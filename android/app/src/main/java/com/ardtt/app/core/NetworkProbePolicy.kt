@@ -239,6 +239,17 @@ internal object NetworkProbePolicy {
         return minOf(want, remainingBudgetMs).coerceAtLeast(0)
     }
 
+    /** A retry is only worth issuing if the round can still pay for it. */
+    const val ORDINARY_RETRY_MIN_BUDGET_MS = 300
+
+    /**
+     * Congestion loss is probabilistic, a whitelist block is deterministic:
+     * one more shot at a timed-out ordinary target tells them apart. Refused
+     * and the dirty outcomes are already conclusive, so only a timeout retries.
+     */
+    fun shouldRetryOrdinaryTarget(outcome: CheckOutcome, remainingBudgetMs: Int): Boolean =
+        outcome == CheckOutcome.Timeout && remainingBudgetMs >= ORDINARY_RETRY_MIN_BUDGET_MS
+
     /**
      * One verdict for a control host probed on several of its IPs at once.
      * Any reachable IP proves the service is reachable; when none is, the most

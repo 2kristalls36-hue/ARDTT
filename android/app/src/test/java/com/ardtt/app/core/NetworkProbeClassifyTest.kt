@@ -358,6 +358,33 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
+    fun onlyATimedOutOrdinaryTargetRetriesAndOnlyOnBudget() {
+        assertTrue(
+            NetworkProbePolicy.shouldRetryOrdinaryTarget(CheckOutcome.Timeout, 300),
+        )
+        assertTrue(
+            NetworkProbePolicy.shouldRetryOrdinaryTarget(CheckOutcome.Timeout, 900),
+        )
+        assertTrue(
+            !NetworkProbePolicy.shouldRetryOrdinaryTarget(CheckOutcome.Timeout, 299),
+        )
+        listOf(
+            CheckOutcome.Success,
+            CheckOutcome.Refused,
+            CheckOutcome.TlsFailure,
+            CheckOutcome.BindFailure,
+            CheckOutcome.Cancelled,
+            CheckOutcome.NotRun,
+            CheckOutcome.NetworkLost,
+        ).forEach { outcome ->
+            assertTrue(
+                "outcome=$outcome",
+                !NetworkProbePolicy.shouldRetryOrdinaryTarget(outcome, 1_200),
+            )
+        }
+    }
+
+    @Test
     fun ruControlSuccessIsInternetEvidenceAndGoesDirect() {
         assertEquals(
             ProbePathHint.Direct,

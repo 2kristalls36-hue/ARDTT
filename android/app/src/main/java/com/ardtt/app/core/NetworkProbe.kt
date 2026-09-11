@@ -38,9 +38,10 @@ import kotlinx.coroutines.withContext
  *
  * Auto cellular uses a weighted whitelist score before the first Direct try.
  * One Cloudflare miss is not two providers; both ordinary targets must block.
- * Once a control has answered, an ordinary target that timed out gets an
- * RTT-scaled second chance ([NetworkProbePolicy.ordinaryDeadlineMs]); the
- * Direct verdict is already published by then, only the score waits.
+ * An ordinary target that timed out gets one second chance while the round can
+ * pay for it ([NetworkProbePolicy.shouldRetryOrdinaryTarget]), sized by the
+ * control RTT ([NetworkProbePolicy.ordinaryDeadlineMs]); the Direct verdict is
+ * already published by then, only the score waits.
  */
 object NetworkProbe {
 
@@ -141,8 +142,8 @@ object NetworkProbe {
                 var captive = captiveFromCaps
                 var publishedFast = false
                 var controlRttMs: Int? = null
-                var cloudflareExtended = false
-                var googleExtended = false
+                var cloudflareRetried = false
+                var googleRetried = false
 
                 fun noteControl(outcome: CheckOutcome) {
                     if (!outcome.isSuccess || controlRttMs != null) return
@@ -151,20 +152,22 @@ object NetworkProbe {
                 }
 
                 /**
-                 * Extra wait for an ordinary target that timed out while a
-                 * control answered slowly. Zero unless the RTT-scaled deadline
-                 * is longer than the base timeout already spent.
+                 * Window for the single retry of a timed-out ordinary target:
+                 * the RTT-scaled deadline beyond the base timeout already
+                 * spent, or one more base timeout when no control RTT is known.
                  */
-                fun ordinaryExtensionMs(
+                fun ordinaryRetryMs(
                     outcome: CheckOutcome,
                     baseMs: Int,
-                    alreadyExtended: Boolean,
+                    alreadyRetried: Boolean,
                 ): Int {
-                    if (alreadyExtended || outcome != CheckOutcome.Timeout) return 0
-                    val rtt = controlRttMs ?: return 0
+                    if (alreadyRetried) return 0
                     val left = remaining(roundBudget.toInt())
-                    val deadline = NetworkProbePolicy.ordinaryDeadlineMs(rtt, baseMs, left)
-                    return (deadline - baseMs).coerceAtLeast(0)
+                    if (!NetworkProbePolicy.shouldRetryOrdinaryTarget(outcome, left)) return 0
+                    val extended = controlRttMs?.let { rtt ->
+                        NetworkProbePolicy.ordinaryDeadlineMs(rtt, baseMs, left) - baseMs
+                    } ?: 0
+                    return maxOf(extended, minOf(baseMs, left)).coerceAtMost(left)
                 }
 
                 fun snapshot(): ProbeResult = NetworkProbePolicy.classify(
@@ -254,10 +257,12 @@ object NetworkProbe {
                         }
                         if (cloudflare == null) {
                             cloudflareDef.onAwait { outcome ->
-                                val extra = ordinaryExtensionMs(outcome, tlsMs, cloudflareExtended)
-                                if (extra > 0) {
-                                    cloudflareExtended = true
-                                    cloudflareDef = async { cloudflareOpenOutcome(extra, extra, bound) }
+                                val retryMs = ordinaryRetryMs(outcome, tlsMs, cloudflareRetried)
+                                if (retryMs > 0) {
+                                    cloudflareRetried = true
+                                    cloudflareDef = async {
+                                        cloudflareOpenOutcome(retryMs, retryMs, bound)
+                                    }
                                 } else {
                                     cloudflare = outcome
                                 }
@@ -265,10 +270,12 @@ object NetworkProbe {
                         }
                         if (google == null) {
                             googleDef.onAwait { outcome ->
-                                val extra = ordinaryExtensionMs(outcome, udpMs, googleExtended)
-                                if (extra > 0) {
-                                    googleExtended = true
-                                    googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, extra, bound) }
+                                val retryMs = ordinaryRetryMs(outcome, udpMs, googleRetried)
+                                if (retryMs > 0) {
+                                    googleRetried = true
+                                    googleDef = async {
+                                        udpDnsReachableOutcome(GOOGLE_DNS_IP, retryMs, bound)
+                                    }
                                 } else {
                                     google = outcome
                                 }
