@@ -55,6 +55,7 @@ import com.ardtt.app.core.needsNotificationPermission
 import com.ardtt.app.core.nextTrustedWifiPermissionAsk
 import com.ardtt.app.core.readConnectedWifiState
 import com.ardtt.app.core.trustedWifiAccessProblem
+import com.ardtt.app.core.trustedWifiAddButtonLabel
 import com.ardtt.app.legal.TestingModeAgreement
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.telemetry.TelemetryRecorder
@@ -828,13 +829,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 scope.launch { settings.setTrustedWifiEnabled(on) }
             },
         )
-        if (wifi.connected && wifi.ssidAvailable) {
-            Text(
-                "Сейчас: «${wifi.ssid}»",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        } else if (wifi.connected) {
+        if (wifi.connected && !wifi.ssidAvailable) {
             Text(
                 when (wifi.accessProblem) {
                     TrustedWifiAccessProblem.ForegroundPermission ->
@@ -846,14 +841,6 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        ArdttButton(
-            text = if (wifi.ssidAvailable) "Добавить «${wifi.ssid}»" else "Добавить текущую Wi‑Fi",
-            onClick = {
-                askTrustedWifiPermissions(wantBackground = false, addAfter = true)
-            },
-            enabled = enabled,
-            variant = ArdttButtonVariant.Outlined,
-        )
         ssids.forEach { ssid ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -873,6 +860,15 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         hint?.let {
             Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
         }
+        ArdttButton(
+            text = trustedWifiAddButtonLabel(wifi),
+            onClick = {
+                askTrustedWifiPermissions(wantBackground = false, addAfter = true)
+            },
+            enabled = enabled,
+            variant = ArdttButtonVariant.Outlined,
+            fillMaxWidth = true,
+        )
     }
 }
 

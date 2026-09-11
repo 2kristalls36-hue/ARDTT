@@ -145,6 +145,13 @@ fun sanitizeTrustedWifiSsid(value: String): String {
     return result.toString()
 }
 
+fun trustedWifiAddButtonLabel(wifi: ConnectedWifiState): String =
+    if (wifi.ssidAvailable) {
+        "Подключить текущую сеть «${wifi.ssid}»"
+    } else {
+        "Подключить текущую сеть"
+    }
+
 fun hasNearbyWifiDevicesPermission(context: Context): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
         ContextCompat.checkSelfPermission(

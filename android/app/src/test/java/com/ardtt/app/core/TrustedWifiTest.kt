@@ -273,4 +273,26 @@ class TrustedWifiTest {
             ),
         )
     }
+
+    @Test
+    fun addButtonNamesCurrentNetworkOnlyWhenSsidIsKnown() {
+        assertEquals(
+            "Подключить текущую сеть «Home»",
+            trustedWifiAddButtonLabel(ConnectedWifiState(connected = true, ssid = "Home")),
+        )
+        assertEquals(
+            "Подключить текущую сеть",
+            trustedWifiAddButtonLabel(ConnectedWifiState(connected = false)),
+        )
+        assertEquals(
+            "Подключить текущую сеть",
+            trustedWifiAddButtonLabel(
+                ConnectedWifiState(
+                    connected = true,
+                    ssid = "Home",
+                    accessProblem = TrustedWifiAccessProblem.LocationDisabled,
+                ),
+            ),
+        )
+    }
 }
