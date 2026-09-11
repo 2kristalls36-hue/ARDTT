@@ -113,6 +113,14 @@ on the VPS — no second full \`ardtt.tar\` is written. The installer unpacks
 Engine only when \`docker info\` fails. It will **not** fetch a network Engine
 installer, apt/dnf, or docker pull. A working Engine is left alone.
 
+The same release also publishes these contents as separate assets
+(\`ardtt-server-${VER}-linux-${ARCH}.index.json\`, \`-hostfiles.tar.gz\`,
+one \`-layer-NN-<diffid>.tar.gz\` per image layer, \`ardtt-docker-engine-*\`,
+\`ardtt-docker-compose-*\`). \`fetch-and-install.sh\` prefers that index and
+downloads only what the VPS lacks: host files always, Engine/Compose only when
+missing, image layers only when their diff ID is not in
+\`/opt/ardtt/cache/layers\`. This archive is the complete fallback.
+
 ## Install
 
 \`\`\`bash

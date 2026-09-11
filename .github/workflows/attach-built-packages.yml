@@ -1,5 +1,6 @@
-# Put the already-built 0.5.258 APK and 1.0.46 server archives on the
-# existing GitHub Release. Does not rebuild the image or APK.
+# Put the already-built APK and server packages (full archives plus the
+# partial-deploy index, host files, per-layer gzips, Engine and Compose) on
+# the existing GitHub Release. Does not rebuild the image or APK.
 # PRs never touch Releases.
 name: Attach built packages
 
