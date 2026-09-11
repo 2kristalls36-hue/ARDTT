@@ -531,6 +531,7 @@ fun SettingsScreen(
                         }
                     },
                     variant = ArdttButtonVariant.Outlined,
+                    fillMaxWidth = true,
                 )
             }
             adminHint?.let {
