@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
@@ -48,10 +49,11 @@ import com.ardtt.app.ui.theme.isDarkSurface
  * disappears under it.
  *
  * Layering (API 31+): the feed is recorded into one offscreen [androidx.compose.ui.graphics.layer.GraphicsLayer]
- * and drawn once. The overlay draws that layer again with a GPU [BlurEffect],
- * then a DstIn alpha mask so the blur itself fades into sharp pixels. The
- * header and status icons sit above, unblurred. API 28–30 skip RenderEffect
- * and keep a color fade so text never competes with the clock.
+ * and drawn once with a DstIn alpha mask so sharp pixels become transparent
+ * under the chrome (not bleached by a light scrim). The overlay draws that
+ * layer again with a GPU [BlurEffect], then the inverse DstIn mask so blur
+ * crossfades into sharp content. The header and status icons sit above,
+ * unblurred. API 28–30 skip RenderEffect; content still fades by alpha.
  *
  * Content is padded by chrome + fade so the first row is clear at scroll 0.
  * Only the sharp header consumes hits; the fade strip does not steal taps.
@@ -71,6 +73,7 @@ fun ArdttScrollChrome(
     val fade = ArdttChrome.FadeHeight
     val chromeHeight = status + headerHeight
     val topPadding = ardttScrollChromeTopPadding(chromeHeight, fade)
+    val maskHeight = chromeHeight + fade
     val graphicsLayer = rememberGraphicsLayer()
     val useBlur = ardttScrollChromeUsesGpuBlur(Build.VERSION.SDK_INT)
     val dark = isDarkSurface()
@@ -83,6 +86,9 @@ fun ArdttScrollChrome(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
                 .drawWithContent {
                     val feed = this
                     graphicsLayer.record(
@@ -96,6 +102,18 @@ fun ArdttScrollChrome(
                         feed.drawContent()
                     }
                     drawLayer(graphicsLayer)
+                    val maskH = maskHeight.toPx()
+                    if (maskH > 0f) {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colorStops = ardttScrollChromeContentFadeStops(),
+                                startY = 0f,
+                                endY = maskH,
+                            ),
+                            size = Size(size.width, maskH),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    }
                 },
         ) {
             content(topPadding)
@@ -109,7 +127,7 @@ fun ArdttScrollChrome(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(chromeHeight + fade),
+                    .height(maskHeight),
             ) {
                 if (useBlur) {
                     Box(
@@ -123,9 +141,7 @@ fun ArdttScrollChrome(
                                 drawContent()
                                 drawRect(
                                     brush = Brush.verticalGradient(
-                                        0f to Color.Black,
-                                        0.55f to Color.Black,
-                                        1f to Color.Transparent,
+                                        colorStops = ardttScrollChromeBlurFadeStops(),
                                     ),
                                     blendMode = BlendMode.DstIn,
                                 )
@@ -156,25 +172,11 @@ fun ArdttScrollChrome(
                             Brush.verticalGradient(
                                 0f to scrim,
                                 0.72f to scrim.copy(alpha = scrim.alpha * ArdttChrome.FadeAlpha),
-                                1f to scrim.copy(alpha = if (useBlur) 0f else scrim.alpha * 0.35f),
+                                1f to scrim.copy(alpha = 0f),
                             ),
                         )
                         .consumeHiddenContentPointers(),
                 )
-                if (!useBlur) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(fade)
-                            .background(
-                                Brush.verticalGradient(
-                                    0f to scrim.copy(alpha = scrim.alpha * 0.35f),
-                                    1f to Color.Transparent,
-                                ),
-                            ),
-                    )
-                }
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Spacer(Modifier.height(status))
                     Box(
@@ -196,6 +198,23 @@ internal fun ardttScrollChromeUsesGpuBlur(sdkInt: Int): Boolean =
     sdkInt >= Build.VERSION_CODES.S
 
 internal fun ardttScrollChromeTopPadding(chromeHeight: Dp, fade: Dp): Dp = chromeHeight + fade
+
+/** Shared mid-stop where blur hands off to sharp content. */
+internal const val ArdttScrollChromeFadeMid = 0.55f
+
+/** Alpha mask for sharp feed pixels: transparent under chrome, opaque below fade. */
+internal fun ardttScrollChromeContentFadeStops(): Array<Pair<Float, Color>> = arrayOf(
+    0f to Color.Transparent,
+    ArdttScrollChromeFadeMid to Color.Transparent,
+    1f to Color.Black,
+)
+
+/** Inverse mask for the blur overlay: full under chrome, gone below fade. */
+internal fun ardttScrollChromeBlurFadeStops(): Array<Pair<Float, Color>> = arrayOf(
+    0f to Color.Black,
+    ArdttScrollChromeFadeMid to Color.Black,
+    1f to Color.Transparent,
+)
 
 /** Eat hits that would otherwise reach rows drawn under the pinned chrome. */
 private fun Modifier.consumeHiddenContentPointers(): Modifier = pointerInput(Unit) {
