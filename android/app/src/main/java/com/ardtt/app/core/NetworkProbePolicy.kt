@@ -221,6 +221,25 @@ internal object NetworkProbePolicy {
     }
 
     /**
+     * How long an ordinary target may still be waited on once a control target
+     * answered in [controlRttMs].
+     *
+     * A target blocked by an operator whitelist never answers, however long we
+     * wait; a congested open link answers late. So the wait tracks the measured
+     * RTT instead of a fixed timeout, and never outlives [remainingBudgetMs] —
+     * the round budget stays the hard bound.
+     */
+    fun ordinaryDeadlineMs(
+        controlRttMs: Int,
+        baseTimeoutMs: Int,
+        remainingBudgetMs: Int,
+        factor: Int = 4,
+    ): Int {
+        val want = maxOf(baseTimeoutMs, factor * controlRttMs.coerceAtLeast(0))
+        return minOf(want, remainingBudgetMs).coerceAtLeast(0)
+    }
+
+    /**
      * One verdict for a control host probed on several of its IPs at once.
      * Any reachable IP proves the service is reachable; when none is, the most
      * telling failure wins so the scorer can tell "blocked" from "never ran".

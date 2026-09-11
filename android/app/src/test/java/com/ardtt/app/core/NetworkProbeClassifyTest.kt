@@ -294,6 +294,70 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
+    fun ordinaryTargetsWaitLongerWhenTheControlItselfWasSlow() {
+        // Congested link: control answered in 600ms, so 4×600 beats the 500ms base.
+        assertEquals(
+            1_000,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 1_000,
+            ),
+        )
+        assertEquals(
+            2_400,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 4_000,
+            ),
+        )
+        // Fast control: nothing to extend, the base timeout already covers 4×RTT.
+        assertEquals(
+            500,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 50,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 1_200,
+            ),
+        )
+        // The round budget is the hard bound.
+        assertEquals(
+            120,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 120,
+            ),
+        )
+        assertEquals(
+            0,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = -5,
+            ),
+        )
+        assertEquals(
+            1_800,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 4_000,
+                factor = 3,
+            ),
+        )
+        assertEquals(
+            500,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = -10,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 4_000,
+            ),
+        )
+    }
+
+    @Test
     fun ruControlSuccessIsInternetEvidenceAndGoesDirect() {
         assertEquals(
             ProbePathHint.Direct,

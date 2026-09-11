@@ -38,6 +38,9 @@ import kotlinx.coroutines.withContext
  *
  * Auto cellular uses a weighted whitelist score before the first Direct try.
  * One Cloudflare miss is not two providers; both ordinary targets must block.
+ * Once a control has answered, an ordinary target that timed out gets an
+ * RTT-scaled second chance ([NetworkProbePolicy.ordinaryDeadlineMs]); the
+ * Direct verdict is already published by then, only the score waits.
  */
 object NetworkProbe {
 
@@ -124,8 +127,8 @@ object NetworkProbe {
                     cap,
                 )
                 val yandexDef = async { udpDnsReachableOutcome(YANDEX_DNS_IP, remaining(udpMs), bound) }
-                val cloudflareDef = async { cloudflareOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
-                val googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, remaining(udpMs), bound) }
+                var cloudflareDef = async { cloudflareOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
+                var googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, remaining(udpMs), bound) }
                 val ruServiceDef = async { ruControlReachableOutcome(remaining(tlsMs), bound) }
                 val provisionDef = async { provisionReachableOutcome(provisionBaseUrl, remaining(healthMs), bound) }
 
@@ -137,6 +140,32 @@ object NetworkProbe {
                 var captiveChecked = captiveFromCaps
                 var captive = captiveFromCaps
                 var publishedFast = false
+                var controlRttMs: Int? = null
+                var cloudflareExtended = false
+                var googleExtended = false
+
+                fun noteControl(outcome: CheckOutcome) {
+                    if (!outcome.isSuccess || controlRttMs != null) return
+                    val rtt = android.os.SystemClock.elapsedRealtime() - startedAt
+                    controlRttMs = rtt.toInt().coerceAtLeast(1)
+                }
+
+                /**
+                 * Extra wait for an ordinary target that timed out while a
+                 * control answered slowly. Zero unless the RTT-scaled deadline
+                 * is longer than the base timeout already spent.
+                 */
+                fun ordinaryExtensionMs(
+                    outcome: CheckOutcome,
+                    baseMs: Int,
+                    alreadyExtended: Boolean,
+                ): Int {
+                    if (alreadyExtended || outcome != CheckOutcome.Timeout) return 0
+                    val rtt = controlRttMs ?: return 0
+                    val left = remaining(roundBudget.toInt())
+                    val deadline = NetworkProbePolicy.ordinaryDeadlineMs(rtt, baseMs, left)
+                    return (deadline - baseMs).coerceAtLeast(0)
+                }
 
                 fun snapshot(): ProbeResult = NetworkProbePolicy.classify(
                     systemOnline = systemOnline,
@@ -217,10 +246,40 @@ object NetworkProbe {
                     val waitMs = (deadlineAt - now).coerceAtLeast(1L)
                     @OptIn(ExperimentalCoroutinesApi::class)
                     select {
-                        if (yandex == null) yandexDef.onAwait { yandex = it }
-                        if (cloudflare == null) cloudflareDef.onAwait { cloudflare = it }
-                        if (google == null) googleDef.onAwait { google = it }
-                        if (ruService == null) ruServiceDef.onAwait { ruService = it }
+                        if (yandex == null) {
+                            yandexDef.onAwait {
+                                noteControl(it)
+                                yandex = it
+                            }
+                        }
+                        if (cloudflare == null) {
+                            cloudflareDef.onAwait { outcome ->
+                                val extra = ordinaryExtensionMs(outcome, tlsMs, cloudflareExtended)
+                                if (extra > 0) {
+                                    cloudflareExtended = true
+                                    cloudflareDef = async { cloudflareOpenOutcome(extra, extra, bound) }
+                                } else {
+                                    cloudflare = outcome
+                                }
+                            }
+                        }
+                        if (google == null) {
+                            googleDef.onAwait { outcome ->
+                                val extra = ordinaryExtensionMs(outcome, udpMs, googleExtended)
+                                if (extra > 0) {
+                                    googleExtended = true
+                                    googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, extra, bound) }
+                                } else {
+                                    google = outcome
+                                }
+                            }
+                        }
+                        if (ruService == null) {
+                            ruServiceDef.onAwait {
+                                noteControl(it)
+                                ruService = it
+                            }
+                        }
                         if (provision == null) provisionDef.onAwait { provision = it }
                         onTimeout(waitMs) {
                             // Active series deadline: wake without waiting for hung children.
