@@ -1479,6 +1479,67 @@ class ConnectionReducerTest {
     }
 
     @Test
+    fun repeatedDirectReevalFailuresWidenTheGapAndResetOnNewUnderlay() {
+        var state = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        ).state
+        var now = 0L
+        val holds = mutableListOf<Long>()
+        repeat(4) {
+            val failed = ConnectionReducer.reduce(
+                state,
+                ConnectionEvent.DirectFailed(
+                    sessionEpoch = state.sessionEpoch,
+                    transportEpoch = state.transportEpoch,
+                    networkKey = cellKey,
+                    reason = "no-rx",
+                ),
+                elapsedMs = now,
+            )
+            holds += (failed.state.directNegative?.retryAfterElapsedMs ?: 0L) - now
+            // Bypass carries the session while Direct is held off.
+            val onBypass = ConnectionReducer.reduce(
+                failed.state.copy(activePath = VpnPath.Bypass, transport = TransportLifecycle.Starting),
+                ConnectionEvent.BypassConfirmed(
+                    sessionEpoch = failed.state.sessionEpoch,
+                    transportEpoch = failed.state.transportEpoch,
+                    backendRunning = true,
+                ),
+                elapsedMs = now + 1_000L,
+            )
+            now = (onBypass.state.recovery.nextRetryAtElapsedMs ?: now) + 1L
+            state = ConnectionReducer.reduce(
+                onBypass.state,
+                ConnectionEvent.Clock(elapsedMs = now),
+                elapsedMs = now,
+            ).state
+        }
+        assertEquals(
+            listOf(
+                RecoverySettings.directReevalDelayMs(0),
+                RecoverySettings.directReevalDelayMs(1),
+                RecoverySettings.directReevalDelayMs(2),
+                RecoverySettings.directReevalDelayMs(3),
+            ),
+            holds,
+        )
+        val moved = ConnectionReducer.reduce(
+            state,
+            ConnectionEvent.UnderlayUpdated(
+                usableCellular(epoch = 9L).copy(
+                    key = NetworkKey(7L, UnderlayKind.Cellular, 12, "cell-2"),
+                    handle = 7L,
+                    simId = 12,
+                ),
+            ),
+            elapsedMs = now + 1L,
+        )
+        assertEquals(0, moved.state.directReevalFailures)
+    }
+
+    @Test
     fun probeDoesNotYankLiveCellularBypass() {
         val connected = ConnectionSnapshot(
             intent = UserConnectionIntent(

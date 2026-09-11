@@ -240,6 +240,7 @@ object ConnectionReducer {
             transportEpoch = transportEpoch,
             wifiFailStreak = 0,
             wifiStableHits = 0,
+            directReevalFailures = 0,
             directNegative = null,
             lastConfirmedPath = null,
             lastConfirmedNetworkKey = null,
@@ -311,6 +312,7 @@ object ConnectionReducer {
             underlay = snapshot,
             networkEpoch = snapshot.networkEpoch,
             directNegative = if (networkChanged) null else state.directNegative,
+            directReevalFailures = if (networkChanged) 0 else state.directReevalFailures,
             wifiFailStreak = if (leftWifiEpisode) 0 else state.wifiFailStreak,
             wifiStableHits = if (leftWifiEpisode) 0 else state.wifiStableHits,
             call = if (snapshot.availability == UnderlayAvailability.None) {
@@ -503,6 +505,7 @@ object ConnectionReducer {
             },
             wifiFailStreak = if (pathConfirmed) 0 else state.wifiFailStreak,
             wifiStableHits = if (pathConfirmed) state.wifiStableHits + 1 else state.wifiStableHits,
+            directReevalFailures = if (pathConfirmed) 0 else state.directReevalFailures,
             directNegative = if (pathConfirmed) null else state.directNegative,
             recovery = state.recovery.copy(
                 phase = RecoveryPhase.Connected,
@@ -532,16 +535,23 @@ object ConnectionReducer {
             return ReduceResult(state, RecoveryCommand.None)
         }
         val wifi = state.underlay.kind.prefersDirectInAuto()
+        val holdForBypassReeval = state.intent.mode == ConnPathMode.Auto &&
+            state.intent.hasCallHash &&
+            state.underlay.kind == UnderlayKind.Cellular
         val retryAfter = RecoverySettings.directNegativeRetryAfterElapsedMs(
             elapsedMs = elapsedMs,
             failureIndex = state.recovery.failureIndex,
             jitterPermille = jitterPermille,
-            holdForBypassReeval = state.intent.mode == ConnPathMode.Auto &&
-                state.intent.hasCallHash &&
-                state.underlay.kind == UnderlayKind.Cellular,
+            holdForBypassReeval = holdForBypassReeval,
+            failedReevals = state.directReevalFailures,
         )
         val next = state.copy(
             transport = TransportLifecycle.Failed,
+            directReevalFailures = if (holdForBypassReeval) {
+                state.directReevalFailures + 1
+            } else {
+                state.directReevalFailures
+            },
             directNegative = DirectNegativeEvidence(
                 key = event.networkKey ?: state.underlay.key ?: NetworkKey(0L, state.underlay.kind, null, "unknown"),
                 profileId = state.intent.profileId,
@@ -1003,7 +1013,10 @@ object ConnectionReducer {
                         decision.reason == "bypass-running") &&
                     state.recovery.nextRetryAtElapsedMs == null
                 if (armBypassReeval) {
-                    val delay = RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS
+                    val delay = bypassReevalDelayMs(
+                        state.directNegative?.retryAfterElapsedMs,
+                        elapsedMs,
+                    )
                     ReduceResult(
                         withUi(
                             state.copy(

@@ -54,6 +54,19 @@ object RecoverySettings {
     }
 
     /**
+     * Gap between Direct re-checks while Auto sits on Bypass. Each re-check
+     * parks the VK call and costs [DIRECT_LIMITED_TRY_MS] of downtime, so an
+     * underlay where Direct is simply blocked must not be probed every 30s
+     * forever. Reset by a confirmed Direct or a new underlay.
+     */
+    val directReevalBackoffMs: LongArray = longArrayOf(
+        DIRECT_REEVAL_WHILE_BYPASS_MS, 60_000L, 120_000L, 300_000L, 600_000L,
+    )
+
+    fun directReevalDelayMs(failedReevals: Int): Long =
+        directReevalBackoffMs[failedReevals.coerceIn(0, directReevalBackoffMs.lastIndex)]
+
+    /**
      * How long Direct stays "failed on this underlay" after an attempt.
      * Auto cellular with a call hash parks on Bypass and must not bounce
      * back to Direct on the 2s same-path retry budget.
@@ -63,9 +76,10 @@ object RecoverySettings {
         failureIndex: Int,
         jitterPermille: Int = 0,
         holdForBypassReeval: Boolean,
+        failedReevals: Int = 0,
     ): Long {
         val backoff = retryDelayMs(failureIndex, jitterPermille)
-        val hold = if (holdForBypassReeval) DIRECT_REEVAL_WHILE_BYPASS_MS else 0L
+        val hold = if (holdForBypassReeval) directReevalDelayMs(failedReevals) else 0L
         return elapsedMs + maxOf(backoff, hold)
     }
 
