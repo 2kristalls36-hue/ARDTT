@@ -234,8 +234,10 @@ bash -n "$ROOT/scripts/repack-server-host-files.sh" || err "bash -n repack-serve
 bash -n "$ROOT/scripts/attach-server-packages-to-release.sh" || err "bash -n attach-server-packages-to-release"
 grep -q -- '--from-dir' "$ROOT/scripts/attach-server-packages-to-release.sh" \
   || err "attach-to-release must take local packages, not old workflow artifacts"
-if grep -q -- '--clobber' "$ROOT/scripts/attach-server-packages-to-release.sh"; then
-  err "attach-to-release must not overwrite existing release assets"
+# Release assets are never overwritten; the one exception is the merged
+# SHA256SUMS-server.txt (a newer stack attached to an existing tag adds lines).
+if grep -- '--clobber' "$ROOT/scripts/attach-server-packages-to-release.sh" | grep -vq 'sums_cmd'; then
+  err "attach-to-release may clobber only the merged SHA256SUMS-server.txt"
 fi
 if grep -q "github.head_ref == 'cursor/server-bundle-ui-bad3'" "$ROOT/.github/workflows/server-package.yml"; then
   err "PR branch must not publish to GitHub Releases"

@@ -35,7 +35,7 @@ done
 [ -n "$FROM_DIR" ] && [ -d "$FROM_DIR" ] || { echo "--from-dir must be a directory" >&2; exit 1; }
 
 python3 - "$FROM_DIR" "$VER" "$DRY" "$TAG" "$REPO" <<'PY'
-import hashlib, json, pathlib, subprocess, sys
+import hashlib, json, pathlib, subprocess, sys, tempfile
 root = pathlib.Path(sys.argv[1])
 ver = sys.argv[2]
 dry = sys.argv[3] == "1"
@@ -113,10 +113,6 @@ for arch in archs:
     upload.extend([index, idx_sidecar])
     lines.append(f"{idx_digest}  {index.name}\n")
 
-sums = root / "SHA256SUMS-server.txt"
-sums.write_text("".join(sorted(lines, key=lambda l: l.split()[-1])), encoding="utf-8")
-upload.append(sums)
-
 raw = subprocess.check_output(
     ["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
     text=True,
@@ -124,6 +120,27 @@ raw = subprocess.check_output(
 remote_assets = json.loads(raw).get("assets") or []
 by_name = {a["name"]: a for a in remote_assets}
 assets = set(by_name)
+
+# SHA256SUMS-server.txt is derived metadata: when a newer stack is attached to
+# a tag that already carries an older one (attach-built-packages on an existing
+# release), keep the existing lines and add ours instead of refusing.
+sums = root / "SHA256SUMS-server.txt"
+merged = {}
+if sums.name in assets:
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.check_call(
+            ["gh", "release", "download", tag, "--repo", repo, "--pattern", sums.name, "--dir", tmp],
+        )
+        for line in (pathlib.Path(tmp) / sums.name).read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                merged[parts[-1]] = parts[0]
+for line in lines:
+    digest, name = line.split()
+    merged[name] = digest
+sums.write_text("".join(f"{d}  {n}\n" for n, d in sorted(merged.items())), encoding="utf-8")
+sums_clobber = sums.name in assets
+
 overlap = [p.name for p in upload if p.name in assets]
 if overlap:
     if set(overlap) != {p.name for p in upload}:
@@ -137,8 +154,6 @@ if overlap:
         remote_digest = (remote.get("digest") or "").lower().removeprefix("sha256:")
         remote_size = int(remote.get("size") or 0)
         local_size = path.stat().st_size
-        if path.name == sums.name:
-            continue  # regenerated locally; compared through the assets it lists
         if remote_digest:
             if remote_digest != local_digest:
                 mismatches.append(
@@ -161,11 +176,16 @@ if overlap:
 print("Attach to https://github.com/%s/releases/tag/%s (%d files, %d partial-deploy index(es))"
       % (repo, tag, len(upload), indexes))
 for path in upload:
-    print(" ", path, sha256(path) if path.suffix != ".txt" else "")
+    print(" ", path, sha256(path))
+print(" ", sums, "(merged, %d entries%s)" % (len(merged), ", replaces the existing file" if sums_clobber else ""))
 if dry:
     print("dry-run: skip gh release upload")
     sys.exit(0)
-cmd = ["gh", "release", "upload", tag, *[str(p) for p in upload], "--repo", repo]
-subprocess.check_call(cmd)
+# New assets are never clobbered; only the merged checksum list may replace itself.
+subprocess.check_call(["gh", "release", "upload", tag, *[str(p) for p in upload], "--repo", repo])
+sums_cmd = ["gh", "release", "upload", tag, str(sums), "--repo", repo]
+if sums_clobber:
+    sums_cmd.append("--clobber")
+subprocess.check_call(sums_cmd)
 print(f"Attached {len(pkgs)} server packages (+{len(upload) - len(pkgs)} assets) to {tag}")
 PY
