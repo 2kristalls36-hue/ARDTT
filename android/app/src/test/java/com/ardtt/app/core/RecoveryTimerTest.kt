@@ -70,7 +70,7 @@ class RecoveryTimerTest {
         assertEquals(steps.sorted(), steps)
         assertEquals(steps.last(), RecoverySettings.directReevalDelayMs(99))
         assertEquals(
-            600_000L,
+            RecoverySettings.directReevalBackoffMs.last(),
             RecoverySettings.directReevalDelayMs(RecoverySettings.directReevalBackoffMs.lastIndex),
         )
     }

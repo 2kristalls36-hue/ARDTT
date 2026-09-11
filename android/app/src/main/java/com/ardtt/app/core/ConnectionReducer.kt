@@ -1048,16 +1048,17 @@ object ConnectionReducer {
             is AutoDecision.Backoff -> armBackoff(state, elapsedMs, jitterPermille)
             is AutoDecision.Stay -> {
                 val delay = stayReevalDelay(state, decision, elapsedMs)
+                    ?: return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
                 val due = state.recovery.nextRetryAtElapsedMs
                 // The Wi‑Fi settle is shorter than a pending Direct re-check and
                 // must be allowed to replace it, or the upgrade waits a full gap.
                 // Every other Stay only arms when nothing is pending.
-                val arm = delay != null && when {
+                val arm = when {
                     due == null -> true
                     decision.reason == WIFI_SETTLING -> elapsedMs + delay < due
                     else -> false
                 }
-                if (arm && delay != null) {
+                if (arm) {
                     ReduceResult(
                         withUi(
                             state.copy(
