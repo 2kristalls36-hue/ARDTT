@@ -19,19 +19,19 @@
 
 ## Что нужно на VPS
 
-Чистый Linux amd64/arm64 с python3, iptables и `/dev/net/tun`; `curl` желателен, но не обязателен (без него `fetch-and-install.sh` качает через python3 urllib). Минимальные образы Debian 13 / Ubuntu 26.04 идут **без iptables** — поставьте пакет дистрибутива до деплоя (`apt install iptables`), иначе `IPTABLES_MISSING` ещё до загрузки пакета: сам установщик ничего из репозиториев не ставит. **Docker Engine входит в архив** (`vendor/docker.tgz`) и ставится, если `docker info` не проходит.
+Чистый Linux amd64/arm64 с python3, systemd и `/dev/net/tun`; `curl` желателен, но не обязателен (без него `fetch-and-install.sh` качает через python3 urllib). iptables больше не обязателен заранее: минимальные образы Debian 13 / Ubuntu 26.04 идут без него, и если Docker Engine нужно ставить из пакета, установщик сам берёт пакет `iptables` из репозитория дистрибутива (apt/dnf/yum/apk/zypper) — единственное, что он вообще ставит из репозиториев. `ARDTT_INSTALL_IPTABLES=0` это запрещает: тогда при отсутствующем iptables и Docker из пакета — `IPTABLES_MISSING` ещё до загрузки. **Docker Engine входит в архив** (`vendor/docker.tgz`) и ставится, если `docker info` не проходит.
 
 | Есть | Нет |
 |------|-----|
 | Linux amd64 или arm64 | Сборка образа на VPS |
-| python3, iptables, systemd (curl — опционально) | `get.docker.com`, apt/dnf установка Docker или iptables |
+| python3, systemd (curl — опционально; iptables ставится из репозитория, если его нет) | `get.docker.com`, apt/dnf установка Docker |
 | исходящий HTTPS к GitHub Releases | `docker pull` / GHCR / Docker Hub на установке |
 | `/dev/net/tun` | `git clone` исходников |
 | Compose v2 *или* `bin/docker-compose` из архива | Хостовый hostnet |
 
 Если Engine уже работает, установщик его не обновляет и не перезапускает. Если CLI есть, а демон мёртв — отказ (чужой Engine не подменяем). Недостающий Compose берётся из того же архива в `/opt/ardtt/bin`.
 
-Клиент перед установкой проверяет оба узла тем же SSH-маршрутом: сначала выход (VPS2 через VPS1), затем вход. Отсутствие Docker **не** ошибка: установка распакует Engine из архива. По-прежнему отказ: `DOCKER_NOT_RUNNING` (чужой демон мёртв), `DOCKER_ACCESS_DENIED`, `UNSUPPORTED_RUNTIME` (podman/kubelet/containerd без Docker), `PYTHON_MISSING`, `SSH_FAILED`, а также `IPTABLES_MISSING` (нет iptables — проверяется до загрузки) и `GITHUB_UNREACHABLE`, если VPS не может скачать пакет с Releases. `CURL_MISSING` больше не возникает: без curl работает загрузчик на python3.
+Клиент перед установкой проверяет оба узла тем же SSH-маршрутом: сначала выход (VPS2 через VPS1), затем вход. Отсутствие Docker **не** ошибка: установка распакует Engine из архива. По-прежнему отказ: `DOCKER_NOT_RUNNING` (чужой демон мёртв), `DOCKER_ACCESS_DENIED`, `UNSUPPORTED_RUNTIME` (podman/kubelet/containerd без Docker), `PYTHON_MISSING`, `SSH_FAILED`, а также `IPTABLES_MISSING` (автоматическая установка iptables не удалась либо запрещена `ARDTT_INSTALL_IPTABLES=0`) и `GITHUB_UNREACHABLE`, если VPS не может скачать пакет с Releases. `CURL_MISSING` больше не возникает: без curl работает загрузчик на python3.
 
 Стек — **один контейнер** в своей netns и своей Docker bridge-сети. Hostnet из старой `.env` не восстанавливается. Привилегированный режим, host PID/IPC, `docker.sock` внутри контейнера и nsenter в хост не используются. Compose: `cap_drop: ALL`, затем `NET_ADMIN`, `NET_RAW`, `SETUID` и `SETGID` (иначе dnsmasq `setgid(dip)` падает с Operation not permitted). Подсеть bridge подбирается так, чтобы не пересечься с маршрутами хоста и сетями Docker: сначала `172.28.x.0/24` / `172.30.x.0/24`, а если хост анонсирует `172.16.0.0/12` (часто на облачных VPS) — `10.112.x.0/24` или `10.210.x.0/24`. Не задаётся одна жёсткая подсеть для всех машин.
 
@@ -105,6 +105,7 @@ scripts/safe-extract-package.py
     VPS  HTTPS  GitHub Releases  ardtt-server-<ver>-linux-<arch>.index.json
          SHA-256 индекса с digest / SHA256SUMS релиза
          hostfiles (≈100 КБ) + отсутствующие слои образа
+         iptables из репозитория дистрибутива — только если нет Docker и нет iptables
          Engine/Compose — только если их нет на хосте
          (без индекса — монолитный ardtt-server-<ver>-linux-<arch>.tar.gz)
          сверка каждого файла с индексом + bash staging/install.sh
@@ -133,6 +134,7 @@ scripts/safe-extract-package.py
 |-----------|----------------|--------|
 | Индекс `*.index.json` | всегда | JSON с перечнем компонентов |
 | `*-hostfiles.tar.gz` | всегда | ≈100 КБ |
+| Пакет `iptables` (репозиторий дистрибутива) | только если Docker ставится из пакета и iptables нет на хосте; `ARDTT_INSTALL_IPTABLES=0` запрещает | пакетный менеджер хоста (apt/dnf/yum/apk/zypper) |
 | Слои образа `*-layer-NN-<16hex>.tar.gz` | только те diff ID, которых нет в `/opt/ardtt/cache/layers` | 78,3 МБ gzip на весь образ 1.0.51 (23 слоя; два базовых, Debian и apt, ≈57 МБ) |
 | `ardtt-docker-engine-*.tgz` | только если на хосте вообще нет `docker` | 85,7 МБ amd64 / 77,3 МБ arm64 |
 | `ardtt-docker-compose-*` | только если нет ни плагина `docker compose`, ни `docker-compose`, а `/opt/ardtt/bin/docker-compose` отсутствует или не совпадает с закреплённой SHA-256 | 64,7 МБ amd64 / 62,9 МБ arm64 |
@@ -150,6 +152,7 @@ scripts/safe-extract-package.py
 |------------|----------|
 | `ARDTT_FETCH_MODE` | `auto` (по умолчанию: индекс, если он есть в релизе, иначе монолитный архив) · `partial` (без индекса — ошибка `INDEX_MISSING`) · `full` (всегда монолитный архив) |
 | `ARDTT_LAYER_CACHE` | `1` (по умолчанию) · `0` — без постоянного кэша слоёв |
+| `ARDTT_INSTALL_IPTABLES` | `1` (по умолчанию) — при отсутствии iptables и необходимости ставить Docker из пакета взять пакет iptables из репозитория дистрибутива · `0` — запретить (ошибка `IPTABLES_MISSING` до загрузки) |
 | `ARDTT_GITHUB_TOKEN` | необязательный токен, снимает анонимный лимит GitHub API |
 | `ARDTT_DEPLOY_VERSION` | закрепить версию стека; пусто — самая новая опубликованная |
 
@@ -297,7 +300,7 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
 | Кэш слоёв | после `docker load` gzip-слои не удаляются, а переезжают в `/opt/ardtt/cache/layers` (и для монолитного пути — поэтому первое частичное обновление после полной установки уже переиспользует слои), затем кэш прунится до слоёв текущего образа |
 | Compose из пакета | `/opt/ardtt/bin/docker-compose` (наша копия) обновляется, если пакет несёт другую закреплённую сборку. Системный плагин не трогается |
 | Safe extract | запрет `..`, абсолютных путей, symlink/hardlink |
-| Preflight | Docker, python3, TUN, arch пакета, диск (install + DockerRootDir), RAM, порты TCP/UDP + Docker PortBindings, подсеть bridge. **Старый ARDTT ещё работает** |
+| Preflight | Docker, python3, TUN, arch пакета, диск (install + DockerRootDir), RAM, порты TCP/UDP + Docker PortBindings, подсеть bridge. Если Engine ставится из архива (`ensure_docker_engine`) и iptables на хосте нет — сначала подтягивается пакет iptables из репозитория дистрибутива. **Старый ARDTT ещё работает** |
 | `docker load` | проверка image ID и arch |
 | Switch | только этот экземпляр по labels; `previous/` до readiness |
 | Up | `docker compose up -d --no-build --pull never` |
@@ -407,7 +410,7 @@ docker exec "$NAME" provision -cmd create-user -name smoke -data /data
 | `INDEX_MISSING` | `ARDTT_FETCH_MODE=partial`, а в релизе нет индекса этой arch. Монолитный архив — `ARDTT_FETCH_MODE=full` |
 | `BAD_FETCH_MODE` | `ARDTT_FETCH_MODE` не `auto` / `partial` / `full` |
 | `SHA256SUM_MISSING` | На VPS нет `sha256sum` (coreutils) |
-| `IPTABLES_MISSING` | Docker ещё не стоит, а `iptables` на хосте нет (минимальные Debian 13 / Ubuntu 26.04). `apt install iptables` (или `dnf install iptables-nft`) и повтор; сообщается до загрузки пакета |
+| `IPTABLES_MISSING` | Docker нужно ставить из пакета, а `iptables` на хосте нет (минимальные Debian 13 / Ubuntu 26.04), и автоматическая установка из репозитория дистрибутива не удалась (нет доступа к репозиториям) или запрещена `ARDTT_INSTALL_IPTABLES=0`. Поставьте вручную (`apt install iptables` / `dnf install iptables-nft` / `apk add iptables`) и повторите; при `ARDTT_INSTALL_IPTABLES=1` (по умолчанию) установщик обычно ставит iptables сам |
 | `GITHUB_UNREACHABLE` | Ни GitHub API, ни `SHA256SUMS-server.txt` последнего релиза не получены. Нужен исходящий HTTPS к `api.github.com` / `github.com`; при лимите API помогает `ARDTT_GITHUB_TOKEN` |
 | Docker Engine не найден на чистом VPS | Норма для 1.0.46: пакет ставит Engine из `vendor/docker.tgz`. Если отказ — смотрите `DOCKER_MISSING` (нет tarball/SHA) или `DOCKER_NOT_RUNNING` (чужой демон / нет systemd). Нужен APK 0.5.258: 0.5.257 ещё обрывает preflight |
 | Мало места | Код `DISK_FULL`. Порог с запасом на load + слои + `previous/`. Без флага глобальная очистка **не** выполняется; в ошибке предлагается повтор с `ARDTT_DISK_CLEANUP=1` (логи Docker, apt-кэш, лишние headers, хвосты ARDTT). В приложении — кнопка «Очистить место и повторить». |
