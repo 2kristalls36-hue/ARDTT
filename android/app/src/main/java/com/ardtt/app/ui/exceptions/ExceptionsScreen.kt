@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -74,6 +75,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -1028,7 +1030,8 @@ private fun AppExceptionRow(
 ) {
     val colors = MaterialTheme.colorScheme
     AppExceptionRowFrame(
-        onClick = onClick,
+        checked = isSelected,
+        onCheckedChange = { onClick() },
         icon = {
             if (app.icon != null) {
                 Image(
@@ -1065,10 +1068,9 @@ private fun AppExceptionRow(
             )
         },
         trailing = {
-            Switch(
-                checked = isSelected,
-                onCheckedChange = { onClick() },
-            )
+            // The row is the toggle; the switch only mirrors the state so
+            // TalkBack announces one «переключатель» per app, not two targets.
+            Switch(checked = isSelected, onCheckedChange = null)
         },
     )
 }
@@ -1079,14 +1081,29 @@ private fun AppExceptionRowFrame(
     title: @Composable () -> Unit,
     subtitle: @Composable () -> Unit,
     trailing: @Composable () -> Unit,
-    onClick: (() -> Unit)? = null,
+    checked: Boolean? = null,
+    onCheckedChange: ((Boolean) -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
+    val interactive = checked != null && onCheckedChange != null
     val modifier = Modifier
         .fillMaxWidth()
         .padding(
             horizontal = AppRowHorizontalPadding,
             vertical = AppRowVerticalPadding,
+        )
+        .then(
+            if (interactive) {
+                Modifier
+                    .clip(AppCardShape)
+                    .toggleable(
+                        value = checked == true,
+                        role = Role.Switch,
+                        onValueChange = { onCheckedChange?.invoke(it) },
+                    )
+            } else {
+                Modifier
+            },
         )
     val content: @Composable () -> Unit = {
         Row(
@@ -1108,28 +1125,14 @@ private fun AppExceptionRowFrame(
             trailing()
         }
     }
-    if (onClick != null) {
-        Surface(
-            onClick = onClick,
-            modifier = modifier,
-            shape = AppCardShape,
-            color = colors.surface,
-            contentColor = colors.onSurface,
-            shadowElevation = AppRowShadow,
-            tonalElevation = ArdttElevation.None,
-            border = sectionCardContourBorder(),
-            content = { content() },
-        )
-    } else {
-        Surface(
-            modifier = modifier,
-            shape = AppCardShape,
-            color = colors.surface,
-            contentColor = colors.onSurface,
-            shadowElevation = AppRowShadow,
-            tonalElevation = ArdttElevation.None,
-            border = sectionCardContourBorder(),
-            content = { content() },
-        )
-    }
+    Surface(
+        modifier = modifier,
+        shape = AppCardShape,
+        color = colors.surface,
+        contentColor = colors.onSurface,
+        shadowElevation = AppRowShadow,
+        tonalElevation = ArdttElevation.None,
+        border = sectionCardContourBorder(),
+        content = { content() },
+    )
 }
