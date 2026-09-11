@@ -661,13 +661,18 @@ fun shouldSoftRestartForUnansweredUplink(
     lastUplinkGrowthAtMs: Long,
     lastInboundGrowthAtMs: Long,
     nowMs: Long,
+    /** Transport start / last handoff; counters are zeroed at that point. */
+    anchorMs: Long,
     graceMs: Long = BYPASS_UNANSWERED_UPLINK_MS,
 ): Boolean {
     if (!bypassPath || activeWorkers <= 0) return false
+    if (anchorMs <= 0L) return false
     if (lastUplinkGrowthAtMs <= 0L) return false
     if (nowMs - lastUplinkGrowthAtMs > graceMs) return false
     if (lastInboundGrowthAtMs > lastUplinkGrowthAtMs) return false
-    return nowMs - lastInboundGrowthAtMs >= graceMs
+    // A re-dialled RAW has no inbound counter yet; silence is only measurable
+    // from the moment the transport came up.
+    return nowMs - maxOf(lastInboundGrowthAtMs, anchorMs) >= graceMs
 }
 
 /** Bypass up, but only TURN handshake — sockets glued to a not-yet-ready LTE. */

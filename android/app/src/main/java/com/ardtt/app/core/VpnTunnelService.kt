@@ -983,6 +983,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             lastUplinkGrowthAtMs = TransportHealth.lastUplinkGrowthAtMs,
                             lastInboundGrowthAtMs = TransportHealth.lastInboundGrowthAtMs,
                             nowMs = now,
+                            anchorMs = maxOf(sessionStartedAtMs, lastHandoffAtMs),
                         ) &&
                         now - unansweredUplinkHandledAtMs > BYPASS_UNANSWERED_UPLINK_MS
                     ) {

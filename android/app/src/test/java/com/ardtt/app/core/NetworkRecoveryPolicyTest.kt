@@ -325,9 +325,11 @@ class NetworkRecoveryPolicyTest {
                 lastUplinkGrowthAtMs = 95_000L,
                 lastInboundGrowthAtMs = 50_000L,
                 nowMs = 100_000L,
+                anchorMs = 10_000L,
             ),
         )
-        // Never any inbound at all is the same fault.
+        // Never any inbound at all is the same fault — once the transport has
+        // been up longer than the grace.
         assertTrue(
             shouldSoftRestartForUnansweredUplink(
                 bypassPath = true,
@@ -335,6 +337,19 @@ class NetworkRecoveryPolicyTest {
                 lastUplinkGrowthAtMs = 95_000L,
                 lastInboundGrowthAtMs = 0L,
                 nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        // Freshly restarted 5 s ago, already sending, nothing back yet: the
+        // counters were zeroed by the restart, not by a dead relay.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 97_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+                anchorMs = 95_000L,
             ),
         )
         // Idle tunnel: nobody is sending either, so there is nothing to answer.
@@ -345,6 +360,7 @@ class NetworkRecoveryPolicyTest {
                 lastUplinkGrowthAtMs = 40_000L,
                 lastInboundGrowthAtMs = 40_000L,
                 nowMs = 100_000L,
+                anchorMs = 10_000L,
             ),
         )
         // Inbound is newer than the last uplink — the path answers.
@@ -355,6 +371,7 @@ class NetworkRecoveryPolicyTest {
                 lastUplinkGrowthAtMs = 90_000L,
                 lastInboundGrowthAtMs = 95_000L,
                 nowMs = 100_000L,
+                anchorMs = 10_000L,
             ),
         )
         assertFalse(
@@ -364,6 +381,7 @@ class NetworkRecoveryPolicyTest {
                 lastUplinkGrowthAtMs = 95_000L,
                 lastInboundGrowthAtMs = 0L,
                 nowMs = 100_000L,
+                anchorMs = 10_000L,
             ),
         )
         assertFalse(
@@ -373,6 +391,7 @@ class NetworkRecoveryPolicyTest {
                 lastUplinkGrowthAtMs = 95_000L,
                 lastInboundGrowthAtMs = 0L,
                 nowMs = 100_000L,
+                anchorMs = 10_000L,
             ),
         )
         // Fresh session with no telemetry yet must not restart itself.
@@ -383,6 +402,18 @@ class NetworkRecoveryPolicyTest {
                 lastUplinkGrowthAtMs = 0L,
                 lastInboundGrowthAtMs = 0L,
                 nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        // No known transport start: nothing to measure silence from.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+                anchorMs = 0L,
             ),
         )
     }
