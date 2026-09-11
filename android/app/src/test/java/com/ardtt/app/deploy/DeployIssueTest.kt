@@ -92,6 +92,7 @@ class DeployIssueTest {
         )
         assertTrue(issue.summary.contains("iptables"))
         assertTrue(issue.summary.contains("VPS2"))
+        assertTrue(issue.summary.contains("репозитори"))
         assertTrue(issue.summary.contains("apt install iptables"))
     }
 

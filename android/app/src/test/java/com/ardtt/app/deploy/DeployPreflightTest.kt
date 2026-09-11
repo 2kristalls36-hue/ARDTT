@@ -88,18 +88,20 @@ class DeployPreflightTest {
         assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("docker-from-package"))
         assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("systemctl"))
         assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("code=DOCKER_MISSING"))
-        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("code=IPTABLES_MISSING"))
+        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("docker-and-iptables-from-package"))
+        assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("code=IPTABLES_MISSING"))
     }
 
     @Test
-    fun parseMissingIptablesWithoutDockerIsFailure() {
-        // Minimal Debian 13 / Ubuntu 26.04 images: no Docker and no iptables.
+    fun parseMissingIptablesWithoutDockerIsOkInstallerTakesIt() {
+        // Minimal Debian 13 / Ubuntu 26.04 images: no Docker and no iptables;
+        // the installer takes iptables from the distro repository itself.
         val parsed = DeployPreflight.parse(
-            "ARDTT_PREFLIGHT|python=1\nARDTT_PREFLIGHT|iptables=0\nARDTT_PREFLIGHT_DONE|ok=0|code=IPTABLES_MISSING|message=iptables",
+            "ARDTT_PREFLIGHT|python=1\nARDTT_PREFLIGHT|iptables=0\nARDTT_PREFLIGHT|docker=missing\n" +
+                "ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-and-iptables-from-package",
         )
-        assertFalse(parsed.ok)
-        assertEquals(DeployIssue.IPTABLES_MISSING, parsed.code)
-        assertEquals("0", parsed.fields["iptables"])
+        assertTrue(parsed.ok)
+        assertEquals(null, parsed.code)
         assertTrue(parsed.iptablesMissing)
         assertEquals("missing", parsed.docker)
     }

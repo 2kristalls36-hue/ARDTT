@@ -134,9 +134,10 @@ data class DeployIssue(
                 PYTHON_MISSING ->
                     "$hop: нужен python3 на хосте. Пакет не ставит его из сети.$entryNote"
                 IPTABLES_MISSING ->
-                    "$hop: на хосте нет iptables — без него Docker не поднимет сети. " +
-                        "Один раз на VPS: apt install iptables (Debian/Ubuntu) или dnf install iptables-nft, " +
-                        "затем повторите.$entryNote"
+                    "$hop: не удалось поставить iptables из репозитория дистрибутива " +
+                        "(нет доступа к репозиториям или он запрещён ARDTT_INSTALL_IPTABLES=0). " +
+                        "Без него Docker не поднимет сети: поставьте вручную — apt install iptables (Debian/Ubuntu) " +
+                        "или dnf install iptables-nft — и повторите.$entryNote"
                 UNSUPPORTED_RUNTIME ->
                     "$hop: обнаружен чужой контейнерный runtime. Это не чистый VPS.$entryNote"
                 SSH_FAILED ->
