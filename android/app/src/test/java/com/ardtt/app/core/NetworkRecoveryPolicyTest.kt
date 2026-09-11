@@ -169,13 +169,37 @@ class NetworkRecoveryPolicyTest {
 
     @Test
     fun wakeRescueSendsDeadDirectToRecoveryNotSoftRestart() {
-        // Ticket 19: 18:56:36 SCREEN_ON, AWG process alive, nothing received.
+        // Ticket 19: 18:56:36 SCREEN_ON, AWG alive, uplink moving, nothing received.
         assertEquals(
             WakeRescueAction.DeadDirect,
             wakeRescueAction(
                 path = VpnPath.Direct,
                 backendAlive = true,
-                directEgressOk = false,
+                directRxBytesSinceWake = 412L,
+                directTxBytesSinceWake = 40_000L,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        // Phone slept: nothing received because nothing was sent.
+        assertEquals(
+            WakeRescueAction.None,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = true,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 0L,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.None,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = true,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 96L,
                 activeWorkers = 0,
                 hasFreshStatsSinceWake = false,
             ),
@@ -185,7 +209,8 @@ class NetworkRecoveryPolicyTest {
             wakeRescueAction(
                 path = VpnPath.Direct,
                 backendAlive = false,
-                directEgressOk = false,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 0L,
                 activeWorkers = 0,
                 hasFreshStatsSinceWake = false,
             ),
@@ -195,7 +220,8 @@ class NetworkRecoveryPolicyTest {
             wakeRescueAction(
                 path = VpnPath.Direct,
                 backendAlive = true,
-                directEgressOk = true,
+                directRxBytesSinceWake = 64_000L,
+                directTxBytesSinceWake = 40_000L,
                 activeWorkers = 0,
                 hasFreshStatsSinceWake = false,
             ),
@@ -205,7 +231,8 @@ class NetworkRecoveryPolicyTest {
             wakeRescueAction(
                 path = VpnPath.Bypass,
                 backendAlive = true,
-                directEgressOk = true,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 0L,
                 activeWorkers = 0,
                 hasFreshStatsSinceWake = false,
             ),
@@ -215,7 +242,8 @@ class NetworkRecoveryPolicyTest {
             wakeRescueAction(
                 path = VpnPath.Bypass,
                 backendAlive = true,
-                directEgressOk = true,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 0L,
                 activeWorkers = 3,
                 hasFreshStatsSinceWake = true,
             ),

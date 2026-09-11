@@ -817,13 +817,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             VpnLiveStats.sample()
             val fresh = TransportHealth.hasFreshInboundSince(wakeStartedAt) ||
                 TransportHealth.hasFreshStatsSince(wakeStartedAt)
-            val directEgressOk = path != VpnPath.Direct ||
-                VpnLiveStats.hasFreshRxSince(wakeStartedAt)
+            val directRxSinceWake = VpnLiveStats.rxGrowthSince(wakeStartedAt)
+            val directTxSinceWake = VpnLiveStats.txGrowthSince(wakeStartedAt)
             when (
                 wakeRescueAction(
                     path = path,
                     backendAlive = sessionJob?.isActive == true || TransportHealth.backendAlive,
-                    directEgressOk = directEgressOk,
+                    directRxBytesSinceWake = directRxSinceWake,
+                    directTxBytesSinceWake = directTxSinceWake,
                     activeWorkers = TransportHealth.activeWorkers,
                     hasFreshStatsSinceWake = fresh,
                 )
@@ -831,7 +832,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 WakeRescueAction.DeadDirect -> {
                     AppLog.w(
                         TAG,
-                        "wake rescue: Direct backend alive but no data since wake — dead-Direct recovery",
+                        "wake rescue: Direct sent $directTxSinceWake B since wake and received " +
+                            "$directRxSinceWake B — dead-Direct recovery",
                     )
                     ConnectionManager.getOrNull()?.onDeadDirectNoRx()
                 }
@@ -839,7 +841,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     AppLog.v(
                         TAG,
                         "wake rescue → soft restart path=$path workers=${TransportHealth.activeWorkers} " +
-                            "directRx=$directEgressOk",
+                            "directRx=$directRxSinceWake",
                     )
                     updateNotification(path, "Восстановление после сна…")
                     requestSoftRestart(
@@ -850,8 +852,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 WakeRescueAction.None -> {
                     AppLog.v(
                         TAG,
-                        "wake rescue: path=$path looks healthy " +
-                            "bypassFresh=$fresh directRx=$directEgressOk",
+                        "wake rescue: path=$path looks healthy bypassFresh=$fresh " +
+                            "direct ↓$directRxSinceWake ↑$directTxSinceWake",
                     )
                 }
             }

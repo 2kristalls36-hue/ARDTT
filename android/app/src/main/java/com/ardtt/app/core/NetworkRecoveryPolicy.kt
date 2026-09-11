@@ -573,14 +573,23 @@ enum class WakeRescueAction {
  * Restarting Direct after wake re-handshakes on the same radio, which is useless
  * when the cell answers the control plane and drops the data plane. Route that
  * case through the dead-Direct reducer (Auto+cellular+hash → Bypass) instead.
+ *
+ * Silence after wake is only evidence when something was actually sent: a phone
+ * that slept through the night has no inbound data either, and dialling VK for
+ * that would be worse than the blackhole it is looking for. Direct byte counts
+ * are measured since the wake, not over the watchdog window.
  */
 fun wakeRescueAction(
     path: VpnPath,
     backendAlive: Boolean,
-    directEgressOk: Boolean,
+    directRxBytesSinceWake: Long,
+    directTxBytesSinceWake: Long,
     activeWorkers: Int,
     hasFreshStatsSinceWake: Boolean,
+    minTxBytes: Long = DIRECT_TX_DATA_MIN_BYTES,
 ): WakeRescueAction {
+    val directEgressOk = path != VpnPath.Direct ||
+        RecoverySettings.directRxLooksLikeData(directRxBytesSinceWake)
     val reconnect = shouldReconnectTunnelAfterWake(
         activeWorkers = activeWorkers,
         hasFreshStatsSinceWake = hasFreshStatsSinceWake,
@@ -589,8 +598,12 @@ fun wakeRescueAction(
         directEgressOk = directEgressOk,
     )
     if (!reconnect) return WakeRescueAction.None
-    if (path == VpnPath.Direct && backendAlive && !directEgressOk) {
-        return WakeRescueAction.DeadDirect
+    if (path == VpnPath.Direct && backendAlive) {
+        return if (directTxBytesSinceWake >= minTxBytes) {
+            WakeRescueAction.DeadDirect
+        } else {
+            WakeRescueAction.None
+        }
     }
     return WakeRescueAction.SoftRestart
 }
