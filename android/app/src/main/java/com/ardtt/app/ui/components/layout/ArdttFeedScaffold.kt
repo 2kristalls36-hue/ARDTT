@@ -42,9 +42,9 @@ fun ArdttStatusBarInset(extra: Dp = ArdttSpacing.None) {
 /**
  * The one scroll container of the app.
  *
- * The title is pinned in [ArdttScrollChrome]; feed content scrolls underneath
- * and fades into the blur strip. Passing [stickyContent] pins a full-width
- * action above the pill.
+ * The title sits in [ArdttScrollChrome]; feed content scrolls underneath.
+ * Passing [stickyContent] pins full-width actions above the tab pill
+ * (primary CTA or a bottom stack of destination rows).
  */
 @Composable
 fun ArdttFeedScaffold(
