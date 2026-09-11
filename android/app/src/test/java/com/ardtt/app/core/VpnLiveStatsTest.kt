@@ -122,4 +122,16 @@ class VpnLiveStatsTest {
         VpnLiveStats.reset()
         assertFalse(VpnLiveStats.hasFreshRxSince(0L))
     }
+
+    @Test
+    fun freshTxTracksUplinkGrowthIndependentlyOfRx() {
+        VpnLiveStats.reset()
+        assertFalse(VpnLiveStats.hasFreshTxSince(0L))
+        VpnLiveStats.recordTxGrowthForTest(9_000L, nowMs = 50_000L)
+        assertTrue(VpnLiveStats.hasFreshTxSince(40_000L, nowMs = 51_000L))
+        assertFalse(VpnLiveStats.hasFreshRxSince(40_000L, nowMs = 51_000L))
+        assertFalse(VpnLiveStats.hasFreshTxSince(40_000L, nowMs = 145_000L))
+        VpnLiveStats.reset()
+        assertFalse(VpnLiveStats.hasFreshTxSince(0L))
+    }
 }

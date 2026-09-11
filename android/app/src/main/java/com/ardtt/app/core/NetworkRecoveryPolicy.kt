@@ -580,25 +580,31 @@ const val DEAD_DIRECT_NO_RX_MS = 4_000L
 /** After Wi‑Fi→LTE rebind, fail Direct faster — handshake already had a chance. */
 const val DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS = 3_000L
 
+/**
+ * Direct mirror of [shouldSoftRestartForUnansweredUplink]: the phone keeps
+ * writing into AWG and nothing comes back. An AWG handshake proves only the
+ * control plane — an operator whitelist answers the rekey and drops the data
+ * plane — so liveness comes from the uplink instead: no tx means nobody is
+ * waiting for an answer (idle screen-off tunnel), tx without rx is a blackhole.
+ */
 fun shouldTreatDirectAsDeadNoRx(
     nowMs: Long,
     sessionStartedAtMs: Long,
     lastHandoffAtMs: Long,
     hasFreshRxSinceAnchor: Boolean,
+    hasFreshTxSinceAnchor: Boolean,
     startGraceMs: Long = DEAD_DIRECT_START_GRACE_MS,
     noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
     noRxAfterHandoffMs: Long = DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS,
-    handshakeLive: Boolean = false,
 ): Boolean {
     if (sessionStartedAtMs <= 0L) return false
     val afterHandoff = lastHandoffAtMs > sessionStartedAtMs
     if (!afterHandoff && nowMs - sessionStartedAtMs < startGraceMs) return false
-    // Idle Direct with a live AWG handshake is not a blackhole.
-    if (handshakeLive && !afterHandoff) return false
+    if (hasFreshRxSinceAnchor) return false
+    if (!hasFreshTxSinceAnchor) return false
     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
     val requiredNoRx = if (afterHandoff) noRxAfterHandoffMs else noRxMs
-    if (nowMs - anchor < requiredNoRx) return false
-    return !hasFreshRxSinceAnchor
+    return nowMs - anchor >= requiredNoRx
 }
 
 fun decideDeadDirectAction(

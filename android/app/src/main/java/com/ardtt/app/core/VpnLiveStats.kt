@@ -33,6 +33,9 @@ object VpnLiveStats {
     /** Last time session-relative rx increased (Direct skip-if-alive / dead-egress). */
     @Volatile var lastRxGrowthAtMs: Long = 0L
         private set
+    /** Last time session-relative tx increased (Direct unanswered-uplink check). */
+    @Volatile var lastTxGrowthAtMs: Long = 0L
+        private set
 
     private var lastRx = -1L
     private var lastTx = -1L
@@ -83,6 +86,7 @@ object VpnLiveStats {
         baselineTx = -1L
         lastLogAtMs = 0L
         lastRxGrowthAtMs = 0L
+        lastTxGrowthAtMs = 0L
         // Keep awgHandle / directOpBaseline — DirectBackend owns lifecycle across soft-restarts.
     }
 
@@ -158,6 +162,9 @@ object VpnLiveStats {
         if (lastRx >= 0L && rx > lastRx) {
             lastRxGrowthAtMs = now
         }
+        if (lastTx >= 0L && tx > lastTx) {
+            lastTxGrowthAtMs = now
+        }
 
         if (lastAtMs > 0L && now > lastAtMs) {
             val dtSec = (now - lastAtMs) / 1000.0
@@ -183,10 +190,22 @@ object VpnLiveStats {
             nowMs - lastRxGrowthAtMs < 90_000L &&
             totalRx > 0L
 
+    /** Uplink counterpart of [hasFreshRxSince]: the app is still writing into the tunnel. */
+    fun hasFreshTxSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        lastTxGrowthAtMs >= sinceMs &&
+            nowMs - lastTxGrowthAtMs < 90_000L &&
+            totalTx > 0L
+
     /** Test helper: pretend session-relative rx grew at [nowMs]. */
     internal fun recordRxGrowthForTest(rx: Long, nowMs: Long) {
         if (rx > totalRx) lastRxGrowthAtMs = nowMs
         totalRx = rx
+    }
+
+    /** Test helper: pretend session-relative tx grew at [nowMs]. */
+    internal fun recordTxGrowthForTest(tx: Long, nowMs: Long) {
+        if (tx > totalTx) lastTxGrowthAtMs = nowMs
+        totalTx = tx
     }
 
     private fun maybeLog(now: Long, msg: String) {

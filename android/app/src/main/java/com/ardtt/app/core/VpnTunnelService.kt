@@ -885,33 +885,35 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     val nowDirect = System.currentTimeMillis()
                     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
                     val freshRx = VpnLiveStats.hasFreshRxSince(anchor)
+                    val freshTx = VpnLiveStats.hasFreshTxSince(anchor)
+                    val handshakeLive = RecoverySettings.directHandshakeLive(
+                        handshakeSec = VpnLiveStats.currentAwgHandshakeSec(),
+                        nowSec = nowDirect / 1000L,
+                    )
                     if (nowDirect - lastDirectHealthLogAtMs >= 15_000L) {
                         lastDirectHealthLogAtMs = nowDirect
                         AppLog.i(
                             TAG,
                             "watchdog: Direct rx=${VpnLiveStats.totalRx} tx=${VpnLiveStats.totalTx} " +
-                                "freshRx=$freshRx src=${VpnLiveStats.source} " +
-                                "up=${nowDirect - sessionStartedAtMs}ms",
+                                "freshRx=$freshRx freshTx=$freshTx hsLive=$handshakeLive " +
+                                "src=${VpnLiveStats.source} up=${nowDirect - sessionStartedAtMs}ms",
                         )
                     }
-                    val handshakeLive = RecoverySettings.directHandshakeLive(
-                        handshakeSec = VpnLiveStats.currentAwgHandshakeSec(),
-                        nowSec = nowDirect / 1000L,
-                    )
                     if (
                         shouldTreatDirectAsDeadNoRx(
                             nowMs = nowDirect,
                             sessionStartedAtMs = sessionStartedAtMs,
                             lastHandoffAtMs = lastHandoffAtMs,
                             hasFreshRxSinceAnchor = freshRx,
-                            handshakeLive = handshakeLive,
+                            hasFreshTxSinceAnchor = freshTx,
                         ) &&
                         nowDirect - deadDirectHandledAtMs > 30_000L
                     ) {
                         deadDirectHandledAtMs = nowDirect
                         AppLog.w(
                             TAG,
-                            "watchdog: Direct has no TUN rx for ${nowDirect - anchor}ms — not treating AWG as healthy",
+                            "watchdog: Direct uplink unanswered — no TUN rx for ${nowDirect - anchor}ms " +
+                                "tx=${VpnLiveStats.totalTx} hsLive=$handshakeLive",
                         )
                         ConnectionManager.getOrNull()?.onDeadDirectNoRx()
                     }

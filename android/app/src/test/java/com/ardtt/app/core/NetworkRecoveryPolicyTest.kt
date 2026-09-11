@@ -992,6 +992,7 @@ class NetworkRecoveryPolicyTest {
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
                 hasFreshRxSinceAnchor = false,
+                hasFreshTxSinceAnchor = true,
             ),
         )
         assertFalse(
@@ -1000,6 +1001,7 @@ class NetworkRecoveryPolicyTest {
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
                 hasFreshRxSinceAnchor = true,
+                hasFreshTxSinceAnchor = true,
             ),
         )
         assertTrue(
@@ -1008,15 +1010,7 @@ class NetworkRecoveryPolicyTest {
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
                 hasFreshRxSinceAnchor = false,
-            ),
-        )
-        assertFalse(
-            shouldTreatDirectAsDeadNoRx(
-                nowMs = 50_000L,
-                sessionStartedAtMs = 1_000L,
-                lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
-                handshakeLive = true,
+                hasFreshTxSinceAnchor = true,
             ),
         )
         // After a handoff, 3s no-rx is enough (skip the cold-start grace).
@@ -1026,6 +1020,7 @@ class NetworkRecoveryPolicyTest {
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
                 hasFreshRxSinceAnchor = false,
+                hasFreshTxSinceAnchor = true,
             ),
         )
         assertTrue(
@@ -1034,6 +1029,7 @@ class NetworkRecoveryPolicyTest {
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
                 hasFreshRxSinceAnchor = false,
+                hasFreshTxSinceAnchor = true,
             ),
         )
         assertEquals(
@@ -1055,6 +1051,40 @@ class NetworkRecoveryPolicyTest {
         assertEquals(
             DeadDirectDecision.FailSession,
             decideDeadDirectAction(ConnPathMode.Direct, bypassAllowed = true),
+        )
+    }
+
+    /** Replaces the old handshake exemption: an idle tunnel is quiet, not dead. */
+    @Test
+    fun idleDirectIsExemptButUnansweredUplinkIsDead() {
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 600_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 0L,
+                hasFreshRxSinceAnchor = false,
+                hasFreshTxSinceAnchor = false,
+            ),
+        )
+        // Ticket 19: tx climbing, rx flat, handshake from minutes ago.
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 1_000L + DEAD_DIRECT_NO_RX_MS,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 0L,
+                hasFreshRxSinceAnchor = false,
+                hasFreshTxSinceAnchor = true,
+            ),
+        )
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 1_000L + DEAD_DIRECT_NO_RX_MS - 1L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 0L,
+                hasFreshRxSinceAnchor = false,
+                hasFreshTxSinceAnchor = true,
+                startGraceMs = 0L,
+            ),
         )
     }
 
