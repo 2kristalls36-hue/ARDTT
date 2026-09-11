@@ -18,6 +18,9 @@ import java.util.concurrent.atomic.AtomicLong
 object VpnLiveStats {
     private const val TAG = "VpnLiveStats"
 
+    /** Anchors older than this fall back to the session total (see [rxGrowthSince]). */
+    private const val RX_HISTORY_MS = 180_000L
+
     @Volatile var downBps: Long = 0L
         private set
     @Volatile var upBps: Long = 0L
@@ -36,6 +39,11 @@ object VpnLiveStats {
     /** Last time session-relative tx increased (Direct unanswered-uplink check). */
     @Volatile var lastTxGrowthAtMs: Long = 0L
         private set
+
+    private data class RxSample(val atMs: Long, val rx: Long)
+
+    /** Recent session-relative rx so growth can be measured from an arbitrary anchor. */
+    private val rxHistory = ArrayDeque<RxSample>()
 
     private var lastRx = -1L
     private var lastTx = -1L
@@ -87,6 +95,7 @@ object VpnLiveStats {
         lastLogAtMs = 0L
         lastRxGrowthAtMs = 0L
         lastTxGrowthAtMs = 0L
+        synchronized(rxHistory) { rxHistory.clear() }
         // Keep awgHandle / directOpBaseline — DirectBackend owns lifecycle across soft-restarts.
     }
 
@@ -165,6 +174,7 @@ object VpnLiveStats {
         if (lastTx >= 0L && tx > lastTx) {
             lastTxGrowthAtMs = now
         }
+        recordRxSample(now, rx)
 
         if (lastAtMs > 0L && now > lastAtMs) {
             val dtSec = (now - lastAtMs) / 1000.0
@@ -185,10 +195,32 @@ object VpnLiveStats {
         }
     }
 
+    private fun recordRxSample(atMs: Long, rx: Long) {
+        synchronized(rxHistory) {
+            if (rxHistory.lastOrNull()?.atMs == atMs) rxHistory.removeLast()
+            rxHistory.addLast(RxSample(atMs, rx))
+            while (rxHistory.size > 1 && atMs - rxHistory.first().atMs > RX_HISTORY_MS) {
+                rxHistory.removeFirst()
+            }
+        }
+    }
+
+    /**
+     * Session-relative rx growth since [sinceMs]. Counters are re-baselined when
+     * the transport restarts, so with no sample that old the total *is* the delta.
+     */
+    fun rxGrowthSince(sinceMs: Long): Long {
+        val base = synchronized(rxHistory) {
+            rxHistory.lastOrNull { it.atMs <= sinceMs }?.rx
+        } ?: return totalRx
+        return (totalRx - base).coerceAtLeast(0L)
+    }
+
+    /** Fresh **data**: an AWG handshake response answered by a blackholing cell is not. */
     fun hasFreshRxSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
         lastRxGrowthAtMs >= sinceMs &&
             nowMs - lastRxGrowthAtMs < 90_000L &&
-            totalRx > 0L
+            RecoverySettings.directRxLooksLikeData(rxGrowthSince(sinceMs))
 
     /** Uplink counterpart of [hasFreshRxSince]: the app is still writing into the tunnel. */
     fun hasFreshTxSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
@@ -200,6 +232,7 @@ object VpnLiveStats {
     internal fun recordRxGrowthForTest(rx: Long, nowMs: Long) {
         if (rx > totalRx) lastRxGrowthAtMs = nowMs
         totalRx = rx
+        recordRxSample(nowMs, rx)
     }
 
     /** Test helper: pretend session-relative tx grew at [nowMs]. */

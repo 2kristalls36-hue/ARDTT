@@ -118,9 +118,19 @@ object RecoverySettings {
         return nowSec - handshakeSec <= maxAgeSec
     }
 
+    /**
+     * One AWG handshake response is ~92–160 B and keepalives are 32 B. They are
+     * delivered even by a cell that blackholes the data plane, so anything at or
+     * below this is protocol chatter, not payload.
+     */
+    const val DIRECT_HANDSHAKE_RX_MAX_BYTES = 1024L
+
+    fun directRxLooksLikeData(rxDeltaSinceAnchor: Long): Boolean =
+        rxDeltaSinceAnchor > DIRECT_HANDSHAKE_RX_MAX_BYTES
+
     /** Useful RX from the current AWG backend is PathConfirmed. */
     fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean =
-        totalRx > 0L
+        directRxLooksLikeData(totalRx)
 
     /**
      * Next diagnostic delay for cellular. Restriction confidence ([seriesCount]) is

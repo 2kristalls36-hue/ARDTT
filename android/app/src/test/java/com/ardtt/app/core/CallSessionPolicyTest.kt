@@ -107,8 +107,19 @@ class RecoverySettingsTest {
     @Test
     fun localAwgStartWithoutHandshakeIsNotConnected() {
         assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 0L))
-        assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 12L, handshakeSec = 0L))
+        // 12 B used to confirm; only rx above the handshake size does now.
+        assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 12L, handshakeSec = 0L))
+        assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 4_096L, handshakeSec = 0L))
         assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 3L))
+        assertFalse(RecoverySettings.directRxLooksLikeData(412L))
+        assertFalse(
+            RecoverySettings.directRxLooksLikeData(RecoverySettings.DIRECT_HANDSHAKE_RX_MAX_BYTES),
+        )
+        assertTrue(
+            RecoverySettings.directRxLooksLikeData(
+                RecoverySettings.DIRECT_HANDSHAKE_RX_MAX_BYTES + 1L,
+            ),
+        )
         assertTrue(RecoverySettings.directProtocolReady(handshakeSec = 3L))
         assertTrue(
             PathConfirm.looksConfirmed(

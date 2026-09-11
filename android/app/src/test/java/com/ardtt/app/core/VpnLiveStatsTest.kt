@@ -112,15 +112,32 @@ class VpnLiveStatsTest {
         assertTrue(totals.contains("КБ") || totals.contains("Б"))
     }
 
+    /** 1000 B used to count as fresh; the threshold now excludes handshake-sized rx. */
     @Test
     fun freshRxTracksGrowthAfterNetworkEvent() {
         VpnLiveStats.reset()
         assertFalse(VpnLiveStats.hasFreshRxSince(0L))
-        VpnLiveStats.recordRxGrowthForTest(1000L, nowMs = 50_000L)
+        VpnLiveStats.recordRxGrowthForTest(40_000L, nowMs = 50_000L)
         assertTrue(VpnLiveStats.hasFreshRxSince(40_000L, nowMs = 51_000L))
         assertFalse(VpnLiveStats.hasFreshRxSince(60_000L, nowMs = 61_000L))
         VpnLiveStats.reset()
         assertFalse(VpnLiveStats.hasFreshRxSince(0L))
+    }
+
+    @Test
+    fun handshakeBytesAfterRestartAreNotFreshRx() {
+        VpnLiveStats.reset()
+        // Restarted Direct on the blackholed cell: 412 B handshake response, then flat.
+        VpnLiveStats.recordRxGrowthForTest(412L, nowMs = 5_000L)
+        assertEquals(412L, VpnLiveStats.rxGrowthSince(0L))
+        assertFalse(VpnLiveStats.hasFreshRxSince(0L, nowMs = 6_000L))
+        VpnLiveStats.recordRxGrowthForTest(9_000L, nowMs = 8_000L)
+        assertTrue(VpnLiveStats.hasFreshRxSince(0L, nowMs = 9_000L))
+        // Growth is measured from the anchor, not from the session start.
+        VpnLiveStats.recordRxGrowthForTest(9_600L, nowMs = 12_000L)
+        assertEquals(600L, VpnLiveStats.rxGrowthSince(8_000L))
+        assertFalse(VpnLiveStats.hasFreshRxSince(8_000L, nowMs = 13_000L))
+        VpnLiveStats.reset()
     }
 
     @Test
