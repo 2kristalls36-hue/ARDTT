@@ -262,10 +262,11 @@ internal fun shouldShowFilledHop(
 
 /**
  * Green card is the live egress hop from user settings, not "whatever is last on screen".
- * Hide-IP → CloudFlare; else cascade → VPS 2; else the single VPS. Disconnected: none.
+ * Hide-IP → CloudFlare; else cascade → VPS 2; else the single VPS.
+ * Disconnected → provider only, so the provider card is the terminal (final IP).
  */
 internal fun terminalHopKind(hops: List<NetworkMapHop>): NetworkMapHopKind? =
-    hops.lastOrNull()?.kind?.takeUnless { it == NetworkMapHopKind.Provider }
+    hops.lastOrNull()?.kind
 
 internal fun hopCardHighlighted(
     kind: NetworkMapHopKind,
