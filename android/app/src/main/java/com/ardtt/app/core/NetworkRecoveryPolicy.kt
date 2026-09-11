@@ -615,30 +615,47 @@ const val DEAD_DIRECT_NO_RX_MS = 4_000L
 const val DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS = 3_000L
 
 /**
+ * Path A, uplink moving: any live TCP flow is ACKed within an RTT and DNS is
+ * answered in milliseconds, so this much tx with no inbound *data* is a dead
+ * path, not a slow one. The 90s staleness window in [VpnLiveStats.hasFreshRxSince]
+ * measures idleness and is far too long for a user who is actively browsing.
+ */
+const val DIRECT_UNANSWERED_UPLINK_MS = 15_000L
+
+/**
  * Direct mirror of [shouldSoftRestartForUnansweredUplink]: the phone keeps
  * writing into AWG and nothing comes back. An AWG handshake proves only the
  * control plane — an operator whitelist answers the rekey and drops the data
- * plane — so liveness comes from the uplink instead: no tx means nobody is
- * waiting for an answer (idle screen-off tunnel), tx without rx is a blackhole.
+ * plane — so liveness comes from the uplink instead: an uplink that stopped
+ * moving is an idle tunnel (nothing to answer), tx without rx is a blackhole.
+ *
+ * [lastRxDataGrowthAtMs] must count payload only: handshake responses and
+ * keepalives are excluded by [RecoverySettings.directRxLooksLikeData].
  */
 fun shouldTreatDirectAsDeadNoRx(
     nowMs: Long,
     sessionStartedAtMs: Long,
     lastHandoffAtMs: Long,
-    hasFreshRxSinceAnchor: Boolean,
-    hasFreshTxSinceAnchor: Boolean,
+    lastTxGrowthAtMs: Long,
+    lastRxDataGrowthAtMs: Long,
     startGraceMs: Long = DEAD_DIRECT_START_GRACE_MS,
     noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
     noRxAfterHandoffMs: Long = DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS,
+    unansweredUplinkMs: Long = DIRECT_UNANSWERED_UPLINK_MS,
 ): Boolean {
     if (sessionStartedAtMs <= 0L) return false
     val afterHandoff = lastHandoffAtMs > sessionStartedAtMs
     if (!afterHandoff && nowMs - sessionStartedAtMs < startGraceMs) return false
-    if (hasFreshRxSinceAnchor) return false
-    if (!hasFreshTxSinceAnchor) return false
     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
     val requiredNoRx = if (afterHandoff) noRxAfterHandoffMs else noRxMs
-    return nowMs - anchor >= requiredNoRx
+    if (nowMs - anchor < requiredNoRx) return false
+    // Counters are zeroed at the anchor, so growth recorded before it is stale.
+    val uplinkMoving = lastTxGrowthAtMs >= anchor &&
+        nowMs - lastTxGrowthAtMs <= unansweredUplinkMs
+    if (!uplinkMoving) return false
+    val answered = lastRxDataGrowthAtMs >= anchor &&
+        nowMs - lastRxDataGrowthAtMs <= unansweredUplinkMs
+    return !answered
 }
 
 fun decideDeadDirectAction(

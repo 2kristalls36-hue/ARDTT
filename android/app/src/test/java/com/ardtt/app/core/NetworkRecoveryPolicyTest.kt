@@ -1041,13 +1041,14 @@ class NetworkRecoveryPolicyTest {
 
     @Test
     fun deadDirectSwitchesAutoToBypassOtherwiseStops() {
+        // Cold start grace: uplink already moving, nothing back yet.
         assertFalse(
             shouldTreatDirectAsDeadNoRx(
                 nowMs = 3_500L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
-                hasFreshTxSinceAnchor = true,
+                lastTxGrowthAtMs = 3_400L,
+                lastRxDataGrowthAtMs = 0L,
             ),
         )
         assertFalse(
@@ -1055,8 +1056,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 50_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = true,
-                hasFreshTxSinceAnchor = true,
+                lastTxGrowthAtMs = 49_000L,
+                lastRxDataGrowthAtMs = 49_000L,
             ),
         )
         assertTrue(
@@ -1064,8 +1065,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 50_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
-                hasFreshTxSinceAnchor = true,
+                lastTxGrowthAtMs = 49_000L,
+                lastRxDataGrowthAtMs = 20_000L,
             ),
         )
         // After a handoff, 3s no-rx is enough (skip the cold-start grace).
@@ -1074,8 +1075,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 14_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
-                hasFreshRxSinceAnchor = false,
-                hasFreshTxSinceAnchor = true,
+                lastTxGrowthAtMs = 13_000L,
+                lastRxDataGrowthAtMs = 0L,
             ),
         )
         assertTrue(
@@ -1083,8 +1084,18 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 16_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
-                hasFreshRxSinceAnchor = false,
-                hasFreshTxSinceAnchor = true,
+                lastTxGrowthAtMs = 15_000L,
+                lastRxDataGrowthAtMs = 0L,
+            ),
+        )
+        // Inbound data that arrived before the handoff is not an answer to it.
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 16_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 12_000L,
+                lastTxGrowthAtMs = 15_000L,
+                lastRxDataGrowthAtMs = 11_000L,
             ),
         )
         assertEquals(
@@ -1112,35 +1123,83 @@ class NetworkRecoveryPolicyTest {
     /** Replaces the old handshake exemption: an idle tunnel is quiet, not dead. */
     @Test
     fun idleDirectIsExemptButUnansweredUplinkIsDead() {
+        val session = 1_000L
+        val now = 600_000L
+        fun verdict(txAgeMs: Long, rxAgeMs: Long, nowMs: Long = now) =
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = nowMs,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                lastTxGrowthAtMs = nowMs - txAgeMs,
+                lastRxDataGrowthAtMs = nowMs - rxAgeMs,
+            )
+
+        // Ticket 19: uplink still moving, no inbound data for 20s.
+        assertTrue(verdict(txAgeMs = 5_000L, rxAgeMs = 20_000L))
+        assertTrue(verdict(txAgeMs = 5_000L, rxAgeMs = DIRECT_UNANSWERED_UPLINK_MS + 1L))
+        // Answered within the window — a live path, however slow.
+        assertFalse(verdict(txAgeMs = 5_000L, rxAgeMs = 5_000L))
+        assertFalse(verdict(txAgeMs = 5_000L, rxAgeMs = DIRECT_UNANSWERED_UPLINK_MS))
+        // Idle tunnel: nobody is sending, so nothing is unanswered.
+        assertFalse(verdict(txAgeMs = 40_000L, rxAgeMs = 40_000L))
+        assertFalse(verdict(txAgeMs = DIRECT_UNANSWERED_UPLINK_MS + 1L, rxAgeMs = 60_000L))
+        // Start grace still protects the AWG handshake (nothing received yet).
         assertFalse(
             shouldTreatDirectAsDeadNoRx(
-                nowMs = 600_000L,
-                sessionStartedAtMs = 1_000L,
+                nowMs = session + 2_000L,
+                sessionStartedAtMs = session,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
-                hasFreshTxSinceAnchor = false,
+                lastTxGrowthAtMs = session + 1_500L,
+                lastRxDataGrowthAtMs = 0L,
             ),
         )
-        // Ticket 19: tx climbing, rx flat, handshake from minutes ago.
         assertTrue(
             shouldTreatDirectAsDeadNoRx(
-                nowMs = 1_000L + DEAD_DIRECT_NO_RX_MS,
-                sessionStartedAtMs = 1_000L,
+                nowMs = session + DEAD_DIRECT_NO_RX_MS,
+                sessionStartedAtMs = session,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
-                hasFreshTxSinceAnchor = true,
+                lastTxGrowthAtMs = session + 3_500L,
+                lastRxDataGrowthAtMs = 0L,
             ),
         )
+        // Never any tx / rx at all (fresh session, counters at 0) is not a verdict.
         assertFalse(
             shouldTreatDirectAsDeadNoRx(
-                nowMs = 1_000L + DEAD_DIRECT_NO_RX_MS - 1L,
-                sessionStartedAtMs = 1_000L,
+                nowMs = now,
+                sessionStartedAtMs = session,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
-                hasFreshTxSinceAnchor = true,
-                startGraceMs = 0L,
+                lastTxGrowthAtMs = 0L,
+                lastRxDataGrowthAtMs = 0L,
             ),
         )
+    }
+
+    /**
+     * Ticket 19 replay at the watchdog's 3s cadence: rx froze at t=0 with tx
+     * still moving, so the verdict lands one poll after the 15s window.
+     */
+    @Test
+    fun ticketScenarioIsDeclaredDeadWithinOnePollAfterTheWindow() {
+        val session = 0L
+        val rxFrozeAt = 2_268_000L
+        var deadAt = -1L
+        var t = rxFrozeAt
+        while (t <= rxFrozeAt + 60_000L) {
+            val dead = shouldTreatDirectAsDeadNoRx(
+                nowMs = t,
+                sessionStartedAtMs = session + 1L,
+                lastHandoffAtMs = 0L,
+                // Uplink keeps growing at every poll; inbound data stopped at rxFrozeAt.
+                lastTxGrowthAtMs = t,
+                lastRxDataGrowthAtMs = rxFrozeAt,
+            )
+            if (dead) {
+                deadAt = t
+                break
+            }
+            t += WATCHDOG_POLL_MS
+        }
+        assertEquals(rxFrozeAt + DIRECT_UNANSWERED_UPLINK_MS + WATCHDOG_POLL_MS, deadAt)
     }
 
     @Test

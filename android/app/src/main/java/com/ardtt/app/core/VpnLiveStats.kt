@@ -40,6 +40,16 @@ object VpnLiveStats {
     @Volatile var lastTxGrowthAtMs: Long = 0L
         private set
 
+    /**
+     * Last time rx grew by more than a handshake worth of bytes since the previous
+     * such mark. Growth accumulates, so a slow but live path still marks within a
+     * few samples while handshake responses / keepalives never do.
+     */
+    @Volatile var lastRxDataGrowthAtMs: Long = 0L
+        private set
+
+    private var rxAtLastDataMark = 0L
+
     private data class RxSample(val atMs: Long, val rx: Long)
 
     /** Recent session-relative rx so growth can be measured from an arbitrary anchor. */
@@ -95,6 +105,8 @@ object VpnLiveStats {
         lastLogAtMs = 0L
         lastRxGrowthAtMs = 0L
         lastTxGrowthAtMs = 0L
+        lastRxDataGrowthAtMs = 0L
+        rxAtLastDataMark = 0L
         synchronized(rxHistory) { rxHistory.clear() }
         // Keep awgHandle / directOpBaseline — DirectBackend owns lifecycle across soft-restarts.
     }
@@ -163,6 +175,7 @@ object VpnLiveStats {
             lastRx = -1L
             lastTx = -1L
             lastAtMs = 0L
+            rxAtLastDataMark = 0L
         }
 
         val rx = (rxAbs - baselineRx).coerceAtLeast(0L)
@@ -174,6 +187,7 @@ object VpnLiveStats {
         if (lastTx >= 0L && tx > lastTx) {
             lastTxGrowthAtMs = now
         }
+        markRxDataGrowth(now, rx)
         recordRxSample(now, rx)
 
         if (lastAtMs > 0L && now > lastAtMs) {
@@ -193,6 +207,13 @@ object VpnLiveStats {
         if (rx > 0L || tx > 0L || downBps > 0L || upBps > 0L) {
             maybeLog(now, "src=$src iface=$iface ↓$downBps ↑$upBps rx=$rx tx=$tx")
         }
+    }
+
+    private fun markRxDataGrowth(atMs: Long, rx: Long) {
+        if (rx < rxAtLastDataMark) rxAtLastDataMark = rx
+        if (!RecoverySettings.directRxLooksLikeData(rx - rxAtLastDataMark)) return
+        rxAtLastDataMark = rx
+        lastRxDataGrowthAtMs = atMs
     }
 
     private fun recordRxSample(atMs: Long, rx: Long) {
@@ -222,16 +243,11 @@ object VpnLiveStats {
             nowMs - lastRxGrowthAtMs < 90_000L &&
             RecoverySettings.directRxLooksLikeData(rxGrowthSince(sinceMs))
 
-    /** Uplink counterpart of [hasFreshRxSince]: the app is still writing into the tunnel. */
-    fun hasFreshTxSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
-        lastTxGrowthAtMs >= sinceMs &&
-            nowMs - lastTxGrowthAtMs < 90_000L &&
-            totalTx > 0L
-
     /** Test helper: pretend session-relative rx grew at [nowMs]. */
     internal fun recordRxGrowthForTest(rx: Long, nowMs: Long) {
         if (rx > totalRx) lastRxGrowthAtMs = nowMs
         totalRx = rx
+        markRxDataGrowth(nowMs, rx)
         recordRxSample(nowMs, rx)
     }
 
