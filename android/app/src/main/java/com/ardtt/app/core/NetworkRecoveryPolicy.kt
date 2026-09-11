@@ -561,6 +561,40 @@ fun shouldReconnectTunnelAfterWake(
     return activeWorkers <= 0 || !backendAlive
 }
 
+enum class WakeRescueAction {
+    None,
+    SoftRestart,
+
+    /** Direct backend is alive but nothing came back after wake — hand to the reducer. */
+    DeadDirect,
+}
+
+/**
+ * Restarting Direct after wake re-handshakes on the same radio, which is useless
+ * when the cell answers the control plane and drops the data plane. Route that
+ * case through the dead-Direct reducer (Auto+cellular+hash → Bypass) instead.
+ */
+fun wakeRescueAction(
+    path: VpnPath,
+    backendAlive: Boolean,
+    directEgressOk: Boolean,
+    activeWorkers: Int,
+    hasFreshStatsSinceWake: Boolean,
+): WakeRescueAction {
+    val reconnect = shouldReconnectTunnelAfterWake(
+        activeWorkers = activeWorkers,
+        hasFreshStatsSinceWake = hasFreshStatsSinceWake,
+        bypassPath = path == VpnPath.Bypass,
+        backendAlive = backendAlive,
+        directEgressOk = directEgressOk,
+    )
+    if (!reconnect) return WakeRescueAction.None
+    if (path == VpnPath.Direct && backendAlive && !directEgressOk) {
+        return WakeRescueAction.DeadDirect
+    }
+    return WakeRescueAction.SoftRestart
+}
+
 /**
  * Direct Connected with no TUN rx after grace: Auto+hash on cellular → Bypass.
  * Auto on Wi‑Fi and forced Direct stop so the phone is not a blackhole.

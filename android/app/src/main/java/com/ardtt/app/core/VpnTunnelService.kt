@@ -819,30 +819,41 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 TransportHealth.hasFreshStatsSince(wakeStartedAt)
             val directEgressOk = path != VpnPath.Direct ||
                 VpnLiveStats.hasFreshRxSince(wakeStartedAt)
-            val should = shouldReconnectTunnelAfterWake(
-                activeWorkers = TransportHealth.activeWorkers,
-                hasFreshStatsSinceWake = fresh,
-                bypassPath = path == VpnPath.Bypass,
-                backendAlive = sessionJob?.isActive == true || TransportHealth.backendAlive,
-                directEgressOk = directEgressOk,
-            )
-            if (should) {
-                AppLog.v(
-                    TAG,
-                    "wake rescue → soft restart path=$path workers=${TransportHealth.activeWorkers} " +
-                        "directRx=${VpnLiveStats.hasFreshRxSince(wakeStartedAt)}",
+            when (
+                wakeRescueAction(
+                    path = path,
+                    backendAlive = sessionJob?.isActive == true || TransportHealth.backendAlive,
+                    directEgressOk = directEgressOk,
+                    activeWorkers = TransportHealth.activeWorkers,
+                    hasFreshStatsSinceWake = fresh,
                 )
-                updateNotification(path, "Восстановление после сна…")
-                requestSoftRestart(
-                    reason = "[СОН] После пробуждения нет рабочих каналов. Мягко переподключаем транспорт.",
-                    force = true,
-                )
-            } else {
-                AppLog.v(
-                    TAG,
-                    "wake rescue: path=$path looks healthy " +
-                        "bypassFresh=$fresh directRx=${VpnLiveStats.hasFreshRxSince(wakeStartedAt)}",
-                )
+            ) {
+                WakeRescueAction.DeadDirect -> {
+                    AppLog.w(
+                        TAG,
+                        "wake rescue: Direct backend alive but no data since wake — dead-Direct recovery",
+                    )
+                    ConnectionManager.getOrNull()?.onDeadDirectNoRx()
+                }
+                WakeRescueAction.SoftRestart -> {
+                    AppLog.v(
+                        TAG,
+                        "wake rescue → soft restart path=$path workers=${TransportHealth.activeWorkers} " +
+                            "directRx=$directEgressOk",
+                    )
+                    updateNotification(path, "Восстановление после сна…")
+                    requestSoftRestart(
+                        reason = "[СОН] После пробуждения нет рабочих каналов. Мягко переподключаем транспорт.",
+                        force = true,
+                    )
+                }
+                WakeRescueAction.None -> {
+                    AppLog.v(
+                        TAG,
+                        "wake rescue: path=$path looks healthy " +
+                            "bypassFresh=$fresh directRx=$directEgressOk",
+                    )
+                }
             }
         }
     }

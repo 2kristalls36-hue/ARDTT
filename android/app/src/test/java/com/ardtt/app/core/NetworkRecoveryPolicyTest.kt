@@ -168,6 +168,61 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun wakeRescueSendsDeadDirectToRecoveryNotSoftRestart() {
+        // Ticket 19: 18:56:36 SCREEN_ON, AWG process alive, nothing received.
+        assertEquals(
+            WakeRescueAction.DeadDirect,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = true,
+                directEgressOk = false,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.SoftRestart,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = false,
+                directEgressOk = false,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.None,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = true,
+                directEgressOk = true,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.SoftRestart,
+            wakeRescueAction(
+                path = VpnPath.Bypass,
+                backendAlive = true,
+                directEgressOk = true,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.None,
+            wakeRescueAction(
+                path = VpnPath.Bypass,
+                backendAlive = true,
+                directEgressOk = true,
+                activeWorkers = 3,
+                hasFreshStatsSinceWake = true,
+            ),
+        )
+    }
+
+    @Test
     fun zeroWorkersGraceRequiresSustainedZero() {
         assertFalse(shouldSoftRestartForZeroWorkers(0, 0L, 100_000L))
         assertFalse(shouldSoftRestartForZeroWorkers(0, 90_000L, 100_000L, graceMs = 60_000L))
