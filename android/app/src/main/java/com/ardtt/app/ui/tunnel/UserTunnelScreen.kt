@@ -69,6 +69,7 @@ import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.ConnectionUiAction
 import com.ardtt.app.core.VpnPath
 import com.ardtt.app.ui.performConnectionUiAction
+import com.ardtt.app.ui.tunnelChromeActions
 import com.ardtt.app.profile.ProfileCatalog
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
@@ -320,7 +321,7 @@ private fun UserTunnelSimpleScreen(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
             ConnectionActionChips(
-                actions = ui.uiModel.actions,
+                actions = tunnelChromeActions(ui.uiModel.actions),
                 onAction = onConnectionAction,
             )
             if (showDonateBanner) {
