@@ -113,6 +113,21 @@ class ConnectPathTest {
                 bypassAllowed = true,
             ),
         )
+        assertEquals(
+            VpnPath.Bypass,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Bypass,
+                lastGood = needBypass,
+                fresh = needBypass.copy(
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ),
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                whitelistScorePercent = 80,
+            ),
+        )
     }
 
     @Test
@@ -229,7 +244,7 @@ class ConnectPathTest {
                 bypassAllowed = true,
             ),
         )
-        assertFalse(
+        assertTrue(
             connectNeedsInitialProbe(
                 mode = ConnPathMode.Auto,
                 probePreferred = null,
@@ -299,6 +314,42 @@ class ConnectPathTest {
                     message = "Передача данных не подтверждена",
                 ),
                 underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+    }
+
+    @Test
+    fun autoCellularWaitsForWhitelistProbeUntilEvidenceExists() {
+        assertTrue(
+            shouldWaitForCellularWhitelistProbe(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                state = ConnState.Idle,
+                hasSameNetworkProbeEvidence = false,
+            ),
+        )
+        assertTrue(
+            shouldWaitForCellularWhitelistProbe(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                state = ConnState.Probing,
+                hasSameNetworkProbeEvidence = true,
+            ),
+        )
+        assertFalse(
+            shouldWaitForCellularWhitelistProbe(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                state = ConnState.Ready,
+                hasSameNetworkProbeEvidence = true,
+            ),
+        )
+        assertFalse(
+            shouldWaitForCellularWhitelistProbe(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Wifi,
+                state = ConnState.Idle,
+                hasSameNetworkProbeEvidence = false,
             ),
         )
     }

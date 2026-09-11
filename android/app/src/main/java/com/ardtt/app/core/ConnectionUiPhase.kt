@@ -117,6 +117,9 @@ fun connectionUiModel(
                     phase = ConnectionUiPhase.Connecting,
                     message = when {
                         phase == RecoveryPhase.ConnectingBypass &&
+                            restriction == RestrictionHint.Confirmed ->
+                            "Похоже на белый список оператора. Подключаемся через обход"
+                        phase == RecoveryPhase.ConnectingBypass &&
                             restriction != RestrictionHint.Suspected &&
                             restriction != RestrictionHint.Confirmed ->
                             "Прямое подключение недоступно. Подключаемся через обход"

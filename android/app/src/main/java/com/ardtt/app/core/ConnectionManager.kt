@@ -1068,10 +1068,47 @@ class ConnectionManager(
     fun connect() {
         val current = _ui.value
         val mode = pathMode
+        val kind = currentAutoUnderlayKind()
+        val wait = shouldWaitForCellularWhitelistProbe(
+            mode = mode,
+            underlayKind = kind,
+            state = current.state,
+            hasSameNetworkProbeEvidence = hasSameNetworkProbeEvidence(
+                recoverySnapshot.evidence,
+                recoverySnapshot.underlay.key,
+                recoverySnapshot.intent.profileId ?: profile?.name,
+            ),
+        )
+        if (wait) {
+            if (connectWhenReadyJob?.isActive == true) {
+                AppLog.v(TAG, "Connect already waiting for cellular whitelist probe")
+                return
+            }
+            AppLog.i(TAG, "Connect waits for cellular whitelist probe state=${current.state}")
+            if (current.state != ConnState.Probing) {
+                startInitialProbe()
+            }
+            connectWhenReadyJob = scope.launch {
+                probeJob?.join()
+                val after = _ui.value.state
+                if (!shouldConnectAfterProbeJoin(after) && after != ConnState.Probing) {
+                    AppLog.v(TAG, "Connect skipped after whitelist probe state=$after")
+                    return@launch
+                }
+                proceedUserConnect()
+            }
+            return
+        }
         if (current.state == ConnState.Probing) {
             probeJob?.cancel()
             AppLog.i(TAG, "Connect during probe — keep intent, start without waiting")
         }
+        proceedUserConnect()
+    }
+
+    private fun proceedUserConnect() {
+        val current = _ui.value
+        val mode = pathMode
         if (current.state == ConnState.Connecting && recoverySnapshot.recovery.inFlight &&
             recoverySnapshot.transport == TransportLifecycle.Starting
         ) {
@@ -1138,8 +1175,16 @@ class ConnectionManager(
                     shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
                 val wifiAutoDirect = autoUsesDirectOnWifi(liveMode, kind)
                 val underlayUsable = readUnderlaySnapshot().availability == UnderlayAvailability.Usable
-                val startDirectNow = forced == VpnPath.Direct ||
-                    shouldStartDirectWithoutDiagnostic(liveMode, kind, underlayUsable)
+                val whitelistScore = recoverySnapshot.evidence?.whitelistScoreAt(
+                    recoverySnapshot.underlay.key,
+                    recoverySnapshot.intent.profileId,
+                ) ?: 0
+                val whitelistBypass = autoMayUseBypass(liveMode, kind, bypassAllowed) &&
+                    RestrictionScore.likely(whitelistScore, alreadyBypass = false)
+                val startDirectNow = (forced == VpnPath.Direct ||
+                    shouldStartDirectWithoutDiagnostic(liveMode, kind, underlayUsable)) &&
+                    forced != VpnPath.Bypass &&
+                    !whitelistBypass
                 val capturedMode = liveMode
                 val capturedKind = kind
                 val capturedProfileId = profile?.name
@@ -1291,12 +1336,27 @@ class ConnectionManager(
                     underlayKind = kindNow,
                     bypassAllowed = bypassNow,
                     underlayUsable = readUnderlaySnapshot().availability == UnderlayAvailability.Usable,
+                    whitelistScorePercent = recoverySnapshot.evidence?.whitelistScoreAt(
+                        recoverySnapshot.underlay.key,
+                        recoverySnapshot.intent.profileId,
+                    ) ?: fresh.whitelistScorePercent,
                 )
                 AppLog.v(
                     TAG,
                     "Connect resolved use=$usePath liveMode=$liveModeNow kind=$kindNow " +
                         "probe=${fresh.preselectedPath}",
                 )
+                if (usePath != null &&
+                    liveModeNow == ConnPathMode.Auto &&
+                    kindNow == UnderlayKind.Cellular &&
+                    !startDirectNow &&
+                    !wifiAutoDirect
+                ) {
+                    launchBackgroundDiagnostic(
+                        sessionEpoch = connectSessionEpoch,
+                        networkEpoch = connectNetworkEpoch,
+                    )
+                }
                 if (usePath == null) {
                     applyProbe(
                         fresh,
@@ -2461,47 +2521,70 @@ class ConnectionManager(
             AppLog.v(TAG, "probe UI skipped — network changed since capture")
             return
         }
+        val now = SystemClock.elapsedRealtime()
+        val incoming = ReachabilityEvidence(
+            networkKey = capturedKey,
+            profileId = profileId,
+            measuredAtElapsedMs = now,
+            yandex = shown.yandexOutcome,
+            bigtech = shown.bigtechOutcome,
+            google = shown.googleOutcome,
+            provision = shown.provisionOutcome,
+            restriction = shown.restriction,
+            whitelistScorePercent = shown.whitelistScorePercent,
+            captive = shown.captive,
+            ttlUntilElapsedMs = now + RecoverySettings.PROBE_CACHE_TTL_MS,
+            bindHandle = shown.bindHandle,
+            routeReason = shown.routeReason,
+            restrictionReason = shown.restrictionReason,
+            seriesId = shown.seriesId,
+        )
+        val cellular = recoverySnapshot.underlay.kind == UnderlayKind.Cellular
         if (recoverySnapshot.intent.wantsConnected) {
             dispatchRecovery(
                 ConnectionEvent.ProbeFinished(
-                    evidence = ReachabilityEvidence(
-                        networkKey = capturedKey,
-                        profileId = profileId,
-                        measuredAtElapsedMs = SystemClock.elapsedRealtime(),
-                        yandex = shown.yandexOutcome,
-                        bigtech = shown.bigtechOutcome,
-                        google = shown.googleOutcome,
-                        provision = shown.provisionOutcome,
-                        restriction = shown.restriction,
-                        captive = shown.captive,
-                        ttlUntilElapsedMs = SystemClock.elapsedRealtime() + RecoverySettings.PROBE_CACHE_TTL_MS,
-                        bindHandle = shown.bindHandle,
-                        routeReason = shown.routeReason,
-                        restrictionReason = shown.restrictionReason,
-                        seriesId = shown.seriesId,
-                    ),
+                    evidence = incoming,
                     sessionEpoch = sessionEpoch,
                     networkEpoch = networkEpoch,
                 ),
             )
+            val folded = recoverySnapshot.evidence
+            val overlay = if (folded != null) {
+                shown.withWhitelistEvidence(folded, cellular)
+            } else {
+                shown
+            }
             _ui.value = _ui.value.copy(
-                probe = shown,
-                softInfo = softInfoFor(shown),
+                probe = overlay,
+                softInfo = softInfoFor(overlay),
             )
             refreshHashFlag()
             return
         }
+        val folded = foldReachabilityEvidence(
+            previous = recoverySnapshot.evidence,
+            incoming = incoming,
+            cellular = cellular,
+            elapsedMs = now,
+        )
+        recoverySnapshot = recoverySnapshot.copy(evidence = folded)
+        val overlay = shown.withWhitelistEvidence(folded, cellular)
+        AppLog.i(
+            TAG,
+            "idle probe stashed score=${folded.whitelistScorePercent} " +
+                "restriction=${folded.restriction} path=${overlay.preselectedPath}",
+        )
         _ui.value = _ui.value.copy(
             state = ConnState.Ready,
-            probe = shown,
+            probe = overlay,
             pathMode = pathMode,
-            statusText = shown.message,
-            softInfo = softInfoFor(shown),
-            connectEnabled = connectAllowed(shown),
-            lastError = if (!connectAllowed(shown)) shown.message else null,
+            statusText = overlay.message,
+            softInfo = softInfoFor(overlay),
+            connectEnabled = connectAllowed(overlay),
+            lastError = if (!connectAllowed(overlay)) overlay.message else null,
         )
         refreshHashFlag()
-        Log.i(TAG, "probe class=${shown.networkClass} path=${shown.preselectedPath} ${shown.elapsedMs}ms")
+        Log.i(TAG, "probe class=${overlay.networkClass} path=${overlay.preselectedPath} ${overlay.elapsedMs}ms")
     }
 
     private fun softInfoFor(result: ProbeResult?): String? {
@@ -2524,7 +2607,14 @@ class ConnectionManager(
         when (result.networkClass) {
             NetworkClass.NeedBypass ->
                 if (pathMode == ConnPathMode.Auto && !wifiAuto) {
-                    parts += "Возможны ограничения мобильной сети. Прямое подключение к VPS всё равно проверяется."
+                    parts += if (
+                        result.preselectedPath == VpnPath.Bypass ||
+                        RestrictionScore.likely(result.whitelistScorePercent, alreadyBypass = false)
+                    ) {
+                        "Похоже на белый список оператора. Подключаемся через обход, без пробного прямого подключения."
+                    } else {
+                        "Возможны ограничения мобильной сети. Прямое подключение к VPS проверяется."
+                    }
                 }
             NetworkClass.OpenNeedBypass ->
                 if (pathMode == ConnPathMode.Auto && !wifiAuto) {

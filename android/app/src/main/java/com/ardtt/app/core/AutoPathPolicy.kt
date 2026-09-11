@@ -1,8 +1,9 @@
 package com.ardtt.app.core
 
 /**
- * Auto Direct/Bypass table. Restriction hints never forbid a working Direct.
- * Unknown underlay is not treated as cellular.
+ * Auto Direct/Bypass table. A working Direct is never torn down for a
+ * restriction hint. On cellular, a whitelist score at enter threshold starts
+ * Bypass before a Direct attempt. Unknown underlay is not treated as cellular.
  */
 sealed class AutoDecision {
     data object WaitForUnderlay : AutoDecision()
@@ -163,6 +164,14 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         underlay.key,
         input.profileId,
     ) ?: RestrictionHint.Unknown
+    val whitelistScore = input.evidence?.whitelistScoreAt(
+        underlay.key,
+        input.profileId,
+    ) ?: 0
+    val alreadyBypass = input.currentPath == VpnPath.Bypass &&
+        (input.transport == TransportLifecycle.Running ||
+            input.transport == TransportLifecycle.Starting)
+    val whitelistLikely = RestrictionScore.likely(whitelistScore, alreadyBypass)
     val internetOk = input.evidence?.let { ev ->
         ev.usableAt(input.elapsedMs, underlay.key, input.profileId) &&
             (ev.yandex.isSuccess || ev.bigtech.isSuccess)
@@ -188,8 +197,9 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         input.transport == TransportLifecycle.Running
     ) {
         // Restriction probes / LinkProperties flaps must not yank a live Bypass.
-        // Periodic Direct retry is armed by the reducer and only runs on reevalDue.
-        if (!blocked && input.reevalDue) {
+        // Periodic Direct retry is armed by the reducer and only runs on reevalDue
+        // when the whitelist score is below the exit threshold.
+        if (!blocked && input.reevalDue && !whitelistLikely) {
             return AutoDecision.StartDirect(
                 keepCall = input.hasCallHash,
                 immediate = false,
@@ -208,6 +218,12 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
             input.transport == TransportLifecycle.Starting
         ) {
             return AutoDecision.Stay(VpnPath.Direct, "direct-try-in-flight")
+        }
+        if (whitelistLikely && input.hasCallHash) {
+            return AutoDecision.StartBypass(
+                reuseCall = true,
+                reason = "cellular-whitelist",
+            )
         }
         return AutoDecision.StartDirect(
             keepCall = input.hasCallHash,

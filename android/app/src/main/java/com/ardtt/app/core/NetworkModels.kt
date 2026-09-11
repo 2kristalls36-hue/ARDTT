@@ -36,6 +36,8 @@ data class ProbeResult(
     val googleOutcome: CheckOutcome = if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val provisionOutcome: CheckOutcome = if (provisionOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val restriction: RestrictionHint = RestrictionHint.Unknown,
+    /** 0–100 operator-whitelist confidence from this round (or accumulated overlay). */
+    val whitelistScorePercent: Int = 0,
     val routeReason: String = "direct",
     val restrictionReason: String? = null,
     val networkKey: NetworkKey? = null,
@@ -43,8 +45,8 @@ data class ProbeResult(
     val seriesId: String = "",
 ) {
     /**
-     * Indirect mobile-restriction hint. Never a final Auto Bypass lock:
-     * both outcomes must have actually run.
+     * Indirect mobile-restriction hint. Bypass lock uses
+     * [RestrictionScore.likely] on [whitelistScorePercent], not this flag.
      */
     val whitelistRestricted: Boolean
         get() = restriction == RestrictionHint.Suspected ||

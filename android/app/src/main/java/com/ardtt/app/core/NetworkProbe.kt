@@ -35,8 +35,8 @@ import kotlinx.coroutines.withContext
  * - **8.8.8.8** (Google) — independent ordinary provider; UDP DNS.
  * - **VPS /health** — HTTP, not TCP :9100 and not AmneziaWG.
  *
- * Auto still tries Direct first. Restriction needs control + two ordinary
- * failures on cellular; one Cloudflare miss is not two providers.
+ * Auto cellular uses a weighted whitelist score before the first Direct try.
+ * One Cloudflare miss is not two providers; both ordinary targets must block.
  */
 object NetworkProbe {
 
@@ -124,6 +124,7 @@ object NetworkProbe {
                     provisionOutcome = provision ?: CheckOutcome.NotRun,
                     googleOk = google?.isSuccess == true,
                     googleOutcome = google ?: CheckOutcome.NotRun,
+                    previousWhitelistScore = 0,
                 ).copy(
                     bindHandle = bindHandle,
                     seriesId = seriesId,
@@ -227,6 +228,7 @@ object NetworkProbe {
         yandexOutcome: CheckOutcome? = null,
         bigtechOutcome: CheckOutcome? = null,
         provisionOutcome: CheckOutcome? = null,
+        previousWhitelistScore: Int = 0,
     ): ProbeResult = NetworkProbePolicy.classify(
         systemOnline = systemOnline,
         yandexOk = yandexOk,
@@ -240,6 +242,7 @@ object NetworkProbe {
         yandexOutcome = yandexOutcome,
         bigtechOutcome = bigtechOutcome,
         provisionOutcome = provisionOutcome,
+        previousWhitelistScore = previousWhitelistScore,
     ).copy(awgUdpOk = awgUdpOk)
 
     private fun captivePortalCapability(context: Context, bindNetwork: Network?): Boolean {
