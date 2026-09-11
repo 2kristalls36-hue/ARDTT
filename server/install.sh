@@ -233,7 +233,9 @@ preflight_space() {
 
 install_bundled_compose() {
   local src=""
-  if [ -x "$PKG_DIR/bin/docker-compose" ]; then
+  # Safe extraction drops file modes (set_attrs=False), so the staged binary is
+  # not executable yet: test presence, not -x, and chmod the installed copy.
+  if [ -f "$PKG_DIR/bin/docker-compose" ]; then
     src="$PKG_DIR/bin/docker-compose"
   fi
   # Our own /opt/ardtt/bin copy follows the package pin; the system plugin is never replaced.
