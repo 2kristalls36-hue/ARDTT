@@ -13,6 +13,21 @@ data class NetworkKey(
     val isCellular: Boolean get() = transport == UnderlayKind.Cellular
     val isWifi: Boolean get() = transport == UnderlayKind.Wifi
     val isEthernet: Boolean get() = transport == UnderlayKind.Ethernet
+
+    /**
+     * Same radio / SIM even if LinkProperties DNS or extra addresses flapped.
+     * VPN bind routinely rewrites cellular DNS; that is not a new underlay.
+     */
+    fun samePhysicalNetwork(other: NetworkKey?): Boolean {
+        if (other == null) return false
+        return handle == other.handle && transport == other.transport && simId == other.simId
+    }
+}
+
+fun NetworkKey?.physicalIdentityChanged(next: NetworkKey?): Boolean {
+    if (this == null && next == null) return false
+    if (this == null || next == null) return true
+    return !samePhysicalNetwork(next)
 }
 
 enum class UnderlayAvailability {

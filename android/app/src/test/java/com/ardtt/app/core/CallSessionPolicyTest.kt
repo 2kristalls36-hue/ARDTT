@@ -204,6 +204,16 @@ class ConnectionUiPhaseTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals("Подключаемся напрямую через мобильную сеть", connectingCell.message)
+        val connectingAfterBypass = connectionUiModel(
+            phase = RecoveryPhase.ConnectingDirect,
+            activePath = VpnPath.Bypass,
+            restriction = RestrictionHint.Unknown,
+            transport = TransportLifecycle.Starting,
+            retryInMs = null,
+            underlayKind = UnderlayKind.Cellular,
+        )
+        assertEquals("Подключаемся напрямую через мобильную сеть", connectingAfterBypass.message)
+        assertEquals(ConnectionUiPhase.Connecting, connectingAfterBypass.phase)
         val recovering = connectionUiModel(
             phase = RecoveryPhase.Backoff,
             activePath = VpnPath.Direct,
@@ -222,5 +232,17 @@ class ConnectionUiPhaseTest {
         )
         assertEquals("Прямое подключение работает. Возможны ограничения мобильной сети", suspected.message)
         assertEquals(ConnectionUiPhase.DirectDespiteRestriction, suspected.phase)
+        val whitelistBypass = connectionUiModel(
+            phase = RecoveryPhase.ConnectingBypass,
+            activePath = null,
+            restriction = RestrictionHint.Confirmed,
+            transport = TransportLifecycle.Starting,
+            retryInMs = null,
+            underlayKind = UnderlayKind.Cellular,
+        )
+        assertEquals(
+            "Похоже на белый список оператора. Подключаемся через обход",
+            whitelistBypass.message,
+        )
     }
 }

@@ -237,7 +237,7 @@ class UnderlayAccessTest {
             validated = true,
             wifiTransport = true,
             cellularTransport = false,
-            wifiActuallyConnected = false,
+            wifiActuallyConnected = true,
             networkSubId = -1,
             activeDataSubId = 2,
         )
@@ -252,6 +252,32 @@ class UnderlayAccessTest {
             activeDataSubId = 2,
         )
         assertTrue(wifi > cell)
+    }
+
+    @Test
+    fun validatedGhostWifiLosesToCellular() {
+        val ghostWifi = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = true,
+            cellularTransport = false,
+            wifiActuallyConnected = false,
+            networkSubId = -1,
+            activeDataSubId = 2,
+        )
+        val liveCell = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = false,
+            networkSubId = 2,
+            activeDataSubId = 2,
+        )
+        assertTrue(liveCell > ghostWifi)
+        assertTrue(ghostWifi <= 0)
     }
 
     @Test
@@ -311,5 +337,20 @@ class UnderlayAccessTest {
     @Test
     fun emptyLinkPropertiesFingerprintIsBlank() {
         assertEquals("", fingerprintFromLinkProperties(null))
+    }
+
+    @Test
+    fun physicalNetworkIgnoresDnsFingerprintFlaps() {
+        val a = NetworkKey(7L, UnderlayKind.Cellular, 11, "rmnet0|10.1.2.3|8.8.8.8")
+        val b = NetworkKey(7L, UnderlayKind.Cellular, 11, "rmnet0|10.1.2.3|1.1.1.1")
+        val otherHandle = NetworkKey(8L, UnderlayKind.Cellular, 11, a.configFingerprint)
+        assertTrue(a.samePhysicalNetwork(b))
+        assertFalse(a.physicalIdentityChanged(b))
+        assertTrue(a.physicalIdentityChanged(otherHandle))
+        assertTrue(a.physicalIdentityChanged(null))
+        assertFalse(null.physicalIdentityChanged(null))
+        val sameSim = NetworkKey(8L, UnderlayKind.Cellular, 11, a.configFingerprint)
+        assertTrue(a.sameCellularSim(sameSim))
+        assertTrue(a.matchesCellularUnderlay(sameSim))
     }
 }

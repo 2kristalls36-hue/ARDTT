@@ -1,8 +1,8 @@
 package com.ardtt.app.core
 
 /**
- * Auto on Wi‑Fi / Ethernet always uses Direct. Probe → Bypass stays for
- * confirmed cellular after Direct failed. Unknown underlay is not mobile.
+ * Auto on Wi‑Fi / Ethernet always uses Direct. Cellular Auto uses Bypass
+ * when the whitelist score is at enter threshold. Unknown underlay is not mobile.
  */
 fun autoUsesDirectOnWifi(mode: ConnPathMode, underlayKind: UnderlayKind): Boolean =
     mode == ConnPathMode.Auto && underlayKind.prefersDirectInAuto()
@@ -27,6 +27,7 @@ fun wifiAutoDirectProbe(elapsedMs: Long = 0): ProbeResult = ProbeResult(
         googleOutcome = CheckOutcome.NotRun,
         provisionOutcome = CheckOutcome.NotRun,
         restriction = RestrictionHint.None,
+        whitelistScorePercent = 0,
         routeReason = "direct",
 )
 
@@ -42,6 +43,7 @@ fun displayedAutoProbe(
             preselectedPath = VpnPath.Direct,
             message = "Авто на Wi‑Fi: прямое подключение",
             restriction = RestrictionHint.None,
+            whitelistScorePercent = 0,
         )
     } else {
         measured
@@ -49,8 +51,9 @@ fun displayedAutoProbe(
 
 /**
  * Initial Connect path. Auto on Wi‑Fi/Ethernet is Direct. On cellular Auto
- * tries Direct unless Direct already failed on this underlay. NoNetwork and
- * Captive do not reuse a previous successful path.
+ * uses Bypass when the whitelist score is at enter threshold (or Direct
+ * already failed on this underlay). NoNetwork and Captive do not reuse a
+ * previous successful path.
  */
 fun resolveConnectPath(
     mode: ConnPathMode,
@@ -61,6 +64,7 @@ fun resolveConnectPath(
     bypassAllowed: Boolean = true,
     directFailedOnCurrentUnderlay: Boolean = false,
     underlayUsable: Boolean = false,
+    whitelistScorePercent: Int = 0,
 ): VpnPath? {
     when (mode) {
         ConnPathMode.Direct -> return VpnPath.Direct
@@ -75,6 +79,10 @@ fun resolveConnectPath(
     }
     if (fresh.networkClass == NetworkClass.DataUnconfirmed) return VpnPath.Direct
     if (directFailedOnCurrentUnderlay && bypassAllowed) return VpnPath.Bypass
+    val score = maxOf(whitelistScorePercent, fresh.whitelistScorePercent)
+    if (bypassAllowed && RestrictionScore.likely(score, alreadyBypass = false)) {
+        return VpnPath.Bypass
+    }
     return VpnPath.Direct
 }
 
@@ -118,7 +126,7 @@ fun connectSnapshotChanged(
     capturedKind != liveKind ||
     capturedProfileId != liveProfileId
 
-/** Widget / shortcut: usable underlay starts Direct; do not wait for initial probe. */
+/** Widget / shortcut: Auto cellular waits for a whitelist probe; Wi‑Fi Direct does not. */
 internal fun connectNeedsInitialProbe(
     mode: ConnPathMode,
     probePreferred: VpnPath?,
@@ -127,7 +135,30 @@ internal fun connectNeedsInitialProbe(
     underlayUsable: Boolean = false,
 ): Boolean {
     if (mode != ConnPathMode.Auto || probePreferred != null) return false
+    if (underlayKind == UnderlayKind.Cellular) return true
     if (shouldStartDirectWithoutDiagnostic(mode, underlayKind, underlayUsable)) return false
     return !autoUsesDirectOnWifi(mode, underlayKind) &&
         !shouldSkipConnectProbe(mode, bypassAllowed, underlayKind)
+}
+
+/**
+ * Auto cellular Connect must finish (or reuse) a probe so БС is known before
+ * the first Direct attempt. Handover still uses
+ * [shouldStartDirectWithoutDiagnostic] to skip a blocking round-trip.
+ */
+fun shouldWaitForCellularWhitelistProbe(
+    mode: ConnPathMode,
+    underlayKind: UnderlayKind,
+    state: ConnState,
+    hasSameNetworkProbeEvidence: Boolean,
+): Boolean {
+    if (mode != ConnPathMode.Auto || underlayKind != UnderlayKind.Cellular) return false
+    if (state == ConnState.Probing) return true
+    if (state != ConnState.Idle &&
+        state != ConnState.Ready &&
+        state != ConnState.Error
+    ) {
+        return false
+    }
+    return !hasSameNetworkProbeEvidence
 }

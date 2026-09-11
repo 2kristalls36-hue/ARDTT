@@ -58,7 +58,7 @@ data class DirectNegativeEvidence(
     val retryAfterElapsedMs: Long = 0L,
 ) {
     fun stillBlocks(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
-        if (key == null || key != this.key) return false
+        if (key == null || !this.key.samePhysicalNetwork(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return elapsedMs < retryAfterElapsedMs
     }
@@ -127,6 +127,8 @@ data class ReachabilityEvidence(
     val google: CheckOutcome = CheckOutcome.NotRun,
     val provision: CheckOutcome = CheckOutcome.NotRun,
     val restriction: RestrictionHint = RestrictionHint.Unknown,
+    /** 0–100 operator-whitelist confidence; persists across a flaky probe. */
+    val whitelistScorePercent: Int = 0,
     val captive: Boolean = false,
     val ttlUntilElapsedMs: Long = 0L,
     val seriesCount: Int = 1,
@@ -139,7 +141,7 @@ data class ReachabilityEvidence(
 ) {
     fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
         if (ttlUntilElapsedMs > 0L && elapsedMs > ttlUntilElapsedMs) return false
-        if (networkKey != null && key != null && networkKey != key) return false
+        if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return true
     }
@@ -154,6 +156,8 @@ data class ConnectionSnapshot(
     val intent: UserConnectionIntent = UserConnectionIntent(),
     val underlay: UnderlaySnapshot = UnderlaySnapshot(),
     val evidence: ReachabilityEvidence? = null,
+    /** Last cellular БС probe, kept while Wi‑Fi is the default route. */
+    val cellularEvidence: ReachabilityEvidence? = null,
     val call: CallSessionState = CallSessionState(),
     val activePath: VpnPath? = null,
     val transport: TransportLifecycle = TransportLifecycle.Stopped,
@@ -166,6 +170,8 @@ data class ConnectionSnapshot(
     val wifiStableHits: Int = 0,
     val directNegative: DirectNegativeEvidence? = null,
     val lastConfirmedPath: VpnPath? = null,
+    /** Underlay Direct was last PathConfirmed on; Wi‑Fi proof is not LTE proof. */
+    val lastConfirmedNetworkKey: NetworkKey? = null,
     val pathReadiness: PathReadiness = PathReadiness.None,
     val ui: ConnectionUiModel = ConnectionUiModel(),
 ) {

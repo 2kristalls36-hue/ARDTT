@@ -98,7 +98,9 @@ fun connectionUiModel(
             connState = ConnState.Connecting,
         )
         RecoveryPhase.ConnectingDirect, RecoveryPhase.ConnectingBypass -> {
-            val switching = phase == RecoveryPhase.ConnectingDirect && activePath == VpnPath.Bypass
+            val switching = phase == RecoveryPhase.ConnectingDirect &&
+                activePath == VpnPath.Bypass &&
+                underlayKind.prefersDirectInAuto()
             val returning = phase == RecoveryPhase.ConnectingBypass && activePath == VpnPath.Direct
             when {
                 switching -> ConnectionUiModel(
@@ -116,6 +118,9 @@ fun connectionUiModel(
                 else -> ConnectionUiModel(
                     phase = ConnectionUiPhase.Connecting,
                     message = when {
+                        phase == RecoveryPhase.ConnectingBypass &&
+                            restriction == RestrictionHint.Confirmed ->
+                            "Похоже на белый список оператора. Подключаемся через обход"
                         phase == RecoveryPhase.ConnectingBypass &&
                             restriction != RestrictionHint.Suspected &&
                             restriction != RestrictionHint.Confirmed ->
