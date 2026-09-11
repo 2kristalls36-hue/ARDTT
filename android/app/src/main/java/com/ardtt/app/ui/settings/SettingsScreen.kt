@@ -6,12 +6,12 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +40,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.BuildConfig
@@ -68,6 +72,7 @@ import com.ardtt.app.ui.commitPathMode
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ArdttSettingBlock
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.control.DialPathChipRow
 import com.ardtt.app.ui.components.control.HideIpChipRow
@@ -79,15 +84,18 @@ import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
-import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.components.surface.ArdttDialog
+import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
+import com.ardtt.app.ui.components.surface.ArdttSettingsCard
 import com.ardtt.app.ui.components.surface.sectionCardContourBorder
 import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.persistDialPath
 import com.ardtt.app.ui.persistSilentRecreate
 import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.connectedStatusColor
@@ -97,6 +105,38 @@ import com.ardtt.app.update.AppUpdateInfo
 import com.ardtt.app.update.updateCardCopy
 import com.ardtt.app.update.updatePrimaryActionLabel
 import kotlinx.coroutines.launch
+
+/** Strings of the admin-mode card and the mode line in the header. */
+internal object AdminModeCopy {
+    const val SECTION_TITLE = "Описание и доступ"
+    const val ABOUT =
+        "ARDTT представляет собой простой туннельный клиент для постоянного защищённого соединения с упрощённым сценарием touch&GO."
+    const val ADMIN_SCOPE = "Открыты «Серверы», «Деплой» и диагностика."
+    const val UNLOCK_HINT = "Переместите ползунок вправо до конца."
+    const val UNLOCKED = "Режим администратора активирован."
+    const val INCOMPLETE = "Доведите ползунок до конца."
+    const val END_SESSION = "Завершить сессию администратора"
+    const val END_SESSION_BODY =
+        "Вкладки «Серверы» и «Диагностика» будут скрыты, приложение вернётся в пользовательский режим. " +
+            "Серверы, профили и настройки сохранятся."
+    const val END_SESSION_CONFIRM = "Завершить"
+    const val END_SESSION_CANCEL = "Отмена"
+    const val MODE_ADMIN = "администратор"
+    const val MODE_USER = "пользователь"
+
+    fun modeSubtitle(admin: Boolean): String = "Режим: ${if (admin) MODE_ADMIN else MODE_USER}"
+
+    fun versionLine(versionName: String, admin: Boolean): String =
+        "Версия $versionName" + if (admin) " · режим: $MODE_ADMIN" else ""
+}
+
+private object SettingsDefaults {
+    /** Contour alpha the appearance card flashes to when opened from a deep link. */
+    const val HighlightContourAlpha = 0.66f
+
+    /** Track tint of the filling update button: surface mixed toward the accent. */
+    const val UpdateTrackMix = 0.42f
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -141,6 +181,7 @@ fun SettingsScreen(
     var adminHint by remember { mutableStateOf<String?>(null) }
     var testingHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
+    var showEndAdminConfirm by remember { mutableStateOf(false) }
     var highlightAppearanceCard by remember { mutableStateOf(false) }
     val refuseLeaveTestingSession: () -> Unit = {
         testingHint = TestingSessionGuard.STOP_RECORDING_FIRST
@@ -211,7 +252,7 @@ fun SettingsScreen(
         header = {
             ArdttTabHeader(
                 title = "Настройки приложения",
-                subtitle = "Режим: ${if (admin) "администратор" else "пользователь"}",
+                subtitle = AdminModeCopy.modeSubtitle(admin),
             )
         },
     ) {
@@ -229,10 +270,7 @@ fun SettingsScreen(
             )
         }
 
-        ArdttSectionCard(
-            contentPadding = PaddingValues(ArdttSpacing.Large),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-        ) {
+        ArdttSettingsCard {
             ArdttSectionTitle("Подключение")
             Text(
                 when {
@@ -269,24 +307,19 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
-            Text(
-                "Исходящий адрес",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                HideIpCopy.subtitle(hideIp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            HideIpChipRow(
-                hideIp = hideIp,
-                enabled = !vpnLocked,
-                onSelect = { enabled ->
-                    haptics.tick()
-                    scope.launch { commitHideIp(settings, conn, enabled) }
-                },
-            )
+            ArdttSettingBlock(
+                title = "Исходящий адрес",
+                subtitle = HideIpCopy.subtitle(hideIp),
+            ) {
+                HideIpChipRow(
+                    hideIp = hideIp,
+                    enabled = !vpnLocked,
+                    onSelect = { enabled ->
+                        haptics.tick()
+                        scope.launch { commitHideIp(settings, conn, enabled) }
+                    },
+                )
+            }
             if (admin) {
                 ArdttSwitchRow(
                     title = "Скрыть быстрые настройки",
@@ -313,10 +346,8 @@ fun SettingsScreen(
             }
         }
 
-        ArdttSectionCard(
+        ArdttSettingsCard(
             modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
-            contentPadding = PaddingValues(ArdttSpacing.Large),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
         ) {
             ArdttSectionTitle("Метод обхода")
             Text(
@@ -357,15 +388,16 @@ fun SettingsScreen(
 
         val appearanceHighlightAlpha by animateFloatAsState(
             targetValue = if (highlightAppearanceCard) 1f else 0f,
-            animationSpec = androidx.compose.animation.core.tween(durationMillis = 420),
+            animationSpec = tween(durationMillis = ArdttMotion.Standard),
             label = "appearance_card_highlight",
         )
-        ArdttSectionCard(
+        ArdttSettingsCard(
             modifier = Modifier.bringIntoViewRequester(appearanceBringIntoView),
-            contentPadding = PaddingValues(ArdttSpacing.Large),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
             border = sectionCardContourBorder(
-                alpha = ArdttSectionCardDefaults.ContourAlpha + 0.50f * appearanceHighlightAlpha,
+                alpha = ArdttSectionCardDefaults.ContourAlpha +
+                    (SettingsDefaults.HighlightContourAlpha - ArdttSectionCardDefaults.ContourAlpha) *
+                    appearanceHighlightAlpha,
             ),
         ) {
             ArdttSectionTitle("Оформление")
@@ -436,10 +468,7 @@ fun SettingsScreen(
 
         DonateSupportBanner()
 
-        ArdttSectionCard(
-            contentPadding = PaddingValues(ArdttSpacing.Large),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-        ) {
+        ArdttSettingsCard {
             ArdttSectionTitle("Тестирование")
             Text(
                 if (admin) {
@@ -485,27 +514,20 @@ fun SettingsScreen(
             }
         }
 
-        ArdttSectionCard(
-            contentPadding = PaddingValues(ArdttSpacing.Large),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-        ) {
-            ArdttSectionTitle("Описание и доступ")
+        ArdttSettingsCard {
+            ArdttSectionTitle(AdminModeCopy.SECTION_TITLE)
             Text(
-                "ARDTT представляет собой простой туннельный клиент для постоянного защищённого соединения с упрощённым сценарием touch&GO.",
+                AdminModeCopy.ABOUT,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Версия ${BuildConfig.VERSION_NAME}${if (admin) " · режим: администратор" else ""}",
+                AdminModeCopy.versionLine(BuildConfig.VERSION_NAME, admin),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                if (admin) {
-                    "Открыты «Серверы», «Деплой» и диагностика."
-                } else {
-                    "Переместите ползунок вправо до конца."
-                },
+                if (admin) AdminModeCopy.ADMIN_SCOPE else AdminModeCopy.UNLOCK_HINT,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -514,35 +536,58 @@ fun SettingsScreen(
                     onUnlocked = {
                         scope.launch {
                             settings.unlockAdmin()
-                            adminHint = "Режим администратора активирован."
+                            adminHint = AdminModeCopy.UNLOCKED
                             AppLog.i("Admin", "Unlocked via slider")
                         }
                     },
                     onIncomplete = {
-                        adminHint = "Доведите ползунок до конца."
+                        adminHint = AdminModeCopy.INCOMPLETE
                     },
                 )
             } else {
                 ArdttButton(
-                    text = "Завершить сессию администратора",
-                    onClick = {
-                        scope.launch {
-                            settings.lockAdmin()
-                            adminHint = null
-                        }
-                    },
+                    text = AdminModeCopy.END_SESSION,
+                    onClick = { showEndAdminConfirm = true },
                     variant = ArdttButtonVariant.Outlined,
                     fillMaxWidth = true,
                 )
             }
             adminHint?.let {
-                val hintColor = if (it == "Режим администратора активирован") {
+                val hintColor = if (it == AdminModeCopy.UNLOCKED) {
                     connectedStatusColor()
                 } else {
                     MaterialTheme.colorScheme.primary
                 }
                 Text(it, color = hintColor, style = MaterialTheme.typography.bodySmall)
             }
+        }
+    }
+
+    if (showEndAdminConfirm) {
+        ArdttDialog(
+            title = AdminModeCopy.END_SESSION,
+            onDismissRequest = { showEndAdminConfirm = false },
+            confirmAction = ArdttDialogAction(
+                text = AdminModeCopy.END_SESSION_CONFIRM,
+                onClick = {
+                    showEndAdminConfirm = false
+                    scope.launch {
+                        settings.lockAdmin()
+                        adminHint = null
+                        AppLog.i("Admin", "Locked via settings")
+                    }
+                },
+            ),
+            dismissAction = ArdttDialogAction(
+                text = AdminModeCopy.END_SESSION_CANCEL,
+                onClick = { showEndAdminConfirm = false },
+            ),
+        ) {
+            Text(
+                AdminModeCopy.END_SESSION_BODY,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 
@@ -573,11 +618,7 @@ private fun UpdateSettingsCard(
     onCancel: () -> Unit,
     onInstall: () -> Unit,
 ) {
-    ArdttSectionCard(
-        modifier = modifier,
-        contentPadding = PaddingValues(ArdttSpacing.Large),
-        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-    ) {
+    ArdttSettingsCard(modifier = modifier) {
         ArdttSectionTitle("Обновление")
         if (info != null) {
             val copy = updateCardCopy(
@@ -654,8 +695,11 @@ private fun UpdateFillButton(
         label = "update_fill_progress",
     )
     val fillColor = if (installReady) ArdttColors.Connected else colors.primary
-    val trackColor = lerp(colors.surface, fillColor, 0.42f)
-    val textColor = if (installReady) Color.White else colors.onPrimary
+    val trackColor = lerp(colors.surface, fillColor, SettingsDefaults.UpdateTrackMix)
+    // The label sits on the fill (or, while filling, on the track behind the
+    // not-yet-filled part); pick whichever content color reads on both.
+    val textColor = if (installReady) ArdttColors.OnConnected else colors.onPrimary
+    val progressPercent = (animatedProgress * 100).toInt()
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -670,7 +714,11 @@ private fun UpdateFillButton(
                     )
                 }
             }
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick, role = Role.Button)
+            .semantics {
+                contentDescription = text
+                if (filling) stateDescription = "Загрузка $progressPercent%"
+            },
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -797,10 +845,7 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
         }
     }
 
-    ArdttSectionCard(
-        contentPadding = PaddingValues(ArdttSpacing.Large),
-        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
-    ) {
+    ArdttSettingsCard {
         ArdttSectionTitle("Доверенная WiFi")
         Text(
             "В этих сетях туннель приостанавливается. При выходе подключение восстанавливается. Добавляется только текущая сеть.",

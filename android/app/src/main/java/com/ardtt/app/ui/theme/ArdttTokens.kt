@@ -56,6 +56,12 @@ object ArdttLayout {
     /** Gap between rows inside a section card. */
     val CardSpacing: Dp = ArdttSpacing.Large
 
+    /** Inner padding of a settings card: title, helper text, switch rows. */
+    val SettingsCardPadding: PaddingValues = PaddingValues(ArdttSpacing.Large)
+
+    /** Gap between rows inside a settings card. */
+    val SettingsCardSpacing: Dp = ArdttSpacing.SmallPlus
+
     /** Inner padding of a compact list card (servers, clients, profiles). */
     val CompactCardPadding: PaddingValues =
         PaddingValues(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus)
