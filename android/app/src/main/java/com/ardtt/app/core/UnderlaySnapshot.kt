@@ -50,6 +50,13 @@ fun NetworkKey?.physicalIdentityChanged(next: NetworkKey?): Boolean {
     return !samePhysicalNetwork(next)
 }
 
+/**
+ * Whether every measurement taken on this key has to be discarded. The sockets
+ * survive a PLMN change, but the whitelist and the Direct negative do not.
+ */
+fun NetworkKey?.restrictionScopeChanged(next: NetworkKey?): Boolean =
+    physicalIdentityChanged(next) || (this != null && next != null && !sameCarrier(next))
+
 enum class UnderlayAvailability {
     /** No INTERNET+NOT_VPN physical network. */
     None,

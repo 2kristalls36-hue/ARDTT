@@ -843,8 +843,10 @@ class ConnectionManager(
         } else {
             null
         }
-        val epoch = recoverySnapshot.networkEpoch +
-            if (recoverySnapshot.underlay.key.physicalIdentityChanged(key)) 1L else 0L
+        // A PLMN change keeps the sockets but invalidates every measurement, so
+        // probes started before the roam must not be accepted afterwards.
+        val scopeChanged = recoverySnapshot.underlay.key.restrictionScopeChanged(key)
+        val epoch = recoverySnapshot.networkEpoch + if (scopeChanged) 1L else 0L
         return UnderlaySnapshot(
             key = key,
             kind = kind,
@@ -858,11 +860,7 @@ class ConnectionManager(
             cellularConnected = presence.cellular,
             ethernetConnected = presence.ethernet,
             capabilitiesComplete = complete,
-            networkEpoch = if (recoverySnapshot.underlay.key.physicalIdentityChanged(key)) {
-                epoch
-            } else {
-                recoverySnapshot.networkEpoch
-            },
+            networkEpoch = if (scopeChanged) epoch else recoverySnapshot.networkEpoch,
         )
     }
 

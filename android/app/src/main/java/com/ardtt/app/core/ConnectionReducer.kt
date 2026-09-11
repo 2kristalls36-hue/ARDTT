@@ -301,12 +301,7 @@ object ConnectionReducer {
         jitterPermille: Int,
     ): ReduceResult {
         val networkChanged = state.underlay.key.physicalIdentityChanged(snapshot.key)
-        // Roaming onto another PLMN keeps the sockets but invalidates every
-        // measurement: the whitelist belongs to the operator, not the radio.
-        val carrierChanged = state.underlay.key != null &&
-            snapshot.key != null &&
-            !state.underlay.key.sameCarrier(snapshot.key)
-        val scopeChanged = networkChanged || carrierChanged
+        val scopeChanged = state.underlay.key.restrictionScopeChanged(snapshot.key)
         val carried = carryWhitelistEvidence(state, snapshot, scopeChanged)
         if (!state.intent.wantsConnected) {
             return ReduceResult(
