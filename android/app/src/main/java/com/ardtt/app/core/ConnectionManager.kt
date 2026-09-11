@@ -977,10 +977,21 @@ class ConnectionManager(
         scheduleCellularPreProbe("initial")
     }
 
+    /**
+     * Rounds of the whitelist (БС) probe. Only transports that
+     * [WhitelistDetection] still scores pay for it — a Wi‑Fi round measured
+     * four targets and then had its score stubbed to zero anyway.
+     */
     private fun launchBackgroundDiagnostic(
         sessionEpoch: Long,
         networkEpoch: Long,
     ) {
+        if (!WhitelistDetection.appliesTo(currentAutoUnderlayKind())) {
+            diagnosticJob?.cancel()
+            diagnosticJob = null
+            AppLog.v(TAG, "diagnostic skipped — whitelist detection is cellular-only")
+            return
+        }
         diagnosticJob?.cancel()
         val seriesId = java.util.UUID.randomUUID().toString()
         val capturedKey = recoverySnapshot.underlay.key

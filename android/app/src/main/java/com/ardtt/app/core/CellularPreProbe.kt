@@ -30,7 +30,9 @@ fun NetworkKey?.directConfirmedOn(current: NetworkKey?): Boolean {
 fun shouldPreProbeCellular(
     mode: ConnPathMode,
     effectiveKind: UnderlayKind,
-): Boolean = mode == ConnPathMode.Auto && effectiveKind.prefersDirectInAuto()
+): Boolean = mode == ConnPathMode.Auto &&
+    effectiveKind.prefersDirectInAuto() &&
+    WhitelistDetection.appliesTo(UnderlayKind.Cellular)
 
 /**
  * Rebind a cellular stash onto the live LTE key (handle may change after

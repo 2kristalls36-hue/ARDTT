@@ -59,17 +59,17 @@ internal object NetworkProbePolicy {
         val bigtech = bigtechOutcome ?: if (bigtechOk) CheckOutcome.Success else CheckOutcome.Timeout
         val provision = provisionOutcome ?: if (provisionOk) CheckOutcome.Success else CheckOutcome.Timeout
         val google = googleOutcome ?: if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun
-        val cellular = underlayKind == UnderlayKind.Cellular
+        val cellular = WhitelistDetection.appliesTo(underlayKind)
         val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
         val whitelistScore = if (cellular) {
             RestrictionScore.apply(previousWhitelistScore, sample)
         } else {
-            0
+            WhitelistDetection.STUB_SCORE_PERCENT
         }
         val restriction = if (cellular) {
             RestrictionScore.hint(whitelistScore, sample)
         } else {
-            RestrictionHint.None
+            WhitelistDetection.stubRestriction
         }
         if (captive) {
             return ProbeResult(

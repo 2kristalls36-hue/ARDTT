@@ -85,6 +85,9 @@ fun ReachabilityEvidence.whitelistScoreAt(
     key: NetworkKey?,
     profileId: String?,
 ): Int {
+    if (key != null && !WhitelistDetection.appliesTo(key)) {
+        return WhitelistDetection.STUB_SCORE_PERCENT
+    }
     if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return 0
     if (this.profileId != null && profileId != null && this.profileId != profileId) return 0
     return whitelistScorePercent
@@ -131,11 +134,15 @@ fun foldReachabilityEvidence(
     } else {
         0
     }
-    val score = if (cellular) RestrictionScore.apply(previousScore, sample) else 0
+    val score = if (cellular) {
+        RestrictionScore.apply(previousScore, sample)
+    } else {
+        WhitelistDetection.STUB_SCORE_PERCENT
+    }
     val restriction = if (cellular) {
         RestrictionScore.hint(score, sample)
     } else {
-        RestrictionHint.None
+        WhitelistDetection.stubRestriction
     }
     return incoming.copy(
         seriesCount = series,
@@ -156,7 +163,10 @@ internal fun ProbeResult.withWhitelistEvidence(
     cellular: Boolean,
 ): ProbeResult {
     if (!cellular) {
-        return copy(whitelistScorePercent = 0, restriction = RestrictionHint.None)
+        return copy(
+            whitelistScorePercent = WhitelistDetection.STUB_SCORE_PERCENT,
+            restriction = WhitelistDetection.stubRestriction,
+        )
     }
     if (captive ||
         networkClass == NetworkClass.Captive ||
