@@ -180,10 +180,16 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
     }
 
     if (input.currentPath == VpnPath.Bypass &&
-        (input.transport == TransportLifecycle.Running ||
-            input.transport == TransportLifecycle.Starting)
+        input.transport == TransportLifecycle.Starting
     ) {
-        if (!blocked) {
+        return AutoDecision.Stay(VpnPath.Bypass, "bypass-try-in-flight")
+    }
+    if (input.currentPath == VpnPath.Bypass &&
+        input.transport == TransportLifecycle.Running
+    ) {
+        // Restriction probes / LinkProperties flaps must not yank a live Bypass.
+        // Periodic Direct retry is armed by the reducer and only runs on reevalDue.
+        if (!blocked && input.reevalDue) {
             return AutoDecision.StartDirect(
                 keepCall = input.hasCallHash,
                 immediate = false,

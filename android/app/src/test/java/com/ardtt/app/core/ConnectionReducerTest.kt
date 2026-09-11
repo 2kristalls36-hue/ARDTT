@@ -1189,4 +1189,137 @@ class ConnectionReducerTest {
             ok.state.recovery.nextRetryAtElapsedMs,
         )
     }
+
+    @Test
+    fun autoCellularDirectFailureHoldsBypassReevalBudget() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            0L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                reason = "no-rx",
+            ),
+            elapsedMs = 1_000L,
+        )
+        assertEquals(
+            1_000L + RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
+            failed.state.directNegative?.retryAfterElapsedMs,
+        )
+    }
+
+    @Test
+    fun probeDoesNotYankLiveCellularBypass() {
+        val connected = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = usableCellular(),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 1L,
+            transportEpoch = 4L,
+            directNegative = DirectNegativeEvidence(
+                key = cellKey,
+                retryAfterElapsedMs = 1_000L,
+            ),
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                nextRetryAtElapsedMs = 40_000L,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 1L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val probed = ConnectionReducer.reduce(
+            connected,
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Success,
+                    google = CheckOutcome.Success,
+                    provision = CheckOutcome.Success,
+                    restriction = RestrictionHint.None,
+                    ttlUntilElapsedMs = 50_000L,
+                    seriesId = "live-bypass",
+                ),
+                sessionEpoch = 1L,
+                networkEpoch = 1L,
+            ),
+            elapsedMs = 20_000L,
+        )
+        assertEquals(VpnPath.Bypass, probed.state.activePath)
+        assertEquals(TransportLifecycle.Running, probed.state.transport)
+        assertEquals(RecoveryCommand.None, probed.command)
+        assertEquals(40_000L, probed.state.recovery.nextRetryAtElapsedMs)
+    }
+
+    @Test
+    fun dnsFlapDoesNotClearDirectNegativeOrRestartBypass() {
+        val flapped = NetworkKey(1L, UnderlayKind.Cellular, 11, "cell-dns-2")
+        val connected = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = usableCellular(),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 1L,
+            transportEpoch = 4L,
+            directNegative = DirectNegativeEvidence(
+                key = cellKey,
+                retryAfterElapsedMs = 60_000L,
+            ),
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                nextRetryAtElapsedMs = 60_000L,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 1L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val updated = ConnectionReducer.reduce(
+            connected,
+            ConnectionEvent.UnderlayUpdated(
+                usableCellular().copy(key = flapped, networkEpoch = 1L),
+            ),
+            elapsedMs = 5_000L,
+        )
+        assertEquals(VpnPath.Bypass, updated.state.activePath)
+        assertEquals(TransportLifecycle.Running, updated.state.transport)
+        assertTrue(updated.state.directNegative?.stillBlocks(5_000L, flapped, "p") == true)
+        assertEquals(RecoveryCommand.None, updated.command)
+        assertEquals(1L, updated.state.networkEpoch)
+    }
 }

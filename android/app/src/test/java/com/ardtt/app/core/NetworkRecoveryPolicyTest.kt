@@ -483,7 +483,7 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            NetworkHandoverDecision.SoftRestartSamePath,
+            NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -603,7 +603,7 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            NetworkHandoverDecision.SoftRestartSamePath,
+            NetworkHandoverDecision.NoAction,
             decideNetworkHandoverAction(
                 pathMode = ConnPathMode.Auto,
                 currentPath = VpnPath.Direct,
@@ -817,6 +817,15 @@ class NetworkRecoveryPolicyTest {
                 hasFreshRxSinceAnchor = false,
             ),
         )
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 50_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 0L,
+                hasFreshRxSinceAnchor = false,
+                handshakeLive = true,
+            ),
+        )
         // After a handoff, 3s no-rx is enough (skip the cold-start grace).
         assertFalse(
             shouldTreatDirectAsDeadNoRx(
@@ -891,6 +900,19 @@ class NetworkRecoveryPolicyTest {
         assertEquals(UnderlayKind.Wifi, classifyUnderlayKind(wifi = true, cellular = true))
         assertEquals(UnderlayKind.Cellular, classifyUnderlayKind(wifi = false, cellular = true))
 
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                currentPathHealthy = true,
+                underlayVpsReachable = true,
+                underlayChanged = false,
+                underlayKind = UnderlayKind.Cellular,
+            ),
+        )
         assertEquals(
             NetworkHandoverDecision.SoftRestartSamePath,
             decideNetworkHandoverAction(

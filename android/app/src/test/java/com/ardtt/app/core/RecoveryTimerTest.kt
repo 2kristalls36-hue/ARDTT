@@ -37,4 +37,24 @@ class RecoveryTimerTest {
             bypassReevalDelayMs(retryAfterElapsedMs = null, elapsedMs = 0L),
         )
     }
+
+    @Test
+    fun autoCellularDirectNegativeUsesBypassReevalHold() {
+        assertEquals(
+            30_000L,
+            RecoverySettings.directNegativeRetryAfterElapsedMs(
+                elapsedMs = 0L,
+                failureIndex = 0,
+                holdForBypassReeval = true,
+            ),
+        )
+        assertEquals(
+            2_000L,
+            RecoverySettings.directNegativeRetryAfterElapsedMs(
+                elapsedMs = 0L,
+                failureIndex = 0,
+                holdForBypassReeval = false,
+            ),
+        )
+    }
 }

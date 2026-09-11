@@ -43,6 +43,22 @@ object RecoverySettings {
         return (base + delta).coerceAtLeast(0L)
     }
 
+    /**
+     * How long Direct stays "failed on this underlay" after an attempt.
+     * Auto cellular with a call hash parks on Bypass and must not bounce
+     * back to Direct on the 2s same-path retry budget.
+     */
+    fun directNegativeRetryAfterElapsedMs(
+        elapsedMs: Long,
+        failureIndex: Int,
+        jitterPermille: Int = 0,
+        holdForBypassReeval: Boolean,
+    ): Long {
+        val backoff = retryDelayMs(failureIndex, jitterPermille)
+        val hold = if (holdForBypassReeval) DIRECT_REEVAL_WHILE_BYPASS_MS else 0L
+        return elapsedMs + maxOf(backoff, hold)
+    }
+
     /** Handshake on this attempt is protocol-ready, not PathConfirmed. */
     fun directProtocolReady(handshakeSec: Long): Boolean = handshakeSec > 0L
 
