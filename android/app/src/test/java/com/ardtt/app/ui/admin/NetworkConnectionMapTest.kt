@@ -511,8 +511,8 @@ class NetworkConnectionMapTest {
             hideIp = true,
             sessionUp = false,
         )
-        assertNull(terminalHopKind(down.hops))
-        assertFalse(hopCardHighlighted(NetworkMapHopKind.Provider, terminalHopKind(down.hops)))
+        assertEquals(NetworkMapHopKind.Provider, terminalHopKind(down.hops))
+        assertTrue(hopCardHighlighted(NetworkMapHopKind.Provider, terminalHopKind(down.hops)))
     }
 
     @Test
