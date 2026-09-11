@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,14 +26,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.bypass.VkCallHashGenerator
 import com.ardtt.app.bypass.VkLoginActivity
 import com.ardtt.app.bypass.VkSession
 import com.ardtt.app.bypass.VkUrl
 import com.ardtt.app.bypass.vkSessionAction
+import com.ardtt.app.bypass.vkShouldClearPartialSession
 import com.ardtt.app.core.AppLog
-import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.profile.ProfileRepository
@@ -52,6 +56,7 @@ fun CallHashSettingsContent(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val conn = remember { ConnectionManager.get(context) }
     val profiles = remember { ProfileRepository(context) }
     val ui by conn.ui.collectAsStateWithLifecycle()
@@ -66,6 +71,21 @@ fun CallHashSettingsContent(
 
     val vpnActive = ui.state.holdsUserSession()
     val canEdit = profile != null && !vpnActive && !busy
+
+    fun refreshVkSession() {
+        vkLoggedIn = VkSession.hasSessionCookie()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshVkSession()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(vkLoggedIn) {
         vkDisplayName = if (vkLoggedIn) VkSession.resolveDisplayName() else null
     }
@@ -100,7 +120,7 @@ fun CallHashSettingsContent(
                         message = "Выполняется создание кода…"
                         val r = VkCallHashGenerator.generateOne(context)
                         busy = false
-                        vkLoggedIn = VkSession.hasSessionCookie()
+                        refreshVkSession()
                         r.onSuccess { hash ->
                             conn.saveCallHash(hash)
                             message = "Код звонка сохранён."
@@ -139,21 +159,34 @@ fun CallHashSettingsContent(
             onClick = {
                 if (!sessionAction.enabled) return@ArdttButton
                 if (sessionAction.destructive) {
-                    VkSession.clear()
-                    vkLoggedIn = false
-                    vkDisplayName = null
-                    message = "Сессия ВКонтакте завершена."
+                    scope.launch {
+                        busy = true
+                        VkSession.clear()
+                        refreshVkSession()
+                        vkDisplayName = null
+                        busy = false
+                        message = if (!vkLoggedIn) {
+                            "Сессия ВКонтакте завершена."
+                        } else {
+                            "Не удалось очистить сессию. Повторите."
+                        }
+                    }
                     return@ArdttButton
                 }
                 scope.launch {
+                    val startedLoggedIn = vkLoggedIn
                     busy = true
                     message = "Открывается авторизация ВКонтакте…"
                     AppLog.i("VK", "Settings login")
                     val activityCtx = context.findActivity() ?: context
                     val r = runCatching { VkLoginActivity.login(activityCtx) }
                         .getOrElse { Result.failure(it) }
+                    if (vkShouldClearPartialSession(startedLoggedIn, r.isSuccess)) {
+                        // Drop partial remixsid so the CTA stays «Авторизация».
+                        VkSession.clear()
+                    }
+                    refreshVkSession()
                     busy = false
-                    vkLoggedIn = VkSession.hasSessionCookie()
                     message = when {
                         r.isSuccess && vkLoggedIn ->
                             "Вход выполнен. Создайте код звонка."
