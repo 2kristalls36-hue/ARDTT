@@ -33,10 +33,10 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
-| Переподключение | Мягкий restart при смене Wi‑Fi/LTE/SIM: settle ~400 мс, быстрый IP-probe (1.1.1.1 / 77.88.8.8 / VPS TCP); Auto — Direct↔Bypass; дыра без сети — hold + очередь, не рестарт в пустоту. Dual-SIM: `default data` / active data sub |
-| Wake rescue | После `SCREEN_ON` через ~60 с: если Path B без активных воркеров — soft restart |
-| Watchdog | Path B: 0 воркеров ≥5 мин (экран вкл.) или мёртвый backend ≥60 с → soft restart |
-| Trusted Wi‑Fi | Список SSID: на сети VPN пауза; при выходе — авто-подъём (нужна локация для SSID) |
+| Переподключение | Мягкий restart при смене Wi‑Fi/LTE/SIM, быстрый IP-probe (1.1.1.1 / 77.88.8.8 / VPS TCP); settle зависит от пути: Direct 200 мс (`DIRECT_NETWORK_SETTLE_MS`), Bypass 3 с после VALIDATED (`BYPASS_NETWORK_SETTLE_MS`) или 400 мс без VALIDATED (`BYPASS_UNVALIDATED_SETTLE_MS`); живой обход уступает Wi‑Fi только после выдержки 6 с, удваивающейся после каждого неудачного эпизода до 60 с (`WIFI_UPGRADE_SETTLE_MS` / `WIFI_UPGRADE_SETTLE_MAX_MS`). Auto — Direct↔Bypass; дыра без сети — hold + очередь, не рестарт в пустоту. Dual-SIM: `default data` / active data sub |
+| Wake rescue | После `SCREEN_ON` через ~25 с (`WAKE_RESCUE_GRACE_MS`): если Path B без активных воркеров — soft restart |
+| Watchdog | Path B: 0 воркеров ≥8 с при включённом экране (`ZERO_WORKERS_GRACE_MS`) или мёртвый backend ≥20 с (`PROCESS_DEAD_GRACE_MS`) → soft restart; отдача растёт, а приёма нет 45 с (`BYPASS_UNANSWERED_UPLINK_MS`) → soft restart, отсчёт от старта транспорта |
+| Trusted Wi‑Fi | Список SSID: на сети VPN пауза (debounce вход 2 с / выход 5 с, `TRUSTED_WIFI_ENTER_DELAY_MS` / `TRUSTED_WIFI_EXIT_DELAY_MS`); при выходе — авто-подъём (нужна локация для SSID) |
 
 
 ---
@@ -208,6 +208,18 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 **Убрали** hard-block «не используйте без БС». На открытой сети при недоступном VPS обход как раз нужен. Info-текст можно показать, Connect не запрещаем.
 
 Инициализация клиента (профиль, `.so`, проверка VPN permission) — **параллельно** с probe. TURN Allocate — только после Connect на Path B.
+
+---
+
+## Режим Авто: белый список и смена сети
+
+- Детект белого списка (БС) — только мобильные сети (`WhitelistDetection`); Wi‑Fi/Ethernet — заглушка на Direct, зонд БС на них не запускается.
+- Оценка БС привязана к оператору (MCC+MNC в `NetworkKey.carrier`); смена PLMN обнуляет оценку и негативное свидетельство по Direct, но не пересобирает транспорт.
+- Повторная проверка Direct с обхода: 30 с → 60 с → 2 мин → 5 мин → 10 мин (`RecoverySettings.directReevalBackoffMs`), сброс при подтверждённом Direct или новой сети.
+- Переход на неизмеренную соту: быстрый зонд (≤ 1,5 с, `FAST_PROBE_BUDGET_MS`) вместо слепого Direct; результат складывается в свидетельства.
+- Предзондирование сотовой при активном Wi‑Fi: запрос сети освобождается между раундами.
+- Голосовой звонок / приостановка данных: пауза сетевых операций, после возобновления ≥ 5 с (`DATA_SUSPENSION_REBIND_MS`) — форсированный хендовер; только для радио, на котором едет туннель.
+- Таймеры восстановления держат CPU ограниченно (`RecoveryWakeLock`, потолок 120 с); слишком длинные таймеры CPU не держат.
 
 ---
 
