@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Attach ardtt-server-*.tar.gz from a local directory to an existing GitHub
-# Release tag. Does not rebuild or repack images. Does not download older
-# workflow artifacts. Refuses to overwrite assets that already exist.
+# Attach server packages from a local directory to an existing GitHub Release
+# tag: the full ardtt-server-*.tar.gz archives plus the partial-deploy assets
+# next to them (index, host files, per-layer gzips, Engine, Compose) and a
+# SHA256SUMS-server.txt covering all of them. Does not rebuild or repack
+# images. Does not download older workflow artifacts. Refuses to overwrite
+# assets that already exist.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VER="$(tr -d '[:space:]' < "$ROOT/server/DEPLOY_VERSION")"
@@ -38,19 +41,29 @@ ver = sys.argv[2]
 dry = sys.argv[3] == "1"
 tag = sys.argv[4]
 repo = sys.argv[5]
-want = {
-    f"ardtt-server-{ver}-linux-amd64.tar.gz",
-    f"ardtt-server-{ver}-linux-arm64.tar.gz",
-}
-pkgs = sorted(p for p in root.rglob(f"ardtt-server-{ver}-linux-*.tar.gz") if p.is_file())
+archs = ("amd64", "arm64")
+
+def sha256(path: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(4 * 1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def find_one(pattern: str) -> pathlib.Path | None:
+    hits = sorted(p for p in root.rglob(pattern) if p.is_file())
+    if len(hits) > 1:
+        raise SystemExit(f"more than one {pattern} under {root}: {[str(h) for h in hits]}")
+    return hits[0] if hits else None
+
+want = {f"ardtt-server-{ver}-linux-{a}.tar.gz" for a in archs}
+pkgs = sorted(p for p in root.rglob(f"ardtt-server-{ver}-linux-*.tar.gz")
+              if p.is_file() and p.name in want)
 have = {p.name for p in pkgs}
 if have != want:
     raise SystemExit(f"need both architectures for {ver}, have {sorted(have)}")
 
-def sha256(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-upload = []
+upload: list[pathlib.Path] = []
 lines = []
 for pkg in pkgs:
     digest = sha256(pkg)
@@ -64,8 +77,44 @@ for pkg in pkgs:
     lines.append(f"{digest}  {pkg.name}\n")
     upload.append(pkg)
     upload.append(sidecar)
+
+# Partial-deploy assets: every component the index references must be present
+# with the recorded SHA-256, otherwise the release would advertise a partial
+# deploy the VPS cannot complete.
+indexes = 0
+for arch in archs:
+    index = find_one(f"ardtt-server-{ver}-linux-{arch}.index.json")
+    if index is None:
+        print(f"note: no partial-deploy index for {arch}; only the full archive is attached")
+        continue
+    indexes += 1
+    d = json.loads(index.read_text(encoding="utf-8"))
+    if d.get("format") != "ardtt-server-index-v1" or d.get("deployVersion") != ver or d.get("arch") != arch:
+        raise SystemExit(f"{index.name}: unexpected index header {d.get('format')} {d.get('deployVersion')} {d.get('arch')}")
+    components = [d["package"], d["hostfiles"], *d["image"]["layers"]]
+    for key in ("engine", "compose"):
+        if d.get(key):
+            components.append(d[key])
+    seen = {p.name for p in upload}
+    for comp in components:
+        path = find_one(comp["asset"])
+        if path is None:
+            raise SystemExit(f"{index.name}: missing component {comp['asset']}")
+        got = sha256(path)
+        if got != comp["sha256"].lower():
+            raise SystemExit(f"{index.name}: {comp['asset']} sha256 {got} != index {comp['sha256']}")
+        if path.name not in seen:
+            upload.append(path)
+            lines.append(f"{got}  {path.name}\n")
+            seen.add(path.name)
+    idx_digest = sha256(index)
+    idx_sidecar = pathlib.Path(str(index) + ".sha256")
+    idx_sidecar.write_text(idx_digest + "\n", encoding="utf-8")
+    upload.extend([index, idx_sidecar])
+    lines.append(f"{idx_digest}  {index.name}\n")
+
 sums = root / "SHA256SUMS-server.txt"
-sums.write_text("".join(lines), encoding="utf-8")
+sums.write_text("".join(sorted(lines, key=lambda l: l.split()[-1])), encoding="utf-8")
 upload.append(sums)
 
 raw = subprocess.check_output(
@@ -88,6 +137,8 @@ if overlap:
         remote_digest = (remote.get("digest") or "").lower().removeprefix("sha256:")
         remote_size = int(remote.get("size") or 0)
         local_size = path.stat().st_size
+        if path.name == sums.name:
+            continue  # regenerated locally; compared through the assets it lists
         if remote_digest:
             if remote_digest != local_digest:
                 mismatches.append(
@@ -107,7 +158,8 @@ if overlap:
     print("already attached (digest match) to https://github.com/%s/releases/tag/%s" % (repo, tag))
     sys.exit(0)
 
-print("Attach to https://github.com/%s/releases/tag/%s" % (repo, tag))
+print("Attach to https://github.com/%s/releases/tag/%s (%d files, %d partial-deploy index(es))"
+      % (repo, tag, len(upload), indexes))
 for path in upload:
     print(" ", path, sha256(path) if path.suffix != ".txt" else "")
 if dry:
@@ -115,5 +167,5 @@ if dry:
     sys.exit(0)
 cmd = ["gh", "release", "upload", tag, *[str(p) for p in upload], "--repo", repo]
 subprocess.check_call(cmd)
-print(f"Attached {len(pkgs)} server packages to {tag}")
+print(f"Attached {len(pkgs)} server packages (+{len(upload) - len(pkgs)} assets) to {tag}")
 PY

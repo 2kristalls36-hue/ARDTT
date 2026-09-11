@@ -246,8 +246,30 @@ bash -n "$ROOT/server/fetch-and-install.sh" || err "bash -n fetch-and-install.sh
 grep -q 'api.github.com' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must use GitHub Releases API"
 grep -q 'git clone' "$ROOT/server/fetch-and-install.sh" && err "fetch-and-install must not git clone"
 grep -q 'fetch-and-install.sh' "$PACK_SERVER" || err "pack-server-package must include fetch-and-install.sh"
+# The archive must actually carry fetch-and-install.sh (tar list), so the VPS keeps
+# its own copy in /opt/ardtt/current and updates no longer depend on the APK bootstrap.
+grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$PACK_SERVER" \
+  || err "pack-server-package tar list must include fetch-and-install.sh"
+grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$ROOT/scripts/repack-server-host-files.sh" \
+  || err "repack-server-host-files tar list must include fetch-and-install.sh"
 [ -f "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" ] \
   || err "assets must ship fetch-and-install.sh bootstrap"
+cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
+  || err "assets/deploy/fetch-and-install.sh must be identical to server/fetch-and-install.sh"
+# Partial deploy: index + per-layer assets + layer cache on the VPS.
+grep -q 'ardtt-server-index-v1' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must understand ardtt-server-index-v1"
+grep -q 'ardtt-server-index-v1' "$ROOT/scripts/build-server-index.py" || err "build-server-index must emit ardtt-server-index-v1"
+grep -q 'build-server-index.py' "$PACK_SERVER" || err "pack-server-package must emit the partial-deploy index"
+grep -q 'layer-cache.py' "$PACK_SERVER" || err "pack-server-package must ship layer-cache.py"
+grep -q 'verify_index_staging' "$INSTALLER" || err "install.sh must verify partial staging against the index"
+grep -q 'adopt_layers_into_cache' "$INSTALLER" || err "install.sh must keep loaded layers in the cache"
+grep -q 'releases/latest/download' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back to SHA256SUMS-server.txt when the API is down"
+grep -q 'flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must lock against concurrent runs"
+python3 -m py_compile "$ROOT/scripts/layer-cache.py" || err "layer-cache.py"
+python3 -m py_compile "$ROOT/scripts/build-server-index.py" || err "build-server-index.py"
+bash -n "$ROOT/scripts/verify-server-index.sh" || err "bash -n verify-server-index"
+bash -n "$ROOT/scripts/test-fetch-partial.sh" || err "bash -n test-fetch-partial"
+bash -n "$ROOT/scripts/test-layer-cache.sh" || err "bash -n test-layer-cache"
 grep -q 'DeployVersionCatalog' "$ROOT/android/app/src/main/java/com/ardtt/app/ArdttApp.kt" \
   || err "app launch must poll DeployVersionCatalog"
 grep -q 'latestServerVersion' "$STACK_SOURCE_KT" || err "DeployStackSource must parse latest server version"
@@ -358,6 +380,12 @@ if [ -f "$ROOT/scripts/test-fetch-and-install-resolve.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-image-layers.sh" ]; then
   bash "$ROOT/scripts/test-image-layers.sh" || err "image layers split/assemble"
+fi
+if [ -f "$ROOT/scripts/test-layer-cache.sh" ]; then
+  bash "$ROOT/scripts/test-layer-cache.sh" || err "layer cache"
+fi
+if [ -f "$ROOT/scripts/test-fetch-partial.sh" ]; then
+  bash "$ROOT/scripts/test-fetch-partial.sh" || err "partial fetch end-to-end"
 fi
 
 if [ "$fail" -ne 0 ]; then
