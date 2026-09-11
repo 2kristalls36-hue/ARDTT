@@ -21,6 +21,7 @@ data class DeployIssue(
         const val DOCKER_NOT_RUNNING = "DOCKER_NOT_RUNNING"
         const val DOCKER_ACCESS_DENIED = "DOCKER_ACCESS_DENIED"
         const val PYTHON_MISSING = "PYTHON_MISSING"
+        const val IPTABLES_MISSING = "IPTABLES_MISSING"
         const val UNSUPPORTED_RUNTIME = "UNSUPPORTED_RUNTIME"
         const val PREFLIGHT_FAILED = "PREFLIGHT_FAILED"
         const val DISK_FULL = "DISK_FULL"
@@ -132,6 +133,10 @@ data class DeployIssue(
                     "$hop: нет доступа к Docker. Запустите установку от root или в группе docker.$entryNote"
                 PYTHON_MISSING ->
                     "$hop: нужен python3 на хосте. Пакет не ставит его из сети.$entryNote"
+                IPTABLES_MISSING ->
+                    "$hop: на хосте нет iptables — без него Docker не поднимет сети. " +
+                        "Один раз на VPS: apt install iptables (Debian/Ubuntu) или dnf install iptables-nft, " +
+                        "затем повторите.$entryNote"
                 UNSUPPORTED_RUNTIME ->
                     "$hop: обнаружен чужой контейнерный runtime. Это не чистый VPS.$entryNote"
                 SSH_FAILED ->
