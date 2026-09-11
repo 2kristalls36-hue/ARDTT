@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -104,6 +105,7 @@ import com.ardtt.app.update.AppUpdateController
 import com.ardtt.app.update.AppUpdateInfo
 import com.ardtt.app.update.updateCardCopy
 import com.ardtt.app.update.updatePrimaryActionLabel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Strings of the admin-mode card and the mode line in the header. */
@@ -130,12 +132,35 @@ internal object AdminModeCopy {
         "Версия $versionName" + if (admin) " · режим: $MODE_ADMIN" else ""
 }
 
+/** Cards a deep link (QS tile, update prompt, tunnel chip) can open directly. */
+private enum class SettingsSection { Update, BypassMethod, Appearance }
+
 private object SettingsDefaults {
-    /** Contour alpha the appearance card flashes to when opened from a deep link. */
+    /** Contour alpha a deep-linked card flashes to. */
     const val HighlightContourAlpha = 0.66f
+
+    /** Let the tab finish composing before scrolling to the card. */
+    const val RevealScrollDelayMs = 120L
+
+    /** How long the flashed contour stays before fading back. */
+    const val RevealHighlightMs = 550L
 
     /** Track tint of the filling update button: surface mixed toward the accent. */
     const val UpdateTrackMix = 0.42f
+}
+
+/** Section contour that eases from the default hairline to the highlight alpha. */
+@Composable
+private fun deepLinkHighlightBorder(active: Boolean): BorderStroke {
+    val progress by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = tween(durationMillis = ArdttMotion.Standard),
+        label = "settings_section_highlight",
+    )
+    return sectionCardContourBorder(
+        alpha = ArdttSectionCardDefaults.ContourAlpha +
+            (SettingsDefaults.HighlightContourAlpha - ArdttSectionCardDefaults.ContourAlpha) * progress,
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -182,7 +207,17 @@ fun SettingsScreen(
     var testingHint by remember { mutableStateOf<String?>(null) }
     var showTestingAgreement by remember { mutableStateOf(false) }
     var showEndAdminConfirm by remember { mutableStateOf(false) }
-    var highlightAppearanceCard by remember { mutableStateOf(false) }
+    var highlightedSection by remember { mutableStateOf<SettingsSection?>(null) }
+
+    // Scroll a deep-linked card into view and flash its contour so the user
+    // sees which block opened — the same choreography for every entry point.
+    suspend fun revealSection(section: SettingsSection, requester: BringIntoViewRequester) {
+        delay(SettingsDefaults.RevealScrollDelayMs)
+        runCatching { requester.bringIntoView() }
+        highlightedSection = section
+        delay(SettingsDefaults.RevealHighlightMs)
+        if (highlightedSection == section) highlightedSection = null
+    }
     val refuseLeaveTestingSession: () -> Unit = {
         testingHint = TestingSessionGuard.STOP_RECORDING_FIRST
         Toast.makeText(
@@ -207,8 +242,6 @@ fun SettingsScreen(
         if (!updateUi.visible) {
             updates.checkAndWait()
         }
-        kotlinx.coroutines.delay(120)
-        runCatching { updateBringIntoView.bringIntoView() }
         if (
             !updateUi.downloading &&
             updateUi.downloadedFile == null &&
@@ -217,15 +250,12 @@ fun SettingsScreen(
             updates.download()
         }
         PendingUiAction.consumeOpenUpdateDownload()
+        revealSection(SettingsSection.Update, updateBringIntoView)
     }
     LaunchedEffect(openAppearanceSettings) {
         if (!openAppearanceSettings) return@LaunchedEffect
-        kotlinx.coroutines.delay(120)
-        runCatching { appearanceBringIntoView.bringIntoView() }
-        highlightAppearanceCard = true
-        kotlinx.coroutines.delay(550)
-        highlightAppearanceCard = false
         PendingUiAction.consumeOpenAppearanceSettings()
+        revealSection(SettingsSection.Appearance, appearanceBringIntoView)
     }
 
     LaunchedEffect(Unit) {
@@ -239,10 +269,7 @@ fun SettingsScreen(
     LaunchedEffect(openCallHash) {
         if (!openCallHash) return@LaunchedEffect
         PendingUiAction.consumeCallHashSettings()
-        scope.launch {
-            kotlinx.coroutines.delay(80)
-            runCatching { callHashBringIntoView.bringIntoView() }
-        }
+        revealSection(SettingsSection.BypassMethod, callHashBringIntoView)
     }
 
     ArdttFeedScaffold(
@@ -259,6 +286,7 @@ fun SettingsScreen(
         if (updateUi.visible) {
             UpdateSettingsCard(
                 modifier = Modifier.bringIntoViewRequester(updateBringIntoView),
+                highlighted = highlightedSection == SettingsSection.Update,
                 info = updateUi.available,
                 downloading = updateUi.downloading,
                 progress = updateUi.progress,
@@ -296,10 +324,7 @@ fun SettingsScreen(
                 },
                 onNeedCallHash = {
                     haptics.tick()
-                    scope.launch {
-                        kotlinx.coroutines.delay(80)
-                        runCatching { callHashBringIntoView.bringIntoView() }
-                    }
+                    scope.launch { revealSection(SettingsSection.BypassMethod, callHashBringIntoView) }
                 },
             )
             Text(
@@ -348,6 +373,7 @@ fun SettingsScreen(
 
         ArdttSettingsCard(
             modifier = Modifier.bringIntoViewRequester(callHashBringIntoView),
+            border = deepLinkHighlightBorder(highlightedSection == SettingsSection.BypassMethod),
         ) {
             ArdttSectionTitle("Метод обхода")
             Text(
@@ -386,19 +412,10 @@ fun SettingsScreen(
         // User-facing WiFi pause controls should always be available in Settings.
         TrustedWifiSettingsCard(settings = settings)
 
-        val appearanceHighlightAlpha by animateFloatAsState(
-            targetValue = if (highlightAppearanceCard) 1f else 0f,
-            animationSpec = tween(durationMillis = ArdttMotion.Standard),
-            label = "appearance_card_highlight",
-        )
         ArdttSettingsCard(
             modifier = Modifier.bringIntoViewRequester(appearanceBringIntoView),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
-            border = sectionCardContourBorder(
-                alpha = ArdttSectionCardDefaults.ContourAlpha +
-                    (SettingsDefaults.HighlightContourAlpha - ArdttSectionCardDefaults.ContourAlpha) *
-                    appearanceHighlightAlpha,
-            ),
+            border = deepLinkHighlightBorder(highlightedSection == SettingsSection.Appearance),
         ) {
             ArdttSectionTitle("Оформление")
             val appearance = settingsAppearanceSections(admin = admin, recordingActive = recordingActive)
@@ -609,6 +626,7 @@ fun SettingsScreen(
 @Composable
 private fun UpdateSettingsCard(
     modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
     info: AppUpdateInfo?,
     downloading: Boolean,
     progress: Float,
@@ -618,7 +636,10 @@ private fun UpdateSettingsCard(
     onCancel: () -> Unit,
     onInstall: () -> Unit,
 ) {
-    ArdttSettingsCard(modifier = modifier) {
+    ArdttSettingsCard(
+        modifier = modifier,
+        border = deepLinkHighlightBorder(highlighted),
+    ) {
         ArdttSectionTitle("Обновление")
         if (info != null) {
             val copy = updateCardCopy(
