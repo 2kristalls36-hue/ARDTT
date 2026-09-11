@@ -125,17 +125,24 @@ class ConnectionManager(
     private var cellularProbeJob: Job? = null
     private var lastCellularProbeAtMs: Long = 0L
     private var recoveryRetryJob: Job? = null
+    private val recoveryWakeLock by lazy { RecoveryWakeLock(appContext, RETRY_WAKELOCK_TAG) }
     private val recoveryTimer = RecoveryTimer(
         arm = { delayMs, fire ->
             recoveryRetryJob?.cancel()
+            val hold = recoveryWakeLock.acquire(delayMs)
             recoveryRetryJob = scope.launch {
-                delay(delayMs.coerceAtLeast(0L))
-                fire()
+                try {
+                    delay(delayMs.coerceAtLeast(0L))
+                    fire()
+                } finally {
+                    recoveryWakeLock.release(hold)
+                }
             }
         },
         cancel = {
             recoveryRetryJob?.cancel()
             recoveryRetryJob = null
+            recoveryWakeLock.releaseNow()
         },
     )
     @Volatile private var pendingConnectPath: VpnPath? = null
@@ -3316,6 +3323,7 @@ class ConnectionManager(
         private const val DEFAULT_WORKERS = BypassWorkers.DEFAULT
         private const val BYPASS_WORKERS_WAIT_MS = 25_000L
         private const val BYPASS_WORKERS_POLL_MS = 250L
+        private const val RETRY_WAKELOCK_TAG = "ardtt:recovery-retry"
         private const val TRANSPORT_RESTART_DEBOUNCE_MS = 150L
         private const val PRESENCE_DEBOUNCE_MS = 5_000L
 

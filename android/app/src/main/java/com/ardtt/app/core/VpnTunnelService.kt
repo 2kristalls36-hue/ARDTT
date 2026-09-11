@@ -123,6 +123,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var trustedWifiEvalJob: Job? = null
     private val settingsRepo by lazy { AppSettingsRepository(applicationContext) }
 
+    /**
+     * Handover and soft restart run on `delay()`, which stops counting while
+     * the CPU is suspended. Without a hold the phone can fall back asleep
+     * mid-dial and leave the tunnel down until the user turns the screen on.
+     */
+    private val handoverWakeLock by lazy { RecoveryWakeLock(this, "ardtt:handover") }
+    private val restartWakeLock by lazy { RecoveryWakeLock(this, "ardtt:soft-restart") }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -635,6 +643,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         softRestartEpoch++
         val myEpoch = softRestartEpoch
         softRestartJob?.cancel()
+        val hold = restartWakeLock.acquire(SOFT_RESTART_WAKELOCK_MS)
         softRestartJob = scope.launch {
             var handedOff = false
             try {
@@ -645,6 +654,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 handedOff = true
                 launchBackend(path, softRestart = true)
             } finally {
+                restartWakeLock.release(hold)
                 if (shouldClearSoftRestartFlag(handedOff, myEpoch, softRestartEpoch)) {
                     softRestartInProgress = false
                 }
@@ -1395,6 +1405,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeEpoch++
         val myEpoch = networkChangeEpoch
         networkChangeJob?.cancel()
+        val hold = handoverWakeLock.acquire(HANDOVER_WAKELOCK_MS)
         networkChangeJob = scope.launch {
             try {
                 val skipValidated = shouldSkipValidatedWait(
@@ -1564,6 +1575,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     underlayChanged = pendingHandoverUnderlayChanged,
                 )
             } finally {
+                handoverWakeLock.release(hold)
                 if (ownsJobEpoch(myEpoch, networkChangeEpoch)) {
                     stableNetworkReconnectPending = false
                     handoverPreviousNetworkId = null
@@ -1583,6 +1595,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeJob = null
         softRestartJob?.cancel()
         softRestartJob = null
+        handoverWakeLock.releaseNow()
+        restartWakeLock.releaseNow()
         notifLiveJob?.cancel()
         notifLiveJob = null
         trustedWifiSettingsJob?.cancel()
@@ -2005,6 +2019,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         userStopRequested = true
         trustedWifiWaiting = false
         stopSession(keepService = false)
+        handoverWakeLock.releaseNow()
+        restartWakeLock.releaseNow()
         scope.cancel()
         ConnectionManager.getOrNull()?.onServiceStopped()
         com.ardtt.app.TunnelWidgetProvider.updateWidgetState(
@@ -2321,6 +2337,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42
         private const val TRUSTED_WIFI_RESUME_GUARD_MS = 8_000L
+        /** VALIDATED wait plus Bypass settle, before the probe even starts. */
+        private const val HANDOVER_WAKELOCK_MS =
+            VALIDATED_WAIT_TIMEOUT_MS + BYPASS_NETWORK_SETTLE_MS
+        /** Backend relaunch: RAW re-dial plus path confirm. */
+        private const val SOFT_RESTART_WAKELOCK_MS = 30_000L
         /** AWG-over-WARP underlay needs headroom under 1280. */
         const val DIRECT_TUN_MTU = 1200
     }
