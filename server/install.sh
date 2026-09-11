@@ -85,8 +85,14 @@ if [ "$ROLE" = "exit" ]; then
   CASCADE_ENABLED=1
 fi
 
+# Compose interpolation must read the release .env only. Compose lets the shell
+# environment override .env, and the caller (phone → fetch-and-install.sh)
+# exports the *requested* ARDTT_BYPASS_PORT / ARDTT_DIRECT_PORT / ARDTT_CPUS…;
+# with ARDTT_AUTO_PORTS the resolved values differ (56003 busy → 56004 in .env),
+# and the inherited 56003 used to win: «failed to bind host port
+# 0.0.0.0:56003/udp» on a host that already runs something on that port.
 compose_up_cmd() {
-  local bin extra=()
+  local bin extra=() passthru=() v
   bin="$(compose_bin)" || die "docker compose недоступен. Нужен Compose v2 на хосте или bin/docker-compose из пакета ARDTT."
   [ -f .env ] && extra+=(--env-file .env)
   if [ "$ROLE" = "exit" ] && [ -f docker-compose.exit.yml ]; then
@@ -94,8 +100,13 @@ compose_up_cmd() {
   else
     extra+=(-f docker-compose.yml)
   fi
-  COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" ARDTT_NETWORK_MODE=isolated \
-    $bin "${extra[@]}" "$@"
+  passthru=(PATH="$PATH" HOME="${HOME:-/root}" COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" ARDTT_NETWORK_MODE=isolated)
+  for v in DOCKER_HOST DOCKER_CONFIG DOCKER_CONTEXT DOCKER_CERT_PATH DOCKER_TLS_VERIFY DOCKER_API_VERSION \
+           XDG_RUNTIME_DIR TMPDIR LANG LC_ALL; do
+    [ -n "${!v:-}" ] && passthru+=("$v=${!v}")
+  done
+  # shellcheck disable=SC2086
+  env -i "${passthru[@]}" $bin "${extra[@]}" "$@"
 }
 
 # Stock 1.0.45 image: ready.sh has a set -u `local name="$1" pidfile=...${name}`
@@ -667,7 +678,12 @@ do_install() {
     compose_err="$(tail -n 8 "$compose_log" 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
     cat "$compose_log" >&2 || true
     rm -f "$compose_log"
-    restore_previous_release || true
+    # First install has nothing to restore: do not leave a Created container and
+    # an orphan network behind on the host.
+    if ! restore_previous_release; then
+      stop_owned_stack "$INSTALL_DIR/current" || true
+      remove_owned_networks || true
+    fi
     die --code COMPOSE_UP_FAILED "docker compose up не удался: ${compose_err:-код ≠ 0, ARDTT_DONE нет}"
   fi
   cat "$compose_log" || true

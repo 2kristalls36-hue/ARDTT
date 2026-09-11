@@ -422,6 +422,9 @@ fi
 if [ -f "$ROOT/scripts/test-layer-cache.sh" ]; then
   bash "$ROOT/scripts/test-layer-cache.sh" || err "layer cache"
 fi
+if [ -f "$ROOT/scripts/test-compose-env-isolation.sh" ]; then
+  bash "$ROOT/scripts/test-compose-env-isolation.sh" || err "compose env isolation"
+fi
 if [ -f "$ROOT/scripts/test-fetch-partial.sh" ]; then
   bash "$ROOT/scripts/test-fetch-partial.sh" || err "partial fetch end-to-end"
 fi
