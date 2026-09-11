@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
@@ -1059,7 +1060,7 @@ private fun ServerOverviewHost(
 ) {
     val server = servers.find { it.id == serverId }
     var showActions by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var removeConfirmKind by remember { mutableStateOf<ServerRemoveKind?>(null) }
     var showDeleteProgress by remember { mutableStateOf(false) }
     var deleteStatus by remember { mutableStateOf<String?>(null) }
     var showRename by remember { mutableStateOf(false) }
@@ -1082,7 +1083,6 @@ private fun ServerOverviewHost(
     val hopTrack by engine.hopTrack.collectAsStateWithLifecycle()
     val engineFailure by engine.failure.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var deleteConfirmOffline by remember { mutableStateOf(false) }
     var localFailure by remember { mutableStateOf<DeployIssue?>(null) }
     var lastPreflightOk by remember { mutableStateOf(false) }
     val failure = localFailure ?: engineFailure
@@ -1160,7 +1160,7 @@ private fun ServerOverviewHost(
     }
 
     fun startUninstall(target: DeployTarget) {
-        showDeleteConfirm = false
+        removeConfirmKind = null
         showDeleteProgress = true
         deleteStatus = null
         localFailure = null
@@ -1171,24 +1171,9 @@ private fun ServerOverviewHost(
     }
 
     fun startLocalCardDelete(target: DeployTarget) {
-        showDeleteConfirm = false
+        removeConfirmKind = null
         serversRepo.delete(target.id)
         onBack()
-    }
-
-    fun openDeleteConfirm(target: DeployTarget) {
-        val current = health
-        if (current is HealthUi.Online || current is HealthUi.NotInstalled) {
-            deleteConfirmOffline = false
-            showDeleteConfirm = true
-            return
-        }
-        scope.launch {
-            health = HealthUi.Checking
-            health = probeServerHealthUi(target, serversRepo)
-            deleteConfirmOffline = serverDeleteIsOffline(health)
-            showDeleteConfirm = true
-        }
     }
 
     val pull = rememberPullRefresh {
@@ -1235,7 +1220,8 @@ private fun ServerOverviewHost(
                 showActions = showActions,
                 onShowActions = { showActions = it },
                 onRename = { showRename = true },
-                onDelete = { openDeleteConfirm(server) },
+                onDeleteCard = { removeConfirmKind = ServerRemoveKind.Card },
+                onUninstallServer = { removeConfirmKind = ServerRemoveKind.Uninstall },
                 refreshing = pull.refreshing,
                 onRefresh = pull.onRefresh,
             )
@@ -1249,17 +1235,17 @@ private fun ServerOverviewHost(
                     },
                 )
             }
-            if (showDeleteConfirm) {
+            val removeKind = removeConfirmKind
+            if (removeKind != null) {
                 ArdttDialog(
-                    title = serverDeleteConfirmTitle(deleteConfirmOffline),
-                    onDismissRequest = { if (!busy) showDeleteConfirm = false },
+                    title = serverDeleteConfirmTitle(removeKind),
+                    onDismissRequest = { if (!busy) removeConfirmKind = null },
                     confirmAction = ArdttDialogAction(
-                        text = serverDeleteConfirmAction(deleteConfirmOffline),
+                        text = serverDeleteConfirmAction(removeKind),
                         onClick = {
-                            if (deleteConfirmOffline) {
-                                startLocalCardDelete(server)
-                            } else {
-                                startUninstall(server)
+                            when (removeKind) {
+                                ServerRemoveKind.Card -> startLocalCardDelete(server)
+                                ServerRemoveKind.Uninstall -> startUninstall(server)
                             }
                         },
                         destructive = true,
@@ -1267,7 +1253,7 @@ private fun ServerOverviewHost(
                     ),
                     dismissAction = ArdttDialogAction(
                         text = "Отмена",
-                        onClick = { showDeleteConfirm = false },
+                        onClick = { removeConfirmKind = null },
                         enabled = !busy,
                     ),
                     dismissOnBackPress = !busy,
@@ -1278,7 +1264,7 @@ private fun ServerOverviewHost(
                             host = server.host,
                             cascadeEnabled = server.cascadeEnabled,
                             cascadeHost = server.cascadeHost,
-                            offline = deleteConfirmOffline,
+                            kind = removeKind,
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1368,7 +1354,8 @@ private fun ServerOverviewScreen(
     showActions: Boolean,
     onShowActions: (Boolean) -> Unit,
     onRename: () -> Unit,
-    onDelete: () -> Unit,
+    onDeleteCard: () -> Unit,
+    onUninstallServer: () -> Unit,
     refreshing: Boolean,
     onRefresh: () -> Unit,
 ) {
@@ -1409,12 +1396,21 @@ private fun ServerOverviewScreen(
                                     },
                                 )
                                 ArdttOverflowMenuItem(
-                                    text = "Удалить",
+                                    text = serverRemoveMenuLabel(ServerRemoveKind.Card),
                                     leadingIcon = Icons.Filled.Delete,
                                     destructive = true,
                                     onClick = {
                                         onShowActions(false)
-                                        onDelete()
+                                        onDeleteCard()
+                                    },
+                                )
+                                ArdttOverflowMenuItem(
+                                    text = serverRemoveMenuLabel(ServerRemoveKind.Uninstall),
+                                    leadingIcon = Icons.Filled.DeleteForever,
+                                    destructive = true,
+                                    onClick = {
+                                        onShowActions(false)
+                                        onUninstallServer()
                                     },
                                 )
                             }
