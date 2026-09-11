@@ -5,12 +5,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
-import android.net.VpnService
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
-import android.widget.Toast
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.holdsUserSession
@@ -43,31 +41,22 @@ class QuickToggleTileService : TileService() {
     override fun onClick() {
         super.onClick()
         runCatching {
-            val app = applicationContext
-            val conn = ConnectionManager.get(app)
-            val hasHash = conn.ui.value.hasCallHash
-            if (qsTileOpensCallHashSettings(hasHash, isRunning())) {
+            val running = isRunning()
+            // Only trust in-process UI for the call-hash gate. After a process death
+            // ConnectionManager has no profile yet — trampoline like the widget.
+            val hasHash = ConnectionManager.getOrNull()?.ui?.value?.hasCallHash
+            if (hasHash == false && qsTileOpensCallHashSettings(false, running)) {
                 openCallHashSettings()
                 updateTile()
                 return
             }
-            if (isRunning()) {
-                conn.disconnect()
-                updateTile()
-                return
-            }
-            val prep = runCatching { VpnService.prepare(this) }.getOrNull()
-            if (prep != null) {
-                Toast.makeText(
-                    this,
-                    "Разрешите ARDTT создать туннель",
-                    Toast.LENGTH_LONG,
-                ).show()
-                openVpnPermissionActivity()
-            } else {
-                conn.connect()
-                updateTile()
-            }
+            // WidgetToggleActivity loads the active profile and VPN consent on cold start.
+            openActivity(
+                Intent(this, WidgetToggleActivity::class.java).apply {
+                    flags = widgetToggleLaunchFlags()
+                },
+                103,
+            )
         }.onFailure { e ->
             Log.e(TAG, "QS tile onClick failed", e)
         }
@@ -114,9 +103,6 @@ class QuickToggleTileService : TileService() {
         openActivity(intent, 102)
     }
 
-    private fun openVpnPermissionActivity() {
-        openActivity(Intent(this, VpnPermissionActivity::class.java), 101)
-    }
 
     private fun openActivity(intent: Intent, requestCode: Int) {
         runCatching {

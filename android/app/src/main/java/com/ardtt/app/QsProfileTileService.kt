@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Quick Settings tile that cycles the active VPN profile.
- * Long-press opens [QsProfilePickerActivity] via QS_TILE_PREFERENCES.
+ * Long-press opens the app via QS_TILE_PREFERENCES → [MainActivity].
  */
 class QsProfileTileService : TileService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
