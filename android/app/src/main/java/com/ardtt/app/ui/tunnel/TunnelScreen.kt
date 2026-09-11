@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.HorizontalDivider
@@ -82,13 +81,13 @@ import com.ardtt.app.ui.components.control.PathModeChipRow
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.feedback.ArdttInlineFactRow
-import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.performConnectionUiAction
+import com.ardtt.app.ui.tunnelChromeActions
 import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.qsProfileTileLabel
 import com.ardtt.app.ui.settings.BypassMethodDialog
@@ -119,7 +118,6 @@ fun TunnelScreen(
     onRequestConnect: () -> Unit,
     isAdmin: Boolean,
     classicAppearance: Boolean,
-    onOpenExceptions: () -> Unit = {},
 ) {
     // Use session flags from AppRoot — a fresh collectAsState(false) here flashes the
     // user-mode round power button for a frame every time this tab is composed.
@@ -327,7 +325,7 @@ fun TunnelScreen(
             ArdttTabHeader(title = "Подключение")
         },
         stickyContent = {
-            // Sticky «Подключить» / «Отменить» (same button) above tab bar.
+            // Sticky «Подключить» / «Остановить» (same button) above tab bar.
             // Idle Probing is not Cancel — that was flashing red Stop on tab open.
             ArdttPrimaryButton(
                 text = tunnelStickyCtaLabel(ui.state),
@@ -367,13 +365,6 @@ fun TunnelScreen(
                     onDismiss = { scope.launch { settings.setDonateBannerDismissed(true) } },
                 )
             }
-
-            ArdttDestinationRow(
-                icon = Icons.Outlined.FilterList,
-                title = "Правила обхода",
-                subtitle = "Приложения и сайты вне туннеля",
-                onClick = onOpenExceptions,
-            )
 
             if (!admin && profile != null) {
                 val active = profile!!.subscriptionActive
@@ -560,7 +551,7 @@ fun TunnelScreen(
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
             ConnectionActionChips(
-                actions = ui.uiModel.actions,
+                actions = tunnelChromeActions(ui.uiModel.actions),
                 onAction = { action ->
                     haptics.tick()
                     performConnectionUiAction(context, conn, action)

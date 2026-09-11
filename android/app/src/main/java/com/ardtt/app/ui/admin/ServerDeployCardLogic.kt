@@ -186,15 +186,13 @@ internal fun serverCardTitleHosts(
 
 internal data class ServerCardMetaParts(
     val hosts: List<String>,
-    val sshPort: Int,
     val pubHost: String? = null,
 )
 
-/** SSH / pub facts under the title — never repeats the title IP. Cascade is `ip → ip`. */
+/** Host / pub facts under the title — never repeats the title IP. Cascade is `ip → ip`. */
 internal fun serverCardMetaParts(
     name: String,
     host: String,
-    sshPort: Int,
     publicHost: String,
     cascadeEnabled: Boolean = false,
     cascadeHost: String = "",
@@ -208,12 +206,11 @@ internal fun serverCardMetaParts(
         } else {
             cascade
         }
-        return ServerCardMetaParts(hosts = hosts, sshPort = sshPort)
+        return ServerCardMetaParts(hosts = hosts)
     }
     val showSshHost = ssh.isNotEmpty() && !ssh.equals(title, ignoreCase = true)
     return ServerCardMetaParts(
         hosts = if (showSshHost) listOf(ssh) else emptyList(),
-        sshPort = sshPort,
         pubHost = distinctPublicHost(ssh, publicHost),
     )
 }
@@ -223,22 +220,19 @@ internal fun ServerCardMetaParts.asLine(): String = buildList {
         hosts.size >= 2 -> add(hosts.joinToString(" → "))
         hosts.size == 1 -> add(hosts[0])
     }
-    add("SSH $sshPort")
     pubHost?.let { add("pub $it") }
 }.joinToString(" · ")
 
-/** SSH / pub facts under the title — never repeats the title IP. Cascade shows `ip → ip`. */
+/** Host / pub facts under the title — never repeats the title IP. Cascade shows `ip → ip`. */
 internal fun serverCardMetaLine(
     name: String,
     host: String,
-    sshPort: Int,
     publicHost: String,
     cascadeEnabled: Boolean = false,
     cascadeHost: String = "",
 ): String = serverCardMetaParts(
     name = name,
     host = host,
-    sshPort = sshPort,
     publicHost = publicHost,
     cascadeEnabled = cascadeEnabled,
     cascadeHost = cascadeHost,

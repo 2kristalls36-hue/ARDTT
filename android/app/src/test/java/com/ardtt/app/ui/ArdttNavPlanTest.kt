@@ -78,7 +78,7 @@ class ArdttNavPlanTest {
             ArdttNavPlan.barSelectedRoute(AppDestination.Deploy.route, adminPrimary, admin = true),
         )
         assertEquals(
-            AppDestination.Tunnel.route,
+            AppDestination.Settings.route,
             ArdttNavPlan.barSelectedRoute(AppDestination.Exceptions.route, adminPrimary, admin = true),
         )
         val userPrimary = ArdttNavPlan.primary(admin = false, testingVisible = true)
