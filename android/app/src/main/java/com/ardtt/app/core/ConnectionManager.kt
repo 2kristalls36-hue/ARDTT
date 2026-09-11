@@ -2092,6 +2092,7 @@ class ConnectionManager(
         )
         if (key == null || !key.isCellular) {
             AppLog.w(TAG, "cellular pre-probe bind is not cellular handle=${bind.networkHandle}")
+            releaseCellularRequest()
             return
         }
         val now = SystemClock.elapsedRealtime()
@@ -2105,8 +2106,14 @@ class ConnectionManager(
             ) ?: RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS
             val since = now - lastCellularProbeAtMs
             if (since < waitMs && recoverySnapshot.cellularEvidence != null) {
-                AppLog.v(TAG, "cellular pre-probe skip — next in ${waitMs - since}ms ($reason)")
-                return
+                // Returning would end the refresh loop with no network request
+                // registered and nothing to re-kick it — sit out the gap here.
+                AppLog.v(TAG, "cellular pre-probe waits ${waitMs - since}ms ($reason)")
+                delay(waitMs - since)
+                if (!shouldPreProbeCellular(pathMode, currentAutoUnderlayKind())) {
+                    releaseCellularRequest()
+                    return
+                }
             }
         }
         AppLog.i(
