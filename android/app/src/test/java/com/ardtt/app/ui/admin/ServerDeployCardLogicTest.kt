@@ -563,9 +563,19 @@ class ServerDeployCardLogicTest {
 
     @Test
     fun deleteConfirmWarnsThatStackIsWipedOnVps() {
-        assertEquals("Удалить сервер?", serverDeleteConfirmTitle())
-        assertEquals("Удалить", serverDeleteConfirmAction())
-        val standalone = serverDeleteConfirmBody("10.0.0.1")
+        assertEquals(
+            "Деинсталляция сервера?",
+            serverDeleteConfirmTitle(ServerRemoveKind.Uninstall),
+        )
+        assertEquals(
+            "Деинсталлировать",
+            serverDeleteConfirmAction(ServerRemoveKind.Uninstall),
+        )
+        assertEquals(
+            "Деинсталляция сервера",
+            serverRemoveMenuLabel(ServerRemoveKind.Uninstall),
+        )
+        val standalone = serverDeleteConfirmBody("10.0.0.1", kind = ServerRemoveKind.Uninstall)
         assertTrue(standalone.contains("10.0.0.1"))
         assertTrue(standalone.contains("/opt/ardtt"))
         assertTrue(standalone.contains("Серверы"))
@@ -575,25 +585,31 @@ class ServerDeployCardLogicTest {
             host = "10.0.0.1",
             cascadeEnabled = true,
             cascadeHost = "2.26.125.160",
+            kind = ServerRemoveKind.Uninstall,
         )
         assertTrue(cascade.contains("входного сервера 10.0.0.1"))
         assertTrue(cascade.contains("выходного 2.26.125.160"))
     }
 
     @Test
-    fun deleteConfirmWhenOfflineRemovesCardOnly() {
-        assertFalse(serverDeleteIsOffline(HealthUi.Online("1.0.35")))
-        assertFalse(serverDeleteIsOffline(HealthUi.NotInstalled))
-        assertFalse(serverDeleteIsOffline(HealthUi.Checking))
-        assertTrue(serverDeleteIsOffline(HealthUi.Unreachable))
-        assertEquals("Нет связи с сервером", serverDeleteConfirmTitle(offline = true))
-        assertEquals("Удалить карточку", serverDeleteConfirmAction(offline = true))
-        val offline = serverDeleteConfirmBody("10.0.0.1", offline = true)
-        assertTrue(offline.contains("не будет выполнено"))
-        assertTrue(offline.contains("нет соединения"))
-        assertTrue(offline.contains("10.0.0.1"))
-        assertTrue(offline.contains("без деинсталляции"))
-        assertFalse(offline.contains("/opt/ardtt"))
+    fun deleteCardConfirmRemovesLocalEntryOnly() {
+        assertEquals(
+            "Удалить карточку сервера",
+            serverRemoveMenuLabel(ServerRemoveKind.Card),
+        )
+        assertEquals(
+            "Удалить карточку сервера?",
+            serverDeleteConfirmTitle(ServerRemoveKind.Card),
+        )
+        assertEquals(
+            "Удалить карточку",
+            serverDeleteConfirmAction(ServerRemoveKind.Card),
+        )
+        val card = serverDeleteConfirmBody("10.0.0.1", kind = ServerRemoveKind.Card)
+        assertTrue(card.contains("только из приложения"))
+        assertTrue(card.contains("10.0.0.1"))
+        assertTrue(card.contains("деинсталляция не выполняется"))
+        assertFalse(card.contains("/opt/ardtt"))
     }
 
     @Test
