@@ -4,7 +4,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -63,20 +64,25 @@ import com.ardtt.app.ui.admin.ClientExpiresTone
 import com.ardtt.app.ui.admin.clientExpiresTone
 import com.ardtt.app.ui.admin.formatClientExpires
 import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttTextField
+import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttLazyFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttDialogDefaults
 import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.theme.warningStatusColor
@@ -114,6 +120,7 @@ fun ProfilesScreen(
     var showPaste by remember { mutableStateOf(false) }
     var pasteText by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<StoredProfile?>(null) }
+    var deleteTarget by remember { mutableStateOf<StoredProfile?>(null) }
     var renameText by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -274,18 +281,20 @@ fun ProfilesScreen(
 
         if (visible.isEmpty()) {
             item(key = "empty") {
-                ArdttCompactCard {
-                    Text(
-                        "Профили не загружены",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Импортируйте JSON пользователя или создайте клиента на вкладке VPS.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                ArdttEmptyState(
+                    title = ProfilesCopy.EMPTY_TITLE,
+                    description = ProfilesCopy.EMPTY_BODY,
+                    icon = Icons.Filled.VpnKey,
+                    action = {
+                        ArdttButton(
+                            text = ProfilesCopy.EMPTY_ACTION,
+                            onClick = { showAddSheet = true },
+                            variant = ArdttButtonVariant.Outlined,
+                            size = ArdttButtonSize.Compact,
+                            fillMaxWidth = false,
+                        )
+                    },
+                )
             }
         } else {
             items(visible, key = { it.id }) { stored ->
@@ -323,21 +332,35 @@ fun ProfilesScreen(
                                 Toast.LENGTH_SHORT,
                             ).show()
                         } else {
-                            scope.launch {
-                                val wasActive = stored.id == catalog.activeId
-                                profiles.delete(stored.id)
-                                if (wasActive) {
-                                    val next = profiles.snapshot().active
-                                    settings.setProfileName(next?.name.orEmpty())
-                                    conn.updateProfile(next)
-                                }
-                                AppLog.i("Profiles", "deleted ${stored.profile.name}")
-                            }
+                            deleteTarget = stored
                         }
                     },
                 )
             }
         }
+    }
+
+    deleteTarget?.let { stored ->
+        ArdttConfirmDialog(
+            title = ProfilesCopy.DELETE_TITLE,
+            body = ProfilesCopy.deleteBody(stored.profile.name, active = stored.id == catalog.activeId),
+            confirmText = ArdttDialogDefaults.DELETE,
+            onConfirm = {
+                deleteTarget = null
+                scope.launch {
+                    val wasActive = stored.id == catalog.activeId
+                    profiles.delete(stored.id)
+                    if (wasActive) {
+                        val next = profiles.snapshot().active
+                        settings.setProfileName(next?.name.orEmpty())
+                        conn.updateProfile(next)
+                    }
+                    AppLog.i("Profiles", "deleted ${stored.profile.name}")
+                    afterChange("Профиль удалён")
+                }
+            },
+            onDismiss = { deleteTarget = null },
+        )
     }
 
     if (showAddSheet) {
@@ -493,7 +516,13 @@ private fun ProfileCard(
         ClientExpiresTone.Expired -> colors.error
     }
     ArdttCompactCard(
-        modifier = Modifier.clickable(enabled = !selectionLocked, onClick = onSelect),
+        // One option of the profile list: TalkBack reads «выбрано» for the active card.
+        modifier = Modifier.selectable(
+            selected = active,
+            enabled = !selectionLocked,
+            role = Role.RadioButton,
+            onClick = onSelect,
+        ),
         border = if (active) {
             BorderStroke(ArdttSectionCardDefaults.ContourWidth, ArdttColors.Connected)
         } else {
@@ -542,7 +571,7 @@ private fun ProfileCard(
                             icon = Icons.Filled.MoreVert,
                             contentDescription = "Действия",
                             contentColor = if (selectionLocked) {
-                                colors.onSurface.copy(alpha = 0.45f)
+                                colors.onSurface.copy(alpha = ArdttAlpha.Disabled)
                             } else {
                                 colors.onSurfaceVariant
                             },
