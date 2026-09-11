@@ -55,12 +55,19 @@ fun extraNetworkSettleDelayMs(
     path: VpnPath,
     validatedPresent: Boolean,
     skipValidatedWait: Boolean = false,
+    underlayKind: UnderlayKind = UnderlayKind.Other,
+    pathMode: ConnPathMode = ConnPathMode.Auto,
 ): Long {
     if (path == VpnPath.Direct) {
         return DIRECT_NETWORK_SETTLE_MS
     }
     if (skipValidatedWait || !validatedPresent) {
         return BYPASS_UNVALIDATED_SETTLE_MS
+    }
+    // Upgrading a live Bypass to Wi‑Fi Direct costs a parked call and a TUN
+    // rebuild; give an access point at the edge of range time to drop first.
+    if (pathMode == ConnPathMode.Auto && underlayKind.prefersDirectInAuto()) {
+        return RecoverySettings.WIFI_UPGRADE_SETTLE_MS
     }
     return transportRecoveryPolicy(path).networkSettleDelayMs
 }

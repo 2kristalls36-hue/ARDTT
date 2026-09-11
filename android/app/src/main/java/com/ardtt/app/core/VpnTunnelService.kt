@@ -1479,6 +1479,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     path = settlePath,
                     validatedPresent = hasValidatedRealNetwork(),
                     skipValidatedWait = skipValidatedSettle,
+                    underlayKind = currentUnderlayKind(),
+                    pathMode = ConnectionManager.getOrNull()?.currentPathMode() ?: ConnPathMode.Auto,
                 )
                 AppLog.v(
                     TAG,

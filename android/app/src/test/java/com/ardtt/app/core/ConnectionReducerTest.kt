@@ -267,10 +267,18 @@ class ConnectionReducerTest {
             transport = TransportLifecycle.Running,
             call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
         )
-        val toWifi = ConnectionReducer.reduce(
+        val wifiSeen = ConnectionReducer.reduce(
             state,
             ConnectionEvent.UnderlayUpdated(usableWifi()),
             2L,
+        )
+        // A live Bypass waits out the settle before Wi-Fi takes over.
+        assertTrue(wifiSeen.command is RecoveryCommand.ScheduleReeval)
+        val settledAt = wifiSeen.state.recovery.nextRetryAtElapsedMs ?: 0L
+        val toWifi = ConnectionReducer.reduce(
+            wifiSeen.state,
+            ConnectionEvent.Clock(elapsedMs = settledAt),
+            settledAt,
         )
         assertEquals(RecoveryCommand.ParkBypassForDirect, toWifi.command)
         assertEquals(RecoveryPhase.SwitchingToWifi, toWifi.state.recovery.phase)
@@ -283,7 +291,7 @@ class ConnectionReducerTest {
                 networkKey = wifiKey,
                 probeConfirmed = true,
             ),
-            3L,
+            settledAt + 1L,
         )
         assertEquals(VpnPath.Direct, confirmed.state.activePath)
         assertTrue(confirmed.state.parkedRawAlive)
@@ -1329,6 +1337,120 @@ class ConnectionReducerTest {
         )
         assertEquals(RecoveryCommand.None, again.command)
         assertEquals(index, again.state.recovery.failureIndex)
+    }
+
+    @Test
+    fun flakyWifiDoesNotYankALiveBypassBeforeItSettles() {
+        val onBypass = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = usableCellular(),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 1L,
+            transportEpoch = 4L,
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 1L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val wifiAppeared = ConnectionReducer.reduce(
+            onBypass,
+            ConnectionEvent.UnderlayUpdated(usableWifi()),
+            elapsedMs = 10_000L,
+        )
+        assertEquals(VpnPath.Bypass, wifiAppeared.state.activePath)
+        assertEquals(TransportLifecycle.Running, wifiAppeared.state.transport)
+        assertEquals(10_000L, wifiAppeared.state.wifiUsableSinceMs)
+        val settle = wifiAppeared.command as RecoveryCommand.ScheduleReeval
+        assertEquals(RecoverySettings.wifiUpgradeSettleMs(0), settle.delayMs)
+
+        // Wi-Fi drops back out before the settle expires: nothing was torn down.
+        val wifiGone = ConnectionReducer.reduce(
+            wifiAppeared.state,
+            ConnectionEvent.UnderlayUpdated(usableCellular(epoch = 3L)),
+            elapsedMs = 12_000L,
+        )
+        assertEquals(VpnPath.Bypass, wifiGone.state.activePath)
+        assertEquals(TransportLifecycle.Running, wifiGone.state.transport)
+        assertEquals(0L, wifiGone.state.wifiUsableSinceMs)
+    }
+
+    @Test
+    fun wifiThatHoldsThroughTheSettleTakesOver() {
+        val onBypass = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = usableCellular(),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 1L,
+            transportEpoch = 4L,
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 1L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val wifiAppeared = ConnectionReducer.reduce(
+            onBypass,
+            ConnectionEvent.UnderlayUpdated(usableWifi()),
+            elapsedMs = 10_000L,
+        )
+        val due = wifiAppeared.state.recovery.nextRetryAtElapsedMs ?: 0L
+        val settled = ConnectionReducer.reduce(
+            wifiAppeared.state,
+            ConnectionEvent.Clock(elapsedMs = due),
+            elapsedMs = due,
+        )
+        assertEquals(RecoveryCommand.ParkBypassForDirect, settled.command)
+        assertEquals(VpnPath.Direct, settled.state.activePath)
+    }
+
+    @Test
+    fun wifiSettleDoesNotDelayAnIdleSession() {
+        // Nothing to protect: no live Bypass, so Wi-Fi Direct starts at once.
+        val waiting = ConnectionReducer.reduce(
+            idle(),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        )
+        val onWifi = ConnectionReducer.reduce(
+            waiting.state,
+            ConnectionEvent.UnderlayUpdated(usableWifi()),
+            elapsedMs = 1_000L,
+        )
+        assertTrue(onWifi.command is RecoveryCommand.StartDirect)
+        assertEquals(1_000L, onWifi.state.wifiUsableSinceMs)
     }
 
     @Test

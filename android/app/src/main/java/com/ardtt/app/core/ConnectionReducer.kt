@@ -240,6 +240,7 @@ object ConnectionReducer {
             transportEpoch = transportEpoch,
             wifiFailStreak = 0,
             wifiStableHits = 0,
+            wifiUsableSinceMs = 0L,
             directReevalFailures = 0,
             directNegative = null,
             lastConfirmedPath = null,
@@ -314,7 +315,15 @@ object ConnectionReducer {
             )
         }
         val leftWifiEpisode = !snapshot.kind.prefersDirectInAuto()
+        val wifiUsableNow = snapshot.withEffectiveKind().kind.prefersDirectInAuto() &&
+            snapshot.availability == UnderlayAvailability.Usable
+        val wifiUsableSince = when {
+            !wifiUsableNow -> 0L
+            networkChanged || state.wifiUsableSinceMs <= 0L -> elapsedMs
+            else -> state.wifiUsableSinceMs
+        }
         val next = carried.copy(
+            wifiUsableSinceMs = wifiUsableSince,
             underlay = snapshot,
             networkEpoch = snapshot.networkEpoch,
             directNegative = if (scopeChanged) null else state.directNegative,
@@ -940,6 +949,7 @@ object ConnectionReducer {
                 lastConfirmedNetworkKey = state.lastConfirmedNetworkKey,
                 wifiFailStreak = state.wifiFailStreak,
                 wifiStableHits = state.wifiStableHits,
+                wifiUsableSinceMs = state.wifiUsableSinceMs,
                 parkedRawAlive = state.parkedRawAlive,
                 elapsedMs = elapsedMs,
                 profileId = state.intent.profileId,
@@ -1018,16 +1028,17 @@ object ConnectionReducer {
             is AutoDecision.ServerFault -> armBackoff(state, elapsedMs, jitterPermille)
             is AutoDecision.Backoff -> armBackoff(state, elapsedMs, jitterPermille)
             is AutoDecision.Stay -> {
-                val armBypassReeval = state.intent.mode == ConnPathMode.Auto &&
-                    decision.path == VpnPath.Bypass &&
-                    (decision.reason == "wifi-hysteresis" ||
-                        decision.reason == "bypass-running") &&
-                    state.recovery.nextRetryAtElapsedMs == null
-                if (armBypassReeval) {
-                    val delay = stayReevalDelayMs(
-                        state.directNegative?.retryAfterElapsedMs,
-                        elapsedMs,
-                    )
+                val delay = stayReevalDelay(state, decision, elapsedMs)
+                val due = state.recovery.nextRetryAtElapsedMs
+                // The Wi‑Fi settle is shorter than a pending Direct re-check and
+                // must be allowed to replace it, or the upgrade waits a full gap.
+                // Every other Stay only arms when nothing is pending.
+                val arm = delay != null && when {
+                    due == null -> true
+                    decision.reason == WIFI_SETTLING -> elapsedMs + delay < due
+                    else -> false
+                }
+                if (arm && delay != null) {
                     ReduceResult(
                         withUi(
                             state.copy(
@@ -1126,6 +1137,26 @@ object ConnectionReducer {
                     diagnostic = diagnostic,
                 )
             }
+        }
+    }
+
+    /** When a Stay on Bypass needs to wake itself up again, and how soon. */
+    private fun stayReevalDelay(
+        state: ConnectionSnapshot,
+        decision: AutoDecision.Stay,
+        elapsedMs: Long,
+    ): Long? {
+        if (state.intent.mode != ConnPathMode.Auto) return null
+        if (decision.path != VpnPath.Bypass) return null
+        return when (decision.reason) {
+            WIFI_SETTLING -> {
+                val settle = RecoverySettings.wifiUpgradeSettleMs(state.wifiFailStreak)
+                val held = elapsedMs - state.wifiUsableSinceMs
+                (settle - held).coerceIn(RecoverySettings.NETWORK_RETURN_COALESCE_MS, settle)
+            }
+            "wifi-hysteresis", "bypass-running" ->
+                stayReevalDelayMs(state.directNegative?.retryAfterElapsedMs, elapsedMs)
+            else -> null
         }
     }
 

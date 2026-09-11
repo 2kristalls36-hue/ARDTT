@@ -187,6 +187,8 @@ data class ConnectionSnapshot(
     val transportEpoch: Long = 0L,
     val wifiFailStreak: Int = 0,
     val wifiStableHits: Int = 0,
+    /** When the current Wi‑Fi/Ethernet underlay became usable; 0 when unknown. */
+    val wifiUsableSinceMs: Long = 0L,
     /** Direct re-checks that failed on the current underlay; widens the next gap. */
     val directReevalFailures: Int = 0,
     val directNegative: DirectNegativeEvidence? = null,

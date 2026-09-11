@@ -29,6 +29,20 @@ object RecoverySettings {
     const val FIRST_WIFI_DIRECT_DELAY_MS = 0L
     const val WIFI_STABLE_CONFIRMATIONS = 2
     const val WIFI_DEGRADED_FAILS_BEFORE_HYSTERESIS = 2
+
+    /**
+     * A live Bypass is not abandoned the instant Wi‑Fi associates. Switching
+     * costs a parked VK call and a TUN rebuild, so an access point at the edge
+     * of range has to hold a usable underlay this long first.
+     */
+    const val WIFI_UPGRADE_SETTLE_MS = 6_000L
+    const val WIFI_UPGRADE_SETTLE_MAX_MS = 60_000L
+
+    /** Each failed episode on this Wi‑Fi doubles the wait. */
+    fun wifiUpgradeSettleMs(wifiFailStreak: Int): Long {
+        val shift = wifiFailStreak.coerceIn(0, 4)
+        return (WIFI_UPGRADE_SETTLE_MS shl shift).coerceAtMost(WIFI_UPGRADE_SETTLE_MAX_MS)
+    }
     const val DIRECT_LIMITED_TRY_MS = 8_000L
     const val DIRECT_LIMITED_TRY_AFTER_HANDOFF_MS = 4_000L
     const val NETWORK_RETURN_COALESCE_MS = 400L
