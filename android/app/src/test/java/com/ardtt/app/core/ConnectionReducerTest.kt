@@ -1241,6 +1241,97 @@ class ConnectionReducerTest {
     }
 
     @Test
+    fun bypassDeathDuringPendingReevalRetriesOnItsOwnBudget() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(
+                underlay = usableCellular(),
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                    ttlUntilElapsedMs = 90_000L,
+                ),
+            ),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        )
+        assertTrue(started.command is RecoveryCommand.StartBypass)
+        val connected = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                pathConfirmed = true,
+            ),
+            elapsedMs = 1_000L,
+        )
+        assertEquals(RecoveryPhase.Connected, connected.state.recovery.phase)
+        assertEquals(PendingTimer.Reeval, connected.state.recovery.pendingTimer)
+        val reevalDueAt = connected.state.recovery.nextRetryAtElapsedMs
+        assertEquals(1_000L + RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS, reevalDueAt)
+
+        val died = ConnectionReducer.reduce(
+            connected.state,
+            ConnectionEvent.TransportDied(
+                sessionEpoch = connected.state.sessionEpoch,
+                transportEpoch = connected.state.transportEpoch,
+                path = VpnPath.Bypass,
+            ),
+            elapsedMs = 5_000L,
+        )
+        // Recovery must not wait out the 30 s Direct re-check before retrying RAW.
+        val scheduled = died.command as RecoveryCommand.ScheduleRetry
+        assertTrue(scheduled.delayMs <= RecoverySettings.retryDelayMs(0, jitterPermille = 150))
+        assertEquals(RecoveryPhase.Backoff, died.state.recovery.phase)
+        assertEquals(PendingTimer.Backoff, died.state.recovery.pendingTimer)
+        assertEquals(ConnState.Recovering, died.state.ui.connState)
+        assertTrue((died.state.recovery.nextRetryAtElapsedMs ?: 0L) < (reevalDueAt ?: 0L))
+
+        val retry = ConnectionReducer.reduce(
+            died.state,
+            ConnectionEvent.Clock(elapsedMs = died.state.recovery.nextRetryAtElapsedMs ?: 0L),
+            elapsedMs = died.state.recovery.nextRetryAtElapsedMs ?: 0L,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartBypass || retry.command == RecoveryCommand.ResumeParkedRaw)
+    }
+
+    @Test
+    fun pendingBackoffStillSuppressesASecondAttempt() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = false, silentRecreate = false),
+            0L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                reason = "temp",
+            ),
+            elapsedMs = 0L,
+        )
+        assertEquals(PendingTimer.Backoff, failed.state.recovery.pendingTimer)
+        val index = failed.state.recovery.failureIndex
+        val again = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.TransportDied(
+                sessionEpoch = failed.state.sessionEpoch,
+                transportEpoch = failed.state.transportEpoch,
+                path = VpnPath.Direct,
+            ),
+            elapsedMs = 500L,
+        )
+        assertEquals(RecoveryCommand.None, again.command)
+        assertEquals(index, again.state.recovery.failureIndex)
+    }
+
+    @Test
     fun highWhitelistScoreSkipsDirectReevalOnBypass() {
         val connected = ConnectionSnapshot(
             intent = UserConnectionIntent(

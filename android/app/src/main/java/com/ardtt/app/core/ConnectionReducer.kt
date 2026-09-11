@@ -278,6 +278,7 @@ object ConnectionReducer {
             state.copy(
                 recovery = state.recovery.copy(
                     nextRetryAtElapsedMs = null,
+                    pendingTimer = PendingTimer.None,
                     failureIndex = state.recovery.failureIndex,
                 ),
                 transport = if (state.transport == TransportLifecycle.Failed) {
@@ -332,7 +333,10 @@ object ConnectionReducer {
                 } else {
                     next.transport
                 },
-                recovery = next.recovery.copy(nextRetryAtElapsedMs = null),
+                recovery = next.recovery.copy(
+                    nextRetryAtElapsedMs = null,
+                    pendingTimer = PendingTimer.None,
+                ),
             )
         } else {
             next
@@ -353,6 +357,7 @@ object ConnectionReducer {
                     },
                     permit = permitFrom(next, netOps = false, inFlight = false),
                     nextRetryAtElapsedMs = null,
+                    pendingTimer = PendingTimer.None,
                 ),
             )
             return ReduceResult(
@@ -504,6 +509,7 @@ object ConnectionReducer {
                 failureIndex = if (pathConfirmed) 0 else state.recovery.failureIndex,
                 inFlight = false,
                 nextRetryAtElapsedMs = null,
+                pendingTimer = PendingTimer.None,
                 permit = permitFrom(state, netOps = true, inFlight = false),
                 callOpInFlight = false,
             ),
@@ -592,6 +598,7 @@ object ConnectionReducer {
                 failureIndex = if (pathConfirmed) 0 else state.recovery.failureIndex,
                 inFlight = false,
                 nextRetryAtElapsedMs = delay?.let { elapsedMs + it },
+                pendingTimer = if (delay != null) PendingTimer.Reeval else PendingTimer.None,
                 permit = permitFrom(state, netOps = true, inFlight = false),
                 callOpInFlight = false,
             ),
@@ -873,7 +880,10 @@ object ConnectionReducer {
         }
         return decideNext(
             state.copy(
-                recovery = state.recovery.copy(nextRetryAtElapsedMs = null),
+                recovery = state.recovery.copy(
+                    nextRetryAtElapsedMs = null,
+                    pendingTimer = PendingTimer.None,
+                ),
                 transport = if (state.transport == TransportLifecycle.Failed) {
                     TransportLifecycle.Stopped
                 } else {
@@ -929,6 +939,7 @@ object ConnectionReducer {
                 phase = phase,
                 inFlight = inFlight,
                 nextRetryAtElapsedMs = delay?.let { elapsedMs + it },
+                pendingTimer = if (delay != null) PendingTimer.Backoff else PendingTimer.None,
                 permit = permitFrom(
                     state,
                     netOps = state.underlay.allowsNetworkOps,
@@ -983,34 +994,8 @@ object ConnectionReducer {
                 ),
                 RecoveryCommand.None,
             )
-            is AutoDecision.ServerFault -> {
-                val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
-                ReduceResult(
-                    withUi(
-                        state.copy(
-                            recovery = phaseOf(
-                                RecoveryPhase.Backoff,
-                                delay = delay,
-                            ).copy(failureIndex = state.recovery.failureIndex + 1),
-                        ),
-                        elapsedMs,
-                    ),
-                    RecoveryCommand.ScheduleRetry(delay),
-                )
-            }
-            is AutoDecision.Backoff -> {
-                val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
-                ReduceResult(
-                    withUi(
-                        state.copy(
-                            recovery = phaseOf(RecoveryPhase.Backoff, delay = delay)
-                                .copy(failureIndex = state.recovery.failureIndex + 1),
-                        ),
-                        elapsedMs,
-                    ),
-                    RecoveryCommand.ScheduleRetry(delay),
-                )
-            }
+            is AutoDecision.ServerFault -> armBackoff(state, elapsedMs, jitterPermille)
+            is AutoDecision.Backoff -> armBackoff(state, elapsedMs, jitterPermille)
             is AutoDecision.Stay -> {
                 val armBypassReeval = state.intent.mode == ConnPathMode.Auto &&
                     decision.path == VpnPath.Bypass &&
@@ -1024,6 +1009,7 @@ object ConnectionReducer {
                             state.copy(
                                 recovery = state.recovery.copy(
                                     nextRetryAtElapsedMs = elapsedMs + delay,
+                                    pendingTimer = PendingTimer.Reeval,
                                 ),
                             ),
                             elapsedMs,
@@ -1120,9 +1106,50 @@ object ConnectionReducer {
     }
 
     /**
+     * "No path works" backoff. Underlay capability flaps arrive several times
+     * per minute; re-arming on each of them would walk [RecoveryState.failureIndex]
+     * up to the 60 s cap while nothing was actually retried.
+     */
+    private fun armBackoff(
+        state: ConnectionSnapshot,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult {
+        val due = state.recovery.backoffDueAtElapsedMs
+        if (due != null && elapsedMs < due) {
+            return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
+        }
+        val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
+        return ReduceResult(
+            withUi(
+                state.copy(
+                    recovery = state.recovery.copy(
+                        phase = RecoveryPhase.Backoff,
+                        inFlight = false,
+                        nextRetryAtElapsedMs = elapsedMs + delay,
+                        pendingTimer = PendingTimer.Backoff,
+                        failureIndex = state.recovery.failureIndex + 1,
+                        permit = permitFrom(
+                            state,
+                            netOps = state.underlay.allowsNetworkOps,
+                            inFlight = false,
+                        ),
+                    ),
+                ),
+                elapsedMs,
+            ),
+            RecoveryCommand.ScheduleRetry(delay),
+        )
+    }
+
+    /**
      * First failure on this path schedules backoff. Later events while the
      * timer is still running must not bump [RecoveryState.failureIndex] or
      * start a second attempt. A due timer falls through to a real start.
+     *
+     * Only a [PendingTimer.Backoff] gates the retry. A pending Direct re-check
+     * is an optimisation, not a budget: a transport that died must not sit dark
+     * until the re-check fires.
      */
     private fun backoffAfterFailure(
         path: VpnPath,
@@ -1133,7 +1160,7 @@ object ConnectionReducer {
         if (state.transport != TransportLifecycle.Failed || state.activePath != path) {
             return null
         }
-        val due = state.recovery.nextRetryAtElapsedMs
+        val due = state.recovery.backoffDueAtElapsedMs
         if (due != null && elapsedMs < due) {
             return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
         }
@@ -1148,6 +1175,7 @@ object ConnectionReducer {
                         phase = RecoveryPhase.Backoff,
                         inFlight = false,
                         nextRetryAtElapsedMs = elapsedMs + delay,
+                        pendingTimer = PendingTimer.Backoff,
                         failureIndex = state.recovery.failureIndex + 1,
                         permit = permitFrom(
                             state,
@@ -1208,7 +1236,7 @@ object ConnectionReducer {
     }
 
     private fun withUi(state: ConnectionSnapshot, nowElapsedMs: Long): ConnectionSnapshot {
-        val retryAt = state.recovery.nextRetryAtElapsedMs
+        val retryAt = state.recovery.backoffDueAtElapsedMs
         val remaining = if (retryAt != null) (retryAt - nowElapsedMs).coerceAtLeast(0L) else null
         val restriction = state.evidence?.restrictionAt(
             nowElapsedMs,

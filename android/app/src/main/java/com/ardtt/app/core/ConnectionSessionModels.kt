@@ -109,14 +109,30 @@ enum class RecoveryPhase {
     Connected,
 }
 
+/**
+ * What the single recovery timer is counting down to. A periodic Direct
+ * re-check must not be mistaken for a failure backoff: a transport that dies
+ * while the re-check is armed has to retry on its own budget.
+ */
+enum class PendingTimer {
+    None,
+    Backoff,
+    Reeval,
+}
+
 data class RecoveryState(
     val phase: RecoveryPhase = RecoveryPhase.Idle,
     val failureIndex: Int = 0,
     val nextRetryAtElapsedMs: Long? = null,
+    val pendingTimer: PendingTimer = PendingTimer.None,
     val inFlight: Boolean = false,
     val callOpInFlight: Boolean = false,
     val permit: RecoveryPermit = RecoveryPermit(),
-)
+) {
+    /** Deadline of a failure backoff; a pending re-check does not gate retries. */
+    val backoffDueAtElapsedMs: Long?
+        get() = nextRetryAtElapsedMs?.takeIf { pendingTimer == PendingTimer.Backoff }
+}
 
 data class ReachabilityEvidence(
     val networkKey: NetworkKey? = null,
