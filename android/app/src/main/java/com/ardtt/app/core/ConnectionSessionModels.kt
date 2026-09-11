@@ -143,6 +143,8 @@ data class ReachabilityEvidence(
     val yandex: CheckOutcome = CheckOutcome.NotRun,
     val bigtech: CheckOutcome = CheckOutcome.NotRun,
     val google: CheckOutcome = CheckOutcome.NotRun,
+    /** Russian control service (vk.com) — also tells whether Bypass could work at all. */
+    val ruService: CheckOutcome = CheckOutcome.NotRun,
     val provision: CheckOutcome = CheckOutcome.NotRun,
     val restriction: RestrictionHint = RestrictionHint.Unknown,
     /** 0–100 operator-whitelist confidence; persists across a flaky probe. */

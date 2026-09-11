@@ -294,6 +294,67 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
+    fun ruControlSuccessIsInternetEvidenceAndGoesDirect() {
+        assertEquals(
+            ProbePathHint.Direct,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = false,
+                cloudflareOk = false,
+                captive = null,
+                googleOk = false,
+                ruServiceOk = true,
+            ),
+        )
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = false,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
+            ruServiceOutcome = CheckOutcome.Success,
+        )
+        assertTrue(r.ruServiceOk)
+        assertEquals(CheckOutcome.Success, r.ruServiceOutcome)
+        assertTrue(r.networkClass != NetworkClass.DataUnconfirmed)
+    }
+
+    @Test
+    fun ruControlFoldsTheRaceOverEveryVkAddress() {
+        assertEquals(CheckOutcome.NotRun, NetworkProbePolicy.foldControlOutcomes(emptyList()))
+        assertEquals(
+            CheckOutcome.Success,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.Timeout, CheckOutcome.Success),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Timeout,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.Refused, CheckOutcome.Timeout),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Refused,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.Cancelled, CheckOutcome.Refused, CheckOutcome.NotRun),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Cancelled,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NotRun, CheckOutcome.Cancelled),
+            ),
+        )
+        assertTrue(NetworkProbe.RU_CONTROL_HOSTS.isNotEmpty())
+        NetworkProbe.RU_CONTROL_HOSTS.forEach { host ->
+            assertTrue(host.ips.isNotEmpty())
+            host.ips.forEach { assertTrue(NetworkProbe.numericIpv4(it) != null) }
+        }
+    }
+
+    @Test
     fun provisionUrlHostAndPort() {
         assertEquals("10.1.2.3" to 9100, NetworkProbe.parseProvisionEndpoint("http://10.1.2.3:9100"))
         assertEquals("10.1.2.3" to 9100, NetworkProbe.parseProvisionEndpoint("http://10.1.2.3:9100/"))

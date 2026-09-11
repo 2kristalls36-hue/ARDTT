@@ -1029,7 +1029,8 @@ class ConnectionManager(
                 TAG,
                 "auto-stage probe_round_completed series=$seriesId " +
                     "yandex=${result.yandexOutcome} cf=${result.bigtechOutcome} " +
-                    "google=${result.googleOutcome} provision=${result.provisionOutcome}",
+                    "google=${result.googleOutcome} ru=${result.ruServiceOutcome} " +
+                    "provision=${result.provisionOutcome}",
             )
             applyProbe(
                 result,
@@ -1782,7 +1783,7 @@ class ConnectionManager(
             TAG,
             "Handover probe done class=${fresh.networkClass} path=${fresh.preselectedPath} " +
                 "yandexDns=${fresh.yandexOk} cloudflare=${fresh.bigtechOk} " +
-                "health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
+                "ru=${fresh.ruServiceOk} health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
         )
 
         val liveMode = pathMode
@@ -1980,6 +1981,7 @@ class ConnectionManager(
                 yandex = fresh.yandexOutcome,
                 bigtech = fresh.bigtechOutcome,
                 google = fresh.googleOutcome,
+                ruService = fresh.ruServiceOutcome,
                 provision = fresh.provisionOutcome,
                 restriction = fresh.restriction,
                 whitelistScorePercent = fresh.whitelistScorePercent,
@@ -2136,6 +2138,7 @@ class ConnectionManager(
             yandex = result.yandexOutcome,
             bigtech = result.bigtechOutcome,
             google = result.googleOutcome,
+            ruService = result.ruServiceOutcome,
             provision = result.provisionOutcome,
             restriction = result.restriction,
             whitelistScorePercent = result.whitelistScorePercent,
@@ -2152,7 +2155,7 @@ class ConnectionManager(
             "cellular pre-probe done score=${reduced.state.cellularEvidence?.whitelistScorePercent} " +
                 "restriction=${reduced.state.cellularEvidence?.restriction} " +
                 "yandex=${result.yandexOutcome} cf=${result.bigtechOutcome} " +
-                "google=${result.googleOutcome} ${result.elapsedMs}ms",
+                "google=${result.googleOutcome} ru=${result.ruServiceOutcome} ${result.elapsedMs}ms",
         )
         val delayMs = RecoverySettings.nextDiagnosticDelayMs(
             completedSeries = reduced.state.cellularEvidence?.completedSeries ?: 0,
@@ -2872,6 +2875,7 @@ class ConnectionManager(
             yandex = shown.yandexOutcome,
             bigtech = shown.bigtechOutcome,
             google = shown.googleOutcome,
+            ruService = shown.ruServiceOutcome,
             provision = shown.provisionOutcome,
             restriction = shown.restriction,
             whitelistScorePercent = shown.whitelistScorePercent,

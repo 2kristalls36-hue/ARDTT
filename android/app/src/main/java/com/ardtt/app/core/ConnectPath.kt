@@ -25,6 +25,7 @@ fun wifiAutoDirectProbe(elapsedMs: Long = 0): ProbeResult = ProbeResult(
         yandexOutcome = CheckOutcome.NotRun,
         bigtechOutcome = CheckOutcome.NotRun,
         googleOutcome = CheckOutcome.NotRun,
+        ruServiceOutcome = CheckOutcome.NotRun,
         provisionOutcome = CheckOutcome.NotRun,
         restriction = RestrictionHint.None,
         whitelistScorePercent = 0,

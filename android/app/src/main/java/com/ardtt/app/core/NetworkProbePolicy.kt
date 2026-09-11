@@ -24,15 +24,19 @@ internal object NetworkProbePolicy {
         cloudflareOk: Boolean?,
         captive: Boolean?,
         googleOk: Boolean? = null,
+        ruServiceOk: Boolean? = null,
     ): ProbePathHint {
         if (captive == true) return ProbePathHint.Captive
         if (provisionOk == true ||
             yandexOk == true ||
             googleOk == true ||
-            cloudflareOk == true
+            cloudflareOk == true ||
+            ruServiceOk == true
         ) {
             return ProbePathHint.Direct
         }
+        // A pending Russian control connect must not hold back the NoNetwork
+        // verdict: it only ever adds a reason to go Direct.
         val known = listOf(provisionOk, yandexOk, cloudflareOk, googleOk)
         if (known.all { it == false }) {
             return if (captive == false) ProbePathHint.NoNetwork else ProbePathHint.Wait
@@ -52,6 +56,8 @@ internal object NetworkProbePolicy {
         provisionOutcome: CheckOutcome? = null,
         googleOk: Boolean = false,
         googleOutcome: CheckOutcome? = null,
+        ruServiceOk: Boolean = false,
+        ruServiceOutcome: CheckOutcome? = null,
         @Suppress("UNUSED_PARAMETER") seriesCount: Int = 1,
         previousWhitelistScore: Int = 0,
     ): ProbeResult {
@@ -59,6 +65,7 @@ internal object NetworkProbePolicy {
         val bigtech = bigtechOutcome ?: if (bigtechOk) CheckOutcome.Success else CheckOutcome.Timeout
         val provision = provisionOutcome ?: if (provisionOk) CheckOutcome.Success else CheckOutcome.Timeout
         val google = googleOutcome ?: if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun
+        val ruService = ruServiceOutcome ?: if (ruServiceOk) CheckOutcome.Success else CheckOutcome.NotRun
         val cellular = WhitelistDetection.appliesTo(underlayKind)
         val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
         val whitelistScore = if (cellular) {
@@ -79,6 +86,7 @@ internal object NetworkProbePolicy {
                 yandexOk = yandex.isSuccess,
                 bigtechOk = bigtech.isSuccess,
                 googleOk = google.isSuccess,
+                ruServiceOk = ruService.isSuccess,
                 captive = true,
                 provisionOk = provision.isSuccess,
                 message = "Войдите в сеть (captive portal)",
@@ -86,6 +94,7 @@ internal object NetworkProbePolicy {
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
                 googleOutcome = google,
+                ruServiceOutcome = ruService,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.Unknown,
                 whitelistScorePercent = whitelistScore,
@@ -93,7 +102,9 @@ internal object NetworkProbePolicy {
                 restrictionReason = null,
             )
         }
-        if (!yandex.isSuccess && !bigtech.isSuccess && !google.isSuccess && !provision.isSuccess) {
+        if (!yandex.isSuccess && !bigtech.isSuccess && !google.isSuccess &&
+            !ruService.isSuccess && !provision.isSuccess
+        ) {
             val physical = systemOnline || underlayKind != UnderlayKind.Other
             return ProbeResult(
                 networkClass = if (physical) NetworkClass.DataUnconfirmed else NetworkClass.NoNetwork,
@@ -102,6 +113,7 @@ internal object NetworkProbePolicy {
                 yandexOk = false,
                 bigtechOk = false,
                 googleOk = false,
+                ruServiceOk = false,
                 captive = false,
                 provisionOk = false,
                 message = if (physical) {
@@ -113,6 +125,7 @@ internal object NetworkProbePolicy {
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
                 googleOutcome = google,
+                ruServiceOutcome = ruService,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.Unknown,
                 whitelistScorePercent = whitelistScore,
@@ -120,7 +133,7 @@ internal object NetworkProbePolicy {
                 restrictionReason = null,
             )
         }
-        val internetOk = yandex.isSuccess || bigtech.isSuccess || google.isSuccess
+        val internetOk = yandex.isSuccess || bigtech.isSuccess || google.isSuccess || ruService.isSuccess
         val likely = RestrictionScore.likely(whitelistScore, alreadyBypass = false)
         val restrictionReason = when (restriction) {
             RestrictionHint.Suspected -> "control-ok-ordinary-down"
@@ -136,6 +149,7 @@ internal object NetworkProbePolicy {
                 yandexOk = yandex.isSuccess,
                 bigtechOk = bigtech.isSuccess,
                 googleOk = google.isSuccess,
+                ruServiceOk = ruService.isSuccess,
                 captive = false,
                 provisionOk = false,
                 message = "Сеть есть, сервер управления не ответил. Прямое подключение к VPS проверяется",
@@ -143,6 +157,7 @@ internal object NetworkProbePolicy {
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
                 googleOutcome = google,
+                ruServiceOutcome = ruService,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.None,
                 whitelistScorePercent = whitelistScore,
@@ -174,6 +189,7 @@ internal object NetworkProbePolicy {
             yandexOk = yandex.isSuccess,
             bigtechOk = bigtech.isSuccess,
             googleOk = google.isSuccess,
+            ruServiceOk = ruService.isSuccess,
             captive = false,
             provisionOk = provision.isSuccess,
             message = message,
@@ -181,6 +197,7 @@ internal object NetworkProbePolicy {
             yandexOutcome = yandex,
             bigtechOutcome = bigtech,
             googleOutcome = google,
+            ruServiceOutcome = ruService,
             provisionOutcome = provision,
             restriction = restriction,
             whitelistScorePercent = whitelistScore,
@@ -200,6 +217,29 @@ internal object NetworkProbePolicy {
         val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
         val score = if (cellular) RestrictionScore.apply(previousScore, sample) else 0
         return if (cellular) RestrictionScore.hint(score, sample) else RestrictionHint.None
+    }
+
+    /**
+     * One verdict for a control host probed on several of its IPs at once.
+     * Any reachable IP proves the service is reachable; when none is, the most
+     * telling failure wins so the scorer can tell "blocked" from "never ran".
+     */
+    fun foldControlOutcomes(outcomes: List<CheckOutcome>): CheckOutcome =
+        outcomes.minByOrNull { controlOutcomeRank(it) } ?: CheckOutcome.NotRun
+
+    private fun controlOutcomeRank(outcome: CheckOutcome): Int = when (outcome) {
+        CheckOutcome.Success -> 0
+        CheckOutcome.NetworkLost -> 1
+        CheckOutcome.Suspended -> 2
+        CheckOutcome.Timeout -> 3
+        CheckOutcome.Refused -> 4
+        CheckOutcome.TransportFailure -> 5
+        CheckOutcome.TlsFailure -> 6
+        CheckOutcome.DnsFailure -> 7
+        CheckOutcome.AuthFailure -> 8
+        CheckOutcome.BindFailure -> 9
+        CheckOutcome.Cancelled -> 10
+        CheckOutcome.NotRun -> 11
     }
 
     fun parseProvisionEndpoint(baseUrl: String?): Pair<String, Int>? {

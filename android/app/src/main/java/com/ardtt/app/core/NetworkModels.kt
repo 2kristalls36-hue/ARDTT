@@ -24,6 +24,8 @@ data class ProbeResult(
     val bigtechOk: Boolean,
     /** 8.8.8.8 — Google public DNS, independent of Cloudflare. */
     val googleOk: Boolean = false,
+    /** Russian control service (vk.com TCP :443) — see [NetworkProbe.RU_CONTROL_HOSTS]. */
+    val ruServiceOk: Boolean = false,
     val captive: Boolean,
     /** AWG UDP handshake response from direct.endpoint (not used in live probe). */
     val awgUdpOk: Boolean = false,
@@ -34,6 +36,7 @@ data class ProbeResult(
     val yandexOutcome: CheckOutcome = if (yandexOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val bigtechOutcome: CheckOutcome = if (bigtechOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val googleOutcome: CheckOutcome = if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun,
+    val ruServiceOutcome: CheckOutcome = if (ruServiceOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val provisionOutcome: CheckOutcome = if (provisionOk) CheckOutcome.Success else CheckOutcome.NotRun,
     val restriction: RestrictionHint = RestrictionHint.Unknown,
     /** 0–100 operator-whitelist confidence from this round (or accumulated overlay). */

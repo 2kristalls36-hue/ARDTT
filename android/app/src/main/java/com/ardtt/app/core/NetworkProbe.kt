@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
  *
  * Classification (fail-fast, protocol replies on ordinary targets):
  * - **77.88.8.8** (Yandex DNS) — control group; UDP DNS even on operator whitelist (БС).
+ * - **vk.com** (TCP :443, by IP) — second control; see [RU_CONTROL_HOSTS].
  * - **1.1.1.1** (Cloudflare) — one ordinary provider (TLS or UDP :53).
  * - **8.8.8.8** (Google) — independent ordinary provider; UDP DNS.
  * - **VPS /health** — HTTP, not TCP :9100 and not AmneziaWG.
@@ -44,6 +45,28 @@ object NetworkProbe {
     const val CLOUDFLARE_IP = "1.1.1.1"
     const val GOOGLE_DNS_IP = "8.8.8.8"
     const val DEFAULT_VPS_PROBE_PORT = 9100
+
+    /** A Russian control host reached by literal IP — the probe never resolves names. */
+    data class RuControlHost(
+        val host: String,
+        val ips: List<String>,
+        val port: Int = 443,
+    )
+
+    /**
+     * Russian services an operator whitelist (БС) is expected to let through.
+     *
+     * Bypass rides a VK call, so a phone that cannot reach vk.com must not be
+     * steered onto Bypass in the first place: this control doubles as a
+     * Bypass-viability check. A plain TCP connect is enough — no TLS handshake,
+     * no DNS. IPs are VK fronts in AS47541; the list leaves room for more hosts.
+     */
+    val RU_CONTROL_HOSTS = listOf(
+        RuControlHost(
+            host = "vk.com",
+            ips = listOf("87.240.132.72", "87.240.132.78", "93.186.225.194"),
+        ),
+    )
 
     suspend fun probe(
         context: Context,
@@ -84,6 +107,7 @@ object NetworkProbe {
                         yandexOutcome = CheckOutcome.BindFailure,
                         bigtechOutcome = CheckOutcome.BindFailure,
                         googleOutcome = CheckOutcome.BindFailure,
+                        ruServiceOutcome = CheckOutcome.BindFailure,
                         provisionOutcome = CheckOutcome.BindFailure,
                     ).copy(
                         bindHandle = null,
@@ -102,11 +126,13 @@ object NetworkProbe {
                 val yandexDef = async { udpDnsReachableOutcome(YANDEX_DNS_IP, remaining(udpMs), bound) }
                 val cloudflareDef = async { cloudflareOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
                 val googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, remaining(udpMs), bound) }
+                val ruServiceDef = async { ruControlReachableOutcome(remaining(tlsMs), bound) }
                 val provisionDef = async { provisionReachableOutcome(provisionBaseUrl, remaining(healthMs), bound) }
 
                 var yandex: CheckOutcome? = null
                 var cloudflare: CheckOutcome? = null
                 var google: CheckOutcome? = null
+                var ruService: CheckOutcome? = null
                 var provision: CheckOutcome? = null
                 var captiveChecked = captiveFromCaps
                 var captive = captiveFromCaps
@@ -124,6 +150,8 @@ object NetworkProbe {
                     provisionOutcome = provision ?: CheckOutcome.NotRun,
                     googleOk = google?.isSuccess == true,
                     googleOutcome = google ?: CheckOutcome.NotRun,
+                    ruServiceOk = ruService?.isSuccess == true,
+                    ruServiceOutcome = ruService ?: CheckOutcome.NotRun,
                     previousWhitelistScore = 0,
                 ).copy(
                     bindHandle = bindHandle,
@@ -138,6 +166,7 @@ object NetworkProbe {
                         cloudflareOk = cloudflare?.toProbeFlag(),
                         captive = if (captiveChecked) captive else null,
                         googleOk = google?.toProbeFlag(),
+                        ruServiceOk = ruService?.toProbeFlag(),
                     )
                     if (hint == ProbePathHint.Direct ||
                         hint == ProbePathHint.Bypass ||
@@ -149,7 +178,7 @@ object NetworkProbe {
                         }
                     }
                     val allKnown = yandex != null && cloudflare != null &&
-                        google != null && provision != null
+                        google != null && ruService != null && provision != null
                     val roundExpired = now >= deadlineAt
                     if (hint == ProbePathHint.NoNetwork) {
                         if (!captiveChecked && systemOnline && remaining(captiveMs) > 0) {
@@ -166,6 +195,7 @@ object NetworkProbe {
                         yandexDef.cancel()
                         cloudflareDef.cancel()
                         googleDef.cancel()
+                        ruServiceDef.cancel()
                         provisionDef.cancel()
                         if (hint == ProbePathHint.Captive) captive = true
                         return@coroutineScope snapshot()
@@ -174,10 +204,12 @@ object NetworkProbe {
                         if (yandex == null) yandex = CheckOutcome.Cancelled
                         if (cloudflare == null) cloudflare = CheckOutcome.Cancelled
                         if (google == null) google = CheckOutcome.Cancelled
+                        if (ruService == null) ruService = CheckOutcome.Cancelled
                         if (provision == null) provision = CheckOutcome.Cancelled
                         yandexDef.cancel()
                         cloudflareDef.cancel()
                         googleDef.cancel()
+                        ruServiceDef.cancel()
                         provisionDef.cancel()
                         return@coroutineScope snapshot()
                     }
@@ -188,6 +220,7 @@ object NetworkProbe {
                         if (yandex == null) yandexDef.onAwait { yandex = it }
                         if (cloudflare == null) cloudflareDef.onAwait { cloudflare = it }
                         if (google == null) googleDef.onAwait { google = it }
+                        if (ruService == null) ruServiceDef.onAwait { ruService = it }
                         if (provision == null) provisionDef.onAwait { provision = it }
                         onTimeout(waitMs) {
                             // Active series deadline: wake without waiting for hung children.
@@ -206,12 +239,14 @@ object NetworkProbe {
         cloudflareOk: Boolean?,
         captive: Boolean?,
         googleOk: Boolean? = null,
+        ruServiceOk: Boolean? = null,
     ): ProbePathHint = NetworkProbePolicy.decideProbePath(
         provisionOk = provisionOk,
         yandexOk = yandexOk,
         cloudflareOk = cloudflareOk,
         captive = captive,
         googleOk = googleOk,
+        ruServiceOk = ruServiceOk,
     )
 
     internal fun classify(
@@ -225,6 +260,8 @@ object NetworkProbe {
         seriesCount: Int = 1,
         googleOk: Boolean = false,
         googleOutcome: CheckOutcome? = null,
+        ruServiceOk: Boolean = false,
+        ruServiceOutcome: CheckOutcome? = null,
         yandexOutcome: CheckOutcome? = null,
         bigtechOutcome: CheckOutcome? = null,
         provisionOutcome: CheckOutcome? = null,
@@ -239,6 +276,8 @@ object NetworkProbe {
         seriesCount = seriesCount,
         googleOk = googleOk,
         googleOutcome = googleOutcome,
+        ruServiceOk = ruServiceOk,
+        ruServiceOutcome = ruServiceOutcome,
         yandexOutcome = yandexOutcome,
         bigtechOutcome = bigtechOutcome,
         provisionOutcome = provisionOutcome,
@@ -347,6 +386,38 @@ object NetworkProbe {
             tls.cancel()
             udp.cancel()
         }
+    }
+
+    /**
+     * Russian control check: TCP connect to a VK front. All IPs race, the first
+     * reachable one wins; a SYN that completes is proof enough that the service
+     * is not blocked, so no TLS handshake is attempted.
+     */
+    internal suspend fun ruControlReachableOutcome(
+        timeoutMs: Int,
+        bindNetwork: Network?,
+        hosts: List<RuControlHost> = RU_CONTROL_HOSTS,
+    ): CheckOutcome = coroutineScope {
+        val targets = hosts.flatMap { host -> host.ips.map { ip -> ip to host.port } }
+        if (targets.isEmpty()) return@coroutineScope CheckOutcome.NotRun
+        val running = targets
+            .map { (ip, port) -> async { tcpReachableOutcome(ip, port, timeoutMs, bindNetwork) } }
+            .toMutableList()
+        val seen = mutableListOf<CheckOutcome>()
+        try {
+            while (running.isNotEmpty()) {
+                @OptIn(ExperimentalCoroutinesApi::class)
+                val finished = select {
+                    running.forEach { def -> def.onAwait { def to it } }
+                }
+                running.remove(finished.first)
+                seen += finished.second
+                if (finished.second.isSuccess) break
+            }
+        } finally {
+            running.forEach { it.cancel() }
+        }
+        NetworkProbePolicy.foldControlOutcomes(seen)
     }
 
     internal suspend fun tlsReachable(
