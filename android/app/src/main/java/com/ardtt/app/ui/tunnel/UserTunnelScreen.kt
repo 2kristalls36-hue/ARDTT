@@ -73,6 +73,7 @@ import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
@@ -191,6 +192,10 @@ fun UserTunnelScreen(
         },
         showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state),
         onDismissDonate = { scope.launch { settings.setDonateBannerDismissed(true) } },
+        onAddCallHash = {
+            haptics.tick()
+            PendingUiAction.requestCallHashSettings()
+        },
     )
 }
 
@@ -247,6 +252,7 @@ private fun UserTunnelSimpleScreen(
     onConnectionAction: (ConnectionUiAction) -> Unit,
     showDonateBanner: Boolean,
     onDismissDonate: () -> Unit,
+    onAddCallHash: () -> Unit,
 ) {
     val droneExitDurationMs = UserTunnelDefaults.DroneExitDurationMs
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -328,6 +334,7 @@ private fun UserTunnelSimpleScreen(
                 activePath = ui.activePath,
                 hideIp = ui.hideIp,
                 modifier = blockModifier,
+                onAddCallHash = onAddCallHash,
             )
         }
         val actionChips: @Composable () -> Unit = {
@@ -463,18 +470,14 @@ private fun UserConnectStatusBlock(
     activePath: VpnPath?,
     hideIp: Boolean,
     modifier: Modifier = Modifier,
+    onAddCallHash: (() -> Unit)? = null,
 ) {
-    val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
     val primaryLine = statusMessage.ifBlank { userModeStatusPrimary(state, activePath) }
-    val resolvedDetails = when {
-        !hasCallHash && !connectedLike && (
-            activePath == VpnPath.Bypass ||
-                details?.contains("обход", ignoreCase = true) == true ||
-                details?.contains("звонка", ignoreCase = true) == true ||
-                details?.contains("hash", ignoreCase = true) == true
-            ) ->
-            "Для режима «Обход» добавьте код звонка в настройках."
-        else -> details ?: userModeStatusDetails(state, details, lastError, activePath, hideIp)
+    val needsCallHash = userModeNeedsCallHashHint(state, hasCallHash, activePath, details)
+    val resolvedDetails = if (needsCallHash) {
+        UserTunnelCopy.CALL_HASH_HINT
+    } else {
+        details ?: userModeStatusDetails(state, details, lastError, activePath, hideIp)
     }
     // Always painted straight on the wallpaper: light text with the shared shadow.
     val statusTextStyle = MaterialTheme.typography.titleMedium.copy(
@@ -510,7 +513,23 @@ private fun UserConnectStatusBlock(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        if (needsCallHash && onAddCallHash != null) {
+            // The hint alone left the user without a way forward; this opens the
+            // «Код звонка» card in Settings directly.
+            ArdttButton(
+                text = UserTunnelCopy.ADD_CALL_HASH,
+                onClick = onAddCallHash,
+                variant = ArdttButtonVariant.Tonal,
+                size = ArdttButtonSize.Compact,
+                fillMaxWidth = false,
+            )
+        }
     }
+}
+
+internal object UserTunnelCopy {
+    const val CALL_HASH_HINT = "Для режима «Обход» добавьте код звонка в настройках."
+    const val ADD_CALL_HASH = "Добавить код звонка"
 }
 
 @Composable
