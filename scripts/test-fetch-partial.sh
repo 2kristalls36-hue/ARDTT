@@ -254,6 +254,21 @@ grep -q 'deploy_version=1.0.46' "$RUN_OUT" || err "J version"
 [ "$(reqs "ardtt-docker-engine-29.7.2-linux-${ARCH}.tgz")" = 0 ] || err "J Engine must not be downloaded when docker exists"
 ok "J urllib downloader without curl"
 
+# --- K: no docker and no iptables (fresh minimal image) → fail before any download
+if ! command -v iptables >/dev/null 2>&1; then
+  before_k="$(wc -l < "$LOG")"
+  set +e
+  env -i PATH="$TMP/nodocker" HOME="$TMP" ARDTT_GITHUB_API="$BASE/api" ARDTT_GITHUB_REPO=o/r \
+    ARDTT_INSTALL_DIR="$INSTALL" ARDTT_PUBLIC_HOST=203.0.113.9 ARDTT_SKIP_ROOT_CHECK=1 \
+    bash "$ROOT/server/fetch-and-install.sh" > "$TMP/out-K.txt" 2>&1
+  rc_k=$?
+  set -e
+  [ "$rc_k" != 0 ] || err "K must fail without iptables"
+  grep -q 'ARDTT_ERROR|IPTABLES_MISSING' "$TMP/out-K.txt" || err "K expected IPTABLES_MISSING: $(tail -2 "$TMP/out-K.txt")"
+  [ "$(wc -l < "$LOG")" = "$before_k" ] || err "K must not download anything before the iptables check"
+  ok "K iptables missing is reported before any download"
+fi
+
 # Bootstrap copy in APK assets must be the same script.
 cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
   || err "android/app/src/main/assets/deploy/fetch-and-install.sh differs from server/fetch-and-install.sh"

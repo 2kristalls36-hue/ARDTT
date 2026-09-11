@@ -267,6 +267,13 @@ ARCH="$(detect_arch)"
 WANT_VER="${ARDTT_DEPLOY_VERSION:-}"
 prog 0.02 "Определение пакета (${ARCH}${WANT_VER:+, версия $WANT_VER})"
 
+# Docker Engine needs the distro iptables binary and the package never installs
+# distro packages (see install-lib/engine.sh). Say so before downloading 170 MB.
+if [ "${ARDTT_DRY_RUN:-0}" != 1 ] && ! { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; } \
+   && ! command -v iptables >/dev/null 2>&1; then
+  die "IPTABLES_MISSING|на VPS нет iptables — без него Docker не поднимет сети. Поставьте пакет дистрибутива и повторите: Debian/Ubuntu 'apt install iptables', RHEL/Fedora 'dnf install iptables-nft'. Пакет ARDTT ничего не ставит из сети, кроме своего релиза."
+fi
+
 mkdir -p "$INCOMING" "$STAGING"
 chmod 755 "$INSTALL_DIR" "$INCOMING" 2>/dev/null || true
 
