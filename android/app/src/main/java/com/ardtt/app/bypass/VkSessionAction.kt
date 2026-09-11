@@ -28,3 +28,10 @@ fun vkSessionAction(
         )
     }
 }
+
+/**
+ * Failed login that started logged-out often leaves a partial remixsid.
+ * Clear it so the CTA stays on «Авторизация» instead of flipping to logout.
+ */
+fun vkShouldClearPartialSession(startedLoggedIn: Boolean, attemptSucceeded: Boolean): Boolean =
+    !attemptSucceeded && !startedLoggedIn
