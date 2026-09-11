@@ -50,7 +50,7 @@ fun UnderlayKind.prefersDirectInAuto(): Boolean =
     this == UnderlayKind.Wifi || this == UnderlayKind.Ethernet
 
 fun decideAutoPath(input: AutoPathInput): AutoDecision {
-    val underlay = input.underlay
+    val underlay = input.underlay.withEffectiveKind()
     when (underlay.availability) {
         UnderlayAvailability.None -> return AutoDecision.WaitForUnderlay
         UnderlayAvailability.Incomplete -> return AutoDecision.WaitUnknownKind
@@ -103,8 +103,13 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         return AutoDecision.WaitUnknownKind
     }
 
-    val wifiUsable = underlay.kind.prefersDirectInAuto() &&
-        underlay.availability == UnderlayAvailability.Usable
+    val wifiUsable = when (underlay.kind) {
+        UnderlayKind.Wifi ->
+            underlay.wifiConnected && underlay.availability == UnderlayAvailability.Usable
+        UnderlayKind.Ethernet ->
+            underlay.ethernetConnected && underlay.availability == UnderlayAvailability.Usable
+        else -> false
+    }
     if (wifiUsable) {
         val hysteresis = input.wifiFailStreak >=
             RecoverySettings.WIFI_DEGRADED_FAILS_BEFORE_HYSTERESIS &&

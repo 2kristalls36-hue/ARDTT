@@ -964,12 +964,14 @@ object ConnectionReducer {
                     (state.transport == TransportLifecycle.Running ||
                         state.transport == TransportLifecycle.Starting ||
                         state.parkedRawAlive)
+                val switchingToWifi = switching &&
+                    state.underlay.withEffectiveKind().kind.prefersDirectInAuto()
                 val cmd = if (switching) {
                     RecoveryCommand.ParkBypassForDirect
                 } else {
                     RecoveryCommand.StartDirect(keepCall = decision.keepCall)
                 }
-                val phase = if (switching) {
+                val phase = if (switchingToWifi) {
                     RecoveryPhase.SwitchingToWifi
                 } else {
                     RecoveryPhase.ConnectingDirect

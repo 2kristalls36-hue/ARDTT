@@ -98,7 +98,9 @@ fun connectionUiModel(
             connState = ConnState.Connecting,
         )
         RecoveryPhase.ConnectingDirect, RecoveryPhase.ConnectingBypass -> {
-            val switching = phase == RecoveryPhase.ConnectingDirect && activePath == VpnPath.Bypass
+            val switching = phase == RecoveryPhase.ConnectingDirect &&
+                activePath == VpnPath.Bypass &&
+                underlayKind.prefersDirectInAuto()
             val returning = phase == RecoveryPhase.ConnectingBypass && activePath == VpnPath.Direct
             when {
                 switching -> ConnectionUiModel(
