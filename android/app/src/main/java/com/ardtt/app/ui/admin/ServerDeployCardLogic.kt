@@ -472,26 +472,36 @@ internal fun deploySlotPhase(
     return DeploySlotPhase.Pending
 }
 
-internal fun serverDeleteIsOffline(health: HealthUi?): Boolean =
-    health is HealthUi.Unreachable
+internal enum class ServerRemoveKind {
+    Card,
+    Uninstall,
+}
 
-internal fun serverDeleteConfirmTitle(offline: Boolean = false): String =
-    if (offline) "Нет связи с сервером" else "Удалить сервер?"
+internal fun serverRemoveMenuLabel(kind: ServerRemoveKind): String = when (kind) {
+    ServerRemoveKind.Card -> "Удалить карточку сервера"
+    ServerRemoveKind.Uninstall -> "Деинсталляция сервера"
+}
 
-internal fun serverDeleteConfirmAction(offline: Boolean = false): String =
-    if (offline) "Удалить карточку" else "Удалить"
+internal fun serverDeleteConfirmTitle(kind: ServerRemoveKind): String = when (kind) {
+    ServerRemoveKind.Card -> "Удалить карточку сервера?"
+    ServerRemoveKind.Uninstall -> "Деинсталляция сервера?"
+}
+
+internal fun serverDeleteConfirmAction(kind: ServerRemoveKind): String = when (kind) {
+    ServerRemoveKind.Card -> "Удалить карточку"
+    ServerRemoveKind.Uninstall -> "Деинсталлировать"
+}
 
 internal fun serverDeleteConfirmBody(
     host: String,
     cascadeEnabled: Boolean = false,
     cascadeHost: String = "",
-    offline: Boolean = false,
+    kind: ServerRemoveKind = ServerRemoveKind.Uninstall,
 ): String {
     val entry = host.trim().ifBlank { "VPS" }
-    if (offline) {
-        return "Удаление деплоя не будет выполнено: нет соединения с сервером $entry. " +
-            "Стек на VPS останется установленным. Удалить только карточку из приложения, " +
-            "без деинсталляции самого деплоя?"
+    if (kind == ServerRemoveKind.Card) {
+        return "Карточка $entry будет удалена только из приложения. " +
+            "Стек на VPS останется установленным — деинсталляция не выполняется."
     }
     val where = if (cascadeEnabled) {
         val exit = cascadeHost.trim()
