@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.VpnKey
@@ -524,6 +523,7 @@ private fun ProfileCard(
                 verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
                 ) {
@@ -536,14 +536,6 @@ private fun ProfileCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (selectionLocked) {
-                        Icon(
-                            Icons.Filled.Lock,
-                            contentDescription = "Смена профиля недоступна",
-                            tint = colors.onSurface.copy(alpha = 0.45f),
-                            modifier = Modifier.size(ArdttSize.IconSmall),
-                        )
-                    }
                     if (active) {
                         Icon(
                             Icons.Filled.CheckCircle,
@@ -551,6 +543,52 @@ private fun ProfileCard(
                             tint = connectedStatusColor(),
                             modifier = Modifier.size(ArdttSize.IconCompact),
                         )
+                    }
+                    Box {
+                        ArdttButton(
+                            onClick = { menu = true },
+                            variant = ArdttButtonVariant.Icon,
+                            icon = Icons.Filled.MoreVert,
+                            contentDescription = "Действия",
+                            contentColor = if (selectionLocked) {
+                                colors.onSurface.copy(alpha = 0.45f)
+                            } else {
+                                colors.onSurfaceVariant
+                            },
+                        )
+                        ArdttOverflowMenu(
+                            expanded = menu,
+                            onDismissRequest = { menu = false },
+                        ) {
+                            ArdttOverflowMenuItem(
+                                text = "Подключить",
+                                enabled = connectEnabled,
+                                leadingIcon = Icons.Filled.VpnKey,
+                                onClick = { menu = false; onOpen() },
+                            )
+                            ArdttOverflowMenuItem(
+                                text = "Копировать JSON",
+                                leadingIcon = Icons.Filled.ContentCopy,
+                                onClick = { menu = false; onCopy() },
+                            )
+                            ArdttOverflowMenuItem(
+                                text = "Ссылка / QR",
+                                leadingIcon = Icons.Filled.QrCode,
+                                onClick = { menu = false; onShare() },
+                            )
+                            ArdttOverflowMenuItem(
+                                text = "Переименовать",
+                                leadingIcon = Icons.Filled.Edit,
+                                onClick = { menu = false; onRename() },
+                            )
+                            ArdttOverflowMenuItem(
+                                text = "Удалить",
+                                enabled = deleteEnabled,
+                                destructive = true,
+                                leadingIcon = Icons.Filled.Delete,
+                                onClick = { menu = false; onDelete() },
+                            )
+                        }
                     }
                 }
                 ArdttIpHostRow(
@@ -574,52 +612,6 @@ private fun ProfileCard(
                     ArdttStatusChip(
                         text = formatClientExpires(facts.expiresAt),
                         accent = expiresColor,
-                    )
-                }
-            }
-            Box {
-                ArdttButton(
-                    onClick = { menu = true },
-                    variant = ArdttButtonVariant.Icon,
-                    icon = Icons.Filled.MoreVert,
-                    contentDescription = "Действия",
-                    contentColor = if (selectionLocked) {
-                        colors.onSurface.copy(alpha = 0.45f)
-                    } else {
-                        colors.onSurfaceVariant
-                    },
-                )
-                ArdttOverflowMenu(
-                    expanded = menu,
-                    onDismissRequest = { menu = false },
-                ) {
-                    ArdttOverflowMenuItem(
-                        text = "Подключить",
-                        enabled = connectEnabled,
-                        leadingIcon = Icons.Filled.VpnKey,
-                        onClick = { menu = false; onOpen() },
-                    )
-                    ArdttOverflowMenuItem(
-                        text = "Копировать JSON",
-                        leadingIcon = Icons.Filled.ContentCopy,
-                        onClick = { menu = false; onCopy() },
-                    )
-                    ArdttOverflowMenuItem(
-                        text = "Ссылка / QR",
-                        leadingIcon = Icons.Filled.QrCode,
-                        onClick = { menu = false; onShare() },
-                    )
-                    ArdttOverflowMenuItem(
-                        text = "Переименовать",
-                        leadingIcon = Icons.Filled.Edit,
-                        onClick = { menu = false; onRename() },
-                    )
-                    ArdttOverflowMenuItem(
-                        text = "Удалить",
-                        enabled = deleteEnabled,
-                        destructive = true,
-                        leadingIcon = Icons.Filled.Delete,
-                        onClick = { menu = false; onDelete() },
                     )
                 }
             }
