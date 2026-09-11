@@ -67,7 +67,7 @@ internal object NetworkProbePolicy {
         val google = googleOutcome ?: if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun
         val ruService = ruServiceOutcome ?: if (ruServiceOk) CheckOutcome.Success else CheckOutcome.NotRun
         val cellular = WhitelistDetection.appliesTo(underlayKind)
-        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
+        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google, ruService)
         val whitelistScore = if (cellular) {
             RestrictionScore.apply(previousWhitelistScore, sample)
         } else {
@@ -211,10 +211,11 @@ internal object NetworkProbePolicy {
         yandex: CheckOutcome,
         bigtech: CheckOutcome,
         google: CheckOutcome = CheckOutcome.NotRun,
+        ruService: CheckOutcome = CheckOutcome.NotRun,
         @Suppress("UNUSED_PARAMETER") seriesCount: Int = 1,
         previousScore: Int = 0,
     ): RestrictionHint {
-        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
+        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google, ruService)
         val score = if (cellular) RestrictionScore.apply(previousScore, sample) else 0
         return if (cellular) RestrictionScore.hint(score, sample) else RestrictionHint.None
     }
@@ -263,13 +264,16 @@ fun isRestrictionSeriesSample(
     yandex: CheckOutcome,
     bigtech: CheckOutcome,
     google: CheckOutcome = CheckOutcome.NotRun,
+    ruService: CheckOutcome = CheckOutcome.NotRun,
 ): Boolean {
     if (yandex.invalidatesRestrictionSeries() ||
         bigtech.invalidatesRestrictionSeries() ||
-        google.invalidatesRestrictionSeries()
+        google.invalidatesRestrictionSeries() ||
+        ruService.invalidatesRestrictionSeries()
     ) {
         return false
     }
+    if (ruService.isFailure) return false
     return yandex.ran &&
         yandex.isSuccess &&
         bigtech.countsAsOrdinaryBlock() &&
@@ -283,11 +287,12 @@ fun nextProbeSeriesCount(
 ): Int {
     if (next.yandex.invalidatesRestrictionSeries() ||
         next.bigtech.invalidatesRestrictionSeries() ||
-        next.google.invalidatesRestrictionSeries()
+        next.google.invalidatesRestrictionSeries() ||
+        next.ruService.invalidatesRestrictionSeries()
     ) {
         return 0
     }
-    if (!isRestrictionSeriesSample(next.yandex, next.bigtech, next.google)) {
+    if (!isRestrictionSeriesSample(next.yandex, next.bigtech, next.google, next.ruService)) {
         return 0
     }
     if (previous == null) return 1
@@ -312,7 +317,13 @@ fun nextProbeSeriesCount(
     ) {
         return previous.seriesCount.coerceAtLeast(1)
     }
-    if (!isRestrictionSeriesSample(previous.yandex, previous.bigtech, previous.google)) {
+    if (!isRestrictionSeriesSample(
+            previous.yandex,
+            previous.bigtech,
+            previous.google,
+            previous.ruService,
+        )
+    ) {
         return 1
     }
     if (previous.seriesCount <= 0) return 1

@@ -65,6 +65,7 @@ class CellularPreProbeCarrierTest {
                 yandex = CheckOutcome.Success,
                 bigtech = CheckOutcome.Timeout,
                 google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
             ),
             cellular = true,
             elapsedMs = 1_000L,

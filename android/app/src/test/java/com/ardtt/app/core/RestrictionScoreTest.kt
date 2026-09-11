@@ -13,6 +13,7 @@ class RestrictionScoreTest {
             yandex = CheckOutcome.Success,
             bigtech = CheckOutcome.Timeout,
             google = CheckOutcome.Timeout,
+            ruService = CheckOutcome.Success,
         )
         assertEquals(RestrictionSample.Positive, sample)
         val score = RestrictionScore.apply(0, sample)
@@ -48,6 +49,70 @@ class RestrictionScoreTest {
     }
 
     @Test
+    fun unreachableRussianServiceIsABadLinkNotAWhitelist() {
+        listOf(CheckOutcome.Timeout, CheckOutcome.Refused, CheckOutcome.TransportFailure)
+            .forEach { down ->
+                assertEquals(
+                    "ruService=$down",
+                    RestrictionSample.Ignore,
+                    RestrictionScore.sample(
+                        cellular = true,
+                        yandex = CheckOutcome.Success,
+                        bigtech = CheckOutcome.Timeout,
+                        google = CheckOutcome.Timeout,
+                        ruService = down,
+                    ),
+                )
+            }
+        assertEquals(80, RestrictionScore.apply(80, RestrictionSample.Ignore))
+    }
+
+    @Test
+    fun withoutARussianServiceVerdictTheRoundIsOnlyPartialEvidence() {
+        listOf(CheckOutcome.NotRun, CheckOutcome.Cancelled).forEach { pending ->
+            val sample = RestrictionScore.sample(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = pending,
+            )
+            assertEquals("ruService=$pending", RestrictionSample.WeakPositive, sample)
+            val score = RestrictionScore.apply(0, sample)
+            assertEquals(25, score)
+            assertFalse(RestrictionScore.likely(score, alreadyBypass = false))
+        }
+    }
+
+    @Test
+    fun oneOrdinaryTargetBlockedStaysWeakEvenWithBothControlsUp() {
+        assertEquals(
+            RestrictionSample.WeakPositive,
+            RestrictionScore.sample(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.NotRun,
+                ruService = CheckOutcome.Success,
+            ),
+        )
+    }
+
+    @Test
+    fun anOrdinarySuccessStillOpensBeforeTheRussianServiceIsConsidered() {
+        assertEquals(
+            RestrictionSample.Open,
+            RestrictionScore.sample(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Success,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Timeout,
+            ),
+        )
+    }
+
+    @Test
     fun ignoreLeavesScoreUnchanged() {
         assertEquals(
             RestrictionSample.Ignore,
@@ -73,6 +138,7 @@ class RestrictionScoreTest {
             yandex = CheckOutcome.Success,
             bigtech = CheckOutcome.Timeout,
             google = CheckOutcome.Timeout,
+            ruService = CheckOutcome.Success,
         )
         val first = foldReachabilityEvidence(null, positive, cellular = true, elapsedMs = 10L)
         assertEquals(80, first.whitelistScorePercent)

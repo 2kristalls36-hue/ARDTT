@@ -384,6 +384,7 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
             seriesCount = 1,
             googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Success,
         )
         assertEquals(RestrictionHint.Confirmed, first.restriction)
         assertEquals(VpnPath.Bypass, first.preselectedPath)
@@ -398,6 +399,7 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
             seriesCount = 2,
             googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Success,
             previousWhitelistScore = first.whitelistScorePercent,
         )
         assertEquals(RestrictionHint.Confirmed, second.restriction)
@@ -519,11 +521,82 @@ class NetworkProbeClassifyTest {
             provisionOk = true,
             underlayKind = UnderlayKind.Cellular,
             googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Success,
         )
         assertEquals(RestrictionHint.Confirmed, r.restriction)
         assertEquals(VpnPath.Bypass, r.preselectedPath)
         assertEquals("whitelist", r.routeReason)
         assertEquals(80, r.whitelistScorePercent)
+    }
+
+    @Test
+    fun congestedLinkWithoutVkNeverLocksBypassInOneRound() {
+        val congested = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Timeout,
+        )
+        assertEquals(RestrictionHint.Unknown, congested.restriction)
+        assertEquals(VpnPath.Direct, congested.preselectedPath)
+        assertEquals(0, congested.whitelistScorePercent)
+        val partial = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Cancelled,
+        )
+        assertEquals(RestrictionHint.Suspected, partial.restriction)
+        assertEquals(VpnPath.Direct, partial.preselectedPath)
+        assertEquals(25, partial.whitelistScorePercent)
+    }
+
+    @Test
+    fun aRoundWithVkDownIsNotARestrictionSeriesSample() {
+        assertTrue(
+            !isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+                CheckOutcome.Timeout,
+                CheckOutcome.Timeout,
+            ),
+        )
+        assertTrue(
+            isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+                CheckOutcome.Timeout,
+                CheckOutcome.Success,
+            ),
+        )
+        assertEquals(
+            RestrictionHint.Unknown,
+            NetworkProbePolicy.restrictionHint(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Refused,
+            ),
+        )
+        assertEquals(
+            RestrictionHint.Confirmed,
+            NetworkProbePolicy.restrictionHint(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
+            ),
+        )
     }
 
     @Test
