@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,7 +38,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,6 +60,7 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttErrorState
+import com.ardtt.app.ui.components.feedback.ArdttIpChip
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttLoadingState
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
@@ -80,7 +79,6 @@ import com.ardtt.app.ui.latestAppVersionCode
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
-import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.connectedStatusColor
@@ -883,23 +881,7 @@ private fun ClientCard(
                             Spacer(modifier = Modifier.weight(1f))
                         }
                         if (externalIp.isNotBlank()) {
-                            Surface(
-                                shape = ArdttShapes.Badge,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                            ) {
-                                Text(
-                                    externalIp,
-                                    modifier = Modifier.padding(
-                                        horizontal = ArdttSpacing.Small,
-                                        vertical = 3.dp,
-                                    ),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                            ArdttIpChip(externalIp)
                         }
                     }
                 }
