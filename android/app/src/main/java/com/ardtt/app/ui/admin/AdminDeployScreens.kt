@@ -704,7 +704,6 @@ private fun ServerIdentityBody(
     val meta = serverCardMetaParts(
         name = server.name,
         host = server.host,
-        sshPort = server.sshPort,
         publicHost = server.publicHost,
         cascadeEnabled = server.cascadeEnabled,
         cascadeHost = server.cascadeHost,
@@ -763,16 +762,11 @@ private fun ServerIdentityBody(
                 ) {
                     if (meta.hosts.isNotEmpty()) {
                         ArdttIpHostRow(hosts = meta.hosts, muted = muted)
-                        Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
                     }
-                    Text(
-                        "SSH ${meta.sshPort}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = muted,
-                        maxLines = 1,
-                    )
                     meta.pubHost?.let { pub ->
-                        Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
+                        if (meta.hosts.isNotEmpty()) {
+                            Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
+                        }
                         ArdttIpChip(pub)
                     }
                 }
