@@ -1013,7 +1013,7 @@ object ConnectionReducer {
                         decision.reason == "bypass-running") &&
                     state.recovery.nextRetryAtElapsedMs == null
                 if (armBypassReeval) {
-                    val delay = bypassReevalDelayMs(
+                    val delay = stayReevalDelayMs(
                         state.directNegative?.retryAfterElapsedMs,
                         elapsedMs,
                     )
