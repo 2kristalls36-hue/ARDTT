@@ -1791,16 +1791,13 @@ class ConnectionManager(
             ?: currentPath
         val liveBypass = hashStore.hasHash(profile?.name)
         val liveKind = underlayKindOf(bindNetwork)
+        val bindKey = keyForBind(bindNetwork)
         // The stored score can be absent on a cell we have never measured; a
-        // single clean round already reaches the enter threshold.
-        val measuredWhitelistLikely = RestrictionScore.likely(
-            maxOf(whitelistScoreForBind(bindNetwork), fresh.whitelistScorePercent),
+        // single clean round already reaches the enter threshold, so read it
+        // back after the round has been folded in.
+        fun measuredWhitelistLikely(): Boolean = RestrictionScore.likely(
+            liveWhitelistEvidence(bindKey)?.whitelistScorePercent ?: fresh.whitelistScorePercent,
             alreadyBypass = livePath == VpnPath.Bypass,
-        )
-        // Fold the round into the evidence so the next handover can skip the probe.
-        launchBackgroundDiagnostic(
-            sessionEpoch = recoverySnapshot.sessionEpoch,
-            networkEpoch = recoverySnapshot.networkEpoch,
         )
         if (!shouldApplyHandoverProbe(mode, liveMode, currentPath, livePath)) {
             AppLog.v(
@@ -1821,10 +1818,11 @@ class ConnectionManager(
                 allowBypassToDirect = allowBypassToDirect,
                 directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
                 underlayKind = liveKind,
-                whitelistLikely = measuredWhitelistLikely,
+                whitelistLikely = measuredWhitelistLikely(),
             )
             return liveDecision
         }
+        stashHandoverProbe(fresh, bindKey)
 
         // Update UI probe snapshot without leaving Connected/Connecting.
         _ui.value = _ui.value.copy(
@@ -1852,7 +1850,7 @@ class ConnectionManager(
             allowBypassToDirect = allowBypassToDirect,
             directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
             underlayKind = liveKind,
-            whitelistLikely = measuredWhitelistLikely,
+            whitelistLikely = measuredWhitelistLikely(),
         )
         applyHandoverDecisionUi(
             decision = decision,
@@ -1948,23 +1946,63 @@ class ConnectionManager(
         recoverySnapshot.intent.profileId ?: profile?.name,
     )
 
-    private fun evidenceForBind(bindNetwork: Network?): ReachabilityEvidence? {
+    private fun keyForBind(bindNetwork: Network?): NetworkKey? {
         val cm = appContext.getSystemService(ConnectivityManager::class.java)
+        if (bindNetwork == null || cm == null) return recoverySnapshot.underlay.key
         val activeSub = activeCellularSubscriptionId(appContext)
         val sim = activeSub.takeIf {
             it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
         }
-        val key = if (bindNetwork != null && cm != null) {
-            networkKeyForNetwork(
-                bindNetwork,
-                cm,
-                sim,
-                carrier = cellularCarrierId(appContext, activeSub),
+        return networkKeyForNetwork(
+            bindNetwork,
+            cm,
+            sim,
+            carrier = cellularCarrierId(appContext, activeSub),
+        )
+    }
+
+    private fun evidenceForBind(bindNetwork: Network?): ReachabilityEvidence? =
+        liveWhitelistEvidence(keyForBind(bindNetwork))
+
+    /**
+     * Keep a handover round as evidence without running it through the reducer:
+     * a ProbeFinished here can emit its own Start command while the service is
+     * already acting on the decision this very probe produced.
+     */
+    private fun stashHandoverProbe(fresh: ProbeResult, key: NetworkKey?) {
+        if (!WhitelistDetection.appliesTo(key)) return
+        synchronized(recoveryGate) {
+            val now = SystemClock.elapsedRealtime()
+            val incoming = ReachabilityEvidence(
+                networkKey = key,
+                profileId = recoverySnapshot.intent.profileId,
+                measuredAtElapsedMs = now,
+                yandex = fresh.yandexOutcome,
+                bigtech = fresh.bigtechOutcome,
+                google = fresh.googleOutcome,
+                provision = fresh.provisionOutcome,
+                restriction = fresh.restriction,
+                whitelistScorePercent = fresh.whitelistScorePercent,
+                captive = fresh.captive,
+                ttlUntilElapsedMs = now + RecoverySettings.PROBE_CACHE_TTL_MS,
+                bindHandle = fresh.bindHandle,
+                routeReason = fresh.routeReason,
+                restrictionReason = fresh.restrictionReason,
+                seriesId = fresh.seriesId,
             )
-        } else {
-            recoverySnapshot.underlay.key
+            val folded = foldReachabilityEvidence(
+                previous = recoverySnapshot.cellularEvidence,
+                incoming = incoming,
+                cellular = true,
+                elapsedMs = now,
+            )
+            val liveOnThisRadio =
+                recoverySnapshot.underlay.key?.let { key?.matchesCellularUnderlay(it) } == true
+            recoverySnapshot = recoverySnapshot.copy(
+                cellularEvidence = folded,
+                evidence = if (liveOnThisRadio) folded else recoverySnapshot.evidence,
+            )
         }
-        return liveWhitelistEvidence(key)
     }
 
     private fun whitelistScoreForBind(bindNetwork: Network?): Int =
