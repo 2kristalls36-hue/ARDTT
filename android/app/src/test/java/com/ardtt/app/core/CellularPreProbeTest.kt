@@ -56,6 +56,23 @@ class CellularPreProbeCarrierTest {
     }
 
     @Test
+    fun aSampleFromAnotherOperatorDoesNotFoldOntoTheOldScore() {
+        val folded = foldReachabilityEvidence(
+            previous = scored(mts),
+            incoming = ReachabilityEvidence(
+                networkKey = beeline,
+                profileId = "p",
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+            ),
+            cellular = true,
+            elapsedMs = 1_000L,
+        )
+        assertEquals(RecoverySettings.WHITELIST_SCORE_RISE, folded.whitelistScorePercent)
+    }
+
+    @Test
     fun aDifferentSimOnTheSameOperatorIsStillADifferentRadio() {
         val otherSim = NetworkKey(9L, UnderlayKind.Cellular, 12, "cell-2", carrier = "25001")
         assertFalse(mts.sameCellularSim(otherSim))

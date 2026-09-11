@@ -120,10 +120,13 @@ fun foldReachabilityEvidence(
 ): ReachabilityEvidence {
     val series = nextProbeSeriesCount(previous, incoming, elapsedMs)
     val completed = (previous?.completedSeries ?: 0) + 1
+    // Roaming keeps the handle and the SIM, but the whitelist belongs to the
+    // serving operator: a sample from PLMN B must not fold onto PLMN A's score.
     val samePhysical = previous != null &&
         (previous.networkKey == null ||
             incoming.networkKey == null ||
-            previous.networkKey.samePhysicalNetwork(incoming.networkKey)) &&
+            (previous.networkKey.samePhysicalNetwork(incoming.networkKey) &&
+                previous.networkKey.sameCarrier(incoming.networkKey))) &&
         (previous.profileId == null ||
             incoming.profileId == null ||
             previous.profileId == incoming.profileId)
