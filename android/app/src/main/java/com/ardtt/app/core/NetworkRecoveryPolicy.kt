@@ -352,6 +352,41 @@ fun classifyUnderlayKind(
     else -> UnderlayKind.Other
 }
 
+/**
+ * Ghost VALIDATED Wi‑Fi after the radio is off must not keep Auto on the
+ * Wi‑Fi Direct path. Prefer a live cellular/ethernet radio instead.
+ */
+fun effectiveUnderlayKind(
+    selectedKind: UnderlayKind,
+    wifiConnected: Boolean,
+    cellularConnected: Boolean,
+    ethernetConnected: Boolean = false,
+): UnderlayKind = when (selectedKind) {
+    UnderlayKind.Wifi -> when {
+        wifiConnected -> UnderlayKind.Wifi
+        ethernetConnected -> UnderlayKind.Ethernet
+        cellularConnected -> UnderlayKind.Cellular
+        else -> UnderlayKind.Other
+    }
+    UnderlayKind.Ethernet -> when {
+        ethernetConnected -> UnderlayKind.Ethernet
+        wifiConnected -> UnderlayKind.Wifi
+        cellularConnected -> UnderlayKind.Cellular
+        else -> UnderlayKind.Other
+    }
+    else -> selectedKind
+}
+
+fun UnderlaySnapshot.withEffectiveKind(): UnderlaySnapshot {
+    val kind = effectiveUnderlayKind(
+        selectedKind = kind,
+        wifiConnected = wifiConnected,
+        cellularConnected = cellularConnected,
+        ethernetConnected = ethernetConnected,
+    )
+    return if (kind == this.kind) this else copy(kind = kind)
+}
+
 fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak {
     if (probedPath == null) return ProbeStreak()
     if (probedPath == previous.path) return ProbeStreak(probedPath, previous.count + 1)
@@ -360,14 +395,12 @@ fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak 
 
 /**
  * Auto handover:
- * - Direct → Bypass when the probe says Bypass (whitelist or VPS down) and the
- *   underlay changed, or after [HANDOVER_DIRECT_TO_BYPASS_STREAK] hits.
- *   TCP :9100 is not AmneziaWG UDP — do not keep Direct just because provision
- *   answered. Open LTE with Cloudflare up still stays Direct.
- *   **Wi‑Fi Auto never takes Bypass** (probe kept for cellular).
- * - Bypass → Direct on Wi‑Fi Auto whenever Direct is allowed (no VPS probe).
- *   A cellular underlay change must not yank a working Bypass just because
- *   TCP :9100 answered (AWG UDP may still be dead).
+ * - Direct → Bypass after Direct actually failed on this underlay, or when
+ *   the underlay became cellular and a pre-warmed whitelist score is likely.
+ *   A working Direct on the same cellular radio is not restarted because
+ *   provision or Cloudflare answered.
+ * - Bypass → Direct on Wi‑Fi Auto whenever Direct is allowed.
+ *   Cellular Bypass stays until the recovery timer reevals Direct.
  * - Forced Direct/Bypass only rebind when the underlay actually changed.
  */
 fun decideNetworkHandoverAction(
@@ -376,13 +409,14 @@ fun decideNetworkHandoverAction(
     probedPath: VpnPath?,
     bypassAllowed: Boolean,
     sessionAgeMs: Long = Long.MAX_VALUE,
-    currentPathHealthy: Boolean = false,
-    underlayVpsReachable: Boolean = probedPath == VpnPath.Direct,
-    sameProbeStreak: Int = 1,
+    @Suppress("UNUSED_PARAMETER") currentPathHealthy: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") underlayVpsReachable: Boolean = probedPath == VpnPath.Direct,
+    @Suppress("UNUSED_PARAMETER") sameProbeStreak: Int = 1,
     underlayChanged: Boolean = false,
     allowBypassToDirect: Boolean = true,
     directFailedOnCurrentUnderlay: Boolean = false,
     underlayKind: UnderlayKind = UnderlayKind.Other,
+    whitelistLikely: Boolean = false,
 ): NetworkHandoverDecision {
     val inGrace = sessionAgeMs in 0 until HANDOVER_IGNORE_GRACE_MS
     if (inGrace && !underlayChanged) {
@@ -415,23 +449,21 @@ fun decideNetworkHandoverAction(
         }
         return NetworkHandoverDecision.NoAction
     }
-    val vpsUp = underlayVpsReachable || probedPath == VpnPath.Direct
     if (currentPath == VpnPath.Direct) {
-        val needBypass = bypassAllowed && directFailedOnCurrentUnderlay
+        val needBypass = bypassAllowed && (
+            directFailedOnCurrentUnderlay ||
+                (underlayChanged &&
+                    underlayKind == UnderlayKind.Cellular &&
+                    whitelistLikely)
+            )
         if (needBypass) {
             return NetworkHandoverDecision.SwitchPath(VpnPath.Bypass)
         }
-        if (probedPath == VpnPath.Bypass &&
-            currentPathHealthy &&
-            sameProbeStreak >= HANDOVER_DIRECT_TO_BYPASS_STREAK &&
-            !underlayChanged
-        ) {
-            return NetworkHandoverDecision.NoAction
+        return if (underlayChanged) {
+            NetworkHandoverDecision.SoftRestartSamePath
+        } else {
+            NetworkHandoverDecision.NoAction
         }
-        if (vpsUp || probedPath == VpnPath.Bypass || underlayChanged || !currentPathHealthy) {
-            return NetworkHandoverDecision.SoftRestartSamePath
-        }
-        return NetworkHandoverDecision.NoAction
     }
     // Cellular / other: never Auto-upgrade Bypass→Direct here. Wi‑Fi upgrade
     // already returned above. A ghost TCP :9100 on LTE must not yank Bypass.
@@ -452,16 +484,17 @@ const val WARM_CALL_HOLD_MS = 5 * 60 * 1000L
 fun shouldParkBypassCall(from: VpnPath, to: VpnPath): Boolean =
     from == VpnPath.Bypass && to == VpnPath.Direct
 
-/** VALIDATED Wi‑Fi wins over LTE. Association without VALIDATED is not internet. */
+/** VALIDATED Wi‑Fi wins over LTE only while Wi‑Fi is actually associated. */
 fun preferWifiUnderlayKind(
     hasValidatedWifi: Boolean,
     pickBestKind: UnderlayKind,
     wifiConnected: Boolean = false,
     wifiCaptive: Boolean = false,
-    wifiUsable: Boolean = hasValidatedWifi,
+    wifiUsable: Boolean = hasValidatedWifi && wifiConnected,
 ): UnderlayKind {
     if (wifiCaptive) return pickBestKind
-    if (hasValidatedWifi || wifiUsable || (wifiConnected && pickBestKind != UnderlayKind.Cellular)) {
+    if (!wifiConnected) return pickBestKind
+    if (hasValidatedWifi || wifiUsable || pickBestKind != UnderlayKind.Cellular) {
         return UnderlayKind.Wifi
     }
     return pickBestKind
@@ -509,10 +542,13 @@ fun shouldTreatDirectAsDeadNoRx(
     startGraceMs: Long = DEAD_DIRECT_START_GRACE_MS,
     noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
     noRxAfterHandoffMs: Long = DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS,
+    handshakeLive: Boolean = false,
 ): Boolean {
     if (sessionStartedAtMs <= 0L) return false
     val afterHandoff = lastHandoffAtMs > sessionStartedAtMs
     if (!afterHandoff && nowMs - sessionStartedAtMs < startGraceMs) return false
+    // Idle Direct with a live AWG handshake is not a blackhole.
+    if (handshakeLive && !afterHandoff) return false
     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
     val requiredNoRx = if (afterHandoff) noRxAfterHandoffMs else noRxMs
     if (nowMs - anchor < requiredNoRx) return false

@@ -22,9 +22,10 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals(NetworkClass.DirectOk, r.networkClass)
-        assertEquals(RestrictionHint.Unknown, r.restriction)
-        assertTrue(!r.whitelistRestricted)
+        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertEquals(RestrictionHint.Suspected, r.restriction)
+        assertTrue(r.whitelistRestricted)
+        assertEquals(25, r.whitelistScorePercent)
     }
 
     @Test
@@ -67,7 +68,9 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, noHealth.preselectedPath)
-        assertTrue(!noHealth.whitelistRestricted)
+        assertEquals(RestrictionHint.Suspected, noHealth.restriction)
+        assertTrue(noHealth.whitelistRestricted)
+        assertEquals(25, noHealth.whitelistScorePercent)
         val healthButNoTls = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -77,8 +80,9 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, healthButNoTls.preselectedPath)
-        assertEquals(NetworkClass.DirectOk, healthButNoTls.networkClass)
-        assertEquals(RestrictionHint.Unknown, healthButNoTls.restriction)
+        assertEquals(NetworkClass.NeedBypass, healthButNoTls.networkClass)
+        assertEquals(RestrictionHint.Suspected, healthButNoTls.restriction)
+        assertEquals(25, healthButNoTls.whitelistScorePercent)
     }
 
     @Test
@@ -93,8 +97,9 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals(NetworkClass.DirectOk, r.networkClass)
-        assertEquals(RestrictionHint.Unknown, r.restriction)
+        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertEquals(RestrictionHint.Suspected, r.restriction)
+        assertEquals(25, r.whitelistScorePercent)
     }
 
     @Test
@@ -123,9 +128,10 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals(NetworkClass.DirectOk, r.networkClass)
-        assertTrue(!r.whitelistRestricted)
-        assertEquals(RestrictionHint.Unknown, r.restriction)
+        assertEquals(NetworkClass.NeedBypass, r.networkClass)
+        assertTrue(r.whitelistRestricted)
+        assertEquals(RestrictionHint.Suspected, r.restriction)
+        assertEquals(25, r.whitelistScorePercent)
     }
 
     @Test
@@ -307,7 +313,7 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
-    fun secondCompletedCellularSeriesConfirmsRestriction() {
+    fun firstCompleteCellularSampleConfirmsWhitelistAndPrefersBypass() {
         val first = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -318,8 +324,10 @@ class NetworkProbeClassifyTest {
             seriesCount = 1,
             googleOutcome = CheckOutcome.Timeout,
         )
-        assertEquals(RestrictionHint.Suspected, first.restriction)
-        assertEquals(VpnPath.Direct, first.preselectedPath)
+        assertEquals(RestrictionHint.Confirmed, first.restriction)
+        assertEquals(VpnPath.Bypass, first.preselectedPath)
+        assertEquals(80, first.whitelistScorePercent)
+        assertEquals("whitelist", first.routeReason)
         val second = NetworkProbe.classify(
             systemOnline = true,
             yandexOk = true,
@@ -329,9 +337,11 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
             seriesCount = 2,
             googleOutcome = CheckOutcome.Timeout,
+            previousWhitelistScore = first.whitelistScorePercent,
         )
         assertEquals(RestrictionHint.Confirmed, second.restriction)
-        assertEquals(VpnPath.Direct, second.preselectedPath)
+        assertEquals(VpnPath.Bypass, second.preselectedPath)
+        assertEquals(100, second.whitelistScorePercent)
         assertEquals(NetworkClass.NeedBypass, second.networkClass)
     }
 
@@ -449,9 +459,10 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
             googleOutcome = CheckOutcome.Timeout,
         )
-        assertEquals(RestrictionHint.Suspected, r.restriction)
-        assertEquals(VpnPath.Direct, r.preselectedPath)
-        assertEquals("direct", r.routeReason)
+        assertEquals(RestrictionHint.Confirmed, r.restriction)
+        assertEquals(VpnPath.Bypass, r.preselectedPath)
+        assertEquals("whitelist", r.routeReason)
+        assertEquals(80, r.whitelistScorePercent)
     }
 
     @Test

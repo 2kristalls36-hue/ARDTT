@@ -13,8 +13,8 @@ internal enum class ProbePathHint {
 /**
  * Pure probe classifier (no Android).
  *
- * Direct does not wait for Cloudflare. Restriction needs a control success
- * plus two independent ordinary-target failures on cellular.
+ * Direct does not wait for Cloudflare. Restriction uses a weighted БС score:
+ * Yandex OK plus two independent ordinary-target failures is a full sample.
  */
 internal object NetworkProbePolicy {
 
@@ -52,19 +52,25 @@ internal object NetworkProbePolicy {
         provisionOutcome: CheckOutcome? = null,
         googleOk: Boolean = false,
         googleOutcome: CheckOutcome? = null,
-        seriesCount: Int = 1,
+        @Suppress("UNUSED_PARAMETER") seriesCount: Int = 1,
+        previousWhitelistScore: Int = 0,
     ): ProbeResult {
         val yandex = yandexOutcome ?: if (yandexOk) CheckOutcome.Success else CheckOutcome.Timeout
         val bigtech = bigtechOutcome ?: if (bigtechOk) CheckOutcome.Success else CheckOutcome.Timeout
         val provision = provisionOutcome ?: if (provisionOk) CheckOutcome.Success else CheckOutcome.Timeout
         val google = googleOutcome ?: if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun
-        val restriction = restrictionHint(
-            cellular = underlayKind == UnderlayKind.Cellular,
-            yandex = yandex,
-            bigtech = bigtech,
-            google = google,
-            seriesCount = seriesCount.coerceAtLeast(1),
-        )
+        val cellular = underlayKind == UnderlayKind.Cellular
+        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
+        val whitelistScore = if (cellular) {
+            RestrictionScore.apply(previousWhitelistScore, sample)
+        } else {
+            0
+        }
+        val restriction = if (cellular) {
+            RestrictionScore.hint(whitelistScore, sample)
+        } else {
+            RestrictionHint.None
+        }
         if (captive) {
             return ProbeResult(
                 networkClass = NetworkClass.Captive,
@@ -82,6 +88,7 @@ internal object NetworkProbePolicy {
                 googleOutcome = google,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.Unknown,
+                whitelistScorePercent = whitelistScore,
                 routeReason = "captive",
                 restrictionReason = null,
             )
@@ -108,14 +115,16 @@ internal object NetworkProbePolicy {
                 googleOutcome = google,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.Unknown,
+                whitelistScorePercent = whitelistScore,
                 routeReason = "data-unconfirmed",
                 restrictionReason = null,
             )
         }
         val internetOk = yandex.isSuccess || bigtech.isSuccess || google.isSuccess
+        val likely = RestrictionScore.likely(whitelistScore, alreadyBypass = false)
         val restrictionReason = when (restriction) {
-            RestrictionHint.Suspected -> "control-ok-two-ordinary-down"
-            RestrictionHint.Confirmed -> "two-series-ordinary-down"
+            RestrictionHint.Suspected -> "control-ok-ordinary-down"
+            RestrictionHint.Confirmed -> "whitelist-score"
             RestrictionHint.None -> null
             RestrictionHint.Unknown -> null
         }
@@ -136,13 +145,15 @@ internal object NetworkProbePolicy {
                 googleOutcome = google,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.None,
+                whitelistScorePercent = whitelistScore,
                 routeReason = "direct-unavailable",
                 restrictionReason = null,
             )
         }
         val message = when {
-            restriction == RestrictionHint.Confirmed ||
-                restriction == RestrictionHint.Suspected ->
+            likely ->
+                "Похоже на белый список оператора. Подключаемся через обход"
+            restriction == RestrictionHint.Suspected ->
                 "Прямое подключение к VPS проверяется. Возможны ограничения мобильной сети"
             provision.isSuccess -> "Готово: прямое"
             internetOk -> "Сеть подключена, доступ в интернет не подтверждён для всех целей"
@@ -158,7 +169,7 @@ internal object NetworkProbePolicy {
         }
         return ProbeResult(
             networkClass = networkClass,
-            preselectedPath = VpnPath.Direct,
+            preselectedPath = if (likely) VpnPath.Bypass else VpnPath.Direct,
             systemOnline = systemOnline,
             yandexOk = yandex.isSuccess,
             bigtechOk = bigtech.isSuccess,
@@ -172,7 +183,8 @@ internal object NetworkProbePolicy {
             googleOutcome = google,
             provisionOutcome = provision,
             restriction = restriction,
-            routeReason = "direct",
+            whitelistScorePercent = whitelistScore,
+            routeReason = if (likely) "whitelist" else "direct",
             restrictionReason = restrictionReason,
         )
     }
@@ -182,23 +194,12 @@ internal object NetworkProbePolicy {
         yandex: CheckOutcome,
         bigtech: CheckOutcome,
         google: CheckOutcome = CheckOutcome.NotRun,
-        seriesCount: Int,
+        @Suppress("UNUSED_PARAMETER") seriesCount: Int = 1,
+        previousScore: Int = 0,
     ): RestrictionHint {
-        if (!cellular) return RestrictionHint.None
-        if (!yandex.ran) return RestrictionHint.Unknown
-        val ordinaryOk = listOf(bigtech, google).count { it.isSuccess }
-        val ordinaryFailed = listOf(bigtech, google).count { it.countsAsOrdinaryBlock() }
-        if (yandex.isSuccess && ordinaryOk >= 1 && ordinaryFailed < 2) {
-            return RestrictionHint.None
-        }
-        if (yandex.isSuccess && ordinaryFailed >= 2) {
-            return if (seriesCount >= RecoverySettings.RESTRICTION_CONFIRM_SERIES) {
-                RestrictionHint.Confirmed
-            } else {
-                RestrictionHint.Suspected
-            }
-        }
-        return RestrictionHint.Unknown
+        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
+        val score = if (cellular) RestrictionScore.apply(previousScore, sample) else 0
+        return if (cellular) RestrictionScore.hint(score, sample) else RestrictionHint.None
     }
 
     fun parseProvisionEndpoint(baseUrl: String?): Pair<String, Int>? {
@@ -256,7 +257,10 @@ fun nextProbeSeriesCount(
     ) {
         return previous.seriesCount.coerceAtLeast(1)
     }
-    if (previous.networkKey != next.networkKey || previous.profileId != next.profileId) {
+    if (previous.profileId != next.profileId) {
+        return 1
+    }
+    if (previous.networkKey.physicalIdentityChanged(next.networkKey)) {
         return 1
     }
     if (elapsedMs > previous.ttlUntilElapsedMs && previous.ttlUntilElapsedMs > 0L) {

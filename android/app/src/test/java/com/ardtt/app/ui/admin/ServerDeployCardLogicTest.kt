@@ -403,7 +403,7 @@ class ServerDeployCardLogicTest {
             cascadeEnabled = false,
             expectedVersion = "1.0.29",
         )
-        assertTrue(saved.contains("репозитория"))
+        assertTrue(saved.contains("GitHub Releases"))
         assertTrue(saved.contains("1.0.29"))
         assertTrue(saved.contains("снизу"))
         val fresh = serverDeployFormHelp(
