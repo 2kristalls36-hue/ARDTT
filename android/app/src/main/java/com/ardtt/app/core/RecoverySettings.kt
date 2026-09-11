@@ -100,6 +100,24 @@ object RecoverySettings {
     /** Handshake on this attempt is protocol-ready, not PathConfirmed. */
     fun directProtocolReady(handshakeSec: Long): Boolean = handshakeSec > 0L
 
+    /**
+     * WireGuard REJECT_AFTER_TIME: a peer with traffic flowing rekeys within
+     * ~120s, so a handshake older than this is not evidence of a live peer.
+     * Without the age bound one successful handshake made Direct look alive
+     * forever while the operator blackholed the data plane.
+     */
+    const val DIRECT_HANDSHAKE_LIVE_MAX_SEC = 180L
+
+    /** [handshakeSec] and [nowSec] are wall-clock seconds (AWG IPC uses epoch). */
+    fun directHandshakeLive(
+        handshakeSec: Long,
+        nowSec: Long,
+        maxAgeSec: Long = DIRECT_HANDSHAKE_LIVE_MAX_SEC,
+    ): Boolean {
+        if (handshakeSec <= 0L) return false
+        return nowSec - handshakeSec <= maxAgeSec
+    }
+
     /** Useful RX from the current AWG backend is PathConfirmed. */
     fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean =
         totalRx > 0L

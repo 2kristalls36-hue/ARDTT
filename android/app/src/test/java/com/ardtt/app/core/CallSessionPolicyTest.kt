@@ -89,6 +89,22 @@ class RecoverySettingsTest {
     }
 
     @Test
+    fun handshakeLivenessExpiresWithAge() {
+        val now = 1_789_153_000L
+        assertTrue(RecoverySettings.directHandshakeLive(handshakeSec = now - 30L, nowSec = now))
+        assertTrue(RecoverySettings.directHandshakeLive(handshakeSec = now - 180L, nowSec = now))
+        assertFalse(RecoverySettings.directHandshakeLive(handshakeSec = now - 181L, nowSec = now))
+        assertFalse(RecoverySettings.directHandshakeLive(handshakeSec = 0L, nowSec = now))
+        // Field log: rekey at 18:53:46 still counted as "live" at 18:56:01.
+        assertFalse(
+            RecoverySettings.directHandshakeLive(
+                handshakeSec = 1_789_152_826L,
+                nowSec = 1_789_153_200L,
+            ),
+        )
+    }
+
+    @Test
     fun localAwgStartWithoutHandshakeIsNotConnected() {
         assertFalse(RecoverySettings.directPathLooksConfirmed(totalRx = 0L, handshakeSec = 0L))
         assertTrue(RecoverySettings.directPathLooksConfirmed(totalRx = 12L, handshakeSec = 0L))

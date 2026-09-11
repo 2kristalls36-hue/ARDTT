@@ -894,8 +894,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 "up=${nowDirect - sessionStartedAtMs}ms",
                         )
                     }
-                    val handshakeLive = RecoverySettings.directProtocolReady(
-                        VpnLiveStats.currentAwgHandshakeSec(),
+                    val handshakeLive = RecoverySettings.directHandshakeLive(
+                        handshakeSec = VpnLiveStats.currentAwgHandshakeSec(),
+                        nowSec = nowDirect / 1000L,
                     )
                     if (
                         shouldTreatDirectAsDeadNoRx(

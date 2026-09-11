@@ -2195,7 +2195,10 @@ class ConnectionManager(
         VpnPath.Direct ->
             VpnLiveStats.totalRx > 0L ||
                 VpnLiveStats.downBps > 0L ||
-                RecoverySettings.directProtocolReady(VpnLiveStats.currentAwgHandshakeSec())
+                RecoverySettings.directHandshakeLive(
+                    handshakeSec = VpnLiveStats.currentAwgHandshakeSec(),
+                    nowSec = System.currentTimeMillis() / 1000L,
+                )
     }
 
     /**
