@@ -131,3 +131,9 @@ internal fun vpnNotificationShouldRepost(
     nextFingerprint: String,
     force: Boolean,
 ): Boolean = force || previousFingerprint != nextFingerprint
+
+/** Flags so a shade tap can start [MainActivity] after a process death. */
+internal fun notificationOpenAppFlags(): Int =
+    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+        android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or
+        android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
