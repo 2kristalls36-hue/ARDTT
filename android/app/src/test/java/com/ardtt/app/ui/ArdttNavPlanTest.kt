@@ -97,6 +97,40 @@ class ArdttNavPlanTest {
     }
 
     @Test
+    fun systemBackFromNestedRouteReturnsToParentTab() {
+        assertEquals(
+            AppDestination.Diagnostics.route,
+            ArdttNavPlan.backTarget(AppDestination.Network.route, admin = true),
+        )
+        assertEquals(
+            AppDestination.Diagnostics.route,
+            ArdttNavPlan.backTarget(AppDestination.Logs.route, admin = true),
+        )
+        assertEquals(
+            AppDestination.Diagnostics.route,
+            ArdttNavPlan.backTarget(AppDestination.Testing.route, admin = true),
+        )
+        assertEquals(
+            AppDestination.Settings.route,
+            ArdttNavPlan.backTarget(AppDestination.Exceptions.route, admin = true),
+        )
+        assertEquals(
+            AppDestination.Logs.route,
+            ArdttNavPlan.backTarget(AppDestination.Testing.route, admin = false),
+        )
+    }
+
+    @Test
+    fun systemBackFromRootTabKeepsDefaultBackStack() {
+        for (dest in ArdttNavPlan.primary(admin = true, testingVisible = true)) {
+            assertNull(dest.route, ArdttNavPlan.backTarget(dest.route, admin = true))
+        }
+        for (dest in ArdttNavPlan.primary(admin = false, testingVisible = true)) {
+            assertNull(dest.route, ArdttNavPlan.backTarget(dest.route, admin = false))
+        }
+    }
+
+    @Test
     fun recordingBadgeLivesOnParentTab() {
         assertEquals(
             AppDestination.Diagnostics.route,
