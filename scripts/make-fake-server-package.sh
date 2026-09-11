@@ -54,11 +54,12 @@ IMAGE_FILES='"images/ardtt.tar": "'"$(printf x | sha256sum | awk '{print $1}')"'
 if [ "${ARDTT_FAKE_LAYERED:-0}" = "1" ]; then
   # Three tiny layers; the seed changes only the last one so a second fake
   # version shares two layers with the first (what a real update looks like).
-  ARDTT_FAKE_LAYER_SEED="${ARDTT_FAKE_LAYER_SEED:-$VER}" ARCH="$ARCH" VER="$VER" \
+  FAKE_SEED="${ARDTT_FAKE_LAYER_SEED:-$VER}"
+  FAKE_SEED="$FAKE_SEED" ARCH="$ARCH" VER="$VER" \
     python3 - "$STAGE/images" <<'PY'
 import gzip, hashlib, json, os, pathlib, sys
 images = pathlib.Path(sys.argv[1]); (images / "layers").mkdir(parents=True, exist_ok=True)
-seed = os.environ["ARDTT_FAKE_LAYER_SEED"]
+seed = os.environ["FAKE_SEED"]
 raws = [b"base-layer-" * 4000, b"tools-layer-" * 2000, (f"scripts-layer-{seed}-" * 500).encode()]
 diff = [hashlib.sha256(r).hexdigest() for r in raws]
 cfg = {"architecture": os.environ["ARCH"], "os": "linux",
