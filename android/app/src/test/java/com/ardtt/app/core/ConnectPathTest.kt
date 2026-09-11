@@ -64,6 +64,40 @@ class CellularHandoverProbeTest {
         val score = RestrictionScore.apply(0, RestrictionSample.Positive)
         assertTrue(RestrictionScore.likely(score, alreadyBypass = false))
     }
+
+    @Test
+    fun aPartialRoundCannotFlipConnectOrHandoverToBypass() {
+        val partial = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Cancelled,
+        )
+        assertEquals(25, partial.whitelistScorePercent)
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = partial.preselectedPath,
+                lastGood = null,
+                fresh = partial,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                whitelistScorePercent = partial.whitelistScorePercent,
+            ),
+        )
+        // measuredWhitelistLikely() at handover reads the same score.
+        assertFalse(
+            RestrictionScore.likely(partial.whitelistScorePercent, alreadyBypass = false),
+        )
+        assertFalse(
+            RestrictionScore.likely(partial.whitelistScorePercent, alreadyBypass = true),
+        )
+    }
 }
 
 class ConnectPathTest {
