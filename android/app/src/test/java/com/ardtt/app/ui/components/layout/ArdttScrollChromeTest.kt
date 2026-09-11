@@ -44,4 +44,20 @@ class ArdttScrollChromeTest {
             assertEquals(1f - c.second.alpha, b.second.alpha, 0f)
         }
     }
+
+    @Test
+    fun headerDissolvesWithScrollAndReturnsOnReverse() {
+        val range = 80f
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(0f, range), 0f)
+        assertEquals(0.5f, ardttScrollChromeHeaderVisibility(40f, range), 0f)
+        assertEquals(0f, ardttScrollChromeHeaderVisibility(80f, range), 0f)
+        assertEquals(0f, ardttScrollChromeHeaderVisibility(120f, range), 0f)
+        assertEquals(0.75f, ardttScrollChromeHeaderVisibility(20f, range), 0f)
+    }
+
+    @Test
+    fun headerVisibilitySafeWhenRangeIsZero() {
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(10f, 0f), 0f)
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(0f, -1f), 0f)
+    }
 }
