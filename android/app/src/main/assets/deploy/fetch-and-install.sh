@@ -95,8 +95,9 @@ download() {
   for attempt in 1 2; do
     local resume=()
     [ -s "$part" ] && resume=(-C -)
+    # ${arr[@]+"${arr[@]}"}: empty-array safe under set -u on bash < 4.4 (CentOS 7 VPS).
     if curl -fsSL -A "$UA" --connect-timeout 20 --retry 3 --retry-delay 3 \
-        --speed-limit 1024 --speed-time 90 "${resume[@]}" -o "$part" "$url"; then
+        --speed-limit 1024 --speed-time 90 ${resume[@]+"${resume[@]}"} -o "$part" "$url"; then
       mv -f "$part" "$dest"
       return 0
     fi
@@ -573,15 +574,19 @@ LAYOUT="$STAGING/images/layout.json"
 mkdir -p "$CACHE_DIR"
 chmod 700 "$CACHE_DIR" 2>/dev/null || true
 PLAN="$(python3 "$LC_PY" plan "$LAYOUT" "$CACHE_DIR")" || die "PACKAGE_INVALID|layout.json не прочитан"
-missing="$(printf '%s\n' "$PLAN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["missingCount"])')"
-if [ "$missing" -gt 0 ] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+cached_now="$(printf '%s\n' "$PLAN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cachedCount"])')"
+# Cold cache (first partial update after a full install, or ARDTT_LAYER_CACHE=0):
+# pull the layers the loaded image already has out of `docker save` instead of
+# the network. A warm cache is only ever missing genuinely new layers, so the
+# (CPU-heavy) save is skipped then.
+if [ "$cached_now" -eq 0 ] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   prog 0.11 "Слои образа: посев кэша из уже загруженного образа"
   seed_refs=()
   if [ -f "$INSTALL_DIR/instance.json" ]; then
     prev_tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("imageTag") or "")' "$INSTALL_DIR/instance.json" 2>/dev/null || true)"
     [ -n "$prev_tag" ] && seed_refs+=("$prev_tag")
   fi
-  python3 "$LC_PY" seed "$CACHE_DIR" --want "$LAYOUT" "${seed_refs[@]}" 2>/dev/null \
+  python3 "$LC_PY" seed "$CACHE_DIR" --want "$LAYOUT" ${seed_refs[@]+"${seed_refs[@]}"} 2>/dev/null \
     | sed 's/^/ARDTT_INFO|/' || warn "посев кэша слоёв из docker save не удался — качаем слои"
   PLAN="$(python3 "$LC_PY" plan "$LAYOUT" "$CACHE_DIR")" || die "PACKAGE_INVALID|layout.json не прочитан"
 fi

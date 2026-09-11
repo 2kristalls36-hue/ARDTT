@@ -202,6 +202,42 @@ RUN_PATH="$TMP/withdocker:$TMP/nodocker" run_fetch H ARDTT_DEPLOY_VERSION=9.9.9
 grep -q 'ARDTT_ERROR|PACKAGE_RESOLVE' "$RUN_OUT" || err "H expected PACKAGE_RESOLVE"
 ok "H PACKAGE_RESOLVE"
 
+# --- I: cold cache but the image is already loaded → layers come from `docker save`, not the network
+rm -rf "$INSTALL/cache"
+python3 - "$TMP/stage-1.0.46/images" "$TMP/old-image.tar" <<'PY'
+import gzip, io, json, pathlib, sys, tarfile
+images, out = pathlib.Path(sys.argv[1]), sys.argv[2]
+lay = json.loads((images / "layout.json").read_text())
+with tarfile.open(out, "w") as t:
+    def add(name, data):
+        ti = tarfile.TarInfo(name); ti.size = len(data); t.addfile(ti, io.BytesIO(data))
+    add("cfg.json", (images / "config.json").read_bytes())
+    names = []
+    for l in lay["layers"]:
+        raw = gzip.decompress((images / l["file"]).read_bytes())
+        names.append(l["sha256"] + "/layer.tar")
+        add(names[-1], raw)
+    add("manifest.json", json.dumps([{"Config": "cfg.json", "RepoTags": ["ardtt/server:1.0.46"], "Layers": names}]).encode())
+PY
+mkdir -p "$TMP/withimage"
+cat > "$TMP/withimage/docker" <<EOF
+#!/bin/sh
+case "\$1" in
+  compose) [ "\$2" = "version" ] && exit 0 ;;
+  info) exit 0 ;;
+  images) echo "ardtt/server:1.0.46"; exit 0 ;;
+  save) cat "$TMP/old-image.tar"; exit 0 ;;
+esac
+exit 1
+EOF
+chmod +x "$TMP/withimage/docker"
+RUN_PATH="$TMP/withimage:$TMP/nodocker" run_fetch I ARDTT_DEPLOY_VERSION=1.0.46
+[ "$RUN_RC" = 0 ] || err "I exit $RUN_RC: $(tail -5 "$RUN_OUT")"
+grep -q 'ARDTT_INFO|seeded 3 layers' "$RUN_OUT" || err "I expected the cache to be seeded from docker save: $(grep -i seed "$RUN_OUT")"
+[ "$(grep -c "layer-0[0-9]-" "$RUN_REQ")" = 0 ] || err "I no layer must be downloaded after seeding: $(cat "$RUN_REQ")"
+grep -q 'ARDTT_INFO|слои образа: 3 всего, 3 в кэше, скачать 0' "$RUN_OUT" || err "I cache summary: $(grep 'слои образа' "$RUN_OUT")"
+ok "I cold cache seeded from the loaded image"
+
 # Bootstrap copy in APK assets must be the same script.
 cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
   || err "android/app/src/main/assets/deploy/fetch-and-install.sh differs from server/fetch-and-install.sh"
