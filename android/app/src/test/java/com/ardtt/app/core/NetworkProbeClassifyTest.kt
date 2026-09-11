@@ -385,6 +385,49 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
+    fun retriesStopOnceTheControlGroupIsOut() {
+        assertTrue(NetworkProbePolicy.ordinaryRetryStillInformative(null, null))
+        assertTrue(
+            NetworkProbePolicy.ordinaryRetryStillInformative(CheckOutcome.Success, null),
+        )
+        // No vk.com verdict yet still leaves a WeakPositive to gain.
+        assertTrue(
+            NetworkProbePolicy.ordinaryRetryStillInformative(
+                CheckOutcome.Success,
+                CheckOutcome.Cancelled,
+            ),
+        )
+        // Yandex down: the sample is Ignore whatever the ordinary targets say.
+        assertTrue(
+            !NetworkProbePolicy.ordinaryRetryStillInformative(CheckOutcome.Timeout, null),
+        )
+        assertTrue(
+            !NetworkProbePolicy.ordinaryRetryStillInformative(
+                CheckOutcome.Timeout,
+                CheckOutcome.Success,
+            ),
+        )
+        // vk.com down: the round is a bad link, not a whitelist.
+        assertTrue(
+            !NetworkProbePolicy.ordinaryRetryStillInformative(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+            ),
+        )
+        // A dead link reports every target false, so NoNetwork is reachable.
+        assertEquals(
+            ProbePathHint.NoNetwork,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = CheckOutcome.Timeout.toProbeFlag(),
+                cloudflareOk = CheckOutcome.Timeout.toProbeFlag(),
+                captive = false,
+                googleOk = CheckOutcome.Timeout.toProbeFlag(),
+            ),
+        )
+    }
+
+    @Test
     fun aRetryWindowMustFitInsideTheRoundOrNotBeStarted() {
         // Quick mode: Cloudflare timed out at 800ms of a 1500ms round.
         assertEquals(

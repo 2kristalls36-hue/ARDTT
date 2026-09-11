@@ -275,6 +275,24 @@ internal object NetworkProbePolicy {
     }
 
     /**
+     * Whether relaunching an ordinary target can still change anything.
+     *
+     * A relaunch only ever buys a whitelist verdict, and [RestrictionScore.sample]
+     * discards the round unless Yandex answered and vk.com did not fail. Once a
+     * control has settled that way there is nothing left to disambiguate, and
+     * spending the rest of the budget on ordinary targets only delays the
+     * NoNetwork and captive-portal verdicts.
+     */
+    fun ordinaryRetryStillInformative(
+        yandex: CheckOutcome?,
+        ruService: CheckOutcome?,
+    ): Boolean {
+        if (yandex != null && !yandex.isSuccess) return false
+        if (ruService != null && ruService.isFailure) return false
+        return true
+    }
+
+    /**
      * Verdict for a target whose relaunch never landed: the first attempt
      * already said something ("timed out"), and dropping it for Cancelled or
      * NotRun would silently downgrade a blocked target to "never measured".

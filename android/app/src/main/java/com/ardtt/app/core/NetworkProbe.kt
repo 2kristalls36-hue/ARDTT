@@ -172,6 +172,7 @@ object NetworkProbe {
                     if (alreadyRetried) return 0
                     val left = remaining(roundBudget.toInt())
                     if (!NetworkProbePolicy.shouldRetryOrdinaryTarget(outcome, left)) return 0
+                    if (!NetworkProbePolicy.ordinaryRetryStillInformative(yandex, ruService)) return 0
                     val elapsed = sinceAttempts()
                     val rttDeadline = controlRttMs?.let { rtt ->
                         NetworkProbePolicy.ordinaryDeadlineMs(rtt, baseMs, left + elapsed)
@@ -211,12 +212,28 @@ object NetworkProbe {
 
                 while (true) {
                     val now = android.os.SystemClock.elapsedRealtime()
+                    if (!NetworkProbePolicy.ordinaryRetryStillInformative(yandex, ruService)) {
+                        // The control group is out — a relaunch cannot change
+                        // the score any more, and holding it open would keep
+                        // NoNetwork and the captive check waiting.
+                        if (cloudflare == null && cloudflareFirst != null) {
+                            cloudflareDef.cancel()
+                            cloudflare = cloudflareFirst
+                        }
+                        if (google == null && googleFirst != null) {
+                            googleDef.cancel()
+                            google = googleFirst
+                        }
+                    }
+                    // A target waiting on a relaunch still counts as whatever
+                    // its first attempt said, or NoNetwork and captive would
+                    // never be reached while retries are in flight.
                     val hint = NetworkProbePolicy.decideProbePath(
                         provisionOk = provision?.toProbeFlag(),
                         yandexOk = yandex?.toProbeFlag(),
-                        cloudflareOk = cloudflare?.toProbeFlag(),
+                        cloudflareOk = settledCloudflare()?.toProbeFlag(),
                         captive = if (captiveChecked) captive else null,
-                        googleOk = google?.toProbeFlag(),
+                        googleOk = settledGoogle()?.toProbeFlag(),
                         ruServiceOk = ruService?.toProbeFlag(),
                     )
                     if (hint == ProbePathHint.Direct ||
@@ -230,7 +247,20 @@ object NetworkProbe {
                     }
                     val allKnown = yandex != null && cloudflare != null &&
                         google != null && ruService != null && provision != null
-                    val roundExpired = now >= deadlineAt
+                    val nothingSucceeded = yandex?.isSuccess != true &&
+                        settledCloudflare()?.isSuccess != true &&
+                        settledGoogle()?.isSuccess != true &&
+                        ruService?.isSuccess != true &&
+                        provision?.isSuccess != true
+                    // Heading for NoNetwork: stop waiting on hung targets in
+                    // time to still run generate_204, the last useful signal,
+                    // instead of letting the round end without a verdict.
+                    val captiveReserveMs = if (!captiveChecked && systemOnline && nothingSucceeded) {
+                        captiveMs
+                    } else {
+                        0
+                    }
+                    val roundExpired = now >= deadlineAt - captiveReserveMs
                     if (hint == ProbePathHint.NoNetwork) {
                         if (!captiveChecked && systemOnline && remaining(captiveMs) > 0) {
                             captive = captiveFromCaps || detectCaptive(bound, remaining(captiveMs))
@@ -259,6 +289,10 @@ object NetworkProbe {
                         if (google == null) google = googleFirst ?: CheckOutcome.Cancelled
                         if (ruService == null) ruService = CheckOutcome.Cancelled
                         if (provision == null) provision = CheckOutcome.Cancelled
+                        if (!captiveChecked && systemOnline && remaining(captiveMs) > 0) {
+                            captive = captiveFromCaps || detectCaptive(bound, remaining(captiveMs))
+                            captiveChecked = true
+                        }
                         yandexDef.cancel()
                         cloudflareDef.cancel()
                         googleDef.cancel()
@@ -267,7 +301,7 @@ object NetworkProbe {
                         return@coroutineScope snapshot()
                     }
 
-                    val waitMs = (deadlineAt - now).coerceAtLeast(1L)
+                    val waitMs = (deadlineAt - captiveReserveMs - now).coerceAtLeast(1L)
                     @OptIn(ExperimentalCoroutinesApi::class)
                     select {
                         if (yandex == null) {
