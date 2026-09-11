@@ -913,6 +913,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 "src=${VpnLiveStats.source} up=${nowDirect - sessionStartedAtMs}ms",
                         )
                     }
+                    val manager = ConnectionManager.getOrNull()
+                    if (
+                        RecoverySettings.directRxLooksLikeData(rxInWindow) &&
+                        manager?.directPathConfirmed() == false
+                    ) {
+                        manager.onDirectDataObserved()
+                    }
                     if (
                         shouldTreatDirectAsDeadNoRx(
                             nowMs = nowDirect,
@@ -930,7 +937,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 "received $rxInWindow B in the last ${DIRECT_UNANSWERED_UPLINK_MS}ms " +
                                 "(up=${nowDirect - anchor}ms hsLive=$handshakeLive)",
                         )
-                        ConnectionManager.getOrNull()?.onDeadDirectNoRx()
+                        manager?.onDeadDirectNoRx()
                     }
                     continue
                 }

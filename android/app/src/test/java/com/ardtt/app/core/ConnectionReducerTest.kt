@@ -1077,6 +1077,86 @@ class ConnectionReducerTest {
         assertEquals(0, confirmed.state.wifiFailStreak)
     }
 
+    /** The watchdog sees data after the 8s confirm window and re-confirms the attempt. */
+    @Test
+    fun lateDataObservationClearsDirectNegativeAndBackoff() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            1L,
+        )
+        val ready = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                protocolReady = true,
+                callEpoch = started.state.call.callEpoch,
+            ),
+            2L,
+        ).state.copy(
+            recovery = started.state.recovery.copy(phase = RecoveryPhase.Connected, failureIndex = 2),
+            directNegative = DirectNegativeEvidence(
+                key = cellKey,
+                reason = "direct-no-path-confirm",
+                retryAfterElapsedMs = Long.MAX_VALUE,
+            ),
+            wifiStableHits = 0,
+        )
+        assertEquals(PathReadiness.ProtocolReady, ready.pathReadiness)
+
+        val confirmed = ConnectionReducer.reduce(
+            ready,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = ready.sessionEpoch,
+                transportEpoch = ready.transportEpoch,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = ready.call.callEpoch,
+            ),
+            30_000L,
+        )
+        assertEquals(PathReadiness.PathConfirmed, confirmed.state.pathReadiness)
+        assertEquals(VpnPath.Direct, confirmed.state.lastConfirmedPath)
+        assertNull(confirmed.state.directNegative)
+        assertEquals(0, confirmed.state.recovery.failureIndex)
+        assertEquals(RecoveryCommand.None, confirmed.command)
+
+        // Repeating it (every watchdog poll would) changes nothing more.
+        val again = ConnectionReducer.reduce(
+            confirmed.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = confirmed.state.sessionEpoch,
+                transportEpoch = confirmed.state.transportEpoch,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = confirmed.state.call.callEpoch,
+            ),
+            33_000L,
+        )
+        assertEquals(RecoveryCommand.None, again.command)
+        assertEquals(PathReadiness.PathConfirmed, again.state.pathReadiness)
+        assertEquals(confirmed.state.transportEpoch, again.state.transportEpoch)
+
+        // A confirmation carrying a superseded transport epoch is dropped.
+        val stale = ConnectionReducer.reduce(
+            confirmed.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = confirmed.state.sessionEpoch,
+                transportEpoch = confirmed.state.transportEpoch - 1L,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = confirmed.state.call.callEpoch,
+            ),
+            36_000L,
+        )
+        assertEquals(confirmed.state, stale.state)
+    }
+
     @Test
     fun identityChangeKeepsStartingDirectWithoutOrphanInFlight() {
         val started = ConnectionReducer.reduce(

@@ -2201,6 +2201,33 @@ class ConnectionManager(
                 )
     }
 
+    /** True when the live Direct attempt already proved useful delivery. */
+    fun directPathConfirmed(): Boolean =
+        recoverySnapshot.activePath == VpnPath.Direct &&
+            recoverySnapshot.pathReadiness == PathReadiness.PathConfirmed
+
+    /**
+     * Data arrived on Direct after the PathConfirm window closed. Nothing else
+     * re-confirms the attempt, so an idle connect stayed ProtocolReady forever
+     * with a stale directNegative and a non-zero failureIndex blocking Auto.
+     * A duplicate or stale call is dropped by the reducer's permit checks.
+     */
+    fun onDirectDataObserved() {
+        if (TunnelSessionHolder.config?.path != VpnPath.Direct) return
+        if (directPathConfirmed()) return
+        AppLog.i(TAG, "Direct inbound data observed after confirm window — re-confirming path")
+        dispatchRecovery(
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = recoverySnapshot.sessionEpoch,
+                transportEpoch = recoverySnapshot.transportEpoch,
+                networkKey = recoverySnapshot.underlay.key,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = recoverySnapshot.call.callEpoch,
+            ),
+        )
+    }
+
     /**
      * Direct is Connected but TUN has no inbound bytes. Auto+hash on cellular
      * switches to Bypass; Auto on Wi‑Fi and forced Direct stop so the phone
