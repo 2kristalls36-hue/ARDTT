@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -47,9 +48,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -96,6 +94,9 @@ import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ArdttChoice
+import com.ardtt.app.ui.components.control.ArdttChoiceChip
+import com.ardtt.app.ui.components.control.ArdttChoiceChipRow
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
@@ -110,11 +111,10 @@ import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.sectionCardContourBorder
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
-import com.ardtt.app.ui.theme.backdropSegmentInactiveContainer
-import com.ardtt.app.ui.theme.backdropSegmentInactiveContent
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -232,8 +232,6 @@ fun ExceptionsScreen(
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
     val admin by settings.isAdminUnlocked.collectAsStateWithLifecycle(initialValue = false)
-    val segmentInactiveContainer = backdropSegmentInactiveContainer()
-    val segmentInactiveContent = backdropSegmentInactiveContent()
 
     var pane by rememberSaveable { mutableStateOf(ExceptionsPane.Apps) }
 
@@ -381,55 +379,29 @@ fun ExceptionsScreen(
                     )
                 }
 
-                SingleChoiceSegmentedButtonRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = ArdttSpacing.MediumPlus),
-                ) {
-                    SegmentedButton(
-                        selected = pane == ExceptionsPane.Apps,
-                        onClick = { pane = ExceptionsPane.Apps },
-                        shape = SegmentedButtonDefaults.itemShape(0, 2),
-                        colors = SegmentedButtonDefaults.colors(
-                            activeContainerColor = colors.secondaryContainer,
-                            activeContentColor = colors.onSecondaryContainer,
-                            inactiveContainerColor = segmentInactiveContainer,
-                            inactiveContentColor = segmentInactiveContent,
+                // Same segmented control as every other pane / mode switch in the app.
+                ArdttChoiceChipRow(
+                    choices = listOf(
+                        ArdttChoice(
+                            value = ExceptionsPane.Apps,
+                            label = ExceptionsCopy.appsPane(selectedPackages.size),
                         ),
-                        border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
-                    ) {
-                        Text(
-                            "Приложения ${selectedPackages.size}",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    SegmentedButton(
-                        selected = pane == ExceptionsPane.Sites,
-                        onClick = {
-                            if (sitesEnabled) pane = ExceptionsPane.Sites
-                        },
-                        enabled = sitesEnabled,
-                        shape = SegmentedButtonDefaults.itemShape(1, 2),
-                        colors = SegmentedButtonDefaults.colors(
-                            activeContainerColor = colors.secondaryContainer,
-                            activeContentColor = colors.onSecondaryContainer,
-                            inactiveContainerColor = segmentInactiveContainer,
-                            inactiveContentColor = segmentInactiveContent,
+                        ArdttChoice(
+                            value = ExceptionsPane.Sites,
+                            label = ExceptionsCopy.sitesPane(
+                                supported = sitesSupported,
+                                hasBrowser = hasBrowserHandlers,
+                                count = orderedSites.size,
+                            ),
+                            dimmed = !sitesEnabled,
+                            // The label already says why («Android 13+» / «нужен браузер»).
+                            onBlocked = if (sitesEnabled) null else ({}),
                         ),
-                        border = SegmentedButtonDefaults.borderStroke(colors.outlineVariant.copy(alpha = 0.7f)),
-                    ) {
-                        Text(
-                            when {
-                                !sitesSupported -> "Сайты (Android 13+)"
-                                !hasBrowserHandlers -> "Сайты (нужен браузер)"
-                                else -> "Правила ${orderedSites.size}"
-                            },
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
+                    ),
+                    selected = pane,
+                    onSelect = { pane = it },
+                    modifier = Modifier.padding(bottom = ArdttSpacing.MediumPlus),
+                )
 
                 ArdttSectionCard(
                     modifier = Modifier
@@ -473,9 +445,14 @@ fun ExceptionsScreen(
                                     color = colors.onSurfaceVariant,
                                 )
                             }
-                            SingleChoiceSegmentedButtonRow {
-                                SegmentedButton(
+                            Row(
+                                modifier = Modifier.selectableGroup(),
+                                horizontalArrangement = Arrangement.spacedBy(ArdttLayout.ControlSpacing),
+                            ) {
+                                ArdttChoiceChip(
+                                    label = ExceptionsCopy.MODE_BLACKLIST,
                                     selected = !isWhitelist,
+                                    enabled = true,
                                     onClick = {
                                         if (isWhitelist) {
                                             scope.launch {
@@ -484,18 +461,12 @@ fun ExceptionsScreen(
                                             }
                                         }
                                     },
-                                    shape = SegmentedButtonDefaults.itemShape(0, 2),
-                                    colors = SegmentedButtonDefaults.colors(
-                                        activeContainerColor = colors.primary,
-                                        activeContentColor = colors.onPrimary,
-                                        inactiveContainerColor = Color.Transparent,
-                                        inactiveContentColor = colors.onSurfaceVariant,
-                                    ),
-                                ) {
-                                    Text("ЧС", style = MaterialTheme.typography.labelMedium)
-                                }
-                                SegmentedButton(
+                                    height = ArdttSize.ChipCompact,
+                                )
+                                ArdttChoiceChip(
+                                    label = ExceptionsCopy.MODE_WHITELIST,
                                     selected = isWhitelist,
+                                    enabled = true,
                                     onClick = {
                                         if (!isWhitelist) {
                                             scope.launch {
@@ -504,16 +475,8 @@ fun ExceptionsScreen(
                                             }
                                         }
                                     },
-                                    shape = SegmentedButtonDefaults.itemShape(1, 2),
-                                    colors = SegmentedButtonDefaults.colors(
-                                        activeContainerColor = colors.primary,
-                                        activeContentColor = colors.onPrimary,
-                                        inactiveContainerColor = Color.Transparent,
-                                        inactiveContentColor = colors.onSurfaceVariant,
-                                    ),
-                                ) {
-                                    Text("БС", style = MaterialTheme.typography.labelMedium)
-                                }
+                                    height = ArdttSize.ChipCompact,
+                                )
                             }
                         }
 
@@ -623,10 +586,8 @@ fun ExceptionsScreen(
                         ) {
                             Text(
                                 "Правила: ${orderedSites.size}",
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 0.2.sp,
-                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
                                 color = colors.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
                             )
@@ -804,7 +765,7 @@ fun ExceptionsScreen(
 private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val base = colors.surfaceVariant.copy(alpha = ArdttAlpha.Muted)
-    val highlight = colors.surface.copy(alpha = 0.95f)
+    val highlight = colors.surface.copy(alpha = ArdttAlpha.Strong)
     val shimmer = rememberInfiniteTransition(label = "apps_loading")
     val shift by shimmer.animateFloat(
         initialValue = -280f,
@@ -967,7 +928,7 @@ private fun BypassSearchBar(
                             Text(
                                 placeholder,
                                 style = fieldStyle.copy(
-                                    color = colors.onSurfaceVariant.copy(alpha = 0.65f),
+                                    color = colors.onSurfaceVariant.copy(alpha = ArdttAlpha.Subtle),
                                     background = Color.Transparent,
                                 ),
                             )
@@ -1135,4 +1096,18 @@ private fun AppExceptionRowFrame(
         border = sectionCardContourBorder(),
         content = { content() },
     )
+}
+
+/** Fixed strings of the Exceptions tab. */
+internal object ExceptionsCopy {
+    const val MODE_BLACKLIST = "ЧС"
+    const val MODE_WHITELIST = "БС"
+
+    fun appsPane(selectedCount: Int): String = "Приложения $selectedCount"
+
+    fun sitesPane(supported: Boolean, hasBrowser: Boolean, count: Int): String = when {
+        !supported -> "Сайты (Android 13+)"
+        !hasBrowser -> "Сайты (нужен браузер)"
+        else -> "Правила $count"
+    }
 }
