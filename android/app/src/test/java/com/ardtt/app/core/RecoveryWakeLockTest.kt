@@ -2,6 +2,7 @@ package com.ardtt.app.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,7 +17,7 @@ class RecoveryWakeLockTest {
     }
 
     @Test
-    fun holdCoversTheTimerPlusSlackAndIsCapped() {
+    fun holdCoversTheTimerPlusSlackOrIsNotTakenAtAll() {
         assertEquals(
             2_000L + RECOVERY_WAKELOCK_SLACK_MS,
             recoveryWakeLockTimeoutMs(2_000L),
@@ -25,8 +26,32 @@ class RecoveryWakeLockTest {
         assertEquals(RECOVERY_WAKELOCK_SLACK_MS, recoveryWakeLockTimeoutMs(-5L))
         assertEquals(
             RECOVERY_WAKELOCK_MAX_MS,
-            recoveryWakeLockTimeoutMs(RecoverySettings.directReevalDelayMs(4)),
+            recoveryWakeLockTimeoutMs(RECOVERY_WAKELOCK_MAX_MS - RECOVERY_WAKELOCK_SLACK_MS),
         )
+        assertNull(recoveryWakeLockTimeoutMs(RECOVERY_WAKELOCK_MAX_MS))
+        assertNull(recoveryWakeLockTimeoutMs(RecoverySettings.directReevalDelayMs(4)))
+        assertNull(recoveryWakeLockTimeoutMs(RecoverySettings.WIFI_UPGRADE_SETTLE_MAX_MS * 3))
+    }
+
+    @Test
+    fun aTimerLongerThanTheCeilingTakesNoHold() {
+        val r = Recorder()
+        val token = r.gate.acquire(RecoverySettings.directReevalDelayMs(4))
+        assertFalse(r.gate.isHeld)
+        assertTrue(r.acquired.isEmpty())
+        r.gate.release(token)
+        assertEquals(0, r.releases)
+    }
+
+    @Test
+    fun anUncoverableTimerDropsTheHoldItReplaces() {
+        val r = Recorder()
+        val short = r.gate.acquire(2_000L)
+        r.gate.acquire(RecoverySettings.directReevalDelayMs(4))
+        assertFalse(r.gate.isHeld)
+        assertEquals(1, r.releases)
+        r.gate.release(short)
+        assertEquals(1, r.releases)
     }
 
     @Test

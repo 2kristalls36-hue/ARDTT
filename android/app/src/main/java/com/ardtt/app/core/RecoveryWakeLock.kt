@@ -7,11 +7,19 @@ import android.os.PowerManager
 const val RECOVERY_WAKELOCK_SLACK_MS = 10_000L
 const val RECOVERY_WAKELOCK_MAX_MS = 120_000L
 
+/**
+ * @return null when the hold would have to be truncated: a Direct re-check gap
+ * runs up to 10 minutes, and a capped hold there only burns two minutes of CPU
+ * and is long gone by the time the timer is due.
+ */
 fun recoveryWakeLockTimeoutMs(
     requestedMs: Long,
     slackMs: Long = RECOVERY_WAKELOCK_SLACK_MS,
     maxMs: Long = RECOVERY_WAKELOCK_MAX_MS,
-): Long = (requestedMs.coerceAtLeast(0L) + slackMs).coerceAtMost(maxMs)
+): Long? {
+    val timeoutMs = requestedMs.coerceAtLeast(0L) + slackMs
+    return timeoutMs.takeIf { it <= maxMs }
+}
 
 /**
  * Ownership bookkeeping for a bounded CPU hold.
@@ -38,8 +46,19 @@ class RecoveryWakeLockGate(
     @Synchronized
     fun acquire(timeoutMs: Long): Long {
         token += 1L
+        val holdMs = recoveryWakeLockTimeoutMs(timeoutMs)
+        if (holdMs == null) {
+            // Too long to cover: take no hold at all and let the owner's
+            // release() be a no-op. A predecessor hold is still dropped —
+            // its timer was cancelled to make room for this one.
+            if (held) {
+                held = false
+                onRelease()
+            }
+            return token
+        }
         held = true
-        onAcquire(recoveryWakeLockTimeoutMs(timeoutMs))
+        onAcquire(holdMs)
         return token
     }
 
