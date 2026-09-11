@@ -466,9 +466,6 @@ fun AppRoot(
                                 } else {
                                     null
                                 },
-                                testingVisible = testingTabVisible,
-                                isRecording = isRecording,
-                                onOpenTesting = { navigateTab(AppDestination.Testing.route) },
                             )
                         }
                         composable(AppDestination.Settings.route) {
