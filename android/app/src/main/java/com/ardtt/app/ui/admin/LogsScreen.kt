@@ -244,97 +244,10 @@ fun LogsScreen(
                     )
                 }
             }
-            if (testingVisible && onOpenTesting != null) {
-                ArdttDestinationRow(
-                    icon = Icons.Outlined.Science,
-                    title = "Тестирование",
-                    subtitle = "Запись и отправка журнала автору",
-                    onClick = onOpenTesting,
-                )
-            }
             ArdttSectionCard(
-                contentPadding = PaddingValues(
-                    horizontal = ArdttSpacing.Medium,
-                    vertical = ArdttSpacing.SmallPlus,
-                ),
-                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-            ) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Поиск") },
-                    trailingIcon = {
-                        if (query.isNotBlank()) {
-                            ArdttButton(
-                                onClick = { query = "" },
-                                variant = ArdttButtonVariant.Icon,
-                                icon = Icons.Default.Delete,
-                                contentDescription = "Очистить поиск",
-                            )
-                        }
-                    },
-                )
-                Box {
-                    ArdttButton(
-                        text = LogsCatalog.levelFilterLabel(levelFilter),
-                        onClick = { levelMenu = true },
-                        variant = ArdttButtonVariant.Outlined,
-                        size = ArdttButtonSize.Compact,
-                        fillMaxWidth = true,
-                    )
-                    ArdttOverflowMenu(
-                        expanded = levelMenu,
-                        onDismissRequest = { levelMenu = false },
-                    ) {
-                        ArdttOverflowMenuItem(
-                            text = "Все уровни",
-                            onClick = {
-                                levelFilter = null
-                                levelMenu = false
-                            },
-                        )
-                        listOf(AppLog.Level.I, AppLog.Level.W, AppLog.Level.E).forEach { level ->
-                            ArdttOverflowMenuItem(
-                                text = LogsCatalog.levelName(level),
-                                onClick = {
-                                    levelFilter = level
-                                    levelMenu = false
-                                },
-                            )
-                        }
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-                ) {
-                    ArdttButton(
-                        text = if (follow) "Автопрокрутка вкл" else "Автопрокрутка",
-                        onClick = {
-                            follow = !follow
-                            if (follow) jumpToLatest()
-                        },
-                        variant = if (follow) ArdttButtonVariant.Tonal else ArdttButtonVariant.Outlined,
-                        size = ArdttButtonSize.Compact,
-                        fillMaxWidth = false,
-                        modifier = Modifier.weight(1f),
-                    )
-                    ArdttButton(
-                        text = if (unseen > 0) "К последним ($unseen)" else "К последним",
-                        onClick = { jumpToLatest() },
-                        variant = ArdttButtonVariant.Outlined,
-                        size = ArdttButtonSize.Compact,
-                        fillMaxWidth = false,
-                        icon = Icons.Default.KeyboardArrowDown,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-
-            ArdttSectionCard(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
                 contentPadding = PaddingValues(ArdttSpacing.None),
                 shape = ArdttShapes.Panel,
                 color = terminalBg,
@@ -435,9 +348,100 @@ fun LogsScreen(
                     }
                 }
             }
+
+            ArdttSectionCard(
+                contentPadding = PaddingValues(
+                    horizontal = ArdttSpacing.Medium,
+                    vertical = ArdttSpacing.SmallPlus,
+                ),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Поиск") },
+                    trailingIcon = {
+                        if (query.isNotBlank()) {
+                            ArdttButton(
+                                onClick = { query = "" },
+                                variant = ArdttButtonVariant.Icon,
+                                icon = Icons.Default.Delete,
+                                contentDescription = "Очистить поиск",
+                            )
+                        }
+                    },
+                )
+                Box {
+                    ArdttButton(
+                        text = LogsCatalog.levelFilterLabel(levelFilter),
+                        onClick = { levelMenu = true },
+                        variant = ArdttButtonVariant.Outlined,
+                        size = ArdttButtonSize.Compact,
+                        fillMaxWidth = true,
+                    )
+                    ArdttOverflowMenu(
+                        expanded = levelMenu,
+                        onDismissRequest = { levelMenu = false },
+                    ) {
+                        ArdttOverflowMenuItem(
+                            text = "Все уровни",
+                            onClick = {
+                                levelFilter = null
+                                levelMenu = false
+                            },
+                        )
+                        listOf(AppLog.Level.I, AppLog.Level.W, AppLog.Level.E).forEach { level ->
+                            ArdttOverflowMenuItem(
+                                text = LogsCatalog.levelName(level),
+                                onClick = {
+                                    levelFilter = level
+                                    levelMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                ) {
+                    ArdttButton(
+                        text = if (follow) "Автопрокрутка вкл" else "Автопрокрутка",
+                        onClick = {
+                            follow = !follow
+                            if (follow) jumpToLatest()
+                        },
+                        variant = if (follow) ArdttButtonVariant.Tonal else ArdttButtonVariant.Outlined,
+                        size = ArdttButtonSize.Compact,
+                        fillMaxWidth = false,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ArdttButton(
+                        text = if (unseen > 0) "К последним ($unseen)" else "К последним",
+                        onClick = { jumpToLatest() },
+                        variant = ArdttButtonVariant.Outlined,
+                        size = ArdttButtonSize.Compact,
+                        fillMaxWidth = false,
+                        icon = Icons.Default.KeyboardArrowDown,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            if (testingVisible && onOpenTesting != null) {
+                ArdttDestinationRow(
+                    icon = Icons.Outlined.Science,
+                    title = "Тестирование",
+                    subtitle = "Запись и отправка журнала автору",
+                    onClick = onOpenTesting,
+                )
+            }
         }
     }
 }
+
 
 @Composable
 private fun LogEventRow(
