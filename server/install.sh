@@ -364,19 +364,30 @@ push_entry_pubkey_to_exit() {
   }
   port="${CASCADE_PEER_PROVISION_PORT:-9100}"
   url="http://${host}:${port}/v1/cascade/peer"
-  command -v curl >/dev/null 2>&1 || {
-    echo "ARDTT_WARN|нет curl — ключ входа на выход не отправлен (${url})"
-    return 0
-  }
   for i in 1 2 3 4 5 6; do
-    if curl -fsS -m 12 -X POST -H 'Content-Type: application/json' \
-      -d "{\"publicKey\":\"${pub}\"}" "$url" >/dev/null 2>&1; then
+    if http_post_json "$url" "{\"publicKey\":\"${pub}\"}"; then
       echo "ARDTT_INFO|ключ входа отправлен на выход ${host}:${port}"
       return 0
     fi
     sleep 2
   done
   echo "ARDTT_WARN|не удалось отправить ключ входа на ${url} — проверьте доступ VPS1→VPS2 :${port}"
+}
+
+# POST JSON with curl, or python3 urllib on minimal images without curl.
+http_post_json() {
+  local url="$1" body="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS -m 12 -X POST -H 'Content-Type: application/json' -d "$body" "$url" >/dev/null 2>&1
+    return $?
+  fi
+  python3 - "$url" "$body" <<'PY' >/dev/null 2>&1
+import sys, urllib.request
+req = urllib.request.Request(sys.argv[1], data=sys.argv[2].encode("utf-8"),
+                             headers={"Content-Type": "application/json"}, method="POST")
+with urllib.request.urlopen(req, timeout=12) as r:
+    sys.exit(0 if 200 <= r.status < 300 else 1)
+PY
 }
 
 # After docker load: move staged gzip layers into the content-addressed cache

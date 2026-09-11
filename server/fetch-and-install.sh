@@ -253,7 +253,10 @@ with gzip.open(src, "rb") as gz, tarfile.open(fileobj=gz, mode="r|") as tar:
         target = os.path.abspath(os.path.join(dest, m.name))
         if not (target == dest or target.startswith(dest + os.sep)):
             raise SystemExit("escapes "+n)
-        tar.extract(m, path=dest, set_attrs=False)
+        try:
+            tar.extract(m, path=dest, set_attrs=False, filter="data")
+        except TypeError:
+            tar.extract(m, path=dest, set_attrs=False)
 for root, dirs, files in os.walk(dest):
     for name in dirs + files:
         p = os.path.join(root, name)
@@ -741,8 +744,10 @@ export ARDTT_PACKAGE_INDEX_SHA256="$INDEX_SHA"
 unset ARDTT_PACKAGE ARDTT_PACKAGE_SHA256
 run_install
 
-# Success: drop one-off downloads and layers no longer referenced by the current image.
-rm -f "$INDEX_PATH" "${INCOMING}/${ENGINE_ASSET:-none.none}" "${INCOMING}/${COMPOSE_ASSET:-none.none}" 2>/dev/null || true
+# Success: drop one-off downloads, stale full archives from earlier attempts
+# (re-downloadable) and layers no longer referenced by the current image.
+rm -f "$INDEX_PATH" "${INCOMING}/${ENGINE_ASSET:-none.none}" "${INCOMING}/${COMPOSE_ASSET:-none.none}" \
+  "${INCOMING}"/ardtt-server-*.tar.gz "${INCOMING}"/*.partial 2>/dev/null || true
 if [ "$LAYER_CACHE" != "0" ] && [ -f "$INSTALL_DIR/current/images/layout.json" ]; then
   python3 "$INSTALL_DIR/current/scripts/layer-cache.py" prune "$CACHE_DIR" "$INSTALL_DIR/current/images/layout.json" 2>/dev/null \
     | sed 's/^/ARDTT_INFO|кэш слоёв: /' || true
