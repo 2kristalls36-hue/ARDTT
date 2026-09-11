@@ -438,6 +438,37 @@ class NetworkProbeClassifyTest {
                 listOf(CheckOutcome.NotRun, CheckOutcome.Cancelled),
             ),
         )
+        // One stale front answering "no route" must not void the round: that
+        // outcome only wins when every address reports it.
+        assertEquals(
+            CheckOutcome.Timeout,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.Timeout),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Refused,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.Refused, CheckOutcome.Suspended),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Success,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.Success),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.NetworkLost,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.NetworkLost),
+            ),
+        )
+        assertTrue(
+            !NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.Timeout),
+            ).invalidatesRestrictionSeries(),
+        )
         assertTrue(NetworkProbe.RU_CONTROL_HOSTS.isNotEmpty())
         NetworkProbe.RU_CONTROL_HOSTS.forEach { host ->
             assertTrue(host.ips.isNotEmpty())

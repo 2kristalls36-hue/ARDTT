@@ -251,24 +251,29 @@ internal object NetworkProbePolicy {
         outcome == CheckOutcome.Timeout && remainingBudgetMs >= ORDINARY_RETRY_MIN_BUDGET_MS
 
     /**
-     * One verdict for a control host probed on several of its IPs at once.
-     * Any reachable IP proves the service is reachable; when none is, the most
-     * telling failure wins so the scorer can tell "blocked" from "never ran".
+     * One verdict for a target raced over several addresses or protocols.
+     *
+     * Any reachable address proves the target is reachable; when none is, the
+     * best-ranked failure wins. The outcomes that void the whole round
+     * ([CheckOutcome.invalidatesRestrictionSeries]) rank last on purpose: a
+     * stale front that answers "no route" must not void a round in which
+     * another address plainly timed out, or one dead IP would silence
+     * whitelist scoring for good.
      */
     fun foldControlOutcomes(outcomes: List<CheckOutcome>): CheckOutcome =
         outcomes.minByOrNull { controlOutcomeRank(it) } ?: CheckOutcome.NotRun
 
     private fun controlOutcomeRank(outcome: CheckOutcome): Int = when (outcome) {
         CheckOutcome.Success -> 0
-        CheckOutcome.NetworkLost -> 1
-        CheckOutcome.Suspended -> 2
-        CheckOutcome.Timeout -> 3
-        CheckOutcome.Refused -> 4
-        CheckOutcome.TransportFailure -> 5
-        CheckOutcome.TlsFailure -> 6
-        CheckOutcome.DnsFailure -> 7
-        CheckOutcome.AuthFailure -> 8
-        CheckOutcome.BindFailure -> 9
+        CheckOutcome.Timeout -> 1
+        CheckOutcome.Refused -> 2
+        CheckOutcome.TransportFailure -> 3
+        CheckOutcome.TlsFailure -> 4
+        CheckOutcome.DnsFailure -> 5
+        CheckOutcome.AuthFailure -> 6
+        CheckOutcome.BindFailure -> 7
+        CheckOutcome.NetworkLost -> 8
+        CheckOutcome.Suspended -> 9
         CheckOutcome.Cancelled -> 10
         CheckOutcome.NotRun -> 11
     }

@@ -445,8 +445,12 @@ object NetworkProbe {
         val udp = async { udpDnsReachableOutcome(CLOUDFLARE_IP, udpMs, bindNetwork) }
         try {
             select {
-                tls.onAwait { ok -> if (ok.isSuccess) ok else udp.await() }
-                udp.onAwait { ok -> if (ok.isSuccess) ok else tls.await() }
+                tls.onAwait { ok ->
+                    if (ok.isSuccess) ok else NetworkProbePolicy.foldControlOutcomes(listOf(ok, udp.await()))
+                }
+                udp.onAwait { ok ->
+                    if (ok.isSuccess) ok else NetworkProbePolicy.foldControlOutcomes(listOf(ok, tls.await()))
+                }
             }
         } finally {
             tls.cancel()
