@@ -22,6 +22,24 @@ class EgressIpProbeTest {
     }
 
     @Test
+    fun recognisesUnderlayBindRejection() {
+        assertTrue(
+            EgressIpProbe.looksLikeBindFailure(
+                java.io.IOException(
+                    "Binding socket to network 2042 failed: EPERM (Operation not permitted)",
+                ),
+            ),
+        )
+        assertTrue(
+            EgressIpProbe.looksLikeBindFailure(
+                java.io.IOException("bind", IllegalStateException("EPERM")),
+            ),
+        )
+        assertFalse(EgressIpProbe.looksLikeBindFailure(java.net.SocketTimeoutException("timeout")))
+        assertFalse(EgressIpProbe.looksLikeBindFailure(null))
+    }
+
+    @Test
     fun detectsLikelyCloudflareIpv4() {
         assertTrue(EgressIpProbe.isLikelyCloudflare("104.16.132.229"))
         assertTrue(EgressIpProbe.isLikelyCloudflare("104.28.228.110"))
