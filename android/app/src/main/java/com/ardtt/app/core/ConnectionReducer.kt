@@ -300,7 +300,13 @@ object ConnectionReducer {
         jitterPermille: Int,
     ): ReduceResult {
         val networkChanged = state.underlay.key.physicalIdentityChanged(snapshot.key)
-        val carried = carryWhitelistEvidence(state, snapshot, networkChanged)
+        // Roaming onto another PLMN keeps the sockets but invalidates every
+        // measurement: the whitelist belongs to the operator, not the radio.
+        val carrierChanged = state.underlay.key != null &&
+            snapshot.key != null &&
+            !state.underlay.key.sameCarrier(snapshot.key)
+        val scopeChanged = networkChanged || carrierChanged
+        val carried = carryWhitelistEvidence(state, snapshot, scopeChanged)
         if (!state.intent.wantsConnected) {
             return ReduceResult(
                 carried.copy(underlay = snapshot, networkEpoch = snapshot.networkEpoch),
@@ -311,8 +317,8 @@ object ConnectionReducer {
         val next = carried.copy(
             underlay = snapshot,
             networkEpoch = snapshot.networkEpoch,
-            directNegative = if (networkChanged) null else state.directNegative,
-            directReevalFailures = if (networkChanged) 0 else state.directReevalFailures,
+            directNegative = if (scopeChanged) null else state.directNegative,
+            directReevalFailures = if (scopeChanged) 0 else state.directReevalFailures,
             wifiFailStreak = if (leftWifiEpisode) 0 else state.wifiFailStreak,
             wifiStableHits = if (leftWifiEpisode) 0 else state.wifiStableHits,
             call = if (snapshot.availability == UnderlayAvailability.None) {
@@ -328,7 +334,7 @@ object ConnectionReducer {
             },
         )
         val fromNetworkGap = !state.underlay.allowsNetworkOps && snapshot.allowsNetworkOps
-        val recovered = if (snapshot.allowsNetworkOps && (networkChanged || fromNetworkGap)) {
+        val recovered = if (snapshot.allowsNetworkOps && (scopeChanged || fromNetworkGap)) {
             next.copy(
                 transport = if (next.transport == TransportLifecycle.Failed) {
                     TransportLifecycle.Stopped

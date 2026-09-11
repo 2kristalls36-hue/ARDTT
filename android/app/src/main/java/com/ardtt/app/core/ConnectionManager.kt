@@ -834,6 +834,11 @@ class ConnectionManager(
                 transport = kind,
                 simId = if (kind == UnderlayKind.Cellular) simId else null,
                 configFingerprint = fingerprint,
+                carrier = if (kind == UnderlayKind.Cellular) {
+                    cellularCarrierId(appContext, activeCellularSubscriptionId(appContext))
+                } else {
+                    null
+                },
             )
         } else {
             null
@@ -1911,7 +1916,12 @@ class ConnectionManager(
             it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
         }
         val key = if (bindNetwork != null && cm != null) {
-            networkKeyForNetwork(bindNetwork, cm, sim)
+            networkKeyForNetwork(
+                bindNetwork,
+                cm,
+                sim,
+                carrier = cellularCarrierId(appContext, activeCellularSubscriptionId(appContext)),
+            )
         } else {
             recoverySnapshot.underlay.key
         }
@@ -1994,7 +2004,12 @@ class ConnectionManager(
         val sim = activeSub.takeIf {
             it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
         }
-        val key = networkKeyForNetwork(bind, cm, sim)
+        val key = networkKeyForNetwork(
+            bind,
+            cm,
+            sim,
+            carrier = cellularCarrierId(appContext, activeSub),
+        )
         if (key == null || !key.isCellular) {
             AppLog.w(TAG, "cellular pre-probe bind is not cellular handle=${bind.networkHandle}")
             return

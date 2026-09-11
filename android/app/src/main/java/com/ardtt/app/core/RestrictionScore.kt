@@ -89,6 +89,7 @@ fun ReachabilityEvidence.whitelistScoreAt(
         return WhitelistDetection.STUB_SCORE_PERCENT
     }
     if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return 0
+    if (networkKey != null && key != null && !networkKey.sameCarrier(key)) return 0
     if (this.profileId != null && profileId != null && this.profileId != profileId) return 0
     return whitelistScorePercent
 }
@@ -100,6 +101,9 @@ fun hasSameNetworkProbeEvidence(
 ): Boolean {
     if (evidence == null) return false
     if (evidence.networkKey != null && key != null && !evidence.networkKey.samePhysicalNetwork(key)) {
+        return false
+    }
+    if (evidence.networkKey != null && key != null && !evidence.networkKey.sameCarrier(key)) {
         return false
     }
     if (evidence.profileId != null && profileId != null && evidence.profileId != profileId) {

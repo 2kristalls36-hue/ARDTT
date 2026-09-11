@@ -59,6 +59,8 @@ data class DirectNegativeEvidence(
 ) {
     fun stillBlocks(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
         if (key == null || !this.key.samePhysicalNetwork(key)) return false
+        // A new operator may route AWG UDP where the previous one dropped it.
+        if (!this.key.sameCarrier(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return elapsedMs < retryAfterElapsedMs
     }
@@ -158,6 +160,7 @@ data class ReachabilityEvidence(
     fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
         if (ttlUntilElapsedMs > 0L && elapsedMs > ttlUntilElapsedMs) return false
         if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return false
+        if (networkKey != null && key != null && !networkKey.sameCarrier(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return true
     }
