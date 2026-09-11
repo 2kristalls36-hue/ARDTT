@@ -1662,6 +1662,58 @@ class ConnectionReducerTest {
     }
 
     @Test
+    fun aParkedProcessDyingMidRecheckStillCountsAsADisplacedBypass() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        ).state
+        val failed = ConnectionReducer.reduce(
+            started,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.sessionEpoch,
+                transportEpoch = started.transportEpoch,
+                networkKey = cellKey,
+                reason = "no-rx",
+            ),
+            elapsedMs = 1_000L,
+        ).state
+        // RAW carries the session but never gets past BackendRunning, so
+        // lastConfirmedPath stays null.
+        val onBypass = ConnectionReducer.reduce(
+            failed.copy(activePath = VpnPath.Bypass, transport = TransportLifecycle.Starting),
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = failed.sessionEpoch,
+                transportEpoch = failed.transportEpoch,
+                backendRunning = true,
+            ),
+            elapsedMs = 2_000L,
+        ).state
+        assertNull(onBypass.lastConfirmedPath)
+        val now = (onBypass.recovery.nextRetryAtElapsedMs ?: 0L) + 1L
+        val recheck = ConnectionReducer.reduce(onBypass, ConnectionEvent.Clock(now), now)
+        assertEquals(RecoveryCommand.ParkBypassForDirect, recheck.command)
+        val parkedDied = ConnectionReducer.reduce(
+            recheck.state,
+            ConnectionEvent.ParkedProcessDied(recheck.state.sessionEpoch),
+            now + 500L,
+        ).state
+        assertFalse(parkedDied.parkedRawAlive)
+        val directFailed = ConnectionReducer.reduce(
+            parkedDied,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = parkedDied.sessionEpoch,
+                transportEpoch = parkedDied.transportEpoch,
+                networkKey = cellKey,
+                reason = "no-rx",
+            ),
+            elapsedMs = now + 1_000L,
+        ).state
+        assertEquals(1, directFailed.directReevalFailures)
+        assertFalse(directFailed.directRecheckFromBypass)
+    }
+
+    @Test
     fun repeatedDirectReevalFailuresWidenTheGapAndResetOnNewUnderlay() {
         var state = ConnectionReducer.reduce(
             idle().copy(underlay = usableCellular()),

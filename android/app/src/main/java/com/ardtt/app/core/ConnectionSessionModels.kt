@@ -191,6 +191,8 @@ data class ConnectionSnapshot(
     val wifiUsableSinceMs: Long = 0L,
     /** Direct re-checks that failed on the current underlay; widens the next gap. */
     val directReevalFailures: Int = 0,
+    /** The Direct attempt in flight displaced a live Bypass, parked or not. */
+    val directRecheckFromBypass: Boolean = false,
     val directNegative: DirectNegativeEvidence? = null,
     val lastConfirmedPath: VpnPath? = null,
     /** Underlay Direct was last PathConfirmed on; Wi‑Fi proof is not LTE proof. */

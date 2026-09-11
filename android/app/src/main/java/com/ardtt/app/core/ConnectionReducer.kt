@@ -242,6 +242,7 @@ object ConnectionReducer {
             wifiStableHits = 0,
             wifiUsableSinceMs = 0L,
             directReevalFailures = 0,
+            directRecheckFromBypass = false,
             directNegative = null,
             lastConfirmedPath = null,
             lastConfirmedNetworkKey = null,
@@ -323,6 +324,7 @@ object ConnectionReducer {
             networkEpoch = snapshot.networkEpoch,
             directNegative = if (scopeChanged) null else state.directNegative,
             directReevalFailures = if (scopeChanged) 0 else state.directReevalFailures,
+            directRecheckFromBypass = !scopeChanged && state.directRecheckFromBypass,
             wifiFailStreak = if (leftWifiEpisode) 0 else state.wifiFailStreak,
             wifiStableHits = if (leftWifiEpisode) 0 else state.wifiStableHits,
             call = if (snapshot.availability == UnderlayAvailability.None) {
@@ -516,6 +518,7 @@ object ConnectionReducer {
             wifiFailStreak = if (pathConfirmed) 0 else state.wifiFailStreak,
             wifiStableHits = if (pathConfirmed) state.wifiStableHits + 1 else state.wifiStableHits,
             directReevalFailures = if (pathConfirmed) 0 else state.directReevalFailures,
+            directRecheckFromBypass = false,
             directNegative = if (pathConfirmed) null else state.directNegative,
             recovery = state.recovery.copy(
                 phase = RecoveryPhase.Connected,
@@ -551,8 +554,13 @@ object ConnectionReducer {
         // Only a re-check that displaced a working Bypass widens the next gap.
         // Direct failing while Bypass cannot start either must stay on the base
         // interval, or both paths would be held off for minutes.
+        // The parked process can die mid-attempt and a Bypass that never got
+        // past BackendRunning has no lastConfirmedPath, so the flag set when
+        // the re-check parked it is the only reliable witness.
         val displacedLiveBypass = holdForBypassReeval &&
-            (state.parkedRawAlive || state.lastConfirmedPath == VpnPath.Bypass)
+            (state.directRecheckFromBypass ||
+                state.parkedRawAlive ||
+                state.lastConfirmedPath == VpnPath.Bypass)
         val retryAfter = RecoverySettings.directNegativeRetryAfterElapsedMs(
             elapsedMs = elapsedMs,
             failureIndex = state.recovery.failureIndex,
@@ -567,6 +575,7 @@ object ConnectionReducer {
             } else {
                 state.directReevalFailures
             },
+            directRecheckFromBypass = false,
             directNegative = DirectNegativeEvidence(
                 key = event.networkKey ?: state.underlay.key ?: NetworkKey(0L, state.underlay.kind, null, "unknown"),
                 profileId = state.intent.profileId,
@@ -1090,6 +1099,7 @@ object ConnectionReducer {
                             activePath = VpnPath.Direct,
                             transport = TransportLifecycle.Starting,
                             transportEpoch = transportEpoch,
+                            directRecheckFromBypass = switching || state.directRecheckFromBypass,
                             recovery = phaseOf(phase, inFlight = true).copy(
                                 permit = permitFrom(
                                     state.copy(transportEpoch = transportEpoch),
