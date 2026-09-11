@@ -87,6 +87,7 @@ import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.performConnectionUiAction
+import com.ardtt.app.ui.tunnelChromeActions
 import com.ardtt.app.ui.connectionControlsLocked
 import com.ardtt.app.ui.qsProfileTileLabel
 import com.ardtt.app.ui.settings.BypassMethodDialog
@@ -324,7 +325,7 @@ fun TunnelScreen(
             ArdttTabHeader(title = "Подключение")
         },
         stickyContent = {
-            // Sticky «Подключить» / «Отменить» (same button) above tab bar.
+            // Sticky «Подключить» / «Остановить» (same button) above tab bar.
             // Idle Probing is not Cancel — that was flashing red Stop on tab open.
             ArdttPrimaryButton(
                 text = tunnelStickyCtaLabel(ui.state),
@@ -550,7 +551,7 @@ fun TunnelScreen(
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
             ConnectionActionChips(
-                actions = ui.uiModel.actions,
+                actions = tunnelChromeActions(ui.uiModel.actions),
                 onAction = { action ->
                     haptics.tick()
                     performConnectionUiAction(context, conn, action)
