@@ -1364,6 +1364,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
      */
     private fun handleDataSuspension(network: Network, caps: NetworkCapabilities): Boolean {
         val id = network.networkHandle
+        // The other SIM losing its bearer is not our problem; only the radio the
+        // tunnel rides can strand the transport.
+        val tracked = lastPreferredUnderlayHandle
+        if (tracked != null && tracked != id) {
+            suspendedNetworks.remove(id)
+            return false
+        }
         val transition = classifyDataSuspension(
             wasSuspended = suspendedNetworks.containsKey(id),
             notSuspendedNow = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
