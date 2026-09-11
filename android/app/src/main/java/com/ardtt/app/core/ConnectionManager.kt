@@ -1717,6 +1717,26 @@ class ConnectionManager(
             )
             if (skipWifiDirect) {
                 scheduleCellularPreProbe("handover-wifi")
+                // The reducer keeps a live Bypass until Wi‑Fi has held usable
+                // for a whole settle window; its own Reeval timer performs the
+                // upgrade once that passes. Tearing the call down here after a
+                // flat settle would defeat that gate.
+                if (currentPath == VpnPath.Bypass &&
+                    recoverySnapshot.activePath == VpnPath.Bypass &&
+                    recoverySnapshot.transport == TransportLifecycle.Running &&
+                    wifiUpgradeStillSettling(
+                        wifiUsableSinceMs = recoverySnapshot.wifiUsableSinceMs,
+                        wifiFailStreak = recoverySnapshot.wifiFailStreak,
+                        elapsedMs = SystemClock.elapsedRealtime(),
+                    )
+                ) {
+                    AppLog.v(
+                        TAG,
+                        "Handover: Wi‑Fi still settling (streak=${recoverySnapshot.wifiFailStreak}) " +
+                            "— leaving the live Bypass to the reducer re-check",
+                    )
+                    return NetworkHandoverDecision.NoAction
+                }
             }
             val decision = decideNetworkHandoverAction(
                 pathMode = mode,

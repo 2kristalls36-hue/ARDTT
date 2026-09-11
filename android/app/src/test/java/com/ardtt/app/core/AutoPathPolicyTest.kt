@@ -604,4 +604,39 @@ class AutoPathPolicyTest {
         val start = d as AutoDecision.StartDirect
         assertTrue(start.keepCall)
     }
+
+    @Test
+    fun wifiUpgradeSettleWindowWidensWithTheFailStreak() {
+        val settle = RecoverySettings.wifiUpgradeSettleMs(0)
+        assertTrue(
+            wifiUpgradeStillSettling(
+                wifiUsableSinceMs = 10_000L,
+                wifiFailStreak = 0,
+                elapsedMs = 10_000L + settle - 1L,
+            ),
+        )
+        assertFalse(
+            wifiUpgradeStillSettling(
+                wifiUsableSinceMs = 10_000L,
+                wifiFailStreak = 0,
+                elapsedMs = 10_000L + settle,
+            ),
+        )
+        // A failed episode buys the access point a longer window.
+        assertTrue(
+            wifiUpgradeStillSettling(
+                wifiUsableSinceMs = 10_000L,
+                wifiFailStreak = 3,
+                elapsedMs = 10_000L + settle,
+            ),
+        )
+        // Unknown "usable since": nothing to wait on.
+        assertFalse(
+            wifiUpgradeStillSettling(
+                wifiUsableSinceMs = 0L,
+                wifiFailStreak = 3,
+                elapsedMs = 10_000L,
+            ),
+        )
+    }
 }
