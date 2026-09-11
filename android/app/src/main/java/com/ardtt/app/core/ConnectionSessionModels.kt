@@ -58,7 +58,7 @@ data class DirectNegativeEvidence(
     val retryAfterElapsedMs: Long = 0L,
 ) {
     fun stillBlocks(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
-        if (key == null || key != this.key) return false
+        if (key == null || !this.key.samePhysicalNetwork(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return elapsedMs < retryAfterElapsedMs
     }
@@ -139,7 +139,7 @@ data class ReachabilityEvidence(
 ) {
     fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
         if (ttlUntilElapsedMs > 0L && elapsedMs > ttlUntilElapsedMs) return false
-        if (networkKey != null && key != null && networkKey != key) return false
+        if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return true
     }

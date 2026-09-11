@@ -312,4 +312,16 @@ class UnderlayAccessTest {
     fun emptyLinkPropertiesFingerprintIsBlank() {
         assertEquals("", fingerprintFromLinkProperties(null))
     }
+
+    @Test
+    fun physicalNetworkIgnoresDnsFingerprintFlaps() {
+        val a = NetworkKey(7L, UnderlayKind.Cellular, 11, "rmnet0|10.1.2.3|8.8.8.8")
+        val b = NetworkKey(7L, UnderlayKind.Cellular, 11, "rmnet0|10.1.2.3|1.1.1.1")
+        val otherHandle = NetworkKey(8L, UnderlayKind.Cellular, 11, a.configFingerprint)
+        assertTrue(a.samePhysicalNetwork(b))
+        assertFalse(a.physicalIdentityChanged(b))
+        assertTrue(a.physicalIdentityChanged(otherHandle))
+        assertTrue(a.physicalIdentityChanged(null))
+        assertFalse(null.physicalIdentityChanged(null))
+    }
 }

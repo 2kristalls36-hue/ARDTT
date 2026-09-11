@@ -814,7 +814,8 @@ class ConnectionManager(
         } else {
             null
         }
-        val epoch = recoverySnapshot.networkEpoch + if (key != recoverySnapshot.underlay.key) 1L else 0L
+        val epoch = recoverySnapshot.networkEpoch +
+            if (recoverySnapshot.underlay.key.physicalIdentityChanged(key)) 1L else 0L
         return UnderlaySnapshot(
             key = key,
             kind = kind,
@@ -828,7 +829,11 @@ class ConnectionManager(
             cellularConnected = presence.cellular,
             ethernetConnected = presence.ethernet,
             capabilitiesComplete = complete,
-            networkEpoch = if (key != recoverySnapshot.underlay.key) epoch else recoverySnapshot.networkEpoch,
+            networkEpoch = if (recoverySnapshot.underlay.key.physicalIdentityChanged(key)) {
+                epoch
+            } else {
+                recoverySnapshot.networkEpoch
+            },
         )
     }
 
@@ -967,7 +972,7 @@ class ConnectionManager(
             if (recoverySnapshot.sessionEpoch != sessionEpoch) return@launch
             if (capturedKey != null &&
                 recoverySnapshot.underlay.key != null &&
-                capturedKey != recoverySnapshot.underlay.key
+                !capturedKey.samePhysicalNetwork(recoverySnapshot.underlay.key)
             ) {
                 AppLog.v(TAG, "diagnostic discarded — network changed")
                 return@launch
@@ -1782,7 +1787,10 @@ class ConnectionManager(
 
     private fun currentPathLooksHealthy(path: VpnPath): Boolean = when (path) {
         VpnPath.Bypass -> TransportHealth.activeWorkers > 0
-        VpnPath.Direct -> VpnLiveStats.totalRx > 0L || VpnLiveStats.downBps > 0L
+        VpnPath.Direct ->
+            VpnLiveStats.totalRx > 0L ||
+                VpnLiveStats.downBps > 0L ||
+                RecoverySettings.directProtocolReady(VpnLiveStats.currentAwgHandshakeSec())
     }
 
     /**
@@ -2448,7 +2456,7 @@ class ConnectionManager(
         }
         if (capturedKey != null &&
             recoverySnapshot.underlay.key != null &&
-            capturedKey != recoverySnapshot.underlay.key
+            !capturedKey.samePhysicalNetwork(recoverySnapshot.underlay.key)
         ) {
             AppLog.v(TAG, "probe UI skipped — network changed since capture")
             return

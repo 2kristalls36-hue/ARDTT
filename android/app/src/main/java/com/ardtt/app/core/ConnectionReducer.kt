@@ -286,7 +286,7 @@ object ConnectionReducer {
         if (!state.intent.wantsConnected) {
             return ReduceResult(state.copy(underlay = snapshot, networkEpoch = snapshot.networkEpoch), RecoveryCommand.None)
         }
-        val networkChanged = snapshot.key != state.underlay.key
+        val networkChanged = state.underlay.key.physicalIdentityChanged(snapshot.key)
         val leftWifiEpisode = !snapshot.kind.prefersDirectInAuto()
         val next = state.copy(
             underlay = snapshot,
@@ -357,7 +357,7 @@ object ConnectionReducer {
         }
         if (event.evidence.networkKey != null &&
             state.underlay.key != null &&
-            event.evidence.networkKey != state.underlay.key
+            !event.evidence.networkKey.samePhysicalNetwork(state.underlay.key)
         ) {
             return ReduceResult(state, RecoveryCommand.None)
         }
@@ -417,7 +417,7 @@ object ConnectionReducer {
         }
         if (event.networkKey != null &&
             state.underlay.key != null &&
-            event.networkKey != state.underlay.key
+            !event.networkKey.samePhysicalNetwork(state.underlay.key)
         ) {
             return ReduceResult(state, RecoveryCommand.None)
         }
@@ -462,7 +462,14 @@ object ConnectionReducer {
             return ReduceResult(state, RecoveryCommand.None)
         }
         val wifi = state.underlay.kind.prefersDirectInAuto()
-        val retryAfter = elapsedMs + RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
+        val retryAfter = RecoverySettings.directNegativeRetryAfterElapsedMs(
+            elapsedMs = elapsedMs,
+            failureIndex = state.recovery.failureIndex,
+            jitterPermille = jitterPermille,
+            holdForBypassReeval = state.intent.mode == ConnPathMode.Auto &&
+                state.intent.hasCallHash &&
+                state.underlay.kind == UnderlayKind.Cellular,
+        )
         val next = state.copy(
             transport = TransportLifecycle.Failed,
             directNegative = DirectNegativeEvidence(
@@ -940,9 +947,12 @@ object ConnectionReducer {
                 )
             }
             is AutoDecision.Stay -> {
-                if (decision.reason == "wifi-hysteresis" &&
+                val armBypassReeval = state.intent.mode == ConnPathMode.Auto &&
+                    decision.path == VpnPath.Bypass &&
+                    (decision.reason == "wifi-hysteresis" ||
+                        decision.reason == "bypass-running") &&
                     state.recovery.nextRetryAtElapsedMs == null
-                ) {
+                if (armBypassReeval) {
                     val delay = RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS
                     ReduceResult(
                         withUi(

@@ -256,7 +256,10 @@ fun nextProbeSeriesCount(
     ) {
         return previous.seriesCount.coerceAtLeast(1)
     }
-    if (previous.networkKey != next.networkKey || previous.profileId != next.profileId) {
+    if (previous.profileId != next.profileId) {
+        return 1
+    }
+    if (previous.networkKey.physicalIdentityChanged(next.networkKey)) {
         return 1
     }
     if (elapsedMs > previous.ttlUntilElapsedMs && previous.ttlUntilElapsedMs > 0L) {

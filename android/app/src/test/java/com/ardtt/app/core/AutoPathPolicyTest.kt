@@ -377,6 +377,30 @@ class AutoPathPolicyTest {
     }
 
     @Test
+    fun expiredDirectEvidenceKeepsBypassUntilReevalTimer() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val input = AutoPathInput(
+            mode = ConnPathMode.Auto,
+            underlay = cellular(key = key),
+            evidence = null,
+            currentPath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            hasCallHash = true,
+            call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
+            directNegative = DirectNegativeEvidence(
+                key = key,
+                failedAtElapsedMs = 0L,
+                retryAfterElapsedMs = 1_000L,
+            ),
+            elapsedMs = 10_000L,
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), decideAutoPath(input))
+        val start = decideAutoPath(input.copy(reevalDue = true)) as AutoDecision.StartDirect
+        assertEquals("reeval-direct", start.reason)
+        assertTrue(start.keepCall)
+    }
+
+    @Test
     fun expiredDirectEvidenceReevaluatesDirectWithoutDroppingCall() {
         val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
         val d = decideAutoPath(
@@ -394,6 +418,7 @@ class AutoPathPolicyTest {
                     retryAfterElapsedMs = 1_000L,
                 ),
                 elapsedMs = 10_000L,
+                reevalDue = true,
             ),
         )
         val start = d as AutoDecision.StartDirect
@@ -422,6 +447,27 @@ class AutoPathPolicyTest {
         )
         val start = d as AutoDecision.StartDirect
         assertEquals("cellular-direct", start.reason)
+    }
+
+    @Test
+    fun startingBypassIsNotYankedByDirectHint() {
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(),
+                evidence = ReachabilityEvidence(
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Success,
+                    provision = CheckOutcome.Success,
+                    restriction = RestrictionHint.None,
+                ),
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Starting,
+                hasCallHash = true,
+                call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-try-in-flight"), d)
     }
 
     @Test

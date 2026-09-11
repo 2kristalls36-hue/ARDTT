@@ -850,12 +850,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 "up=${nowDirect - sessionStartedAtMs}ms",
                         )
                     }
+                    val handshakeLive = RecoverySettings.directProtocolReady(
+                        VpnLiveStats.currentAwgHandshakeSec(),
+                    )
                     if (
                         shouldTreatDirectAsDeadNoRx(
                             nowMs = nowDirect,
                             sessionStartedAtMs = sessionStartedAtMs,
                             lastHandoffAtMs = lastHandoffAtMs,
                             hasFreshRxSinceAnchor = freshRx,
+                            handshakeLive = handshakeLive,
                         ) &&
                         nowDirect - deadDirectHandledAtMs > 30_000L
                     ) {
@@ -1369,7 +1373,6 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         stableNetworkWasLost = false
         stableNetworkReconnectPending = true
         handoverPreviousNetworkId = previousNetworkId
-        lastHandoffAtMs = System.currentTimeMillis()
         stableNetworkEvidenceSinceMs = evidenceSinceMs
         val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
         val policy = transportRecoveryPolicy(path)
