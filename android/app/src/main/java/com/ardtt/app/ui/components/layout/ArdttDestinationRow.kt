@@ -1,5 +1,6 @@
 package com.ardtt.app.ui.components.layout
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,7 @@ fun ArdttDestinationRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     contentDescription: String = title,
+    border: BorderStroke? = null,
 ) {
     ArdttCompactCard(
         modifier = modifier.clickable(
@@ -42,6 +44,7 @@ fun ArdttDestinationRow(
             onClickLabel = contentDescription,
             role = Role.Button,
         ),
+        border = border,
         verticalArrangement = Arrangement.spacedBy(ArdttSpacing.None),
     ) {
         Row(

@@ -44,8 +44,9 @@ fun ArdttStatusBarInset(extra: Dp = ArdttSpacing.None) {
  *
  * The title sits in [ArdttScrollChrome] and dissolves as the feed scrolls,
  * then returns on the same curve when scrolling back. Content fades into the
- * blur strip under the chrome. Passing [stickyContent] pins a full-width
- * action above the pill.
+ * blur strip under the chrome. Passing [stickyContent] pins full-width
+ * actions above the tab pill (primary CTA or a bottom stack of destination
+ * rows).
  */
 @Composable
 fun ArdttFeedScaffold(
