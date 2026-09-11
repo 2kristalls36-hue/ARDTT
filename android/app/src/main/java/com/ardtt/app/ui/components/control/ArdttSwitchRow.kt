@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -75,6 +76,42 @@ fun ArdttSwitchRow(
             }
         }
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+/**
+ * Leading [Checkbox] + label as one toggleable row (agreement consent,
+ * multi-select lists). Tapping the label toggles too, and TalkBack reads
+ * «флажок, <label>, отмечен» once.
+ */
+@Composable
+fun ArdttCheckboxRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = ArdttSize.TouchTarget)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Checkbox,
+                onValueChange = onCheckedChange,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+    ) {
+        Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = LocalContentColor.current.copy(alpha = if (enabled) 1f else ArdttAlpha.Disabled),
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
