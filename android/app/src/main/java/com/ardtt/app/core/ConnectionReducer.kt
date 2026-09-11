@@ -538,6 +538,11 @@ object ConnectionReducer {
         val holdForBypassReeval = state.intent.mode == ConnPathMode.Auto &&
             state.intent.hasCallHash &&
             state.underlay.kind == UnderlayKind.Cellular
+        // Only a re-check that displaced a working Bypass widens the next gap.
+        // Direct failing while Bypass cannot start either must stay on the base
+        // interval, or both paths would be held off for minutes.
+        val displacedLiveBypass = holdForBypassReeval &&
+            (state.parkedRawAlive || state.lastConfirmedPath == VpnPath.Bypass)
         val retryAfter = RecoverySettings.directNegativeRetryAfterElapsedMs(
             elapsedMs = elapsedMs,
             failureIndex = state.recovery.failureIndex,
@@ -547,7 +552,7 @@ object ConnectionReducer {
         )
         val next = state.copy(
             transport = TransportLifecycle.Failed,
-            directReevalFailures = if (holdForBypassReeval) {
+            directReevalFailures = if (displacedLiveBypass) {
                 state.directReevalFailures + 1
             } else {
                 state.directReevalFailures

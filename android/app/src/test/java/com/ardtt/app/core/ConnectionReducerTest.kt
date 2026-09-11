@@ -1516,12 +1516,14 @@ class ConnectionReducerTest {
                 elapsedMs = now,
             ).state
         }
+        // The first attempt is the initial Connect, not a re-check, so it keeps
+        // the base gap; every later one displaced a live Bypass and widens it.
         assertEquals(
             listOf(
                 RecoverySettings.directReevalDelayMs(0),
+                RecoverySettings.directReevalDelayMs(0),
                 RecoverySettings.directReevalDelayMs(1),
                 RecoverySettings.directReevalDelayMs(2),
-                RecoverySettings.directReevalDelayMs(3),
             ),
             holds,
         )
@@ -1537,6 +1539,48 @@ class ConnectionReducerTest {
             elapsedMs = now + 1L,
         )
         assertEquals(0, moved.state.directReevalFailures)
+    }
+
+    @Test
+    fun directFailuresWithoutAWorkingBypassKeepTheBaseGap() {
+        var state = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        ).state
+        var now = 0L
+        repeat(3) {
+            val failedDirect = ConnectionReducer.reduce(
+                state.copy(activePath = VpnPath.Direct, transport = TransportLifecycle.Starting),
+                ConnectionEvent.DirectFailed(
+                    sessionEpoch = state.sessionEpoch,
+                    transportEpoch = state.transportEpoch,
+                    networkKey = cellKey,
+                    reason = "no-rx",
+                ),
+                elapsedMs = now,
+            )
+            assertEquals(
+                now + RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
+                failedDirect.state.directNegative?.retryAfterElapsedMs,
+            )
+            // RAW cannot start either — nothing is carrying the session.
+            val failedBypass = ConnectionReducer.reduce(
+                failedDirect.state.copy(
+                    activePath = VpnPath.Bypass,
+                    transport = TransportLifecycle.Starting,
+                ),
+                ConnectionEvent.BypassFailed(
+                    sessionEpoch = failedDirect.state.sessionEpoch,
+                    transportEpoch = failedDirect.state.transportEpoch,
+                    reason = "dial failed",
+                ),
+                elapsedMs = now + 100L,
+            )
+            now += 10_000L
+            state = failedBypass.state
+        }
+        assertEquals(0, state.directReevalFailures)
     }
 
     @Test
