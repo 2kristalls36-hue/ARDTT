@@ -156,6 +156,8 @@ data class ConnectionSnapshot(
     val intent: UserConnectionIntent = UserConnectionIntent(),
     val underlay: UnderlaySnapshot = UnderlaySnapshot(),
     val evidence: ReachabilityEvidence? = null,
+    /** Last cellular БС probe, kept while Wi‑Fi is the default route. */
+    val cellularEvidence: ReachabilityEvidence? = null,
     val call: CallSessionState = CallSessionState(),
     val activePath: VpnPath? = null,
     val transport: TransportLifecycle = TransportLifecycle.Stopped,
@@ -168,6 +170,8 @@ data class ConnectionSnapshot(
     val wifiStableHits: Int = 0,
     val directNegative: DirectNegativeEvidence? = null,
     val lastConfirmedPath: VpnPath? = null,
+    /** Underlay Direct was last PathConfirmed on; Wi‑Fi proof is not LTE proof. */
+    val lastConfirmedNetworkKey: NetworkKey? = null,
     val pathReadiness: PathReadiness = PathReadiness.None,
     val ui: ConnectionUiModel = ConnectionUiModel(),
 ) {

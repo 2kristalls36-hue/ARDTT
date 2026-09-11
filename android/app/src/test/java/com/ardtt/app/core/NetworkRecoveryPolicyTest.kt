@@ -1084,4 +1084,56 @@ class NetworkRecoveryPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun cellularHandoverUsesPrewarmedWhitelistInsteadOfSoftRestartDirect() {
+        assertEquals(
+            NetworkHandoverDecision.SwitchPath(VpnPath.Bypass),
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = false,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.NoAction,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayChanged = false,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = true,
+            ),
+        )
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Direct,
+                probedPath = VpnPath.Bypass,
+                bypassAllowed = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Wifi,
+                whitelistLikely = true,
+            ),
+        )
+    }
 }

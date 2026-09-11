@@ -7,6 +7,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.telephony.TelephonyManager
 import android.util.Log
@@ -118,6 +120,10 @@ class ConnectionManager(
     private val diagnosticLog = SessionDiagnosticLog()
     private var recoverySnapshot = ConnectionSnapshot()
     private var waitingNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var cellularNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var requestedCellularNetwork: Network? = null
+    private var cellularProbeJob: Job? = null
+    private var lastCellularProbeAtMs: Long = 0L
     private var recoveryRetryJob: Job? = null
     private val recoveryTimer = RecoveryTimer(
         arm = { delayMs, fire ->
@@ -165,6 +171,7 @@ class ConnectionManager(
                     ),
                 )
             }
+            scheduleCellularPreProbe("profile")
         } else {
             directEndpoint = null
             provisionUrl = null
@@ -407,6 +414,7 @@ class ConnectionManager(
         } else if (liveSwitch) {
             maybeSwitchLivePath(mode)
         }
+        scheduleCellularPreProbe("path-mode")
     }
 
     /**
@@ -578,6 +586,7 @@ class ConnectionManager(
             RecoveryCommand.StopAll -> {
                 recoveryTimer.clear()
                 stopWatchingUnderlay()
+                scheduleCellularPreProbe("stop")
             }
             RecoveryCommand.PauseNetOps -> {
                 watchUnderlayUntilUsable()
@@ -706,7 +715,9 @@ class ConnectionManager(
 
     private fun requestGoUpdateNetwork(underlay: UnderlaySnapshot) {
         val cm = appContext.getSystemService(ConnectivityManager::class.java)
-        val cellularHandle = cm?.let { pickCellularUnderlayNetwork(it)?.networkHandle }
+        val cellularHandle = cm?.let {
+            pickCellularUnderlayNetwork(it, activeCellularSubscriptionId(appContext))?.networkHandle
+        }
         val target = goBypassNetworkTarget(
             activePath = recoverySnapshot.activePath,
             transport = recoverySnapshot.transport,
@@ -883,6 +894,7 @@ class ConnectionManager(
             ) {
                 stopWatchingUnderlay()
             }
+            scheduleCellularPreProbe("underlay-watch")
         }
         AppLog.v(TAG, "underlay watch $reason")
     }
@@ -897,6 +909,7 @@ class ConnectionManager(
     fun startInitialProbe() {
         if (_ui.value.state.holdsUserSession()) {
             AppLog.v(TAG, "Probe skipped — tunnel busy (${_ui.value.state})")
+            scheduleCellularPreProbe("session-busy")
             return
         }
         if (_ui.value.callRecreatePrompt != null) {
@@ -954,6 +967,7 @@ class ConnectionManager(
                 capturedProfileId = recoverySnapshot.intent.profileId,
             )
         }
+        scheduleCellularPreProbe("initial")
     }
 
     private fun launchBackgroundDiagnostic(
@@ -1075,15 +1089,12 @@ class ConnectionManager(
         val current = _ui.value
         val mode = pathMode
         val kind = currentAutoUnderlayKind()
+        val liveKey = readUnderlaySnapshot().key
         val wait = shouldWaitForCellularWhitelistProbe(
             mode = mode,
             underlayKind = kind,
             state = current.state,
-            hasSameNetworkProbeEvidence = hasSameNetworkProbeEvidence(
-                recoverySnapshot.evidence,
-                recoverySnapshot.underlay.key,
-                recoverySnapshot.intent.profileId ?: profile?.name,
-            ),
+            hasSameNetworkProbeEvidence = liveWhitelistEvidence(liveKey) != null,
         )
         if (wait) {
             if (connectWhenReadyJob?.isActive == true) {
@@ -1127,7 +1138,21 @@ class ConnectionManager(
             return
         }
         val underlay = readUnderlaySnapshot()
-        recoverySnapshot = recoverySnapshot.copy(underlay = underlay, networkEpoch = underlay.networkEpoch)
+        val adopted = whitelistEvidenceForUnderlay(
+            recoverySnapshot.evidence,
+            recoverySnapshot.cellularEvidence,
+            underlay.key,
+            recoverySnapshot.intent.profileId ?: profile?.name,
+        )
+        recoverySnapshot = recoverySnapshot.copy(
+            underlay = underlay,
+            networkEpoch = underlay.networkEpoch,
+            evidence = if (underlay.kind == UnderlayKind.Cellular && adopted != null) {
+                adopted
+            } else {
+                recoverySnapshot.evidence
+            },
+        )
         val connectEvent = if (!recoverySnapshot.intent.wantsConnected) {
             ConnectionEvent.UserConnect(
                 mode = mode,
@@ -1181,7 +1206,7 @@ class ConnectionManager(
                     shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
                 val wifiAutoDirect = autoUsesDirectOnWifi(liveMode, kind)
                 val underlayUsable = readUnderlaySnapshot().availability == UnderlayAvailability.Usable
-                val whitelistScore = recoverySnapshot.evidence?.whitelistScoreAt(
+                val whitelistScore = liveWhitelistEvidence()?.whitelistScoreAt(
                     recoverySnapshot.underlay.key,
                     recoverySnapshot.intent.profileId,
                 ) ?: 0
@@ -1276,6 +1301,9 @@ class ConnectionManager(
                         "Connect: skip diagnostic wait — start Direct kind=$kind " +
                             "wifiAuto=$wifiAutoDirect startNow=$startDirectNow",
                     )
+                    if (wifiAutoDirect) {
+                        scheduleCellularPreProbe("connected-wifi")
+                    }
                     fresh = wifiAutoDirectProbe()
                     usePath = VpnPath.Direct
                     AppLog.v(
@@ -1342,7 +1370,7 @@ class ConnectionManager(
                     underlayKind = kindNow,
                     bypassAllowed = bypassNow,
                     underlayUsable = readUnderlaySnapshot().availability == UnderlayAvailability.Usable,
-                    whitelistScorePercent = recoverySnapshot.evidence?.whitelistScoreAt(
+                    whitelistScorePercent = liveWhitelistEvidence()?.whitelistScoreAt(
                         recoverySnapshot.underlay.key,
                         recoverySnapshot.intent.profileId,
                     ) ?: fresh.whitelistScorePercent,
@@ -1612,6 +1640,10 @@ class ConnectionManager(
         val directFailedOnCurrentUnderlay = blockBypassToDirectUntilUnderlayChange &&
             (sameDeadUnderlay || deadDirectBindHandle == null || bindNetwork == null)
         val kind = underlayKindOf(bindNetwork)
+        val whitelistLikely = RestrictionScore.likely(
+            whitelistScoreForBind(bindNetwork),
+            alreadyBypass = currentPath == VpnPath.Bypass,
+        )
         if (mode != ConnPathMode.Auto) {
             val decision = decideNetworkHandoverAction(
                 pathMode = mode,
@@ -1633,40 +1665,52 @@ class ConnectionManager(
             return decision
         }
 
-        if (autoUsesDirectOnWifi(mode, kind) ||
+        val skipWifiDirect = autoUsesDirectOnWifi(mode, kind)
+        val skipWhitelistBypass = !skipWifiDirect &&
+            kind == UnderlayKind.Cellular &&
+            whitelistLikely &&
+            bypassAllowed
+        val skipDirectNow = !skipWifiDirect &&
+            !skipWhitelistBypass &&
             shouldStartDirectWithoutDiagnostic(mode, kind, underlayUsable = true)
-        ) {
+        if (skipWifiDirect || skipDirectNow || skipWhitelistBypass) {
+            val probed = if (skipWhitelistBypass) VpnPath.Bypass else VpnPath.Direct
             AppLog.v(
                 TAG,
-                "Handover: skip blocking diagnostic — Auto Direct path=$currentPath " +
-                    "kind=$kind underlayChanged=$underlayChanged",
+                "Handover: skip blocking diagnostic — Auto path=$currentPath " +
+                    "kind=$kind probed=$probed whitelist=$whitelistLikely " +
+                    "underlayChanged=$underlayChanged",
             )
             launchBackgroundDiagnostic(
                 sessionEpoch = recoverySnapshot.sessionEpoch,
                 networkEpoch = recoverySnapshot.networkEpoch,
             )
+            if (skipWifiDirect) {
+                scheduleCellularPreProbe("handover-wifi")
+            }
             val decision = decideNetworkHandoverAction(
                 pathMode = mode,
                 currentPath = currentPath,
-                probedPath = VpnPath.Direct,
+                probedPath = probed,
                 bypassAllowed = bypassAllowed,
                 sessionAgeMs = handoverSessionAgeMs(),
                 currentPathHealthy = pathHealthy,
-                underlayVpsReachable = true,
+                underlayVpsReachable = probed == VpnPath.Direct,
                 sameProbeStreak = 1,
                 underlayChanged = underlayChanged,
                 allowBypassToDirect = allowBypassToDirect,
                 directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
                 underlayKind = kind,
+                whitelistLikely = whitelistLikely,
             )
             applyHandoverDecisionUi(
                 decision = decision,
                 currentPath = currentPath,
-                probePath = VpnPath.Direct,
+                probePath = probed,
                 probeMessage = null,
                 bypassAllowed = bypassAllowed,
                 underlayChanged = underlayChanged,
-                vpsReachable = true,
+                vpsReachable = probed == VpnPath.Direct,
             )
             return decision
         }
@@ -1716,6 +1760,7 @@ class ConnectionManager(
                 allowBypassToDirect = allowBypassToDirect,
                 directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
                 underlayKind = liveKind,
+                whitelistLikely = whitelistLikely,
             )
             return liveDecision
         }
@@ -1746,6 +1791,7 @@ class ConnectionManager(
             allowBypassToDirect = allowBypassToDirect,
             directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
             underlayKind = liveKind,
+            whitelistLikely = whitelistLikely,
         )
         applyHandoverDecisionUi(
             decision = decision,
@@ -1832,6 +1878,174 @@ class ConnectionManager(
         wifiConnected = readConnectedWifiState(appContext, requireBackground = false).connected,
     )
 
+    private fun liveWhitelistEvidence(
+        key: NetworkKey? = recoverySnapshot.underlay.key,
+    ): ReachabilityEvidence? = whitelistEvidenceForUnderlay(
+        recoverySnapshot.evidence,
+        recoverySnapshot.cellularEvidence,
+        key,
+        recoverySnapshot.intent.profileId ?: profile?.name,
+    )
+
+    private fun whitelistScoreForBind(bindNetwork: Network?): Int {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+        val sim = activeCellularSubscriptionId(appContext).takeIf {
+            it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        }
+        val key = if (bindNetwork != null && cm != null) {
+            networkKeyForNetwork(bindNetwork, cm, sim)
+        } else {
+            recoverySnapshot.underlay.key
+        }
+        return liveWhitelistEvidence(key)?.whitelistScorePercent ?: 0
+    }
+
+    private fun mobileDataEnabled(): Boolean = runCatching {
+        val tm = appContext.getSystemService(TelephonyManager::class.java) ?: return false
+        tm.isDataEnabled
+    }.getOrDefault(true)
+
+    private fun scheduleCellularPreProbe(reason: String) {
+        val kind = currentAutoUnderlayKind()
+        if (!shouldPreProbeCellular(pathMode, kind) || !mobileDataEnabled()) {
+            releaseCellularRequest()
+            return
+        }
+        if (cellularProbeJob?.isActive == true) return
+        cellularProbeJob = scope.launch {
+            runCellularPreProbe(reason)
+        }
+    }
+
+    private fun requestCellularUnderlay() {
+        if (cellularNetworkCallback != null) return
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                requestedCellularNetwork = network
+                scheduleCellularPreProbe("cellular-available")
+            }
+
+            override fun onLost(network: Network) {
+                if (requestedCellularNetwork == network) requestedCellularNetwork = null
+            }
+        }
+        val req = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        val ok = runCatching {
+            cm.requestNetwork(req, cb, Handler(Looper.getMainLooper()))
+        }.onFailure { err ->
+            AppLog.w(TAG, "cellular requestNetwork failed: ${err.message}")
+        }.isSuccess
+        if (ok) {
+            cellularNetworkCallback = cb
+            AppLog.i(TAG, "cellular underlay requested for pre-probe")
+        }
+    }
+
+    private fun releaseCellularRequest() {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+        cellularNetworkCallback?.let { cb ->
+            runCatching { cm?.unregisterNetworkCallback(cb) }
+        }
+        cellularNetworkCallback = null
+        requestedCellularNetwork = null
+    }
+
+    private suspend fun runCellularPreProbe(reason: String) {
+        if (!shouldPreProbeCellular(pathMode, currentAutoUnderlayKind())) {
+            releaseCellularRequest()
+            return
+        }
+        if (!mobileDataEnabled()) {
+            releaseCellularRequest()
+            return
+        }
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return
+        val activeSub = activeCellularSubscriptionId(appContext)
+        val bind = requestedCellularNetwork
+            ?: pickCellularUnderlayNetwork(cm, activeSub)
+        if (bind == null) {
+            requestCellularUnderlay()
+            AppLog.v(TAG, "cellular pre-probe wait for network ($reason)")
+            return
+        }
+        val sim = activeSub.takeIf {
+            it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        }
+        val key = networkKeyForNetwork(bind, cm, sim)
+        if (key == null || !key.isCellular) {
+            AppLog.w(TAG, "cellular pre-probe bind is not cellular handle=${bind.networkHandle}")
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (lastCellularProbeAtMs > 0L) {
+            val restriction = recoverySnapshot.cellularEvidence?.restriction
+                ?: RestrictionHint.Unknown
+            val waitMs = RecoverySettings.nextDiagnosticDelayMs(
+                completedSeries = recoverySnapshot.cellularEvidence?.completedSeries ?: 0,
+                restriction = restriction,
+                seriesCount = recoverySnapshot.cellularEvidence?.seriesCount ?: 0,
+            ) ?: RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS
+            val since = now - lastCellularProbeAtMs
+            if (since < waitMs && recoverySnapshot.cellularEvidence != null) {
+                AppLog.v(TAG, "cellular pre-probe skip — next in ${waitMs - since}ms ($reason)")
+                return
+            }
+        }
+        AppLog.i(
+            TAG,
+            "cellular pre-probe start reason=$reason bind=${bind.networkHandle} sim=${key.simId}",
+        )
+        val result = NetworkProbe.probe(
+            appContext,
+            provisionUrl,
+            directEndpoint = directEndpoint,
+            bindNetwork = bind,
+            quick = true,
+        )
+        lastCellularProbeAtMs = SystemClock.elapsedRealtime()
+        val incoming = ReachabilityEvidence(
+            networkKey = key,
+            profileId = recoverySnapshot.intent.profileId ?: profile?.name,
+            measuredAtElapsedMs = lastCellularProbeAtMs,
+            yandex = result.yandexOutcome,
+            bigtech = result.bigtechOutcome,
+            google = result.googleOutcome,
+            provision = result.provisionOutcome,
+            restriction = result.restriction,
+            whitelistScorePercent = result.whitelistScorePercent,
+            captive = result.captive,
+            ttlUntilElapsedMs = lastCellularProbeAtMs + RecoverySettings.PROBE_CACHE_TTL_MS,
+            bindHandle = result.bindHandle ?: bind.networkHandle,
+            routeReason = result.routeReason,
+            restrictionReason = result.restrictionReason,
+            seriesId = result.seriesId,
+        )
+        val reduced = dispatchRecovery(ConnectionEvent.CellularProbeFinished(incoming))
+        AppLog.i(
+            TAG,
+            "cellular pre-probe done score=${reduced.state.cellularEvidence?.whitelistScorePercent} " +
+                "restriction=${reduced.state.cellularEvidence?.restriction} " +
+                "yandex=${result.yandexOutcome} cf=${result.bigtechOutcome} " +
+                "google=${result.googleOutcome} ${result.elapsedMs}ms",
+        )
+        val delayMs = RecoverySettings.nextDiagnosticDelayMs(
+            completedSeries = reduced.state.cellularEvidence?.completedSeries ?: 0,
+            restriction = reduced.state.cellularEvidence?.restriction ?: RestrictionHint.Unknown,
+            seriesCount = reduced.state.cellularEvidence?.seriesCount ?: 0,
+        ) ?: RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS
+        delay(delayMs)
+        if (shouldPreProbeCellular(pathMode, currentAutoUnderlayKind())) {
+            runCellularPreProbe("refresh")
+        } else {
+            releaseCellularRequest()
+        }
+    }
+
     /** Rewrite [TunnelSessionHolder] for a path switch mid-session (Auto handover). */
     fun applySessionPath(path: VpnPath) {
         val existing = TunnelSessionHolder.config ?: return
@@ -1911,6 +2125,7 @@ class ConnectionManager(
             val snap = readUnderlaySnapshot()
             requestGoUpdateNetwork(snap)
             dispatchRecovery(ConnectionEvent.UnderlayUpdated(snap))
+            scheduleCellularPreProbe("underlay-lost")
         }
     }
 
@@ -2573,7 +2788,10 @@ class ConnectionManager(
             cellular = cellular,
             elapsedMs = now,
         )
-        recoverySnapshot = recoverySnapshot.copy(evidence = folded)
+        recoverySnapshot = recoverySnapshot.copy(
+            evidence = folded,
+            cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
+        )
         val overlay = shown.withWhitelistEvidence(folded, cellular)
         AppLog.i(
             TAG,

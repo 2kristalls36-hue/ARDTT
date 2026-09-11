@@ -38,6 +38,7 @@ data class AutoPathInput(
     val call: CallSessionState = CallSessionState(),
     val directNegative: DirectNegativeEvidence? = null,
     val lastConfirmedPath: VpnPath? = null,
+    val lastConfirmedNetworkKey: NetworkKey? = null,
     val wifiFailStreak: Int = 0,
     val wifiStableHits: Int = 0,
     val parkedRawAlive: Boolean = false,
@@ -188,7 +189,8 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
     if (input.currentPath == VpnPath.Direct &&
         (input.transport == TransportLifecycle.Running ||
             input.transport == TransportLifecycle.Starting) &&
-        !blocked
+        !blocked &&
+        input.lastConfirmedNetworkKey.directConfirmedOn(underlay.key)
     ) {
         return AutoDecision.Stay(VpnPath.Direct, "direct-works")
     }

@@ -217,14 +217,57 @@ fun scanPhysicalNetworkPresence(cm: ConnectivityManager): PhysicalNetworkPresenc
     return PhysicalNetworkPresence(wifi = wifi, cellular = cellular, ethernet = ethernet)
 }
 
-fun pickCellularUnderlayNetwork(cm: ConnectivityManager): Network? = runCatching {
-    cm.allNetworks.firstOrNull { network ->
-        val caps = cm.getNetworkCapabilities(network) ?: return@firstOrNull false
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-    }
+fun pickCellularUnderlayNetwork(
+    cm: ConnectivityManager,
+    activeDataSubId: Int = SubscriptionManager.INVALID_SUBSCRIPTION_ID,
+): Network? = runCatching {
+    cm.allNetworks.mapNotNull { network ->
+        val caps = cm.getNetworkCapabilities(network) ?: return@mapNotNull null
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return@mapNotNull null
+        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return@mapNotNull null
+        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return@mapNotNull null
+        val sub = subscriptionIdFromSpecifier(caps.networkSpecifier)
+        val score = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = true,
+            networkSubId = sub,
+            activeDataSubId = activeDataSubId,
+        )
+        if (score <= 0) null else network to score
+    }.maxByOrNull { it.second }?.first
 }.getOrNull()
+
+fun networkKeyForNetwork(
+    network: Network,
+    cm: ConnectivityManager,
+    fallbackSimId: Int?,
+): NetworkKey? {
+    val caps = cm.getNetworkCapabilities(network) ?: return null
+    if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return null
+    val kind = classifyUnderlayKind(
+        wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+        cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+        ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+    )
+    val fromSpec = subscriptionIdFromSpecifier(caps.networkSpecifier)
+        .takeIf { it != SubscriptionManager.INVALID_SUBSCRIPTION_ID }
+    val simId = if (kind == UnderlayKind.Cellular) fromSpec ?: fallbackSimId else null
+    val lp = cm.getLinkProperties(network)
+    val handle = network.networkHandle
+    val fingerprint = fingerprintFromLinkProperties(lp).ifBlank {
+        "$handle|$kind|${simId ?: ""}"
+    }
+    return NetworkKey(
+        handle = handle,
+        transport = kind,
+        simId = simId,
+        configFingerprint = fingerprint,
+    )
+}
 
 fun pickWifiUnderlayNetwork(cm: ConnectivityManager): Network? = runCatching {
     cm.allNetworks.firstOrNull { network ->

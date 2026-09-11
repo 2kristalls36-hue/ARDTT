@@ -466,6 +466,56 @@ class AutoPathPolicyTest {
     }
 
     @Test
+    fun wifiDirectIsNotKeptOnCellularWhenWhitelistScoreIsHigh() {
+        val cellKey = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val wifiKey = NetworkKey(2L, UnderlayKind.Wifi, null, "wifi")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = cellKey),
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ),
+                currentPath = VpnPath.Direct,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                lastConfirmedNetworkKey = wifiKey,
+            ),
+        )
+        val bypass = d as AutoDecision.StartBypass
+        assertEquals("cellular-whitelist", bypass.reason)
+    }
+
+    @Test
+    fun workingCellularDirectStaysEvenWithHighWhitelistScore() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ),
+                currentPath = VpnPath.Direct,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                lastConfirmedNetworkKey = key,
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Direct, "direct-works"), d)
+    }
+
+    @Test
     fun expiredDirectEvidenceReevaluatesDirectWithoutDroppingCall() {
         val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
         val d = decideAutoPath(

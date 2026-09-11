@@ -349,5 +349,8 @@ class UnderlayAccessTest {
         assertTrue(a.physicalIdentityChanged(otherHandle))
         assertTrue(a.physicalIdentityChanged(null))
         assertFalse(null.physicalIdentityChanged(null))
+        val sameSim = NetworkKey(8L, UnderlayKind.Cellular, 11, a.configFingerprint)
+        assertTrue(a.sameCellularSim(sameSim))
+        assertTrue(a.matchesCellularUnderlay(sameSim))
     }
 }
