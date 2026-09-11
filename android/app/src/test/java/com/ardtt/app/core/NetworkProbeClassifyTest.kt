@@ -385,6 +385,81 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
+    fun aRetryWindowMustFitInsideTheRoundOrNotBeStarted() {
+        // Quick mode: Cloudflare timed out at 800ms of a 1500ms round.
+        assertEquals(
+            550,
+            NetworkProbePolicy.ordinaryRetryWindowMs(
+                targetDeadlineMs = 1_600,
+                elapsedMs = 800,
+                remainingBudgetMs = 700,
+            ),
+        )
+        // The RTT deadline, not the budget, is the binding limit here.
+        assertEquals(
+            400,
+            NetworkProbePolicy.ordinaryRetryWindowMs(
+                targetDeadlineMs = 1_200,
+                elapsedMs = 800,
+                remainingBudgetMs = 700,
+            ),
+        )
+        // Too little budget left for the relaunch to say anything.
+        assertEquals(
+            0,
+            NetworkProbePolicy.ordinaryRetryWindowMs(
+                targetDeadlineMs = 1_600,
+                elapsedMs = 800,
+                remainingBudgetMs = 400,
+            ),
+        )
+        // A deadline that adds nothing beyond what was already spent.
+        assertEquals(
+            0,
+            NetworkProbePolicy.ordinaryRetryWindowMs(
+                targetDeadlineMs = 800,
+                elapsedMs = 800,
+                remainingBudgetMs = 700,
+            ),
+        )
+    }
+
+    @Test
+    fun aRelaunchCutByTheRoundKeepsTheFirstAttemptsBlock() {
+        val settled = NetworkProbePolicy.settledOutcome(null, CheckOutcome.Timeout)
+        assertEquals(CheckOutcome.Timeout, settled)
+        assertTrue(settled.countsAsOrdinaryBlock())
+        assertEquals(
+            CheckOutcome.Success,
+            NetworkProbePolicy.settledOutcome(CheckOutcome.Success, CheckOutcome.Timeout),
+        )
+        assertEquals(CheckOutcome.NotRun, NetworkProbePolicy.settledOutcome(null, null))
+        // Yandex OK + vk.com OK + both ordinary targets blocked on their first
+        // attempt is a full sample even when neither relaunch got to finish.
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            bigtechOutcome = settled,
+            googleOutcome = settled,
+            ruServiceOutcome = CheckOutcome.Success,
+        )
+        assertEquals(RestrictionHint.Confirmed, r.restriction)
+        assertEquals(80, r.whitelistScorePercent)
+        assertTrue(
+            isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                settled,
+                settled,
+                CheckOutcome.Success,
+            ),
+        )
+    }
+
+    @Test
     fun ruControlSuccessIsInternetEvidenceAndGoesDirect() {
         assertEquals(
             ProbePathHint.Direct,

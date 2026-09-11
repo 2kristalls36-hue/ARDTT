@@ -242,6 +242,9 @@ internal object NetworkProbePolicy {
     /** A retry is only worth issuing if the round can still pay for it. */
     const val ORDINARY_RETRY_MIN_BUDGET_MS = 300
 
+    /** Scheduling and socket setup a relaunch needs before the round closes. */
+    const val RETRY_ASSIGN_SLACK_MS = 150
+
     /**
      * Congestion loss is probabilistic, a whitelist block is deterministic:
      * one more shot at a timed-out ordinary target tells them apart. Refused
@@ -249,6 +252,35 @@ internal object NetworkProbePolicy {
      */
     fun shouldRetryOrdinaryTarget(outcome: CheckOutcome, remainingBudgetMs: Int): Boolean =
         outcome == CheckOutcome.Timeout && remainingBudgetMs >= ORDINARY_RETRY_MIN_BUDGET_MS
+
+    /**
+     * Timeout for a relaunched ordinary target that already spent [elapsedMs]
+     * on its first attempt and should finish by [targetDeadlineMs] (both
+     * measured from the moment the target first started).
+     *
+     * A relaunch that cannot finish before the round closes is worse than none
+     * at all — it replaces a usable Timeout with nothing — so the window keeps
+     * [slackMs] clear of the round deadline and is dropped entirely when what
+     * is left cannot hold a meaningful attempt.
+     */
+    fun ordinaryRetryWindowMs(
+        targetDeadlineMs: Int,
+        elapsedMs: Int,
+        remainingBudgetMs: Int,
+        slackMs: Int = RETRY_ASSIGN_SLACK_MS,
+        minWindowMs: Int = ORDINARY_RETRY_MIN_BUDGET_MS,
+    ): Int {
+        val window = minOf(targetDeadlineMs - elapsedMs, remainingBudgetMs - slackMs)
+        return if (window < minWindowMs) 0 else window
+    }
+
+    /**
+     * Verdict for a target whose relaunch never landed: the first attempt
+     * already said something ("timed out"), and dropping it for Cancelled or
+     * NotRun would silently downgrade a blocked target to "never measured".
+     */
+    fun settledOutcome(finalOutcome: CheckOutcome?, firstOutcome: CheckOutcome?): CheckOutcome =
+        finalOutcome ?: firstOutcome ?: CheckOutcome.NotRun
 
     /**
      * One verdict for a target raced over several addresses or protocols.

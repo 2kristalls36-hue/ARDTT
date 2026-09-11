@@ -127,6 +127,11 @@ object NetworkProbe {
                     android.os.SystemClock.elapsedRealtime(),
                     cap,
                 )
+                // Bind and capability lookups already ran; timing the targets
+                // from here keeps setup cost out of the measured control RTT.
+                val attemptsAt = android.os.SystemClock.elapsedRealtime()
+                fun sinceAttempts(): Int =
+                    (android.os.SystemClock.elapsedRealtime() - attemptsAt).toInt().coerceAtLeast(0)
                 val yandexDef = async { udpDnsReachableOutcome(YANDEX_DNS_IP, remaining(udpMs), bound) }
                 var cloudflareDef = async { cloudflareOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
                 var googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, remaining(udpMs), bound) }
@@ -142,19 +147,22 @@ object NetworkProbe {
                 var captive = captiveFromCaps
                 var publishedFast = false
                 var controlRttMs: Int? = null
-                var cloudflareRetried = false
-                var googleRetried = false
+                // First-attempt verdicts, kept while a relaunch is in flight.
+                var cloudflareFirst: CheckOutcome? = null
+                var googleFirst: CheckOutcome? = null
 
                 fun noteControl(outcome: CheckOutcome) {
                     if (!outcome.isSuccess || controlRttMs != null) return
-                    val rtt = android.os.SystemClock.elapsedRealtime() - startedAt
-                    controlRttMs = rtt.toInt().coerceAtLeast(1)
+                    controlRttMs = sinceAttempts().coerceAtLeast(1)
                 }
 
                 /**
-                 * Window for the single retry of a timed-out ordinary target:
-                 * the RTT-scaled deadline beyond the base timeout already
-                 * spent, or one more base timeout when no control RTT is known.
+                 * Timeout for the single relaunch of a timed-out ordinary
+                 * target. Two independent reasons to relaunch: the RTT-scaled
+                 * deadline of a slow control, and one more base attempt against
+                 * probabilistic loss. Whichever reaches further wins, and
+                 * [NetworkProbePolicy.ordinaryRetryWindowMs] drops the relaunch
+                 * when the round can no longer hold it.
                  */
                 fun ordinaryRetryMs(
                     outcome: CheckOutcome,
@@ -164,24 +172,35 @@ object NetworkProbe {
                     if (alreadyRetried) return 0
                     val left = remaining(roundBudget.toInt())
                     if (!NetworkProbePolicy.shouldRetryOrdinaryTarget(outcome, left)) return 0
-                    val extended = controlRttMs?.let { rtt ->
-                        NetworkProbePolicy.ordinaryDeadlineMs(rtt, baseMs, left) - baseMs
+                    val elapsed = sinceAttempts()
+                    val rttDeadline = controlRttMs?.let { rtt ->
+                        NetworkProbePolicy.ordinaryDeadlineMs(rtt, baseMs, left + elapsed)
                     } ?: 0
-                    return maxOf(extended, minOf(baseMs, left)).coerceAtMost(left)
+                    val lossDeadline = elapsed + baseMs
+                    return NetworkProbePolicy.ordinaryRetryWindowMs(
+                        targetDeadlineMs = maxOf(rttDeadline, lossDeadline),
+                        elapsedMs = elapsed,
+                        remainingBudgetMs = left,
+                    )
                 }
+
+                fun settledCloudflare(): CheckOutcome? =
+                    cloudflare ?: cloudflareFirst
+
+                fun settledGoogle(): CheckOutcome? = google ?: googleFirst
 
                 fun snapshot(): ProbeResult = NetworkProbePolicy.classify(
                     systemOnline = systemOnline,
                     yandexOk = yandex?.isSuccess == true,
-                    bigtechOk = cloudflare?.isSuccess == true,
+                    bigtechOk = settledCloudflare()?.isSuccess == true,
                     captive = captive,
                     provisionOk = provision?.isSuccess == true,
                     underlayKind = underlayKind,
                     yandexOutcome = yandex ?: CheckOutcome.NotRun,
-                    bigtechOutcome = cloudflare ?: CheckOutcome.NotRun,
+                    bigtechOutcome = NetworkProbePolicy.settledOutcome(cloudflare, cloudflareFirst),
                     provisionOutcome = provision ?: CheckOutcome.NotRun,
-                    googleOk = google?.isSuccess == true,
-                    googleOutcome = google ?: CheckOutcome.NotRun,
+                    googleOk = settledGoogle()?.isSuccess == true,
+                    googleOutcome = NetworkProbePolicy.settledOutcome(google, googleFirst),
                     ruServiceOk = ruService?.isSuccess == true,
                     ruServiceOutcome = ruService ?: CheckOutcome.NotRun,
                     previousWhitelistScore = 0,
@@ -234,8 +253,10 @@ object NetworkProbe {
                     }
                     if (roundExpired) {
                         if (yandex == null) yandex = CheckOutcome.Cancelled
-                        if (cloudflare == null) cloudflare = CheckOutcome.Cancelled
-                        if (google == null) google = CheckOutcome.Cancelled
+                        // A relaunch cut short by the round keeps the verdict
+                        // its first attempt already produced.
+                        if (cloudflare == null) cloudflare = cloudflareFirst ?: CheckOutcome.Cancelled
+                        if (google == null) google = googleFirst ?: CheckOutcome.Cancelled
                         if (ruService == null) ruService = CheckOutcome.Cancelled
                         if (provision == null) provision = CheckOutcome.Cancelled
                         yandexDef.cancel()
@@ -257,9 +278,9 @@ object NetworkProbe {
                         }
                         if (cloudflare == null) {
                             cloudflareDef.onAwait { outcome ->
-                                val retryMs = ordinaryRetryMs(outcome, tlsMs, cloudflareRetried)
+                                val retryMs = ordinaryRetryMs(outcome, tlsMs, cloudflareFirst != null)
                                 if (retryMs > 0) {
-                                    cloudflareRetried = true
+                                    cloudflareFirst = outcome
                                     cloudflareDef = async {
                                         cloudflareOpenOutcome(retryMs, retryMs, bound)
                                     }
@@ -270,9 +291,9 @@ object NetworkProbe {
                         }
                         if (google == null) {
                             googleDef.onAwait { outcome ->
-                                val retryMs = ordinaryRetryMs(outcome, udpMs, googleRetried)
+                                val retryMs = ordinaryRetryMs(outcome, udpMs, googleFirst != null)
                                 if (retryMs > 0) {
-                                    googleRetried = true
+                                    googleFirst = outcome
                                     googleDef = async {
                                         udpDnsReachableOutcome(GOOGLE_DNS_IP, retryMs, bound)
                                     }
