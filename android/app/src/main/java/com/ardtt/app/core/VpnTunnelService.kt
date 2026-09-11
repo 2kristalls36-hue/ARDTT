@@ -297,10 +297,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
     }
 
-    private fun launchBackend(requestedPath: VpnPath, softRestart: Boolean) {
+    /**
+     * [wakeHold] is the restart hold owned by the caller: only that token may be
+     * released here, or a relaunch that is still waiting out its restart delay
+     * loses the CPU to a backend from the previous round reporting its state.
+     */
+    private fun launchBackend(requestedPath: VpnPath, softRestart: Boolean, wakeHold: Long? = null) {
+        fun releaseWakeHold() {
+            wakeHold?.let { restartWakeLock.release(it) }
+        }
         val config = TunnelSessionHolder.config
         if (config == null) {
             AppLog.e(TAG, "No session config")
+            releaseWakeHold()
             softRestartInProgress = false
             ConnectionManager.getOrNull()?.onTunnelFailed("Нет конфигурации сессии")
             stopSelf()
@@ -363,7 +372,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         if (epochResume != backendEpoch) return@resumeParked
                         when (state) {
                             is TunnelBackendState.Running -> {
-                                restartWakeLock.releaseNow()
+                                releaseWakeHold()
                                 tunnelSessionActive = true
                                 ConnectionManager.getOrNull()?.onTunnelRunning(VpnPath.Bypass)
                                 updateNotification(
@@ -373,7 +382,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 )
                             }
                             is TunnelBackendState.Failed -> {
-                                restartWakeLock.releaseNow()
+                                releaseWakeHold()
                                 if (!userStopRequested && !trustedWifiWaiting) {
                                     applyTunnelFailureAction(state.message)
                                 }
@@ -383,6 +392,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     }
                     if (!ok && epochResume == backendEpoch && !userStopRequested) {
                         AppLog.w(TAG, "Parked RAW resume failed — rebuilding transport, same call")
+                        releaseWakeHold()
                         parked.stop()
                         backend = null
                         applyTunnelFailureAction("Не удалось возобновить обход с прежним звонком")
@@ -425,7 +435,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
             VpnPath.Bypass -> null
         }
-        if (path == VpnPath.Direct && fd == null) return
+        if (path == VpnPath.Direct && fd == null) {
+            releaseWakeHold()
+            return
+        }
 
         sessionJob = scope.launch {
             try {
@@ -438,7 +451,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     when (state) {
                         is TunnelBackendState.Running -> {
                             AppLog.v(TAG, "Running path=$path")
-                            restartWakeLock.releaseNow()
+                            releaseWakeHold()
                             softRestartInProgress = false
                             tunnelSessionActive = true
                             if (path == VpnPath.Bypass) {
@@ -459,12 +472,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             drainPendingHandover()
                         }
                         is TunnelBackendState.Failed -> {
+                            releaseWakeHold()
                             if (userStopRequested || trustedWifiWaiting) {
                                 AppLog.w(TAG, "Ignoring failure after stop/pause: ${state.message}")
                                 return@start
                             }
                             AppLog.e(TAG, "Failed: ${state.message}")
-                            restartWakeLock.releaseNow()
                             softRestartInProgress = false
                             applyTunnelFailureAction(state.message)
                         }
@@ -479,6 +492,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     AppLog.v(TAG, "session cancelled (normal stop/restart)")
                     throw t
                 }
+                releaseWakeHold()
                 if (epoch != backendEpoch || userStopRequested || trustedWifiWaiting) {
                     AppLog.w(TAG, "Ignoring crash from stale/stop backend: ${t.message}")
                     return@launch
@@ -660,7 +674,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     return@launch
                 }
                 handedOff = true
-                launchBackend(path, softRestart = true)
+                launchBackend(path, softRestart = true, wakeHold = hold)
             } finally {
                 // launchBackend only starts the session job; a handed-off restart
                 // is released by the backend reaching Running or Failed.
