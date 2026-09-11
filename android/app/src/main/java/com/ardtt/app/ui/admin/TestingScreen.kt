@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,6 +70,7 @@ import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttChoice
 import com.ardtt.app.ui.components.control.ArdttChoiceChipRow
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
@@ -513,20 +513,18 @@ private fun LogCommentSheet(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
+        ArdttTextField(
             value = comment,
             onValueChange = { onCommentChange(it.take(TestingTicketStore.MAX_COMMENT)) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester),
-            label = { Text("Что произошло") },
-            placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
+            modifier = Modifier.focusRequester(focusRequester),
+            label = "Что произошло",
+            placeholder = "Например: после смены Wi‑Fi туннель не восстановился…",
+            singleLine = false,
             minLines = 3,
             maxLines = 8,
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences,
             ),
-            shape = ArdttShapes.Field,
         )
     }
 }

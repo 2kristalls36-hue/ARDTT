@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,9 +52,11 @@ import com.ardtt.app.profile.VpnProfileJson
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ArdttDigitsField
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttErrorState
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
@@ -421,14 +422,11 @@ private fun ClientsScreen(
             dismissOnBackPress = !creating,
             dismissOnClickOutside = !creating,
         ) {
-            OutlinedTextField(
+            ArdttTextField(
                 value = createName,
                 onValueChange = { createName = it },
-                label = { Text("Имя") },
-                singleLine = true,
+                label = "Имя",
                 enabled = !creating,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
             Text(
                 "Срок",
@@ -510,32 +508,26 @@ private fun ClientsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(
+            ArdttDigitsField(
                 value = editMaxDevices,
-                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) editMaxDevices = v },
-                label = { Text("Лимит устройств") },
-                singleLine = true,
+                onValueChange = { editMaxDevices = it },
+                label = "Лимит устройств",
+                maxLength = 2,
                 enabled = !editing,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            ArdttDigitsField(
                 value = editDays,
-                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editDays = v },
-                label = { Text("Продлить на N дней (опц.)") },
-                singleLine = true,
+                onValueChange = { editDays = it },
+                label = "Продлить на N дней (опц.)",
+                maxLength = 4,
                 enabled = !editing,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            ArdttDigitsField(
                 value = editTrafficGb,
-                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editTrafficGb = v },
-                label = { Text("Лимит трафика, ГБ (0 = без лимита)") },
-                singleLine = true,
+                onValueChange = { editTrafficGb = it },
+                label = "Лимит трафика, ГБ (0 = без лимита)",
+                maxLength = 4,
                 enabled = !editing,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -631,14 +623,11 @@ private fun ClientsScreen(
             dismissOnBackPress = !renaming,
             dismissOnClickOutside = !renaming,
         ) {
-            OutlinedTextField(
+            ArdttTextField(
                 value = renameDraft,
                 onValueChange = { renameDraft = it },
-                label = { Text("Имя") },
-                singleLine = true,
+                label = "Имя",
                 enabled = !renaming,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

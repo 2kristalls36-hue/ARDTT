@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -43,10 +42,10 @@ import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
-import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlinx.coroutines.launch
 
@@ -276,12 +275,9 @@ private fun CallHashDialog(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(
+            ArdttTextField(
                 value = value,
                 onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
-                shape = ArdttShapes.Field,
-                singleLine = true,
             )
             ArdttButton(
                 text = "Копировать",

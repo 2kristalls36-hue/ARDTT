@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +67,7 @@ import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttLazyFeedScaffold
@@ -81,7 +81,6 @@ import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.theme.warningStatusColor
 import com.ardtt.app.ui.theme.ArdttLayout
-import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.util.copyToClipboard
@@ -396,13 +395,10 @@ fun ProfilesScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(
+            ArdttTextField(
                 value = subscriptionUrl,
                 onValueChange = { subscriptionUrl = it },
-                modifier = Modifier.fillMaxWidth(),
-                shape = ArdttShapes.Field,
-                placeholder = { Text("https://…/profile.json") },
-                singleLine = true,
+                placeholder = "https://…/profile.json",
             )
         }
     }
@@ -428,14 +424,12 @@ fun ProfilesScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(
+            ArdttTextField(
                 value = pasteText,
                 onValueChange = { pasteText = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp),
-                shape = ArdttShapes.Field,
-                placeholder = { Text("ardtt://config?… или { \"name\": … }") },
+                modifier = Modifier.height(180.dp),
+                placeholder = "ardtt://config?… или { \"name\": … }",
+                singleLine = false,
             )
         }
     }
@@ -457,13 +451,10 @@ fun ProfilesScreen(
             ),
             dismissAction = ArdttDialogAction("Отмена", { renameTarget = null }),
         ) {
-            OutlinedTextField(
+            ArdttTextField(
                 value = renameText,
                 onValueChange = { renameText = it },
-                label = { Text("Имя профиля") },
-                singleLine = true,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
+                label = "Имя профиля",
             )
         }
     }

@@ -8,7 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,10 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -53,7 +49,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,14 +62,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -103,10 +95,13 @@ import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ArdttDigitsField
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
+import com.ardtt.app.ui.components.control.ArdttPasswordField
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
+import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttIpChip
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
@@ -1575,31 +1570,12 @@ private fun RenameServerDialog(
         ),
         dismissAction = ArdttDialogAction("Отмена", onDismiss),
     ) {
-        OutlinedTextField(
+        ArdttTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Имя сервера") },
-            singleLine = true,
-            shape = ArdttShapes.Field,
-            modifier = Modifier.fillMaxWidth(),
+            label = "Имя сервера",
         )
     }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun Modifier.bringIntoViewWhenFocused(): Modifier {
-    val requester = remember { BringIntoViewRequester() }
-    val scope = rememberCoroutineScope()
-    return this
-        .bringIntoViewRequester(requester)
-        .onFocusEvent { state ->
-            if (!state.isFocused) return@onFocusEvent
-            scope.launch {
-                delay(280)
-                runCatching { requester.bringIntoView() }
-            }
-        }
 }
 
 @Composable
@@ -1827,102 +1803,64 @@ fun DeployScreen(
             modifier = Modifier.padding(horizontal = ArdttSpacing.Large),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
-        OutlinedTextField(
+        ArdttTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Имя сервера") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .bringIntoViewWhenFocused(),
-            singleLine = true,
+            label = "Имя сервера",
             enabled = !busy,
-            shape = ArdttShapes.Field,
         )
-        OutlinedTextField(
+        ArdttTextField(
             value = host,
             onValueChange = { host = it },
-            label = { Text("SSH host / IP") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .bringIntoViewWhenFocused(),
-            singleLine = true,
+            label = "SSH host / IP",
             enabled = !busy,
-            shape = ArdttShapes.Field,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
+            ArdttDigitsField(
                 value = sshPort,
-                onValueChange = { sshPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                label = { Text("SSH порт") },
-                modifier = Modifier
-                    .weight(1f)
-                    .bringIntoViewWhenFocused(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
+                onValueChange = { sshPort = it },
+                label = "SSH порт",
+                modifier = Modifier.weight(1f),
+                maxLength = 5,
                 enabled = !busy,
-                shape = ArdttShapes.Field,
             )
-            OutlinedTextField(
+            ArdttTextField(
                 value = sshUser,
                 onValueChange = { sshUser = it },
-                label = { Text("SSH user") },
-                modifier = Modifier
-                    .weight(1f)
-                    .bringIntoViewWhenFocused(),
-                singleLine = true,
+                label = "SSH user",
+                modifier = Modifier.weight(1f),
                 enabled = !busy,
-                shape = ArdttShapes.Field,
             )
         }
-        OutlinedTextField(
+        ArdttPasswordField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Пароль (или sudo)") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .bringIntoViewWhenFocused(),
-            visualTransformation = PasswordVisualTransformation(),
-            singleLine = true,
+            label = "Пароль (или sudo)",
             enabled = !busy,
-            shape = ArdttShapes.Field,
         )
-        OutlinedTextField(
+        ArdttTextField(
             value = privateKey,
             onValueChange = { privateKey = it },
-            label = { Text("SSH private key PEM (опционально)") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 80.dp)
-                .bringIntoViewWhenFocused(),
+            label = "SSH private key PEM (опционально)",
+            modifier = Modifier.heightIn(min = 80.dp),
+            singleLine = false,
             minLines = 3,
             enabled = !busy,
-            shape = ArdttShapes.Field,
         )
         if (privateKey.isNotBlank()) {
-            OutlinedTextField(
+            ArdttPasswordField(
                 value = keyPass,
                 onValueChange = { keyPass = it },
-                label = { Text("Passphrase ключа") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .bringIntoViewWhenFocused(),
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
+                label = "Passphrase ключа",
                 enabled = !busy,
-                shape = ArdttShapes.Field,
             )
         }
-        OutlinedTextField(
+        ArdttTextField(
             value = publicHost,
             onValueChange = { publicHost = it },
-            label = { Text("Публичный host для профиля") },
-            placeholder = { Text("Как в ARDTT_PUBLIC_HOST, обычно = IP") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .bringIntoViewWhenFocused(),
-            singleLine = true,
+            label = "Публичный host для профиля",
+            placeholder = "Как в ARDTT_PUBLIC_HOST, обычно = IP",
             enabled = !busy,
-            shape = ArdttShapes.Field,
         )
         ArdttSectionCard(
             contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
@@ -1941,29 +1879,21 @@ fun DeployScreen(
                     horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    OutlinedTextField(
+                    ArdttDigitsField(
                         value = directPort,
-                        onValueChange = { directPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                        label = { Text("Direct UDP") },
-                        modifier = Modifier
-                            .weight(1f)
-                            .bringIntoViewWhenFocused(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
+                        onValueChange = { directPort = it },
+                        label = "Direct UDP",
+                        modifier = Modifier.weight(1f),
+                        maxLength = 5,
                         enabled = !busy,
-                        shape = ArdttShapes.Field,
                     )
-                    OutlinedTextField(
+                    ArdttDigitsField(
                         value = bypassPort,
-                        onValueChange = { bypassPort = it.filter { ch -> ch.isDigit() }.take(5) },
-                        label = { Text("Bypass UDP") },
-                        modifier = Modifier
-                            .weight(1f)
-                            .bringIntoViewWhenFocused(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
+                        onValueChange = { bypassPort = it },
+                        label = "Bypass UDP",
+                        modifier = Modifier.weight(1f),
+                        maxLength = 5,
                         enabled = !busy,
-                        shape = ArdttShapes.Field,
                     )
                 }
             }
@@ -1985,82 +1915,54 @@ fun DeployScreen(
                 enabled = !busy,
             )
             if (cascadeEnabled) {
-                OutlinedTextField(
+                ArdttTextField(
                     value = cascadeHost,
                     onValueChange = { cascadeHost = it },
-                    label = { Text("Выход host / IP") },
-                    placeholder = { Text(cascadeExitHostPlaceholder()) },
-                    singleLine = true,
+                    label = "Выход host / IP",
+                    placeholder = cascadeExitHostPlaceholder(),
                     enabled = !busy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .bringIntoViewWhenFocused(),
-                    shape = ArdttShapes.Field,
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    OutlinedTextField(
+                    ArdttDigitsField(
                         value = cascadePort,
-                        onValueChange = { cascadePort = it.filter { ch -> ch.isDigit() }.take(5) },
-                        label = { Text("SSH порт") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
+                        onValueChange = { cascadePort = it },
+                        label = "SSH порт",
+                        modifier = Modifier.weight(1f),
+                        maxLength = 5,
                         enabled = !busy,
-                        modifier = Modifier
-                            .weight(1f)
-                            .bringIntoViewWhenFocused(),
-                        shape = ArdttShapes.Field,
                     )
-                    OutlinedTextField(
+                    ArdttTextField(
                         value = cascadeUser,
                         onValueChange = { cascadeUser = it },
-                        label = { Text("SSH user") },
-                        singleLine = true,
+                        label = "SSH user",
+                        modifier = Modifier.weight(1f),
                         enabled = !busy,
-                        modifier = Modifier
-                            .weight(1f)
-                            .bringIntoViewWhenFocused(),
-                        shape = ArdttShapes.Field,
                     )
                 }
-                OutlinedTextField(
+                ArdttPasswordField(
                     value = cascadePassword,
                     onValueChange = { cascadePassword = it },
-                    label = { Text("Пароль (или sudo)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
+                    label = "Пароль (или sudo)",
                     enabled = !busy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .bringIntoViewWhenFocused(),
-                    shape = ArdttShapes.Field,
                 )
-                OutlinedTextField(
+                ArdttTextField(
                     value = cascadePrivateKey,
                     onValueChange = { cascadePrivateKey = it },
-                    label = { Text("SSH private key PEM (опционально)") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 80.dp)
-                        .bringIntoViewWhenFocused(),
+                    label = "SSH private key PEM (опционально)",
+                    modifier = Modifier.heightIn(min = 80.dp),
+                    singleLine = false,
                     minLines = 3,
                     enabled = !busy,
-                    shape = ArdttShapes.Field,
                 )
                 if (cascadePrivateKey.isNotBlank()) {
-                    OutlinedTextField(
+                    ArdttPasswordField(
                         value = cascadeKeyPass,
                         onValueChange = { cascadeKeyPass = it },
-                        label = { Text("Passphrase ключа") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
+                        label = "Passphrase ключа",
                         enabled = !busy,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bringIntoViewWhenFocused(),
-                        shape = ArdttShapes.Field,
                     )
                 }
             }

@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,6 +55,7 @@ import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
+import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
@@ -352,12 +352,10 @@ fun LogsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
-                OutlinedTextField(
+                ArdttTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Поиск") },
+                    label = "Поиск",
                     trailingIcon = {
                         if (query.isNotBlank()) {
                             ArdttButton(
