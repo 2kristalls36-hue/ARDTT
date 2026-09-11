@@ -238,6 +238,22 @@ grep -q 'ARDTT_INFO|seeded 3 layers' "$RUN_OUT" || err "I expected the cache to 
 grep -q 'ARDTT_INFO|слои образа: 3 всего, 3 в кэше, скачать 0' "$RUN_OUT" || err "I cache summary: $(grep 'слои образа' "$RUN_OUT")"
 ok "I cold cache seeded from the loaded image"
 
+# --- J: no curl on the VPS (minimal Debian image) → python3 urllib downloader, same result
+mkdir -p "$TMP/nocurl"
+for f in "$TMP/nodocker"/*; do
+  n="$(basename "$f")"
+  [ "$n" = "curl" ] && continue
+  ln -s "$(readlink "$f")" "$TMP/nocurl/$n" 2>/dev/null || true
+done
+rm -rf "$INSTALL/cache"
+RUN_PATH="$TMP/withdocker:$TMP/nocurl" run_fetch J ARDTT_DEPLOY_VERSION=1.0.46
+[ "$RUN_RC" = 0 ] || err "J exit $RUN_RC: $(tail -5 "$RUN_OUT")"
+grep -q 'ARDTT_INFO|curl не найден' "$RUN_OUT" || err "J must announce the urllib fallback"
+grep -q 'deploy_version=1.0.46' "$RUN_OUT" || err "J version"
+[ "$(grep -c "layer-0[0-9]-" "$RUN_REQ")" = 3 ] || err "J expected 3 layer downloads via urllib: $(cat "$RUN_REQ")"
+[ "$(reqs "ardtt-docker-engine-29.7.2-linux-${ARCH}.tgz")" = 0 ] || err "J Engine must not be downloaded when docker exists"
+ok "J urllib downloader without curl"
+
 # Bootstrap copy in APK assets must be the same script.
 cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
   || err "android/app/src/main/assets/deploy/fetch-and-install.sh differs from server/fetch-and-install.sh"

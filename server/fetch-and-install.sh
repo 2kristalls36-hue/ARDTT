@@ -54,8 +54,10 @@ LAYER_CACHE="${ARDTT_LAYER_CACHE:-1}"
 SELF_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo .)"
 
 command -v python3 >/dev/null 2>&1 || die "PYTHON_MISSING|нужен python3 на VPS"
-command -v curl >/dev/null 2>&1 || die "CURL_MISSING|нужен curl на VPS для загрузки с GitHub Releases"
 command -v sha256sum >/dev/null 2>&1 || die "SHA256SUM_MISSING|нужен sha256sum (coreutils) на VPS"
+# Minimal Debian/Ubuntu cloud images ship python3 but not curl: fall back to urllib.
+HAVE_CURL=0
+command -v curl >/dev/null 2>&1 && HAVE_CURL=1
 case "$FETCH_MODE" in auto|partial|full) ;; *) die "BAD_FETCH_MODE|ARDTT_FETCH_MODE=${FETCH_MODE} (auto|partial|full)" ;; esac
 
 detect_arch() {
@@ -67,14 +69,96 @@ detect_arch() {
 }
 
 API_HTTP_CODE=""
+DL_PY=""
+# urllib downloader used when curl is absent: `get` prints the HTTP code,
+# `download` resumes with Range, retries transient errors and times out stalls.
+write_dl_py() {
+  DL_PY="$1"
+  cat > "$DL_PY" <<'PY'
+import os, socket, sys, time, urllib.error, urllib.request
+
+UA = os.environ.get("ARDTT_USER_AGENT", "ARDTT-VPS-fetch/2.0")
+
+
+def req(url, headers):
+    h = {"User-Agent": UA}
+    h.update(headers)
+    return urllib.request.Request(url, headers=h)
+
+
+def cmd_get(url, out, token):
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    try:
+        with urllib.request.urlopen(req(url, headers), timeout=30) as r:
+            data = r.read()
+        with open(out, "wb") as fh:
+            fh.write(data)
+        print(r.status)
+        return 0
+    except urllib.error.HTTPError as e:
+        print(e.code)
+        return 1
+    except (urllib.error.URLError, socket.timeout, OSError):
+        print("000")
+        return 1
+
+
+def cmd_download(url, part, size):
+    for attempt in range(4):
+        have = os.path.getsize(part) if os.path.exists(part) else 0
+        if size and have > size:
+            os.remove(part)
+            have = 0
+        if size and have == size:
+            return 0
+        headers = {"Range": "bytes=%d-" % have} if have else {}
+        try:
+            with urllib.request.urlopen(req(url, headers), timeout=90) as r:
+                append = have > 0 and r.status == 206
+                with open(part, "ab" if append else "wb") as fh:
+                    while True:
+                        chunk = r.read(1 << 20)
+                        if not chunk:
+                            break
+                        fh.write(chunk)
+            return 0
+        except urllib.error.HTTPError as e:
+            if e.code == 416 and have:
+                if size and have == size:
+                    return 0
+                os.remove(part)
+                continue
+            if 400 <= e.code < 500 and e.code != 429:
+                sys.stderr.write("HTTP %d for %s\n" % (e.code, url))
+                return 1
+        except (urllib.error.URLError, socket.timeout, OSError) as exc:
+            sys.stderr.write("%s: %s\n" % (url, exc))
+        time.sleep(2 * (attempt + 1))
+    return 1
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1]
+    if cmd == "get":
+        sys.exit(cmd_get(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else ""))
+    sys.exit(cmd_download(sys.argv[2], sys.argv[3], int(sys.argv[4] or 0)))
+PY
+}
+
 api_get() {
   local url="$1" out="$2" code
-  local hdr=(-H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28')
-  if [ -n "${ARDTT_GITHUB_TOKEN:-}" ]; then
-    hdr+=(-H "Authorization: Bearer ${ARDTT_GITHUB_TOKEN}")
+  if [ "$HAVE_CURL" = 1 ]; then
+    local hdr=(-H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28')
+    if [ -n "${ARDTT_GITHUB_TOKEN:-}" ]; then
+      hdr+=(-H "Authorization: Bearer ${ARDTT_GITHUB_TOKEN}")
+    fi
+    code="$(curl -sSL -A "$UA" --connect-timeout 20 --retry 2 --retry-delay 2 "${hdr[@]}" \
+      -w '%{http_code}' -o "$out" "$url" 2>/dev/null || true)"
+  else
+    code="$(python3 "$DL_PY" get "$url" "$out" "${ARDTT_GITHUB_TOKEN:-}" 2>/dev/null || true)"
   fi
-  code="$(curl -sSL -A "$UA" --connect-timeout 20 --retry 2 --retry-delay 2 "${hdr[@]}" \
-    -w '%{http_code}' -o "$out" "$url" 2>/dev/null || true)"
   API_HTTP_CODE="$code"
   [ "$code" = "200" ]
 }
@@ -91,6 +175,13 @@ download() {
       return 0
     fi
     [ "$have" -gt "$size" ] && rm -f "$part"
+  fi
+  if [ "$HAVE_CURL" != 1 ]; then
+    if python3 "$DL_PY" download "$url" "$part" "${size:-0}"; then
+      mv -f "$part" "$dest"
+      return 0
+    fi
+    return 1
   fi
   for attempt in 1 2; do
     local resume=()
@@ -185,6 +276,10 @@ flock -n 8 || die "BUSY|другая загрузка/установка ARDTT �
 
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD" 2>/dev/null || true' EXIT
+if [ "$HAVE_CURL" != 1 ]; then
+  write_dl_py "$TMPD/dl.py"
+  info "curl не найден — загрузка через python3 urllib"
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Resolve the release: API (all releases, per-asset digest) or, when the
