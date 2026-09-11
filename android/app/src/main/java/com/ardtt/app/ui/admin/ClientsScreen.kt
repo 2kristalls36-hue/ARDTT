@@ -40,7 +40,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.core.PhoneModelLabel
 import com.ardtt.app.deploy.DeployTarget
@@ -70,6 +73,7 @@ import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.latestAppVersionCode
@@ -139,6 +143,7 @@ private fun ClientsScreen(
     var renameDraft by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf(false) }
     var busyUser by remember { mutableStateOf<String?>(null) }
+    var unbindCandidate by remember { mutableStateOf<Pair<String, String>?>(null) }
     var editUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var editMaxDevices by remember { mutableStateOf("1") }
     var editDays by remember { mutableStateOf("") }
@@ -248,11 +253,15 @@ private fun ClientsScreen(
         }
     }
 
-    LaunchedEffect(base) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(base, lifecycleOwner) {
         refresh()
-        while (true) {
-            delay(15_000L)
-            applyUsersResult(ProvisionAdminApi.listUsers(base))
+        // Background refresh only while the list is on screen.
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(CLIENTS_POLL_MS)
+                applyUsersResult(ProvisionAdminApi.listUsers(base))
+            }
         }
     }
 
@@ -308,7 +317,8 @@ private fun ClientsScreen(
                                 ClientCard(
                                     user = user,
                                     latestVersionCode = latestVersionCode,
-                                    busy = busyUser != null,
+                                    // Only the card whose request is in flight locks its actions.
+                                    busy = busyUser == user.name,
                                     onOpenProfile = {
                                         sheetUser = user
                                         sheetProfile = null
@@ -648,20 +658,36 @@ private fun ClientsScreen(
                 renameDraft = user.name
                 renameUser = user
             },
-            onUnbindDevice = { deviceId ->
-                busyUser = user.name
+            onUnbindDevice = { deviceId -> unbindCandidate = user.name to deviceId },
+            onAddToPhone = {
+                sheetProfile?.let { addToPhone(it) }
+            },
+        )
+    }
+
+    unbindCandidate?.let { (userName, deviceId) ->
+        ArdttConfirmDialog(
+            title = "Отвязать устройство?",
+            body = "Устройство $deviceId потеряет доступ к профилю «$userName». " +
+                "Чтобы вернуть его, профиль придётся добавить на устройство заново.",
+            confirmText = "Отвязать",
+            busy = busyUser == userName,
+            onConfirm = {
+                busyUser = userName
                 scope.launch {
-                    val result = ProvisionAdminApi.unbindDevice(base, user.name, deviceId)
+                    val result = ProvisionAdminApi.unbindDevice(base, userName, deviceId)
                     busyUser = null
+                    unbindCandidate = null
                     result.fold(
-                        onSuccess = { replaceUser(user.name, it) },
+                        onSuccess = {
+                            replaceUser(userName, it)
+                            toast("Устройство отвязано")
+                        },
                         onFailure = { toast(it.message ?: "Не удалось отвязать") },
                     )
                 }
             },
-            onAddToPhone = {
-                sheetProfile?.let { addToPhone(it) }
-            },
+            onDismiss = { if (busyUser != userName) unbindCandidate = null },
         )
     }
 }
@@ -921,3 +947,6 @@ private fun ClientActionButton(
         contentColor = accent,
     )
 }
+
+/** Background refresh cadence of the client list while it is visible. */
+private const val CLIENTS_POLL_MS = 15_000L

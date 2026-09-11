@@ -1977,7 +1977,10 @@ fun DeployScreen(
                 }
                 val target = buildTarget()
                 serversRepo.upsert(target)
-                status = "Сервер сохранён"
+                // `status` is the red validation line and this screen is left right
+                // away, so success goes through a toast that survives navigation.
+                status = null
+                Toast.makeText(context, "Сервер сохранён", Toast.LENGTH_SHORT).show()
                 onSaved(target.id)
             },
             enabled = !busy,
