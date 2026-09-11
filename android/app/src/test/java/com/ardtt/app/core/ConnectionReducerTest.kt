@@ -333,6 +333,67 @@ class ConnectionReducerTest {
     }
 
     @Test
+    fun credentialsRefreshDropsThePendingReevalDeadline() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular(), call = CallSessionState(hashPresent = true)),
+            ConnectionEvent.UserConnect(ConnPathMode.Bypass, "p", true, false),
+            1L,
+        ).state
+        val withReeval = started.copy(
+            recovery = started.recovery.copy(
+                nextRetryAtElapsedMs = 30_000L,
+                pendingTimer = PendingTimer.Reeval,
+            ),
+        )
+        val expired = ConnectionReducer.reduce(
+            withReeval,
+            ConnectionEvent.CallValidityChanged(
+                sessionEpoch = withReeval.sessionEpoch,
+                validity = CallValidity.CredentialsExpired,
+            ),
+            2L,
+        )
+        assertEquals(RecoveryCommand.RefreshCredentials, expired.command)
+        // The manager clears the runtime timer for this command; a surviving
+        // deadline would block every later arm.
+        assertNull(expired.state.recovery.nextRetryAtElapsedMs)
+        assertEquals(PendingTimer.None, expired.state.recovery.pendingTimer)
+    }
+
+    @Test
+    fun discardingAStaleCallDropsThePendingReevalDeadline() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular(), call = CallSessionState(hashPresent = true)),
+            ConnectionEvent.UserConnect(
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+                silentRecreate = false,
+                callIdentityToken = "t1",
+            ),
+            1L,
+        ).state
+        val withReeval = started.copy(
+            recovery = started.recovery.copy(
+                nextRetryAtElapsedMs = 30_000L,
+                pendingTimer = PendingTimer.Reeval,
+            ),
+        )
+        val swapped = ConnectionReducer.reduce(
+            withReeval,
+            ConnectionEvent.SessionParamsChanged(
+                profileId = "p",
+                hasCallHash = true,
+                identityToken = "t2",
+            ),
+            2L,
+        )
+        assertTrue(swapped.command is RecoveryCommand.DiscardStaleCall)
+        assertNull(swapped.state.recovery.nextRetryAtElapsedMs)
+        assertEquals(PendingTimer.None, swapped.state.recovery.pendingTimer)
+    }
+
+    @Test
     fun backoffCopyUsesRemainingNotAbsoluteElapsed() {
         val state = ConnectionReducer.reduce(
             idle().copy(underlay = usableCellular()),

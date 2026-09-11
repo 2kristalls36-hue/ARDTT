@@ -723,7 +723,15 @@ object ConnectionReducer {
         if (event.validity == CallValidity.CredentialsExpired && state.intent.wantsConnected) {
             return ReduceResult(
                 withUi(
-                    next.copy(recovery = next.recovery.copy(callOpInFlight = true)),
+                    // The command clears the runtime timer; a deadline left in
+                    // the state would only block the next arm.
+                    next.copy(
+                        recovery = next.recovery.copy(
+                            callOpInFlight = true,
+                            nextRetryAtElapsedMs = null,
+                            pendingTimer = PendingTimer.None,
+                        ),
+                    ),
                     elapsedMs,
                 ),
                 RecoveryCommand.RefreshCredentials,
@@ -866,6 +874,10 @@ object ConnectionReducer {
             recovery = state.recovery.copy(
                 inFlight = keepDirect && state.recovery.inFlight && !startingDirectNeedsRestart,
                 callOpInFlight = false,
+                // DiscardStaleCall clears the runtime timer; keeping the
+                // deadline here would only block the next arm.
+                nextRetryAtElapsedMs = null,
+                pendingTimer = PendingTimer.None,
                 permit = permitFrom(
                     state.copy(
                         transportEpoch = transportEpoch,
