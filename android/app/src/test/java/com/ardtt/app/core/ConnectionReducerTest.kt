@@ -1964,4 +1964,29 @@ class ConnectionReducerTest {
         assertEquals(80, r.state.evidence?.whitelistScorePercent)
         assertEquals(cellKey, r.state.evidence?.networkKey)
     }
+
+    @Test
+    fun captiveWifiWithoutACallArmsTheUnderlayWatcher() {
+        val started = ConnectionReducer.reduce(
+            idle(),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = false, silentRecreate = false),
+            5L,
+        ).state
+        val captive = UnderlaySnapshot(
+            key = wifiKey,
+            kind = UnderlayKind.Wifi,
+            availability = UnderlayAvailability.Captive,
+            handle = 2L,
+            captivePortal = true,
+            wifiConnected = true,
+            cellularConnected = true,
+            networkEpoch = 2L,
+        )
+        val r = ConnectionReducer.reduce(started, ConnectionEvent.UnderlayUpdated(captive), 10L)
+        assertEquals(RecoveryPhase.CaptivePortal, r.state.recovery.phase)
+        // Cellular alongside the portal keeps allowsNetworkOps true, so only
+        // this command registers the watcher that resumes after sign-in.
+        assertTrue(r.state.underlay.allowsNetworkOps)
+        assertEquals(RecoveryCommand.PauseNetOps, r.command)
+    }
 }

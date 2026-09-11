@@ -1007,9 +1007,12 @@ object ConnectionReducer {
                 withUi(state.copy(recovery = phaseOf(RecoveryPhase.WaitingForNetwork)), elapsedMs),
                 RecoveryCommand.PauseNetOps,
             )
+            // Captive Wi‑Fi alongside cellular still allows network ops, so the
+            // underlay branch never pauses. PauseNetOps is what registers the
+            // underlay watcher that notices the portal being signed in.
             AutoDecision.ShowCaptive -> ReduceResult(
                 withUi(state.copy(recovery = phaseOf(RecoveryPhase.CaptivePortal)), elapsedMs),
-                RecoveryCommand.None,
+                RecoveryCommand.PauseNetOps,
             )
             is AutoDecision.NeedsUserAction -> ReduceResult(
                 state.copy(
