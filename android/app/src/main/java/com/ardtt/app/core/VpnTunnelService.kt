@@ -1501,7 +1501,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeEpoch++
         val myEpoch = networkChangeEpoch
         networkChangeJob?.cancel()
-        val hold = handoverWakeLock.acquire(HANDOVER_WAKELOCK_MS)
+        var hold = handoverWakeLock.acquire(HANDOVER_WAKELOCK_MS)
         networkChangeJob = scope.launch {
             try {
                 val skipValidated = shouldSkipValidatedWait(
@@ -1668,6 +1668,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         "handover: not skipping Bypass — underlay not VALIDATED ($reason)",
                     )
                 }
+                // The SSID retry loop and the settle can have eaten most of the
+                // hold already; refresh it so the probe and the restart it feeds
+                // are not the part that runs without the CPU.
+                hold = handoverWakeLock.acquire(HANDOVER_WAKELOCK_MS)
                 runHandoverProbeAndRestart(
                     reason,
                     underlayChanged = pendingHandoverUnderlayChanged,
@@ -2435,9 +2439,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42
         private const val TRUSTED_WIFI_RESUME_GUARD_MS = 8_000L
-        /** VALIDATED wait plus Bypass settle, before the probe even starts. */
+        /** VALIDATED wait plus the longest settle, before the probe even starts. */
         private const val HANDOVER_WAKELOCK_MS =
-            VALIDATED_WAIT_TIMEOUT_MS + BYPASS_NETWORK_SETTLE_MS
+            VALIDATED_WAIT_TIMEOUT_MS +
+                RecoverySettings.WIFI_UPGRADE_SETTLE_MS +
+                RecoverySettings.FAST_PROBE_BUDGET_MS
         /** Backend relaunch: RAW re-dial plus path confirm. */
         private const val SOFT_RESTART_WAKELOCK_MS = 30_000L
         /** AWG-over-WARP underlay needs headroom under 1280. */
