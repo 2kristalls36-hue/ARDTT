@@ -155,6 +155,29 @@ grep -q 'ARDTT_LOG_DIR' "$COMPOSE" || err "compose must mount dedicated log dir"
 grep -q 'AMNEZIAWG_GO_COMMIT' "$DOCKERFILE" || err "Dockerfile must pin amneziawg-go commit"
 grep -q 'sha256sum -c' "$DOCKERFILE" || err "Dockerfile must verify upstream checksums"
 grep -q 'refs/heads/master' "$DOCKERFILE" && err "Dockerfile must not fetch floating master"
+# Base images pinned by digest (stable layers for partial deploy), matching the lock.
+python3 - "$DOCKERFILE" "$ROOT/server/third-party.lock.json" <<'PY' || err "Dockerfile base images must be pinned to the digests in third-party.lock.json"
+import json, re, sys
+dockerfile, lock = open(sys.argv[1], encoding="utf-8").read(), json.load(open(sys.argv[2], encoding="utf-8"))
+digests = (lock.get("baseImages") or {}).get("digests") or {}
+bad = []
+for m in re.finditer(r"^FROM\s+(\S+)", dockerfile, re.M):
+    ref = m.group(1)
+    if ref == "scratch":
+        continue
+    if "@sha256:" not in ref:
+        bad.append(ref + " (no digest)")
+        continue
+    tag, digest = ref.split("@", 1)
+    if digests.get(tag) != digest:
+        bad.append(ref + " (lock has %s)" % digests.get(tag))
+if bad:
+    raise SystemExit("unpinned/mismatched FROM: " + ", ".join(bad))
+PY
+if grep -qE '^RUN chmod \+x /entrypoint\.sh' "$DOCKERFILE"; then
+  err "Dockerfile must set modes with COPY --chmod, not a trailing RUN chmod layer that re-ships every binary"
+fi
+grep -q 'COPY --from=overlay / /' "$DOCKERFILE" || err "Dockerfile must merge scripts into one overlay layer"
 
 grep -q 'hide-ip-prefixes' "$ROOT/server/warp/entrypoint.sh" || err "exit warp must poll hide-ip-prefixes"
 grep -q 'TCPMSS --clamp-mss-to-pmtu' "$ROOT/server/direct/entrypoint.sh" || err "direct must clamp TCPMSS"

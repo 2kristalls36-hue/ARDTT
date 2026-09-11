@@ -1,16 +1,24 @@
 # syntax=docker/dockerfile:1
 # Unified ARDTT image: provision + direct + bypass + dns + warp + telemetry.
 # Built in CI. VPS install docker-loads this image; it does not build or pull.
-# Upstream inputs are pinned in third-party.lock.json (commit SHA + checksums).
+# Upstream inputs are pinned in third-party.lock.json (commit SHA + checksums);
+# base images are pinned by digest there too, so a moving tag cannot silently
+# change every layer the VPS has to download.
+#
+# Layer order matters for partial deploy: big, rarely changing layers first
+# (base, apt, pip, third-party binaries), then one layer per Go binary, and
+# all shell/py scripts merged into a single small layer at the end. Modes are
+# set with COPY --chmod instead of a trailing RUN chmod, which used to copy
+# every binary into one more layer that changed on any rebuild.
 
-FROM golang:1.22-alpine AS provision-build
+FROM golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052 AS provision-build
 WORKDIR /src
 COPY provision/go.mod provision/go.sum ./
 RUN go mod download
 COPY provision/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/provision .
 
-FROM golang:1.25-bookworm AS direct-build
+FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS direct-build
 ARG AMNEZIAWG_GO_COMMIT=b5928efb6ca19f0153958460c3d141f04abc5c2e
 ARG AMNEZIAWG_GO_SHA256=10bf7458e090bf52f87df27adcd3904a60e4d17fab844d9415e46379147f1ab4
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -26,7 +34,7 @@ COPY direct/sync/ /src/direct-sync/
 WORKDIR /src/direct-sync
 RUN go build -trimpath -ldflags="-s -w" -o /out/direct-sync .
 
-FROM debian:bookworm-slim AS awg-tools
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS awg-tools
 ARG AMNEZIAWG_TOOLS_COMMIT=ee0f0a9aa34ff0a0da4b3433b9512781cfe02843
 ARG AMNEZIAWG_TOOLS_SHA256=22438f231d39ea27e4bdc69707ec3103357f3cecc9ad3eecba18a61e5b39c9b9
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -40,7 +48,7 @@ RUN curl -fsSL "https://codeload.github.com/amnezia-vpn/amneziawg-tools/tar.gz/$
  && rm -f /tmp/amneziawg-tools.tar.gz \
  && make -C amneziawg-tools/src -j"$(nproc)"
 
-FROM golang:1.25-bookworm AS bypass-build
+FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS bypass-build
 WORKDIR /src
 COPY bypass/wdtt-server/ /src/wdtt/
 WORKDIR /src/wdtt/server
@@ -48,7 +56,21 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/wdtt-server .
 COPY bypass/sync/ /src/bypass-sync/
 RUN cd /src/bypass-sync && go build -trimpath -ldflags="-s -w" -o /out/bypass-sync .
 
-FROM debian:bookworm-slim
+# All entrypoints, helpers and templates in one small layer (changes here are
+# the most frequent and used to cost one layer per file).
+FROM scratch AS overlay
+COPY --chmod=755 direct/entrypoint.sh /opt/ardtt/direct.sh
+COPY --chmod=755 direct/cascade-entrypoint.sh /cascade-entrypoint.sh
+COPY --chmod=755 bypass/entrypoint.sh /opt/ardtt/bypass.sh
+COPY --chmod=755 dns/entrypoint.sh /opt/ardtt/dns.sh
+COPY --chmod=644 dns/dnsmasq.conf.tmpl /etc/ardtt/dnsmasq.conf.tmpl
+COPY --chmod=755 warp/entrypoint.sh /opt/ardtt/warp.sh
+COPY --chmod=644 telemetry-upload/app.py /opt/ardtt/telemetry/app.py
+COPY --chmod=755 netns-guard.sh /opt/ardtt/netns-guard.sh
+COPY --chmod=755 ready.sh /opt/ardtt/ready.sh
+COPY --chmod=755 entrypoint.sh /entrypoint.sh
+
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 ARG TARGETARCH=amd64
 ARG WGCF_VERSION=2.2.26
 ARG WIREPROXY_VERSION=1.1.2
@@ -101,29 +123,16 @@ RUN set -e; \
     chmod +x /usr/local/bin/tun2socks; \
     rm -f /tmp/tun2socks.zip
 
-COPY --from=provision-build /out/provision /usr/local/bin/provision
-COPY --from=direct-build /out/amneziawg-go /usr/local/bin/amneziawg-go
-COPY --from=direct-build /out/direct-sync /usr/local/bin/direct-sync
-COPY --from=awg-tools /src/amneziawg-tools/src/wg /usr/local/bin/awg
-COPY --from=bypass-build /out/wdtt-server /usr/local/bin/wdtt-server
-COPY --from=bypass-build /out/bypass-sync /usr/local/bin/bypass-sync
+# One layer per binary: a provision fix re-ships ~5 MB, not the whole toolset.
+COPY --chmod=755 --from=awg-tools /src/amneziawg-tools/src/wg /usr/local/bin/awg
 RUN ln -sf /usr/local/bin/awg /usr/local/bin/wg
+COPY --chmod=755 --from=direct-build /out/amneziawg-go /usr/local/bin/amneziawg-go
+COPY --chmod=755 --from=bypass-build /out/wdtt-server /usr/local/bin/wdtt-server
+COPY --chmod=755 --from=direct-build /out/direct-sync /usr/local/bin/direct-sync
+COPY --chmod=755 --from=bypass-build /out/bypass-sync /usr/local/bin/bypass-sync
+COPY --chmod=755 --from=provision-build /out/provision /usr/local/bin/provision
 
-COPY direct/entrypoint.sh /opt/ardtt/direct.sh
-COPY direct/cascade-entrypoint.sh /cascade-entrypoint.sh
-COPY bypass/entrypoint.sh /opt/ardtt/bypass.sh
-COPY dns/entrypoint.sh /opt/ardtt/dns.sh
-COPY dns/dnsmasq.conf.tmpl /etc/ardtt/dnsmasq.conf.tmpl
-COPY warp/entrypoint.sh /opt/ardtt/warp.sh
-COPY telemetry-upload/app.py /opt/ardtt/telemetry/app.py
-COPY netns-guard.sh /opt/ardtt/netns-guard.sh
-COPY ready.sh /opt/ardtt/ready.sh
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh /cascade-entrypoint.sh /opt/ardtt/ready.sh \
-      /opt/ardtt/netns-guard.sh \
-      /opt/ardtt/direct.sh /opt/ardtt/bypass.sh /opt/ardtt/dns.sh /opt/ardtt/warp.sh \
-      /usr/local/bin/provision /usr/local/bin/amneziawg-go /usr/local/bin/direct-sync \
-      /usr/local/bin/awg /usr/local/bin/wdtt-server /usr/local/bin/bypass-sync
+COPY --from=overlay / /
 
 LABEL org.opencontainers.image.title="ardtt-server" \
       org.opencontainers.image.source="https://github.com/2kristalls36-hue/ARDTT" \
