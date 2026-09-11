@@ -104,6 +104,31 @@ class AutoPathPolicyTest {
     }
 
     @Test
+    fun ghostWifiKindOnCellularKeepsBypassInsteadOfWifiDirect() {
+        val key = NetworkKey(1L, UnderlayKind.Wifi, null, "ghost")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = UnderlaySnapshot(
+                    key = key,
+                    kind = UnderlayKind.Wifi,
+                    availability = UnderlayAvailability.Usable,
+                    handle = 1L,
+                    wifiConnected = false,
+                    cellularConnected = true,
+                    networkEpoch = 1L,
+                ),
+                evidence = null,
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), d)
+    }
+
+    @Test
     fun cellularDirectWinsEvenIfCloudflareFailed() {
         val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
         val d = decideAutoPath(

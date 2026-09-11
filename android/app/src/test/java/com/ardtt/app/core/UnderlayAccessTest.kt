@@ -237,7 +237,7 @@ class UnderlayAccessTest {
             validated = true,
             wifiTransport = true,
             cellularTransport = false,
-            wifiActuallyConnected = false,
+            wifiActuallyConnected = true,
             networkSubId = -1,
             activeDataSubId = 2,
         )
@@ -252,6 +252,32 @@ class UnderlayAccessTest {
             activeDataSubId = 2,
         )
         assertTrue(wifi > cell)
+    }
+
+    @Test
+    fun validatedGhostWifiLosesToCellular() {
+        val ghostWifi = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = true,
+            cellularTransport = false,
+            wifiActuallyConnected = false,
+            networkSubId = -1,
+            activeDataSubId = 2,
+        )
+        val liveCell = scoreUnderlayCandidate(
+            hasInternet = true,
+            notVpn = true,
+            validated = true,
+            wifiTransport = false,
+            cellularTransport = true,
+            wifiActuallyConnected = false,
+            networkSubId = 2,
+            activeDataSubId = 2,
+        )
+        assertTrue(liveCell > ghostWifi)
+        assertTrue(ghostWifi <= 0)
     }
 
     @Test

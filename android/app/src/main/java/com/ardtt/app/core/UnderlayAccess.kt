@@ -101,8 +101,8 @@ fun scoreUnderlayCandidate(
     var s = 4
     if (validated) s += 8 else if (cellularTransport) s += 2
     when {
-        // Captive / half-up Wi‑Fi must not beat VALIDATED LTE (21 vs 13).
-        wifiTransport && validated -> s += 26
+        // Captive / half-up / ghost Wi‑Fi must not beat VALIDATED LTE.
+        wifiTransport && validated && wifiActuallyConnected -> s += 26
         wifiTransport && wifiActuallyConnected -> s += 4
         wifiTransport && !wifiActuallyConnected -> s -= 12
         cellularTransport && !wifiActuallyConnected -> {
@@ -153,6 +153,7 @@ fun underlayIdentity(context: Context): String {
 }
 
 fun hasValidatedWifiUnderlay(context: Context): Boolean {
+    if (!wifiRadioEnabled(context)) return false
     val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
         as? ConnectivityManager ?: return false
     return runCatching {

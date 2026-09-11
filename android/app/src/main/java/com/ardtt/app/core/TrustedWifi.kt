@@ -14,6 +14,11 @@ import androidx.core.content.ContextCompat
 private const val UNKNOWN_WIFI_SSID = "<unknown ssid>"
 private const val BACKGROUND_LOCATION_PERMISSION = "android.permission.ACCESS_BACKGROUND_LOCATION"
 
+fun wifiRadioEnabled(context: Context): Boolean =
+    runCatching {
+        context.applicationContext.getSystemService(WifiManager::class.java)?.isWifiEnabled == true
+    }.getOrDefault(false)
+
 enum class TrustedWifiAccessProblem {
     ForegroundPermission,
     BackgroundPermission,
@@ -204,6 +209,9 @@ fun readConnectedWifiState(
     requireBackground: Boolean = true,
 ): ConnectedWifiState {
     val appContext = context.applicationContext
+    if (!wifiRadioEnabled(appContext)) {
+        return ConnectedWifiState(connected = false)
+    }
     val connectivityManager = appContext.getSystemService(ConnectivityManager::class.java)
     val wifiConnected = runCatching {
         connectivityManager?.allNetworks?.any { network ->

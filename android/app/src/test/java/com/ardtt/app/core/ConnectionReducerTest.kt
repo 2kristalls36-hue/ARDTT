@@ -274,6 +274,7 @@ class ConnectionReducerTest {
         )
         assertEquals(RecoveryCommand.ParkBypassForDirect, toWifi.command)
         assertEquals(RecoveryPhase.SwitchingToWifi, toWifi.state.recovery.phase)
+        assertEquals("Подключаемся напрямую по Wi‑Fi", toWifi.state.ui.message)
         val confirmed = ConnectionReducer.reduce(
             toWifi.state,
             ConnectionEvent.DirectConfirmed(
@@ -1287,6 +1288,51 @@ class ConnectionReducerTest {
         assertEquals(VpnPath.Bypass, reeval.state.activePath)
         assertFalse(reeval.command is RecoveryCommand.StartDirect)
         assertFalse(reeval.command == RecoveryCommand.ParkBypassForDirect)
+    }
+
+    @Test
+    fun cellularBypassReevalDirectIsNotLabeledWifi() {
+        val connected = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = usableCellular(),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 1L,
+            transportEpoch = 4L,
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                nextRetryAtElapsedMs = 40_000L,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 1L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val reeval = ConnectionReducer.reduce(
+            connected,
+            ConnectionEvent.Clock(elapsedMs = 40_001L),
+            elapsedMs = 40_001L,
+        )
+        assertTrue(
+            reeval.command == RecoveryCommand.ParkBypassForDirect ||
+                reeval.command is RecoveryCommand.StartDirect,
+        )
+        assertEquals(RecoveryPhase.ConnectingDirect, reeval.state.recovery.phase)
+        assertFalse(reeval.state.ui.message.contains("Wi‑Fi"))
+        assertTrue(reeval.state.ui.message.contains("мобильн"))
     }
 
     @Test

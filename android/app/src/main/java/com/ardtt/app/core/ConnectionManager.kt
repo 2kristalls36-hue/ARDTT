@@ -770,7 +770,21 @@ class ConnectionManager(
         val selectedWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         val selectedCellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
         val selectedEthernet = caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
-        val kind = classifyUnderlayKind(selectedWifi, selectedCellular, selectedEthernet)
+        val wifiLive = readConnectedWifiState(appContext, requireBackground = false).connected
+        val presence = mergePhysicalPresence(
+            selectedWifi = selectedWifi,
+            selectedCellular = selectedCellular,
+            selectedEthernet = selectedEthernet,
+            inventoryWifi = inventory.wifi,
+            inventoryCellular = inventory.cellular,
+            inventoryEthernet = inventory.ethernet,
+        )
+        val kind = effectiveUnderlayKind(
+            selectedKind = classifyUnderlayKind(selectedWifi, selectedCellular, selectedEthernet),
+            wifiConnected = wifiLive,
+            cellularConnected = presence.cellular,
+            ethernetConnected = presence.ethernet,
+        )
         val dataSuspended = runCatching {
             val tm = appContext.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             tm?.dataState == TelephonyManager.DATA_SUSPENDED
@@ -793,14 +807,6 @@ class ConnectionManager(
         val simId = activeCellularSubscriptionId(appContext).takeIf {
             it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
         }
-        val presence = mergePhysicalPresence(
-            selectedWifi = selectedWifi,
-            selectedCellular = selectedCellular,
-            selectedEthernet = selectedEthernet,
-            inventoryWifi = inventory.wifi,
-            inventoryCellular = inventory.cellular,
-            inventoryEthernet = inventory.ethernet,
-        )
         val fingerprint = fingerprintFromLinkProperties(lp).ifBlank {
             "$handle|$kind|${simId ?: ""}"
         }
@@ -825,7 +831,7 @@ class ConnectionManager(
             notSuspended = notSuspended,
             captivePortal = captive,
             simId = simId,
-            wifiConnected = presence.wifi,
+            wifiConnected = wifiLive,
             cellularConnected = presence.cellular,
             ethernetConnected = presence.ethernet,
             capabilitiesComplete = complete,

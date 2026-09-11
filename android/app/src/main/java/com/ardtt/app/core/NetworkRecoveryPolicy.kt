@@ -352,6 +352,41 @@ fun classifyUnderlayKind(
     else -> UnderlayKind.Other
 }
 
+/**
+ * Ghost VALIDATED Wi‑Fi after the radio is off must not keep Auto on the
+ * Wi‑Fi Direct path. Prefer a live cellular/ethernet radio instead.
+ */
+fun effectiveUnderlayKind(
+    selectedKind: UnderlayKind,
+    wifiConnected: Boolean,
+    cellularConnected: Boolean,
+    ethernetConnected: Boolean = false,
+): UnderlayKind = when (selectedKind) {
+    UnderlayKind.Wifi -> when {
+        wifiConnected -> UnderlayKind.Wifi
+        ethernetConnected -> UnderlayKind.Ethernet
+        cellularConnected -> UnderlayKind.Cellular
+        else -> UnderlayKind.Other
+    }
+    UnderlayKind.Ethernet -> when {
+        ethernetConnected -> UnderlayKind.Ethernet
+        wifiConnected -> UnderlayKind.Wifi
+        cellularConnected -> UnderlayKind.Cellular
+        else -> UnderlayKind.Other
+    }
+    else -> selectedKind
+}
+
+fun UnderlaySnapshot.withEffectiveKind(): UnderlaySnapshot {
+    val kind = effectiveUnderlayKind(
+        selectedKind = kind,
+        wifiConnected = wifiConnected,
+        cellularConnected = cellularConnected,
+        ethernetConnected = ethernetConnected,
+    )
+    return if (kind == this.kind) this else copy(kind = kind)
+}
+
 fun updateProbeStreak(previous: ProbeStreak, probedPath: VpnPath?): ProbeStreak {
     if (probedPath == null) return ProbeStreak()
     if (probedPath == previous.path) return ProbeStreak(probedPath, previous.count + 1)
@@ -441,16 +476,17 @@ const val WARM_CALL_HOLD_MS = 5 * 60 * 1000L
 fun shouldParkBypassCall(from: VpnPath, to: VpnPath): Boolean =
     from == VpnPath.Bypass && to == VpnPath.Direct
 
-/** VALIDATED Wi‑Fi wins over LTE. Association without VALIDATED is not internet. */
+/** VALIDATED Wi‑Fi wins over LTE only while Wi‑Fi is actually associated. */
 fun preferWifiUnderlayKind(
     hasValidatedWifi: Boolean,
     pickBestKind: UnderlayKind,
     wifiConnected: Boolean = false,
     wifiCaptive: Boolean = false,
-    wifiUsable: Boolean = hasValidatedWifi,
+    wifiUsable: Boolean = hasValidatedWifi && wifiConnected,
 ): UnderlayKind {
     if (wifiCaptive) return pickBestKind
-    if (hasValidatedWifi || wifiUsable || (wifiConnected && pickBestKind != UnderlayKind.Cellular)) {
+    if (!wifiConnected) return pickBestKind
+    if (hasValidatedWifi || wifiUsable || pickBestKind != UnderlayKind.Cellular) {
         return UnderlayKind.Wifi
     }
     return pickBestKind
