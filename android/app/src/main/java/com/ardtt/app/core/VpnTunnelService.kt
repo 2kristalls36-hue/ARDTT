@@ -361,6 +361,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         if (epochResume != backendEpoch) return@resumeParked
                         when (state) {
                             is TunnelBackendState.Running -> {
+                                restartWakeLock.releaseNow()
                                 tunnelSessionActive = true
                                 ConnectionManager.getOrNull()?.onTunnelRunning(VpnPath.Bypass)
                                 updateNotification(
@@ -370,6 +371,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 )
                             }
                             is TunnelBackendState.Failed -> {
+                                restartWakeLock.releaseNow()
                                 if (!userStopRequested && !trustedWifiWaiting) {
                                     applyTunnelFailureAction(state.message)
                                 }
@@ -434,6 +436,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     when (state) {
                         is TunnelBackendState.Running -> {
                             AppLog.v(TAG, "Running path=$path")
+                            restartWakeLock.releaseNow()
                             softRestartInProgress = false
                             tunnelSessionActive = true
                             if (path == VpnPath.Bypass) {
@@ -459,6 +462,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 return@start
                             }
                             AppLog.e(TAG, "Failed: ${state.message}")
+                            restartWakeLock.releaseNow()
                             softRestartInProgress = false
                             applyTunnelFailureAction(state.message)
                         }
@@ -656,7 +660,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 handedOff = true
                 launchBackend(path, softRestart = true)
             } finally {
-                restartWakeLock.release(hold)
+                // launchBackend only starts the session job; a handed-off restart
+                // is released by the backend reaching Running or Failed.
+                if (!handedOff) restartWakeLock.release(hold)
                 if (shouldClearSoftRestartFlag(handedOff, myEpoch, softRestartEpoch)) {
                     softRestartInProgress = false
                 }

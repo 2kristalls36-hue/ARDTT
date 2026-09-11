@@ -33,8 +33,9 @@ class RecoveryWakeLockGate(
     private var token: Long = 0L
     private var held: Boolean = false
 
-    val isHeld: Boolean get() = held
+    val isHeld: Boolean @Synchronized get() = held
 
+    @Synchronized
     fun acquire(timeoutMs: Long): Long {
         token += 1L
         held = true
@@ -42,12 +43,14 @@ class RecoveryWakeLockGate(
         return token
     }
 
+    @Synchronized
     fun release(ownedToken: Long) {
         if (!held || ownedToken != token) return
         held = false
         onRelease()
     }
 
+    @Synchronized
     fun releaseNow() {
         if (!held) return
         held = false
