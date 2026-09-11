@@ -2110,10 +2110,11 @@ class ConnectionManager(
                 // registered and nothing to re-kick it — sit out the gap here.
                 AppLog.v(TAG, "cellular pre-probe waits ${waitMs - since}ms ($reason)")
                 delay(waitMs - since)
-                if (!shouldPreProbeCellular(pathMode, currentAutoUnderlayKind())) {
-                    releaseCellularRequest()
-                    return
+                if (shouldPreProbeCellular(pathMode, currentAutoUnderlayKind())) {
+                    return runCellularPreProbe("refresh")
                 }
+                releaseCellularRequest()
+                return
             }
         }
         AppLog.i(
