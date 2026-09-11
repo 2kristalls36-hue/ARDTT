@@ -12,6 +12,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -29,6 +31,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
@@ -73,6 +76,11 @@ fun ArdttButton(
     val scheme = MaterialTheme.colorScheme
     val minHeight = ardttButtonMinHeight(variant, size)
     val pair = buttonColors(variant, scheme.primary, scheme.onPrimary, containerColor, contentColor)
+    val disabledPair = ardttDisabledButtonColors(
+        variant = variant,
+        pair = pair,
+        containerOverridden = containerColor != null,
+    )
     val clickable = enabled && !busy
     val showsText = ardttButtonShowsText(variant, text)
     val semanticsModifier = Modifier.semantics(mergeDescendants = true) {
@@ -134,8 +142,8 @@ fun ArdttButton(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = pair.container,
                     contentColor = pair.content,
-                    disabledContainerColor = pair.container,
-                    disabledContentColor = pair.content.copy(alpha = 0.82f),
+                    disabledContainerColor = disabledPair.container,
+                    disabledContentColor = disabledPair.content,
                 ),
                 elevation = ButtonDefaults.buttonElevation(
                     defaultElevation = ArdttElevation.Raised,
@@ -154,8 +162,8 @@ fun ArdttButton(
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = pair.container,
                     contentColor = pair.content,
-                    disabledContainerColor = pair.container,
-                    disabledContentColor = pair.content.copy(alpha = 0.82f),
+                    disabledContainerColor = disabledPair.container,
+                    disabledContentColor = disabledPair.content,
                 ),
             ) { content() }
         }
@@ -167,7 +175,7 @@ fun ArdttButton(
                 shape = if (size == ArdttButtonSize.Compact) ArdttShapes.Icon else ArdttShapes.Control,
                 colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = pair.content,
-                    disabledContentColor = pair.content.copy(alpha = 0.82f),
+                    disabledContentColor = disabledPair.content,
                 ),
                 contentPadding = ardttButtonContentPadding(variant, showsText),
             ) { content() }
@@ -179,7 +187,7 @@ fun ArdttButton(
                 modifier = sized.defaultMinSize(minHeight = ArdttSize.TouchTarget),
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = pair.content,
-                    disabledContentColor = pair.content.copy(alpha = 0.82f),
+                    disabledContentColor = disabledPair.content,
                 ),
             ) { content() }
         }
@@ -191,9 +199,40 @@ fun ArdttButton(
                     minWidth = ArdttSize.TouchTarget,
                     minHeight = ArdttSize.TouchTarget,
                 ),
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = pair.content,
+                    disabledContentColor = disabledPair.content,
+                ),
             ) { content() }
         }
     }
+}
+
+/**
+ * Disabled look shared by every variant.
+ *
+ * Filled buttons keep their hue but recede ([ArdttAlpha.DisabledContainer]);
+ * a caller that passed its own `containerColor` (profile switcher lock) already
+ * chose the disabled fill, so that override is kept as is. Labels of every
+ * variant drop to [ArdttAlpha.Disabled] — the same step as menu items and
+ * dimmed chips, so «отключено» reads the same on every control.
+ */
+internal fun ardttDisabledButtonColors(
+    variant: ArdttButtonVariant,
+    pair: ButtonPair,
+    containerOverridden: Boolean,
+): ButtonPair {
+    val filled = variant == ArdttButtonVariant.Primary ||
+        variant == ArdttButtonVariant.Tonal ||
+        variant == ArdttButtonVariant.Danger
+    val container = when {
+        !filled || containerOverridden -> pair.container
+        else -> pair.container.copy(alpha = pair.container.alpha * ArdttAlpha.DisabledContainer)
+    }
+    // Filled labels sit on a still-tinted container: Subtle keeps them legible
+    // against that fill, Disabled is for labels over the plain surface.
+    val contentAlpha = if (filled) ArdttAlpha.Subtle else ArdttAlpha.Disabled
+    return ButtonPair(container, pair.content.copy(alpha = pair.content.alpha * contentAlpha))
 }
 
 internal fun ardttButtonMinHeight(variant: ArdttButtonVariant, size: ArdttButtonSize) = when {
@@ -228,7 +267,7 @@ internal fun ardttButtonContentPadding(
     else -> PaddingValues(ArdttSpacing.Small)
 }
 
-private data class ButtonPair(val container: Color, val content: Color)
+internal data class ButtonPair(val container: Color, val content: Color)
 
 @Composable
 private fun buttonColors(
@@ -248,7 +287,10 @@ private fun buttonColors(
     val fallbackContent = when (variant) {
         ArdttButtonVariant.Primary -> onPrimary
         ArdttButtonVariant.Tonal -> scheme.onSecondaryContainer
-        ArdttButtonVariant.Outlined, ArdttButtonVariant.Text, ArdttButtonVariant.Icon -> scheme.primary
+        ArdttButtonVariant.Outlined, ArdttButtonVariant.Text -> scheme.primary
+        // A bare glyph inherits the surrounding text color (header, card, banner);
+        // `contentColor` overrides it explicitly.
+        ArdttButtonVariant.Icon -> LocalContentColor.current
         ArdttButtonVariant.Danger -> scheme.onError
     }
     val content = when {

@@ -190,6 +190,9 @@ object ArdttAlpha {
     /** Disabled label or icon. */
     const val Disabled = 0.45f
 
+    /** Container of a disabled filled control: keeps its hue, recedes from the surface. */
+    const val DisabledContainer = 0.55f
+
     /** Secondary label that must stay readable. */
     const val Muted = 0.55f
 
