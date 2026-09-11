@@ -163,6 +163,8 @@ object ArdttSize {
 
     val Border: Dp = 1.dp
     val Contour: Dp = 2.dp
+    /** Pulsing frame drawn around the window while telemetry records. */
+    val RecordingFrame: Dp = 6.dp
     val Stroke: Dp = 2.dp
     val StrokeThick: Dp = 2.5.dp
 }

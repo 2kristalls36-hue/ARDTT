@@ -41,6 +41,9 @@ object ArdttColors {
      */
     val SessionLit = Color(0xFF35C759)
 
+    /** Telemetry recording frame and card contour. Bright so it reads on dark chrome. */
+    val Recording = Color(0xFFFF3B30)
+
     /** Direct path accent (AmneziaWG over UDP). */
     val PathDirect = Color(0xFF2E7D32)
 
