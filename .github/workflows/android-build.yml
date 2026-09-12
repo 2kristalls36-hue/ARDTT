@@ -231,6 +231,9 @@ jobs:
             esac
             gh release create "$tag" dist/* --target "$GITHUB_SHA" "${args[@]}"
           fi
+          # Recreating a git tag can leave the Release as a draft; /releases/latest
+          # and the in-app updater ignore drafts.
+          gh release edit "$tag" --draft=false --latest
           echo "Published https://github.com/${{ github.repository }}/releases/tag/${tag}"
 
       # Server packages are attached only by server-package.yml on an explicit

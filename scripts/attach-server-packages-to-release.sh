@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Attach server packages from a local directory to an existing GitHub Release
-# tag: the full ardtt-server-*.tar.gz archives plus the partial-deploy assets
-# next to them (index, host files, per-layer gzips, Engine, Compose) and a
-# SHA256SUMS-server.txt covering all of them. Does not rebuild or repack
-# images. Does not download older workflow artifacts. Refuses to overwrite
-# assets that already exist.
+# Attach server packages from a local directory to a GitHub Release tag: the
+# full ardtt-server-*.tar.gz archives plus the partial-deploy assets next to
+# them (index, host files, per-layer gzips, Engine, Compose) and a
+# SHA256SUMS-server.txt covering all of them. Creates the Release if the tag
+# exists but Android build has not published it yet (the two tag workflows
+# race). Does not rebuild or repack images. Does not download older workflow
+# artifacts. Refuses to overwrite assets that already exist.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VER="$(tr -d '[:space:]' < "$ROOT/server/DEPLOY_VERSION")"
@@ -35,7 +36,7 @@ done
 [ -n "$FROM_DIR" ] && [ -d "$FROM_DIR" ] || { echo "--from-dir must be a directory" >&2; exit 1; }
 
 python3 - "$FROM_DIR" "$VER" "$DRY" "$TAG" "$REPO" <<'PY'
-import hashlib, json, pathlib, subprocess, sys, tempfile
+import hashlib, json, os, pathlib, subprocess, sys, tempfile
 root = pathlib.Path(sys.argv[1])
 ver = sys.argv[2]
 dry = sys.argv[3] == "1"
@@ -113,13 +114,70 @@ for arch in archs:
     upload.extend([index, idx_sidecar])
     lines.append(f"{idx_digest}  {index.name}\n")
 
-raw = subprocess.check_output(
-    ["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
-    text=True,
-)
-remote_assets = json.loads(raw).get("assets") or []
+def gh(*args, check=True):
+    return subprocess.run(
+        ["gh", *args],
+        text=True,
+        capture_output=True,
+        check=check,
+    )
+
+def load_release_assets():
+    viewed = gh("release", "view", tag, "--repo", repo, "--json", "assets", check=False)
+    if viewed.returncode == 0:
+        return json.loads(viewed.stdout).get("assets") or []
+    err = (viewed.stderr or viewed.stdout or "").strip()
+    if "release not found" not in err.lower() and viewed.returncode != 1:
+        raise SystemExit(err or f"gh release view {tag} failed")
+    return None
+
+def publish_release():
+    # Deleting and recreating a git tag can leave the GitHub Release as a
+    # draft (untagged-… URL). Users and /releases/latest do not see drafts.
+    edited = gh(
+        "release", "edit", tag, "--repo", repo,
+        "--draft=false", "--latest",
+        check=False,
+    )
+    if edited.returncode != 0:
+        err = (edited.stderr or edited.stdout or "").strip()
+        raise SystemExit(f"cannot publish GitHub Release {tag}: {err}")
+    print("published GitHub Release https://github.com/%s/releases/tag/%s" % (repo, tag))
+
+remote_assets = load_release_assets()
+if remote_assets is None:
+    # Tag workflows race: Server package can finish while Android build has
+    # not created the GitHub Release yet. Create it, or attach if Android
+    # won the create in between.
+    create_cmd = [
+        "release", "create", tag, "--repo", repo,
+        "--title", f"ARDTT {tag}", "--generate-notes", "--latest",
+    ]
+    sha = os.environ.get("GITHUB_SHA", "").strip()
+    if sha:
+        create_cmd.extend(["--target", sha])
+    created = gh(*create_cmd, check=False)
+    if created.returncode != 0:
+        remote_assets = load_release_assets()
+        if remote_assets is None:
+            err = (created.stderr or created.stdout or "release not found").strip()
+            raise SystemExit(f"cannot create or view release {tag}: {err}")
+        print("note: GitHub Release appeared while creating (Android build likely won)")
+    else:
+        remote_assets = load_release_assets() or []
+        print("created GitHub Release https://github.com/%s/releases/tag/%s" % (repo, tag))
 by_name = {a["name"]: a for a in remote_assets}
 assets = set(by_name)
+
+# Retag/rebuild can produce new layer filenames while the full archives
+# for this DEPLOY_VERSION are already on the Release. Do not mix two 1.0.x
+# payloads under the same names; succeed and publish instead of failing.
+if want <= assets:
+    print("full %s archives already on https://github.com/%s/releases/tag/%s; not replacing"
+          % (ver, repo, tag))
+    if not dry:
+        publish_release()
+    sys.exit(0)
 
 # SHA256SUMS-server.txt is derived metadata: when a newer stack is attached to
 # a tag that already carries an older one (attach-built-packages on an existing
@@ -171,6 +229,8 @@ if overlap:
             + "\n  ".join(mismatches)
         )
     print("already attached (digest match) to https://github.com/%s/releases/tag/%s" % (repo, tag))
+    if not dry:
+        publish_release()
     sys.exit(0)
 
 print("Attach to https://github.com/%s/releases/tag/%s (%d files, %d partial-deploy index(es))"
@@ -188,4 +248,5 @@ if sums_clobber:
     sums_cmd.append("--clobber")
 subprocess.check_call(sums_cmd)
 print(f"Attached {len(pkgs)} server packages (+{len(upload) - len(pkgs)} assets) to {tag}")
+publish_release()
 PY
