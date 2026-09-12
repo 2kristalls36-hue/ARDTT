@@ -30,6 +30,16 @@ private fun inter(
     letterSpacing = letterSpacing,
 )
 
+/** Monospace body of terminal / log surfaces (Logs tab, deploy progress). */
+val ArdttTerminalTextStyle: TextStyle = TextStyle(
+    fontFamily = FontFamily.Monospace,
+    fontSize = 13.sp,
+    lineHeight = 18.sp,
+)
+
+/** Monospace level / tag label next to a terminal line. */
+val ArdttTerminalLabelStyle: TextStyle = ArdttTerminalTextStyle.copy(fontSize = 11.sp)
+
 val ArdttTypography = Typography(
     displayLarge = inter(FontWeight.Bold, 57, 64),
     displayMedium = inter(FontWeight.Bold, 45, 52),

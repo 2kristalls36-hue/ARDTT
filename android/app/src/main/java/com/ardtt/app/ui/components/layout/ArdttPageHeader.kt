@@ -15,17 +15,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
-import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.ArdttWallpaperTextShadow
 import com.ardtt.app.ui.theme.backdropMutedTextColor
 import com.ardtt.app.ui.theme.backdropTitleColor
 import com.ardtt.app.ui.theme.illustratedBackdropActive
@@ -36,9 +33,6 @@ object ArdttHeaderDefaults {
     val TopPaddingAfterStatusBar: Dp = ArdttSpacing.Small
     val HorizontalPadding: Dp = ArdttSpacing.Large
     val BottomPaddingBelowTitle: Dp = ArdttSpacing.Medium
-
-    /** Blur of the title shadow used over the illustrated wallpaper. */
-    const val TitleShadowBlur = 8f
 }
 
 /**
@@ -122,15 +116,7 @@ private fun PageHeaderChrome(
     topPadding: Dp,
     titleRowHeight: Dp?,
 ) {
-    val titleShadow = if (illustratedBackdropActive()) {
-        Shadow(
-            color = Color.Black.copy(alpha = ArdttAlpha.Shadow),
-            offset = Offset(0f, 1f),
-            blurRadius = ArdttHeaderDefaults.TitleShadowBlur,
-        )
-    } else {
-        null
-    }
+    val titleShadow = if (illustratedBackdropActive()) ArdttWallpaperTextShadow else null
     val minTitle = titleRowHeight ?: ArdttHeaderDefaults.TitleRowHeight
     val actionsOnTitleRow = actions != null && subtitle.isNullOrBlank()
     Column(

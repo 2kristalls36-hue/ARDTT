@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -15,13 +16,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.ArdttSurface
 import com.ardtt.app.ui.theme.isDarkSurface
 import com.ardtt.app.ui.theme.selectedControlContainer
 
@@ -63,7 +70,9 @@ fun <T> ArdttChoiceChipRow(
     chipHeight: Dp = ArdttSize.Chip,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(ArdttLayout.ControlSpacing),
     ) {
         choices.forEach { choice ->
@@ -97,7 +106,13 @@ fun ArdttChoiceChip(
     height: Dp = ArdttSize.Chip,
 ) {
     val colors = MaterialTheme.colorScheme
+    // Announced as one option of a group («выбрано» / «не выбрано»), not as a
+    // plain button whose state the user has to infer from the fill.
     val sizeModifier = modifier
+        .semantics {
+            role = Role.RadioButton
+            this.selected = selected
+        }
         .height(height)
         .then(if (minWidth != null) Modifier.widthIn(min = minWidth) else Modifier)
 
@@ -126,23 +141,26 @@ fun ArdttChoiceChip(
             ),
             contentPadding = ChoiceChipDefaults.ContentPadding,
         ) {
-            Text(label, fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(label, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         return
     }
 
     val dark = isDarkSurface()
+    // Accent fills come from the caller (path colors); the label color is
+    // derived from the actual fill, never assumed white.
+    val accentContent = selectedContainer?.let { ArdttSurface.contentColorOn(it) }
     Button(
         onClick = onClick,
         enabled = enabled,
         modifier = sizeModifier,
         shape = ArdttShapes.Chip,
-        colors = if (selectedContainer != null) {
+        colors = if (selectedContainer != null && accentContent != null) {
             ButtonDefaults.buttonColors(
                 containerColor = selectedContainer,
-                contentColor = Color.White,
-                disabledContainerColor = selectedContainer.copy(alpha = ArdttAlpha.Disabled),
-                disabledContentColor = Color.White.copy(alpha = ArdttAlpha.Subtle),
+                contentColor = accentContent,
+                disabledContainerColor = selectedContainer.copy(alpha = ArdttAlpha.DisabledContainer),
+                disabledContentColor = accentContent.copy(alpha = ArdttAlpha.Subtle),
             )
         } else {
             ButtonDefaults.buttonColors(
@@ -172,7 +190,12 @@ fun ArdttChoiceChip(
             label,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
-            color = if (dimmed) Color.White.copy(alpha = ArdttAlpha.Subtle) else Color.Unspecified,
+            overflow = TextOverflow.Ellipsis,
+            color = if (dimmed) {
+                (accentContent ?: colors.primary).copy(alpha = ArdttAlpha.Subtle)
+            } else {
+                Color.Unspecified
+            },
         )
     }
 }

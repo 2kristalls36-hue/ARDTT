@@ -34,6 +34,16 @@ object ArdttColors {
 
     fun warningForeground(dark: Boolean): Color = if (dark) WarningOnDark else WarningOnLight
 
+    /**
+     * Lit ring of the round power control on the illustrated tunnel screen.
+     * Brighter than [Connected]: it sits on translucent shell over a photo,
+     * not on a card, and is never used as text.
+     */
+    val SessionLit = Color(0xFF35C759)
+
+    /** Telemetry recording frame and card contour. Bright so it reads on dark chrome. */
+    val Recording = Color(0xFFFF3B30)
+
     /** Direct path accent (AmneziaWG over UDP). */
     val PathDirect = Color(0xFF2E7D32)
 

@@ -24,13 +24,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.ardtt.app.telemetry.TelemetryRecorder
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
-
-// Bright red — visible on dark surfaces; original #8B0000 was nearly invisible.
-internal val RecordingAccent = Color(0xFFFF3B30)
+import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttSize
 
 @Composable
 fun TelemetryRecordingOverlay(
@@ -98,8 +96,8 @@ private fun RecordingBorder(
     alpha: Float,
     modifier: Modifier = Modifier,
 ) {
-    val borderColor = RecordingAccent.copy(alpha = alpha)
-    val strokeWidth = 6.dp
+    val borderColor = ArdttColors.Recording.copy(alpha = alpha)
+    val strokeWidth = ArdttSize.RecordingFrame
 
   // Pass touches through to the UI below; only draw the frame.
     Box(
@@ -143,7 +141,7 @@ fun recordingAccentBorder(active: Boolean): BorderStroke? {
     val alpha by rememberRecordingAlpha(true)
     return BorderStroke(
         width = ArdttSectionCardDefaults.ContourWidth,
-        color = RecordingAccent.copy(alpha = alpha),
+        color = ArdttColors.Recording.copy(alpha = alpha),
     )
 }
 

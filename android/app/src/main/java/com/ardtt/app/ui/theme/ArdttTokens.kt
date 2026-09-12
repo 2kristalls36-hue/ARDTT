@@ -56,6 +56,12 @@ object ArdttLayout {
     /** Gap between rows inside a section card. */
     val CardSpacing: Dp = ArdttSpacing.Large
 
+    /** Inner padding of a settings card: title, helper text, switch rows. */
+    val SettingsCardPadding: PaddingValues = PaddingValues(ArdttSpacing.Large)
+
+    /** Gap between rows inside a settings card. */
+    val SettingsCardSpacing: Dp = ArdttSpacing.SmallPlus
+
     /** Inner padding of a compact list card (servers, clients, profiles). */
     val CompactCardPadding: PaddingValues =
         PaddingValues(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus)
@@ -157,6 +163,8 @@ object ArdttSize {
 
     val Border: Dp = 1.dp
     val Contour: Dp = 2.dp
+    /** Pulsing frame drawn around the window while telemetry records. */
+    val RecordingFrame: Dp = 6.dp
     val Stroke: Dp = 2.dp
     val StrokeThick: Dp = 2.5.dp
 }
@@ -178,6 +186,9 @@ object ArdttAlpha {
     /** Tinted background of a status badge or selected chip. */
     const val Fill = 0.18f
 
+    /** Softer tint for a strip on an already light card (light theme). */
+    const val FillSoft = 0.12f
+
     /** Border of a selected control. */
     const val Outline = 0.22f
 
@@ -189,6 +200,9 @@ object ArdttAlpha {
 
     /** Disabled label or icon. */
     const val Disabled = 0.45f
+
+    /** Container of a disabled filled control: keeps its hue, recedes from the surface. */
+    const val DisabledContainer = 0.55f
 
     /** Secondary label that must stay readable. */
     const val Muted = 0.55f

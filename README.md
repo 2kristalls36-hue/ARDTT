@@ -133,7 +133,8 @@ cd android
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Пакет `ardtt-server-*-linux-<arch>.tar.gz`: приложение или архив; Engine в `vendor/docker.tgz` |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
-| [docs/UI.md](docs/UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
+| [docs/UI.md](docs/UI.md) | Дизайн-система клиента: реестр компонентов и токенов, карта экранов, режимы |
+| [docs/UI-AUDIT.md](docs/UI-AUDIT.md) | Аудит интерфейса: находки, исправления, отложенное |
 | [android/README.md](android/README.md) | Сборка клиента, keystore, релизы |
 | [server/README.md](server/README.md) | Compose: provision, direct, bypass, dns, warp, cascade, telemetry |
 

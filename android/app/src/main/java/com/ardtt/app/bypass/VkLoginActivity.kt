@@ -31,11 +31,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.core.AppLog
+import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.ArdttTheme
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
@@ -72,8 +75,12 @@ class VkLoginActivity : ComponentActivity() {
             Mode.TOKEN -> VkCallHashGenerator.oauthTokenStartUrl()
         }
 
+        val settings = AppSettingsRepository(applicationContext)
         setContent {
-            ArdttTheme(wallpaperAvgColor = null) {
+            // Same theme choice as the main window: a forced light / dark app
+            // must not open a system-themed VK sheet.
+            val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
+            ArdttTheme(themeMode = themeMode) {
                 var loading by remember { mutableStateOf(true) }
                 Column(
                     modifier = Modifier
@@ -89,7 +96,12 @@ class VkLoginActivity : ComponentActivity() {
                                 text = title,
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
-                                    .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 48.dp),
+                                    .padding(
+                                        start = ArdttSpacing.Large,
+                                        top = ArdttSpacing.Medium,
+                                        bottom = ArdttSpacing.Medium,
+                                        end = ArdttSize.TouchTarget,
+                                    ),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             ArdttButton(

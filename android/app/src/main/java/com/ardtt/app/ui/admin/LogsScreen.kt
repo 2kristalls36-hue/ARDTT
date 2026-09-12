@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -23,7 +24,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,10 +43,11 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
@@ -56,9 +57,12 @@ import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
+import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
+import com.ardtt.app.ui.components.feedback.ArdttEmptyState
+import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.terminalCardColor
 import com.ardtt.app.ui.components.surface.terminalCardElevation
@@ -66,6 +70,8 @@ import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttRadius
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.ArdttTerminalLabelStyle
+import com.ardtt.app.ui.theme.ArdttTerminalTextStyle
 import com.ardtt.app.ui.theme.isDarkSurface
 import com.ardtt.app.ui.theme.warningStatusColor
 import com.ardtt.app.ui.util.copyToClipboard
@@ -76,8 +82,6 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val LogTypeSize = 13.sp
-private val LogTypeLineHeight = 18.sp
 
 @Composable
 fun LogsScreen(
@@ -109,11 +113,16 @@ fun LogsScreen(
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(sessionUp) {
+    var showClearConfirm by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(sessionUp, lifecycleOwner) {
         if (!sessionUp) return@LaunchedEffect
-        while (true) {
-            nowMs = System.currentTimeMillis()
-            delay(1_000)
+        // Uptime ticks only while the screen is actually on screen.
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                nowMs = System.currentTimeMillis()
+                delay(LogsCopy.UPTIME_TICK_MS)
+            }
         }
     }
 
@@ -190,10 +199,11 @@ fun LogsScreen(
                 onBack = onBack,
                 actions = {
                     ArdttButton(
-                        onClick = { AppLog.clear() },
+                        onClick = { showClearConfirm = true },
                         variant = ArdttButtonVariant.Icon,
                         icon = Icons.Default.Delete,
-                        contentDescription = "Очистить",
+                        contentDescription = LogsCopy.CLEAR,
+                        enabled = entries.isNotEmpty(),
                         contentColor = MaterialTheme.colorScheme.primary,
                     )
                     ArdttButton(
@@ -234,9 +244,7 @@ fun LogsScreen(
                             vertical = ArdttSpacing.SmallPlus,
                         ),
                         color = MaterialTheme.colorScheme.onErrorContainer,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = LogTypeSize,
-                        lineHeight = LogTypeLineHeight,
+                        style = ArdttTerminalTextStyle,
                     )
                 }
             }
@@ -253,7 +261,7 @@ fun LogsScreen(
                     if (pinnedStats != null || uptimeText != null) {
                         Surface(
                             color = MaterialTheme.colorScheme.primary.copy(
-                                alpha = if (isDark) ArdttAlpha.Fill else 0.12f,
+                                alpha = if (isDark) ArdttAlpha.Fill else ArdttAlpha.FillSoft,
                             ),
                             shape = RoundedCornerShape(
                                 topStart = ArdttRadius.Panel,
@@ -275,9 +283,7 @@ fun LogsScreen(
                                     Text(
                                         text = pinnedStats,
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = LogTypeSize,
-                                        lineHeight = LogTypeLineHeight,
-                                        fontFamily = FontFamily.Monospace,
+                                        style = ArdttTerminalTextStyle,
                                         fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.weight(1f),
                                     )
@@ -293,9 +299,7 @@ fun LogsScreen(
                                     Text(
                                         uptimeText,
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = LogTypeSize,
-                                        lineHeight = LogTypeLineHeight,
-                                        fontFamily = FontFamily.Monospace,
+                                        style = ArdttTerminalTextStyle,
                                         fontWeight = FontWeight.SemiBold,
                                     )
                                 }
@@ -304,24 +308,27 @@ fun LogsScreen(
                     }
 
                     if (visible.isEmpty()) {
-                        Text(
-                            if (entries.isEmpty()) {
-                                "Пока пусто. Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client."
-                            } else {
-                                "Нет записей по фильтру. Сбросьте поиск или уровень."
-                            },
-                            modifier = Modifier.padding(ArdttSpacing.Large),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        if (entries.isNotEmpty()) {
-                            ArdttButton(
-                                text = "Сбросить фильтр",
-                                onClick = {
-                                    query = ""
-                                    levelFilter = null
+                        if (entries.isEmpty()) {
+                            ArdttEmptyState(
+                                title = LogsCopy.EMPTY_TITLE,
+                                description = LogsCopy.EMPTY_BODY,
+                            )
+                        } else {
+                            ArdttEmptyState(
+                                title = LogsCopy.FILTER_EMPTY_TITLE,
+                                description = LogsCopy.FILTER_EMPTY_BODY,
+                                action = {
+                                    ArdttButton(
+                                        text = LogsCopy.RESET_FILTER,
+                                        onClick = {
+                                            query = ""
+                                            levelFilter = null
+                                        },
+                                        variant = ArdttButtonVariant.Outlined,
+                                        size = ArdttButtonSize.Compact,
+                                        fillMaxWidth = false,
+                                    )
                                 },
-                                variant = ArdttButtonVariant.Text,
                             )
                         }
                     } else {
@@ -352,12 +359,10 @@ fun LogsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
             ) {
-                OutlinedTextField(
+                ArdttTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Поиск") },
+                    label = "Поиск",
                     trailingIcon = {
                         if (query.isNotBlank()) {
                             ArdttButton(
@@ -427,8 +432,35 @@ fun LogsScreen(
             }
         }
     }
+
+    if (showClearConfirm) {
+        ArdttConfirmDialog(
+            title = LogsCopy.CLEAR_TITLE,
+            body = LogsCopy.clearBody(entries.size),
+            confirmText = LogsCopy.CLEAR,
+            onConfirm = {
+                showClearConfirm = false
+                AppLog.clear()
+            },
+            onDismiss = { showClearConfirm = false },
+        )
+    }
 }
 
+/** Strings of the Logs screen that are not derived from state. */
+internal object LogsCopy {
+    const val CLEAR = "Очистить"
+    const val CLEAR_TITLE = "Очистить журнал?"
+    const val EMPTY_TITLE = "Пока пусто"
+    const val EMPTY_BODY = "Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client."
+    const val FILTER_EMPTY_TITLE = "Нет записей по фильтру"
+    const val FILTER_EMPTY_BODY = "Сбросьте поиск или уровень."
+    const val RESET_FILTER = "Сбросить фильтр"
+    const val UPTIME_TICK_MS = 1_000L
+
+    fun clearBody(count: Int): String =
+        "Будет удалено записей: $count. Действие нельзя отменить; при необходимости сначала скопируйте или поделитесь журналом."
+}
 
 @Composable
 private fun LogEventRow(
@@ -449,19 +481,18 @@ private fun LogEventRow(
         Text(
             text = LogsCatalog.levelShort(entry.level),
             color = labelColor,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
+            style = ArdttTerminalLabelStyle,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = ArdttSpacing.Hairline),
         )
-        Text(
-            text = entry.displayLine(fmt),
-            color = bodyColor,
-            fontFamily = FontFamily.Monospace,
-            fontSize = LogTypeSize,
-            lineHeight = LogTypeLineHeight,
-            modifier = Modifier.weight(1f),
-        )
+        // Each line is selectable so one entry can be copied without the whole dump.
+        SelectionContainer(modifier = Modifier.weight(1f)) {
+            Text(
+                text = entry.displayLine(fmt),
+                color = bodyColor,
+                style = ArdttTerminalTextStyle,
+            )
+        }
     }
 }
 

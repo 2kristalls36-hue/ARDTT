@@ -26,6 +26,9 @@ import com.ardtt.app.ui.theme.ArdttSpacing
 /** Vertical padding of a badge; smaller than the spacing scale on purpose. */
 private val BadgeVerticalPadding = 3.dp
 
+/** Vertical padding of a pill: labelLarge line + this = a 34 dp capsule. */
+private val PillVerticalPadding = 7.dp
+
 /**
  * Tinted label carrying one piece of status: app version, expiry, OS, deploy
  * freshness. Server, client and profile lists each used to inline the same
@@ -77,7 +80,7 @@ fun ArdttStatusPill(
             text,
             modifier = Modifier.padding(
                 horizontal = ArdttSpacing.Medium,
-                vertical = 7.dp,
+                vertical = PillVerticalPadding,
             ),
             style = MaterialTheme.typography.labelLarge,
         )

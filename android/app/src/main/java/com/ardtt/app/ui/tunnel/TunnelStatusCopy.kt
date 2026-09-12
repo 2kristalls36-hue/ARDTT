@@ -33,6 +33,24 @@ fun userModeStatusPrimary(
 }
 
 /** Secondary hint under the connect button in user mode. */
+/**
+ * Bypass is wanted (or the status text talks about it) but no call hash is
+ * stored and no session is up — the user needs the «Код звонка» card.
+ */
+fun userModeNeedsCallHashHint(
+    state: ConnState,
+    hasCallHash: Boolean,
+    activePath: VpnPath?,
+    details: String?,
+): Boolean {
+    if (hasCallHash) return false
+    if (state == ConnState.Connected || state == ConnState.PausedTrustedWifi) return false
+    return activePath == VpnPath.Bypass ||
+        details?.contains("обход", ignoreCase = true) == true ||
+        details?.contains("звонка", ignoreCase = true) == true ||
+        details?.contains("hash", ignoreCase = true) == true
+}
+
 fun userModeStatusDetails(
     state: ConnState,
     softInfo: String?,

@@ -22,6 +22,7 @@ class AppUpdateController private constructor(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var checkJob: Job? = null
     private var downloadJob: Job? = null
+    private var lastCheckAtMs: Long = 0L
 
     data class Ui(
         val available: AppUpdateInfo? = null,
@@ -50,12 +51,24 @@ class AppUpdateController private constructor(context: Context) {
         }
     }
 
+    /**
+     * Passive check on screen entry. Coalesces repeat calls: every visit to
+     * Settings used to fire one more Releases request, so a completed check
+     * is reused for [BACKGROUND_CHECK_INTERVAL_MS]. [checkAndWait] (pull to
+     * refresh) bypasses the throttle.
+     */
     fun checkInBackground() {
+        if (!shouldRunBackgroundCheck(lastCheckAtMs, System.currentTimeMillis())) return
+        startCheck()
+    }
+
+    private fun startCheck() {
         if (downloadJob?.isActive == true) return
         if (checkJob?.isActive == true) return
         checkJob = scope.launch {
             _ui.update { it.copy(checking = true) }
             val result = manager.check()
+            lastCheckAtMs = System.currentTimeMillis()
             result.onSuccess { info ->
                 _ui.update { cur ->
                     if (info.isNewer) {
@@ -96,7 +109,7 @@ class AppUpdateController private constructor(context: Context) {
             running.join()
             return
         }
-        checkInBackground()
+        startCheck()
         checkJob?.join()
     }
 
@@ -180,6 +193,15 @@ fun shouldShowUpdateCard(
     downloading: Boolean,
     hasApk: Boolean,
 ): Boolean = availableNewer || downloading || hasApk
+
+/** Passive checks are coalesced for this long; explicit refresh ignores it. */
+const val BACKGROUND_CHECK_INTERVAL_MS: Long = 15L * 60L * 1000L
+
+fun shouldRunBackgroundCheck(
+    lastCheckAtMs: Long,
+    nowMs: Long,
+    intervalMs: Long = BACKGROUND_CHECK_INTERVAL_MS,
+): Boolean = lastCheckAtMs <= 0L || nowMs - lastCheckAtMs >= intervalMs
 
 fun updatePrimaryActionLabel(downloading: Boolean, hasApk: Boolean): String = when {
     downloading -> "Отмена"

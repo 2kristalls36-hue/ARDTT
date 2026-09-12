@@ -11,13 +11,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttTerminalTextStyle
 import com.ardtt.app.ui.theme.cardContainerColor
 import com.ardtt.app.ui.theme.isDarkSurface
 
@@ -55,9 +54,7 @@ fun ArdttTerminalCard(
         Text(
             text = text.ifBlank { emptyText },
             color = MaterialTheme.colorScheme.onSurface,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 13.sp,
-            lineHeight = 18.sp,
+            style = ArdttTerminalTextStyle,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = maxHeight)

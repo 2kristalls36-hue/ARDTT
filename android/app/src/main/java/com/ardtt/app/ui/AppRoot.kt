@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.net.VpnService
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.EnterTransition
@@ -277,6 +278,13 @@ fun AppRoot(
             launchSingleTop = true
             restoreState = true
         }
+    }
+
+    // System Back mirrors the header «Назад» on nested routes; root tabs keep
+    // the default back stack (→ Tunnel → exit).
+    val nestedBackTarget = ArdttNavPlan.backTarget(currentRoute, admin)
+    BackHandler(enabled = nestedBackTarget != null) {
+        nestedBackTarget?.let { navigateTab(it) }
     }
 
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()

@@ -42,7 +42,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.QsProfileSwitch
 import com.ardtt.app.R
@@ -109,6 +112,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+
+/** Refresh cadence of the admin tunnel status panel; both loops run only while STARTED. */
+internal object TunnelPollDefaults {
+    /** Cached egress IP read (in-memory) while a session is up. */
+    const val EgressIpMs = 500L
+
+    /** Underlay identity / access label re-read. */
+    const val UnderlayMs = 1_500L
+}
 
 @Composable
 fun TunnelScreen(
@@ -235,7 +247,10 @@ fun TunnelScreen(
         )
     }
 
-    LaunchedEffect(ui.state, hideIp) {
+    // Both pollers pause while the activity is stopped: LaunchedEffect alone
+    // keeps ticking in the background as long as the tab stays composed.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, ui.state, hideIp) {
         val watchEgress =
             ui.state == ConnState.Connecting ||
                 ui.state == ConnState.Connected ||
@@ -244,16 +259,20 @@ fun TunnelScreen(
             publicIp = EgressIpProbe.current()
             return@LaunchedEffect
         }
-        while (true) {
-            publicIp = EgressIpProbe.current()
-            delay(500)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                publicIp = EgressIpProbe.current()
+                delay(TunnelPollDefaults.EgressIpMs)
+            }
         }
     }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            refreshUnderlayStats(forceProviderIp = false)
-            delay(1_500)
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                refreshUnderlayStats(forceProviderIp = false)
+                delay(TunnelPollDefaults.UnderlayMs)
+            }
         }
     }
 

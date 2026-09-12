@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -43,10 +42,11 @@ import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ArdttTextField
+import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
-import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlinx.coroutines.launch
 
@@ -65,6 +65,7 @@ fun CallHashSettingsContent(
     var showManual by remember { mutableStateOf(false) }
     var manualDraft by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var showEndVkSessionConfirm by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
     var vkDisplayName by remember { mutableStateOf<String?>(null) }
@@ -159,18 +160,7 @@ fun CallHashSettingsContent(
             onClick = {
                 if (!sessionAction.enabled) return@ArdttButton
                 if (sessionAction.destructive) {
-                    scope.launch {
-                        busy = true
-                        VkSession.clear()
-                        refreshVkSession()
-                        vkDisplayName = null
-                        busy = false
-                        message = if (!vkLoggedIn) {
-                            "Сессия ВКонтакте завершена."
-                        } else {
-                            "Не удалось очистить сессию. Повторите."
-                        }
-                    }
+                    showEndVkSessionConfirm = true
                     return@ArdttButton
                 }
                 scope.launch {
@@ -244,6 +234,31 @@ fun CallHashSettingsContent(
             },
         )
     }
+
+    if (showEndVkSessionConfirm) {
+        ArdttConfirmDialog(
+            title = "Завершить сессию ВКонтакте?",
+            body = "Привязка аккаунта будет удалена с устройства. Автоматическое обновление кода звонка перестанет работать до следующей авторизации.",
+            confirmText = "Завершить",
+            busy = busy,
+            onConfirm = {
+                scope.launch {
+                    busy = true
+                    VkSession.clear()
+                    refreshVkSession()
+                    vkDisplayName = null
+                    busy = false
+                    showEndVkSessionConfirm = false
+                    message = if (!vkLoggedIn) {
+                        "Сессия ВКонтакте завершена."
+                    } else {
+                        "Не удалось очистить сессию. Повторите."
+                    }
+                }
+            },
+            onDismiss = { if (!busy) showEndVkSessionConfirm = false },
+        )
+    }
 }
 
 @Composable
@@ -276,12 +291,9 @@ private fun CallHashDialog(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(
+            ArdttTextField(
                 value = value,
                 onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
-                shape = ArdttShapes.Field,
-                singleLine = true,
             )
             ArdttButton(
                 text = "Копировать",
