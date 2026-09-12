@@ -169,6 +169,16 @@ if remote_assets is None:
 by_name = {a["name"]: a for a in remote_assets}
 assets = set(by_name)
 
+# Retag/rebuild can produce new layer filenames while the full archives
+# for this DEPLOY_VERSION are already on the Release. Do not mix two 1.0.x
+# payloads under the same names; succeed and publish instead of failing.
+if want <= assets:
+    print("full %s archives already on https://github.com/%s/releases/tag/%s; not replacing"
+          % (ver, repo, tag))
+    if not dry:
+        publish_release()
+    sys.exit(0)
+
 # SHA256SUMS-server.txt is derived metadata: when a newer stack is attached to
 # a tag that already carries an older one (attach-built-packages on an existing
 # release), keep the existing lines and add ours instead of refusing.

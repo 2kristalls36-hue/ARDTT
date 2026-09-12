@@ -26,6 +26,17 @@ echo "$*" >>"${GH_LOG:?}"
 case "${1:-} ${2:-}" in
   "release view")
     if [ "${GH_RELEASE_EXISTS:-0}" = 1 ] || [ -f "${GH_STATE_DIR:?}/created" ]; then
+      if [ "${GH_FULL_ARCHIVES:-0}" = 1 ]; then
+        python3 - "${GH_STATE_DIR}" <<'PY'
+import json, os, pathlib, sys
+ver = pathlib.Path(os.environ["GH_STATE_DIR"], "ver").read_text().strip()
+print(json.dumps({"assets": [
+    {"name": f"ardtt-server-{ver}-linux-amd64.tar.gz"},
+    {"name": f"ardtt-server-{ver}-linux-arm64.tar.gz"},
+]}))
+PY
+        exit 0
+      fi
       echo '{"assets":[]}'
       exit 0
     fi
@@ -62,6 +73,7 @@ EOF
     missing) env_exists=0; create_fails=0 ;;
     exists) env_exists=1; create_fails=0 ;;
     race) env_exists=0; create_fails=1 ;;
+    already) env_exists=1; create_fails=0 ;;
     *) echo "bad mode $mode" >&2; return 1 ;;
   esac
 
@@ -72,7 +84,9 @@ EOF
     export GH_STATE_DIR="$work"
     export GH_RELEASE_EXISTS="$env_exists"
     export GH_CREATE_FAILS="$create_fails"
+    export GH_FULL_ARCHIVES="$([ "$mode" = already ] && echo 1 || echo 0)"
     export GITHUB_REPOSITORY="2kristalls36-hue/ARDTT"
+    printf '%s\n' "$VER" >"$work/ver"
     # Race: create fails because Android just created the release; the next
     # view must succeed.
     if [ "$mode" = race ]; then
@@ -121,7 +135,12 @@ EOF
     cat "$log" >&2 || true
     return 0
   fi
-  if [ ! -f "$work/upload" ]; then
+  if [ "$mode" = already ]; then
+    if [ -f "$work/upload" ]; then
+      fail "$name: re-uploaded over existing $VER archives"
+      return 0
+    fi
+  elif [ ! -f "$work/upload" ]; then
     fail "$name: did not upload"
     return 0
   fi
@@ -156,6 +175,7 @@ EOF
 run_case "create missing GitHub Release then attach" missing
 run_case "existing empty release just uploads" exists
 run_case "create races with Android build, then attach" race
+run_case "existing full archives skip upload and publish" already
 
 if [ "$FAIL" -ne 0 ]; then
   echo "test-attach-server-packages failed" >&2
