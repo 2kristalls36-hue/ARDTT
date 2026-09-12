@@ -4,18 +4,20 @@ package com.ardtt.app.core
  * Weighted operator-whitelist (БС) confidence.
  *
  * One flaky ordinary-target success must not wipe a run of БС samples, and a
- * single incomplete round must not lock Bypass. Enter at
+ * single incomplete round must not lock Bypass. A full sample needs both
+ * controls: Yandex DNS answering while vk.com does not is a broken link, not a
+ * whitelist, and Bypass rides a VK call anyway. Enter at
  * [RecoverySettings.WHITELIST_ENTER_PERCENT]; stay on Bypass until the score
  * falls below [RecoverySettings.WHITELIST_EXIT_PERCENT].
  */
 enum class RestrictionSample {
-    /** Yandex OK and both ordinary targets timed out or refused. */
+    /** Both controls OK and both ordinary targets timed out or refused. */
     Positive,
-    /** Yandex OK and exactly one ordinary target blocked; the other did not succeed. */
+    /** Control OK and the whitelist evidence is only partial — one blocked target, or no vk.com verdict. */
     WeakPositive,
     /** Yandex OK and at least one ordinary target succeeded. */
     Open,
-    /** Lost radio, TLS, cancelled, or incomplete — leave the score unchanged. */
+    /** Lost radio, TLS, cancelled, incomplete, or a Russian service down — leave the score unchanged. */
     Ignore,
 }
 
@@ -25,11 +27,13 @@ object RestrictionScore {
         yandex: CheckOutcome,
         bigtech: CheckOutcome,
         google: CheckOutcome,
+        ruService: CheckOutcome = CheckOutcome.NotRun,
     ): RestrictionSample {
         if (!cellular) return RestrictionSample.Ignore
         if (yandex.invalidatesRestrictionSeries() ||
             bigtech.invalidatesRestrictionSeries() ||
-            google.invalidatesRestrictionSeries()
+            google.invalidatesRestrictionSeries() ||
+            ruService.invalidatesRestrictionSeries()
         ) {
             return RestrictionSample.Ignore
         }
@@ -40,7 +44,14 @@ object RestrictionScore {
         val dirty = ordinary.any { it.ran && !it.isSuccess && !it.countsAsOrdinaryBlock() }
         if (ordinaryOk >= 1) return RestrictionSample.Open
         if (dirty) return RestrictionSample.Ignore
-        if (ordinaryBlock >= 2) return RestrictionSample.Positive
+        // A whitelisted Russian service that does not answer means a bad link
+        // (or a VK outage), not a whitelist — and Bypass would not work either.
+        if (ruService.isFailure) return RestrictionSample.Ignore
+        if (ordinaryBlock >= 2) {
+            // Without a vk.com verdict the round is partial evidence; +25 never
+            // reaches the enter threshold on its own.
+            return if (ruService.isSuccess) RestrictionSample.Positive else RestrictionSample.WeakPositive
+        }
         if (ordinaryBlock == 1) return RestrictionSample.WeakPositive
         return RestrictionSample.Ignore
     }
@@ -85,7 +96,11 @@ fun ReachabilityEvidence.whitelistScoreAt(
     key: NetworkKey?,
     profileId: String?,
 ): Int {
+    if (key != null && !WhitelistDetection.appliesTo(key)) {
+        return WhitelistDetection.STUB_SCORE_PERCENT
+    }
     if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return 0
+    if (networkKey != null && key != null && !networkKey.sameCarrier(key)) return 0
     if (this.profileId != null && profileId != null && this.profileId != profileId) return 0
     return whitelistScorePercent
 }
@@ -97,6 +112,9 @@ fun hasSameNetworkProbeEvidence(
 ): Boolean {
     if (evidence == null) return false
     if (evidence.networkKey != null && key != null && !evidence.networkKey.samePhysicalNetwork(key)) {
+        return false
+    }
+    if (evidence.networkKey != null && key != null && !evidence.networkKey.sameCarrier(key)) {
         return false
     }
     if (evidence.profileId != null && profileId != null && evidence.profileId != profileId) {
@@ -113,10 +131,13 @@ fun foldReachabilityEvidence(
 ): ReachabilityEvidence {
     val series = nextProbeSeriesCount(previous, incoming, elapsedMs)
     val completed = (previous?.completedSeries ?: 0) + 1
+    // Roaming keeps the handle and the SIM, but the whitelist belongs to the
+    // serving operator: a sample from PLMN B must not fold onto PLMN A's score.
     val samePhysical = previous != null &&
         (previous.networkKey == null ||
             incoming.networkKey == null ||
-            previous.networkKey.samePhysicalNetwork(incoming.networkKey)) &&
+            (previous.networkKey.samePhysicalNetwork(incoming.networkKey) &&
+                previous.networkKey.sameCarrier(incoming.networkKey))) &&
         (previous.profileId == null ||
             incoming.profileId == null ||
             previous.profileId == incoming.profileId)
@@ -125,17 +146,22 @@ fun foldReachabilityEvidence(
         yandex = incoming.yandex,
         bigtech = incoming.bigtech,
         google = incoming.google,
+        ruService = incoming.ruService,
     )
     val previousScore = if (cellular && samePhysical) {
         previous?.whitelistScorePercent ?: 0
     } else {
         0
     }
-    val score = if (cellular) RestrictionScore.apply(previousScore, sample) else 0
+    val score = if (cellular) {
+        RestrictionScore.apply(previousScore, sample)
+    } else {
+        WhitelistDetection.STUB_SCORE_PERCENT
+    }
     val restriction = if (cellular) {
         RestrictionScore.hint(score, sample)
     } else {
-        RestrictionHint.None
+        WhitelistDetection.stubRestriction
     }
     return incoming.copy(
         seriesCount = series,
@@ -156,7 +182,10 @@ internal fun ProbeResult.withWhitelistEvidence(
     cellular: Boolean,
 ): ProbeResult {
     if (!cellular) {
-        return copy(whitelistScorePercent = 0, restriction = RestrictionHint.None)
+        return copy(
+            whitelistScorePercent = WhitelistDetection.STUB_SCORE_PERCENT,
+            restriction = WhitelistDetection.stubRestriction,
+        )
     }
     if (captive ||
         networkClass == NetworkClass.Captive ||

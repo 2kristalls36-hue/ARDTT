@@ -241,10 +241,26 @@ fun pickCellularUnderlayNetwork(
     }.maxByOrNull { it.second }?.first
 }.getOrNull()
 
+/**
+ * MCC+MNC of the network the SIM is registered on. Changes on roaming, which
+ * a whitelist score must not survive. No permission required.
+ */
+internal fun cellularCarrierId(context: Context, subId: Int): String? = runCatching {
+    val tm = context.applicationContext.getSystemService(Context.TELEPHONY_SERVICE)
+        as? TelephonyManager ?: return null
+    val scoped = if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+        runCatching { tm.createForSubscriptionId(subId) }.getOrDefault(tm)
+    } else {
+        tm
+    }
+    scoped.networkOperator?.trim()?.takeIf { it.isNotEmpty() }
+}.getOrNull()
+
 fun networkKeyForNetwork(
     network: Network,
     cm: ConnectivityManager,
     fallbackSimId: Int?,
+    carrier: String? = null,
 ): NetworkKey? {
     val caps = cm.getNetworkCapabilities(network) ?: return null
     if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return null
@@ -266,6 +282,7 @@ fun networkKeyForNetwork(
         transport = kind,
         simId = simId,
         configFingerprint = fingerprint,
+        carrier = if (kind == UnderlayKind.Cellular) carrier else null,
     )
 }
 

@@ -4,8 +4,12 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.system.ErrnoException
+import android.system.OsConstants
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,6 +33,12 @@ object EgressIpProbe {
 
     private val cached = AtomicReference<String?>(null)
     private val underlayCached = AtomicReference<String?>(null)
+
+    /** Android 16 refuses the bind for every host/attempt — log it once per series. */
+    private val bindFailureLogged = AtomicBoolean(false)
+
+    /** Nested probes share the outermost caller's series (see [series]). */
+    private val seriesDepth = AtomicInteger(0)
 
     @Volatile
     var lastError: String? = null
@@ -84,7 +94,7 @@ object EgressIpProbe {
         context: Context? = null,
         viaVpn: Boolean = false,
         exitProvisionBaseUrl: String? = null,
-    ): String? = withContext(Dispatchers.IO) {
+    ): String? = series { withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
         val bases = DeployHop.lastHopProvisionUrls(provisionBaseUrl, exitProvisionBaseUrl)
 
@@ -128,7 +138,7 @@ object EgressIpProbe {
         lastError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
         AppLog.w(TAG, "egress ip failed: $lastError")
         null
-    }
+    } }
 
     /**
      * Last-hop WAN (cascade exit or single VPS), never CloudFlare.
@@ -141,7 +151,7 @@ object EgressIpProbe {
         deviceId: String?,
         viaVpn: Boolean,
         bindVpnIfNoExit: Boolean,
-    ): String? = withContext(Dispatchers.IO) {
+    ): String? = series { withContext(Dispatchers.IO) {
         val fromExit = probeProvision(
             viaWarp = false,
             provisionBaseUrl = exitProvisionBaseUrl,
@@ -154,10 +164,10 @@ object EgressIpProbe {
         }
         if (!bindVpnIfNoExit) return@withContext null
         probeVpnBoundIp(context)
-    }
+    } }
 
     /** Public IP as seen through the VPN TUN. Null when the VPN network is down. */
-    suspend fun probeVpnBoundIp(context: Context): String? = withContext(Dispatchers.IO) {
+    suspend fun probeVpnBoundIp(context: Context): String? = series { withContext(Dispatchers.IO) {
         val vpnNet = pickVpnNetwork(context) ?: return@withContext null
         for (url in endpoints) {
             val ip = runCatching { fetchIp(url, vpnNet) }.getOrNull()
@@ -166,7 +176,7 @@ object EgressIpProbe {
             }
         }
         null
-    }
+    } }
 
     /**
      * Provision `/v1/egress-ip` without touching the cached tunnel egress.
@@ -178,7 +188,7 @@ object EgressIpProbe {
         deviceId: String?,
         context: Context?,
         viaVpn: Boolean = false,
-    ): String? = withContext(Dispatchers.IO) {
+    ): String? = series { withContext(Dispatchers.IO) {
         if (provisionBaseUrl.isNullOrBlank()) return@withContext null
         runCatching {
             fetchProvisionEgressIp(
@@ -191,7 +201,7 @@ object EgressIpProbe {
         }.onFailure {
             AppLog.w(TAG, "provision probe failed viaWarp=$viaWarp: ${it.message}")
         }.getOrNull()
-    }
+    } }
 
     fun remember(ip: String, via: String) {
         if (!looksLikeIp(ip)) return
@@ -213,11 +223,14 @@ object EgressIpProbe {
      * Provider public IP. Prefer the underlay network (NOT_VPN). On Android 16
      * binding that network can fail with EPERM while a VPN is up — retry the
      * default route, but never accept CloudFlare / tunnel egress as provider.
+     * The default-route answer is reported but not cached: unbound traffic takes
+     * the system default (the VPN when it is up), so it is not provably the
+     * selected underlay's address.
      */
     suspend fun refreshUnderlay(
         context: Context,
         rejectIps: Collection<String> = emptyList(),
-    ): String? = withContext(Dispatchers.IO) {
+    ): String? = series { withContext(Dispatchers.IO) {
         val errors = mutableListOf<String>()
         val underlay = pickBestUnderlayNetwork(context)
         val fromBind = if (underlay != null) {
@@ -240,7 +253,7 @@ object EgressIpProbe {
         lastUnderlayError = errors.firstOrNull()?.take(80) ?: "не удалось определить IP"
         AppLog.w(TAG, "underlay ip failed: $lastUnderlayError")
         null
-    }
+    } }
 
     private fun probeUnderlayOn(
         bindNetwork: Network?,
@@ -254,7 +267,13 @@ object EgressIpProbe {
             }
             val usable = usableUnderlayIp(ip, rejectIps)
             if (!usable.isNullOrBlank()) {
-                rememberUnderlay(usable, url)
+                if (bindNetwork != null) {
+                    rememberUnderlay(usable, url)
+                } else {
+                    lastUnderlayError = null
+                    lastUnderlayVia = "unbound/${hostOf(url)}"
+                    AppLog.v(TAG, "underlay ip=$usable via=$lastUnderlayVia (не кэшируется)")
+                }
                 return usable
             }
             if (!ip.isNullOrBlank()) {
@@ -347,7 +366,59 @@ object EgressIpProbe {
         throw first.exceptionOrNull() ?: IllegalStateException("provision egress failed")
     }
 
-    private fun getProvisionIp(url: String, bindNetwork: Network?): String {
+    /**
+     * One refresh series = one outermost public probe call. `refresh` fans out to
+     * [probeProvision] per hop, so only the outermost entry may re-arm the
+     * once-per-series bind log.
+     */
+    private suspend fun <T> series(block: suspend () -> T): T {
+        if (seriesDepth.getAndIncrement() == 0) bindFailureLogged.set(false)
+        try {
+            return block()
+        } finally {
+            seriesDepth.updateAndGet { (it - 1).coerceAtLeast(0) }
+        }
+    }
+
+    /**
+     * Binding a socket to the underlay while a VPN is up fails with EPERM on
+     * Android 16. That is not a probe failure — the unbound request still
+     * answers, and the caller validates the address it gets back.
+     */
+    internal fun looksLikeBindFailure(t: Throwable?): Boolean {
+        var cause: Throwable? = t
+        var depth = 0
+        while (cause != null && depth < 5) {
+            if (cause is ErrnoException && cause.errno == OsConstants.EPERM) return true
+            val msg = cause.message.orEmpty()
+            if (msg.contains("Binding socket to network") || msg.contains("EPERM")) return true
+            cause = cause.cause
+            depth++
+        }
+        return false
+    }
+
+    private fun <T> withBindFallback(
+        what: String,
+        bindNetwork: Network?,
+        request: (Network?) -> T,
+    ): T {
+        if (bindNetwork == null) return request(null)
+        return try {
+            request(bindNetwork)
+        } catch (t: Exception) {
+            if (!looksLikeBindFailure(t)) throw t
+            if (bindFailureLogged.compareAndSet(false, true)) {
+                AppLog.i(TAG, "$what bind rejected (${t.message?.take(80)}) — using default route")
+            }
+            request(null)
+        }
+    }
+
+    private fun getProvisionIp(url: String, bindNetwork: Network?): String =
+        withBindFallback("provision egress", bindNetwork) { net -> getProvisionIpOn(url, net) }
+
+    private fun getProvisionIpOn(url: String, bindNetwork: Network?): String {
         val conn = openHttp(URL(url), bindNetwork).apply {
             requestMethod = "GET"
             connectTimeout = 6_000
@@ -369,7 +440,16 @@ object EgressIpProbe {
         }
     }
 
-    private fun fetchIp(url: String, bindNetwork: Network?): String {
+    /**
+     * No bind fallback here: for identity probes the route *is* the answer, so an
+     * unbound retry would report the default network's address as the underlay's
+     * or as the tunnel egress. Callers that can tolerate the default route ask
+     * for it explicitly (see [refreshUnderlay]).
+     */
+    private fun fetchIp(url: String, bindNetwork: Network?): String =
+        fetchIpOn(url, bindNetwork)
+
+    private fun fetchIpOn(url: String, bindNetwork: Network?): String {
         val conn = openHttp(URL(url), bindNetwork).apply {
             connectTimeout = 5_000
             readTimeout = 5_000

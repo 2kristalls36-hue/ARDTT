@@ -5,6 +5,101 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+class CellularHandoverProbeTest {
+    @Test
+    fun anUnmeasuredCellIsProbedInsteadOfGuessed() {
+        assertTrue(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                hasScopedEvidence = false,
+            ),
+        )
+    }
+
+    @Test
+    fun aMeasuredCellSkipsTheBlockingRound() {
+        assertFalse(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                hasScopedEvidence = true,
+            ),
+        )
+    }
+
+    @Test
+    fun withoutABypassOptionTheProbeBuysNothing() {
+        assertFalse(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = false,
+                hasScopedEvidence = false,
+            ),
+        )
+        assertFalse(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Direct,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                hasScopedEvidence = false,
+            ),
+        )
+        // Stubbed transports never carry a whitelist verdict.
+        assertFalse(
+            shouldProbeCellularBeforeHandover(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Wifi,
+                bypassAllowed = true,
+                hasScopedEvidence = false,
+            ),
+        )
+    }
+
+    @Test
+    fun oneCleanRoundReachesTheEnterThreshold() {
+        val score = RestrictionScore.apply(0, RestrictionSample.Positive)
+        assertTrue(RestrictionScore.likely(score, alreadyBypass = false))
+    }
+
+    @Test
+    fun aPartialRoundCannotFlipConnectOrHandoverToBypass() {
+        val partial = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Cancelled,
+        )
+        assertEquals(25, partial.whitelistScorePercent)
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = partial.preselectedPath,
+                lastGood = null,
+                fresh = partial,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                whitelistScorePercent = partial.whitelistScorePercent,
+            ),
+        )
+        // measuredWhitelistLikely() at handover reads the same score.
+        assertFalse(
+            RestrictionScore.likely(partial.whitelistScorePercent, alreadyBypass = false),
+        )
+        assertFalse(
+            RestrictionScore.likely(partial.whitelistScorePercent, alreadyBypass = true),
+        )
+    }
+}
+
 class ConnectPathTest {
     private val directOk = ProbeResult(
         networkClass = NetworkClass.DirectOk,

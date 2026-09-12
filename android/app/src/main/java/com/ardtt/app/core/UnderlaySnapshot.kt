@@ -9,6 +9,8 @@ data class NetworkKey(
     val transport: UnderlayKind,
     val simId: Int?,
     val configFingerprint: String,
+    /** MCC+MNC of the serving network; null when unreadable or not cellular. */
+    val carrier: String? = null,
 ) {
     val isCellular: Boolean get() = transport == UnderlayKind.Cellular
     val isWifi: Boolean get() = transport == UnderlayKind.Wifi
@@ -17,10 +19,28 @@ data class NetworkKey(
     /**
      * Same radio / SIM even if LinkProperties DNS or extra addresses flapped.
      * VPN bind routinely rewrites cellular DNS; that is not a new underlay.
+     *
+     * The carrier is deliberately out: roaming onto another PLMN keeps the same
+     * sockets, so it must not trigger a transport rebind. It does invalidate
+     * measurements — see [sameCarrier].
      */
     fun samePhysicalNetwork(other: NetworkKey?): Boolean {
         if (other == null) return false
         return handle == other.handle && transport == other.transport && simId == other.simId
+    }
+
+    /**
+     * Whether a measurement taken on this network still describes [other]. A
+     * whitelist belongs to the serving operator, so a PLMN change invalidates
+     * it even when Android keeps the same handle and SIM. An unreadable
+     * operator on either side counts as a match — a failed read must not throw
+     * away evidence.
+     */
+    fun sameCarrier(other: NetworkKey?): Boolean {
+        if (other == null) return false
+        val mine = carrier?.takeIf { it.isNotBlank() } ?: return true
+        val theirs = other.carrier?.takeIf { it.isNotBlank() } ?: return true
+        return mine == theirs
     }
 }
 
@@ -29,6 +49,13 @@ fun NetworkKey?.physicalIdentityChanged(next: NetworkKey?): Boolean {
     if (this == null || next == null) return true
     return !samePhysicalNetwork(next)
 }
+
+/**
+ * Whether every measurement taken on this key has to be discarded. The sockets
+ * survive a PLMN change, but the whitelist and the Direct negative do not.
+ */
+fun NetworkKey?.restrictionScopeChanged(next: NetworkKey?): Boolean =
+    physicalIdentityChanged(next) || (this != null && next != null && !sameCarrier(next))
 
 enum class UnderlayAvailability {
     /** No INTERNET+NOT_VPN physical network. */

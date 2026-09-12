@@ -240,6 +240,9 @@ object ConnectionReducer {
             transportEpoch = transportEpoch,
             wifiFailStreak = 0,
             wifiStableHits = 0,
+            wifiUsableSinceMs = 0L,
+            directReevalFailures = 0,
+            directRecheckFromBypass = false,
             directNegative = null,
             lastConfirmedPath = null,
             lastConfirmedNetworkKey = null,
@@ -278,6 +281,7 @@ object ConnectionReducer {
             state.copy(
                 recovery = state.recovery.copy(
                     nextRetryAtElapsedMs = null,
+                    pendingTimer = PendingTimer.None,
                     failureIndex = state.recovery.failureIndex,
                 ),
                 transport = if (state.transport == TransportLifecycle.Failed) {
@@ -298,7 +302,8 @@ object ConnectionReducer {
         jitterPermille: Int,
     ): ReduceResult {
         val networkChanged = state.underlay.key.physicalIdentityChanged(snapshot.key)
-        val carried = carryWhitelistEvidence(state, snapshot, networkChanged)
+        val scopeChanged = state.underlay.key.restrictionScopeChanged(snapshot.key)
+        val carried = carryWhitelistEvidence(state, snapshot, scopeChanged)
         if (!state.intent.wantsConnected) {
             return ReduceResult(
                 carried.copy(underlay = snapshot, networkEpoch = snapshot.networkEpoch),
@@ -306,10 +311,20 @@ object ConnectionReducer {
             )
         }
         val leftWifiEpisode = !snapshot.kind.prefersDirectInAuto()
+        val wifiUsableNow = snapshot.withEffectiveKind().kind.prefersDirectInAuto() &&
+            snapshot.availability == UnderlayAvailability.Usable
+        val wifiUsableSince = when {
+            !wifiUsableNow -> 0L
+            networkChanged || state.wifiUsableSinceMs <= 0L -> elapsedMs
+            else -> state.wifiUsableSinceMs
+        }
         val next = carried.copy(
+            wifiUsableSinceMs = wifiUsableSince,
             underlay = snapshot,
             networkEpoch = snapshot.networkEpoch,
-            directNegative = if (networkChanged) null else state.directNegative,
+            directNegative = if (scopeChanged) null else state.directNegative,
+            directReevalFailures = if (scopeChanged) 0 else state.directReevalFailures,
+            directRecheckFromBypass = !scopeChanged && state.directRecheckFromBypass,
             wifiFailStreak = if (leftWifiEpisode) 0 else state.wifiFailStreak,
             wifiStableHits = if (leftWifiEpisode) 0 else state.wifiStableHits,
             call = if (snapshot.availability == UnderlayAvailability.None) {
@@ -325,14 +340,17 @@ object ConnectionReducer {
             },
         )
         val fromNetworkGap = !state.underlay.allowsNetworkOps && snapshot.allowsNetworkOps
-        val recovered = if (snapshot.allowsNetworkOps && (networkChanged || fromNetworkGap)) {
+        val recovered = if (snapshot.allowsNetworkOps && (scopeChanged || fromNetworkGap)) {
             next.copy(
                 transport = if (next.transport == TransportLifecycle.Failed) {
                     TransportLifecycle.Stopped
                 } else {
                     next.transport
                 },
-                recovery = next.recovery.copy(nextRetryAtElapsedMs = null),
+                recovery = next.recovery.copy(
+                    nextRetryAtElapsedMs = null,
+                    pendingTimer = PendingTimer.None,
+                ),
             )
         } else {
             next
@@ -353,6 +371,7 @@ object ConnectionReducer {
                     },
                     permit = permitFrom(next, netOps = false, inFlight = false),
                     nextRetryAtElapsedMs = null,
+                    pendingTimer = PendingTimer.None,
                 ),
             )
             return ReduceResult(
@@ -498,12 +517,15 @@ object ConnectionReducer {
             },
             wifiFailStreak = if (pathConfirmed) 0 else state.wifiFailStreak,
             wifiStableHits = if (pathConfirmed) state.wifiStableHits + 1 else state.wifiStableHits,
+            directReevalFailures = if (pathConfirmed) 0 else state.directReevalFailures,
+            directRecheckFromBypass = false,
             directNegative = if (pathConfirmed) null else state.directNegative,
             recovery = state.recovery.copy(
                 phase = RecoveryPhase.Connected,
                 failureIndex = if (pathConfirmed) 0 else state.recovery.failureIndex,
                 inFlight = false,
                 nextRetryAtElapsedMs = null,
+                pendingTimer = PendingTimer.None,
                 permit = permitFrom(state, netOps = true, inFlight = false),
                 callOpInFlight = false,
             ),
@@ -526,16 +548,34 @@ object ConnectionReducer {
             return ReduceResult(state, RecoveryCommand.None)
         }
         val wifi = state.underlay.kind.prefersDirectInAuto()
+        val holdForBypassReeval = state.intent.mode == ConnPathMode.Auto &&
+            state.intent.hasCallHash &&
+            state.underlay.kind == UnderlayKind.Cellular
+        // Only a re-check that displaced a working Bypass widens the next gap.
+        // Direct failing while Bypass cannot start either must stay on the base
+        // interval, or both paths would be held off for minutes.
+        // The parked process can die mid-attempt and a Bypass that never got
+        // past BackendRunning has no lastConfirmedPath, so the flag set when
+        // the re-check parked it is the only reliable witness.
+        val displacedLiveBypass = holdForBypassReeval &&
+            (state.directRecheckFromBypass ||
+                state.parkedRawAlive ||
+                state.lastConfirmedPath == VpnPath.Bypass)
         val retryAfter = RecoverySettings.directNegativeRetryAfterElapsedMs(
             elapsedMs = elapsedMs,
             failureIndex = state.recovery.failureIndex,
             jitterPermille = jitterPermille,
-            holdForBypassReeval = state.intent.mode == ConnPathMode.Auto &&
-                state.intent.hasCallHash &&
-                state.underlay.kind == UnderlayKind.Cellular,
+            holdForBypassReeval = holdForBypassReeval,
+            failedReevals = state.directReevalFailures,
         )
         val next = state.copy(
             transport = TransportLifecycle.Failed,
+            directReevalFailures = if (displacedLiveBypass) {
+                state.directReevalFailures + 1
+            } else {
+                state.directReevalFailures
+            },
+            directRecheckFromBypass = false,
             directNegative = DirectNegativeEvidence(
                 key = event.networkKey ?: state.underlay.key ?: NetworkKey(0L, state.underlay.kind, null, "unknown"),
                 profileId = state.intent.profileId,
@@ -592,6 +632,7 @@ object ConnectionReducer {
                 failureIndex = if (pathConfirmed) 0 else state.recovery.failureIndex,
                 inFlight = false,
                 nextRetryAtElapsedMs = delay?.let { elapsedMs + it },
+                pendingTimer = if (delay != null) PendingTimer.Reeval else PendingTimer.None,
                 permit = permitFrom(state, netOps = true, inFlight = false),
                 callOpInFlight = false,
             ),
@@ -686,7 +727,15 @@ object ConnectionReducer {
         if (event.validity == CallValidity.CredentialsExpired && state.intent.wantsConnected) {
             return ReduceResult(
                 withUi(
-                    next.copy(recovery = next.recovery.copy(callOpInFlight = true)),
+                    // The command clears the runtime timer; a deadline left in
+                    // the state would only block the next arm.
+                    next.copy(
+                        recovery = next.recovery.copy(
+                            callOpInFlight = true,
+                            nextRetryAtElapsedMs = null,
+                            pendingTimer = PendingTimer.None,
+                        ),
+                    ),
                     elapsedMs,
                 ),
                 RecoveryCommand.RefreshCredentials,
@@ -829,6 +878,10 @@ object ConnectionReducer {
             recovery = state.recovery.copy(
                 inFlight = keepDirect && state.recovery.inFlight && !startingDirectNeedsRestart,
                 callOpInFlight = false,
+                // DiscardStaleCall clears the runtime timer; keeping the
+                // deadline here would only block the next arm.
+                nextRetryAtElapsedMs = null,
+                pendingTimer = PendingTimer.None,
                 permit = permitFrom(
                     state.copy(
                         transportEpoch = transportEpoch,
@@ -873,7 +926,10 @@ object ConnectionReducer {
         }
         return decideNext(
             state.copy(
-                recovery = state.recovery.copy(nextRetryAtElapsedMs = null),
+                recovery = state.recovery.copy(
+                    nextRetryAtElapsedMs = null,
+                    pendingTimer = PendingTimer.None,
+                ),
                 transport = if (state.transport == TransportLifecycle.Failed) {
                     TransportLifecycle.Stopped
                 } else {
@@ -909,6 +965,7 @@ object ConnectionReducer {
                 lastConfirmedNetworkKey = state.lastConfirmedNetworkKey,
                 wifiFailStreak = state.wifiFailStreak,
                 wifiStableHits = state.wifiStableHits,
+                wifiUsableSinceMs = state.wifiUsableSinceMs,
                 parkedRawAlive = state.parkedRawAlive,
                 elapsedMs = elapsedMs,
                 profileId = state.intent.profileId,
@@ -929,6 +986,7 @@ object ConnectionReducer {
                 phase = phase,
                 inFlight = inFlight,
                 nextRetryAtElapsedMs = delay?.let { elapsedMs + it },
+                pendingTimer = if (delay != null) PendingTimer.Backoff else PendingTimer.None,
                 permit = permitFrom(
                     state,
                     netOps = state.underlay.allowsNetworkOps,
@@ -965,9 +1023,12 @@ object ConnectionReducer {
                 withUi(state.copy(recovery = phaseOf(RecoveryPhase.WaitingForNetwork)), elapsedMs),
                 RecoveryCommand.PauseNetOps,
             )
+            // Captive Wi‑Fi alongside cellular still allows network ops, so the
+            // underlay branch never pauses. PauseNetOps is what registers the
+            // underlay watcher that notices the portal being signed in.
             AutoDecision.ShowCaptive -> ReduceResult(
                 withUi(state.copy(recovery = phaseOf(RecoveryPhase.CaptivePortal)), elapsedMs),
-                RecoveryCommand.None,
+                RecoveryCommand.PauseNetOps,
             )
             is AutoDecision.NeedsUserAction -> ReduceResult(
                 state.copy(
@@ -983,47 +1044,27 @@ object ConnectionReducer {
                 ),
                 RecoveryCommand.None,
             )
-            is AutoDecision.ServerFault -> {
-                val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
-                ReduceResult(
-                    withUi(
-                        state.copy(
-                            recovery = phaseOf(
-                                RecoveryPhase.Backoff,
-                                delay = delay,
-                            ).copy(failureIndex = state.recovery.failureIndex + 1),
-                        ),
-                        elapsedMs,
-                    ),
-                    RecoveryCommand.ScheduleRetry(delay),
-                )
-            }
-            is AutoDecision.Backoff -> {
-                val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
-                ReduceResult(
-                    withUi(
-                        state.copy(
-                            recovery = phaseOf(RecoveryPhase.Backoff, delay = delay)
-                                .copy(failureIndex = state.recovery.failureIndex + 1),
-                        ),
-                        elapsedMs,
-                    ),
-                    RecoveryCommand.ScheduleRetry(delay),
-                )
-            }
+            is AutoDecision.ServerFault -> armBackoff(state, elapsedMs, jitterPermille)
+            is AutoDecision.Backoff -> armBackoff(state, elapsedMs, jitterPermille)
             is AutoDecision.Stay -> {
-                val armBypassReeval = state.intent.mode == ConnPathMode.Auto &&
-                    decision.path == VpnPath.Bypass &&
-                    (decision.reason == "wifi-hysteresis" ||
-                        decision.reason == "bypass-running") &&
-                    state.recovery.nextRetryAtElapsedMs == null
-                if (armBypassReeval) {
-                    val delay = RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS
+                val delay = stayReevalDelay(state, decision, elapsedMs)
+                    ?: return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
+                val due = state.recovery.nextRetryAtElapsedMs
+                // The Wi‑Fi settle is shorter than a pending Direct re-check and
+                // must be allowed to replace it, or the upgrade waits a full gap.
+                // Every other Stay only arms when nothing is pending.
+                val arm = when {
+                    due == null -> true
+                    decision.reason == WIFI_SETTLING -> elapsedMs + delay < due
+                    else -> false
+                }
+                if (arm) {
                     ReduceResult(
                         withUi(
                             state.copy(
                                 recovery = state.recovery.copy(
                                     nextRetryAtElapsedMs = elapsedMs + delay,
+                                    pendingTimer = PendingTimer.Reeval,
                                 ),
                             ),
                             elapsedMs,
@@ -1059,6 +1100,7 @@ object ConnectionReducer {
                             activePath = VpnPath.Direct,
                             transport = TransportLifecycle.Starting,
                             transportEpoch = transportEpoch,
+                            directRecheckFromBypass = switching || state.directRecheckFromBypass,
                             recovery = phaseOf(phase, inFlight = true).copy(
                                 permit = permitFrom(
                                     state.copy(transportEpoch = transportEpoch),
@@ -1119,10 +1161,71 @@ object ConnectionReducer {
         }
     }
 
+    /** When a Stay on Bypass needs to wake itself up again, and how soon. */
+    private fun stayReevalDelay(
+        state: ConnectionSnapshot,
+        decision: AutoDecision.Stay,
+        elapsedMs: Long,
+    ): Long? {
+        if (state.intent.mode != ConnPathMode.Auto) return null
+        if (decision.path != VpnPath.Bypass) return null
+        return when (decision.reason) {
+            WIFI_SETTLING -> {
+                val settle = RecoverySettings.wifiUpgradeSettleMs(state.wifiFailStreak)
+                val held = elapsedMs - state.wifiUsableSinceMs
+                (settle - held).coerceIn(RecoverySettings.NETWORK_RETURN_COALESCE_MS, settle)
+            }
+            "wifi-hysteresis", "bypass-running" ->
+                stayReevalDelayMs(state.directNegative?.retryAfterElapsedMs, elapsedMs)
+            else -> null
+        }
+    }
+
+    /**
+     * "No path works" backoff. Underlay capability flaps arrive several times
+     * per minute; re-arming on each of them would walk [RecoveryState.failureIndex]
+     * up to the 60 s cap while nothing was actually retried.
+     */
+    private fun armBackoff(
+        state: ConnectionSnapshot,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult {
+        val due = state.recovery.backoffDueAtElapsedMs
+        if (due != null && elapsedMs < due) {
+            return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
+        }
+        val delay = RecoverySettings.retryDelayMs(state.recovery.failureIndex, jitterPermille)
+        return ReduceResult(
+            withUi(
+                state.copy(
+                    recovery = state.recovery.copy(
+                        phase = RecoveryPhase.Backoff,
+                        inFlight = false,
+                        nextRetryAtElapsedMs = elapsedMs + delay,
+                        pendingTimer = PendingTimer.Backoff,
+                        failureIndex = state.recovery.failureIndex + 1,
+                        permit = permitFrom(
+                            state,
+                            netOps = state.underlay.allowsNetworkOps,
+                            inFlight = false,
+                        ),
+                    ),
+                ),
+                elapsedMs,
+            ),
+            RecoveryCommand.ScheduleRetry(delay),
+        )
+    }
+
     /**
      * First failure on this path schedules backoff. Later events while the
      * timer is still running must not bump [RecoveryState.failureIndex] or
      * start a second attempt. A due timer falls through to a real start.
+     *
+     * Only a [PendingTimer.Backoff] gates the retry. A pending Direct re-check
+     * is an optimisation, not a budget: a transport that died must not sit dark
+     * until the re-check fires.
      */
     private fun backoffAfterFailure(
         path: VpnPath,
@@ -1133,7 +1236,7 @@ object ConnectionReducer {
         if (state.transport != TransportLifecycle.Failed || state.activePath != path) {
             return null
         }
-        val due = state.recovery.nextRetryAtElapsedMs
+        val due = state.recovery.backoffDueAtElapsedMs
         if (due != null && elapsedMs < due) {
             return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
         }
@@ -1148,6 +1251,7 @@ object ConnectionReducer {
                         phase = RecoveryPhase.Backoff,
                         inFlight = false,
                         nextRetryAtElapsedMs = elapsedMs + delay,
+                        pendingTimer = PendingTimer.Backoff,
                         failureIndex = state.recovery.failureIndex + 1,
                         permit = permitFrom(
                             state,
@@ -1208,7 +1312,7 @@ object ConnectionReducer {
     }
 
     private fun withUi(state: ConnectionSnapshot, nowElapsedMs: Long): ConnectionSnapshot {
-        val retryAt = state.recovery.nextRetryAtElapsedMs
+        val retryAt = state.recovery.backoffDueAtElapsedMs
         val remaining = if (retryAt != null) (retryAt - nowElapsedMs).coerceAtLeast(0L) else null
         val restriction = state.evidence?.restrictionAt(
             nowElapsedMs,

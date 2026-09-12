@@ -294,6 +294,307 @@ class NetworkProbeClassifyTest {
     }
 
     @Test
+    fun ordinaryTargetsWaitLongerWhenTheControlItselfWasSlow() {
+        // Congested link: control answered in 600ms, so 4×600 beats the 500ms base.
+        assertEquals(
+            1_000,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 1_000,
+            ),
+        )
+        assertEquals(
+            2_400,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 4_000,
+            ),
+        )
+        // Fast control: nothing to extend, the base timeout already covers 4×RTT.
+        assertEquals(
+            500,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 50,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 1_200,
+            ),
+        )
+        // The round budget is the hard bound.
+        assertEquals(
+            120,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 120,
+            ),
+        )
+        assertEquals(
+            0,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = -5,
+            ),
+        )
+        assertEquals(
+            1_800,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = 600,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 4_000,
+                factor = 3,
+            ),
+        )
+        assertEquals(
+            500,
+            NetworkProbePolicy.ordinaryDeadlineMs(
+                controlRttMs = -10,
+                baseTimeoutMs = 500,
+                remainingBudgetMs = 4_000,
+            ),
+        )
+    }
+
+    @Test
+    fun onlyATimedOutOrdinaryTargetRetriesAndOnlyOnBudget() {
+        assertTrue(
+            NetworkProbePolicy.shouldRetryOrdinaryTarget(CheckOutcome.Timeout, 300),
+        )
+        assertTrue(
+            NetworkProbePolicy.shouldRetryOrdinaryTarget(CheckOutcome.Timeout, 900),
+        )
+        assertTrue(
+            !NetworkProbePolicy.shouldRetryOrdinaryTarget(CheckOutcome.Timeout, 299),
+        )
+        listOf(
+            CheckOutcome.Success,
+            CheckOutcome.Refused,
+            CheckOutcome.TlsFailure,
+            CheckOutcome.BindFailure,
+            CheckOutcome.Cancelled,
+            CheckOutcome.NotRun,
+            CheckOutcome.NetworkLost,
+        ).forEach { outcome ->
+            assertTrue(
+                "outcome=$outcome",
+                !NetworkProbePolicy.shouldRetryOrdinaryTarget(outcome, 1_200),
+            )
+        }
+    }
+
+    @Test
+    fun retriesStopOnceTheControlGroupIsOut() {
+        assertTrue(NetworkProbePolicy.ordinaryRetryStillInformative(null, null))
+        assertTrue(
+            NetworkProbePolicy.ordinaryRetryStillInformative(CheckOutcome.Success, null),
+        )
+        // No vk.com verdict yet still leaves a WeakPositive to gain.
+        assertTrue(
+            NetworkProbePolicy.ordinaryRetryStillInformative(
+                CheckOutcome.Success,
+                CheckOutcome.Cancelled,
+            ),
+        )
+        // Yandex down: the sample is Ignore whatever the ordinary targets say.
+        assertTrue(
+            !NetworkProbePolicy.ordinaryRetryStillInformative(CheckOutcome.Timeout, null),
+        )
+        assertTrue(
+            !NetworkProbePolicy.ordinaryRetryStillInformative(
+                CheckOutcome.Timeout,
+                CheckOutcome.Success,
+            ),
+        )
+        // vk.com down: the round is a bad link, not a whitelist.
+        assertTrue(
+            !NetworkProbePolicy.ordinaryRetryStillInformative(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+            ),
+        )
+        // A dead link reports every target false, so NoNetwork is reachable.
+        assertEquals(
+            ProbePathHint.NoNetwork,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = CheckOutcome.Timeout.toProbeFlag(),
+                cloudflareOk = CheckOutcome.Timeout.toProbeFlag(),
+                captive = false,
+                googleOk = CheckOutcome.Timeout.toProbeFlag(),
+            ),
+        )
+    }
+
+    @Test
+    fun aRetryWindowMustFitInsideTheRoundOrNotBeStarted() {
+        // Quick mode: Cloudflare timed out at 800ms of a 1500ms round.
+        assertEquals(
+            550,
+            NetworkProbePolicy.ordinaryRetryWindowMs(
+                targetDeadlineMs = 1_600,
+                elapsedMs = 800,
+                remainingBudgetMs = 700,
+            ),
+        )
+        // The RTT deadline, not the budget, is the binding limit here.
+        assertEquals(
+            400,
+            NetworkProbePolicy.ordinaryRetryWindowMs(
+                targetDeadlineMs = 1_200,
+                elapsedMs = 800,
+                remainingBudgetMs = 700,
+            ),
+        )
+        // Too little budget left for the relaunch to say anything.
+        assertEquals(
+            0,
+            NetworkProbePolicy.ordinaryRetryWindowMs(
+                targetDeadlineMs = 1_600,
+                elapsedMs = 800,
+                remainingBudgetMs = 400,
+            ),
+        )
+        // A deadline that adds nothing beyond what was already spent.
+        assertEquals(
+            0,
+            NetworkProbePolicy.ordinaryRetryWindowMs(
+                targetDeadlineMs = 800,
+                elapsedMs = 800,
+                remainingBudgetMs = 700,
+            ),
+        )
+    }
+
+    @Test
+    fun aRelaunchCutByTheRoundKeepsTheFirstAttemptsBlock() {
+        val settled = NetworkProbePolicy.settledOutcome(null, CheckOutcome.Timeout)
+        assertEquals(CheckOutcome.Timeout, settled)
+        assertTrue(settled.countsAsOrdinaryBlock())
+        assertEquals(
+            CheckOutcome.Success,
+            NetworkProbePolicy.settledOutcome(CheckOutcome.Success, CheckOutcome.Timeout),
+        )
+        assertEquals(CheckOutcome.NotRun, NetworkProbePolicy.settledOutcome(null, null))
+        // Yandex OK + vk.com OK + both ordinary targets blocked on their first
+        // attempt is a full sample even when neither relaunch got to finish.
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            bigtechOutcome = settled,
+            googleOutcome = settled,
+            ruServiceOutcome = CheckOutcome.Success,
+        )
+        assertEquals(RestrictionHint.Confirmed, r.restriction)
+        assertEquals(80, r.whitelistScorePercent)
+        assertTrue(
+            isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                settled,
+                settled,
+                CheckOutcome.Success,
+            ),
+        )
+    }
+
+    @Test
+    fun ruControlSuccessIsInternetEvidenceAndGoesDirect() {
+        assertEquals(
+            ProbePathHint.Direct,
+            NetworkProbe.decideProbePath(
+                provisionOk = false,
+                yandexOk = false,
+                cloudflareOk = false,
+                captive = null,
+                googleOk = false,
+                ruServiceOk = true,
+            ),
+        )
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = false,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = false,
+            underlayKind = UnderlayKind.Cellular,
+            ruServiceOutcome = CheckOutcome.Success,
+        )
+        assertTrue(r.ruServiceOk)
+        assertEquals(CheckOutcome.Success, r.ruServiceOutcome)
+        assertTrue(r.networkClass != NetworkClass.DataUnconfirmed)
+    }
+
+    @Test
+    fun ruControlFoldsTheRaceOverEveryVkAddress() {
+        assertEquals(CheckOutcome.NotRun, NetworkProbePolicy.foldControlOutcomes(emptyList()))
+        assertEquals(
+            CheckOutcome.Success,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.Timeout, CheckOutcome.Success),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Timeout,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.Refused, CheckOutcome.Timeout),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Refused,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.Cancelled, CheckOutcome.Refused, CheckOutcome.NotRun),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Cancelled,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NotRun, CheckOutcome.Cancelled),
+            ),
+        )
+        // One stale front answering "no route" must not void the round: that
+        // outcome only wins when every address reports it.
+        assertEquals(
+            CheckOutcome.Timeout,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.Timeout),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Refused,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.Refused, CheckOutcome.Suspended),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.Success,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.Success),
+            ),
+        )
+        assertEquals(
+            CheckOutcome.NetworkLost,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.NetworkLost),
+            ),
+        )
+        assertTrue(
+            !NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.NetworkLost, CheckOutcome.Timeout),
+            ).invalidatesRestrictionSeries(),
+        )
+        assertTrue(NetworkProbe.RU_CONTROL_HOSTS.isNotEmpty())
+        NetworkProbe.RU_CONTROL_HOSTS.forEach { host ->
+            assertTrue(host.ips.isNotEmpty())
+            host.ips.forEach { assertTrue(NetworkProbe.numericIpv4(it) != null) }
+        }
+    }
+
+    @Test
     fun provisionUrlHostAndPort() {
         assertEquals("10.1.2.3" to 9100, NetworkProbe.parseProvisionEndpoint("http://10.1.2.3:9100"))
         assertEquals("10.1.2.3" to 9100, NetworkProbe.parseProvisionEndpoint("http://10.1.2.3:9100/"))
@@ -323,6 +624,7 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
             seriesCount = 1,
             googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Success,
         )
         assertEquals(RestrictionHint.Confirmed, first.restriction)
         assertEquals(VpnPath.Bypass, first.preselectedPath)
@@ -337,6 +639,7 @@ class NetworkProbeClassifyTest {
             underlayKind = UnderlayKind.Cellular,
             seriesCount = 2,
             googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Success,
             previousWhitelistScore = first.whitelistScorePercent,
         )
         assertEquals(RestrictionHint.Confirmed, second.restriction)
@@ -458,11 +761,82 @@ class NetworkProbeClassifyTest {
             provisionOk = true,
             underlayKind = UnderlayKind.Cellular,
             googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Success,
         )
         assertEquals(RestrictionHint.Confirmed, r.restriction)
         assertEquals(VpnPath.Bypass, r.preselectedPath)
         assertEquals("whitelist", r.routeReason)
         assertEquals(80, r.whitelistScorePercent)
+    }
+
+    @Test
+    fun congestedLinkWithoutVkNeverLocksBypassInOneRound() {
+        val congested = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Timeout,
+        )
+        assertEquals(RestrictionHint.Unknown, congested.restriction)
+        assertEquals(VpnPath.Direct, congested.preselectedPath)
+        assertEquals(0, congested.whitelistScorePercent)
+        val partial = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Timeout,
+            ruServiceOutcome = CheckOutcome.Cancelled,
+        )
+        assertEquals(RestrictionHint.Suspected, partial.restriction)
+        assertEquals(VpnPath.Direct, partial.preselectedPath)
+        assertEquals(25, partial.whitelistScorePercent)
+    }
+
+    @Test
+    fun aRoundWithVkDownIsNotARestrictionSeriesSample() {
+        assertTrue(
+            !isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+                CheckOutcome.Timeout,
+                CheckOutcome.Timeout,
+            ),
+        )
+        assertTrue(
+            isRestrictionSeriesSample(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+                CheckOutcome.Timeout,
+                CheckOutcome.Success,
+            ),
+        )
+        assertEquals(
+            RestrictionHint.Unknown,
+            NetworkProbePolicy.restrictionHint(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Refused,
+            ),
+        )
+        assertEquals(
+            RestrictionHint.Confirmed,
+            NetworkProbePolicy.restrictionHint(
+                cellular = true,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
+            ),
+        )
     }
 
     @Test

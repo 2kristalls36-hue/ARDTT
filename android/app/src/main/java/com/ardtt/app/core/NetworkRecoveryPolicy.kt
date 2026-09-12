@@ -55,12 +55,19 @@ fun extraNetworkSettleDelayMs(
     path: VpnPath,
     validatedPresent: Boolean,
     skipValidatedWait: Boolean = false,
+    underlayKind: UnderlayKind = UnderlayKind.Other,
+    pathMode: ConnPathMode = ConnPathMode.Auto,
 ): Long {
     if (path == VpnPath.Direct) {
         return DIRECT_NETWORK_SETTLE_MS
     }
     if (skipValidatedWait || !validatedPresent) {
         return BYPASS_UNVALIDATED_SETTLE_MS
+    }
+    // Upgrading a live Bypass to Wi‑Fi Direct costs a parked call and a TUN
+    // rebuild; give an access point at the edge of range time to drop first.
+    if (pathMode == ConnPathMode.Auto && underlayKind.prefersDirectInAuto()) {
+        return RecoverySettings.WIFI_UPGRADE_SETTLE_MS
     }
     return transportRecoveryPolicy(path).networkSettleDelayMs
 }
@@ -158,6 +165,45 @@ fun shouldTreatInitialValidatedAsHandover(
     if (sessionStartedAtMs <= 0L) return false
     return nowMs - sessionStartedAtMs >= graceAfterStartMs
 }
+
+/**
+ * A voice call on a 2G/3G bearer suspends mobile data without changing the
+ * network id, so [classifyValidatedNetworkTransition] calls the resume
+ * UNCHANGED and nothing rebinds. By then the TURN allocation and the server's
+ * downlink slot are usually gone.
+ */
+enum class DataSuspensionTransition {
+    None,
+    Suspended,
+    Resumed,
+}
+
+/**
+ * The other SIM losing its bearer is not our problem; only the radio the tunnel
+ * rides can strand the transport. An unknown preferred underlay tracks anything
+ * — rejecting every event there would silence the feature altogether.
+ */
+fun tracksSuspensionFor(
+    networkHandle: Long,
+    preferredHandle: Long?,
+): Boolean = preferredHandle == null || preferredHandle == networkHandle
+
+fun classifyDataSuspension(
+    wasSuspended: Boolean,
+    notSuspendedNow: Boolean,
+): DataSuspensionTransition = when {
+    !notSuspendedNow -> if (wasSuspended) DataSuspensionTransition.None else DataSuspensionTransition.Suspended
+    wasSuspended -> DataSuspensionTransition.Resumed
+    else -> DataSuspensionTransition.None
+}
+
+/** Below this a suspension is a capability flap, not a bearer that went away. */
+const val DATA_SUSPENSION_REBIND_MS = 5_000L
+
+fun shouldRebindAfterDataResume(
+    suspendedForMs: Long,
+    minMs: Long = DATA_SUSPENSION_REBIND_MS,
+): Boolean = suspendedForMs >= minMs
 
 fun shouldScheduleAvailableNetworkHandover(
     previousNetworkWasLost: Boolean,
@@ -515,6 +561,53 @@ fun shouldReconnectTunnelAfterWake(
     return activeWorkers <= 0 || !backendAlive
 }
 
+enum class WakeRescueAction {
+    None,
+    SoftRestart,
+
+    /** Direct backend is alive but nothing came back after wake — hand to the reducer. */
+    DeadDirect,
+}
+
+/**
+ * Restarting Direct after wake re-handshakes on the same radio, which is useless
+ * when the cell answers the control plane and drops the data plane. Route that
+ * case through the dead-Direct reducer (Auto+cellular+hash → Bypass) instead.
+ *
+ * Silence after wake is only evidence when something was actually sent: a phone
+ * that slept through the night has no inbound data either, and dialling VK for
+ * that would be worse than the blackhole it is looking for. Direct byte counts
+ * are measured since the wake, not over the watchdog window.
+ */
+fun wakeRescueAction(
+    path: VpnPath,
+    backendAlive: Boolean,
+    directRxBytesSinceWake: Long,
+    directTxBytesSinceWake: Long,
+    activeWorkers: Int,
+    hasFreshStatsSinceWake: Boolean,
+    minTxBytes: Long = DIRECT_TX_DATA_MIN_BYTES,
+): WakeRescueAction {
+    val directEgressOk = path != VpnPath.Direct ||
+        RecoverySettings.directRxLooksLikeData(directRxBytesSinceWake)
+    val reconnect = shouldReconnectTunnelAfterWake(
+        activeWorkers = activeWorkers,
+        hasFreshStatsSinceWake = hasFreshStatsSinceWake,
+        bypassPath = path == VpnPath.Bypass,
+        backendAlive = backendAlive,
+        directEgressOk = directEgressOk,
+    )
+    if (!reconnect) return WakeRescueAction.None
+    if (path == VpnPath.Direct && backendAlive) {
+        return if (directTxBytesSinceWake >= minTxBytes) {
+            WakeRescueAction.DeadDirect
+        } else {
+            WakeRescueAction.None
+        }
+    }
+    return WakeRescueAction.SoftRestart
+}
+
 /**
  * Direct Connected with no TUN rx after grace: Auto+hash on cellular → Bypass.
  * Auto on Wi‑Fi and forced Direct stop so the phone is not a blackhole.
@@ -534,25 +627,53 @@ const val DEAD_DIRECT_NO_RX_MS = 4_000L
 /** After Wi‑Fi→LTE rebind, fail Direct faster — handshake already had a chance. */
 const val DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS = 3_000L
 
+/**
+ * Path A, uplink moving: any live TCP flow is ACKed within an RTT and DNS is
+ * answered in milliseconds, so this much tx with no inbound *data* is a dead
+ * path, not a slow one. The 90s staleness window in [VpnLiveStats.hasFreshRxSince]
+ * measures idleness and is far too long for a user who is actively browsing.
+ */
+const val DIRECT_UNANSWERED_UPLINK_MS = 15_000L
+
+/**
+ * Uplink bytes inside [DIRECT_UNANSWERED_UPLINK_MS] that mean the user (or an
+ * app) is really waiting for an answer. AmneziaWG sends a 32 B keepalive every
+ * `persistent_keepalive_interval` (25 s) and periodic handshake initiations of
+ * ~150 B, all of which land in tx_bytes: an idle tunnel must stay far below
+ * this or the watchdog would tear down a perfectly healthy screen-off session.
+ */
+const val DIRECT_TX_DATA_MIN_BYTES = 4096L
+
+/**
+ * Direct mirror of [shouldSoftRestartForUnansweredUplink]: the phone keeps
+ * writing into AWG and nothing comes back. An AWG handshake proves only the
+ * control plane — an operator whitelist answers the rekey and drops the data
+ * plane — so liveness comes from the uplink instead: without real uplink the
+ * tunnel is idle (nothing to answer), uplink without inbound data is a blackhole.
+ *
+ * Both inputs are byte counts over the same trailing [DIRECT_UNANSWERED_UPLINK_MS]
+ * window. [rxDataBytesInWindow] counts every inbound byte; the handshake/keepalive
+ * allowance lives in [RecoverySettings.directRxLooksLikeData].
+ */
 fun shouldTreatDirectAsDeadNoRx(
     nowMs: Long,
     sessionStartedAtMs: Long,
     lastHandoffAtMs: Long,
-    hasFreshRxSinceAnchor: Boolean,
+    txBytesInWindow: Long,
+    rxDataBytesInWindow: Long,
     startGraceMs: Long = DEAD_DIRECT_START_GRACE_MS,
     noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
     noRxAfterHandoffMs: Long = DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS,
-    handshakeLive: Boolean = false,
+    minTxBytes: Long = DIRECT_TX_DATA_MIN_BYTES,
 ): Boolean {
     if (sessionStartedAtMs <= 0L) return false
     val afterHandoff = lastHandoffAtMs > sessionStartedAtMs
     if (!afterHandoff && nowMs - sessionStartedAtMs < startGraceMs) return false
-    // Idle Direct with a live AWG handshake is not a blackhole.
-    if (handshakeLive && !afterHandoff) return false
     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
     val requiredNoRx = if (afterHandoff) noRxAfterHandoffMs else noRxMs
     if (nowMs - anchor < requiredNoRx) return false
-    return !hasFreshRxSinceAnchor
+    if (txBytesInWindow < minTxBytes) return false
+    return !RecoverySettings.directRxLooksLikeData(rxDataBytesInWindow)
 }
 
 fun decideDeadDirectAction(
@@ -607,6 +728,36 @@ fun shouldSoftRestartForTrafficStall(
     if (!inHandoffWindow) return false
     val stalledFor = nowMs - lastTrafficGrowthAtMs
     return stalledFor >= afterHandoffGraceMs
+}
+
+/**
+ * Path B, no recent handoff: the app keeps sending and nothing comes back.
+ *
+ * TURN workers survive the VPS going away — the relay allocation is still up, so
+ * neither the zero-worker nor the handoff stall check fires and a dead tunnel can
+ * sit there indefinitely. An idle tunnel is still not a fault: the uplink counter
+ * has to be moving for this to count.
+ */
+const val BYPASS_UNANSWERED_UPLINK_MS = 45_000L
+
+fun shouldSoftRestartForUnansweredUplink(
+    bypassPath: Boolean,
+    activeWorkers: Int,
+    lastUplinkGrowthAtMs: Long,
+    lastInboundGrowthAtMs: Long,
+    nowMs: Long,
+    /** Transport start / last handoff; counters are zeroed at that point. */
+    anchorMs: Long,
+    graceMs: Long = BYPASS_UNANSWERED_UPLINK_MS,
+): Boolean {
+    if (!bypassPath || activeWorkers <= 0) return false
+    if (anchorMs <= 0L) return false
+    if (lastUplinkGrowthAtMs <= 0L) return false
+    if (nowMs - lastUplinkGrowthAtMs > graceMs) return false
+    if (lastInboundGrowthAtMs > lastUplinkGrowthAtMs) return false
+    // A re-dialled RAW has no inbound counter yet; silence is only measurable
+    // from the moment the transport came up.
+    return nowMs - maxOf(lastInboundGrowthAtMs, anchorMs) >= graceMs
 }
 
 /** Bypass up, but only TURN handshake — sockets glued to a not-yet-ready LTE. */

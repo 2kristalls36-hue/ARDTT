@@ -250,6 +250,31 @@ class PathConfirmAssemblerTest {
         assertTrue(PathConfirm.directMayConnect(PathConfirm.verdict(obs)))
     }
 
+    /** rx must exceed the handshake/keepalive size — 512 B is protocol chatter. */
+    @Test
+    fun handshakeSizedAwgRxIsOnlyProtocolReady() {
+        val obs = PathConfirm.assembleDirect(
+            capturedSessionEpoch = 1L,
+            capturedTransportEpoch = 1L,
+            capturedNetworkKey = key,
+            eventSessionEpoch = 1L,
+            eventTransportEpoch = 1L,
+            eventNetworkKey = key,
+            capturedCallEpoch = 1L,
+            eventCallEpoch = 1L,
+            capturedHandle = 8L,
+            eventHandle = 8L,
+            handshakeBaselineSec = 0L,
+            handshakeNowSec = 3L,
+            rxBaseline = 0L,
+            rxNow = 512L,
+            source = PathConfirmSource.DirectAwg,
+        )
+        assertEquals(0L, obs.usefulRxDelta)
+        assertEquals(PathConfirmVerdict.ProtocolReady, PathConfirm.verdict(obs))
+        assertTrue(PathConfirm.directMayConnect(PathConfirm.verdict(obs)))
+    }
+
     @Test
     fun awgRxConfirmsDirect() {
         val obs = PathConfirm.assembleDirect(
@@ -266,7 +291,7 @@ class PathConfirmAssemblerTest {
             handshakeBaselineSec = 0L,
             handshakeNowSec = 3L,
             rxBaseline = 0L,
-            rxNow = 512L,
+            rxNow = 8_192L,
             source = PathConfirmSource.DirectAwg,
         )
         assertEquals(PathConfirmVerdict.PathConfirmed, PathConfirm.verdict(obs))

@@ -18,6 +18,12 @@ import java.util.concurrent.atomic.AtomicLong
 object VpnLiveStats {
     private const val TAG = "VpnLiveStats"
 
+    /** How far back windowed growth can be measured (see [rxGrowthSince]). */
+    private const val SAMPLE_HISTORY_MS = 180_000L
+
+    /** A baseline further than this before the window start means sampling stalled. */
+    private const val SAMPLE_GAP_SLACK_MS = 3 * WATCHDOG_POLL_MS
+
     @Volatile var downBps: Long = 0L
         private set
     @Volatile var upBps: Long = 0L
@@ -33,6 +39,15 @@ object VpnLiveStats {
     /** Last time session-relative rx increased (Direct skip-if-alive / dead-egress). */
     @Volatile var lastRxGrowthAtMs: Long = 0L
         private set
+    /** Last time session-relative tx increased (Direct unanswered-uplink check). */
+    @Volatile var lastTxGrowthAtMs: Long = 0L
+        private set
+
+    private data class ByteSample(val atMs: Long, val bytes: Long)
+
+    /** Recent session-relative counters so growth can be measured over a window. */
+    private val rxHistory = ArrayDeque<ByteSample>()
+    private val txHistory = ArrayDeque<ByteSample>()
 
     private var lastRx = -1L
     private var lastTx = -1L
@@ -83,6 +98,9 @@ object VpnLiveStats {
         baselineTx = -1L
         lastLogAtMs = 0L
         lastRxGrowthAtMs = 0L
+        lastTxGrowthAtMs = 0L
+        synchronized(rxHistory) { rxHistory.clear() }
+        synchronized(txHistory) { txHistory.clear() }
         // Keep awgHandle / directOpBaseline — DirectBackend owns lifecycle across soft-restarts.
     }
 
@@ -158,6 +176,10 @@ object VpnLiveStats {
         if (lastRx >= 0L && rx > lastRx) {
             lastRxGrowthAtMs = now
         }
+        if (lastTx >= 0L && tx > lastTx) {
+            lastTxGrowthAtMs = now
+        }
+        recordSamples(now, rx, tx)
 
         if (lastAtMs > 0L && now > lastAtMs) {
             val dtSec = (now - lastAtMs) / 1000.0
@@ -178,15 +200,64 @@ object VpnLiveStats {
         }
     }
 
+    private fun recordSamples(atMs: Long, rx: Long, tx: Long) {
+        appendSample(rxHistory, atMs, rx)
+        appendSample(txHistory, atMs, tx)
+    }
+
+    private fun appendSample(history: ArrayDeque<ByteSample>, atMs: Long, bytes: Long) {
+        synchronized(history) {
+            if (history.lastOrNull()?.atMs == atMs) history.removeLast()
+            history.addLast(ByteSample(atMs, bytes))
+            while (history.size > 1 && atMs - history.first().atMs > SAMPLE_HISTORY_MS) {
+                history.removeFirst()
+            }
+        }
+    }
+
+    /**
+     * Counter growth over `[sinceMs, now]`.
+     *
+     * The baseline must sit next to the window start: a sample from before a
+     * sampling gap (doze, a stalled watchdog) would attribute the whole gap to
+     * this window and turn any check built on it into a no-op. When the oldest
+     * sample we have is newer than [sinceMs] it becomes the baseline — that
+     * under-reports both directions equally, which is the safe way to be wrong.
+     */
+    private fun growthSince(
+        history: ArrayDeque<ByteSample>,
+        current: Long,
+        sinceMs: Long,
+    ): Long {
+        val base = synchronized(history) {
+            val atOrBefore = history.lastOrNull { it.atMs <= sinceMs }
+            when {
+                atOrBefore != null && sinceMs - atOrBefore.atMs <= SAMPLE_GAP_SLACK_MS -> atOrBefore
+                else -> history.firstOrNull()?.takeIf { it.atMs >= sinceMs }
+            }
+        } ?: return 0L
+        return (current - base.bytes).coerceAtLeast(0L)
+    }
+
+    /** Inbound bytes since [sinceMs]; compare against [RecoverySettings.directRxLooksLikeData]. */
+    fun rxGrowthSince(sinceMs: Long): Long = growthSince(rxHistory, totalRx, sinceMs)
+
+    /** Outbound bytes since [sinceMs]; compare against [DIRECT_TX_DATA_MIN_BYTES]. */
+    fun txGrowthSince(sinceMs: Long): Long = growthSince(txHistory, totalTx, sinceMs)
+
+    /** Fresh **data**: an AWG handshake response answered by a blackholing cell is not. */
     fun hasFreshRxSince(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
         lastRxGrowthAtMs >= sinceMs &&
             nowMs - lastRxGrowthAtMs < 90_000L &&
-            totalRx > 0L
+            RecoverySettings.directRxLooksLikeData(rxGrowthSince(sinceMs))
 
-    /** Test helper: pretend session-relative rx grew at [nowMs]. */
-    internal fun recordRxGrowthForTest(rx: Long, nowMs: Long) {
+    /** Test helper: pretend the session-relative counters read [rx]/[tx] at [nowMs]. */
+    internal fun recordCountersForTest(rx: Long, tx: Long, nowMs: Long) {
         if (rx > totalRx) lastRxGrowthAtMs = nowMs
+        if (tx > totalTx) lastTxGrowthAtMs = nowMs
         totalRx = rx
+        totalTx = tx
+        recordSamples(nowMs, rx, tx)
     }
 
     private fun maybeLog(now: Long, msg: String) {

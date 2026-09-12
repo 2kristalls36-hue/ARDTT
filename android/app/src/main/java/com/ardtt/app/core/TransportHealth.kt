@@ -21,6 +21,7 @@ data class TransportHealthSnapshot(
     val upBytes: Long = 0L,
     val lastTrafficGrowthAtMs: Long = 0L,
     val lastInboundGrowthAtMs: Long = 0L,
+    val lastUplinkGrowthAtMs: Long = 0L,
     val tunWriteOk: Long = 0L,
     val tunWriteErr: Long = 0L,
     val lastTunWriteOkMs: Long = 0L,
@@ -54,6 +55,7 @@ object TransportHealth {
     val upBytes: Long get() = published.upBytes
     val lastTrafficGrowthAtMs: Long get() = published.lastTrafficGrowthAtMs
     val lastInboundGrowthAtMs: Long get() = published.lastInboundGrowthAtMs
+    val lastUplinkGrowthAtMs: Long get() = published.lastUplinkGrowthAtMs
     val tunGen: Long get() = published.tunGen
     val tunWriteOk: Long get() = published.tunWriteOk
     val tunWriteErr: Long get() = published.tunWriteErr
@@ -132,7 +134,8 @@ object TransportHealth {
             )
         }
         keys["up"]?.toLongOrNull()?.let { up ->
-            next = next.copy(exactUpBytes = up, upBytes = up)
+            val uplinkAt = if (up > prev.exactUpBytes) now else prev.lastUplinkGrowthAtMs
+            next = next.copy(exactUpBytes = up, upBytes = up, lastUplinkGrowthAtMs = uplinkAt)
         }
         val total = next.exactDownBytes + next.exactUpBytes
         if (total > next.trafficKb * 1024L) {
@@ -164,10 +167,12 @@ object TransportHealth {
         )
         parseDownUpBytes(line)?.let { (down, up) ->
             val inboundAt = if (down > prev.downBytes) now else prev.lastInboundGrowthAtMs
+            val uplinkAt = if (up > prev.upBytes) now else prev.lastUplinkGrowthAtMs
             next = next.copy(
                 downBytes = down,
                 upBytes = up,
                 lastInboundGrowthAtMs = inboundAt,
+                lastUplinkGrowthAtMs = uplinkAt,
             )
         }
         val kb = parseTrafficKb(line)
@@ -215,6 +220,18 @@ object TransportHealth {
             if (key.isNotEmpty()) out[key] = value
         }
         return out
+    }
+
+    /**
+     * GET_TELEMETRY is polled every 250 ms. Its stdin echo and ACK are consumed by
+     * [applyControlAck]; forwarding them to the log adds 4 lines/s of noise.
+     */
+    fun isTelemetryPollLine(line: String): Boolean {
+        val start = line.indexOf("V1|")
+        if (start < 0) return false
+        val parts = line.substring(start).split('|')
+        if (parts.getOrNull(3) == "GET_TELEMETRY") return true
+        return parts.getOrNull(3) == "ACK" && parts.getOrNull(4) == "GET_TELEMETRY"
     }
 
     internal fun payloadFromControlAck(reply: String): String? {

@@ -25,6 +25,7 @@ fun wifiAutoDirectProbe(elapsedMs: Long = 0): ProbeResult = ProbeResult(
         yandexOutcome = CheckOutcome.NotRun,
         bigtechOutcome = CheckOutcome.NotRun,
         googleOutcome = CheckOutcome.NotRun,
+        ruServiceOutcome = CheckOutcome.NotRun,
         provisionOutcome = CheckOutcome.NotRun,
         restriction = RestrictionHint.None,
         whitelistScorePercent = 0,
@@ -114,6 +115,26 @@ fun shouldStartDirectWithoutDiagnostic(
         ConnPathMode.Bypass -> false
     }
 }
+
+/**
+ * Auto moving onto cellular during a handover. Skipping the probe is only safe
+ * when a same-operator whitelist measurement already exists — the pre-probe ran
+ * on this SIM, or we were already here. Guessing Direct on an unmeasured cell
+ * costs a dead-Direct detection cycle plus a transport switch before the
+ * fallback; the quick probe costs at most [RecoverySettings.FAST_PROBE_BUDGET_MS].
+ *
+ * Without a call hash there is no Bypass to choose, so the probe buys nothing.
+ */
+fun shouldProbeCellularBeforeHandover(
+    mode: ConnPathMode,
+    underlayKind: UnderlayKind,
+    bypassAllowed: Boolean,
+    hasScopedEvidence: Boolean,
+): Boolean = mode == ConnPathMode.Auto &&
+    underlayKind == UnderlayKind.Cellular &&
+    bypassAllowed &&
+    !hasScopedEvidence &&
+    WhitelistDetection.appliesTo(underlayKind)
 
 fun connectSnapshotChanged(
     capturedMode: ConnPathMode,

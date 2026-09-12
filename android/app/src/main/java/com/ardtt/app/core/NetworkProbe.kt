@@ -31,12 +31,17 @@ import kotlinx.coroutines.withContext
  *
  * Classification (fail-fast, protocol replies on ordinary targets):
  * - **77.88.8.8** (Yandex DNS) — control group; UDP DNS even on operator whitelist (БС).
+ * - **vk.com** (TCP :443, by IP) — second control; see [RU_CONTROL_HOSTS].
  * - **1.1.1.1** (Cloudflare) — one ordinary provider (TLS or UDP :53).
  * - **8.8.8.8** (Google) — independent ordinary provider; UDP DNS.
  * - **VPS /health** — HTTP, not TCP :9100 and not AmneziaWG.
  *
  * Auto cellular uses a weighted whitelist score before the first Direct try.
  * One Cloudflare miss is not two providers; both ordinary targets must block.
+ * An ordinary target that timed out gets one second chance while the round can
+ * pay for it ([NetworkProbePolicy.shouldRetryOrdinaryTarget]), sized by the
+ * control RTT ([NetworkProbePolicy.ordinaryDeadlineMs]); the Direct verdict is
+ * already published by then, only the score waits.
  */
 object NetworkProbe {
 
@@ -44,6 +49,28 @@ object NetworkProbe {
     const val CLOUDFLARE_IP = "1.1.1.1"
     const val GOOGLE_DNS_IP = "8.8.8.8"
     const val DEFAULT_VPS_PROBE_PORT = 9100
+
+    /** A Russian control host reached by literal IP — the probe never resolves names. */
+    data class RuControlHost(
+        val host: String,
+        val ips: List<String>,
+        val port: Int = 443,
+    )
+
+    /**
+     * Russian services an operator whitelist (БС) is expected to let through.
+     *
+     * Bypass rides a VK call, so a phone that cannot reach vk.com must not be
+     * steered onto Bypass in the first place: this control doubles as a
+     * Bypass-viability check. A plain TCP connect is enough — no TLS handshake,
+     * no DNS. IPs are VK fronts in AS47541; the list leaves room for more hosts.
+     */
+    val RU_CONTROL_HOSTS = listOf(
+        RuControlHost(
+            host = "vk.com",
+            ips = listOf("87.240.132.72", "87.240.132.78", "93.186.225.194"),
+        ),
+    )
 
     suspend fun probe(
         context: Context,
@@ -84,6 +111,7 @@ object NetworkProbe {
                         yandexOutcome = CheckOutcome.BindFailure,
                         bigtechOutcome = CheckOutcome.BindFailure,
                         googleOutcome = CheckOutcome.BindFailure,
+                        ruServiceOutcome = CheckOutcome.BindFailure,
                         provisionOutcome = CheckOutcome.BindFailure,
                     ).copy(
                         bindHandle = null,
@@ -99,31 +127,83 @@ object NetworkProbe {
                     android.os.SystemClock.elapsedRealtime(),
                     cap,
                 )
+                // Bind and capability lookups already ran; timing the targets
+                // from here keeps setup cost out of the measured control RTT.
+                val attemptsAt = android.os.SystemClock.elapsedRealtime()
+                fun sinceAttempts(): Int =
+                    (android.os.SystemClock.elapsedRealtime() - attemptsAt).toInt().coerceAtLeast(0)
                 val yandexDef = async { udpDnsReachableOutcome(YANDEX_DNS_IP, remaining(udpMs), bound) }
-                val cloudflareDef = async { cloudflareOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
-                val googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, remaining(udpMs), bound) }
+                var cloudflareDef = async { cloudflareOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
+                var googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, remaining(udpMs), bound) }
+                val ruServiceDef = async { ruControlReachableOutcome(remaining(tlsMs), bound) }
                 val provisionDef = async { provisionReachableOutcome(provisionBaseUrl, remaining(healthMs), bound) }
 
                 var yandex: CheckOutcome? = null
                 var cloudflare: CheckOutcome? = null
                 var google: CheckOutcome? = null
+                var ruService: CheckOutcome? = null
                 var provision: CheckOutcome? = null
                 var captiveChecked = captiveFromCaps
                 var captive = captiveFromCaps
                 var publishedFast = false
+                var controlRttMs: Int? = null
+                // First-attempt verdicts, kept while a relaunch is in flight.
+                var cloudflareFirst: CheckOutcome? = null
+                var googleFirst: CheckOutcome? = null
+
+                fun noteControl(outcome: CheckOutcome) {
+                    if (!outcome.isSuccess || controlRttMs != null) return
+                    controlRttMs = sinceAttempts().coerceAtLeast(1)
+                }
+
+                /**
+                 * Timeout for the single relaunch of a timed-out ordinary
+                 * target. Two independent reasons to relaunch: the RTT-scaled
+                 * deadline of a slow control, and one more base attempt against
+                 * probabilistic loss. Whichever reaches further wins, and
+                 * [NetworkProbePolicy.ordinaryRetryWindowMs] drops the relaunch
+                 * when the round can no longer hold it.
+                 */
+                fun ordinaryRetryMs(
+                    outcome: CheckOutcome,
+                    baseMs: Int,
+                    alreadyRetried: Boolean,
+                ): Int {
+                    if (alreadyRetried) return 0
+                    val left = remaining(roundBudget.toInt())
+                    if (!NetworkProbePolicy.shouldRetryOrdinaryTarget(outcome, left)) return 0
+                    if (!NetworkProbePolicy.ordinaryRetryStillInformative(yandex, ruService)) return 0
+                    val elapsed = sinceAttempts()
+                    val rttDeadline = controlRttMs?.let { rtt ->
+                        NetworkProbePolicy.ordinaryDeadlineMs(rtt, baseMs, left + elapsed)
+                    } ?: 0
+                    val lossDeadline = elapsed + baseMs
+                    return NetworkProbePolicy.ordinaryRetryWindowMs(
+                        targetDeadlineMs = maxOf(rttDeadline, lossDeadline),
+                        elapsedMs = elapsed,
+                        remainingBudgetMs = left,
+                    )
+                }
+
+                fun settledCloudflare(): CheckOutcome? =
+                    cloudflare ?: cloudflareFirst
+
+                fun settledGoogle(): CheckOutcome? = google ?: googleFirst
 
                 fun snapshot(): ProbeResult = NetworkProbePolicy.classify(
                     systemOnline = systemOnline,
                     yandexOk = yandex?.isSuccess == true,
-                    bigtechOk = cloudflare?.isSuccess == true,
+                    bigtechOk = settledCloudflare()?.isSuccess == true,
                     captive = captive,
                     provisionOk = provision?.isSuccess == true,
                     underlayKind = underlayKind,
                     yandexOutcome = yandex ?: CheckOutcome.NotRun,
-                    bigtechOutcome = cloudflare ?: CheckOutcome.NotRun,
+                    bigtechOutcome = NetworkProbePolicy.settledOutcome(cloudflare, cloudflareFirst),
                     provisionOutcome = provision ?: CheckOutcome.NotRun,
-                    googleOk = google?.isSuccess == true,
-                    googleOutcome = google ?: CheckOutcome.NotRun,
+                    googleOk = settledGoogle()?.isSuccess == true,
+                    googleOutcome = NetworkProbePolicy.settledOutcome(google, googleFirst),
+                    ruServiceOk = ruService?.isSuccess == true,
+                    ruServiceOutcome = ruService ?: CheckOutcome.NotRun,
                     previousWhitelistScore = 0,
                 ).copy(
                     bindHandle = bindHandle,
@@ -132,12 +212,29 @@ object NetworkProbe {
 
                 while (true) {
                     val now = android.os.SystemClock.elapsedRealtime()
+                    if (!NetworkProbePolicy.ordinaryRetryStillInformative(yandex, ruService)) {
+                        // The control group is out — a relaunch cannot change
+                        // the score any more, and holding it open would keep
+                        // NoNetwork and the captive check waiting.
+                        if (cloudflare == null && cloudflareFirst != null) {
+                            cloudflareDef.cancel()
+                            cloudflare = cloudflareFirst
+                        }
+                        if (google == null && googleFirst != null) {
+                            googleDef.cancel()
+                            google = googleFirst
+                        }
+                    }
+                    // A target waiting on a relaunch still counts as whatever
+                    // its first attempt said, or NoNetwork and captive would
+                    // never be reached while retries are in flight.
                     val hint = NetworkProbePolicy.decideProbePath(
                         provisionOk = provision?.toProbeFlag(),
                         yandexOk = yandex?.toProbeFlag(),
-                        cloudflareOk = cloudflare?.toProbeFlag(),
+                        cloudflareOk = settledCloudflare()?.toProbeFlag(),
                         captive = if (captiveChecked) captive else null,
-                        googleOk = google?.toProbeFlag(),
+                        googleOk = settledGoogle()?.toProbeFlag(),
+                        ruServiceOk = ruService?.toProbeFlag(),
                     )
                     if (hint == ProbePathHint.Direct ||
                         hint == ProbePathHint.Bypass ||
@@ -149,8 +246,21 @@ object NetworkProbe {
                         }
                     }
                     val allKnown = yandex != null && cloudflare != null &&
-                        google != null && provision != null
-                    val roundExpired = now >= deadlineAt
+                        google != null && ruService != null && provision != null
+                    val nothingSucceeded = yandex?.isSuccess != true &&
+                        settledCloudflare()?.isSuccess != true &&
+                        settledGoogle()?.isSuccess != true &&
+                        ruService?.isSuccess != true &&
+                        provision?.isSuccess != true
+                    // Heading for NoNetwork: stop waiting on hung targets in
+                    // time to still run generate_204, the last useful signal,
+                    // instead of letting the round end without a verdict.
+                    val captiveReserveMs = if (!captiveChecked && systemOnline && nothingSucceeded) {
+                        captiveMs
+                    } else {
+                        0
+                    }
+                    val roundExpired = now >= deadlineAt - captiveReserveMs
                     if (hint == ProbePathHint.NoNetwork) {
                         if (!captiveChecked && systemOnline && remaining(captiveMs) > 0) {
                             captive = captiveFromCaps || detectCaptive(bound, remaining(captiveMs))
@@ -166,28 +276,72 @@ object NetworkProbe {
                         yandexDef.cancel()
                         cloudflareDef.cancel()
                         googleDef.cancel()
+                        ruServiceDef.cancel()
                         provisionDef.cancel()
                         if (hint == ProbePathHint.Captive) captive = true
                         return@coroutineScope snapshot()
                     }
                     if (roundExpired) {
                         if (yandex == null) yandex = CheckOutcome.Cancelled
-                        if (cloudflare == null) cloudflare = CheckOutcome.Cancelled
-                        if (google == null) google = CheckOutcome.Cancelled
+                        // A relaunch cut short by the round keeps the verdict
+                        // its first attempt already produced.
+                        if (cloudflare == null) cloudflare = cloudflareFirst ?: CheckOutcome.Cancelled
+                        if (google == null) google = googleFirst ?: CheckOutcome.Cancelled
+                        if (ruService == null) ruService = CheckOutcome.Cancelled
                         if (provision == null) provision = CheckOutcome.Cancelled
+                        if (!captiveChecked && systemOnline && remaining(captiveMs) > 0) {
+                            captive = captiveFromCaps || detectCaptive(bound, remaining(captiveMs))
+                            captiveChecked = true
+                        }
                         yandexDef.cancel()
                         cloudflareDef.cancel()
                         googleDef.cancel()
+                        ruServiceDef.cancel()
                         provisionDef.cancel()
                         return@coroutineScope snapshot()
                     }
 
-                    val waitMs = (deadlineAt - now).coerceAtLeast(1L)
+                    val waitMs = (deadlineAt - captiveReserveMs - now).coerceAtLeast(1L)
                     @OptIn(ExperimentalCoroutinesApi::class)
                     select {
-                        if (yandex == null) yandexDef.onAwait { yandex = it }
-                        if (cloudflare == null) cloudflareDef.onAwait { cloudflare = it }
-                        if (google == null) googleDef.onAwait { google = it }
+                        if (yandex == null) {
+                            yandexDef.onAwait {
+                                noteControl(it)
+                                yandex = it
+                            }
+                        }
+                        if (cloudflare == null) {
+                            cloudflareDef.onAwait { outcome ->
+                                val retryMs = ordinaryRetryMs(outcome, tlsMs, cloudflareFirst != null)
+                                if (retryMs > 0) {
+                                    cloudflareFirst = outcome
+                                    cloudflareDef = async {
+                                        cloudflareOpenOutcome(retryMs, retryMs, bound)
+                                    }
+                                } else {
+                                    cloudflare = outcome
+                                }
+                            }
+                        }
+                        if (google == null) {
+                            googleDef.onAwait { outcome ->
+                                val retryMs = ordinaryRetryMs(outcome, udpMs, googleFirst != null)
+                                if (retryMs > 0) {
+                                    googleFirst = outcome
+                                    googleDef = async {
+                                        udpDnsReachableOutcome(GOOGLE_DNS_IP, retryMs, bound)
+                                    }
+                                } else {
+                                    google = outcome
+                                }
+                            }
+                        }
+                        if (ruService == null) {
+                            ruServiceDef.onAwait {
+                                noteControl(it)
+                                ruService = it
+                            }
+                        }
                         if (provision == null) provisionDef.onAwait { provision = it }
                         onTimeout(waitMs) {
                             // Active series deadline: wake without waiting for hung children.
@@ -206,12 +360,14 @@ object NetworkProbe {
         cloudflareOk: Boolean?,
         captive: Boolean?,
         googleOk: Boolean? = null,
+        ruServiceOk: Boolean? = null,
     ): ProbePathHint = NetworkProbePolicy.decideProbePath(
         provisionOk = provisionOk,
         yandexOk = yandexOk,
         cloudflareOk = cloudflareOk,
         captive = captive,
         googleOk = googleOk,
+        ruServiceOk = ruServiceOk,
     )
 
     internal fun classify(
@@ -225,6 +381,8 @@ object NetworkProbe {
         seriesCount: Int = 1,
         googleOk: Boolean = false,
         googleOutcome: CheckOutcome? = null,
+        ruServiceOk: Boolean = false,
+        ruServiceOutcome: CheckOutcome? = null,
         yandexOutcome: CheckOutcome? = null,
         bigtechOutcome: CheckOutcome? = null,
         provisionOutcome: CheckOutcome? = null,
@@ -239,6 +397,8 @@ object NetworkProbe {
         seriesCount = seriesCount,
         googleOk = googleOk,
         googleOutcome = googleOutcome,
+        ruServiceOk = ruServiceOk,
+        ruServiceOutcome = ruServiceOutcome,
         yandexOutcome = yandexOutcome,
         bigtechOutcome = bigtechOutcome,
         provisionOutcome = provisionOutcome,
@@ -340,13 +500,49 @@ object NetworkProbe {
         val udp = async { udpDnsReachableOutcome(CLOUDFLARE_IP, udpMs, bindNetwork) }
         try {
             select {
-                tls.onAwait { ok -> if (ok.isSuccess) ok else udp.await() }
-                udp.onAwait { ok -> if (ok.isSuccess) ok else tls.await() }
+                tls.onAwait { ok ->
+                    if (ok.isSuccess) ok else NetworkProbePolicy.foldControlOutcomes(listOf(ok, udp.await()))
+                }
+                udp.onAwait { ok ->
+                    if (ok.isSuccess) ok else NetworkProbePolicy.foldControlOutcomes(listOf(ok, tls.await()))
+                }
             }
         } finally {
             tls.cancel()
             udp.cancel()
         }
+    }
+
+    /**
+     * Russian control check: TCP connect to a VK front. All IPs race, the first
+     * reachable one wins; a SYN that completes is proof enough that the service
+     * is not blocked, so no TLS handshake is attempted.
+     */
+    internal suspend fun ruControlReachableOutcome(
+        timeoutMs: Int,
+        bindNetwork: Network?,
+        hosts: List<RuControlHost> = RU_CONTROL_HOSTS,
+    ): CheckOutcome = coroutineScope {
+        val targets = hosts.flatMap { host -> host.ips.map { ip -> ip to host.port } }
+        if (targets.isEmpty()) return@coroutineScope CheckOutcome.NotRun
+        val running = targets
+            .map { (ip, port) -> async { tcpReachableOutcome(ip, port, timeoutMs, bindNetwork) } }
+            .toMutableList()
+        val seen = mutableListOf<CheckOutcome>()
+        try {
+            while (running.isNotEmpty()) {
+                @OptIn(ExperimentalCoroutinesApi::class)
+                val finished = select {
+                    running.forEach { def -> def.onAwait { def to it } }
+                }
+                running.remove(finished.first)
+                seen += finished.second
+                if (finished.second.isSuccess) break
+            }
+        } finally {
+            running.forEach { it.cancel() }
+        }
+        NetworkProbePolicy.foldControlOutcomes(seen)
     }
 
     internal suspend fun tlsReachable(

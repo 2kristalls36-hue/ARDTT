@@ -51,6 +51,7 @@ class BypassSession {
     /** Keep libclient after TUN close so the VK call stays allocated. */
     @Volatile private var keepProcessOnCleanup = false
     @Volatile private var parkedDeathHandler: (() -> Unit)? = null
+    @Volatile private var lastTelemetryLogAtMs = 0L
     @Volatile var phase: BypassPhase = BypassPhase.Idle
         private set
 
@@ -102,7 +103,11 @@ class BypassSession {
                         if (!keepProcessOnCleanup) {
                             TransportHealth.onLogLine(line)
                         }
-                        AppLog.i("go_client", line.take(300))
+                        if (TransportHealth.isTelemetryPollLine(line)) {
+                            logTelemetryHeartbeat(line)
+                        } else {
+                            AppLog.i("go_client", line.take(300))
+                        }
                         when {
                             line.contains("[VKCalls]") || line.contains("[VK Auth]") ->
                                 Log.i(TAG, line)
@@ -254,6 +259,15 @@ class BypassSession {
         return true
     }
 
+    /** Keep a rare ACK sample for diagnostics; drop the other ~40 per interval. */
+    private fun logTelemetryHeartbeat(line: String) {
+        if (!line.contains("|ACK|")) return
+        val now = System.currentTimeMillis()
+        if (now - lastTelemetryLogAtMs < TELEMETRY_LOG_INTERVAL_MS) return
+        lastTelemetryLogAtMs = now
+        AppLog.v("go_client", line.take(300))
+    }
+
     private suspend fun pollTelemetry(process: BypassGoProcess) {
         val reply = process.sendControl("GET_TELEMETRY", timeoutMs = 400L)
         if (!reply.isNullOrBlank()) {
@@ -280,5 +294,6 @@ class BypassSession {
 
     companion object {
         private const val TAG = "BypassSession"
+        private const val TELEMETRY_LOG_INTERVAL_MS = 10_000L
     }
 }
