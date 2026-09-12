@@ -29,6 +29,20 @@ object RecoverySettings {
     const val FIRST_WIFI_DIRECT_DELAY_MS = 0L
     const val WIFI_STABLE_CONFIRMATIONS = 2
     const val WIFI_DEGRADED_FAILS_BEFORE_HYSTERESIS = 2
+
+    /**
+     * A live Bypass is not abandoned the instant Wi‑Fi associates. Switching
+     * costs a parked VK call and a TUN rebuild, so an access point at the edge
+     * of range has to hold a usable underlay this long first.
+     */
+    const val WIFI_UPGRADE_SETTLE_MS = 6_000L
+    const val WIFI_UPGRADE_SETTLE_MAX_MS = 60_000L
+
+    /** Each failed episode on this Wi‑Fi doubles the wait. */
+    fun wifiUpgradeSettleMs(wifiFailStreak: Int): Long {
+        val shift = wifiFailStreak.coerceIn(0, 4)
+        return (WIFI_UPGRADE_SETTLE_MS shl shift).coerceAtMost(WIFI_UPGRADE_SETTLE_MAX_MS)
+    }
     const val DIRECT_LIMITED_TRY_MS = 8_000L
     const val DIRECT_LIMITED_TRY_AFTER_HANDOFF_MS = 4_000L
     const val NETWORK_RETURN_COALESCE_MS = 400L
@@ -54,6 +68,19 @@ object RecoverySettings {
     }
 
     /**
+     * Gap between Direct re-checks while Auto sits on Bypass. Each re-check
+     * parks the VK call and costs [DIRECT_LIMITED_TRY_MS] of downtime, so an
+     * underlay where Direct is simply blocked must not be probed every 30s
+     * forever. Reset by a confirmed Direct or a new underlay.
+     */
+    val directReevalBackoffMs: LongArray = longArrayOf(
+        DIRECT_REEVAL_WHILE_BYPASS_MS, 60_000L, 120_000L, 300_000L, 600_000L,
+    )
+
+    fun directReevalDelayMs(failedReevals: Int): Long =
+        directReevalBackoffMs[failedReevals.coerceIn(0, directReevalBackoffMs.lastIndex)]
+
+    /**
      * How long Direct stays "failed on this underlay" after an attempt.
      * Auto cellular with a call hash parks on Bypass and must not bounce
      * back to Direct on the 2s same-path retry budget.
@@ -63,18 +90,47 @@ object RecoverySettings {
         failureIndex: Int,
         jitterPermille: Int = 0,
         holdForBypassReeval: Boolean,
+        failedReevals: Int = 0,
     ): Long {
         val backoff = retryDelayMs(failureIndex, jitterPermille)
-        val hold = if (holdForBypassReeval) DIRECT_REEVAL_WHILE_BYPASS_MS else 0L
+        val hold = if (holdForBypassReeval) directReevalDelayMs(failedReevals) else 0L
         return elapsedMs + maxOf(backoff, hold)
     }
 
     /** Handshake on this attempt is protocol-ready, not PathConfirmed. */
     fun directProtocolReady(handshakeSec: Long): Boolean = handshakeSec > 0L
 
+    /**
+     * WireGuard REJECT_AFTER_TIME: a peer with traffic flowing rekeys within
+     * ~120s, so a handshake older than this is not evidence of a live peer.
+     * Without the age bound one successful handshake made Direct look alive
+     * forever while the operator blackholed the data plane.
+     */
+    const val DIRECT_HANDSHAKE_LIVE_MAX_SEC = 180L
+
+    /** [handshakeSec] and [nowSec] are wall-clock seconds (AWG IPC uses epoch). */
+    fun directHandshakeLive(
+        handshakeSec: Long,
+        nowSec: Long,
+        maxAgeSec: Long = DIRECT_HANDSHAKE_LIVE_MAX_SEC,
+    ): Boolean {
+        if (handshakeSec <= 0L) return false
+        return nowSec - handshakeSec <= maxAgeSec
+    }
+
+    /**
+     * One AWG handshake response is ~92–160 B and keepalives are 32 B. They are
+     * delivered even by a cell that blackholes the data plane, so anything at or
+     * below this is protocol chatter, not payload.
+     */
+    const val DIRECT_HANDSHAKE_RX_MAX_BYTES = 1024L
+
+    fun directRxLooksLikeData(rxDeltaSinceAnchor: Long): Boolean =
+        rxDeltaSinceAnchor > DIRECT_HANDSHAKE_RX_MAX_BYTES
+
     /** Useful RX from the current AWG backend is PathConfirmed. */
     fun directPathLooksConfirmed(totalRx: Long, handshakeSec: Long): Boolean =
-        totalRx > 0L
+        directRxLooksLikeData(totalRx)
 
     /**
      * Next diagnostic delay for cellular. Restriction confidence ([seriesCount]) is

@@ -118,6 +118,7 @@ class ConnectionReducerTest {
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Timeout,
                     google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
                     seriesId = "a",
                 ),
                 sessionEpoch = started.state.sessionEpoch,
@@ -267,10 +268,18 @@ class ConnectionReducerTest {
             transport = TransportLifecycle.Running,
             call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
         )
-        val toWifi = ConnectionReducer.reduce(
+        val wifiSeen = ConnectionReducer.reduce(
             state,
             ConnectionEvent.UnderlayUpdated(usableWifi()),
             2L,
+        )
+        // A live Bypass waits out the settle before Wi-Fi takes over.
+        assertTrue(wifiSeen.command is RecoveryCommand.ScheduleReeval)
+        val settledAt = wifiSeen.state.recovery.nextRetryAtElapsedMs ?: 0L
+        val toWifi = ConnectionReducer.reduce(
+            wifiSeen.state,
+            ConnectionEvent.Clock(elapsedMs = settledAt),
+            settledAt,
         )
         assertEquals(RecoveryCommand.ParkBypassForDirect, toWifi.command)
         assertEquals(RecoveryPhase.SwitchingToWifi, toWifi.state.recovery.phase)
@@ -283,7 +292,7 @@ class ConnectionReducerTest {
                 networkKey = wifiKey,
                 probeConfirmed = true,
             ),
-            3L,
+            settledAt + 1L,
         )
         assertEquals(VpnPath.Direct, confirmed.state.activePath)
         assertTrue(confirmed.state.parkedRawAlive)
@@ -322,6 +331,67 @@ class ConnectionReducerTest {
         assertEquals(RecoveryCommand.RefreshCredentials, expired.command)
         assertEquals(SessionDiagnostic.CredentialsRefreshed, expired.diagnostic)
         assertEquals(CallValidity.CredentialsExpired, expired.state.call.validity)
+    }
+
+    @Test
+    fun credentialsRefreshDropsThePendingReevalDeadline() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular(), call = CallSessionState(hashPresent = true)),
+            ConnectionEvent.UserConnect(ConnPathMode.Bypass, "p", true, false),
+            1L,
+        ).state
+        val withReeval = started.copy(
+            recovery = started.recovery.copy(
+                nextRetryAtElapsedMs = 30_000L,
+                pendingTimer = PendingTimer.Reeval,
+            ),
+        )
+        val expired = ConnectionReducer.reduce(
+            withReeval,
+            ConnectionEvent.CallValidityChanged(
+                sessionEpoch = withReeval.sessionEpoch,
+                validity = CallValidity.CredentialsExpired,
+            ),
+            2L,
+        )
+        assertEquals(RecoveryCommand.RefreshCredentials, expired.command)
+        // The manager clears the runtime timer for this command; a surviving
+        // deadline would block every later arm.
+        assertNull(expired.state.recovery.nextRetryAtElapsedMs)
+        assertEquals(PendingTimer.None, expired.state.recovery.pendingTimer)
+    }
+
+    @Test
+    fun discardingAStaleCallDropsThePendingReevalDeadline() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular(), call = CallSessionState(hashPresent = true)),
+            ConnectionEvent.UserConnect(
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+                silentRecreate = false,
+                callIdentityToken = "t1",
+            ),
+            1L,
+        ).state
+        val withReeval = started.copy(
+            recovery = started.recovery.copy(
+                nextRetryAtElapsedMs = 30_000L,
+                pendingTimer = PendingTimer.Reeval,
+            ),
+        )
+        val swapped = ConnectionReducer.reduce(
+            withReeval,
+            ConnectionEvent.SessionParamsChanged(
+                profileId = "p",
+                hasCallHash = true,
+                identityToken = "t2",
+            ),
+            2L,
+        )
+        assertTrue(swapped.command is RecoveryCommand.DiscardStaleCall)
+        assertNull(swapped.state.recovery.nextRetryAtElapsedMs)
+        assertEquals(PendingTimer.None, swapped.state.recovery.pendingTimer)
     }
 
     @Test
@@ -1007,6 +1077,86 @@ class ConnectionReducerTest {
         assertEquals(0, confirmed.state.wifiFailStreak)
     }
 
+    /** The watchdog sees data after the 8s confirm window and re-confirms the attempt. */
+    @Test
+    fun lateDataObservationClearsDirectNegativeAndBackoff() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            1L,
+        )
+        val ready = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                protocolReady = true,
+                callEpoch = started.state.call.callEpoch,
+            ),
+            2L,
+        ).state.copy(
+            recovery = started.state.recovery.copy(phase = RecoveryPhase.Connected, failureIndex = 2),
+            directNegative = DirectNegativeEvidence(
+                key = cellKey,
+                reason = "direct-no-path-confirm",
+                retryAfterElapsedMs = Long.MAX_VALUE,
+            ),
+            wifiStableHits = 0,
+        )
+        assertEquals(PathReadiness.ProtocolReady, ready.pathReadiness)
+
+        val confirmed = ConnectionReducer.reduce(
+            ready,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = ready.sessionEpoch,
+                transportEpoch = ready.transportEpoch,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = ready.call.callEpoch,
+            ),
+            30_000L,
+        )
+        assertEquals(PathReadiness.PathConfirmed, confirmed.state.pathReadiness)
+        assertEquals(VpnPath.Direct, confirmed.state.lastConfirmedPath)
+        assertNull(confirmed.state.directNegative)
+        assertEquals(0, confirmed.state.recovery.failureIndex)
+        assertEquals(RecoveryCommand.None, confirmed.command)
+
+        // Repeating it (every watchdog poll would) changes nothing more.
+        val again = ConnectionReducer.reduce(
+            confirmed.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = confirmed.state.sessionEpoch,
+                transportEpoch = confirmed.state.transportEpoch,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = confirmed.state.call.callEpoch,
+            ),
+            33_000L,
+        )
+        assertEquals(RecoveryCommand.None, again.command)
+        assertEquals(PathReadiness.PathConfirmed, again.state.pathReadiness)
+        assertEquals(confirmed.state.transportEpoch, again.state.transportEpoch)
+
+        // A confirmation carrying a superseded transport epoch is dropped.
+        val stale = ConnectionReducer.reduce(
+            confirmed.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = confirmed.state.sessionEpoch,
+                transportEpoch = confirmed.state.transportEpoch - 1L,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = confirmed.state.call.callEpoch,
+            ),
+            36_000L,
+        )
+        assertEquals(confirmed.state, stale.state)
+    }
+
     @Test
     fun identityChangeKeepsStartingDirectWithoutOrphanInFlight() {
         val started = ConnectionReducer.reduce(
@@ -1241,6 +1391,211 @@ class ConnectionReducerTest {
     }
 
     @Test
+    fun bypassDeathDuringPendingReevalRetriesOnItsOwnBudget() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(
+                underlay = usableCellular(),
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                    ttlUntilElapsedMs = 90_000L,
+                ),
+            ),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        )
+        assertTrue(started.command is RecoveryCommand.StartBypass)
+        val connected = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                pathConfirmed = true,
+            ),
+            elapsedMs = 1_000L,
+        )
+        assertEquals(RecoveryPhase.Connected, connected.state.recovery.phase)
+        assertEquals(PendingTimer.Reeval, connected.state.recovery.pendingTimer)
+        val reevalDueAt = connected.state.recovery.nextRetryAtElapsedMs
+        assertEquals(1_000L + RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS, reevalDueAt)
+
+        val died = ConnectionReducer.reduce(
+            connected.state,
+            ConnectionEvent.TransportDied(
+                sessionEpoch = connected.state.sessionEpoch,
+                transportEpoch = connected.state.transportEpoch,
+                path = VpnPath.Bypass,
+            ),
+            elapsedMs = 5_000L,
+        )
+        // Recovery must not wait out the 30 s Direct re-check before retrying RAW.
+        val scheduled = died.command as RecoveryCommand.ScheduleRetry
+        assertTrue(scheduled.delayMs <= RecoverySettings.retryDelayMs(0, jitterPermille = 150))
+        assertEquals(RecoveryPhase.Backoff, died.state.recovery.phase)
+        assertEquals(PendingTimer.Backoff, died.state.recovery.pendingTimer)
+        assertEquals(ConnState.Recovering, died.state.ui.connState)
+        assertTrue((died.state.recovery.nextRetryAtElapsedMs ?: 0L) < (reevalDueAt ?: 0L))
+
+        val retry = ConnectionReducer.reduce(
+            died.state,
+            ConnectionEvent.Clock(elapsedMs = died.state.recovery.nextRetryAtElapsedMs ?: 0L),
+            elapsedMs = died.state.recovery.nextRetryAtElapsedMs ?: 0L,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartBypass || retry.command == RecoveryCommand.ResumeParkedRaw)
+    }
+
+    @Test
+    fun pendingBackoffStillSuppressesASecondAttempt() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = false, silentRecreate = false),
+            0L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                reason = "temp",
+            ),
+            elapsedMs = 0L,
+        )
+        assertEquals(PendingTimer.Backoff, failed.state.recovery.pendingTimer)
+        val index = failed.state.recovery.failureIndex
+        val again = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.TransportDied(
+                sessionEpoch = failed.state.sessionEpoch,
+                transportEpoch = failed.state.transportEpoch,
+                path = VpnPath.Direct,
+            ),
+            elapsedMs = 500L,
+        )
+        assertEquals(RecoveryCommand.None, again.command)
+        assertEquals(index, again.state.recovery.failureIndex)
+    }
+
+    @Test
+    fun flakyWifiDoesNotYankALiveBypassBeforeItSettles() {
+        val onBypass = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = usableCellular(),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 1L,
+            transportEpoch = 4L,
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 1L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val wifiAppeared = ConnectionReducer.reduce(
+            onBypass,
+            ConnectionEvent.UnderlayUpdated(usableWifi()),
+            elapsedMs = 10_000L,
+        )
+        assertEquals(VpnPath.Bypass, wifiAppeared.state.activePath)
+        assertEquals(TransportLifecycle.Running, wifiAppeared.state.transport)
+        assertEquals(10_000L, wifiAppeared.state.wifiUsableSinceMs)
+        val settle = wifiAppeared.command as RecoveryCommand.ScheduleReeval
+        assertEquals(RecoverySettings.wifiUpgradeSettleMs(0), settle.delayMs)
+
+        // Wi-Fi drops back out before the settle expires: nothing was torn down.
+        val wifiGone = ConnectionReducer.reduce(
+            wifiAppeared.state,
+            ConnectionEvent.UnderlayUpdated(usableCellular(epoch = 3L)),
+            elapsedMs = 12_000L,
+        )
+        assertEquals(VpnPath.Bypass, wifiGone.state.activePath)
+        assertEquals(TransportLifecycle.Running, wifiGone.state.transport)
+        assertEquals(0L, wifiGone.state.wifiUsableSinceMs)
+    }
+
+    @Test
+    fun wifiThatHoldsThroughTheSettleTakesOver() {
+        val onBypass = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = usableCellular(),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 1L,
+            transportEpoch = 4L,
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 1L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val wifiAppeared = ConnectionReducer.reduce(
+            onBypass,
+            ConnectionEvent.UnderlayUpdated(usableWifi()),
+            elapsedMs = 10_000L,
+        )
+        val due = wifiAppeared.state.recovery.nextRetryAtElapsedMs ?: 0L
+        val settled = ConnectionReducer.reduce(
+            wifiAppeared.state,
+            ConnectionEvent.Clock(elapsedMs = due),
+            elapsedMs = due,
+        )
+        assertEquals(RecoveryCommand.ParkBypassForDirect, settled.command)
+        assertEquals(VpnPath.Direct, settled.state.activePath)
+    }
+
+    @Test
+    fun wifiSettleDoesNotDelayAnIdleSession() {
+        // Nothing to protect: no live Bypass, so Wi-Fi Direct starts at once.
+        val waiting = ConnectionReducer.reduce(
+            idle(),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        )
+        val onWifi = ConnectionReducer.reduce(
+            waiting.state,
+            ConnectionEvent.UnderlayUpdated(usableWifi()),
+            elapsedMs = 1_000L,
+        )
+        assertTrue(onWifi.command is RecoveryCommand.StartDirect)
+        assertEquals(1_000L, onWifi.state.wifiUsableSinceMs)
+    }
+
+    @Test
     fun highWhitelistScoreSkipsDirectReevalOnBypass() {
         val connected = ConnectionSnapshot(
             intent = UserConnectionIntent(
@@ -1385,6 +1740,163 @@ class ConnectionReducerTest {
             1_000L + RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
             failed.state.directNegative?.retryAfterElapsedMs,
         )
+    }
+
+    @Test
+    fun aParkedProcessDyingMidRecheckStillCountsAsADisplacedBypass() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        ).state
+        val failed = ConnectionReducer.reduce(
+            started,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = started.sessionEpoch,
+                transportEpoch = started.transportEpoch,
+                networkKey = cellKey,
+                reason = "no-rx",
+            ),
+            elapsedMs = 1_000L,
+        ).state
+        // RAW carries the session but never gets past BackendRunning, so
+        // lastConfirmedPath stays null.
+        val onBypass = ConnectionReducer.reduce(
+            failed.copy(activePath = VpnPath.Bypass, transport = TransportLifecycle.Starting),
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = failed.sessionEpoch,
+                transportEpoch = failed.transportEpoch,
+                backendRunning = true,
+            ),
+            elapsedMs = 2_000L,
+        ).state
+        assertNull(onBypass.lastConfirmedPath)
+        val now = (onBypass.recovery.nextRetryAtElapsedMs ?: 0L) + 1L
+        val recheck = ConnectionReducer.reduce(onBypass, ConnectionEvent.Clock(now), now)
+        assertEquals(RecoveryCommand.ParkBypassForDirect, recheck.command)
+        val parkedDied = ConnectionReducer.reduce(
+            recheck.state,
+            ConnectionEvent.ParkedProcessDied(recheck.state.sessionEpoch),
+            now + 500L,
+        ).state
+        assertFalse(parkedDied.parkedRawAlive)
+        val directFailed = ConnectionReducer.reduce(
+            parkedDied,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = parkedDied.sessionEpoch,
+                transportEpoch = parkedDied.transportEpoch,
+                networkKey = cellKey,
+                reason = "no-rx",
+            ),
+            elapsedMs = now + 1_000L,
+        ).state
+        assertEquals(1, directFailed.directReevalFailures)
+        assertFalse(directFailed.directRecheckFromBypass)
+    }
+
+    @Test
+    fun repeatedDirectReevalFailuresWidenTheGapAndResetOnNewUnderlay() {
+        var state = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        ).state
+        var now = 0L
+        val holds = mutableListOf<Long>()
+        repeat(4) {
+            val failed = ConnectionReducer.reduce(
+                state,
+                ConnectionEvent.DirectFailed(
+                    sessionEpoch = state.sessionEpoch,
+                    transportEpoch = state.transportEpoch,
+                    networkKey = cellKey,
+                    reason = "no-rx",
+                ),
+                elapsedMs = now,
+            )
+            holds += (failed.state.directNegative?.retryAfterElapsedMs ?: 0L) - now
+            // Bypass carries the session while Direct is held off.
+            val onBypass = ConnectionReducer.reduce(
+                failed.state.copy(activePath = VpnPath.Bypass, transport = TransportLifecycle.Starting),
+                ConnectionEvent.BypassConfirmed(
+                    sessionEpoch = failed.state.sessionEpoch,
+                    transportEpoch = failed.state.transportEpoch,
+                    backendRunning = true,
+                ),
+                elapsedMs = now + 1_000L,
+            )
+            now = (onBypass.state.recovery.nextRetryAtElapsedMs ?: now) + 1L
+            state = ConnectionReducer.reduce(
+                onBypass.state,
+                ConnectionEvent.Clock(elapsedMs = now),
+                elapsedMs = now,
+            ).state
+        }
+        // The first attempt is the initial Connect, not a re-check, so it keeps
+        // the base gap; every later one displaced a live Bypass and widens it.
+        assertEquals(
+            listOf(
+                RecoverySettings.directReevalDelayMs(0),
+                RecoverySettings.directReevalDelayMs(0),
+                RecoverySettings.directReevalDelayMs(1),
+                RecoverySettings.directReevalDelayMs(2),
+            ),
+            holds,
+        )
+        val moved = ConnectionReducer.reduce(
+            state,
+            ConnectionEvent.UnderlayUpdated(
+                usableCellular(epoch = 9L).copy(
+                    key = NetworkKey(7L, UnderlayKind.Cellular, 12, "cell-2"),
+                    handle = 7L,
+                    simId = 12,
+                ),
+            ),
+            elapsedMs = now + 1L,
+        )
+        assertEquals(0, moved.state.directReevalFailures)
+    }
+
+    @Test
+    fun directFailuresWithoutAWorkingBypassKeepTheBaseGap() {
+        var state = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            0L,
+        ).state
+        var now = 0L
+        repeat(3) {
+            val failedDirect = ConnectionReducer.reduce(
+                state.copy(activePath = VpnPath.Direct, transport = TransportLifecycle.Starting),
+                ConnectionEvent.DirectFailed(
+                    sessionEpoch = state.sessionEpoch,
+                    transportEpoch = state.transportEpoch,
+                    networkKey = cellKey,
+                    reason = "no-rx",
+                ),
+                elapsedMs = now,
+            )
+            assertEquals(
+                now + RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
+                failedDirect.state.directNegative?.retryAfterElapsedMs,
+            )
+            // RAW cannot start either — nothing is carrying the session.
+            val failedBypass = ConnectionReducer.reduce(
+                failedDirect.state.copy(
+                    activePath = VpnPath.Bypass,
+                    transport = TransportLifecycle.Starting,
+                ),
+                ConnectionEvent.BypassFailed(
+                    sessionEpoch = failedDirect.state.sessionEpoch,
+                    transportEpoch = failedDirect.state.transportEpoch,
+                    reason = "dial failed",
+                ),
+                elapsedMs = now + 100L,
+            )
+            now += 10_000L
+            state = failedBypass.state
+        }
+        assertEquals(0, state.directReevalFailures)
     }
 
     @Test
@@ -1537,6 +2049,7 @@ class ConnectionReducerTest {
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Timeout,
                     google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
                     seriesId = "pre-wifi",
                 ),
             ),
@@ -1645,5 +2158,30 @@ class ConnectionReducerTest {
         assertTrue(r.command is RecoveryCommand.StartBypass)
         assertEquals(80, r.state.evidence?.whitelistScorePercent)
         assertEquals(cellKey, r.state.evidence?.networkKey)
+    }
+
+    @Test
+    fun captiveWifiWithoutACallArmsTheUnderlayWatcher() {
+        val started = ConnectionReducer.reduce(
+            idle(),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = false, silentRecreate = false),
+            5L,
+        ).state
+        val captive = UnderlaySnapshot(
+            key = wifiKey,
+            kind = UnderlayKind.Wifi,
+            availability = UnderlayAvailability.Captive,
+            handle = 2L,
+            captivePortal = true,
+            wifiConnected = true,
+            cellularConnected = true,
+            networkEpoch = 2L,
+        )
+        val r = ConnectionReducer.reduce(started, ConnectionEvent.UnderlayUpdated(captive), 10L)
+        assertEquals(RecoveryPhase.CaptivePortal, r.state.recovery.phase)
+        // Cellular alongside the portal keeps allowsNetworkOps true, so only
+        // this command registers the watcher that resumes after sign-in.
+        assertTrue(r.state.underlay.allowsNetworkOps)
+        assertEquals(RecoveryCommand.PauseNetOps, r.command)
     }
 }

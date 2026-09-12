@@ -41,6 +41,8 @@ data class AutoPathInput(
     val lastConfirmedNetworkKey: NetworkKey? = null,
     val wifiFailStreak: Int = 0,
     val wifiStableHits: Int = 0,
+    /** When the current Wi‑Fi/Ethernet underlay became usable; 0 when unknown. */
+    val wifiUsableSinceMs: Long = 0L,
     val parkedRawAlive: Boolean = false,
     val elapsedMs: Long = 0L,
     val profileId: String? = null,
@@ -49,6 +51,21 @@ data class AutoPathInput(
 
 fun UnderlayKind.prefersDirectInAuto(): Boolean =
     this == UnderlayKind.Wifi || this == UnderlayKind.Ethernet
+
+/** Wi‑Fi is up but has not held long enough to be worth a live Bypass. */
+const val WIFI_SETTLING = "wifi-settling"
+
+/**
+ * Upgrading to Wi‑Fi Direct costs a parked call and a TUN rebuild, so an
+ * access point at the edge of range has to hold usable for a whole settle
+ * window first. The window widens with every episode that already failed.
+ */
+fun wifiUpgradeStillSettling(
+    wifiUsableSinceMs: Long,
+    wifiFailStreak: Int,
+    elapsedMs: Long,
+): Boolean = wifiUsableSinceMs > 0L &&
+    elapsedMs - wifiUsableSinceMs < RecoverySettings.wifiUpgradeSettleMs(wifiFailStreak)
 
 fun decideAutoPath(input: AutoPathInput): AutoDecision {
     val underlay = input.underlay.withEffectiveKind()
@@ -144,6 +161,16 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
                 input.transport == TransportLifecycle.Starting)
         ) {
             return AutoDecision.Stay(VpnPath.Direct, "wifi-direct-running")
+        }
+        if (input.currentPath == VpnPath.Bypass &&
+            input.transport == TransportLifecycle.Running &&
+            wifiUpgradeStillSettling(
+                wifiUsableSinceMs = input.wifiUsableSinceMs,
+                wifiFailStreak = input.wifiFailStreak,
+                elapsedMs = input.elapsedMs,
+            )
+        ) {
+            return AutoDecision.Stay(VpnPath.Bypass, WIFI_SETTLING)
         }
         return AutoDecision.StartDirect(
             keepCall = keepCall,

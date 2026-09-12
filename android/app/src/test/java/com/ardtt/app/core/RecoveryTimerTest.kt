@@ -39,6 +39,43 @@ class RecoveryTimerTest {
     }
 
     @Test
+    fun stayReevalNeverFiresSoonerThanTheBaseGap() {
+        // Expired hold: a Stay has no fresh handshake to coalesce against.
+        assertEquals(
+            RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
+            stayReevalDelayMs(retryAfterElapsedMs = 10L, elapsedMs = 20L),
+        )
+        assertEquals(
+            RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
+            stayReevalDelayMs(retryAfterElapsedMs = null, elapsedMs = 20L),
+        )
+        // Escalated hold wins once it is further out than the base gap.
+        assertEquals(
+            RecoverySettings.directReevalDelayMs(3),
+            stayReevalDelayMs(
+                retryAfterElapsedMs = 1_000L + RecoverySettings.directReevalDelayMs(3),
+                elapsedMs = 1_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun directReevalGapWidensAndSaturates() {
+        assertEquals(
+            RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
+            RecoverySettings.directReevalDelayMs(0),
+        )
+        assertEquals(RecoverySettings.directReevalDelayMs(0), RecoverySettings.directReevalDelayMs(-1))
+        val steps = (0..6).map { RecoverySettings.directReevalDelayMs(it) }
+        assertEquals(steps.sorted(), steps)
+        assertEquals(steps.last(), RecoverySettings.directReevalDelayMs(99))
+        assertEquals(
+            RecoverySettings.directReevalBackoffMs.last(),
+            RecoverySettings.directReevalDelayMs(RecoverySettings.directReevalBackoffMs.lastIndex),
+        )
+    }
+
+    @Test
     fun autoCellularDirectNegativeUsesBypassReevalHold() {
         assertEquals(
             30_000L,

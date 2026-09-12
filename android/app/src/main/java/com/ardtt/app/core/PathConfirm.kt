@@ -212,6 +212,11 @@ object PathConfirm {
         } else {
             0L
         }
+        // Trade-off: a Direct attempt that only received the handshake response is
+        // ProtocolReady, not PathConfirmed, so it still connects (directMayConnect)
+        // but the watchdog's dead-no-rx clock keeps running instead of being reset
+        // by protocol chatter a blackholing cell happily answers.
+        val usefulRx = if (RecoverySettings.directRxLooksLikeData(rxDelta)) rxDelta else 0L
         return PathConfirmObservation(
             capturedSessionEpoch = capturedSessionEpoch,
             capturedTransportEpoch = capturedTransportEpoch,
@@ -228,7 +233,7 @@ object PathConfirm {
             requireCallEpoch = requireCallEpoch,
             tunWriteOkDelta = tunWriteOkDelta,
             tunWriteErrDelta = tunWriteErrDelta,
-            usefulRxDelta = rxDelta,
+            usefulRxDelta = usefulRx,
             handshakeGrew = handshakeGrew(handshakeBaselineSec, handshakeNowSec, newBackend),
             probeSucceeded = false,
             workersPresent = false,

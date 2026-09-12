@@ -353,4 +353,20 @@ class UnderlayAccessTest {
         assertTrue(a.sameCellularSim(sameSim))
         assertTrue(a.matchesCellularUnderlay(sameSim))
     }
+
+    @Test
+    fun restrictionScopeCoversTheOperatorAsWellAsTheRadio() {
+        val mts = NetworkKey(7L, UnderlayKind.Cellular, 11, "rmnet0", carrier = "25001")
+        val beeline = NetworkKey(7L, UnderlayKind.Cellular, 11, "rmnet0", carrier = "25099")
+        val unknownCarrier = NetworkKey(7L, UnderlayKind.Cellular, 11, "rmnet0")
+        val otherHandle = NetworkKey(8L, UnderlayKind.Cellular, 11, "rmnet0", carrier = "25001")
+        assertFalse(mts.physicalIdentityChanged(beeline))
+        assertTrue(mts.restrictionScopeChanged(beeline))
+        assertFalse(mts.restrictionScopeChanged(mts))
+        assertFalse(mts.restrictionScopeChanged(unknownCarrier))
+        assertFalse(unknownCarrier.restrictionScopeChanged(mts))
+        assertTrue(mts.restrictionScopeChanged(otherHandle))
+        assertTrue(mts.restrictionScopeChanged(null))
+        assertFalse(null.restrictionScopeChanged(null))
+    }
 }

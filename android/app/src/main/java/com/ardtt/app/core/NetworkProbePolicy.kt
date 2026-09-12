@@ -24,15 +24,19 @@ internal object NetworkProbePolicy {
         cloudflareOk: Boolean?,
         captive: Boolean?,
         googleOk: Boolean? = null,
+        ruServiceOk: Boolean? = null,
     ): ProbePathHint {
         if (captive == true) return ProbePathHint.Captive
         if (provisionOk == true ||
             yandexOk == true ||
             googleOk == true ||
-            cloudflareOk == true
+            cloudflareOk == true ||
+            ruServiceOk == true
         ) {
             return ProbePathHint.Direct
         }
+        // A pending Russian control connect must not hold back the NoNetwork
+        // verdict: it only ever adds a reason to go Direct.
         val known = listOf(provisionOk, yandexOk, cloudflareOk, googleOk)
         if (known.all { it == false }) {
             return if (captive == false) ProbePathHint.NoNetwork else ProbePathHint.Wait
@@ -52,6 +56,8 @@ internal object NetworkProbePolicy {
         provisionOutcome: CheckOutcome? = null,
         googleOk: Boolean = false,
         googleOutcome: CheckOutcome? = null,
+        ruServiceOk: Boolean = false,
+        ruServiceOutcome: CheckOutcome? = null,
         @Suppress("UNUSED_PARAMETER") seriesCount: Int = 1,
         previousWhitelistScore: Int = 0,
     ): ProbeResult {
@@ -59,17 +65,18 @@ internal object NetworkProbePolicy {
         val bigtech = bigtechOutcome ?: if (bigtechOk) CheckOutcome.Success else CheckOutcome.Timeout
         val provision = provisionOutcome ?: if (provisionOk) CheckOutcome.Success else CheckOutcome.Timeout
         val google = googleOutcome ?: if (googleOk) CheckOutcome.Success else CheckOutcome.NotRun
-        val cellular = underlayKind == UnderlayKind.Cellular
-        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
+        val ruService = ruServiceOutcome ?: if (ruServiceOk) CheckOutcome.Success else CheckOutcome.NotRun
+        val cellular = WhitelistDetection.appliesTo(underlayKind)
+        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google, ruService)
         val whitelistScore = if (cellular) {
             RestrictionScore.apply(previousWhitelistScore, sample)
         } else {
-            0
+            WhitelistDetection.STUB_SCORE_PERCENT
         }
         val restriction = if (cellular) {
             RestrictionScore.hint(whitelistScore, sample)
         } else {
-            RestrictionHint.None
+            WhitelistDetection.stubRestriction
         }
         if (captive) {
             return ProbeResult(
@@ -79,6 +86,7 @@ internal object NetworkProbePolicy {
                 yandexOk = yandex.isSuccess,
                 bigtechOk = bigtech.isSuccess,
                 googleOk = google.isSuccess,
+                ruServiceOk = ruService.isSuccess,
                 captive = true,
                 provisionOk = provision.isSuccess,
                 message = "Войдите в сеть (captive portal)",
@@ -86,6 +94,7 @@ internal object NetworkProbePolicy {
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
                 googleOutcome = google,
+                ruServiceOutcome = ruService,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.Unknown,
                 whitelistScorePercent = whitelistScore,
@@ -93,7 +102,9 @@ internal object NetworkProbePolicy {
                 restrictionReason = null,
             )
         }
-        if (!yandex.isSuccess && !bigtech.isSuccess && !google.isSuccess && !provision.isSuccess) {
+        if (!yandex.isSuccess && !bigtech.isSuccess && !google.isSuccess &&
+            !ruService.isSuccess && !provision.isSuccess
+        ) {
             val physical = systemOnline || underlayKind != UnderlayKind.Other
             return ProbeResult(
                 networkClass = if (physical) NetworkClass.DataUnconfirmed else NetworkClass.NoNetwork,
@@ -102,6 +113,7 @@ internal object NetworkProbePolicy {
                 yandexOk = false,
                 bigtechOk = false,
                 googleOk = false,
+                ruServiceOk = false,
                 captive = false,
                 provisionOk = false,
                 message = if (physical) {
@@ -113,6 +125,7 @@ internal object NetworkProbePolicy {
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
                 googleOutcome = google,
+                ruServiceOutcome = ruService,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.Unknown,
                 whitelistScorePercent = whitelistScore,
@@ -120,7 +133,7 @@ internal object NetworkProbePolicy {
                 restrictionReason = null,
             )
         }
-        val internetOk = yandex.isSuccess || bigtech.isSuccess || google.isSuccess
+        val internetOk = yandex.isSuccess || bigtech.isSuccess || google.isSuccess || ruService.isSuccess
         val likely = RestrictionScore.likely(whitelistScore, alreadyBypass = false)
         val restrictionReason = when (restriction) {
             RestrictionHint.Suspected -> "control-ok-ordinary-down"
@@ -136,6 +149,7 @@ internal object NetworkProbePolicy {
                 yandexOk = yandex.isSuccess,
                 bigtechOk = bigtech.isSuccess,
                 googleOk = google.isSuccess,
+                ruServiceOk = ruService.isSuccess,
                 captive = false,
                 provisionOk = false,
                 message = "Сеть есть, сервер управления не ответил. Прямое подключение к VPS проверяется",
@@ -143,6 +157,7 @@ internal object NetworkProbePolicy {
                 yandexOutcome = yandex,
                 bigtechOutcome = bigtech,
                 googleOutcome = google,
+                ruServiceOutcome = ruService,
                 provisionOutcome = provision,
                 restriction = RestrictionHint.None,
                 whitelistScorePercent = whitelistScore,
@@ -174,6 +189,7 @@ internal object NetworkProbePolicy {
             yandexOk = yandex.isSuccess,
             bigtechOk = bigtech.isSuccess,
             googleOk = google.isSuccess,
+            ruServiceOk = ruService.isSuccess,
             captive = false,
             provisionOk = provision.isSuccess,
             message = message,
@@ -181,6 +197,7 @@ internal object NetworkProbePolicy {
             yandexOutcome = yandex,
             bigtechOutcome = bigtech,
             googleOutcome = google,
+            ruServiceOutcome = ruService,
             provisionOutcome = provision,
             restriction = restriction,
             whitelistScorePercent = whitelistScore,
@@ -194,12 +211,121 @@ internal object NetworkProbePolicy {
         yandex: CheckOutcome,
         bigtech: CheckOutcome,
         google: CheckOutcome = CheckOutcome.NotRun,
+        ruService: CheckOutcome = CheckOutcome.NotRun,
         @Suppress("UNUSED_PARAMETER") seriesCount: Int = 1,
         previousScore: Int = 0,
     ): RestrictionHint {
-        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google)
+        val sample = RestrictionScore.sample(cellular, yandex, bigtech, google, ruService)
         val score = if (cellular) RestrictionScore.apply(previousScore, sample) else 0
         return if (cellular) RestrictionScore.hint(score, sample) else RestrictionHint.None
+    }
+
+    /**
+     * How long an ordinary target may still be waited on once a control target
+     * answered in [controlRttMs].
+     *
+     * A target blocked by an operator whitelist never answers, however long we
+     * wait; a congested open link answers late. So the wait tracks the measured
+     * RTT instead of a fixed timeout, and never outlives [remainingBudgetMs] —
+     * the round budget stays the hard bound.
+     */
+    fun ordinaryDeadlineMs(
+        controlRttMs: Int,
+        baseTimeoutMs: Int,
+        remainingBudgetMs: Int,
+        factor: Int = 4,
+    ): Int {
+        val want = maxOf(baseTimeoutMs, factor * controlRttMs.coerceAtLeast(0))
+        return minOf(want, remainingBudgetMs).coerceAtLeast(0)
+    }
+
+    /** A retry is only worth issuing if the round can still pay for it. */
+    const val ORDINARY_RETRY_MIN_BUDGET_MS = 300
+
+    /** Scheduling and socket setup a relaunch needs before the round closes. */
+    const val RETRY_ASSIGN_SLACK_MS = 150
+
+    /**
+     * Congestion loss is probabilistic, a whitelist block is deterministic:
+     * one more shot at a timed-out ordinary target tells them apart. Refused
+     * and the dirty outcomes are already conclusive, so only a timeout retries.
+     */
+    fun shouldRetryOrdinaryTarget(outcome: CheckOutcome, remainingBudgetMs: Int): Boolean =
+        outcome == CheckOutcome.Timeout && remainingBudgetMs >= ORDINARY_RETRY_MIN_BUDGET_MS
+
+    /**
+     * Timeout for a relaunched ordinary target that already spent [elapsedMs]
+     * on its first attempt and should finish by [targetDeadlineMs] (both
+     * measured from the moment the target first started).
+     *
+     * A relaunch that cannot finish before the round closes is worse than none
+     * at all — it replaces a usable Timeout with nothing — so the window keeps
+     * [slackMs] clear of the round deadline and is dropped entirely when what
+     * is left cannot hold a meaningful attempt.
+     */
+    fun ordinaryRetryWindowMs(
+        targetDeadlineMs: Int,
+        elapsedMs: Int,
+        remainingBudgetMs: Int,
+        slackMs: Int = RETRY_ASSIGN_SLACK_MS,
+        minWindowMs: Int = ORDINARY_RETRY_MIN_BUDGET_MS,
+    ): Int {
+        val window = minOf(targetDeadlineMs - elapsedMs, remainingBudgetMs - slackMs)
+        return if (window < minWindowMs) 0 else window
+    }
+
+    /**
+     * Whether relaunching an ordinary target can still change anything.
+     *
+     * A relaunch only ever buys a whitelist verdict, and [RestrictionScore.sample]
+     * discards the round unless Yandex answered and vk.com did not fail. Once a
+     * control has settled that way there is nothing left to disambiguate, and
+     * spending the rest of the budget on ordinary targets only delays the
+     * NoNetwork and captive-portal verdicts.
+     */
+    fun ordinaryRetryStillInformative(
+        yandex: CheckOutcome?,
+        ruService: CheckOutcome?,
+    ): Boolean {
+        if (yandex != null && !yandex.isSuccess) return false
+        if (ruService != null && ruService.isFailure) return false
+        return true
+    }
+
+    /**
+     * Verdict for a target whose relaunch never landed: the first attempt
+     * already said something ("timed out"), and dropping it for Cancelled or
+     * NotRun would silently downgrade a blocked target to "never measured".
+     */
+    fun settledOutcome(finalOutcome: CheckOutcome?, firstOutcome: CheckOutcome?): CheckOutcome =
+        finalOutcome ?: firstOutcome ?: CheckOutcome.NotRun
+
+    /**
+     * One verdict for a target raced over several addresses or protocols.
+     *
+     * Any reachable address proves the target is reachable; when none is, the
+     * best-ranked failure wins. The outcomes that void the whole round
+     * ([CheckOutcome.invalidatesRestrictionSeries]) rank last on purpose: a
+     * stale front that answers "no route" must not void a round in which
+     * another address plainly timed out, or one dead IP would silence
+     * whitelist scoring for good.
+     */
+    fun foldControlOutcomes(outcomes: List<CheckOutcome>): CheckOutcome =
+        outcomes.minByOrNull { controlOutcomeRank(it) } ?: CheckOutcome.NotRun
+
+    private fun controlOutcomeRank(outcome: CheckOutcome): Int = when (outcome) {
+        CheckOutcome.Success -> 0
+        CheckOutcome.Timeout -> 1
+        CheckOutcome.Refused -> 2
+        CheckOutcome.TransportFailure -> 3
+        CheckOutcome.TlsFailure -> 4
+        CheckOutcome.DnsFailure -> 5
+        CheckOutcome.AuthFailure -> 6
+        CheckOutcome.BindFailure -> 7
+        CheckOutcome.NetworkLost -> 8
+        CheckOutcome.Suspended -> 9
+        CheckOutcome.Cancelled -> 10
+        CheckOutcome.NotRun -> 11
     }
 
     fun parseProvisionEndpoint(baseUrl: String?): Pair<String, Int>? {
@@ -223,13 +349,16 @@ fun isRestrictionSeriesSample(
     yandex: CheckOutcome,
     bigtech: CheckOutcome,
     google: CheckOutcome = CheckOutcome.NotRun,
+    ruService: CheckOutcome = CheckOutcome.NotRun,
 ): Boolean {
     if (yandex.invalidatesRestrictionSeries() ||
         bigtech.invalidatesRestrictionSeries() ||
-        google.invalidatesRestrictionSeries()
+        google.invalidatesRestrictionSeries() ||
+        ruService.invalidatesRestrictionSeries()
     ) {
         return false
     }
+    if (ruService.isFailure) return false
     return yandex.ran &&
         yandex.isSuccess &&
         bigtech.countsAsOrdinaryBlock() &&
@@ -243,11 +372,12 @@ fun nextProbeSeriesCount(
 ): Int {
     if (next.yandex.invalidatesRestrictionSeries() ||
         next.bigtech.invalidatesRestrictionSeries() ||
-        next.google.invalidatesRestrictionSeries()
+        next.google.invalidatesRestrictionSeries() ||
+        next.ruService.invalidatesRestrictionSeries()
     ) {
         return 0
     }
-    if (!isRestrictionSeriesSample(next.yandex, next.bigtech, next.google)) {
+    if (!isRestrictionSeriesSample(next.yandex, next.bigtech, next.google, next.ruService)) {
         return 0
     }
     if (previous == null) return 1
@@ -272,7 +402,13 @@ fun nextProbeSeriesCount(
     ) {
         return previous.seriesCount.coerceAtLeast(1)
     }
-    if (!isRestrictionSeriesSample(previous.yandex, previous.bigtech, previous.google)) {
+    if (!isRestrictionSeriesSample(
+            previous.yandex,
+            previous.bigtech,
+            previous.google,
+            previous.ruService,
+        )
+    ) {
         return 1
     }
     if (previous.seriesCount <= 0) return 1

@@ -168,6 +168,89 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun wakeRescueSendsDeadDirectToRecoveryNotSoftRestart() {
+        // Ticket 19: 18:56:36 SCREEN_ON, AWG alive, uplink moving, nothing received.
+        assertEquals(
+            WakeRescueAction.DeadDirect,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = true,
+                directRxBytesSinceWake = 412L,
+                directTxBytesSinceWake = 40_000L,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        // Phone slept: nothing received because nothing was sent.
+        assertEquals(
+            WakeRescueAction.None,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = true,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 0L,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.None,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = true,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 96L,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.SoftRestart,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = false,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 0L,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.None,
+            wakeRescueAction(
+                path = VpnPath.Direct,
+                backendAlive = true,
+                directRxBytesSinceWake = 64_000L,
+                directTxBytesSinceWake = 40_000L,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.SoftRestart,
+            wakeRescueAction(
+                path = VpnPath.Bypass,
+                backendAlive = true,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 0L,
+                activeWorkers = 0,
+                hasFreshStatsSinceWake = false,
+            ),
+        )
+        assertEquals(
+            WakeRescueAction.None,
+            wakeRescueAction(
+                path = VpnPath.Bypass,
+                backendAlive = true,
+                directRxBytesSinceWake = 0L,
+                directTxBytesSinceWake = 0L,
+                activeWorkers = 3,
+                hasFreshStatsSinceWake = true,
+            ),
+        )
+    }
+
+    @Test
     fun zeroWorkersGraceRequiresSustainedZero() {
         assertFalse(shouldSoftRestartForZeroWorkers(0, 0L, 100_000L))
         assertFalse(shouldSoftRestartForZeroWorkers(0, 90_000L, 100_000L, graceMs = 60_000L))
@@ -229,6 +312,199 @@ class NetworkRecoveryPolicyTest {
                 lastTrafficGrowthAtMs = 50_000L,
                 nowMs = 100_000L,
                 handoffAtMs = 90_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun aVoiceCallSuspendingDataIsSeenAsSuspendThenResume() {
+        assertEquals(
+            DataSuspensionTransition.Suspended,
+            classifyDataSuspension(wasSuspended = false, notSuspendedNow = false),
+        )
+        // Repeated events while still suspended are not a second suspension.
+        assertEquals(
+            DataSuspensionTransition.None,
+            classifyDataSuspension(wasSuspended = true, notSuspendedNow = false),
+        )
+        assertEquals(
+            DataSuspensionTransition.Resumed,
+            classifyDataSuspension(wasSuspended = true, notSuspendedNow = true),
+        )
+        assertEquals(
+            DataSuspensionTransition.None,
+            classifyDataSuspension(wasSuspended = false, notSuspendedNow = true),
+        )
+    }
+
+    @Test
+    fun aSuspensionIsTrackedOnlyForTheRadioTheTunnelRides() {
+        assertTrue(tracksSuspensionFor(networkHandle = 7L, preferredHandle = 7L))
+        assertFalse(tracksSuspensionFor(networkHandle = 7L, preferredHandle = 9L))
+        // Wi‑Fi lost with no VALIDATED replacement yet: track whatever suspends.
+        assertTrue(tracksSuspensionFor(networkHandle = 7L, preferredHandle = null))
+    }
+
+    @Test
+    fun onlyASuspensionLongEnoughToKillTheRelayForcesARebind() {
+        assertTrue(shouldRebindAfterDataResume(DATA_SUSPENSION_REBIND_MS))
+        assertTrue(shouldRebindAfterDataResume(60_000L))
+        assertFalse(shouldRebindAfterDataResume(DATA_SUSPENSION_REBIND_MS - 1))
+        assertFalse(shouldRebindAfterDataResume(0L))
+    }
+
+    @Test
+    fun aLiveBypassGetsTheLongerSettleBeforeWifiTakesOver() {
+        assertEquals(
+            RecoverySettings.WIFI_UPGRADE_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                path = VpnPath.Bypass,
+                validatedPresent = true,
+                underlayKind = UnderlayKind.Wifi,
+                pathMode = ConnPathMode.Auto,
+            ),
+        )
+        // Forced Bypass keeps the plain VK-join settle: no upgrade is coming.
+        assertEquals(
+            BYPASS_NETWORK_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                path = VpnPath.Bypass,
+                validatedPresent = true,
+                underlayKind = UnderlayKind.Wifi,
+                pathMode = ConnPathMode.Bypass,
+            ),
+        )
+        assertEquals(
+            BYPASS_NETWORK_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                path = VpnPath.Bypass,
+                validatedPresent = true,
+                underlayKind = UnderlayKind.Cellular,
+                pathMode = ConnPathMode.Auto,
+            ),
+        )
+        assertEquals(
+            DIRECT_NETWORK_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                path = VpnPath.Direct,
+                validatedPresent = true,
+                underlayKind = UnderlayKind.Wifi,
+                pathMode = ConnPathMode.Auto,
+            ),
+        )
+    }
+
+    @Test
+    fun wifiUpgradeSettleWidensPerFailedEpisodeAndSaturates() {
+        val steps = (0..6).map { RecoverySettings.wifiUpgradeSettleMs(it) }
+        assertEquals(steps.sorted(), steps)
+        assertEquals(RecoverySettings.WIFI_UPGRADE_SETTLE_MS, steps.first())
+        assertEquals(RecoverySettings.WIFI_UPGRADE_SETTLE_MAX_MS, steps.last())
+        assertEquals(
+            RecoverySettings.WIFI_UPGRADE_SETTLE_MS,
+            RecoverySettings.wifiUpgradeSettleMs(-3),
+        )
+    }
+
+    @Test
+    fun unansweredUplinkCatchesADeadBypassOutsideTheHandoffWindow() {
+        // Sending for the last 5 s, nothing inbound for 50 s: relay is one-way.
+        assertTrue(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 50_000L,
+                nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        // Never any inbound at all is the same fault — once the transport has
+        // been up longer than the grace.
+        assertTrue(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        // Freshly restarted 5 s ago, already sending, nothing back yet: the
+        // counters were zeroed by the restart, not by a dead relay.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 97_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+                anchorMs = 95_000L,
+            ),
+        )
+        // Idle tunnel: nobody is sending either, so there is nothing to answer.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 40_000L,
+                lastInboundGrowthAtMs = 40_000L,
+                nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        // Inbound is newer than the last uplink — the path answers.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 90_000L,
+                lastInboundGrowthAtMs = 95_000L,
+                nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = false,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 0,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        // Fresh session with no telemetry yet must not restart itself.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 0L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+                anchorMs = 10_000L,
+            ),
+        )
+        // No known transport start: nothing to measure silence from.
+        assertFalse(
+            shouldSoftRestartForUnansweredUplink(
+                bypassPath = true,
+                activeWorkers = 3,
+                lastUplinkGrowthAtMs = 95_000L,
+                lastInboundGrowthAtMs = 0L,
+                nowMs = 100_000L,
+                anchorMs = 0L,
             ),
         )
     }
@@ -793,12 +1069,14 @@ class NetworkRecoveryPolicyTest {
 
     @Test
     fun deadDirectSwitchesAutoToBypassOtherwiseStops() {
+        // Cold start grace: uplink already moving, nothing back yet.
         assertFalse(
             shouldTreatDirectAsDeadNoRx(
                 nowMs = 3_500L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 0L,
             ),
         )
         assertFalse(
@@ -806,7 +1084,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 50_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = true,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 120_000L,
             ),
         )
         assertTrue(
@@ -814,16 +1093,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 50_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
-            ),
-        )
-        assertFalse(
-            shouldTreatDirectAsDeadNoRx(
-                nowMs = 50_000L,
-                sessionStartedAtMs = 1_000L,
-                lastHandoffAtMs = 0L,
-                hasFreshRxSinceAnchor = false,
-                handshakeLive = true,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 0L,
             ),
         )
         // After a handoff, 3s no-rx is enough (skip the cold-start grace).
@@ -832,7 +1103,8 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 14_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
-                hasFreshRxSinceAnchor = false,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 0L,
             ),
         )
         assertTrue(
@@ -840,7 +1112,18 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 16_000L,
                 sessionStartedAtMs = 1_000L,
                 lastHandoffAtMs = 12_000L,
-                hasFreshRxSinceAnchor = false,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 0L,
+            ),
+        )
+        // Handshake response only (412 B in the field log) is not an answer.
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = 16_000L,
+                sessionStartedAtMs = 1_000L,
+                lastHandoffAtMs = 12_000L,
+                txBytesInWindow = 40_000L,
+                rxDataBytesInWindow = 412L,
             ),
         )
         assertEquals(
@@ -862,6 +1145,85 @@ class NetworkRecoveryPolicyTest {
         assertEquals(
             DeadDirectDecision.FailSession,
             decideDeadDirectAction(ConnPathMode.Direct, bypassAllowed = true),
+        )
+    }
+
+    /** Replaces the old handshake exemption: an idle tunnel is quiet, not dead. */
+    @Test
+    fun idleDirectIsExemptButUnansweredUplinkIsDead() {
+        val session = 1_000L
+        val now = 600_000L
+        fun verdict(txBytes: Long, rxBytes: Long, nowMs: Long = now) =
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = nowMs,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = txBytes,
+                rxDataBytesInWindow = rxBytes,
+            )
+
+        // Idle screen-off tunnel: one 32 B keepalive per 25s, nothing inbound.
+        assertFalse(verdict(txBytes = 32L, rxBytes = 0L))
+        assertFalse(verdict(txBytes = 32L, rxBytes = 32L))
+        // Keepalive plus a handshake initiation is still not a user waiting for data.
+        assertFalse(verdict(txBytes = 180L, rxBytes = 0L))
+        assertFalse(verdict(txBytes = DIRECT_TX_DATA_MIN_BYTES - 1L, rxBytes = 0L))
+        // Ticket 19: real uplink, nothing but protocol chatter coming back.
+        assertTrue(verdict(txBytes = DIRECT_TX_DATA_MIN_BYTES, rxBytes = 0L))
+        assertTrue(verdict(txBytes = 14_208L, rxBytes = 0L))
+        assertTrue(verdict(txBytes = 14_208L, rxBytes = 412L))
+        // Answered inside the same window — a live path, however slow.
+        assertFalse(verdict(txBytes = 14_208L, rxBytes = 1_025L))
+        assertFalse(verdict(txBytes = 900_000L, rxBytes = 400_000L))
+        // Start grace still protects the AWG handshake.
+        assertFalse(verdict(txBytes = 40_000L, rxBytes = 0L, nowMs = session + 2_000L))
+        assertTrue(
+            verdict(txBytes = 40_000L, rxBytes = 0L, nowMs = session + DEAD_DIRECT_NO_RX_MS),
+        )
+    }
+
+    /**
+     * Ticket 19 replay at the watchdog's 3s cadence, uplink bytes taken from the
+     * field log: rx freezes while tx keeps climbing, and the verdict needs both a
+     * full window without inbound data and [DIRECT_TX_DATA_MIN_BYTES] of uplink.
+     */
+    @Test
+    fun ticketScenarioIsDeclaredDeadOncePerWindowUplinkIsReal() {
+        val session = 1_000L
+        val rxFrozeAt = 2_268_000L
+        // Bytes sent in each 3s poll after the freeze (≈ the logged 15s deltas spread out).
+        val txPerPoll = longArrayOf(0, 0, 0, 0, 0, 1_200, 1_200, 1_200, 1_200, 1_296)
+        fun txInWindow(pollIndex: Int): Long {
+            val from = (pollIndex - 5).coerceAtLeast(0)
+            return (from until pollIndex).sumOf { txPerPoll.getOrElse(it) { 1_296L } }
+        }
+
+        var deadAt = -1L
+        for (poll in 1..40) {
+            val nowMs = rxFrozeAt + poll * WATCHDOG_POLL_MS
+            val dead = shouldTreatDirectAsDeadNoRx(
+                nowMs = nowMs,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = txInWindow(poll),
+                rxDataBytesInWindow = 0L,
+            )
+            if (dead) {
+                deadAt = nowMs
+                break
+            }
+        }
+        // 15s of uplink at the logged rate first has to clear 4 KB: 27s after the freeze.
+        assertEquals(rxFrozeAt + 27_000L, deadAt)
+        // A user actually loading a page clears 4 KB inside the first window.
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = rxFrozeAt + DIRECT_UNANSWERED_UPLINK_MS + WATCHDOG_POLL_MS,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = 64_000L,
+                rxDataBytesInWindow = 0L,
+            ),
         )
     }
 

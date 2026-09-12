@@ -35,3 +35,13 @@ fun bypassReevalDelayMs(retryAfterElapsedMs: Long?, elapsedMs: Long): Long {
         else -> RecoverySettings.NETWORK_RETURN_COALESCE_MS
     }
 }
+
+/**
+ * Re-arm from a Stay, where no fresh Bypass handshake justifies the short
+ * coalesce [bypassReevalDelayMs] uses: never sooner than the base gap, and not
+ * before an escalated Direct hold expires.
+ */
+fun stayReevalDelayMs(retryAfterElapsedMs: Long?, elapsedMs: Long): Long = maxOf(
+    RecoverySettings.DIRECT_REEVAL_WHILE_BYPASS_MS,
+    (retryAfterElapsedMs ?: 0L) - elapsedMs,
+)

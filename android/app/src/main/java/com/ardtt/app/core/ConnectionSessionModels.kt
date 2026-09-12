@@ -59,6 +59,8 @@ data class DirectNegativeEvidence(
 ) {
     fun stillBlocks(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
         if (key == null || !this.key.samePhysicalNetwork(key)) return false
+        // A new operator may route AWG UDP where the previous one dropped it.
+        if (!this.key.sameCarrier(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return elapsedMs < retryAfterElapsedMs
     }
@@ -109,14 +111,30 @@ enum class RecoveryPhase {
     Connected,
 }
 
+/**
+ * What the single recovery timer is counting down to. A periodic Direct
+ * re-check must not be mistaken for a failure backoff: a transport that dies
+ * while the re-check is armed has to retry on its own budget.
+ */
+enum class PendingTimer {
+    None,
+    Backoff,
+    Reeval,
+}
+
 data class RecoveryState(
     val phase: RecoveryPhase = RecoveryPhase.Idle,
     val failureIndex: Int = 0,
     val nextRetryAtElapsedMs: Long? = null,
+    val pendingTimer: PendingTimer = PendingTimer.None,
     val inFlight: Boolean = false,
     val callOpInFlight: Boolean = false,
     val permit: RecoveryPermit = RecoveryPermit(),
-)
+) {
+    /** Deadline of a failure backoff; a pending re-check does not gate retries. */
+    val backoffDueAtElapsedMs: Long?
+        get() = nextRetryAtElapsedMs?.takeIf { pendingTimer == PendingTimer.Backoff }
+}
 
 data class ReachabilityEvidence(
     val networkKey: NetworkKey? = null,
@@ -125,6 +143,8 @@ data class ReachabilityEvidence(
     val yandex: CheckOutcome = CheckOutcome.NotRun,
     val bigtech: CheckOutcome = CheckOutcome.NotRun,
     val google: CheckOutcome = CheckOutcome.NotRun,
+    /** Russian control service (vk.com) — also tells whether Bypass could work at all. */
+    val ruService: CheckOutcome = CheckOutcome.NotRun,
     val provision: CheckOutcome = CheckOutcome.NotRun,
     val restriction: RestrictionHint = RestrictionHint.Unknown,
     /** 0–100 operator-whitelist confidence; persists across a flaky probe. */
@@ -142,6 +162,7 @@ data class ReachabilityEvidence(
     fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
         if (ttlUntilElapsedMs > 0L && elapsedMs > ttlUntilElapsedMs) return false
         if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return false
+        if (networkKey != null && key != null && !networkKey.sameCarrier(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return true
     }
@@ -168,6 +189,12 @@ data class ConnectionSnapshot(
     val transportEpoch: Long = 0L,
     val wifiFailStreak: Int = 0,
     val wifiStableHits: Int = 0,
+    /** When the current Wi‑Fi/Ethernet underlay became usable; 0 when unknown. */
+    val wifiUsableSinceMs: Long = 0L,
+    /** Direct re-checks that failed on the current underlay; widens the next gap. */
+    val directReevalFailures: Int = 0,
+    /** The Direct attempt in flight displaced a live Bypass, parked or not. */
+    val directRecheckFromBypass: Boolean = false,
     val directNegative: DirectNegativeEvidence? = null,
     val lastConfirmedPath: VpnPath? = null,
     /** Underlay Direct was last PathConfirmed on; Wi‑Fi proof is not LTE proof. */

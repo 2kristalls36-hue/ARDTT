@@ -125,17 +125,24 @@ class ConnectionManager(
     private var cellularProbeJob: Job? = null
     private var lastCellularProbeAtMs: Long = 0L
     private var recoveryRetryJob: Job? = null
+    private val recoveryWakeLock by lazy { RecoveryWakeLock(appContext, RETRY_WAKELOCK_TAG) }
     private val recoveryTimer = RecoveryTimer(
         arm = { delayMs, fire ->
             recoveryRetryJob?.cancel()
+            val hold = recoveryWakeLock.acquire(delayMs)
             recoveryRetryJob = scope.launch {
-                delay(delayMs.coerceAtLeast(0L))
-                fire()
+                try {
+                    delay(delayMs.coerceAtLeast(0L))
+                    fire()
+                } finally {
+                    recoveryWakeLock.release(hold)
+                }
             }
         },
         cancel = {
             recoveryRetryJob?.cancel()
             recoveryRetryJob = null
+            recoveryWakeLock.releaseNow()
         },
     )
     @Volatile private var pendingConnectPath: VpnPath? = null
@@ -827,12 +834,19 @@ class ConnectionManager(
                 transport = kind,
                 simId = if (kind == UnderlayKind.Cellular) simId else null,
                 configFingerprint = fingerprint,
+                carrier = if (kind == UnderlayKind.Cellular) {
+                    cellularCarrierId(appContext, activeCellularSubscriptionId(appContext))
+                } else {
+                    null
+                },
             )
         } else {
             null
         }
-        val epoch = recoverySnapshot.networkEpoch +
-            if (recoverySnapshot.underlay.key.physicalIdentityChanged(key)) 1L else 0L
+        // A PLMN change keeps the sockets but invalidates every measurement, so
+        // probes started before the roam must not be accepted afterwards.
+        val scopeChanged = recoverySnapshot.underlay.key.restrictionScopeChanged(key)
+        val epoch = recoverySnapshot.networkEpoch + if (scopeChanged) 1L else 0L
         return UnderlaySnapshot(
             key = key,
             kind = kind,
@@ -846,11 +860,7 @@ class ConnectionManager(
             cellularConnected = presence.cellular,
             ethernetConnected = presence.ethernet,
             capabilitiesComplete = complete,
-            networkEpoch = if (recoverySnapshot.underlay.key.physicalIdentityChanged(key)) {
-                epoch
-            } else {
-                recoverySnapshot.networkEpoch
-            },
+            networkEpoch = if (scopeChanged) epoch else recoverySnapshot.networkEpoch,
         )
     }
 
@@ -970,10 +980,21 @@ class ConnectionManager(
         scheduleCellularPreProbe("initial")
     }
 
+    /**
+     * Rounds of the whitelist (БС) probe. Only transports that
+     * [WhitelistDetection] still scores pay for it — a Wi‑Fi round measured
+     * four targets and then had its score stubbed to zero anyway.
+     */
     private fun launchBackgroundDiagnostic(
         sessionEpoch: Long,
         networkEpoch: Long,
     ) {
+        if (!WhitelistDetection.appliesTo(currentAutoUnderlayKind())) {
+            diagnosticJob?.cancel()
+            diagnosticJob = null
+            AppLog.v(TAG, "diagnostic skipped — whitelist detection is cellular-only")
+            return
+        }
         diagnosticJob?.cancel()
         val seriesId = java.util.UUID.randomUUID().toString()
         val capturedKey = recoverySnapshot.underlay.key
@@ -1008,7 +1029,8 @@ class ConnectionManager(
                 TAG,
                 "auto-stage probe_round_completed series=$seriesId " +
                     "yandex=${result.yandexOutcome} cf=${result.bigtechOutcome} " +
-                    "google=${result.googleOutcome} provision=${result.provisionOutcome}",
+                    "google=${result.googleOutcome} ru=${result.ruServiceOutcome} " +
+                    "provision=${result.provisionOutcome}",
             )
             applyProbe(
                 result,
@@ -1670,8 +1692,17 @@ class ConnectionManager(
             kind == UnderlayKind.Cellular &&
             whitelistLikely &&
             bypassAllowed
+        // An unmeasured cell must not be guessed as Direct: the quick probe is
+        // cheaper than a dead-Direct cycle followed by a transport switch.
+        val mustProbeCellular = shouldProbeCellularBeforeHandover(
+            mode = mode,
+            underlayKind = kind,
+            bypassAllowed = bypassAllowed,
+            hasScopedEvidence = evidenceForBind(bindNetwork) != null,
+        )
         val skipDirectNow = !skipWifiDirect &&
             !skipWhitelistBypass &&
+            !mustProbeCellular &&
             shouldStartDirectWithoutDiagnostic(mode, kind, underlayUsable = true)
         if (skipWifiDirect || skipDirectNow || skipWhitelistBypass) {
             val probed = if (skipWhitelistBypass) VpnPath.Bypass else VpnPath.Direct
@@ -1687,6 +1718,26 @@ class ConnectionManager(
             )
             if (skipWifiDirect) {
                 scheduleCellularPreProbe("handover-wifi")
+                // The reducer keeps a live Bypass until Wi‑Fi has held usable
+                // for a whole settle window; its own Reeval timer performs the
+                // upgrade once that passes. Tearing the call down here after a
+                // flat settle would defeat that gate.
+                if (currentPath == VpnPath.Bypass &&
+                    recoverySnapshot.activePath == VpnPath.Bypass &&
+                    recoverySnapshot.transport == TransportLifecycle.Running &&
+                    wifiUpgradeStillSettling(
+                        wifiUsableSinceMs = recoverySnapshot.wifiUsableSinceMs,
+                        wifiFailStreak = recoverySnapshot.wifiFailStreak,
+                        elapsedMs = SystemClock.elapsedRealtime(),
+                    )
+                ) {
+                    AppLog.v(
+                        TAG,
+                        "Handover: Wi‑Fi still settling (streak=${recoverySnapshot.wifiFailStreak}) " +
+                            "— leaving the live Bypass to the reducer re-check",
+                    )
+                    return NetworkHandoverDecision.NoAction
+                }
             }
             val decision = decideNetworkHandoverAction(
                 pathMode = mode,
@@ -1732,7 +1783,7 @@ class ConnectionManager(
             TAG,
             "Handover probe done class=${fresh.networkClass} path=${fresh.preselectedPath} " +
                 "yandexDns=${fresh.yandexOk} cloudflare=${fresh.bigtechOk} " +
-                "health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
+                "ru=${fresh.ruServiceOk} health=${fresh.provisionOk} ${fresh.elapsedMs}ms",
         )
 
         val liveMode = pathMode
@@ -1741,6 +1792,14 @@ class ConnectionManager(
             ?: currentPath
         val liveBypass = hashStore.hasHash(profile?.name)
         val liveKind = underlayKindOf(bindNetwork)
+        val bindKey = keyForBind(bindNetwork)
+        // The stored score can be absent on a cell we have never measured; a
+        // single clean round already reaches the enter threshold, so read it
+        // back after the round has been folded in.
+        fun measuredWhitelistLikely(): Boolean = RestrictionScore.likely(
+            liveWhitelistEvidence(bindKey)?.whitelistScorePercent ?: fresh.whitelistScorePercent,
+            alreadyBypass = livePath == VpnPath.Bypass,
+        )
         if (!shouldApplyHandoverProbe(mode, liveMode, currentPath, livePath)) {
             AppLog.v(
                 TAG,
@@ -1760,10 +1819,11 @@ class ConnectionManager(
                 allowBypassToDirect = allowBypassToDirect,
                 directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
                 underlayKind = liveKind,
-                whitelistLikely = whitelistLikely,
+                whitelistLikely = measuredWhitelistLikely(),
             )
             return liveDecision
         }
+        stashHandoverProbe(fresh, bindKey)
 
         // Update UI probe snapshot without leaving Connected/Connecting.
         _ui.value = _ui.value.copy(
@@ -1791,7 +1851,7 @@ class ConnectionManager(
             allowBypassToDirect = allowBypassToDirect,
             directFailedOnCurrentUnderlay = directFailedOnCurrentUnderlay,
             underlayKind = liveKind,
-            whitelistLikely = whitelistLikely,
+            whitelistLikely = measuredWhitelistLikely(),
         )
         applyHandoverDecisionUi(
             decision = decision,
@@ -1887,18 +1947,68 @@ class ConnectionManager(
         recoverySnapshot.intent.profileId ?: profile?.name,
     )
 
-    private fun whitelistScoreForBind(bindNetwork: Network?): Int {
+    private fun keyForBind(bindNetwork: Network?): NetworkKey? {
         val cm = appContext.getSystemService(ConnectivityManager::class.java)
-        val sim = activeCellularSubscriptionId(appContext).takeIf {
+        if (bindNetwork == null || cm == null) return recoverySnapshot.underlay.key
+        val activeSub = activeCellularSubscriptionId(appContext)
+        val sim = activeSub.takeIf {
             it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
         }
-        val key = if (bindNetwork != null && cm != null) {
-            networkKeyForNetwork(bindNetwork, cm, sim)
-        } else {
-            recoverySnapshot.underlay.key
-        }
-        return liveWhitelistEvidence(key)?.whitelistScorePercent ?: 0
+        return networkKeyForNetwork(
+            bindNetwork,
+            cm,
+            sim,
+            carrier = cellularCarrierId(appContext, activeSub),
+        )
     }
+
+    private fun evidenceForBind(bindNetwork: Network?): ReachabilityEvidence? =
+        liveWhitelistEvidence(keyForBind(bindNetwork))
+
+    /**
+     * Keep a handover round as evidence without running it through the reducer:
+     * a ProbeFinished here can emit its own Start command while the service is
+     * already acting on the decision this very probe produced.
+     */
+    private fun stashHandoverProbe(fresh: ProbeResult, key: NetworkKey?) {
+        if (!WhitelistDetection.appliesTo(key)) return
+        synchronized(recoveryGate) {
+            val now = SystemClock.elapsedRealtime()
+            val incoming = ReachabilityEvidence(
+                networkKey = key,
+                profileId = recoverySnapshot.intent.profileId,
+                measuredAtElapsedMs = now,
+                yandex = fresh.yandexOutcome,
+                bigtech = fresh.bigtechOutcome,
+                google = fresh.googleOutcome,
+                ruService = fresh.ruServiceOutcome,
+                provision = fresh.provisionOutcome,
+                restriction = fresh.restriction,
+                whitelistScorePercent = fresh.whitelistScorePercent,
+                captive = fresh.captive,
+                ttlUntilElapsedMs = now + RecoverySettings.PROBE_CACHE_TTL_MS,
+                bindHandle = fresh.bindHandle,
+                routeReason = fresh.routeReason,
+                restrictionReason = fresh.restrictionReason,
+                seriesId = fresh.seriesId,
+            )
+            val folded = foldReachabilityEvidence(
+                previous = recoverySnapshot.cellularEvidence,
+                incoming = incoming,
+                cellular = true,
+                elapsedMs = now,
+            )
+            val liveOnThisRadio =
+                recoverySnapshot.underlay.key?.let { key?.matchesCellularUnderlay(it) } == true
+            recoverySnapshot = recoverySnapshot.copy(
+                cellularEvidence = folded,
+                evidence = if (liveOnThisRadio) folded else recoverySnapshot.evidence,
+            )
+        }
+    }
+
+    private fun whitelistScoreForBind(bindNetwork: Network?): Int =
+        evidenceForBind(bindNetwork)?.whitelistScorePercent ?: 0
 
     private fun mobileDataEnabled(): Boolean = runCatching {
         val tm = appContext.getSystemService(TelephonyManager::class.java) ?: return false
@@ -1976,9 +2086,15 @@ class ConnectionManager(
         val sim = activeSub.takeIf {
             it != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
         }
-        val key = networkKeyForNetwork(bind, cm, sim)
+        val key = networkKeyForNetwork(
+            bind,
+            cm,
+            sim,
+            carrier = cellularCarrierId(appContext, activeSub),
+        )
         if (key == null || !key.isCellular) {
             AppLog.w(TAG, "cellular pre-probe bind is not cellular handle=${bind.networkHandle}")
+            releaseCellularRequest()
             return
         }
         val now = SystemClock.elapsedRealtime()
@@ -1992,7 +2108,14 @@ class ConnectionManager(
             ) ?: RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS
             val since = now - lastCellularProbeAtMs
             if (since < waitMs && recoverySnapshot.cellularEvidence != null) {
-                AppLog.v(TAG, "cellular pre-probe skip — next in ${waitMs - since}ms ($reason)")
+                // Returning would end the refresh loop with no network request
+                // registered and nothing to re-kick it — sit out the gap here.
+                AppLog.v(TAG, "cellular pre-probe waits ${waitMs - since}ms ($reason)")
+                delay(waitMs - since)
+                if (shouldPreProbeCellular(pathMode, currentAutoUnderlayKind())) {
+                    return runCellularPreProbe("refresh")
+                }
+                releaseCellularRequest()
                 return
             }
         }
@@ -2015,6 +2138,7 @@ class ConnectionManager(
             yandex = result.yandexOutcome,
             bigtech = result.bigtechOutcome,
             google = result.googleOutcome,
+            ruService = result.ruServiceOutcome,
             provision = result.provisionOutcome,
             restriction = result.restriction,
             whitelistScorePercent = result.whitelistScorePercent,
@@ -2031,18 +2155,19 @@ class ConnectionManager(
             "cellular pre-probe done score=${reduced.state.cellularEvidence?.whitelistScorePercent} " +
                 "restriction=${reduced.state.cellularEvidence?.restriction} " +
                 "yandex=${result.yandexOutcome} cf=${result.bigtechOutcome} " +
-                "google=${result.googleOutcome} ${result.elapsedMs}ms",
+                "google=${result.googleOutcome} ru=${result.ruServiceOutcome} ${result.elapsedMs}ms",
         )
         val delayMs = RecoverySettings.nextDiagnosticDelayMs(
             completedSeries = reduced.state.cellularEvidence?.completedSeries ?: 0,
             restriction = reduced.state.cellularEvidence?.restriction ?: RestrictionHint.Unknown,
             seriesCount = reduced.state.cellularEvidence?.seriesCount ?: 0,
         ) ?: RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS
+        // Holding the request between rounds keeps the modem attached for the
+        // whole Wi-Fi session; the next round re-acquires or re-requests it.
+        releaseCellularRequest()
         delay(delayMs)
         if (shouldPreProbeCellular(pathMode, currentAutoUnderlayKind())) {
             runCellularPreProbe("refresh")
-        } else {
-            releaseCellularRequest()
         }
     }
 
@@ -2070,7 +2195,37 @@ class ConnectionManager(
         VpnPath.Direct ->
             VpnLiveStats.totalRx > 0L ||
                 VpnLiveStats.downBps > 0L ||
-                RecoverySettings.directProtocolReady(VpnLiveStats.currentAwgHandshakeSec())
+                RecoverySettings.directHandshakeLive(
+                    handshakeSec = VpnLiveStats.currentAwgHandshakeSec(),
+                    nowSec = System.currentTimeMillis() / 1000L,
+                )
+    }
+
+    /** True when the live Direct attempt already proved useful delivery. */
+    fun directPathConfirmed(): Boolean =
+        recoverySnapshot.activePath == VpnPath.Direct &&
+            recoverySnapshot.pathReadiness == PathReadiness.PathConfirmed
+
+    /**
+     * Data arrived on Direct after the PathConfirm window closed. Nothing else
+     * re-confirms the attempt, so an idle connect stayed ProtocolReady forever
+     * with a stale directNegative and a non-zero failureIndex blocking Auto.
+     * A duplicate or stale call is dropped by the reducer's permit checks.
+     */
+    fun onDirectDataObserved() {
+        if (TunnelSessionHolder.config?.path != VpnPath.Direct) return
+        if (directPathConfirmed()) return
+        AppLog.i(TAG, "Direct inbound data observed after confirm window — re-confirming path")
+        dispatchRecovery(
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = recoverySnapshot.sessionEpoch,
+                transportEpoch = recoverySnapshot.transportEpoch,
+                networkKey = recoverySnapshot.underlay.key,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = recoverySnapshot.call.callEpoch,
+            ),
+        )
     }
 
     /**
@@ -2750,6 +2905,7 @@ class ConnectionManager(
             yandex = shown.yandexOutcome,
             bigtech = shown.bigtechOutcome,
             google = shown.googleOutcome,
+            ruService = shown.ruServiceOutcome,
             provision = shown.provisionOutcome,
             restriction = shown.restriction,
             whitelistScorePercent = shown.whitelistScorePercent,
@@ -3316,6 +3472,7 @@ class ConnectionManager(
         private const val DEFAULT_WORKERS = BypassWorkers.DEFAULT
         private const val BYPASS_WORKERS_WAIT_MS = 25_000L
         private const val BYPASS_WORKERS_POLL_MS = 250L
+        private const val RETRY_WAKELOCK_TAG = "ardtt:recovery-retry"
         private const val TRANSPORT_RESTART_DEBOUNCE_MS = 150L
         private const val PRESENCE_DEBOUNCE_MS = 5_000L
 

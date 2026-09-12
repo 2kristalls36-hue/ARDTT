@@ -62,6 +62,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var trustedWifiNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private val activeNetworks = ConcurrentHashMap.newKeySet<Network>()
+    /** Network handle → when its data bearer was suspended (voice call, bearer loss). */
+    private val suspendedNetworks = ConcurrentHashMap<Long, Long>()
     @Volatile private var lastValidatedNetworkId: Long? = null
     @Volatile private var lastPreferredUnderlayHandle: Long? = null
     @Volatile private var stableNetworkWasLost = false
@@ -100,6 +102,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var lastHandoffAtMs = 0L
     @Volatile private var stableNetworkEvidenceSinceMs = 0L
     @Volatile private var deadDirectHandledAtMs = 0L
+    @Volatile private var unansweredUplinkHandledAtMs = 0L
     @Volatile private var lastDirectHealthLogAtMs = 0L
     /** Bypass started before Android VALIDATED LTE — rebind once it does. */
     @Volatile private var rebindBypassWhenValidated = false
@@ -122,6 +125,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var trustedWifiPausedAtMs = 0L
     @Volatile private var trustedWifiEvalJob: Job? = null
     private val settingsRepo by lazy { AppSettingsRepository(applicationContext) }
+
+    /**
+     * Handover and soft restart run on `delay()`, which stops counting while
+     * the CPU is suspended. Without a hold the phone can fall back asleep
+     * mid-dial and leave the tunnel down until the user turns the screen on.
+     */
+    private val handoverWakeLock by lazy { RecoveryWakeLock(this, "ardtt:handover") }
+    private val restartWakeLock by lazy { RecoveryWakeLock(this, "ardtt:soft-restart") }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -236,6 +247,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         sessionStartedAtMs = System.currentTimeMillis()
         lastHandoffAtMs = sessionStartedAtMs
         lastDirectHealthLogAtMs = 0L
+        unansweredUplinkHandledAtMs = 0L
         TransportHealth.reset()
         VpnLiveStats.reset()
         lastPreferredUnderlayHandle = pickBestUnderlayNetwork(this)?.networkHandle
@@ -285,10 +297,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         scheduleTrustedWifiEvaluation(TRUSTED_WIFI_ENTER_DELAY_MS)
     }
 
-    private fun launchBackend(requestedPath: VpnPath, softRestart: Boolean) {
+    /**
+     * [wakeHold] is the restart hold owned by the caller: only that token may be
+     * released here, or a relaunch that is still waiting out its restart delay
+     * loses the CPU to a backend from the previous round reporting its state.
+     */
+    private fun launchBackend(requestedPath: VpnPath, softRestart: Boolean, wakeHold: Long? = null) {
+        fun releaseWakeHold() {
+            wakeHold?.let { restartWakeLock.release(it) }
+        }
         val config = TunnelSessionHolder.config
         if (config == null) {
             AppLog.e(TAG, "No session config")
+            releaseWakeHold()
             softRestartInProgress = false
             ConnectionManager.getOrNull()?.onTunnelFailed("Нет конфигурации сессии")
             stopSelf()
@@ -351,6 +372,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         if (epochResume != backendEpoch) return@resumeParked
                         when (state) {
                             is TunnelBackendState.Running -> {
+                                releaseWakeHold()
                                 tunnelSessionActive = true
                                 ConnectionManager.getOrNull()?.onTunnelRunning(VpnPath.Bypass)
                                 updateNotification(
@@ -360,6 +382,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 )
                             }
                             is TunnelBackendState.Failed -> {
+                                releaseWakeHold()
                                 if (!userStopRequested && !trustedWifiWaiting) {
                                     applyTunnelFailureAction(state.message)
                                 }
@@ -369,6 +392,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     }
                     if (!ok && epochResume == backendEpoch && !userStopRequested) {
                         AppLog.w(TAG, "Parked RAW resume failed — rebuilding transport, same call")
+                        releaseWakeHold()
                         parked.stop()
                         backend = null
                         applyTunnelFailureAction("Не удалось возобновить обход с прежним звонком")
@@ -411,7 +435,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
             VpnPath.Bypass -> null
         }
-        if (path == VpnPath.Direct && fd == null) return
+        if (path == VpnPath.Direct && fd == null) {
+            releaseWakeHold()
+            return
+        }
 
         sessionJob = scope.launch {
             try {
@@ -424,6 +451,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     when (state) {
                         is TunnelBackendState.Running -> {
                             AppLog.v(TAG, "Running path=$path")
+                            releaseWakeHold()
                             softRestartInProgress = false
                             tunnelSessionActive = true
                             if (path == VpnPath.Bypass) {
@@ -444,6 +472,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             drainPendingHandover()
                         }
                         is TunnelBackendState.Failed -> {
+                            releaseWakeHold()
                             if (userStopRequested || trustedWifiWaiting) {
                                 AppLog.w(TAG, "Ignoring failure after stop/pause: ${state.message}")
                                 return@start
@@ -463,6 +492,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     AppLog.v(TAG, "session cancelled (normal stop/restart)")
                     throw t
                 }
+                releaseWakeHold()
                 if (epoch != backendEpoch || userStopRequested || trustedWifiWaiting) {
                     AppLog.w(TAG, "Ignoring crash from stale/stop backend: ${t.message}")
                     return@launch
@@ -635,6 +665,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         softRestartEpoch++
         val myEpoch = softRestartEpoch
         softRestartJob?.cancel()
+        val hold = restartWakeLock.acquire(SOFT_RESTART_WAKELOCK_MS)
         softRestartJob = scope.launch {
             var handedOff = false
             try {
@@ -643,8 +674,11 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     return@launch
                 }
                 handedOff = true
-                launchBackend(path, softRestart = true)
+                launchBackend(path, softRestart = true, wakeHold = hold)
             } finally {
+                // launchBackend only starts the session job; a handed-off restart
+                // is released by the backend reaching Running or Failed.
+                if (!handedOff) restartWakeLock.release(hold)
                 if (shouldClearSoftRestartFlag(handedOff, myEpoch, softRestartEpoch)) {
                     softRestartInProgress = false
                 }
@@ -783,32 +817,45 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             VpnLiveStats.sample()
             val fresh = TransportHealth.hasFreshInboundSince(wakeStartedAt) ||
                 TransportHealth.hasFreshStatsSince(wakeStartedAt)
-            val directEgressOk = path != VpnPath.Direct ||
-                VpnLiveStats.hasFreshRxSince(wakeStartedAt)
-            val should = shouldReconnectTunnelAfterWake(
-                activeWorkers = TransportHealth.activeWorkers,
-                hasFreshStatsSinceWake = fresh,
-                bypassPath = path == VpnPath.Bypass,
-                backendAlive = sessionJob?.isActive == true || TransportHealth.backendAlive,
-                directEgressOk = directEgressOk,
-            )
-            if (should) {
-                AppLog.v(
-                    TAG,
-                    "wake rescue → soft restart path=$path workers=${TransportHealth.activeWorkers} " +
-                        "directRx=${VpnLiveStats.hasFreshRxSince(wakeStartedAt)}",
+            val directRxSinceWake = VpnLiveStats.rxGrowthSince(wakeStartedAt)
+            val directTxSinceWake = VpnLiveStats.txGrowthSince(wakeStartedAt)
+            when (
+                wakeRescueAction(
+                    path = path,
+                    backendAlive = sessionJob?.isActive == true || TransportHealth.backendAlive,
+                    directRxBytesSinceWake = directRxSinceWake,
+                    directTxBytesSinceWake = directTxSinceWake,
+                    activeWorkers = TransportHealth.activeWorkers,
+                    hasFreshStatsSinceWake = fresh,
                 )
-                updateNotification(path, "Восстановление после сна…")
-                requestSoftRestart(
-                    reason = "[СОН] После пробуждения нет рабочих каналов. Мягко переподключаем транспорт.",
-                    force = true,
-                )
-            } else {
-                AppLog.v(
-                    TAG,
-                    "wake rescue: path=$path looks healthy " +
-                        "bypassFresh=$fresh directRx=${VpnLiveStats.hasFreshRxSince(wakeStartedAt)}",
-                )
+            ) {
+                WakeRescueAction.DeadDirect -> {
+                    AppLog.w(
+                        TAG,
+                        "wake rescue: Direct sent $directTxSinceWake B since wake and received " +
+                            "$directRxSinceWake B — dead-Direct recovery",
+                    )
+                    ConnectionManager.getOrNull()?.onDeadDirectNoRx()
+                }
+                WakeRescueAction.SoftRestart -> {
+                    AppLog.v(
+                        TAG,
+                        "wake rescue → soft restart path=$path workers=${TransportHealth.activeWorkers} " +
+                            "directRx=$directRxSinceWake",
+                    )
+                    updateNotification(path, "Восстановление после сна…")
+                    requestSoftRestart(
+                        reason = "[СОН] После пробуждения нет рабочих каналов. Мягко переподключаем транспорт.",
+                        force = true,
+                    )
+                }
+                WakeRescueAction.None -> {
+                    AppLog.v(
+                        TAG,
+                        "wake rescue: path=$path looks healthy bypassFresh=$fresh " +
+                            "direct ↓$directRxSinceWake ↑$directTxSinceWake",
+                    )
+                }
             }
         }
     }
@@ -850,35 +897,47 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     VpnLiveStats.sample()
                     val nowDirect = System.currentTimeMillis()
                     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
-                    val freshRx = VpnLiveStats.hasFreshRxSince(anchor)
+                    val windowStart = nowDirect - DIRECT_UNANSWERED_UPLINK_MS
+                    val txInWindow = VpnLiveStats.txGrowthSince(windowStart)
+                    val rxInWindow = VpnLiveStats.rxGrowthSince(windowStart)
+                    val handshakeLive = RecoverySettings.directHandshakeLive(
+                        handshakeSec = VpnLiveStats.currentAwgHandshakeSec(),
+                        nowSec = nowDirect / 1000L,
+                    )
                     if (nowDirect - lastDirectHealthLogAtMs >= 15_000L) {
                         lastDirectHealthLogAtMs = nowDirect
                         AppLog.i(
                             TAG,
                             "watchdog: Direct rx=${VpnLiveStats.totalRx} tx=${VpnLiveStats.totalTx} " +
-                                "freshRx=$freshRx src=${VpnLiveStats.source} " +
-                                "up=${nowDirect - sessionStartedAtMs}ms",
+                                "win15s ↓$rxInWindow ↑$txInWindow hsLive=$handshakeLive " +
+                                "src=${VpnLiveStats.source} up=${nowDirect - sessionStartedAtMs}ms",
                         )
                     }
-                    val handshakeLive = RecoverySettings.directProtocolReady(
-                        VpnLiveStats.currentAwgHandshakeSec(),
-                    )
+                    val manager = ConnectionManager.getOrNull()
+                    if (
+                        RecoverySettings.directRxLooksLikeData(rxInWindow) &&
+                        manager?.directPathConfirmed() == false
+                    ) {
+                        manager.onDirectDataObserved()
+                    }
                     if (
                         shouldTreatDirectAsDeadNoRx(
                             nowMs = nowDirect,
                             sessionStartedAtMs = sessionStartedAtMs,
                             lastHandoffAtMs = lastHandoffAtMs,
-                            hasFreshRxSinceAnchor = freshRx,
-                            handshakeLive = handshakeLive,
+                            txBytesInWindow = txInWindow,
+                            rxDataBytesInWindow = rxInWindow,
                         ) &&
                         nowDirect - deadDirectHandledAtMs > 30_000L
                     ) {
                         deadDirectHandledAtMs = nowDirect
                         AppLog.w(
                             TAG,
-                            "watchdog: Direct has no TUN rx for ${nowDirect - anchor}ms — not treating AWG as healthy",
+                            "watchdog: Direct uplink unanswered — sent $txInWindow B, " +
+                                "received $rxInWindow B in the last ${DIRECT_UNANSWERED_UPLINK_MS}ms " +
+                                "(up=${nowDirect - anchor}ms hsLive=$handshakeLive)",
                         )
-                        ConnectionManager.getOrNull()?.onDeadDirectNoRx()
+                        manager?.onDeadDirectNoRx()
                     }
                     continue
                 }
@@ -955,6 +1014,27 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         ConnectionManager.getOrNull()?.onWatchdogFault(
                             path,
                             "traffic-stall",
+                        )
+                    } else if (
+                        shouldSoftRestartForUnansweredUplink(
+                            bypassPath = bypass,
+                            activeWorkers = workers,
+                            lastUplinkGrowthAtMs = TransportHealth.lastUplinkGrowthAtMs,
+                            lastInboundGrowthAtMs = TransportHealth.lastInboundGrowthAtMs,
+                            nowMs = now,
+                            anchorMs = maxOf(sessionStartedAtMs, lastHandoffAtMs),
+                        ) &&
+                        now - unansweredUplinkHandledAtMs > BYPASS_UNANSWERED_UPLINK_MS
+                    ) {
+                        unansweredUplinkHandledAtMs = now
+                        AppLog.w(
+                            TAG,
+                            "watchdog: Bypass uplink unanswered workers=$workers " +
+                                "up=${TransportHealth.exactUpBytes} down=${TransportHealth.exactDownBytes}",
+                        )
+                        ConnectionManager.getOrNull()?.onWatchdogFault(
+                            VpnPath.Bypass,
+                            "unanswered-uplink",
                         )
                     }
                 }
@@ -1159,6 +1239,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         connectivityManager = cm
         activeNetworks.clear()
+        suspendedNetworks.clear()
         lastValidatedNetworkId = null
         lastPreferredUnderlayHandle = pickBestUnderlayNetwork(this)?.networkHandle
         stableNetworkWasLost = false
@@ -1197,6 +1278,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val lostPreviousHandover = handoverPreviousNetworkId == lostId
                 if (lostPreviousHandover) handoverPreviousNetworkId = null
                 if (lostCurrentValidated) lastValidatedNetworkId = null
+                suspendedNetworks.remove(lostId)
+                // Only a VALIDATED event refreshes the preferred handle, and the
+                // replacement radio may never produce one; a dead handle here
+                // would reject every suspension on the network now carrying us.
+                if (lastPreferredUnderlayHandle == lostId) {
+                    lastPreferredUnderlayHandle =
+                        pickBestUnderlayNetwork(this@VpnTunnelService)?.networkHandle
+                }
 
                 val shouldTrack = shouldTrackUnderlyingNetworkLoss(
                     tunnelRunning = tunnelSessionActive,
@@ -1231,6 +1320,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 if (trustedWifiWaiting) {
                     scheduleTrustedWifiEvaluation(TRUSTED_WIFI_EXIT_DELAY_MS)
                 }
+                if (handleDataSuspension(network, caps)) return
                 val usable =
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
@@ -1316,6 +1406,47 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             .onFailure { AppLog.e(TAG, "registerNetworkCallback failed: ${it.message}") }
     }
 
+    /**
+     * @return true when the event was a data suspend/resume and the normal
+     * validated-transition path must not also run.
+     */
+    private fun handleDataSuspension(network: Network, caps: NetworkCapabilities): Boolean {
+        val id = network.networkHandle
+        if (!tracksSuspensionFor(id, lastPreferredUnderlayHandle)) {
+            suspendedNetworks.remove(id)
+            return false
+        }
+        val transition = classifyDataSuspension(
+            wasSuspended = suspendedNetworks.containsKey(id),
+            notSuspendedNow = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
+        )
+        val now = System.currentTimeMillis()
+        return when (transition) {
+            DataSuspensionTransition.Suspended -> {
+                suspendedNetworks[id] = now
+                AppLog.v(TAG, "underlay data suspended id=$id (voice call / bearer loss)")
+                ConnectionManager.getOrNull()?.onUnderlyingNetworkLost()
+                true
+            }
+            DataSuspensionTransition.Resumed -> {
+                val suspendedFor = now - (suspendedNetworks.remove(id) ?: now)
+                ConnectionManager.getOrNull()?.onUnderlyingNetworkLost()
+                if (shouldRebindAfterDataResume(suspendedFor)) {
+                    AppLog.v(TAG, "underlay data resumed after ${suspendedFor}ms — rebind")
+                    scheduleUnderlyingNetworkReconnect(
+                        reason = "Передача данных возобновлена",
+                        stickyUnderlayChanged = true,
+                    )
+                    true
+                } else {
+                    AppLog.v(TAG, "underlay data flap ${suspendedFor}ms — no rebind")
+                    false
+                }
+            }
+            DataSuspensionTransition.None -> false
+        }
+    }
+
     private fun hasValidatedRealNetwork(): Boolean {
         val cm = connectivityManager ?: return false
         val chosen = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork() ?: return false
@@ -1395,6 +1526,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeEpoch++
         val myEpoch = networkChangeEpoch
         networkChangeJob?.cancel()
+        var hold = handoverWakeLock.acquire(HANDOVER_WAKELOCK_MS)
         networkChangeJob = scope.launch {
             try {
                 val skipValidated = shouldSkipValidatedWait(
@@ -1440,6 +1572,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     path = settlePath,
                     validatedPresent = hasValidatedRealNetwork(),
                     skipValidatedWait = skipValidatedSettle,
+                    underlayKind = currentUnderlayKind(),
+                    pathMode = ConnectionManager.getOrNull()?.currentPathMode() ?: ConnPathMode.Auto,
                 )
                 AppLog.v(
                     TAG,
@@ -1559,11 +1693,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         "handover: not skipping Bypass — underlay not VALIDATED ($reason)",
                     )
                 }
+                // The SSID retry loop and the settle can have eaten most of the
+                // hold already; refresh it so the probe and the restart it feeds
+                // are not the part that runs without the CPU.
+                hold = handoverWakeLock.acquire(HANDOVER_WAKELOCK_MS)
                 runHandoverProbeAndRestart(
                     reason,
                     underlayChanged = pendingHandoverUnderlayChanged,
                 )
             } finally {
+                handoverWakeLock.release(hold)
                 if (ownsJobEpoch(myEpoch, networkChangeEpoch)) {
                     stableNetworkReconnectPending = false
                     handoverPreviousNetworkId = null
@@ -1583,6 +1722,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         networkChangeJob = null
         softRestartJob?.cancel()
         softRestartJob = null
+        handoverWakeLock.releaseNow()
+        restartWakeLock.releaseNow()
         notifLiveJob?.cancel()
         notifLiveJob = null
         trustedWifiSettingsJob?.cancel()
@@ -2005,6 +2146,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         userStopRequested = true
         trustedWifiWaiting = false
         stopSession(keepService = false)
+        handoverWakeLock.releaseNow()
+        restartWakeLock.releaseNow()
         scope.cancel()
         ConnectionManager.getOrNull()?.onServiceStopped()
         com.ardtt.app.TunnelWidgetProvider.updateWidgetState(
@@ -2321,6 +2464,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED"
         private const val NOTIF_ID = 42
         private const val TRUSTED_WIFI_RESUME_GUARD_MS = 8_000L
+        /** VALIDATED wait plus the longest settle, before the probe even starts. */
+        private const val HANDOVER_WAKELOCK_MS =
+            VALIDATED_WAIT_TIMEOUT_MS +
+                RecoverySettings.WIFI_UPGRADE_SETTLE_MS +
+                RecoverySettings.FAST_PROBE_BUDGET_MS
+        /** Backend relaunch: RAW re-dial plus path confirm. */
+        private const val SOFT_RESTART_WAKELOCK_MS = 30_000L
         /** AWG-over-WARP underlay needs headroom under 1280. */
         const val DIRECT_TUN_MTU = 1200
     }

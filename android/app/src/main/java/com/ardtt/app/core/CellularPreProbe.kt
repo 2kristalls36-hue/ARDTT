@@ -13,24 +13,28 @@ fun NetworkKey.sameCellularSim(other: NetworkKey?): Boolean {
     if (transport != UnderlayKind.Cellular || other.transport != UnderlayKind.Cellular) {
         return false
     }
+    if (!sameCarrier(other)) return false
     val a = simId ?: return false
     val b = other.simId ?: return false
     return a == b
 }
 
 fun NetworkKey.matchesCellularUnderlay(other: NetworkKey?): Boolean =
-    samePhysicalNetwork(other) || sameCellularSim(other)
+    sameCarrier(other) && (samePhysicalNetwork(other) || sameCellularSim(other))
 
-/** Direct proven on this radio / SIM; unknown keys keep the old Stay behaviour. */
+/** Direct proven on this radio / SIM / operator; unknown keys keep the old Stay behaviour. */
 fun NetworkKey?.directConfirmedOn(current: NetworkKey?): Boolean {
     if (this == null || current == null) return true
+    if (!sameCarrier(current)) return false
     return samePhysicalNetwork(current) || sameCellularSim(current)
 }
 
 fun shouldPreProbeCellular(
     mode: ConnPathMode,
     effectiveKind: UnderlayKind,
-): Boolean = mode == ConnPathMode.Auto && effectiveKind.prefersDirectInAuto()
+): Boolean = mode == ConnPathMode.Auto &&
+    effectiveKind.prefersDirectInAuto() &&
+    WhitelistDetection.appliesTo(UnderlayKind.Cellular)
 
 /**
  * Rebind a cellular stash onto the live LTE key (handle may change after
@@ -46,11 +50,11 @@ fun adoptCellularEvidence(
     if (liveKey != null && !liveKey.isCellular) return null
     if (liveKey == null) return stash
     if (stashKey == null || stashKey.matchesCellularUnderlay(liveKey)) {
-        return if (stashKey?.samePhysicalNetwork(liveKey) == true) {
-            stash
-        } else {
-            stash.copy(networkKey = liveKey)
-        }
+        // Rebind when the operator was unknown at measurement time, so later
+        // comparisons are scoped to the PLMN we now know we are on.
+        val exact = stashKey?.samePhysicalNetwork(liveKey) == true &&
+            stashKey.carrier == liveKey.carrier
+        return if (exact) stash else stash.copy(networkKey = liveKey)
     }
     return null
 }
