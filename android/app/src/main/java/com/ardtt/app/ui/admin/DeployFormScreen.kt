@@ -27,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
 import com.ardtt.app.deploy.DeployIssue
 import com.ardtt.app.deploy.DeployJobKind
@@ -188,7 +187,7 @@ fun DeployScreen(
     )
 
     val context = LocalContext.current
-    val expectedDeployVersion = remember(context) { DeployBundle.expectedVersion(context) }
+    val expectedDeployVersion = rememberExpectedDeployVersion()
     val isUpdate = saved && lastDeployedAtMs > 0L
     val canLeave = deployFormCanLeave(busy)
 
