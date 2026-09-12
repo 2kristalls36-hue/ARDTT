@@ -428,6 +428,10 @@ fi
 if [ -f "$ROOT/scripts/test-fetch-partial.sh" ]; then
   bash "$ROOT/scripts/test-fetch-partial.sh" || err "partial fetch end-to-end"
 fi
+if [ -f "$ROOT/scripts/test-attach-server-packages.sh" ]; then
+  bash -n "$ROOT/scripts/test-attach-server-packages.sh" || err "bash -n test-attach-server-packages"
+  bash "$ROOT/scripts/test-attach-server-packages.sh" || err "attach server packages (missing GitHub Release)"
+fi
 
 if [ "$fail" -ne 0 ]; then
   msg "deploy bundle check failed"

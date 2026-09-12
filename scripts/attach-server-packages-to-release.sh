@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Attach server packages from a local directory to an existing GitHub Release
-# tag: the full ardtt-server-*.tar.gz archives plus the partial-deploy assets
-# next to them (index, host files, per-layer gzips, Engine, Compose) and a
-# SHA256SUMS-server.txt covering all of them. Does not rebuild or repack
-# images. Does not download older workflow artifacts. Refuses to overwrite
-# assets that already exist.
+# Attach server packages from a local directory to a GitHub Release tag: the
+# full ardtt-server-*.tar.gz archives plus the partial-deploy assets next to
+# them (index, host files, per-layer gzips, Engine, Compose) and a
+# SHA256SUMS-server.txt covering all of them. Creates the Release if the tag
+# exists but Android build has not published it yet (the two tag workflows
+# race). Does not rebuild or repack images. Does not download older workflow
+# artifacts. Refuses to overwrite assets that already exist.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VER="$(tr -d '[:space:]' < "$ROOT/server/DEPLOY_VERSION")"
@@ -35,7 +36,7 @@ done
 [ -n "$FROM_DIR" ] && [ -d "$FROM_DIR" ] || { echo "--from-dir must be a directory" >&2; exit 1; }
 
 python3 - "$FROM_DIR" "$VER" "$DRY" "$TAG" "$REPO" <<'PY'
-import hashlib, json, pathlib, subprocess, sys, tempfile
+import hashlib, json, os, pathlib, subprocess, sys, tempfile
 root = pathlib.Path(sys.argv[1])
 ver = sys.argv[2]
 dry = sys.argv[3] == "1"
@@ -113,11 +114,45 @@ for arch in archs:
     upload.extend([index, idx_sidecar])
     lines.append(f"{idx_digest}  {index.name}\n")
 
-raw = subprocess.check_output(
-    ["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
-    text=True,
-)
-remote_assets = json.loads(raw).get("assets") or []
+def gh(*args, check=True):
+    return subprocess.run(
+        ["gh", *args],
+        text=True,
+        capture_output=True,
+        check=check,
+    )
+
+def load_release_assets():
+    viewed = gh("release", "view", tag, "--repo", repo, "--json", "assets", check=False)
+    if viewed.returncode == 0:
+        return json.loads(viewed.stdout).get("assets") or []
+    err = (viewed.stderr or viewed.stdout or "").strip()
+    if "release not found" not in err.lower() and viewed.returncode != 1:
+        raise SystemExit(err or f"gh release view {tag} failed")
+    return None
+
+remote_assets = load_release_assets()
+if remote_assets is None:
+    # Tag workflows race: Server package can finish while Android build has
+    # not created the GitHub Release yet. Create it, or attach if Android
+    # won the create in between.
+    create_cmd = [
+        "release", "create", tag, "--repo", repo,
+        "--title", f"ARDTT {tag}", "--generate-notes", "--latest",
+    ]
+    sha = os.environ.get("GITHUB_SHA", "").strip()
+    if sha:
+        create_cmd.extend(["--target", sha])
+    created = gh(*create_cmd, check=False)
+    if created.returncode != 0:
+        remote_assets = load_release_assets()
+        if remote_assets is None:
+            err = (created.stderr or created.stdout or "release not found").strip()
+            raise SystemExit(f"cannot create or view release {tag}: {err}")
+        print("note: GitHub Release appeared while creating (Android build likely won)")
+    else:
+        remote_assets = load_release_assets() or []
+        print("created GitHub Release https://github.com/%s/releases/tag/%s" % (repo, tag))
 by_name = {a["name"]: a for a in remote_assets}
 assets = set(by_name)
 
