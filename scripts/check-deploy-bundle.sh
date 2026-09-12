@@ -459,6 +459,10 @@ if [ -f "$ROOT/scripts/test-overlay-dir-modes.sh" ]; then
   bash -n "$ROOT/scripts/test-overlay-dir-modes.sh" || err "bash -n test-overlay-dir-modes"
   bash "$ROOT/scripts/test-overlay-dir-modes.sh" || err "overlay dir modes"
 fi
+if [ -f "$ROOT/scripts/test-ensure-release-apks.sh" ]; then
+  bash -n "$ROOT/scripts/ensure-release-apks.sh" || err "bash -n ensure-release-apks"
+  bash "$ROOT/scripts/test-ensure-release-apks.sh" || err "ensure-release-apks"
+fi
 if [ -f "$ROOT/scripts/test-attach-server-packages.sh" ]; then
   bash -n "$ROOT/scripts/test-attach-server-packages.sh" || err "bash -n test-attach-server-packages"
   bash "$ROOT/scripts/test-attach-server-packages.sh" || err "attach server packages (missing GitHub Release)"

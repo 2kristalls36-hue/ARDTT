@@ -62,6 +62,20 @@ jobs:
           fi
           android_id="$INPUT_ANDROID"
           if [ -z "$android_id" ]; then
+            # Latest green Android may still be the previous versionName
+            # (attach races the new Android build). Prefer a run whose
+            # artifact is ardtt-<this version>-*.
+            while read -r id; do
+              [ -n "$id" ] || continue
+              if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/artifacts" \
+                    --jq '.artifacts[].name' \
+                  | grep -q "^ardtt-${version_name}-"; then
+                android_id="$id"
+                break
+              fi
+            done < <(gh run list --workflow 'Android build' --branch main --status success --limit 15 --json databaseId --jq '.[].databaseId')
+          fi
+          if [ -z "$android_id" ]; then
             android_id="$(gh run list --workflow 'Android build' --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
           fi
           server_id="$INPUT_SERVER"
@@ -77,6 +91,7 @@ jobs:
           echo "tag=$tag android=$android_id server=$server_id"
 
       - name: Download Android artifacts
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -99,24 +114,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.src.outputs.tag }}
           VERSION_NAME: ${{ steps.src.outputs.version_name }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          apks=(apk-dist/ardtt-"${VERSION_NAME}"-*.apk)
-          test "${#apks[@]}" -ge 1
-          ls -lh apk-dist/
-          python3 scripts/rewrite-release-update-json.py "$TAG" "$VERSION_NAME" "$GITHUB_REPOSITORY" apk-dist
-          (
-            cd apk-dist
-            sha256sum ardtt-"${VERSION_NAME}"-*.apk ardtt-update.json > SHA256SUMS.txt
-          )
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" apk-dist/ardtt-"${VERSION_NAME}"-*.apk apk-dist/ardtt-update.json apk-dist/SHA256SUMS.txt --clobber
-          else
-            gh release create "$TAG" apk-dist/ardtt-"${VERSION_NAME}"-*.apk apk-dist/ardtt-update.json apk-dist/SHA256SUMS.txt \
-              --title "ARDTT ${TAG}" --generate-notes --latest --target "$GITHUB_SHA"
-          fi
-          echo "APKs on https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+        run: bash scripts/ensure-release-apks.sh "$TAG" "$VERSION_NAME" apk-dist
 
       - name: Attach server packages without clobber
         env:
