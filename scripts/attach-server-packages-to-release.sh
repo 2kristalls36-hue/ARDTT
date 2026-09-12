@@ -199,50 +199,52 @@ for line in lines:
 sums.write_text("".join(f"{d}  {n}\n" for n, d in sorted(merged.items())), encoding="utf-8")
 sums_clobber = sums.name in assets
 
-overlap = [p.name for p in upload if p.name in assets]
-if overlap:
-    if set(overlap) != {p.name for p in upload}:
-        raise SystemExit(
-            "refusing to overwrite existing release assets: " + ", ".join(overlap)
-        )
-    mismatches = []
-    for path in upload:
-        remote = by_name[path.name]
-        local_digest = sha256(path)
-        remote_digest = (remote.get("digest") or "").lower().removeprefix("sha256:")
-        remote_size = int(remote.get("size") or 0)
-        local_size = path.stat().st_size
-        if remote_digest:
-            if remote_digest != local_digest:
-                mismatches.append(
-                    f"{path.name}: release {remote_digest} != local {local_digest}"
-                )
-        elif remote_size and remote_size != local_size:
-            mismatches.append(
-                f"{path.name}: release size {remote_size} != local {local_size}"
+# Engine/Compose keep stable filenames across stack versions. A newer stack
+# on the same tag must skip those (same digest) and still upload 1.0.x
+# archives/index/layers. Refuse only when the existing file differs.
+to_upload = []
+skipped = []
+for path in upload:
+    remote = by_name.get(path.name)
+    if remote is None:
+        to_upload.append(path)
+        continue
+    local_digest = sha256(path)
+    remote_digest = (remote.get("digest") or "").lower().removeprefix("sha256:")
+    remote_size = int(remote.get("size") or 0)
+    local_size = path.stat().st_size
+    if remote_digest:
+        if remote_digest != local_digest:
+            raise SystemExit(
+                f"refusing to overwrite {path.name}: release {remote_digest} != local {local_digest}"
             )
-        elif not remote_digest:
-            mismatches.append(f"{path.name}: release asset has no digest to compare")
-    if mismatches:
+        skipped.append(path.name)
+        continue
+    if remote_size and remote_size != local_size:
         raise SystemExit(
-            "release already has different server assets; not overwriting:\n  "
-            + "\n  ".join(mismatches)
+            f"refusing to overwrite {path.name}: release size {remote_size} != local {local_size}"
         )
+    skipped.append(path.name)
+
+if skipped:
+    print("skip existing (same digest/size): " + ", ".join(skipped))
+
+if not to_upload:
     print("already attached (digest match) to https://github.com/%s/releases/tag/%s" % (repo, tag))
     if not dry:
         publish_release()
     sys.exit(0)
 
 print("Attach to https://github.com/%s/releases/tag/%s (%d files, %d partial-deploy index(es))"
-      % (repo, tag, len(upload), indexes))
-for path in upload:
+      % (repo, tag, len(to_upload), indexes))
+for path in to_upload:
     print(" ", path, sha256(path))
 print(" ", sums, "(merged, %d entries%s)" % (len(merged), ", replaces the existing file" if sums_clobber else ""))
 if dry:
     print("dry-run: skip gh release upload")
     sys.exit(0)
 # New assets are never clobbered; only the merged checksum list may replace itself.
-subprocess.check_call(["gh", "release", "upload", tag, *[str(p) for p in upload], "--repo", repo])
+subprocess.check_call(["gh", "release", "upload", tag, *[str(p) for p in to_upload], "--repo", repo])
 sums_cmd = ["gh", "release", "upload", tag, str(sums), "--repo", repo]
 if sums_clobber:
     sums_cmd.append("--clobber")

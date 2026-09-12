@@ -177,6 +177,111 @@ run_case "existing empty release just uploads" exists
 run_case "create races with Android build, then attach" race
 run_case "existing full archives skip upload and publish" already
 
+# Newer stack on a tag that already has Engine/Compose (same filenames).
+run_shared_engine() {
+  local work log
+  work="$(mktemp -d)"
+  trap 'rm -rf "'"$work"'"' RETURN
+  mkdir -p "$work/dist" "$work/bin"
+  log="$work/gh.log"
+  : >"$log"
+  printf 'tiny-%s\n' amd64 | gzip -n >"$work/dist/ardtt-server-${VER}-linux-amd64.tar.gz"
+  printf 'tiny-%s\n' arm64 | gzip -n >"$work/dist/ardtt-server-${VER}-linux-arm64.tar.gz"
+  python3 - "$work/dist" "$VER" <<'PY'
+import hashlib, json, pathlib, sys
+dist, ver = pathlib.Path(sys.argv[1]), sys.argv[2]
+def digest(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+pkg = dist / f"ardtt-server-{ver}-linux-amd64.tar.gz"
+host = dist / f"ardtt-server-{ver}-linux-amd64-hostfiles.tar.gz"
+host.write_bytes(b"hostfiles\n")
+engine = dist / "ardtt-docker-engine-29.7.2-linux-amd64.tgz"
+engine.write_bytes(b"engine-bytes\n")
+compose = dist / "ardtt-docker-compose-2.32.4-linux-amd64"
+compose.write_bytes(b"compose-bytes\n")
+idx = {
+    "format": "ardtt-server-index-v1",
+    "deployVersion": ver,
+    "arch": "amd64",
+    "package": {"asset": pkg.name, "sha256": digest(pkg)},
+    "hostfiles": {"asset": host.name, "sha256": digest(host)},
+    "image": {"layers": []},
+    "engine": {"asset": engine.name, "sha256": digest(engine)},
+    "compose": {"asset": compose.name, "sha256": digest(compose)},
+}
+(dist / f"ardtt-server-{ver}-linux-amd64.index.json").write_text(json.dumps(idx), encoding="utf-8")
+state = dist.parent / "remote.json"
+state.write_text(json.dumps({"engine": digest(engine), "engine_size": engine.stat().st_size,
+                             "compose": digest(compose), "compose_size": compose.stat().st_size}), encoding="utf-8")
+PY
+  cat >"$work/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" >>"${GH_LOG:?}"
+case "${1:-} ${2:-}" in
+  "release view")
+    python3 - "${GH_STATE_DIR:?}/remote.json" <<'PY'
+import json, pathlib, sys
+d = json.loads(pathlib.Path(sys.argv[1]).read_text())
+print(json.dumps({"assets": [
+    {"name": "ardtt-docker-engine-29.7.2-linux-amd64.tgz", "digest": "sha256:" + d["engine"], "size": d["engine_size"]},
+    {"name": "ardtt-docker-compose-2.32.4-linux-amd64", "digest": "sha256:" + d["compose"], "size": d["compose_size"]},
+]}))
+PY
+    exit 0
+    ;;
+  "release upload")
+    printf '%s\n' "$@" >"${GH_STATE_DIR:?}/upload"
+    exit 0
+    ;;
+  "release edit")
+    printf '%s\n' "$@" >"${GH_STATE_DIR:?}/edit"
+    exit 0
+    ;;
+  "release download")
+    echo "unexpected download $*" >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected gh $*" >&2
+    exit 1
+    ;;
+esac
+EOF
+  chmod +x "$work/bin/gh"
+  set +e
+  (
+    export PATH="$work/bin:$PATH"
+    export GH_LOG="$log"
+    export GH_STATE_DIR="$work"
+    export GITHUB_REPOSITORY="2kristalls36-hue/ARDTT"
+    bash "$ROOT/scripts/attach-server-packages-to-release.sh" \
+      --tag "v0.5.264" --from-dir "$work/dist"
+  ) >"$work/out" 2>"$work/err"
+  local rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    fail "shared engine: attach exited $rc"
+    cat "$work/out" "$work/err" "$log" >&2 || true
+    return 0
+  fi
+  if grep -q 'ardtt-docker-engine-29.7.2-linux-amd64.tgz' "$log" && \
+     grep 'release upload' "$log" | grep -q 'ardtt-docker-engine-29.7.2-linux-amd64.tgz'; then
+    fail "shared engine: re-uploaded Engine"
+    cat "$log" >&2
+    return 0
+  fi
+  if ! grep -q "ardtt-server-${VER}-linux-amd64.tar.gz" "$log"; then
+    fail "shared engine: did not upload new stack archive"
+    cat "$work/out" "$log" >&2
+    return 0
+  fi
+  grep -q 'skip existing' "$work/out" || fail "shared engine: missing skip log"
+  pass "newer stack skips existing Engine/Compose and uploads archives"
+}
+
+run_shared_engine
+
 if [ "$FAIL" -ne 0 ]; then
   echo "test-attach-server-packages failed" >&2
   exit 1
