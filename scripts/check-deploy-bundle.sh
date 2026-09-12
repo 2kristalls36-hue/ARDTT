@@ -191,6 +191,33 @@ if grep -qE '^RUN chmod \+x /entrypoint\.sh' "$DOCKERFILE"; then
   err "Dockerfile must set modes with COPY --chmod, not a trailing RUN chmod layer that re-ships every binary"
 fi
 grep -q 'COPY --from=overlay / /' "$DOCKERFILE" || err "Dockerfile must merge scripts into one overlay layer"
+# BuildKit COPY --chmod=N in FROM scratch sets newly created parent dirs to N.
+# 1.0.52 used --chmod=644 and shipped /etc as 0644 → container crash-loop.
+python3 - "$DOCKERFILE" <<'PY' || err "overlay COPY --chmod must be 0755 only; no COPY into /etc"
+import pathlib, re, sys
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+m = re.search(r"^FROM scratch AS overlay\n(.*?)(?=^FROM )", text, re.M | re.S)
+if not m:
+    raise SystemExit("no FROM scratch AS overlay stage")
+bad = []
+for line in m.group(1).splitlines():
+    stripped = line.strip()
+    if not stripped.startswith("COPY "):
+        continue
+    chmod = re.search(r"--chmod=([0-7]+)", stripped)
+    if chmod and chmod.group(1) not in ("755", "0755"):
+        bad.append(stripped)
+    if re.search(r"\s/etc(/|\s|$)", stripped):
+        bad.append(stripped)
+if bad:
+    raise SystemExit("; ".join(bad))
+PY
+grep -q 'dnsmasq.conf.tmpl /opt/ardtt/dnsmasq.conf.tmpl' "$DOCKERFILE" \
+  || err "overlay dnsmasq template must be /opt/ardtt/dnsmasq.conf.tmpl"
+grep -q 'ARDTT_DNS_TMPL:-/opt/ardtt/dnsmasq.conf.tmpl' "$ROOT/server/dns/entrypoint.sh" \
+  || err "dns.sh default template must be /opt/ardtt/dnsmasq.conf.tmpl"
+grep -q 'State.Restarting' "$INSTALLER" || err "wait_readiness must detect a restarting container"
+grep -q 'docker logs' "$INSTALLER" || err "readiness_detail must include docker logs"
 
 grep -q 'hide-ip-prefixes' "$ROOT/server/warp/entrypoint.sh" || err "exit warp must poll hide-ip-prefixes"
 grep -q 'TCPMSS --clamp-mss-to-pmtu' "$ROOT/server/direct/entrypoint.sh" || err "direct must clamp TCPMSS"
@@ -427,6 +454,10 @@ if [ -f "$ROOT/scripts/test-compose-env-isolation.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-fetch-partial.sh" ]; then
   bash "$ROOT/scripts/test-fetch-partial.sh" || err "partial fetch end-to-end"
+fi
+if [ -f "$ROOT/scripts/test-overlay-dir-modes.sh" ]; then
+  bash -n "$ROOT/scripts/test-overlay-dir-modes.sh" || err "bash -n test-overlay-dir-modes"
+  bash "$ROOT/scripts/test-overlay-dir-modes.sh" || err "overlay dir modes"
 fi
 if [ -f "$ROOT/scripts/test-attach-server-packages.sh" ]; then
   bash -n "$ROOT/scripts/test-attach-server-packages.sh" || err "bash -n test-attach-server-packages"

@@ -130,9 +130,22 @@ overlay_ready_script() {
 }
 
 wait_readiness() {
-  local name="${ARDTT_CONTAINER_NAME}" i
+  local name="${ARDTT_CONTAINER_NAME}" i running restarting oom hits=0
   for i in $(seq 1 40); do
-    if docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -qx true; then
+    running="$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)"
+    restarting="$(docker inspect -f '{{.State.Restarting}}' "$name" 2>/dev/null || true)"
+    oom="$(docker inspect -f '{{.State.OOMKilled}}' "$name" 2>/dev/null || true)"
+    # Crash-loop / OOM: docker exec will never succeed (daemon: "is restarting").
+    if [ "$oom" = "true" ]; then
+      return 1
+    fi
+    if [ "$restarting" = "true" ]; then
+      hits=$((hits + 1))
+      if [ "$hits" -ge 3 ]; then
+        return 1
+      fi
+    fi
+    if [ "$running" = "true" ]; then
       overlay_ready_script || true
       if docker exec "$name" bash /opt/ardtt/ready.sh >/dev/null 2>&1; then
         return 0
@@ -144,8 +157,15 @@ wait_readiness() {
 }
 
 readiness_detail() {
-  overlay_ready_script || true
-  docker exec "${ARDTT_CONTAINER_NAME}" bash /opt/ardtt/ready.sh 2>&1 | tail -5 | tr '\n' ' ' | cut -c1-400
+  local name="${ARDTT_CONTAINER_NAME}"
+  local state logs exec_out=""
+  state="$(docker inspect -f 'status={{.State.Status}} running={{.State.Running}} restarting={{.State.Restarting}} oom={{.State.OOMKilled}} exit={{.State.ExitCode}}' "$name" 2>/dev/null || true)"
+  logs="$(docker logs --tail 40 "$name" 2>&1 | tail -25 | tr '\n|' '  ' | tr -s ' ' | cut -c1-500)"
+  if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" = "true" ]; then
+    overlay_ready_script || true
+    exec_out="$(docker exec "$name" bash /opt/ardtt/ready.sh 2>&1 | tail -5 | tr '\n|' '  ' | tr -s ' ' | cut -c1-200 || true)"
+  fi
+  printf '%s %s %s' "${state:-inspect-failed}" "$exec_out" "$logs"
 }
 
 preflight_docker() {

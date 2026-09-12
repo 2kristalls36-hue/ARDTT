@@ -58,17 +58,25 @@ RUN cd /src/bypass-sync && go build -trimpath -ldflags="-s -w" -o /out/bypass-sy
 
 # All entrypoints, helpers and templates in one small layer (changes here are
 # the most frequent and used to cost one layer per file).
+#
+# COPY --chmod in FROM scratch applies that mode to newly created parent
+# directories too. 1.0.52 used --chmod=644 for the dnsmasq template and
+# app.py, so overlayfs set Debian /etc and /opt/ardtt/telemetry to 0644
+# (no +x). The container could not traverse to passwd/resolv.conf/ssl and
+# crash-looped; readiness only saw "Container is restarting". Keep --chmod
+# at 0755, copy non-executables without --chmod, and never emit an /etc
+# directory header (template lives under /opt/ardtt).
 FROM scratch AS overlay
 COPY --chmod=755 direct/entrypoint.sh /opt/ardtt/direct.sh
 COPY --chmod=755 direct/cascade-entrypoint.sh /cascade-entrypoint.sh
 COPY --chmod=755 bypass/entrypoint.sh /opt/ardtt/bypass.sh
 COPY --chmod=755 dns/entrypoint.sh /opt/ardtt/dns.sh
-COPY --chmod=644 dns/dnsmasq.conf.tmpl /etc/ardtt/dnsmasq.conf.tmpl
 COPY --chmod=755 warp/entrypoint.sh /opt/ardtt/warp.sh
-COPY --chmod=644 telemetry-upload/app.py /opt/ardtt/telemetry/app.py
 COPY --chmod=755 netns-guard.sh /opt/ardtt/netns-guard.sh
 COPY --chmod=755 ready.sh /opt/ardtt/ready.sh
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
+COPY dns/dnsmasq.conf.tmpl /opt/ardtt/dnsmasq.conf.tmpl
+COPY telemetry-upload/app.py /opt/ardtt/telemetry/app.py
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 ARG TARGETARCH=amd64

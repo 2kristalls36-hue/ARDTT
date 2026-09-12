@@ -1,6 +1,6 @@
 # Сервер ARDTT
 
-Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.52** (`DEPLOY_VERSION`).  
+Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.53** (`DEPLOY_VERSION`).  
 Продуктовая установка — готовый архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` из GitHub Releases: [DEPLOY.md](../docs/DEPLOY.md).  
 Обновление из приложения идёт частичным деплоем: `fetch-and-install.sh` на VPS читает индекс релиза `ardtt-server-<версия>-linux-<arch>.index.json` и качает только недостающие компоненты (host-файлы, изменившиеся слои образа, Engine/Compose — лишь если их нет на хосте).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).

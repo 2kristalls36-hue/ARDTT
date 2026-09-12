@@ -29,7 +29,7 @@
 > Автор **не призывает** использовать ARDTT для обхода блокировок или нарушения правил платформ и **не несёт ответственности** за сценарии применения пользователями. Это неофициальный продукт: не Amnezia, не VK и не Cloudflare.
 
 > [!NOTE]
-> Клиент **0.5.264** (`versionCode` 282), пакет `com.ardtt.app`. Серверный стек **1.0.52** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — актив Releases, не `assets/` APK. Старые APK (ждут `ardtt-stack-*.tar.gz` / `main`) этот пакет не ставят.
+> Клиент **0.5.264** (`versionCode` 282), пакет `com.ardtt.app`. Серверный стек **1.0.53** (`DEPLOY_VERSION`, каталог `/opt/ardtt`). Канонический источник стека — актив Releases, не `assets/` APK. Старые APK (ждут `ardtt-stack-*.tar.gz` / `main`) этот пакет не ставят.
 >
 > Заметки релиза — [CHANGELOG.md](CHANGELOG.md). Документы — [docs/](docs/README.md).
 
@@ -40,8 +40,8 @@
 | | |
 |---|---|
 | Клиент | **0.5.264** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
-| Стек | **1.0.52** · `/opt/ardtt` · один контейнер, isolated netns, labels `com.ardtt.owner` · переменные `ARDTT_*` |
-| Откуда стек | GitHub Releases: `ardtt-server-1.0.52-linux-<amd64\|arm64>.tar.gz` (docker save + Engine), рядом `…index.json` и ассеты по слоям — **частичный деплой: VPS качает только недостающее**. Не APK, не исходники |
+| Стек | **1.0.53** · `/opt/ardtt` · один контейнер, isolated netns, labels `com.ardtt.owner` · переменные `ARDTT_*` |
+| Откуда стек | GitHub Releases: `ardtt-server-1.0.53-linux-<amd64\|arm64>.tar.gz` (docker save + Engine), рядом `…index.json` и ассеты по слоям — **частичный деплой: VPS качает только недостающее**. Не APK, не исходники |
 | Compose | production без `build:`; provision/direct/bypass/dns/warp/cascade/telemetry; host-порты на 51820/56003/9100/9200 внутри |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, пакеты сервера — без PAT. Только стабильные `versionName` (без `test`). Тестовые APK — [Actions → Artifacts](https://github.com/2kristalls36-hue/ARDTT/actions) |
@@ -88,7 +88,7 @@ ARDTT/
 | **Приложение** | GitHub Releases → HTTPS с VPS (`fetch-and-install.sh`, частичный деплой по индексу); телефон только SSH | удобно с телефона |
 | **Архив** | тот же актив + `install.sh` из него | shell; Engine ставится из архива, если его ещё нет |
 
-Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` пакет 1.0.52 не ставят. Подробности: [docs/DEPLOY.md](docs/DEPLOY.md).
+Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` пакет 1.0.53 не ставят. Подробности: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Быстрый старт
 
@@ -102,10 +102,10 @@ ARDTT/
 
 ```bash
 # https://github.com/2kristalls36-hue/ARDTT/releases/latest
-# актив ardtt-server-1.0.52-linux-amd64.tar.gz (или arm64)
+# актив ardtt-server-1.0.53-linux-amd64.tar.gz (или arm64)
 # сверьте SHA-256 с digest / SHA256SUMS релиза, затем:
 export ARDTT_PUBLIC_HOST=IP_этого_VPS
-export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.52-linux-amd64.tar.gz
+export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.53-linux-amd64.tar.gz
 export ARDTT_PACKAGE_SHA256=...
 # см. docs/DEPLOY.md
 ```
@@ -128,7 +128,7 @@ cd android
 
 | Документ | Содержание |
 |----------|------------|
-| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.264 / стек 1.0.52 |
+| [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.264 / стек 1.0.53 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Пакет `ardtt-server-*-linux-<arch>.tar.gz`: приложение или архив; Engine в `vendor/docker.tgz` |

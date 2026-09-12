@@ -1,6 +1,6 @@
 # ARDTT v0.5.264
 
-Клиент **0.5.264** (`versionCode` 282). Серверный стек **1.0.52** (`DEPLOY_VERSION`).
+Клиент **0.5.264** (`versionCode` 282). Серверный стек **1.0.53** (`DEPLOY_VERSION`).
 
 GitHub Release `v0.5.264`: APK, `ardtt-update.json`, `ardtt-server-1.0.52-linux-{amd64,arm64}.tar.gz`, индекс `.index.json` и покомпонентные ассеты частичного деплоя (host-файлы, слои образа, Docker Engine, Compose CLI).
 
@@ -14,6 +14,10 @@ GitHub Release `v0.5.264`: APK, `ardtt-update.json`, `ardtt-server-1.0.52-linux-
 - **Профили и админ.** Меню профиля на строке заголовка, замок убран. Кнопка завершения сессии администратора на всю ширину карточки.
 - **Хром.** Заголовки вкладок растворяются при прокрутке вниз и возвращаются обратно; fade больше не выбеливает текст под шапкой.
 - **Аудит UI.** Различимое disabled у кнопок, общие поля ввода (в том числе показ пароля), пустые состояния с действием, подтверждение выхода из режима администратора, кнопка «Добавить код звонка» на туннеле.
+
+## стек 1.0.53 — overlay /etc 0644
+
+- Образ **1.0.52** сразу уходил в crash-loop (`Restarting`): `COPY --chmod=644` в `FROM scratch AS overlay` выставил каталогам `/etc` и `/opt/ardtt/telemetry` режим 0644 (BuildKit применяет chmod к созданным родителям). Overlayfs применил это к Debian `/etc` — без +x не читаются `passwd`, `resolv.conf`, `/etc/ssl`. `docker exec` для `ready.sh` отвечал «Container is restarting»; установщик откатывал предыдущую версию. В overlay `--chmod` только 0755; шаблон dnsmasq и `app.py` копируются без `--chmod` в `/opt/ardtt` (слой больше не содержит заголовок каталога `/etc`). `wait_readiness` выходит после трёх `Restarting`; в ошибке — `docker inspect` и хвост `docker logs`.
 
 ## стек 1.0.52 — частичный деплой
 

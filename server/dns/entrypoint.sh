@@ -11,7 +11,7 @@ ardtt_require_container_netns || exit 1
 CONF_DIR="${ARDTT_DNS_CONF_DIR:-/tmp/ardtt-dnsmasq}"
 CONF="${CONF_DIR}/dnsmasq.conf"
 PID_FILE="${CONF_DIR}/dnsmasq.pid"
-TMPL="${ARDTT_DNS_TMPL:-/etc/ardtt/dnsmasq.conf.tmpl}"
+TMPL="${ARDTT_DNS_TMPL:-/opt/ardtt/dnsmasq.conf.tmpl}"
 UPSTREAMS="${ARDTT_DNS_UPSTREAM:-1.1.1.1 1.0.0.1}"
 POLL_SEC="${ARDTT_DNS_POLL_SEC:-5}"
 
