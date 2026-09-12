@@ -33,8 +33,8 @@ android {
         applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 281
-        versionName = "0.5.263"
+        versionCode = 282
+        versionName = "0.5.264"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
