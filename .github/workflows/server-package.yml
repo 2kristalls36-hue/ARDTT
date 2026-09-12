@@ -58,6 +58,7 @@ jobs:
         shell: bash
         run: |
           bash scripts/check-deploy-bundle.sh
+          bash scripts/test-overlay-dir-modes.sh
           bash scripts/test-install-disk-guard.sh
           bash scripts/test-install-buildkit-wipe.sh
           bash scripts/test-verify-loaded-image.sh
