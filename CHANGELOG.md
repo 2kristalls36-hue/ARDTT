@@ -18,6 +18,7 @@ GitHub Release `v0.5.264`: APK, `ardtt-update.json`, `ardtt-server-1.0.52-linux-
 ## стек 1.0.53 — overlay /etc 0644
 
 - Образ **1.0.52** сразу уходил в crash-loop (`Restarting`): `COPY --chmod=644` в `FROM scratch AS overlay` выставил каталогам `/etc` и `/opt/ardtt/telemetry` режим 0644 (BuildKit применяет chmod к созданным родителям). Overlayfs применил это к Debian `/etc` — без +x не читаются `passwd`, `resolv.conf`, `/etc/ssl`. `docker exec` для `ready.sh` отвечал «Container is restarting»; установщик откатывал предыдущую версию. В overlay `--chmod` только 0755; шаблон dnsmasq и `app.py` копируются без `--chmod` в `/opt/ardtt` (слой больше не содержит заголовок каталога `/etc`). `wait_readiness` выходит после трёх `Restarting`; в ошибке — `docker inspect` и хвост `docker logs`.
+- **Attach built packages.** Гонка с Android build брала артефакт предыдущего `versionName` (искали `ardtt-0.5.264-*`, скачали 0 файлов с run 0.5.263) и падала до прикрепления стека. Если APK этой версии уже на теге — пропускаем заливку APK и всё равно крепим пакеты сервера.
 
 ## стек 1.0.52 — частичный деплой
 
