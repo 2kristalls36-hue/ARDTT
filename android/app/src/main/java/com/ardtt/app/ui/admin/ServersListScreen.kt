@@ -52,7 +52,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.needsNotificationPermission
-import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
 import com.ardtt.app.deploy.DeployJobKind
 import com.ardtt.app.deploy.DeployTarget
@@ -272,7 +271,7 @@ private fun ServerListScreen(
     onAddServer: () -> Unit,
 ) {
     val context = LocalContext.current
-    val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
+    val expectedVersion = rememberExpectedDeployVersion()
     var healthById by remember { mutableStateOf<Map<String, HealthUi>>(emptyMap()) }
     var selectMode by rememberSaveable { mutableStateOf(false) }
     var selectedIds by rememberSaveable { mutableStateOf(setOf<String>()) }

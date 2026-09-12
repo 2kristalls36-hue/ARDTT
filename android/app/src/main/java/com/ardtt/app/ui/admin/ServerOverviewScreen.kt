@@ -38,13 +38,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import com.ardtt.app.deploy.DeployBundle
 import com.ardtt.app.deploy.DeployEngine
 import com.ardtt.app.deploy.DeployIssue
 import com.ardtt.app.deploy.DeployJobKind
@@ -94,8 +92,7 @@ internal fun ServerOverviewHost(
     var showRedeployProgress by remember { mutableStateOf(false) }
     var redeployStatus by remember { mutableStateOf<String?>(null) }
     var health by remember { mutableStateOf<HealthUi?>(HealthUi.Checking) }
-    val context = LocalContext.current
-    val expectedVersion = remember(context) { DeployBundle.expectedVersion(context) }
+    val expectedVersion = rememberExpectedDeployVersion()
     val enqueueJob = rememberEnqueueDeploy(engine)
     val busy by engine.busy.collectAsStateWithLifecycle()
     val progress by engine.progress.collectAsStateWithLifecycle()

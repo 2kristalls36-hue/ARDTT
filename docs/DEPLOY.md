@@ -91,7 +91,7 @@ scripts/safe-extract-package.py
 | **Из приложения** | Админ с телефоном | SSH → на VPS запускается `fetch-and-install.sh` → **VPS** качает индекс релиза и только недостающие компоненты (или монолитный архив, если индекса нет) → Engine из релиза, если Docker нет → `docker load` + compose `--no-build --pull never` |
 | **Архив с Releases** | На VPS есть shell | Скачать актив, сверить SHA-256 с релизом, `install.sh` (или тот же `fetch-and-install.sh`) |
 
-Телефон **не** скачивает и **не** SFTP'ит multi‑MB пакет. Нужен только SSH к VPS; исходящий HTTPS к `api.github.com` / `github.com` — **на сервере**. Версия стека для UI опрашивается при запуске APK (`DeployVersionCatalog`); в APK зашит лишь offline fallback.
+Телефон **не** скачивает и **не** SFTP'ит multi‑MB пакет. Нужен только SSH к VPS; исходящий HTTPS к `api.github.com` / `github.com` — **на сервере**. Версия стека для UI опрашивается при запуске APK (`DeployVersionCatalog`); карточка подписана на этот каталог, а не на одноразовый снимок fallback из APK.
 
 Сборка из исходников (`docker-compose.dev.yml`) — путь **разработчика**, не продуктовая установка.
 
@@ -194,7 +194,7 @@ scripts/safe-extract-package.py
 2. На VPS: если есть `/opt/ardtt/current/fetch-and-install.sh` — запускает его; иначе SFTP **только** маленький bootstrap `fetch-and-install.sh` из assets APK. До 1.0.52 копии на VPS не было вообще: `pack-server-package.sh` не включал `fetch-and-install.sh` в список файлов tar, поэтому `/opt/ardtt/current/fetch-and-install.sh` не появлялся и телефон каждый раз заливал bootstrap из APK. Теперь скрипт есть и в архиве, и в `hostfiles`, и после первой установки 1.0.52 работает копия с VPS. Путь обновления отвязан от версии APK: старые bootstrap'ы (≤0.5.263) продолжают работать — они качают монолитный архив, который по-прежнему публикуется, — а каждое следующее обновление идёт частичным деплоем из копии на VPS.
 3. `fetch-and-install.sh` на VPS: HTTPS к GitHub Releases → SHA-256 → safe extract → `install.sh`. Пакет на телефон не качается. Со стека 1.0.52 — [частичный деплой](#частичный-деплой) по индексу.
 4. Протокол: `ARDTT_PROGRESS`, `ARDTT_WARN`, `ARDTT_ERROR`, `ARDTT_DONE`, `ARDTT_CASCADE_PUBLIC_KEY`. Фактические `provision_port` / `telemetry_port` пишутся в карточку.
-5. При каждом запуске APK `DeployVersionCatalog` опрашивает Releases и обновляет «ожидаемую» версию стека (сравнение с `/health`).
+5. При каждом запуске APK `DeployVersionCatalog` опрашивает Releases и обновляет «ожидаемую» версию стека (сравнение с `/health`). Карточка сервера читает этот каталог как StateFlow, а не запоминает fallback на первом кадре.
 
 Каскад: SSH к выходу всегда через вход (direct-tcpip / ProxyJump с телефона на VPS 1, дальше TCP до SSH VPS 2). Сначала выходной стек, потом входной. Общая установка не считается успешной, если один узел не готов. Пароль второго сервера в `.env` входа не пишется. На карточке укажите адрес выхода **как его видит VPS 1** (публичный IP или внутренний). `sshd` входа должен разрешать `AllowTcpForwarding`.
 
