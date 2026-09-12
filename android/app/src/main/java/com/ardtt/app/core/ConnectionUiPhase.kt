@@ -53,6 +53,7 @@ fun connectionUiModel(
     trustedWifi: Boolean = false,
     underlayKind: UnderlayKind = UnderlayKind.Other,
     pathReadiness: PathReadiness = PathReadiness.None,
+    restrictionDisplay: RestrictionDisplay = RestrictionDisplay.None,
 ): ConnectionUiModel {
     if (trustedWifi) {
         return ConnectionUiModel(
@@ -64,6 +65,12 @@ fun connectionUiModel(
         )
     }
     val disconnect = listOf(ConnectionUiAction.Disconnect)
+    val display = when {
+        restrictionDisplay != RestrictionDisplay.None -> restrictionDisplay
+        restriction == RestrictionHint.Confirmed -> RestrictionDisplay.Confirmed
+        restriction == RestrictionHint.Suspected -> RestrictionDisplay.Possible
+        else -> RestrictionDisplay.None
+    }
     return when (phase) {
         RecoveryPhase.Idle -> ConnectionUiModel(
             phase = ConnectionUiPhase.Idle,
@@ -119,8 +126,14 @@ fun connectionUiModel(
                     phase = ConnectionUiPhase.Connecting,
                     message = when {
                         phase == RecoveryPhase.ConnectingBypass &&
-                            restriction == RestrictionHint.Confirmed ->
-                            "Похоже на белый список оператора. Подключаемся через обход"
+                            display == RestrictionDisplay.Confirmed ->
+                            "Признаки белого списка подтверждены проверками. Подключаемся через обход"
+                        phase == RecoveryPhase.ConnectingBypass &&
+                            display == RestrictionDisplay.Possible ->
+                            "Возможны ограничения мобильной сети. Подключаемся через обход"
+                        phase == RecoveryPhase.ConnectingBypass &&
+                            display == RestrictionDisplay.Stale ->
+                            "Данные о сети устарели. Проверяем снова"
                         phase == RecoveryPhase.ConnectingBypass &&
                             restriction != RestrictionHint.Suspected &&
                             restriction != RestrictionHint.Confirmed ->
@@ -231,6 +244,12 @@ fun connectionUiModel(
                         "Маршрут ещё не подтверждён полезным обменом"
                     despite && activePath == VpnPath.Direct ->
                         "Возможны ограничения мобильной сети"
+                    display == RestrictionDisplay.Confirmed ->
+                        "Признаки белого списка подтверждены проверками"
+                    display == RestrictionDisplay.Possible ->
+                        "Возможны ограничения мобильной сети"
+                    display == RestrictionDisplay.Stale ->
+                        "Данные о сети устарели. Проверяем снова"
                     restriction == RestrictionHint.Suspected ->
                         "Похоже на ограничения мобильной сети"
                     else -> null

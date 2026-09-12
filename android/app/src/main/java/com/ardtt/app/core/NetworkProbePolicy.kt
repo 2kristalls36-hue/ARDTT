@@ -44,6 +44,10 @@ internal object NetworkProbePolicy {
         return ProbePathHint.Wait
     }
 
+    /** Early Direct may start on an ordinary provider; Yandex/VK/health are not this signal. */
+    fun ordinaryFastPathEligible(cloudflareOk: Boolean?, googleOk: Boolean?): Boolean =
+        cloudflareOk == true || googleOk == true
+
     fun classify(
         systemOnline: Boolean,
         yandexOk: Boolean,
@@ -60,6 +64,7 @@ internal object NetworkProbePolicy {
         ruServiceOutcome: CheckOutcome? = null,
         @Suppress("UNUSED_PARAMETER") seriesCount: Int = 1,
         previousWhitelistScore: Int = 0,
+        freshStrongConfirmation: Boolean = false,
     ): ProbeResult {
         val yandex = yandexOutcome ?: if (yandexOk) CheckOutcome.Success else CheckOutcome.Timeout
         val bigtech = bigtechOutcome ?: if (bigtechOk) CheckOutcome.Success else CheckOutcome.Timeout
@@ -69,12 +74,17 @@ internal object NetworkProbePolicy {
         val cellular = WhitelistDetection.appliesTo(underlayKind)
         val sample = RestrictionScore.sample(cellular, yandex, bigtech, google, ruService)
         val whitelistScore = if (cellular) {
-            RestrictionScore.apply(previousWhitelistScore, sample)
+            RestrictionScore.apply(previousWhitelistScore, sample, freshStrongConfirmation)
         } else {
             WhitelistDetection.STUB_SCORE_PERCENT
         }
         val restriction = if (cellular) {
-            RestrictionScore.hint(whitelistScore, sample)
+            RestrictionScore.hint(
+                whitelistScore,
+                sample,
+                freshStrongConfirmation = sample == RestrictionSample.Positive ||
+                    (freshStrongConfirmation && sample != RestrictionSample.Open),
+            )
         } else {
             WhitelistDetection.stubRestriction
         }
@@ -134,7 +144,11 @@ internal object NetworkProbePolicy {
             )
         }
         val internetOk = yandex.isSuccess || bigtech.isSuccess || google.isSuccess || ruService.isSuccess
-        val likely = RestrictionScore.likely(whitelistScore, alreadyBypass = false)
+        val likely = RestrictionScore.mayEnterBypassForWhitelist(
+            whitelistScore,
+            freshStrongConfirmation = sample == RestrictionSample.Positive ||
+                (freshStrongConfirmation && whitelistScore >= RecoverySettings.WHITELIST_ENTER_PERCENT),
+        )
         val restrictionReason = when (restriction) {
             RestrictionHint.Suspected -> "control-ok-ordinary-down"
             RestrictionHint.Confirmed -> "whitelist-score"
@@ -214,10 +228,24 @@ internal object NetworkProbePolicy {
         ruService: CheckOutcome = CheckOutcome.NotRun,
         @Suppress("UNUSED_PARAMETER") seriesCount: Int = 1,
         previousScore: Int = 0,
+        freshStrongConfirmation: Boolean = false,
     ): RestrictionHint {
         val sample = RestrictionScore.sample(cellular, yandex, bigtech, google, ruService)
-        val score = if (cellular) RestrictionScore.apply(previousScore, sample) else 0
-        return if (cellular) RestrictionScore.hint(score, sample) else RestrictionHint.None
+        val score = if (cellular) {
+            RestrictionScore.apply(previousScore, sample, freshStrongConfirmation)
+        } else {
+            0
+        }
+        return if (cellular) {
+            RestrictionScore.hint(
+                score,
+                sample,
+                freshStrongConfirmation = sample == RestrictionSample.Positive ||
+                    (freshStrongConfirmation && sample != RestrictionSample.Open),
+            )
+        } else {
+            RestrictionHint.None
+        }
     }
 
     /**
@@ -275,20 +303,29 @@ internal object NetworkProbePolicy {
     }
 
     /**
-     * Whether relaunching an ordinary target can still change anything.
+     * Whether relaunching an ordinary target can still change the sample.
      *
-     * A relaunch only ever buys a whitelist verdict, and [RestrictionScore.sample]
-     * discards the round unless Yandex answered and vk.com did not fail. Once a
-     * control has settled that way there is nothing left to disambiguate, and
-     * spending the rest of the budget on ordinary targets only delays the
-     * NoNetwork and captive-portal verdicts.
+     * Open is reachable without Yandex (two independent ordinary successes) and
+     * with Yandex plus one ordinary success, even if vk.com later fails. Once
+     * that Open bar is already met, or the measured network is gone, a relaunch
+     * only delays NoNetwork / captive.
      */
     fun ordinaryRetryStillInformative(
         yandex: CheckOutcome?,
         ruService: CheckOutcome?,
+        cloudflare: CheckOutcome? = null,
+        google: CheckOutcome? = null,
     ): Boolean {
-        if (yandex != null && !yandex.isSuccess) return false
-        if (ruService != null && ruService.isFailure) return false
+        if (yandex?.invalidatesRestrictionSeries() == true ||
+            ruService?.invalidatesRestrictionSeries() == true ||
+            cloudflare?.invalidatesRestrictionSeries() == true ||
+            google?.invalidatesRestrictionSeries() == true
+        ) {
+            return false
+        }
+        val ordinaryOk = listOf(cloudflare, google).count { it?.isSuccess == true }
+        if (ordinaryOk >= 2) return false
+        if (yandex?.isSuccess == true && ordinaryOk >= 1) return false
         return true
     }
 

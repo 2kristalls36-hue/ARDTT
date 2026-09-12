@@ -23,6 +23,16 @@ sealed class ConnectionEvent {
         val networkEpoch: Long,
     ) : ConnectionEvent()
 
+    /**
+     * Ordinary-provider success before the round ends. Does not score.
+     * May start Direct for a new Auto connect; never tears a live Bypass.
+     */
+    data class ProbeFastHint(
+        val evidence: ReachabilityEvidence,
+        val sessionEpoch: Long,
+        val networkEpoch: Long,
+    ) : ConnectionEvent()
+
     /** Cellular underlay probe while Wi‑Fi may still be the default route. */
     data class CellularProbeFinished(
         val evidence: ReachabilityEvidence,
@@ -145,6 +155,7 @@ object ConnectionReducer {
             is ConnectionEvent.UserRetryNow -> retryNow(state, elapsedMs, jitterPermille)
             is ConnectionEvent.UnderlayUpdated -> onUnderlay(state, event.snapshot, elapsedMs, jitterPermille)
             is ConnectionEvent.ProbeFinished -> onProbe(state, event, elapsedMs, jitterPermille)
+            is ConnectionEvent.ProbeFastHint -> onProbeFastHint(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.CellularProbeFinished -> onCellularProbe(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.DirectConfirmed -> onDirectOk(state, event)
             is ConnectionEvent.DirectFailed -> onDirectFailed(state, event, elapsedMs, jitterPermille)
@@ -247,7 +258,10 @@ object ConnectionReducer {
             lastConfirmedPath = null,
             lastConfirmedNetworkKey = null,
             pathReadiness = PathReadiness.None,
-            recovery = RecoveryState(phase = RecoveryPhase.Probing),
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Probing,
+                inheritedProbeSessionEpoch = state.sessionEpoch,
+            ),
             evidence = if (state.underlay.kind == UnderlayKind.Cellular) {
                 adoptCellularEvidence(state.cellularEvidence, state.underlay.key)
                     ?: state.evidence
@@ -388,7 +402,12 @@ object ConnectionReducer {
         elapsedMs: Long,
         jitterPermille: Int,
     ): ReduceResult {
-        if (!state.recovery.permit.accepts(event.sessionEpoch, event.networkEpoch)) {
+        if (!state.recovery.permit.acceptsProbe(
+                event.sessionEpoch,
+                event.networkEpoch,
+                state.recovery.inheritedProbeSessionEpoch,
+            )
+        ) {
             return ReduceResult(state, RecoveryCommand.None)
         }
         if (event.evidence.networkKey != null &&
@@ -404,11 +423,12 @@ object ConnectionReducer {
         ) {
             return ReduceResult(state, RecoveryCommand.None)
         }
+        val seriesId = event.evidence.seriesId
+        if (seriesId.isNotEmpty() && seriesId in state.seenProbeSeriesIds) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
         val previous = state.evidence
-        if (event.evidence.seriesId.isNotEmpty() &&
-            previous?.seriesId == event.evidence.seriesId
-        ) {
-            // Duplicate delivery of the same series is not a second observation.
+        if (seriesId.isNotEmpty() && previous?.seriesId == seriesId) {
             return ReduceResult(state, RecoveryCommand.None)
         }
         val cellular = event.evidence.networkKey?.isCellular == true ||
@@ -422,8 +442,70 @@ object ConnectionReducer {
         val next = state.copy(
             evidence = folded,
             cellularEvidence = if (cellular) folded else state.cellularEvidence,
+            seenProbeSeriesIds = rememberProbeSeriesId(state.seenProbeSeriesIds, seriesId),
         )
         return decideNext(next, elapsedMs, jitterPermille)
+    }
+
+    private fun onProbeFastHint(
+        state: ConnectionSnapshot,
+        event: ConnectionEvent.ProbeFastHint,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult {
+        if (!state.recovery.permit.acceptsProbe(
+                event.sessionEpoch,
+                event.networkEpoch,
+                state.recovery.inheritedProbeSessionEpoch,
+            )
+        ) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (!state.intent.wantsConnected || state.recovery.permit.userStop) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (event.evidence.networkKey != null &&
+            state.underlay.key != null &&
+            !event.evidence.networkKey.samePhysicalNetwork(state.underlay.key)
+        ) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (event.evidence.profileId != null &&
+            state.intent.profileId != null &&
+            event.evidence.profileId != state.intent.profileId
+        ) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        val seriesId = event.evidence.seriesId
+        if (seriesId.isNotEmpty() && seriesId in state.startedProbeSeriesIds) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (state.intent.mode != ConnPathMode.Auto) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        val alreadyBypass = state.activePath == VpnPath.Bypass &&
+            (state.transport == TransportLifecycle.Running ||
+                state.transport == TransportLifecycle.Starting)
+        val remembered = state.copy(
+            startedProbeSeriesIds = rememberProbeSeriesId(state.startedProbeSeriesIds, seriesId),
+        )
+        if (alreadyBypass) {
+            return ReduceResult(remembered, RecoveryCommand.None)
+        }
+        val inFlight = state.transport == TransportLifecycle.Starting ||
+            state.recovery.inFlight
+        if (inFlight) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        val freshStrong = state.evidence?.hasFreshStrong(
+            elapsedMs,
+            state.underlay.key,
+            state.intent.profileId,
+        ) == true
+        if (freshStrong) {
+            return ReduceResult(remembered, RecoveryCommand.None)
+        }
+        return decideNext(remembered, elapsedMs, jitterPermille)
     }
 
     private fun onCellularProbe(
@@ -1308,7 +1390,12 @@ object ConnectionReducer {
             liveCellular -> adopted
             else -> null
         }
-        return state.copy(evidence = evidence, cellularEvidence = stash)
+        return state.copy(
+            evidence = evidence,
+            cellularEvidence = stash,
+            seenProbeSeriesIds = if (networkChanged) emptyList() else state.seenProbeSeriesIds,
+            startedProbeSeriesIds = if (networkChanged) emptyList() else state.startedProbeSeriesIds,
+        )
     }
 
     private fun withUi(state: ConnectionSnapshot, nowElapsedMs: Long): ConnectionSnapshot {
@@ -1319,6 +1406,22 @@ object ConnectionReducer {
             state.underlay.key,
             state.intent.profileId,
         ) ?: RestrictionHint.Unknown
+        val display = RestrictionScore.display(
+            scorePercent = state.evidence?.historicalWhitelistScore(
+                state.underlay.key,
+                state.intent.profileId,
+            ) ?: 0,
+            freshStrong = state.evidence?.hasFreshStrong(
+                nowElapsedMs,
+                state.underlay.key,
+                state.intent.profileId,
+            ) == true,
+            usable = state.evidence?.usableAt(
+                nowElapsedMs,
+                state.underlay.key,
+                state.intent.profileId,
+            ) == true,
+        )
         return state.copy(
             ui = connectionUiModel(
                 phase = state.recovery.phase,
@@ -1328,6 +1431,7 @@ object ConnectionReducer {
                 retryInMs = remaining,
                 underlayKind = state.underlay.kind,
                 pathReadiness = state.pathReadiness,
+                restrictionDisplay = display,
             ),
         )
     }

@@ -96,6 +96,11 @@ class CellularPreProbeTest {
         restriction = RestrictionHint.Confirmed,
         whitelistScorePercent = 80,
         seriesId = "pre",
+        measuredAtElapsedMs = 1L,
+        usableAtElapsedMs = 1L,
+        strongAtElapsedMs = 1L,
+        ttlUntilElapsedMs = 90_000L,
+        strongUntilElapsedMs = 90_000L,
     )
 
     @Test
@@ -114,6 +119,9 @@ class CellularPreProbeTest {
         assertNotNull(adopted)
         assertEquals(cellBSameSim, adopted?.networkKey)
         assertEquals(80, adopted?.whitelistScorePercent)
+        assertEquals(1L, adopted?.measuredAtElapsedMs)
+        assertEquals(1L, adopted?.strongAtElapsedMs)
+        assertEquals(90_000L, adopted?.ttlUntilElapsedMs)
     }
 
     @Test
@@ -135,6 +143,7 @@ class CellularPreProbeTest {
             cellularEvidence = positive(cellA),
             key = cellBSameSim,
             profileId = "p",
+            nowElapsedMs = 10L,
         )
         assertEquals(80, chosen?.whitelistScorePercent)
         assertEquals(cellBSameSim, chosen?.networkKey)
@@ -154,5 +163,29 @@ class CellularPreProbeTest {
         assertFalse(wifi.directConfirmedOn(cellA))
         assertTrue(cellA.directConfirmedOn(cellBSameSim))
         assertTrue((null as NetworkKey?).directConfirmedOn(cellA))
+    }
+
+    @Test
+    fun expiredPreProbeIsNotAPathReason() {
+        val expired = positive(cellA).copy(
+            ttlUntilElapsedMs = 20L,
+            strongUntilElapsedMs = 20L,
+        )
+        assertNull(
+            whitelistEvidenceForUnderlay(
+                evidence = null,
+                cellularEvidence = expired,
+                key = cellBSameSim,
+                profileId = "p",
+                nowElapsedMs = 20L,
+            ),
+        )
+        assertFalse(expired.hasFreshStrong(20L, cellBSameSim, "p"))
+        assertFalse(
+            RestrictionScore.mayEnterBypassForWhitelist(
+                expired.historicalWhitelistScore(cellBSameSim, "p"),
+                expired.hasFreshStrong(20L, cellBSameSim, "p"),
+            ),
+        )
     }
 }

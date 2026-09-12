@@ -101,8 +101,13 @@ private fun userModeSoftInfo(softInfo: String?): String? {
             "Сеть требует входа через браузер. Выполните авторизацию Wi‑Fi."
         raw.contains("документационн", ignoreCase = true) ||
             raw.contains("VPS", ignoreCase = true) ||
-            raw.contains("белый список", ignoreCase = true) ->
+            raw.contains("белый список", ignoreCase = true) ||
+            raw.contains("подтверждены проверками", ignoreCase = true) ->
             "Прямое подключение недоступно. Подключаем обход."
+        raw.contains("устарели", ignoreCase = true) ->
+            "Данные о сети устарели. Проверяем снова."
+        raw.contains("Возможны ограничения", ignoreCase = true) ->
+            "Возможны ограничения мобильной сети."
         raw.contains("Исходящий адрес скрыт", ignoreCase = true) ->
             "Используется режим «Инкогнито»."
         raw.contains("доверенн", ignoreCase = true) ||
