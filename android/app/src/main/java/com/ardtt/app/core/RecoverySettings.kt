@@ -24,6 +24,13 @@ object RecoverySettings {
     const val WHITELIST_ENTER_PERCENT = 80
     /** Stay on Bypass until the score falls below this (hysteresis). */
     const val WHITELIST_EXIT_PERCENT = 55
+    /**
+     * Weak-only accumulation never reaches enter. Four +25 rounds stay at 50
+     * unless a fresh strong confirmation is still inside TTL.
+     */
+    const val WHITELIST_WEAK_ONLY_CAP_PERCENT = 50
+    /** Consecutive Ignore/unknown rounds before a live Bypass may re-try Direct. */
+    const val WHITELIST_UNKNOWN_DIRECT_TRY_STREAK = 4
     const val PROBE_CACHE_TTL_MS = 30_000L
     const val STABILIZE_AFTER_GAP_MS = 1_500L
     const val FIRST_WIFI_DIRECT_DELAY_MS = 0L
@@ -133,31 +140,53 @@ object RecoverySettings {
         directRxLooksLikeData(totalRx)
 
     /**
+     * Consecutive unknown/Ignore rounds: 2s, 5s, 10s, 30s, then 60s forever.
+     * Starting values for tuning, not a measured optimum.
+     */
+    val diagnosticUnknownBackoffMs: LongArray = longArrayOf(
+        2_000L, 5_000L, 10_000L, 30_000L, 60_000L,
+    )
+
+    fun unknownDiagnosticDelayMs(unknownStreak: Int): Long {
+        val idx = (unknownStreak - 1).coerceAtLeast(0)
+            .coerceAtMost(diagnosticUnknownBackoffMs.lastIndex)
+        return diagnosticUnknownBackoffMs[idx]
+    }
+
+    /** `now >= validUntil` is expired. A missing timestamp is never infinitely fresh. */
+    fun evidenceExpired(nowElapsedMs: Long, validUntilElapsedMs: Long): Boolean {
+        if (validUntilElapsedMs <= 0L) return true
+        return nowElapsedMs >= validUntilElapsedMs
+    }
+
+    /**
      * Next diagnostic delay for cellular. Restriction confidence ([seriesCount]) is
-     * separate from completed work ([completedSeries]).
+     * separate from completed work ([completedSeries]) and from the consecutive
+     * unknown streak used for the 2/5/10/30/60 schedule.
      */
     fun nextDiagnosticDelayMs(
         completedSeries: Int,
         restriction: RestrictionHint,
-        seriesCount: Int,
+        @Suppress("UNUSED_PARAMETER") seriesCount: Int,
+        unknownStreak: Int = 0,
+        strongFresh: Boolean = restriction == RestrictionHint.Confirmed ||
+            restriction == RestrictionHint.Suspected,
     ): Long? {
-        return when (restriction) {
-            RestrictionHint.Suspected, RestrictionHint.Confirmed ->
+        val treatAsUnknown = restriction == RestrictionHint.Unknown ||
+            ((restriction == RestrictionHint.Confirmed ||
+                restriction == RestrictionHint.Suspected) && !strongFresh)
+        return when {
+            treatAsUnknown -> unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
+            restriction == RestrictionHint.Suspected ||
+                restriction == RestrictionHint.Confirmed ->
                 DIAGNOSTIC_RESTRICTION_REFRESH_MS
-            RestrictionHint.None ->
+            restriction == RestrictionHint.None ->
                 if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
                     DIAGNOSTIC_SERIES_GAP_MS
                 } else {
                     DIAGNOSTIC_OPEN_INTERVAL_MS
                 }
-            RestrictionHint.Unknown ->
-                if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
-                    DIAGNOSTIC_SERIES_GAP_MS
-                } else if (seriesCount > 0 && seriesCount < RESTRICTION_CONFIRM_SERIES) {
-                    DIAGNOSTIC_SERIES_GAP_MS
-                } else {
-                    DIAGNOSTIC_OPEN_INTERVAL_MS
-                }
+            else -> unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
         }
     }
 }

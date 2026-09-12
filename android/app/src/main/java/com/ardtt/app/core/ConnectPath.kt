@@ -66,6 +66,7 @@ fun resolveConnectPath(
     directFailedOnCurrentUnderlay: Boolean = false,
     underlayUsable: Boolean = false,
     whitelistScorePercent: Int = 0,
+    freshStrongConfirmation: Boolean = false,
 ): VpnPath? {
     when (mode) {
         ConnPathMode.Direct -> return VpnPath.Direct
@@ -81,7 +82,19 @@ fun resolveConnectPath(
     if (fresh.networkClass == NetworkClass.DataUnconfirmed) return VpnPath.Direct
     if (directFailedOnCurrentUnderlay && bypassAllowed) return VpnPath.Bypass
     val score = maxOf(whitelistScorePercent, fresh.whitelistScorePercent)
-    if (bypassAllowed && RestrictionScore.likely(score, alreadyBypass = false)) {
+    val freshRoundStrong = RestrictionScore.sample(
+        cellular = underlayKind == UnderlayKind.Cellular,
+        yandex = fresh.yandexOutcome,
+        bigtech = fresh.bigtechOutcome,
+        google = fresh.googleOutcome,
+        ruService = fresh.ruServiceOutcome,
+    ) == RestrictionSample.Positive
+    if (bypassAllowed &&
+        RestrictionScore.mayEnterBypassForWhitelist(
+            score,
+            freshStrongConfirmation || freshRoundStrong,
+        )
+    ) {
         return VpnPath.Bypass
     }
     return VpnPath.Direct

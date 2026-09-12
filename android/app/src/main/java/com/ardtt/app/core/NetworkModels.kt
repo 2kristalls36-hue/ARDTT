@@ -22,7 +22,7 @@ data class ProbeResult(
     val yandexOk: Boolean,
     /** 1.1.1.1 — Cloudflare TLS or UDP :53. TCP :443 alone is not open internet. */
     val bigtechOk: Boolean,
-    /** 8.8.8.8 — Google public DNS, independent of Cloudflare. */
+    /** 8.8.8.8 — Google public DNS; TLS (`dns.google`) or UDP, one provider. */
     val googleOk: Boolean = false,
     /** Russian control service (vk.com TCP :443) — see [NetworkProbe.RU_CONTROL_HOSTS]. */
     val ruServiceOk: Boolean = false,

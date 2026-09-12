@@ -76,21 +76,33 @@ data class RecoveryPermit(
     val callOpInFlight: Boolean = false,
     val userStop: Boolean = true,
 ) {
-    fun accepts(
-        sessionEpoch: Long,
-        networkEpoch: Long? = null,
-        transportEpoch: Long? = null,
-        callEpoch: Long? = null,
-    ): Boolean {
-        if (userStop) return false
-        if (sessionEpoch != this.sessionEpoch) return false
-        if (networkEpoch != null && networkEpoch != this.networkEpoch) return false
-        if (transportEpoch != null && transportEpoch != this.transportEpoch) return false
-        if (callEpoch != null && callEpoch != 0L && this.callEpoch != 0L && callEpoch != this.callEpoch) {
-            return false
+        fun accepts(
+            sessionEpoch: Long,
+            networkEpoch: Long? = null,
+            transportEpoch: Long? = null,
+            callEpoch: Long? = null,
+        ): Boolean {
+            if (userStop) return false
+            if (sessionEpoch != this.sessionEpoch) return false
+            if (networkEpoch != null && networkEpoch != this.networkEpoch) return false
+            if (transportEpoch != null && transportEpoch != this.transportEpoch) return false
+            if (callEpoch != null && callEpoch != 0L && this.callEpoch != 0L && callEpoch != this.callEpoch) {
+                return false
+            }
+            return true
         }
-        return true
-    }
+
+        fun acceptsProbe(
+            sessionEpoch: Long,
+            networkEpoch: Long?,
+            inheritedProbeSessionEpoch: Long,
+        ): Boolean {
+            if (userStop) return false
+            if (networkEpoch != null && networkEpoch != this.networkEpoch) return false
+            if (sessionEpoch == this.sessionEpoch) return true
+            // Idle starts at epoch 0; UserConnect must still own that in-flight probe.
+            return sessionEpoch == inheritedProbeSessionEpoch
+        }
 
     val allowsWatchdogRestart: Boolean
         get() = !userStop && netOpsAllowed && !recoveryInFlight
@@ -130,6 +142,12 @@ data class RecoveryState(
     val inFlight: Boolean = false,
     val callOpInFlight: Boolean = false,
     val permit: RecoveryPermit = RecoveryPermit(),
+    /**
+     * In-flight initial probe was started on the previous session epoch.
+     * UserConnect bumps [sessionEpoch]; ProbeFinished for that probe must
+     * still be accepted.
+     */
+    val inheritedProbeSessionEpoch: Long = 0L,
 ) {
     /** Deadline of a failure backoff; a pending re-check does not gate retries. */
     val backoffDueAtElapsedMs: Long?
@@ -140,6 +158,14 @@ data class ReachabilityEvidence(
     val networkKey: NetworkKey? = null,
     val profileId: String? = null,
     val measuredAtElapsedMs: Long = 0L,
+    /** Last completed round, including Ignore / cancelled. */
+    val observedAtElapsedMs: Long = 0L,
+    /** Last Positive / WeakPositive / Open that may change the score. */
+    val usableAtElapsedMs: Long = 0L,
+    /** Last Positive (strong whitelist confirmation). Weak rounds must not refresh this. */
+    val strongAtElapsedMs: Long = 0L,
+    /** Last Open sample with ordinary-provider success. */
+    val ordinaryOpenAtElapsedMs: Long = 0L,
     val yandex: CheckOutcome = CheckOutcome.NotRun,
     val bigtech: CheckOutcome = CheckOutcome.NotRun,
     val google: CheckOutcome = CheckOutcome.NotRun,
@@ -151,25 +177,75 @@ data class ReachabilityEvidence(
     val whitelistScorePercent: Int = 0,
     val captive: Boolean = false,
     val ttlUntilElapsedMs: Long = 0L,
+    /** Strong confirmation expiry; independent of a later weak/Ignore round. */
+    val strongUntilElapsedMs: Long = 0L,
     val seriesCount: Int = 1,
     /** Completed diagnostic rounds for this network/profile (schedule, not БС confidence). */
     val completedSeries: Int = 0,
+    /** Consecutive Ignore / incomplete rounds in this restriction scope. */
+    val unknownStreak: Int = 0,
     val bindHandle: Long? = null,
     val routeReason: String = "unverified",
     val restrictionReason: String? = null,
     val seriesId: String = "",
 ) {
-    fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
-        if (ttlUntilElapsedMs > 0L && elapsedMs > ttlUntilElapsedMs) return false
+    fun originMatches(key: NetworkKey?, profileId: String?): Boolean {
         if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return false
         if (networkKey != null && key != null && !networkKey.sameCarrier(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false
         return true
     }
 
+    fun usableUntilElapsedMs(): Long =
+        if (ttlUntilElapsedMs > 0L) ttlUntilElapsedMs
+        else if (usableAtElapsedMs > 0L) {
+            usableAtElapsedMs + RecoverySettings.PROBE_RESTRICTION_TTL_MS
+        } else {
+            0L
+        }
+
+    fun strongUntil(): Long =
+        if (strongUntilElapsedMs > 0L) strongUntilElapsedMs
+        else if (strongAtElapsedMs > 0L) {
+            strongAtElapsedMs + RecoverySettings.PROBE_RESTRICTION_TTL_MS
+        } else {
+            0L
+        }
+
+    fun usableAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
+        if (!originMatches(key, profileId)) return false
+        return !RecoverySettings.evidenceExpired(elapsedMs, usableUntilElapsedMs())
+    }
+
+    fun hasFreshStrong(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
+        if (!originMatches(key, profileId)) return false
+        if (!originAllowsStrongConfirmation(key)) return false
+        return !RecoverySettings.evidenceExpired(elapsedMs, strongUntil())
+    }
+
+    /**
+     * Unknown-origin measurements must not confirm a whitelist on a network
+     * whose operator we now know. A failed live read on the same radio still
+     * keeps a known measurement.
+     */
+    fun originAllowsStrongConfirmation(key: NetworkKey?): Boolean {
+        if (key == null || networkKey == null) return true
+        if (networkKey.samePhysicalNetwork(key) || networkKey.sameCellularSim(key)) {
+            return true
+        }
+        val measured = networkKey.carrier?.takeIf { it.isNotBlank() } ?: return false
+        val live = key.carrier?.takeIf { it.isNotBlank() } ?: return false
+        return measured == live
+    }
+
     fun restrictionAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): RestrictionHint {
-        if (!usableAt(elapsedMs, key, profileId)) return RestrictionHint.Unknown
-        return restriction
+        if (hasFreshStrong(elapsedMs, key, profileId) &&
+            whitelistScorePercent >= RecoverySettings.WHITELIST_ENTER_PERCENT
+        ) {
+            return RestrictionHint.Confirmed
+        }
+        if (usableAt(elapsedMs, key, profileId)) return restriction
+        return RestrictionHint.Unknown
     }
 }
 
@@ -201,6 +277,10 @@ data class ConnectionSnapshot(
     val lastConfirmedNetworkKey: NetworkKey? = null,
     val pathReadiness: PathReadiness = PathReadiness.None,
     val ui: ConnectionUiModel = ConnectionUiModel(),
+    /** Bounded memory of probe seriesIds in this restriction scope (newest last). */
+    val seenProbeSeriesIds: List<String> = emptyList(),
+    /** seriesIds that already started a transport so a duplicate/final cannot start again. */
+    val startedProbeSeriesIds: List<String> = emptyList(),
 ) {
     val directFailedOnNetwork: NetworkKey? get() = directNegative?.key
 }

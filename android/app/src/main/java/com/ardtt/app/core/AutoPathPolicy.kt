@@ -192,22 +192,39 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         underlay.key,
         input.profileId,
     ) == true
+    val freshStrong = input.evidence?.hasFreshStrong(
+        input.elapsedMs,
+        underlay.key,
+        input.profileId,
+    ) == true
+    val usable = input.evidence?.usableAt(
+        input.elapsedMs,
+        underlay.key,
+        input.profileId,
+    ) == true
     val restriction = input.evidence?.restrictionAt(
         input.elapsedMs,
         underlay.key,
         input.profileId,
     ) ?: RestrictionHint.Unknown
-    val whitelistScore = input.evidence?.whitelistScoreAt(
+    val historicalScore = input.evidence?.historicalWhitelistScore(
         underlay.key,
         input.profileId,
     ) ?: 0
     val alreadyBypass = input.currentPath == VpnPath.Bypass &&
         (input.transport == TransportLifecycle.Running ||
             input.transport == TransportLifecycle.Starting)
-    val whitelistLikely = RestrictionScore.likely(whitelistScore, alreadyBypass)
+    val unknownStreak = input.evidence?.unknownStreak ?: 0
+    val whitelistLikely = RestrictionScore.bypassHoldsDirectReeval(
+        historicalScore = historicalScore,
+        freshStrong = freshStrong,
+        usable = usable,
+        unknownStreak = unknownStreak,
+        alreadyBypass = alreadyBypass,
+    )
     val internetOk = input.evidence?.let { ev ->
         ev.usableAt(input.elapsedMs, underlay.key, input.profileId) &&
-            (ev.yandex.isSuccess || ev.bigtech.isSuccess)
+            (ev.yandex.isSuccess || ev.bigtech.isSuccess || ev.google.isSuccess)
     } == true
     val vpsRoutingBroken = internetOk &&
         input.evidence?.provision?.isFailure == true &&

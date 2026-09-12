@@ -87,10 +87,10 @@ class ConnectionReducerTest {
                 yandex = CheckOutcome.Success,
                 bigtech = CheckOutcome.Timeout,
                 google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
                 restriction = RestrictionHint.Confirmed,
                 whitelistScorePercent = 80,
-                ttlUntilElapsedMs = 1L,
-            ),
+            ).withFreshStrongTtl(atElapsedMs = 1L),
         )
         val r = ConnectionReducer.reduce(
             idleWithScore,
@@ -1401,10 +1401,10 @@ class ConnectionReducerTest {
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Timeout,
                     google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
                     restriction = RestrictionHint.Confirmed,
                     whitelistScorePercent = 80,
-                    ttlUntilElapsedMs = 90_000L,
-                ),
+                ).withFreshStrongTtl(atElapsedMs = 0L, ttlMs = 90_000L),
             ),
             ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
             0L,
@@ -2080,9 +2080,10 @@ class ConnectionReducerTest {
                 yandex = CheckOutcome.Success,
                 bigtech = CheckOutcome.Timeout,
                 google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
                 restriction = RestrictionHint.Confirmed,
                 whitelistScorePercent = 80,
-            ),
+            ).withFreshStrongTtl(atElapsedMs = 1L),
             recovery = RecoveryState(
                 phase = RecoveryPhase.Connected,
                 inFlight = false,
@@ -2146,9 +2147,10 @@ class ConnectionReducerTest {
                 yandex = CheckOutcome.Success,
                 bigtech = CheckOutcome.Timeout,
                 google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
                 restriction = RestrictionHint.Confirmed,
                 whitelistScorePercent = 80,
-            ),
+            ).withFreshStrongTtl(atElapsedMs = 1L),
         )
         val r = ConnectionReducer.reduce(
             idleCell,
@@ -2183,5 +2185,376 @@ class ConnectionReducerTest {
         // this command registers the watcher that resumes after sign-in.
         assertTrue(r.state.underlay.allowsNetworkOps)
         assertEquals(RecoveryCommand.PauseNetOps, r.command)
+    }
+
+    @Test
+    fun probeFinishedAfterConnectKeepsTheInFlightProbeEpoch() {
+        val idleOnCell = idle().copy(underlay = usableCellular(), sessionEpoch = 3L, networkEpoch = 1L)
+        val probing = ConnectionReducer.reduce(
+            idleOnCell,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            5L,
+        )
+        assertEquals(3L, probing.state.recovery.inheritedProbeSessionEpoch)
+        val evidence = ReachabilityEvidence(
+            networkKey = cellKey,
+            profileId = "p",
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Success,
+            google = CheckOutcome.Success,
+            seriesId = "owned",
+        )
+        val applied = ConnectionReducer.reduce(
+            probing.state,
+            ConnectionEvent.ProbeFinished(
+                evidence = evidence,
+                sessionEpoch = 3L,
+                networkEpoch = 1L,
+            ),
+            20L,
+        )
+        assertEquals("owned", applied.state.evidence?.seriesId)
+        assertEquals(0, applied.state.evidence?.whitelistScorePercent)
+    }
+
+    @Test
+    fun fastHintThenFinalScoresOnceAndDoesNotDoubleStart() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            5L,
+        )
+        val hint = ReachabilityEvidence(
+            networkKey = cellKey,
+            profileId = "p",
+            bigtech = CheckOutcome.Success,
+            seriesId = "fast-1",
+        )
+        val waiting = started.state.copy(
+            activePath = null,
+            transport = TransportLifecycle.Stopped,
+            recovery = started.state.recovery.copy(
+                phase = RecoveryPhase.Probing,
+                inFlight = false,
+            ),
+        )
+        val afterHint = ConnectionReducer.reduce(
+            waiting,
+            ConnectionEvent.ProbeFastHint(
+                evidence = hint,
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            8L,
+        )
+        assertTrue(afterHint.command is RecoveryCommand.StartDirect || afterHint.command is RecoveryCommand.ParkBypassForDirect)
+        val starting = afterHint.state.copy(
+            activePath = VpnPath.Direct,
+            transport = TransportLifecycle.Starting,
+            recovery = afterHint.state.recovery.copy(inFlight = true),
+        )
+        val finalEvidence = ReachabilityEvidence(
+            networkKey = cellKey,
+            profileId = "p",
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Success,
+            google = CheckOutcome.Success,
+            seriesId = "fast-1",
+        )
+        val afterFinal = ConnectionReducer.reduce(
+            starting,
+            ConnectionEvent.ProbeFinished(
+                evidence = finalEvidence,
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            20L,
+        )
+        assertEquals(0, afterFinal.state.evidence?.whitelistScorePercent)
+        assertTrue(
+            afterFinal.command is RecoveryCommand.None ||
+                afterFinal.command is RecoveryCommand.StartDirect,
+        )
+        val dup = ConnectionReducer.reduce(
+            afterFinal.state,
+            ConnectionEvent.ProbeFinished(
+                evidence = finalEvidence.copy(google = CheckOutcome.Timeout),
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            30L,
+        )
+        assertEquals(afterFinal.state.evidence?.whitelistScorePercent, dup.state.evidence?.whitelistScorePercent)
+        assertEquals(RecoveryCommand.None, dup.command)
+    }
+
+    @Test
+    fun stopDropsALateFinal() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            5L,
+        )
+        val stopped = ConnectionReducer.reduce(started.state, ConnectionEvent.UserDisconnect, 6L)
+        val late = ConnectionReducer.reduce(
+            stopped.state,
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                    seriesId = "late",
+                ),
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            40L,
+        )
+        assertEquals(RecoveryCommand.None, late.command)
+        assertFalse(late.state.intent.wantsConnected)
+    }
+
+    @Test
+    fun staleHighScoreDoesNotStartBypassOnConnect() {
+        val stale = idle().copy(
+            underlay = usableCellular(),
+            evidence = ReachabilityEvidence(
+                networkKey = cellKey,
+                profileId = "p",
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
+                restriction = RestrictionHint.Confirmed,
+                whitelistScorePercent = 80,
+                measuredAtElapsedMs = 1L,
+                usableAtElapsedMs = 1L,
+                strongAtElapsedMs = 1L,
+                ttlUntilElapsedMs = 1L,
+                strongUntilElapsedMs = 1L,
+            ),
+        )
+        val r = ConnectionReducer.reduce(
+            stale,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            10L,
+        )
+        assertTrue(r.command is RecoveryCommand.StartDirect)
+    }
+
+    @Test
+    fun probeFinishedAtEpochZeroIsInheritedAfterConnect() {
+        val idleOnCell = idle().copy(underlay = usableCellular(), sessionEpoch = 0L, networkEpoch = 1L)
+        val probing = ConnectionReducer.reduce(
+            idleOnCell,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            5L,
+        )
+        assertEquals(0L, probing.state.recovery.inheritedProbeSessionEpoch)
+        val applied = ConnectionReducer.reduce(
+            probing.state,
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Success,
+                    google = CheckOutcome.Success,
+                    seriesId = "epoch0",
+                ),
+                sessionEpoch = 0L,
+                networkEpoch = 1L,
+            ),
+            20L,
+        )
+        assertEquals("epoch0", applied.state.evidence?.seriesId)
+    }
+
+    @Test
+    fun olderProbeDoesNotOverrideNewerScore() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            5L,
+        )
+        val newer = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                    seriesId = "new",
+                    measuredAtElapsedMs = 30L,
+                ),
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            30L,
+        )
+        val held = newer.state.copy(
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            recovery = newer.state.recovery.copy(inFlight = false),
+        )
+        assertEquals(80, newer.state.evidence?.whitelistScorePercent)
+        val older = ConnectionReducer.reduce(
+            held,
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Timeout,
+                    bigtech = CheckOutcome.Success,
+                    google = CheckOutcome.Success,
+                    seriesId = "old",
+                    measuredAtElapsedMs = 10L,
+                ),
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            40L,
+        )
+        assertEquals(80, older.state.evidence?.whitelistScorePercent)
+        assertEquals("new", newer.state.evidence?.seriesId)
+    }
+
+    @Test
+    fun twoOpenRoundsScheduleDirectReevalFromBypass() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        )
+        val strong = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                    seriesId = "s1",
+                ),
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            10L,
+        )
+        val bypassing = strong.state.copy(
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            lastConfirmedPath = VpnPath.Bypass,
+            recovery = strong.state.recovery.copy(inFlight = false),
+        )
+        val firstOpen = ConnectionReducer.reduce(
+            bypassing,
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Success,
+                    google = CheckOutcome.Success,
+                    seriesId = "o1",
+                ),
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            20L,
+        )
+        assertEquals(62, firstOpen.state.evidence?.whitelistScorePercent)
+        assertEquals(VpnPath.Bypass, firstOpen.state.activePath)
+        val secondOpen = ConnectionReducer.reduce(
+            firstOpen.state.copy(
+                activePath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                parkedRawAlive = true,
+                recovery = firstOpen.state.recovery.copy(inFlight = false),
+            ),
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Success,
+                    google = CheckOutcome.Success,
+                    seriesId = "o2",
+                ),
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = started.state.networkEpoch,
+            ),
+            30L,
+        )
+        assertEquals(44, secondOpen.state.evidence?.whitelistScorePercent)
+        val reeval = ConnectionReducer.reduce(
+            secondOpen.state.copy(
+                activePath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                parkedRawAlive = true,
+                recovery = secondOpen.state.recovery.copy(
+                    inFlight = false,
+                    nextRetryAtElapsedMs = 40L,
+                    pendingTimer = PendingTimer.Reeval,
+                ),
+            ),
+            ConnectionEvent.Clock(elapsedMs = 41L),
+            elapsedMs = 41L,
+        )
+        assertTrue(
+            reeval.command == RecoveryCommand.ParkBypassForDirect ||
+                reeval.command is RecoveryCommand.StartDirect,
+        )
+    }
+
+    @Test
+    fun failedDirectReevalResumesParkedRaw() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        )
+        val rechecking = started.state.copy(
+            activePath = VpnPath.Direct,
+            transport = TransportLifecycle.Starting,
+            parkedRawAlive = true,
+            lastConfirmedPath = VpnPath.Bypass,
+            directRecheckFromBypass = true,
+            recovery = started.state.recovery.copy(
+                phase = RecoveryPhase.ConnectingDirect,
+                inFlight = true,
+                permit = started.state.recovery.permit.copy(
+                    userStop = false,
+                    netOpsAllowed = true,
+                    sessionEpoch = started.state.sessionEpoch,
+                    transportEpoch = started.state.transportEpoch,
+                ),
+            ),
+        )
+        val failed = ConnectionReducer.reduce(
+            rechecking,
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = rechecking.sessionEpoch,
+                transportEpoch = rechecking.transportEpoch,
+                networkKey = cellKey,
+                reason = "awg-timeout",
+            ),
+            50L,
+        )
+        assertTrue(
+            failed.command == RecoveryCommand.ResumeParkedRaw ||
+                failed.command is RecoveryCommand.StartBypass,
+        )
+        assertEquals(VpnPath.Bypass, failed.state.activePath)
+        assertTrue(failed.state.directNegative != null)
     }
 }

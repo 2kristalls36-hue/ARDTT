@@ -268,7 +268,7 @@ class ConnectionUiPhaseTest {
             underlayKind = UnderlayKind.Cellular,
         )
         assertEquals(
-            "Похоже на белый список оператора. Подключаемся через обход",
+            "Признаки белого списка подтверждены проверками. Подключаемся через обход",
             whitelistBypass.message,
         )
     }

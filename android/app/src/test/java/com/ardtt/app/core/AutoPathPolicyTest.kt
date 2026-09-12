@@ -163,6 +163,9 @@ class AutoPathPolicyTest {
                     provision = CheckOutcome.NotRun,
                     restriction = RestrictionHint.Suspected,
                     whitelistScorePercent = 25,
+                    measuredAtElapsedMs = 1L,
+                    usableAtElapsedMs = 1L,
+                    ttlUntilElapsedMs = 40_000L,
                 ),
                 currentPath = null,
                 transport = TransportLifecycle.Stopped,
@@ -184,10 +187,10 @@ class AutoPathPolicyTest {
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Timeout,
                     google = CheckOutcome.Timeout,
-                    provision = CheckOutcome.NotRun,
+                    ruService = CheckOutcome.Success,
                     restriction = RestrictionHint.Confirmed,
                     whitelistScorePercent = 80,
-                ),
+                ).withFreshStrongTtl(),
                 currentPath = null,
                 transport = TransportLifecycle.Stopped,
                 hasCallHash = true,
@@ -232,6 +235,9 @@ class AutoPathPolicyTest {
                     bigtech = CheckOutcome.Success,
                     provision = CheckOutcome.Timeout,
                     restriction = RestrictionHint.None,
+                    measuredAtElapsedMs = 1L,
+                    usableAtElapsedMs = 1L,
+                    ttlUntilElapsedMs = 40_000L,
                 ),
                 currentPath = VpnPath.Direct,
                 transport = TransportLifecycle.Failed,
@@ -478,9 +484,10 @@ class AutoPathPolicyTest {
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Timeout,
                     google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
                     restriction = RestrictionHint.Confirmed,
                     whitelistScorePercent = 80,
-                ),
+                ).withFreshStrongTtl(),
                 currentPath = VpnPath.Direct,
                 transport = TransportLifecycle.Running,
                 hasCallHash = true,
@@ -638,5 +645,200 @@ class AutoPathPolicyTest {
                 elapsedMs = 10_000L,
             ),
         )
+    }
+
+    @Test
+    fun staleWhitelistScoreDoesNotStartBypassOnANewConnect() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val stale = ReachabilityEvidence(
+            networkKey = key,
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Timeout,
+            google = CheckOutcome.Timeout,
+            ruService = CheckOutcome.Success,
+            restriction = RestrictionHint.Confirmed,
+            whitelistScorePercent = 80,
+            measuredAtElapsedMs = 10L,
+            usableAtElapsedMs = 10L,
+            strongAtElapsedMs = 10L,
+            ttlUntilElapsedMs = 10L + RecoverySettings.PROBE_RESTRICTION_TTL_MS,
+            strongUntilElapsedMs = 10L + RecoverySettings.PROBE_RESTRICTION_TTL_MS,
+        )
+        val expiredAt = 10L + RecoverySettings.PROBE_RESTRICTION_TTL_MS
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = stale,
+                currentPath = null,
+                transport = TransportLifecycle.Stopped,
+                hasCallHash = true,
+                elapsedMs = expiredAt,
+                profileId = null,
+            ),
+        )
+        assertTrue(d is AutoDecision.StartDirect)
+    }
+
+    @Test
+    fun liveBypassDoesNotSwitchOnTtlExpiryAlone() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val expiredAt = 10L + RecoverySettings.PROBE_RESTRICTION_TTL_MS
+        val stale = ReachabilityEvidence(
+            networkKey = key,
+            whitelistScorePercent = 80,
+            restriction = RestrictionHint.Confirmed,
+            measuredAtElapsedMs = 10L,
+            usableAtElapsedMs = 10L,
+            strongAtElapsedMs = 10L,
+            ttlUntilElapsedMs = expiredAt,
+            strongUntilElapsedMs = expiredAt,
+            unknownStreak = 1,
+        )
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = stale,
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                elapsedMs = expiredAt,
+                reevalDue = true,
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), d)
+    }
+
+    @Test
+    fun fourUnknownRoundsAllowAControlledDirectReeval() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val expiredAt = 10L + RecoverySettings.PROBE_RESTRICTION_TTL_MS
+        val stale = ReachabilityEvidence(
+            networkKey = key,
+            whitelistScorePercent = 80,
+            restriction = RestrictionHint.Confirmed,
+            measuredAtElapsedMs = 10L,
+            usableAtElapsedMs = 10L,
+            strongAtElapsedMs = 10L,
+            ttlUntilElapsedMs = expiredAt,
+            strongUntilElapsedMs = expiredAt,
+            unknownStreak = RecoverySettings.WHITELIST_UNKNOWN_DIRECT_TRY_STREAK,
+        )
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = stale,
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                elapsedMs = expiredAt,
+                reevalDue = true,
+            ),
+        )
+        assertTrue(d is AutoDecision.StartDirect)
+        assertEquals("reeval-direct", (d as AutoDecision.StartDirect).reason)
+    }
+
+    @Test
+    fun twoOpenRoundsAllowDirectReevalOnLiveBypass() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val afterTwoOpen = ReachabilityEvidence(
+            networkKey = key,
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Success,
+            google = CheckOutcome.Success,
+            restriction = RestrictionHint.None,
+            whitelistScorePercent = 44,
+        ).withFreshStrongTtl(atElapsedMs = 10L).copy(
+            strongAtElapsedMs = 0L,
+            strongUntilElapsedMs = 0L,
+            usableAtElapsedMs = 10L,
+            ttlUntilElapsedMs = 10L + RecoverySettings.PROBE_RESTRICTION_TTL_MS,
+        )
+        val stay = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = afterTwoOpen,
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                elapsedMs = 20L,
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), stay)
+        val reeval = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = afterTwoOpen,
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                elapsedMs = 20L,
+                reevalDue = true,
+            ),
+        )
+        assertEquals("reeval-direct", (reeval as AutoDecision.StartDirect).reason)
+        assertTrue(reeval.keepCall)
+    }
+
+    @Test
+    fun oneOpenRoundDoesNotSwitchLiveBypass() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val afterOneOpen = ReachabilityEvidence(
+            networkKey = key,
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Success,
+            google = CheckOutcome.Success,
+            restriction = RestrictionHint.Suspected,
+            whitelistScorePercent = 62,
+        ).withFreshStrongTtl(atElapsedMs = 10L)
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = afterOneOpen,
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                elapsedMs = 20L,
+                reevalDue = true,
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), d)
+    }
+
+    @Test
+    fun manualDirectAndCaptiveAndTrustedStayOnExistingRules() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val manual = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Direct,
+                underlay = cellular(key = key),
+                evidence = ReachabilityEvidence(
+                    networkKey = key,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ).withFreshStrongTtl(),
+                currentPath = null,
+                transport = TransportLifecycle.Stopped,
+                hasCallHash = true,
+            ),
+        )
+        assertEquals("manual-direct", (manual as AutoDecision.StartDirect).reason)
+        val captive = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = wifi(UnderlayAvailability.Captive, cellularAlso = false),
+                evidence = null,
+                currentPath = null,
+                transport = TransportLifecycle.Stopped,
+                hasCallHash = false,
+            ),
+        )
+        assertEquals(AutoDecision.ShowCaptive, captive)
     }
 }

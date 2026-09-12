@@ -64,11 +64,14 @@ fun whitelistEvidenceForUnderlay(
     cellularEvidence: ReachabilityEvidence?,
     key: NetworkKey?,
     profileId: String?,
+    nowElapsedMs: Long? = null,
 ): ReachabilityEvidence? {
     if (key?.isCellular == true) {
         val adopted = adoptCellularEvidence(cellularEvidence, key)
-        if (hasSameNetworkProbeEvidence(adopted, key, profileId)) return adopted
+        val now = nowElapsedMs ?: adopted?.measuredAtElapsedMs ?: 0L
+        if (hasSameNetworkProbeEvidence(adopted, key, profileId, now)) return adopted
     }
-    if (hasSameNetworkProbeEvidence(evidence, key, profileId)) return evidence
+    val now = nowElapsedMs ?: evidence?.measuredAtElapsedMs ?: 0L
+    if (hasSameNetworkProbeEvidence(evidence, key, profileId, now)) return evidence
     return null
 }
