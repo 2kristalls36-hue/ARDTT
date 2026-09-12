@@ -67,6 +67,12 @@
   "baseImages": {
     "golangProvision": "golang:1.22-alpine",
     "golangBookworm": "golang:1.25-bookworm",
-    "runtime": "debian:bookworm-slim"
+    "runtime": "debian:bookworm-slim",
+    "digests": {
+      "golang:1.22-alpine": "sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052",
+      "golang:1.25-bookworm": "sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437",
+      "debian:bookworm-slim": "sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171"
+    },
+    "note": "Multi-arch index digests from Docker Hub (2026-09-11). Every Dockerfile FROM uses tag@digest so a moving tag cannot change the base/apt layers the VPS would have to re-download; bump the digest here and in the Dockerfile together (scripts/check-deploy-bundle.sh enforces the match)."
   }
 }

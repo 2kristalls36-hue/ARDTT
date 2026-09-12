@@ -133,12 +133,19 @@ object DeployStackSource {
     }
 
     /**
-     * Newest (first matching) `ardtt-server-<ver>-linux-*.tar.gz` across published releases.
-     * Releases API is reverse-chronological; used by [DeployVersionCatalog] on app launch.
+     * Highest published stack version across non-draft releases; used by
+     * [DeployVersionCatalog] on app launch. Recognises the full archive and the
+     * partial-deploy index (`.index.json`) and ignores hostfiles / per-layer /
+     * Engine / Compose assets. One release may carry two stack versions (a newer
+     * stack attached to an existing tag), so this is a semver max, not "first match".
      */
     fun latestServerVersion(releasesListJson: String): String? {
         val releases = runCatching { JSONArray(releasesListJson) }.getOrNull() ?: return null
-        val pattern = Regex("""^ardtt-server-(\d+\.\d+\.\d+)-linux-(amd64|arm64)\.tar\.gz$""", RegexOption.IGNORE_CASE)
+        val pattern = Regex(
+            """^ardtt-server-(\d+\.\d+\.\d+)-linux-(amd64|arm64)\.(tar\.gz|index\.json)$""",
+            RegexOption.IGNORE_CASE,
+        )
+        var best = ""
         for (i in 0 until releases.length()) {
             val json = releases.optJSONObject(i) ?: continue
             if (json.optBoolean("draft")) continue
@@ -146,10 +153,10 @@ object DeployStackSource {
             for (j in 0 until assets.length()) {
                 val name = assets.optJSONObject(j)?.optString("name").orEmpty()
                 val match = pattern.matchEntire(name) ?: continue
-                return match.groupValues[1]
+                best = DeployBundle.maxVersion(best, match.groupValues[1])
             }
         }
-        return null
+        return best.ifBlank { null }
     }
 
     /**

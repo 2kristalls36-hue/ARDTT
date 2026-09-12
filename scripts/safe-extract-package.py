@@ -33,6 +33,16 @@ def _is_unsafe_name(name: str) -> str | None:
     return None
 
 
+def _extract(tar: tarfile.TarFile, member: tarfile.TarInfo, dest: str) -> None:
+    # Python 3.12+ has the `filter` argument (default changes to "data" in 3.14
+    # and warns until then); our own checks above are stricter, "data" only
+    # normalises metadata. Older interpreters take the plain call.
+    try:
+        tar.extract(member, path=dest, set_attrs=False, filter="data")
+    except TypeError:
+        tar.extract(member, path=dest, set_attrs=False)
+
+
 def validate_and_extract(src: str, dest: str) -> None:
     os.makedirs(dest, exist_ok=True)
     dest = os.path.abspath(dest)
@@ -60,7 +70,7 @@ def validate_and_extract(src: str, dest: str) -> None:
                 target = os.path.abspath(os.path.join(dest, member.name))
                 if not (target == dest or target.startswith(dest + os.sep)):
                     raise UnsafeTar(f"escapes dest: {member.name!r}")
-                tar.extract(member, path=dest, set_attrs=False)
+                _extract(tar, member, dest)
     # Second pass: no leftover links (old tar implementations).
     for root, dirs, files in os.walk(dest):
         for name in dirs + files:

@@ -195,6 +195,13 @@ list_owned_networks() {
   docker network ls --filter "label=${OWNER_LABEL}=ardtt" --filter "label=${INSTANCE_LABEL}=${INSTANCE_ID}" --format '{{.ID}}' 2>/dev/null || true
 }
 
+remove_owned_networks() {
+  local id
+  for id in $(list_owned_networks); do
+    docker network rm "$id" >/dev/null 2>&1 || true
+  done
+}
+
 stop_owned_stack() {
   local dir="$1" proj="${COMPOSE_PROJECT:-}"
   if [ -f "$dir/docker-compose.yml" ] && [ -n "$proj" ]; then

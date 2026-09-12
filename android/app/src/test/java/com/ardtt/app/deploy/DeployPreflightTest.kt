@@ -15,6 +15,7 @@ class DeployPreflightTest {
             ARDTT_PREFLIGHT|arch=x86_64
             ARDTT_PREFLIGHT|python=1
             ARDTT_PREFLIGHT|tun=1
+            ARDTT_PREFLIGHT|iptables=1
             ARDTT_PREFLIGHT|docker=missing
             ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-package
             """.trimIndent(),
@@ -25,6 +26,7 @@ class DeployPreflightTest {
         assertEquals("26.04", parsed.osVersion)
         assertEquals("missing", parsed.docker)
         assertFalse(parsed.dockerPresent)
+        assertFalse(parsed.iptablesMissing)
         assertTrue(parsed.python)
         assertTrue(parsed.tun)
     }
@@ -76,6 +78,8 @@ class DeployPreflightTest {
         assertEquals("ok", parsed.docker)
         assertEquals("27.0.3", parsed.dockerVersion)
         assertEquals("aarch64", parsed.arch)
+        // iptables is probed only when Docker is absent; no key means not missing.
+        assertFalse(parsed.iptablesMissing)
     }
 
     @Test
@@ -84,6 +88,22 @@ class DeployPreflightTest {
         assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("docker-from-package"))
         assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("systemctl"))
         assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("code=DOCKER_MISSING"))
+        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("docker-and-iptables-from-package"))
+        assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("code=IPTABLES_MISSING"))
+    }
+
+    @Test
+    fun parseMissingIptablesWithoutDockerIsOkInstallerTakesIt() {
+        // Minimal Debian 13 / Ubuntu 26.04 images: no Docker and no iptables;
+        // the installer takes iptables from the distro repository itself.
+        val parsed = DeployPreflight.parse(
+            "ARDTT_PREFLIGHT|python=1\nARDTT_PREFLIGHT|iptables=0\nARDTT_PREFLIGHT|docker=missing\n" +
+                "ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-and-iptables-from-package",
+        )
+        assertTrue(parsed.ok)
+        assertEquals(null, parsed.code)
+        assertTrue(parsed.iptablesMissing)
+        assertEquals("missing", parsed.docker)
     }
 
     @Test

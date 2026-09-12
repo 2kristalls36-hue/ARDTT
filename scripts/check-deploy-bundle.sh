@@ -91,6 +91,19 @@ PY
   fi
   grep -q 'get.docker.com' "$PACK_SERVER" && err "pack-server-package must not call get.docker.com"
   grep -q 'ensure_docker_engine' "$INSTALLER" || err "installer must install Engine from vendor/docker.tgz when missing"
+# The only distro package the installer may take is iptables (dockerd needs it):
+# hostdeps.sh, called from engine.sh and from the fetcher before the Engine download.
+[ -f "$ROOT/server/install-lib/hostdeps.sh" ] || err "missing install-lib/hostdeps.sh"
+grep -q 'INSTALL_LIB_DIR/hostdeps.sh' "$INSTALLER" || err "install.sh must source hostdeps.sh"
+grep -q 'ensure_host_iptables' "$ROOT/server/install-lib/engine.sh" || err "engine.sh must ensure iptables via hostdeps.sh"
+grep -q 'ensure_host_iptables' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must ensure iptables before downloading Engine"
+grep -q 'ARDTT_INSTALL_IPTABLES' "$ROOT/server/install-lib/hostdeps.sh" || err "hostdeps must honour ARDTT_INSTALL_IPTABLES=0"
+if grep -E 'apt-get install|dnf install|yum install|apk add|zypper .*install' "$ROOT/server/install-lib/hostdeps.sh" | grep -vqE 'iptables'; then
+  err "hostdeps.sh may install iptables only"
+fi
+if grep -E 'apt-get install|dnf install|yum install|apk add' "$ROOT/server/install-lib/hostdeps.sh" | grep -qiE 'docker|containerd|compose'; then
+  err "hostdeps.sh must never install Docker from distro repositories"
+fi
   grep -q 'vendor/docker.tgz' "$PACK_SERVER" || err "pack-server-package must include vendor/docker.tgz"
   grep -q 'download.docker.com/linux/static' "$PACK_SERVER" || err "pack must fetch Engine static tarball in CI"
   if grep -q 'cat > /lib/systemd/system/docker.service' "$ROOT/server/install-lib/engine.sh"; then
@@ -155,6 +168,29 @@ grep -q 'ARDTT_LOG_DIR' "$COMPOSE" || err "compose must mount dedicated log dir"
 grep -q 'AMNEZIAWG_GO_COMMIT' "$DOCKERFILE" || err "Dockerfile must pin amneziawg-go commit"
 grep -q 'sha256sum -c' "$DOCKERFILE" || err "Dockerfile must verify upstream checksums"
 grep -q 'refs/heads/master' "$DOCKERFILE" && err "Dockerfile must not fetch floating master"
+# Base images pinned by digest (stable layers for partial deploy), matching the lock.
+python3 - "$DOCKERFILE" "$ROOT/server/third-party.lock.json" <<'PY' || err "Dockerfile base images must be pinned to the digests in third-party.lock.json"
+import json, re, sys
+dockerfile, lock = open(sys.argv[1], encoding="utf-8").read(), json.load(open(sys.argv[2], encoding="utf-8"))
+digests = (lock.get("baseImages") or {}).get("digests") or {}
+bad = []
+for m in re.finditer(r"^FROM\s+(\S+)", dockerfile, re.M):
+    ref = m.group(1)
+    if ref == "scratch":
+        continue
+    if "@sha256:" not in ref:
+        bad.append(ref + " (no digest)")
+        continue
+    tag, digest = ref.split("@", 1)
+    if digests.get(tag) != digest:
+        bad.append(ref + " (lock has %s)" % digests.get(tag))
+if bad:
+    raise SystemExit("unpinned/mismatched FROM: " + ", ".join(bad))
+PY
+if grep -qE '^RUN chmod \+x /entrypoint\.sh' "$DOCKERFILE"; then
+  err "Dockerfile must set modes with COPY --chmod, not a trailing RUN chmod layer that re-ships every binary"
+fi
+grep -q 'COPY --from=overlay / /' "$DOCKERFILE" || err "Dockerfile must merge scripts into one overlay layer"
 
 grep -q 'hide-ip-prefixes' "$ROOT/server/warp/entrypoint.sh" || err "exit warp must poll hide-ip-prefixes"
 grep -q 'TCPMSS --clamp-mss-to-pmtu' "$ROOT/server/direct/entrypoint.sh" || err "direct must clamp TCPMSS"
@@ -198,8 +234,10 @@ bash -n "$ROOT/scripts/repack-server-host-files.sh" || err "bash -n repack-serve
 bash -n "$ROOT/scripts/attach-server-packages-to-release.sh" || err "bash -n attach-server-packages-to-release"
 grep -q -- '--from-dir' "$ROOT/scripts/attach-server-packages-to-release.sh" \
   || err "attach-to-release must take local packages, not old workflow artifacts"
-if grep -q -- '--clobber' "$ROOT/scripts/attach-server-packages-to-release.sh"; then
-  err "attach-to-release must not overwrite existing release assets"
+# Release assets are never overwritten; the one exception is the merged
+# SHA256SUMS-server.txt (a newer stack attached to an existing tag adds lines).
+if grep -- '--clobber' "$ROOT/scripts/attach-server-packages-to-release.sh" | grep -vq 'sums_cmd'; then
+  err "attach-to-release may clobber only the merged SHA256SUMS-server.txt"
 fi
 if grep -q "github.head_ref == 'cursor/server-bundle-ui-bad3'" "$ROOT/.github/workflows/server-package.yml"; then
   err "PR branch must not publish to GitHub Releases"
@@ -246,8 +284,30 @@ bash -n "$ROOT/server/fetch-and-install.sh" || err "bash -n fetch-and-install.sh
 grep -q 'api.github.com' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must use GitHub Releases API"
 grep -q 'git clone' "$ROOT/server/fetch-and-install.sh" && err "fetch-and-install must not git clone"
 grep -q 'fetch-and-install.sh' "$PACK_SERVER" || err "pack-server-package must include fetch-and-install.sh"
+# The archive must actually carry fetch-and-install.sh (tar list), so the VPS keeps
+# its own copy in /opt/ardtt/current and updates no longer depend on the APK bootstrap.
+grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$PACK_SERVER" \
+  || err "pack-server-package tar list must include fetch-and-install.sh"
+grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$ROOT/scripts/repack-server-host-files.sh" \
+  || err "repack-server-host-files tar list must include fetch-and-install.sh"
 [ -f "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" ] \
   || err "assets must ship fetch-and-install.sh bootstrap"
+cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
+  || err "assets/deploy/fetch-and-install.sh must be identical to server/fetch-and-install.sh"
+# Partial deploy: index + per-layer assets + layer cache on the VPS.
+grep -q 'ardtt-server-index-v1' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must understand ardtt-server-index-v1"
+grep -q 'ardtt-server-index-v1' "$ROOT/scripts/build-server-index.py" || err "build-server-index must emit ardtt-server-index-v1"
+grep -q 'build-server-index.py' "$PACK_SERVER" || err "pack-server-package must emit the partial-deploy index"
+grep -q 'layer-cache.py' "$PACK_SERVER" || err "pack-server-package must ship layer-cache.py"
+grep -q 'verify_index_staging' "$INSTALLER" || err "install.sh must verify partial staging against the index"
+grep -q 'adopt_layers_into_cache' "$INSTALLER" || err "install.sh must keep loaded layers in the cache"
+grep -q 'releases/latest/download' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back to SHA256SUMS-server.txt when the API is down"
+grep -q 'flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must lock against concurrent runs"
+python3 -m py_compile "$ROOT/scripts/layer-cache.py" || err "layer-cache.py"
+python3 -m py_compile "$ROOT/scripts/build-server-index.py" || err "build-server-index.py"
+bash -n "$ROOT/scripts/verify-server-index.sh" || err "bash -n verify-server-index"
+bash -n "$ROOT/scripts/test-fetch-partial.sh" || err "bash -n test-fetch-partial"
+bash -n "$ROOT/scripts/test-layer-cache.sh" || err "bash -n test-layer-cache"
 grep -q 'DeployVersionCatalog' "$ROOT/android/app/src/main/java/com/ardtt/app/ArdttApp.kt" \
   || err "app launch must poll DeployVersionCatalog"
 grep -q 'latestServerVersion' "$STACK_SOURCE_KT" || err "DeployStackSource must parse latest server version"
@@ -358,6 +418,15 @@ if [ -f "$ROOT/scripts/test-fetch-and-install-resolve.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-image-layers.sh" ]; then
   bash "$ROOT/scripts/test-image-layers.sh" || err "image layers split/assemble"
+fi
+if [ -f "$ROOT/scripts/test-layer-cache.sh" ]; then
+  bash "$ROOT/scripts/test-layer-cache.sh" || err "layer cache"
+fi
+if [ -f "$ROOT/scripts/test-compose-env-isolation.sh" ]; then
+  bash "$ROOT/scripts/test-compose-env-isolation.sh" || err "compose env isolation"
+fi
+if [ -f "$ROOT/scripts/test-fetch-partial.sh" ]; then
+  bash "$ROOT/scripts/test-fetch-partial.sh" || err "partial fetch end-to-end"
 fi
 
 if [ "$fail" -ne 0 ]; then

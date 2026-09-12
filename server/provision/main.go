@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -88,9 +89,9 @@ type Profile struct {
 	ExpiresAt         int64  `json:"expiresAt"`
 	Deactivated       bool   `json:"deactivated"`
 	MaxDevices        int    `json:"maxDevices"`
-	TrafficLimitBytes int64 `json:"trafficLimitBytes,omitempty"`
-	UsedBytes         int64 `json:"usedBytes,omitempty"`
-	ProvisionPort     int   `json:"provisionPort,omitempty"`
+	TrafficLimitBytes int64  `json:"trafficLimitBytes,omitempty"`
+	UsedBytes         int64  `json:"usedBytes,omitempty"`
+	ProvisionPort     int    `json:"provisionPort,omitempty"`
 	Direct            struct {
 		Endpoint      string         `json:"endpoint"`
 		PrivateKey    string         `json:"privateKey"`
@@ -1531,42 +1532,66 @@ func fetchLatestDeployFromGitHub() string {
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
-	var releases []struct {
-		Draft  bool `json:"draft"`
-		Assets []struct {
-			Name string `json:"name"`
-		} `json:"assets"`
-	}
+	var releases []releaseAssets
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return ""
 	}
-	prefix := "ardtt-server-"
-	suffixAmd := "-linux-amd64.tar.gz"
-	suffixArm := "-linux-arm64.tar.gz"
+	return pickLatestDeployVersion(releases)
+}
+
+type releaseAssets struct {
+	Draft  bool `json:"draft"`
+	Assets []struct {
+		Name string `json:"name"`
+	} `json:"assets"`
+}
+
+// deployAssetRe matches only the full server archive and its partial-deploy index,
+// so hostfiles/layer chunks and docker engine/compose assets never leak a version.
+var deployAssetRe = regexp.MustCompile(`^ardtt-server-(\d+\.\d+\.\d+)-linux-(amd64|arm64)\.(tar\.gz|index\.json)$`)
+
+// pickLatestDeployVersion returns the highest version advertised by any non-draft
+// release, or "" when no release carries a recognisable server asset.
+func pickLatestDeployVersion(releases []releaseAssets) string {
+	best := ""
 	for _, rel := range releases {
 		if rel.Draft {
 			continue
 		}
 		for _, a := range rel.Assets {
-			name := a.Name
-			if !strings.HasPrefix(name, prefix) {
+			m := deployAssetRe.FindStringSubmatch(strings.TrimSpace(a.Name))
+			if m == nil {
 				continue
 			}
-			ver := ""
-			switch {
-			case strings.HasSuffix(name, suffixAmd):
-				ver = strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffixAmd)
-			case strings.HasSuffix(name, suffixArm):
-				ver = strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffixArm)
-			default:
-				continue
-			}
-			if ver != "" && !strings.Contains(ver, "/") {
-				return ver
+			if best == "" || compareDeployVersions(m[1], best) > 0 {
+				best = m[1]
 			}
 		}
 	}
-	return ""
+	return best
+}
+
+// compareDeployVersions compares dotted numeric versions component-wise so that
+// 1.0.52 sorts above 1.0.9.
+func compareDeployVersions(a, b string) int {
+	pa := strings.Split(a, ".")
+	pb := strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		na, nb := 0, 0
+		if i < len(pa) {
+			na, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			nb, _ = strconv.Atoi(pb[i])
+		}
+		if na != nb {
+			if na > nb {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
 }
 
 func clientIP(r *http.Request) string {

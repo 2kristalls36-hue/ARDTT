@@ -193,6 +193,43 @@ class DeployStackSourceTest {
     }
 
     @Test
+    fun latestServerVersionIsTheHighestStackAcrossAssets() {
+        // A newer stack attached to an existing tag lists its assets after the older one;
+        // partial-deploy assets (index / hostfiles / layers / engine / compose) sit next to them.
+        val json = """
+            [
+              {
+                "tag_name": "v0.5.263",
+                "draft": false,
+                "assets": [
+                  {"name": "ardtt-server-1.0.51-linux-amd64.tar.gz"},
+                  {"name": "ardtt-server-1.0.51-linux-arm64.tar.gz"},
+                  {"name": "ardtt-server-1.0.52-linux-amd64-hostfiles.tar.gz"},
+                  {"name": "ardtt-server-1.0.52-linux-amd64-layer-00-0123456789abcdef.tar.gz"},
+                  {"name": "ardtt-docker-engine-29.7.2-linux-amd64.tgz"},
+                  {"name": "ardtt-docker-compose-2.32.4-linux-amd64"},
+                  {"name": "ardtt-server-1.0.52-linux-amd64.index.json"},
+                  {"name": "ardtt-server-1.0.9-linux-amd64.tar.gz"}
+                ]
+              },
+              {
+                "tag_name": "v0.5.264",
+                "draft": true,
+                "assets": [{"name": "ardtt-server-1.0.99-linux-amd64.tar.gz"}]
+              }
+            ]
+        """.trimIndent()
+        assertEquals("1.0.52", DeployStackSource.latestServerVersion(json))
+        val toolingOnly = """
+            [{"tag_name": "v1", "draft": false, "assets": [
+              {"name": "ardtt-server-1.0.52-linux-amd64-hostfiles.tar.gz"},
+              {"name": "ardtt-docker-engine-29.7.2-linux-amd64.tgz"}
+            ]}]
+        """.trimIndent()
+        assertNull(DeployStackSource.latestServerVersion(toolingOnly))
+    }
+
+    @Test
     fun gzipMagicAndInstallerSniff() {
         assertTrue(DeployStackFetcher.looksLikeGzip(byteArrayOf(0x1f, 0x8b.toByte(), 0x08)))
         assertFalse(DeployStackFetcher.looksLikeGzip("not gzip".toByteArray()))

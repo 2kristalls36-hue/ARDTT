@@ -96,7 +96,11 @@ fi
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   STAGE_LOAD="$(mktemp -d)"
   python3 "$ROOT/scripts/safe-extract-package.py" "$PKG" "$STAGE_LOAD"
-  docker load -i "$STAGE_LOAD/images/ardtt.tar"
+  if [ -f "$STAGE_LOAD/images/layout.json" ]; then
+    python3 "$STAGE_LOAD/scripts/assemble-docker-save.py" "$STAGE_LOAD/images" | docker load
+  else
+    docker load -i "$STAGE_LOAD/images/ardtt.tar"
+  fi
   rm -rf "$STAGE_LOAD"
 fi
 

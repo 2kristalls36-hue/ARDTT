@@ -84,6 +84,19 @@ class DeployIssueTest {
     }
 
     @Test
+    fun iptablesMissingOnExitNamesHopAndPackageCommand() {
+        val issue = DeployIssue.of(
+            code = DeployIssue.IPTABLES_MISSING,
+            message = "x",
+            hopRole = "exit",
+        )
+        assertTrue(issue.summary.contains("iptables"))
+        assertTrue(issue.summary.contains("VPS2"))
+        assertTrue(issue.summary.contains("репозитори"))
+        assertTrue(issue.summary.contains("apt install iptables"))
+    }
+
+    @Test
     fun looksFailedIgnoresPlainUserSummary() {
         val summary = "VPS2: не удалось поставить Docker Engine из архива. " +
             "Установка ARDTT на VPS1 ещё не запускалась."

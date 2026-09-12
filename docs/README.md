@@ -6,7 +6,7 @@
 |----------|------------|
 | [LEGEND.md](LEGEND.md) | Имя **ARDTT** (Amnezia & Raw Dial over TURN Tunnel), Path A/B, знак AR/DTT |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP, VpnService |
-| [DEPLOY.md](DEPLOY.md) | Стек **1.0.51**: архив `ardtt-server-*-linux-<arch>.tar.gz`; Engine в `vendor/docker.tgz` |
+| [DEPLOY.md](DEPLOY.md) | Стек **1.0.52**: архив `ardtt-server-*-linux-<arch>.tar.gz`; Engine в `vendor/docker.tgz`; частичный деплой по индексу релиза |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
 | [UI.md](UI.md) | Дизайн-система клиента: токены, нейминг, каркас экрана |
 | [android/README.md](../android/README.md) | Сборка клиента 0.5.263, keystore, GitHub Releases |

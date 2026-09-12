@@ -6,19 +6,20 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 python3 - "$TMP/save" <<'PY'
-import io, json, pathlib, sys, tarfile
+import hashlib, io, json, pathlib, sys, tarfile
 root = pathlib.Path(sys.argv[1])
 root.mkdir(parents=True, exist_ok=True)
 layer_a = b"layer-a-bytes-aaaaaaaa"
 layer_b = b"layer-b-bytes-bbbbbbbb"
+# split cross-checks every layer against rootfs.diff_ids: use real digests.
 cfg = {
     "os": "linux",
     "architecture": "amd64",
     "rootfs": {
         "type": "layers",
         "diff_ids": [
-            "sha256:" + ("a" * 64),
-            "sha256:" + ("b" * 64),
+            "sha256:" + hashlib.sha256(layer_a).hexdigest(),
+            "sha256:" + hashlib.sha256(layer_b).hexdigest(),
         ],
     },
     "config": {
