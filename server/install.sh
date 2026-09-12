@@ -34,6 +34,8 @@ fi
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/disk-cleanup.sh"
 # shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/hostdeps.sh"
+# shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/engine.sh"
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/ports.sh"
@@ -83,8 +85,14 @@ if [ "$ROLE" = "exit" ]; then
   CASCADE_ENABLED=1
 fi
 
+# Compose interpolation must read the release .env only. Compose lets the shell
+# environment override .env, and the caller (phone → fetch-and-install.sh)
+# exports the *requested* ARDTT_BYPASS_PORT / ARDTT_DIRECT_PORT / ARDTT_CPUS…;
+# with ARDTT_AUTO_PORTS the resolved values differ (56003 busy → 56004 in .env),
+# and the inherited 56003 used to win: «failed to bind host port
+# 0.0.0.0:56003/udp» on a host that already runs something on that port.
 compose_up_cmd() {
-  local bin extra=()
+  local bin extra=() passthru=() v
   bin="$(compose_bin)" || die "docker compose недоступен. Нужен Compose v2 на хосте или bin/docker-compose из пакета ARDTT."
   [ -f .env ] && extra+=(--env-file .env)
   if [ "$ROLE" = "exit" ] && [ -f docker-compose.exit.yml ]; then
@@ -92,8 +100,13 @@ compose_up_cmd() {
   else
     extra+=(-f docker-compose.yml)
   fi
-  COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" ARDTT_NETWORK_MODE=isolated \
-    $bin "${extra[@]}" "$@"
+  passthru=(PATH="$PATH" HOME="${HOME:-/root}" COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" ARDTT_NETWORK_MODE=isolated)
+  for v in DOCKER_HOST DOCKER_CONFIG DOCKER_CONTEXT DOCKER_CERT_PATH DOCKER_TLS_VERIFY DOCKER_API_VERSION \
+           XDG_RUNTIME_DIR TMPDIR LANG LC_ALL; do
+    [ -n "${!v:-}" ] && passthru+=("$v=${!v}")
+  done
+  # shellcheck disable=SC2086
+  env -i "${passthru[@]}" $bin "${extra[@]}" "$@"
 }
 
 # Stock 1.0.45 image: ready.sh has a set -u `local name="$1" pidfile=...${name}`
@@ -232,12 +245,22 @@ preflight_space() {
 }
 
 install_bundled_compose() {
+  local src=""
+  # Safe extraction drops file modes (set_attrs=False), so the staged binary is
+  # not executable yet: test presence, not -x, and chmod the installed copy.
+  if [ -f "$PKG_DIR/bin/docker-compose" ]; then
+    src="$PKG_DIR/bin/docker-compose"
+  fi
+  # Our own /opt/ardtt/bin copy follows the package pin; the system plugin is never replaced.
+  if [ -n "$src" ] && [ -x "$INSTALL_DIR/bin/docker-compose" ] \
+     && [ "$(sha256_file "$src")" != "$(sha256_file "$INSTALL_DIR/bin/docker-compose")" ]; then
+    cp -f "$src" "$INSTALL_DIR/bin/docker-compose.new"
+    chmod 755 "$INSTALL_DIR/bin/docker-compose.new"
+    mv -f "$INSTALL_DIR/bin/docker-compose.new" "$INSTALL_DIR/bin/docker-compose"
+    echo "ARDTT_INFO|Compose CLI из пакета обновлён: $INSTALL_DIR/bin/docker-compose"
+  fi
   if compose_bin >/dev/null 2>&1; then
     return 0
-  fi
-  local src=""
-  if [ -x "$PKG_DIR/bin/docker-compose" ]; then
-    src="$PKG_DIR/bin/docker-compose"
   fi
   [ -n "$src" ] || die "Нет Docker Compose v2. Положите плагин на хост или используйте bin/docker-compose из пакета ARDTT. Системный плагин не заменяем."
   mkdir -p "$INSTALL_DIR/bin"
@@ -354,19 +377,51 @@ push_entry_pubkey_to_exit() {
   }
   port="${CASCADE_PEER_PROVISION_PORT:-9100}"
   url="http://${host}:${port}/v1/cascade/peer"
-  command -v curl >/dev/null 2>&1 || {
-    echo "ARDTT_WARN|нет curl — ключ входа на выход не отправлен (${url})"
-    return 0
-  }
   for i in 1 2 3 4 5 6; do
-    if curl -fsS -m 12 -X POST -H 'Content-Type: application/json' \
-      -d "{\"publicKey\":\"${pub}\"}" "$url" >/dev/null 2>&1; then
+    if http_post_json "$url" "{\"publicKey\":\"${pub}\"}"; then
       echo "ARDTT_INFO|ключ входа отправлен на выход ${host}:${port}"
       return 0
     fi
     sleep 2
   done
   echo "ARDTT_WARN|не удалось отправить ключ входа на ${url} — проверьте доступ VPS1→VPS2 :${port}"
+}
+
+# POST JSON with curl, or python3 urllib on minimal images without curl.
+http_post_json() {
+  local url="$1" body="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS -m 12 -X POST -H 'Content-Type: application/json' -d "$body" "$url" >/dev/null 2>&1
+    return $?
+  fi
+  python3 - "$url" "$body" <<'PY' >/dev/null 2>&1
+import sys, urllib.request
+req = urllib.request.Request(sys.argv[1], data=sys.argv[2].encode("utf-8"),
+                             headers={"Content-Type": "application/json"}, method="POST")
+with urllib.request.urlopen(req, timeout=12) as r:
+    sys.exit(0 if 200 <= r.status < 300 else 1)
+PY
+}
+
+# After docker load: move staged gzip layers into the content-addressed cache
+# (<install>/cache/layers/<diffId>.tar.gz). Partial updates then download only
+# layers whose diff ID is missing. Never fatal — the stack is already loaded.
+adopt_layers_into_cache() {
+  local layout_dir="$1" cache lc
+  [ "${ARDTT_LAYER_CACHE:-1}" != "0" ] || return 0
+  cache="${ARDTT_LAYER_CACHE_DIR:-$INSTALL_DIR/cache/layers}"
+  [ -f "$layout_dir/layout.json" ] || return 0
+  for lc in "$PKG_DIR/scripts/layer-cache.py" "$SCRIPT_DIR/scripts/layer-cache.py" "$INSTALL_DIR/current/scripts/layer-cache.py"; do
+    [ -f "$lc" ] && break
+    lc=""
+  done
+  [ -n "$lc" ] || return 0
+  mkdir -p "$cache" 2>/dev/null || return 0
+  chmod 700 "$cache" 2>/dev/null || true
+  python3 "$lc" adopt "$layout_dir/layout.json" "$layout_dir" "$cache" 2>/dev/null \
+    | sed 's/^/ARDTT_INFO|кэш слоёв: /' || true
+  python3 "$lc" prune "$cache" "$layout_dir/layout.json" 2>/dev/null \
+    | sed 's/^/ARDTT_INFO|кэш слоёв: /' || true
 }
 
 find_package_file() {
@@ -439,6 +494,18 @@ do_install() {
 
   prog 0.08 "Поиск установочного пакета"
   local pkg
+  if [ -n "${ARDTT_PACKAGE_INDEX:-}" ]; then
+    # Partial deploy: fetch-and-install.sh assembled staging from separately
+    # downloaded release assets (host files, missing layers, Engine/Compose when
+    # absent). The index verified against the GitHub release is the trust root.
+    [ -n "${ARDTT_PKG_DIR:-}" ] && [ -f "${ARDTT_PKG_DIR}/manifest.json" ] && [ -f "${ARDTT_PKG_DIR}/install.sh" ] \
+      || die "Для ARDTT_PACKAGE_INDEX нужен собранный ARDTT_PKG_DIR (staging с manifest.json и install.sh)."
+    [ -n "${ARDTT_PACKAGE_INDEX_SHA256:-}" ] || die "Задайте ARDTT_PACKAGE_INDEX_SHA256 (SHA-256 индекса из релиза GitHub). Суммы внутри файлов не подтверждают источник."
+    prog 0.10 "Проверка индекса и файлов частичного пакета"
+    verify_index_staging "$ARDTT_PACKAGE_INDEX" "$ARDTT_PACKAGE_INDEX_SHA256" "$ARDTT_PKG_DIR"
+    PKG_DIR="$ARDTT_PKG_DIR"
+    echo "ARDTT_INFO|частичный пакет: staging $PKG_DIR сверен с индексом"
+  else
   pkg="$(find_package_file)" || die "Нет пакета ardtt-server-*-linux-$(host_arch).tar.gz. Скачайте актив релиза — без git clone и без docker pull."
   [ -n "${ARDTT_PACKAGE_SHA256:-}" ] || die "Задайте ARDTT_PACKAGE_SHA256 (SHA-256 релиза GitHub или закреплённая сумма приложения). Суммы внутри архива не подтверждают источник."
   prog 0.10 "Проверка SHA-256 пакета"
@@ -455,6 +522,7 @@ do_install() {
     if ! safe_extract_package "$pkg" "$PKG_DIR"; then
       die "Распаковка отклонена (опасные пути или повреждённый tar). Старый стек не остановлен."
     fi
+  fi
   fi
   read_manifest "$PKG_DIR"
   require_manifest
@@ -521,8 +589,11 @@ do_install() {
   fi
   load_package_image "${IMAGE_TAR:-}" "$ARDTT_IMAGE" "$PKG_IMAGE_ID" "${IMAGE_LAYOUT:-}"
   LOADED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$ARDTT_IMAGE")"
-  # Layer blobs are no longer needed after a successful load.
+  # Layer blobs are no longer needed in staging after a successful load. Keep
+  # them in the content-addressed cache so the next update downloads only the
+  # layers that actually changed (ARDTT_LAYER_CACHE=0 restores plain deletion).
   if [ -n "${IMAGE_LAYOUT:-}" ] && [ -d "${IMAGE_LAYOUT}/layers" ]; then
+    adopt_layers_into_cache "$IMAGE_LAYOUT"
     rm -rf "${IMAGE_LAYOUT}/layers" "${IMAGE_LAYOUT}/extras" 2>/dev/null || true
   fi
   if [ -n "${IMAGE_TAR:-}" ] && [ -f "${IMAGE_TAR}" ]; then
@@ -557,6 +628,13 @@ do_install() {
   [ -f "$PKG_DIR/fetch-and-install.sh" ] && cp -a "$PKG_DIR/fetch-and-install.sh" "$release/" && chmod 755 "$release/fetch-and-install.sh" || true
   [ -d "$PKG_DIR/install-lib" ] && cp -a "$PKG_DIR/install-lib" "$release/"
   [ -d "$PKG_DIR/scripts" ] && cp -a "$PKG_DIR/scripts" "$release/"
+  # Image layout (no blobs): lets the next partial update prune the layer cache
+  # and compare the loaded image without re-downloading anything.
+  if [ -f "$PKG_DIR/images/layout.json" ]; then
+    mkdir -p "$release/images"
+    cp -a "$PKG_DIR/images/layout.json" "$release/images/"
+    [ -f "$PKG_DIR/images/config.json" ] && cp -a "$PKG_DIR/images/config.json" "$release/images/"
+  fi
   if [ -f "$PKG_DIR/ready.sh" ]; then
     cp -a "$PKG_DIR/ready.sh" "$release/"
   elif [ -f "$SCRIPT_DIR/ready.sh" ]; then
@@ -600,7 +678,12 @@ do_install() {
     compose_err="$(tail -n 8 "$compose_log" 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
     cat "$compose_log" >&2 || true
     rm -f "$compose_log"
-    restore_previous_release || true
+    # First install has nothing to restore: do not leave a Created container and
+    # an orphan network behind on the host.
+    if ! restore_previous_release; then
+      stop_owned_stack "$INSTALL_DIR/current" || true
+      remove_owned_networks || true
+    fi
     die --code COMPOSE_UP_FAILED "docker compose up не удался: ${compose_err:-код ≠ 0, ARDTT_DONE нет}"
   fi
   cat "$compose_log" || true

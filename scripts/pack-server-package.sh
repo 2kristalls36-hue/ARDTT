@@ -66,7 +66,9 @@ test -f "$STAGE/images/layout.json"
 rm -f "$STAGE/images/ardtt.tar"
 cp -f "$ROOT/scripts/assemble-docker-save.py" "$STAGE/scripts/assemble-docker-save.py"
 cp -f "$ROOT/scripts/split-docker-save.py" "$STAGE/scripts/split-docker-save.py" 2>/dev/null || true
-chmod 755 "$STAGE/scripts/assemble-docker-save.py"
+# Layer cache helper: partial deploy downloads only layers missing on the VPS.
+cp -f "$ROOT/scripts/layer-cache.py" "$STAGE/scripts/layer-cache.py"
+chmod 755 "$STAGE/scripts/assemble-docker-save.py" "$STAGE/scripts/layer-cache.py"
 
 COMPOSE_URL="https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-linux-${UNAME_ARCH}"
 curl -fsSL -o "$STAGE/bin/docker-compose" "$COMPOSE_URL"
@@ -111,6 +113,14 @@ on the VPS — no second full \`ardtt.tar\` is written. The installer unpacks
 Engine only when \`docker info\` fails. It will **not** fetch a network Engine
 installer, apt/dnf, or docker pull. A working Engine is left alone.
 
+The same release also publishes these contents as separate assets
+(\`ardtt-server-${VER}-linux-${ARCH}.index.json\`, \`-hostfiles.tar.gz\`,
+one \`-layer-NN-<diffid>.tar.gz\` per image layer, \`ardtt-docker-engine-*\`,
+\`ardtt-docker-compose-*\`). \`fetch-and-install.sh\` prefers that index and
+downloads only what the VPS lacks: host files always, Engine/Compose only when
+missing, image layers only when their diff ID is not in
+\`/opt/ardtt/cache/layers\`. This archive is the complete fallback.
+
 ## Install
 
 \`\`\`bash
@@ -134,6 +144,7 @@ EOF
 
 LAYOUT_SHA256="$(sha256sum "$STAGE/images/layout.json" | awk '{print $1}')"
 INSTALL_SHA="$(sha256sum "$STAGE/install.sh" | awk '{print $1}')"
+FETCH_SHA="$(sha256sum "$STAGE/fetch-and-install.sh" | awk '{print $1}')"
 READY_SHA="$(sha256sum "$STAGE/ready.sh" | awk '{print $1}')"
 COMPOSE_FILE_SHA="$(sha256sum "$STAGE/docker-compose.yml" | awk '{print $1}')"
 ENGINE_FILE_SHA="$(sha256sum "$STAGE/vendor/docker.tgz" | awk '{print $1}')"
@@ -159,6 +170,7 @@ manifest = {
   "files": {
     "images/layout.json": "${LAYOUT_SHA256}",
     "install.sh": "${INSTALL_SHA}",
+    "fetch-and-install.sh": "${FETCH_SHA}",
     "ready.sh": "${READY_SHA}",
     "docker-compose.yml": "${COMPOSE_FILE_SHA}",
     "vendor/docker.tgz": "${ENGINE_FILE_SHA}",
@@ -182,15 +194,17 @@ PY
 
 (
   cd "$STAGE"
-  sha256sum install.sh ready.sh docker-compose.yml docker-compose.exit.yml \
+  sha256sum install.sh fetch-and-install.sh ready.sh docker-compose.yml docker-compose.exit.yml \
     images/layout.json images/config.json bin/docker-compose vendor/docker.tgz \
-    manifest.json third-party.lock.json scripts/assemble-docker-save.py > SHA256SUMS
+    manifest.json third-party.lock.json scripts/assemble-docker-save.py scripts/layer-cache.py > SHA256SUMS
   find images/layers -type f -name '*.tar.gz' -print0 | sort -z | xargs -0 sha256sum >> SHA256SUMS
 )
 
+# fetch-and-install.sh ships in the archive so the VPS keeps its own copy in
+# /opt/ardtt/current and later updates no longer depend on the APK bootstrap.
 tar -czf "$OUT" -C "$STAGE" \
   manifest.json SHA256SUMS README.md DEPLOY_VERSION third-party.lock.json \
-  install.sh ready.sh install-lib scripts \
+  install.sh fetch-and-install.sh ready.sh install-lib scripts \
   docker-compose.yml docker-compose.exit.yml .env.example \
   images bin vendor
 
@@ -200,3 +214,12 @@ ls -lh "$OUT"
 echo "Packed $OUT"
 echo "imageId=$IMAGE_ID arch=$ARCH deployVersion=$VER"
 echo "outerSha256=$(cat "${OUT}.sha256")"
+
+# Partial-deploy assets: host files, one asset per layer, Engine, Compose and
+# the index that ties them together. The VPS downloads only what it lacks.
+if [ "${ARDTT_PACK_COMPONENTS:-1}" != "0" ]; then
+  python3 "$ROOT/scripts/build-server-index.py" "$STAGE" "$(dirname "$OUT")" \
+    --version "$VER" --arch "$ARCH" --package "$OUT" \
+    --release-tag "$TAG" --commit "$COMMIT" \
+    --engine-version "$ENGINE_VER" --compose-version "$COMPOSE_VER"
+fi

@@ -40,6 +40,69 @@ verify_outer_sha256() {
   fi
 }
 
+# Partial deploy: staging was assembled from separately downloaded release
+# assets. The index (already matched against the GitHub digest) is the trust
+# root: every host file must match its recorded SHA-256, every staged layer
+# must match either its asset SHA-256 or (cache-seeded) its diff ID, and a
+# staged Engine/Compose must match the pinned sums.
+verify_index_staging() {
+  local index="$1" expect="$2" stage="$3" got
+  [ -f "$index" ] || die "Индекс частичного пакета не найден: $index"
+  got="$(sha256_file "$index" | tr 'A-F' 'a-f')"
+  expect="$(printf '%s' "$expect" | tr 'A-F' 'a-f' | tr -d '[:space:]')"
+  [ -n "$expect" ] || die "Нет доверенной SHA-256 индекса (ARDTT_PACKAGE_INDEX_SHA256)."
+  [ "$got" = "$expect" ] || die "SHA-256 индекса не совпал (ожидали ${expect}, получили ${got}). Установка не начата."
+  python3 - "$index" "$stage" "$(host_arch)" <<'PY' || die "Файлы частичного пакета не совпали с индексом. Старый стек не остановлен."
+import gzip, hashlib, json, os, sys
+index_path, stage, arch = sys.argv[1], sys.argv[2], sys.argv[3]
+d = json.load(open(index_path, encoding="utf-8"))
+if d.get("format") != "ardtt-server-index-v1":
+    raise SystemExit("unsupported index format %r" % d.get("format"))
+if d.get("arch") != arch:
+    raise SystemExit("index arch %s != host %s" % (d.get("arch"), arch))
+
+def sha_of(path, decompress=False):
+    h = hashlib.sha256()
+    opener = gzip.open if decompress else open
+    with opener(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+bad = []
+for rel, want in (d["hostfiles"].get("files") or {}).items():
+    p = os.path.join(stage, rel)
+    if not os.path.isfile(p):
+        bad.append(rel + " (missing)")
+    elif sha_of(p) != str(want).lower():
+        bad.append(rel)
+for layer in (d.get("image") or {}).get("layers") or []:
+    p = os.path.join(stage, "images", layer["file"])
+    if not os.path.isfile(p):
+        bad.append("images/" + layer["file"] + " (missing)")
+        continue
+    if sha_of(p) == str(layer.get("sha256", "")).lower():
+        continue
+    try:
+        ok = sha_of(p, decompress=True) == str(layer["diffId"]).removeprefix("sha256:").lower()
+    except (OSError, EOFError):
+        ok = False
+    if not ok:
+        bad.append(layer["file"])
+for key in ("engine", "compose"):
+    comp = d.get(key) or {}
+    if not comp.get("path"):
+        continue
+    p = os.path.join(stage, comp["path"])
+    if os.path.isfile(p) and sha_of(p) != str(comp.get("sha256", "")).lower():
+        bad.append(comp["path"])
+if bad:
+    raise SystemExit("index mismatch: " + ", ".join(bad[:8]))
+print("ARDTT_INFO|индекс %s: %d файлов установщика и %d слоёв сверены" % (
+    d.get("deployVersion"), len(d["hostfiles"].get("files") or {}), len((d.get("image") or {}).get("layers") or [])))
+PY
+}
+
 read_manifest() {
   local dir="$1"
   MANIFEST="$dir/manifest.json"

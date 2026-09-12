@@ -3,7 +3,11 @@ package com.ardtt.app.deploy
 /**
  * Read-only host probe over SSH. Optional UI check — install.sh is the
  * source of truth and installs Engine from the package when Docker is missing.
- * Missing Engine is OK: code=OK / docker-from-package.
+ * Missing Engine is OK: code=OK / docker-from-package. Missing Engine *and*
+ * missing iptables is also OK: the installer takes iptables from the distro
+ * repository itself (install-lib/hostdeps.sh), so preflight only reports it
+ * (code=OK / docker-and-iptables-from-package). IPTABLES_MISSING only comes
+ * from the installer, when that automatic package install failed.
  */
 data class DeployPreflightResult(
     val ok: Boolean,
@@ -19,6 +23,9 @@ data class DeployPreflightResult(
     val fields: Map<String, String> = emptyMap(),
 ) {
     val dockerPresent: Boolean get() = docker == "ok"
+
+    /** Probed only when Docker is absent; false when the key was never emitted. */
+    val iptablesMissing: Boolean get() = fields["iptables"] == "0"
 }
 
 object DeployPreflight {
@@ -44,6 +51,10 @@ object DeployPreflight {
             "if ! command -v docker >/dev/null 2>&1; then " +
             "  if [ \"\$foreign\" = 1 ]; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=UNSUPPORTED_RUNTIME|message=foreign-runtime\"; exit 0; fi; " +
             "  if ! command -v systemctl >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_NOT_RUNNING|message=no-systemd\"; exit 0; fi; " +
+            // Minimal Debian/Ubuntu images ship without iptables; the installer
+            // takes it from the distro repository itself, so this is informational.
+            "  if ! command -v iptables >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT|iptables=0\"; echo \"ARDTT_PREFLIGHT|docker=missing\"; echo \"ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-and-iptables-from-package\"; exit 0; fi; " +
+            "  echo \"ARDTT_PREFLIGHT|iptables=1\"; " +
             "  echo \"ARDTT_PREFLIGHT|docker=missing\"; " +
             "  echo \"ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-package\"; exit 0; " +
             "fi; " +
