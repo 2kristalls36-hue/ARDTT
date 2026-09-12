@@ -23,8 +23,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,8 +38,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.ardtt.app.BuildConfig
 import com.ardtt.app.core.PhoneModelLabel
 import com.ardtt.app.deploy.DeployTarget
@@ -53,11 +53,14 @@ import com.ardtt.app.profile.VpnProfileJson
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ArdttDigitsField
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttErrorState
+import com.ardtt.app.ui.components.feedback.ArdttIpChip
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttLoadingState
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
@@ -69,13 +72,13 @@ import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.latestAppVersionCode
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
-import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.connectedStatusColor
@@ -138,6 +141,7 @@ private fun ClientsScreen(
     var renameDraft by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf(false) }
     var busyUser by remember { mutableStateOf<String?>(null) }
+    var unbindCandidate by remember { mutableStateOf<Pair<String, String>?>(null) }
     var editUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var editMaxDevices by remember { mutableStateOf("1") }
     var editDays by remember { mutableStateOf("") }
@@ -247,11 +251,15 @@ private fun ClientsScreen(
         }
     }
 
-    LaunchedEffect(base) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(base, lifecycleOwner) {
         refresh()
-        while (true) {
-            delay(15_000L)
-            applyUsersResult(ProvisionAdminApi.listUsers(base))
+        // Background refresh only while the list is on screen.
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(CLIENTS_POLL_MS)
+                applyUsersResult(ProvisionAdminApi.listUsers(base))
+            }
         }
     }
 
@@ -307,7 +315,8 @@ private fun ClientsScreen(
                                 ClientCard(
                                     user = user,
                                     latestVersionCode = latestVersionCode,
-                                    busy = busyUser != null,
+                                    // Only the card whose request is in flight locks its actions.
+                                    busy = busyUser == user.name,
                                     onOpenProfile = {
                                         sheetUser = user
                                         sheetProfile = null
@@ -421,14 +430,11 @@ private fun ClientsScreen(
             dismissOnBackPress = !creating,
             dismissOnClickOutside = !creating,
         ) {
-            OutlinedTextField(
+            ArdttTextField(
                 value = createName,
                 onValueChange = { createName = it },
-                label = { Text("Имя") },
-                singleLine = true,
+                label = "Имя",
                 enabled = !creating,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
             Text(
                 "Срок",
@@ -510,32 +516,26 @@ private fun ClientsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(
+            ArdttDigitsField(
                 value = editMaxDevices,
-                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) editMaxDevices = v },
-                label = { Text("Лимит устройств") },
-                singleLine = true,
+                onValueChange = { editMaxDevices = it },
+                label = "Лимит устройств",
+                maxLength = 2,
                 enabled = !editing,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            ArdttDigitsField(
                 value = editDays,
-                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editDays = v },
-                label = { Text("Продлить на N дней (опц.)") },
-                singleLine = true,
+                onValueChange = { editDays = it },
+                label = "Продлить на N дней (опц.)",
+                maxLength = 4,
                 enabled = !editing,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            ArdttDigitsField(
                 value = editTrafficGb,
-                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) editTrafficGb = v },
-                label = { Text("Лимит трафика, ГБ (0 = без лимита)") },
-                singleLine = true,
+                onValueChange = { editTrafficGb = it },
+                label = "Лимит трафика, ГБ (0 = без лимита)",
+                maxLength = 4,
                 enabled = !editing,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -631,14 +631,11 @@ private fun ClientsScreen(
             dismissOnBackPress = !renaming,
             dismissOnClickOutside = !renaming,
         ) {
-            OutlinedTextField(
+            ArdttTextField(
                 value = renameDraft,
                 onValueChange = { renameDraft = it },
-                label = { Text("Имя") },
-                singleLine = true,
+                label = "Имя",
                 enabled = !renaming,
-                shape = ArdttShapes.Field,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -659,20 +656,36 @@ private fun ClientsScreen(
                 renameDraft = user.name
                 renameUser = user
             },
-            onUnbindDevice = { deviceId ->
-                busyUser = user.name
+            onUnbindDevice = { deviceId -> unbindCandidate = user.name to deviceId },
+            onAddToPhone = {
+                sheetProfile?.let { addToPhone(it) }
+            },
+        )
+    }
+
+    unbindCandidate?.let { (userName, deviceId) ->
+        ArdttConfirmDialog(
+            title = "Отвязать устройство?",
+            body = "Устройство $deviceId потеряет доступ к профилю «$userName». " +
+                "Чтобы вернуть его, профиль придётся добавить на устройство заново.",
+            confirmText = "Отвязать",
+            busy = busyUser == userName,
+            onConfirm = {
+                busyUser = userName
                 scope.launch {
-                    val result = ProvisionAdminApi.unbindDevice(base, user.name, deviceId)
+                    val result = ProvisionAdminApi.unbindDevice(base, userName, deviceId)
                     busyUser = null
+                    unbindCandidate = null
                     result.fold(
-                        onSuccess = { replaceUser(user.name, it) },
+                        onSuccess = {
+                            replaceUser(userName, it)
+                            toast("Устройство отвязано")
+                        },
                         onFailure = { toast(it.message ?: "Не удалось отвязать") },
                     )
                 }
             },
-            onAddToPhone = {
-                sheetProfile?.let { addToPhone(it) }
-            },
+            onDismiss = { if (busyUser != userName) unbindCandidate = null },
         )
     }
 }
@@ -868,23 +881,7 @@ private fun ClientCard(
                             Spacer(modifier = Modifier.weight(1f))
                         }
                         if (externalIp.isNotBlank()) {
-                            Surface(
-                                shape = ArdttShapes.Badge,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                            ) {
-                                Text(
-                                    externalIp,
-                                    modifier = Modifier.padding(
-                                        horizontal = ArdttSpacing.Small,
-                                        vertical = 3.dp,
-                                    ),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                            ArdttIpChip(externalIp)
                         }
                     }
                 }
@@ -932,3 +929,6 @@ private fun ClientActionButton(
         contentColor = accent,
     )
 }
+
+/** Background refresh cadence of the client list while it is visible. */
+private const val CLIENTS_POLL_MS = 15_000L

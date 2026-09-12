@@ -3,12 +3,11 @@ package com.ardtt.app.ui.tunnel
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -50,13 +49,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -75,6 +73,7 @@ import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.StoredProfile
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
@@ -83,8 +82,12 @@ import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.nextThemeMode
 import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.ArdttSurface
+import com.ardtt.app.ui.theme.ArdttWallpaperTextShadow
 import com.ardtt.app.ui.themeModeVisualKey
 import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.tunnelPowerBusy
@@ -189,10 +192,51 @@ fun UserTunnelScreen(
         },
         showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state),
         onDismissDonate = { scope.launch { settings.setDonateBannerDismissed(true) } },
+        onAddCallHash = {
+            haptics.tick()
+            PendingUiAction.requestCallHashSettings()
+        },
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/**
+ * Geometry of the illustrated tunnel screen. The ring is the reference size;
+ * every other measure scales with the ring so the control shrinks as one
+ * piece on short viewports (landscape, small phones) instead of overflowing.
+ */
+internal object UserTunnelDefaults {
+    val RingSize: Dp = 198.dp
+    val MinRingSize: Dp = 132.dp
+    val PowerButtonSize: Dp = 180.dp
+    val PowerIconSize: Dp = 72.dp
+    val PauseBarWidth: Dp = 16.dp
+    val PauseBarHeight: Dp = 62.dp
+    val PauseBarRadius: Dp = 10.dp
+    val RingStroke: Dp = 4.dp
+    val StatusMaxWidth: Dp = 320.dp
+
+    /** Share of the viewport height the ring may take in portrait. */
+    const val RingHeightFraction = 0.34f
+
+    /** Share of the viewport height the drone sky occupies. */
+    const val SkyHeightFraction = 0.37f
+    val SkyTopOffset: Dp = ArdttSpacing.LargePlus
+
+    /** Below this height the status block and chips move beside the ring. */
+    val LandscapeMaxHeight: Dp = 480.dp
+
+    const val PulseScaleLit = 1.08f
+    const val PulseAlphaLit = 0.28f
+    const val PulseAlphaIdle = 0.12f
+    const val DroneExitDurationMs = 980L
+
+    fun ringSize(viewportHeight: Dp): Dp =
+        (viewportHeight * RingHeightFraction).coerceIn(MinRingSize, RingSize)
+
+    fun sideBySide(viewportWidth: Dp, viewportHeight: Dp): Boolean =
+        viewportWidth > viewportHeight && viewportHeight < LandscapeMaxHeight
+}
+
 @Composable
 private fun UserTunnelSimpleScreen(
     ui: com.ardtt.app.core.ConnUiState,
@@ -208,8 +252,9 @@ private fun UserTunnelSimpleScreen(
     onConnectionAction: (ConnectionUiAction) -> Unit,
     showDonateBanner: Boolean,
     onDismissDonate: () -> Unit,
+    onAddCallHash: () -> Unit,
 ) {
-    val droneExitDurationMs = 980L
+    val droneExitDurationMs = UserTunnelDefaults.DroneExitDurationMs
     val lifecycleOwner = LocalLifecycleOwner.current
     var animationRestartToken by remember { mutableStateOf(0) }
     var showingBypassScene by remember { mutableStateOf(bypassActive) }
@@ -241,61 +286,30 @@ private fun UserTunnelSimpleScreen(
 
     val connected = ui.state == ConnState.Connected
     val activeItem = catalogItems.find { it.id == activeProfileId } ?: catalogItems.firstOrNull()
-    val modeBadge = themeModeVisualKey(themeMode)
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val ringSize = UserTunnelDefaults.ringSize(maxHeight)
+        val sideBySide = UserTunnelDefaults.sideBySide(maxWidth, maxHeight)
         if (showingBypassScene) {
             WhitelistSkyAnimation(
                 restartToken = animationRestartToken,
                 blowAway = dronesBlowAway,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.37f)
-                    .offset(y = 18.dp)
+                    .fillMaxHeight(UserTunnelDefaults.SkyHeightFraction)
+                    .offset(y = UserTunnelDefaults.SkyTopOffset)
                     .align(Alignment.TopCenter),
             )
         }
-        Surface(
+        ThemeModeBadge(
+            themeMode = themeMode,
+            onClick = onSwitchThemeMode,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(top = ArdttSpacing.Small, end = ArdttSpacing.Medium)
-                .size(ArdttSize.TouchTarget)
-                .combinedClickable(onClick = onSwitchThemeMode),
-            shape = CircleShape,
-            color = ArdttFloatingShell.shellColor(),
-            border = ArdttFloatingShell.shellBorder(),
-            shadowElevation = ArdttFloatingShell.shadowElevation,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                when (modeBadge) {
-                    "light" -> Icon(
-                        imageVector = Icons.Outlined.WbSunny,
-                        contentDescription = "Светлая тема",
-                        tint = Color.White,
-                        modifier = Modifier.size(ArdttSize.IconCompact),
-                    )
-                    "dark" -> Icon(
-                        imageVector = Icons.Outlined.DarkMode,
-                        contentDescription = "Тёмная тема",
-                        tint = Color.White,
-                        modifier = Modifier.size(ArdttSize.IconCompact),
-                    )
-                    else -> Text(
-                        "A",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                    )
-                }
-            }
-        }
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = ArdttSpacing.Large),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
-        ) {
-            Spacer(modifier = Modifier.weight(1f))
+                .padding(top = ArdttSpacing.Small, end = ArdttSpacing.Medium),
+        )
+
+        val powerToggle: @Composable (Modifier) -> Unit = { toggleModifier ->
             TunnelPowerToggle(
                 connected = connected,
                 paused = ui.state == ConnState.PausedTrustedWifi,
@@ -304,10 +318,11 @@ private fun UserTunnelSimpleScreen(
                 enabled = tunnelPowerToggleEnabled(ui.state, ui.connectEnabled),
                 contentDescription = tunnelPowerContentDescription(ui.state, connected),
                 onClick = onToggleTunnel,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .size(198.dp),
+                ringSize = ringSize,
+                modifier = toggleModifier,
             )
+        }
+        val statusBlock: @Composable (Modifier) -> Unit = { blockModifier ->
             UserConnectStatusBlock(
                 state = ui.state,
                 statusMessage = ui.uiModel.message.ifBlank {
@@ -318,16 +333,17 @@ private fun UserTunnelSimpleScreen(
                 hasCallHash = ui.hasCallHash,
                 activePath = ui.activePath,
                 hideIp = ui.hideIp,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
+                modifier = blockModifier,
+                onAddCallHash = onAddCallHash,
             )
+        }
+        val actionChips: @Composable () -> Unit = {
             ConnectionActionChips(
                 actions = tunnelChromeActions(ui.uiModel.actions),
                 onAction = onConnectionAction,
             )
-            if (showDonateBanner) {
-                DonateSupportBanner(onDismiss = onDismissDonate)
-            }
-            Spacer(modifier = Modifier.height(ArdttSpacing.MediumPlus))
+        }
+        val profileBar: @Composable () -> Unit = {
             ProfileSwitcherBar(
                 activeItem = activeItem,
                 canSwitch = catalogItems.size > 1,
@@ -336,6 +352,110 @@ private fun UserTunnelSimpleScreen(
                 onNext = onSelectNextProfile,
                 onOpenProfiles = onOpenProfiles,
             )
+        }
+
+        if (sideBySide) {
+            // Short landscape viewport: the ring keeps the left half, everything
+            // else stacks on the right with the profile bar still at the bottom.
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = ArdttSpacing.Large),
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Large),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .padding(bottom = ArdttBottomChrome.navigationReserve()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    powerToggle(Modifier)
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
+                ) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    statusBlock(Modifier.align(Alignment.CenterHorizontally))
+                    actionChips()
+                    profileBar()
+                }
+            }
+        } else {
+            // Portrait: the main control and the profile switcher stay anchored to
+            // the bottom edge on every height, the sky and badge own the top.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = ArdttSpacing.Large),
+                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
+            ) {
+                Spacer(modifier = Modifier.weight(1f))
+                powerToggle(Modifier.align(Alignment.CenterHorizontally))
+                statusBlock(Modifier.align(Alignment.CenterHorizontally))
+                actionChips()
+                if (showDonateBanner) {
+                    DonateSupportBanner(onDismiss = onDismissDonate)
+                }
+                Spacer(modifier = Modifier.height(ArdttSpacing.MediumPlus))
+                profileBar()
+            }
+        }
+    }
+}
+
+/** Floating theme switch in the top-right corner of the illustrated screen. */
+@Composable
+private fun ThemeModeBadge(
+    themeMode: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shellColor = ArdttFloatingShell.shellColor()
+    // The shell is light in the day scene and dark at night; the glyph must
+    // follow the shell, not assume a dark background.
+    val glyphColor = ArdttSurface.contentColorOn(shellColor)
+    val modeBadge = themeModeVisualKey(themeMode)
+    val label = when (modeBadge) {
+        "light" -> "Тема: светлая. Переключить"
+        "dark" -> "Тема: тёмная. Переключить"
+        else -> "Тема: как в системе. Переключить"
+    }
+    Surface(
+        modifier = modifier
+            .size(ArdttSize.TouchTarget)
+            .clickable(onClick = onClick, role = Role.Button, onClickLabel = label)
+            .semantics { contentDescription = label },
+        shape = CircleShape,
+        color = shellColor,
+        border = ArdttFloatingShell.shellBorder(),
+        shadowElevation = ArdttFloatingShell.shadowElevation,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            when (modeBadge) {
+                "light" -> Icon(
+                    imageVector = Icons.Outlined.WbSunny,
+                    contentDescription = null,
+                    tint = glyphColor,
+                    modifier = Modifier.size(ArdttSize.IconCompact),
+                )
+                "dark" -> Icon(
+                    imageVector = Icons.Outlined.DarkMode,
+                    contentDescription = null,
+                    tint = glyphColor,
+                    modifier = Modifier.size(ArdttSize.IconCompact),
+                )
+                else -> Text(
+                    "A",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = glyphColor,
+                )
+            }
         }
     }
 }
@@ -350,42 +470,35 @@ private fun UserConnectStatusBlock(
     activePath: VpnPath?,
     hideIp: Boolean,
     modifier: Modifier = Modifier,
+    onAddCallHash: (() -> Unit)? = null,
 ) {
-    val connectedLike = state == ConnState.Connected || state == ConnState.PausedTrustedWifi
     val primaryLine = statusMessage.ifBlank { userModeStatusPrimary(state, activePath) }
-    val resolvedDetails = when {
-        !hasCallHash && !connectedLike && (
-            activePath == VpnPath.Bypass ||
-                details?.contains("обход", ignoreCase = true) == true ||
-                details?.contains("звонка", ignoreCase = true) == true ||
-                details?.contains("hash", ignoreCase = true) == true
-            ) ->
-            "Для режима «Обход» добавьте код звонка в настройках."
-        else -> details ?: userModeStatusDetails(state, details, lastError, activePath, hideIp)
+    val needsCallHash = userModeNeedsCallHashHint(state, hasCallHash, activePath, details)
+    val resolvedDetails = if (needsCallHash) {
+        UserTunnelCopy.CALL_HASH_HINT
+    } else {
+        details ?: userModeStatusDetails(state, details, lastError, activePath, hideIp)
     }
-    val statusShadow = Shadow(
-        color = Color.Black.copy(alpha = 0.45f),
-        offset = Offset(0f, 1f),
-        blurRadius = 6f,
-    )
+    // Always painted straight on the wallpaper: light text with the shared shadow.
     val statusTextStyle = MaterialTheme.typography.titleMedium.copy(
         fontWeight = FontWeight.SemiBold,
-        shadow = statusShadow,
+        shadow = ArdttWallpaperTextShadow,
     )
     val detailsTextStyle = MaterialTheme.typography.bodyMedium.copy(
-        shadow = statusShadow,
+        shadow = ArdttWallpaperTextShadow,
     )
     Column(
         modifier = modifier
-            .widthIn(max = 320.dp)
-            .padding(horizontal = ArdttSpacing.SmallPlus),
+            .widthIn(max = UserTunnelDefaults.StatusMaxWidth)
+            .padding(horizontal = ArdttSpacing.SmallPlus)
+            .semantics(mergeDescendants = true) {},
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
     ) {
         Text(
             text = primaryLine,
             style = statusTextStyle,
-            color = Color.White,
+            color = ArdttSurface.LightContent,
             textAlign = TextAlign.Center,
             minLines = 2,
             maxLines = 3,
@@ -394,13 +507,29 @@ private fun UserConnectStatusBlock(
         Text(
             text = resolvedDetails.orEmpty(),
             style = detailsTextStyle,
-            color = Color.White.copy(alpha = if (resolvedDetails != null) 0.92f else 0f),
+            color = ArdttSurface.SoftLightContent.copy(alpha = if (resolvedDetails != null) 1f else 0f),
             textAlign = TextAlign.Center,
             minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        if (needsCallHash && onAddCallHash != null) {
+            // The hint alone left the user without a way forward; this opens the
+            // «Код звонка» card in Settings directly.
+            ArdttButton(
+                text = UserTunnelCopy.ADD_CALL_HASH,
+                onClick = onAddCallHash,
+                variant = ArdttButtonVariant.Tonal,
+                size = ArdttButtonSize.Compact,
+                fillMaxWidth = false,
+            )
+        }
     }
+}
+
+internal object UserTunnelCopy {
+    const val CALL_HASH_HINT = "Для режима «Обход» добавьте код звонка в настройках."
+    const val ADD_CALL_HASH = "Добавить код звонка"
 }
 
 @Composable
@@ -413,34 +542,43 @@ private fun TunnelPowerToggle(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    ringSize: Dp = UserTunnelDefaults.RingSize,
 ) {
     val shellColor = ArdttFloatingShell.shellColor()
+    // Idle glyph follows the shell (light day shell → dark glyph); the lit
+    // session ring keeps its dedicated green.
     val accentColor = if (sessionLit) {
-        Color(0xFF35C759)
+        ArdttColors.SessionLit
     } else {
-        Color.White.copy(alpha = 0.75f)
+        ArdttSurface.contentColorOn(shellColor).copy(alpha = ArdttAlpha.Subtle)
     }
+    val scale = ringSize / UserTunnelDefaults.RingSize
     val pulseScale by animateFloatAsState(
-        targetValue = if (sessionLit) 1.08f else 1f,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        targetValue = if (sessionLit) UserTunnelDefaults.PulseScaleLit else 1f,
+        animationSpec = tween(durationMillis = ArdttMotion.Slow, easing = FastOutSlowInEasing),
         label = "awg_pulse_scale",
     )
     val pulseAlpha by animateFloatAsState(
-        targetValue = if (sessionLit) 0.28f else 0.12f,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        targetValue = if (sessionLit) UserTunnelDefaults.PulseAlphaLit else UserTunnelDefaults.PulseAlphaIdle,
+        animationSpec = tween(durationMillis = ArdttMotion.Slow, easing = FastOutSlowInEasing),
         label = "awg_pulse_alpha",
     )
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+    val stateLabel = when {
+        busy -> "Загрузка"
+        !enabled -> "Недоступно"
+        else -> null
+    }
+    Box(modifier = modifier.size(ringSize), contentAlignment = Alignment.Center) {
         if (busy) {
             CircularProgressIndicator(
-                modifier = Modifier.size(198.dp),
+                modifier = Modifier.size(ringSize),
                 color = accentColor,
-                strokeWidth = 4.dp,
+                strokeWidth = UserTunnelDefaults.RingStroke,
             )
         } else {
             Box(
                 modifier = Modifier
-                    .size(198.dp * pulseScale)
+                    .size(ringSize * pulseScale)
                     .background(
                         color = accentColor.copy(alpha = pulseAlpha),
                         shape = CircleShape,
@@ -449,10 +587,11 @@ private fun TunnelPowerToggle(
         }
         Surface(
             modifier = Modifier
-                .size(180.dp)
+                .size(UserTunnelDefaults.PowerButtonSize * scale)
                 .semantics {
                     role = Role.Button
                     this.contentDescription = contentDescription
+                    stateLabel?.let { stateDescription = it }
                 }
                 .clickable(enabled = enabled, role = Role.Button) {
                     runCatching { onClick() }
@@ -465,29 +604,26 @@ private fun TunnelPowerToggle(
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (paused) {
+                    val barShape = RoundedCornerShape(UserTunnelDefaults.PauseBarRadius * scale)
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
+                        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium * scale),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .width(16.dp)
-                                .height(62.dp)
-                                .background(accentColor, shape = RoundedCornerShape(10.dp)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .width(16.dp)
-                                .height(62.dp)
-                                .background(accentColor, shape = RoundedCornerShape(10.dp)),
-                        )
+                        repeat(2) {
+                            Box(
+                                modifier = Modifier
+                                    .width(UserTunnelDefaults.PauseBarWidth * scale)
+                                    .height(UserTunnelDefaults.PauseBarHeight * scale)
+                                    .background(accentColor, shape = barShape),
+                            )
+                        }
                     }
                 } else {
                     Icon(
                         imageVector = Icons.Default.PowerSettingsNew,
                         contentDescription = null,
                         tint = accentColor,
-                        modifier = Modifier.size(72.dp),
+                        modifier = Modifier.size(UserTunnelDefaults.PowerIconSize * scale),
                     )
                 }
             }

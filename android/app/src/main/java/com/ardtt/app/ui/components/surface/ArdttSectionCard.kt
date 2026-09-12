@@ -104,6 +104,28 @@ fun ArdttSectionCard(
 }
 
 /**
+ * [ArdttSectionCard] preset for a settings group: section title, helper
+ * text and switch / chip rows. Settings, the tunnel «Параметры подключения»
+ * card and the update card used to repeat the same two overrides.
+ */
+@Composable
+fun ArdttSettingsCard(
+    modifier: Modifier = Modifier,
+    border: BorderStroke? = null,
+    verticalArrangement: Arrangement.Vertical =
+        Arrangement.spacedBy(ArdttLayout.SettingsCardSpacing),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    ArdttSectionCard(
+        modifier = modifier,
+        contentPadding = ArdttLayout.SettingsCardPadding,
+        verticalArrangement = verticalArrangement,
+        border = border,
+        content = content,
+    )
+}
+
+/**
  * Denser [ArdttSectionCard] preset for identity rows: servers, clients,
  * profiles. Replaces the five-argument boilerplate those lists used to repeat.
  */

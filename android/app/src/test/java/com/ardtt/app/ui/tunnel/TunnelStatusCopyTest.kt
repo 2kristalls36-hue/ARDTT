@@ -3,6 +3,8 @@ package com.ardtt.app.ui.tunnel
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.VpnPath
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TunnelStatusCopyTest {
@@ -120,5 +122,15 @@ class TunnelStatusCopyTest {
                 activePath = VpnPath.Bypass,
             ),
         )
+    }
+
+    @Test
+    fun callHashHintOnlyWhenBypassWantedAndNoSession() {
+        assertTrue(userModeNeedsCallHashHint(ConnState.Ready, hasCallHash = false, activePath = VpnPath.Bypass, details = null))
+        assertTrue(userModeNeedsCallHashHint(ConnState.Error, hasCallHash = false, activePath = null, details = "Нужен код звонка"))
+        assertFalse(userModeNeedsCallHashHint(ConnState.Ready, hasCallHash = true, activePath = VpnPath.Bypass, details = null))
+        assertFalse(userModeNeedsCallHashHint(ConnState.Connected, hasCallHash = false, activePath = VpnPath.Bypass, details = null))
+        assertFalse(userModeNeedsCallHashHint(ConnState.PausedTrustedWifi, hasCallHash = false, activePath = VpnPath.Bypass, details = null))
+        assertFalse(userModeNeedsCallHashHint(ConnState.Ready, hasCallHash = false, activePath = VpnPath.Direct, details = "Прямое соединение"))
     }
 }

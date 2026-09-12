@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
@@ -23,8 +24,8 @@ import com.ardtt.app.ui.theme.ArdttSpacing
 private object OverflowMenuDefaults {
     val ItemPadding = PaddingValues(horizontal = ArdttSpacing.LargePlus)
 
-    /** Disabled label / icon opacity, matching the dialog text buttons. */
-    const val DisabledAlpha = 0.42f
+    /** Disabled label / icon opacity — the same step as disabled buttons and chips. */
+    const val DisabledAlpha = ArdttAlpha.Disabled
 }
 
 /** Shared ⋮ menu chrome — same sheet on Profiles and Servers. */

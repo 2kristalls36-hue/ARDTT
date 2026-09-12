@@ -97,6 +97,19 @@ object ArdttNavPlan {
     fun diagnosticsRoute(admin: Boolean): String =
         if (admin) AppDestination.Diagnostics.route else AppDestination.Logs.route
 
+    /**
+     * Where the system Back gesture leads from [currentRoute].
+     *
+     * A nested route (Network, Logs / Testing under Diagnostics, Deploy under
+     * Servers, Exceptions under Settings for admin) returns to its parent tab —
+     * the same place as the header «Назад» — instead of falling through to
+     * Tunnel. Root tabs return `null`: default back-stack behaviour applies.
+     */
+    fun backTarget(currentRoute: String, admin: Boolean): String? {
+        val parent = parentTab(currentRoute, admin)
+        return parent.takeIf { it != currentRoute }
+    }
+
     fun navBadgeRoute(admin: Boolean, isRecording: Boolean): String? {
         if (!isRecording) return null
         return if (admin) AppDestination.Diagnostics.route else AppDestination.Logs.route

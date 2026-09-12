@@ -15,21 +15,23 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.ardtt.app.ui.themeModeIsDark
 
-/** How strongly the sampled wallpaper color tints the base palette. */
-private const val WALLPAPER_TINT = 0.4f
-
 /** Light navigation bars sit between background and surface. */
 private const val NAV_BAR_TINT = 0.55f
 
+/**
+ * Base theme: light / dark scheme by [themeMode] plus system bars.
+ *
+ * Wallpaper-driven tinting is not done here — `AppRoot` applies
+ * [wallpaperAdaptedColorScheme] on top of this scheme, so there is exactly one
+ * accent-blend formula in the app.
+ */
 @Composable
 fun ArdttTheme(
     themeMode: String = "system",
-    wallpaperAvgColor: Color? = null,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = themeModeIsDark(themeMode, isSystemInDarkTheme())
-    val baseScheme = if (darkTheme) ArdttDarkColorScheme else ArdttLightColorScheme
-    val colorScheme = wallpaperAvgColor?.let { baseScheme.tintedBy(it) } ?: baseScheme
+    val colorScheme = if (darkTheme) ArdttDarkColorScheme else ArdttLightColorScheme
 
     ApplySystemBars(colorScheme = colorScheme, darkTheme = darkTheme)
 
@@ -39,17 +41,6 @@ fun ArdttTheme(
         content = content,
     )
 }
-
-/** Soft accent pass so chrome picks up the wallpaper without losing contrast. */
-private fun ColorScheme.tintedBy(accent: Color): ColorScheme = copy(
-    primary = lerp(primary, accent, WALLPAPER_TINT),
-    primaryContainer = lerp(primaryContainer, accent, WALLPAPER_TINT),
-    secondary = lerp(secondary, accent, WALLPAPER_TINT * 0.8f),
-    secondaryContainer = lerp(secondaryContainer, accent, WALLPAPER_TINT * 0.8f),
-    tertiary = lerp(tertiary, accent, WALLPAPER_TINT * 0.6f),
-    tertiaryContainer = lerp(tertiaryContainer, accent, WALLPAPER_TINT * 0.6f),
-    surfaceTint = lerp(surfaceTint, accent, WALLPAPER_TINT),
-)
 
 @Composable
 private fun ApplySystemBars(colorScheme: ColorScheme, darkTheme: Boolean) {

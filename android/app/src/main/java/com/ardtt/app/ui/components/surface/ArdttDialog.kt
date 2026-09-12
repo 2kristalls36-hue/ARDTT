@@ -149,6 +149,52 @@ fun ArdttDialog(
     }
 }
 
+/**
+ * Yes / no gate before an irreversible or session-changing action: clearing
+ * logs, deleting a profile or recording, unbinding a device, ending a session.
+ * One body text, one primary action (Danger when [destructive]) and «Отмена».
+ */
+@Composable
+fun ArdttConfirmDialog(
+    title: String,
+    body: String,
+    confirmText: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    destructive: Boolean = true,
+    busy: Boolean = false,
+    dismissText: String = ArdttDialogDefaults.CANCEL,
+) {
+    ArdttDialog(
+        title = title,
+        onDismissRequest = onDismiss,
+        confirmAction = ArdttDialogAction(
+            text = confirmText,
+            onClick = onConfirm,
+            enabled = !busy,
+            destructive = destructive,
+        ),
+        dismissAction = ArdttDialogAction(
+            text = dismissText,
+            onClick = onDismiss,
+            enabled = !busy,
+        ),
+        dismissOnBackPress = !busy,
+        dismissOnClickOutside = !busy,
+    ) {
+        Text(
+            body,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+object ArdttDialogDefaults {
+    const val CANCEL = "Отмена"
+    const val DELETE = "Удалить"
+}
+
 @Composable
 private fun DialogConfirmAction(action: ArdttDialogAction) {
     ArdttButton(

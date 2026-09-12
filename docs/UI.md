@@ -16,24 +16,93 @@ ui/
 │   │                       ArdttChrome
 │   ├── ArdttColors.kt      светлая/тёмная схемы, семантические цвета, обои → палитра
 │   ├── ArdttSurface.kt     единственная проверка «тёмная ли поверхность» и заливки
-│   ├── ArdttBackdropTone.kt  цвета поверх иллюстрированных обоев
-│   ├── ArdttTypography.kt  Inter + шкала
-│   └── ArdttTheme.kt       ArdttTheme() и системные панели
+│   ├── ArdttBackdropTone.kt  цвета и тень текста поверх иллюстрированных обоев
+│   ├── ArdttTypography.kt  Inter + шкала, ArdttTerminalTextStyle / ArdttTerminalLabelStyle
+│   └── ArdttTheme.kt       ArdttTheme() и системные панели (без wallpaper-tint — он в AppRoot)
 ├── components/     # дизайн-система
 │   ├── layout/     каркас: ArdttFeedScaffold, ArdttLazyFeedScaffold, ArdttScrollChrome,
 │   │               ArdttPageHeader, ArdttNavigationBar,
-│   │               ArdttBottomChrome, ArdttStickyBottomBar, ArdttPullRefresh, ArdttBackdrop
-│   ├── surface/    контейнеры: ArdttSectionCard, ArdttCompactCard, ArdttDialog,
-│   │               ArdttBottomSheet, ArdttLinkShareDialog, ArdttQrCode,
-│   │               ArdttTerminalCard, ArdttFloatingShell, ArdttSectionTitle
-│   ├── control/    ввод: ArdttChoiceChip(+Row), настроечные чипы, ArdttSwitchRow,
-│   │               ArdttSettingBlock, ArdttButton, ArdttPrimaryButton, ArdttOverflowMenu, ArdttHaptics
-│   └── feedback/   состояние: ArdttStatusChip/Pill/Dot, ArdttEmptyState/LoadingState/
-│                   ErrorState, ArdttInlineFactRow, ArdttStackedFactRow, ArdttCopyRow,
-│                   ArdttLinearProgress, ArdttPingDot
+│   │               ArdttBottomChrome, ArdttStickyBottomBar, ArdttPullRefresh, ArdttBackdrop,
+│   │               ArdttDestinationRow
+│   ├── surface/    контейнеры: ArdttSectionCard, ArdttSettingsCard, ArdttCompactCard,
+│   │               ArdttDialog, ArdttConfirmDialog, ArdttBottomSheet, ArdttLinkShareDialog,
+│   │               ArdttQrCode, ArdttTerminalCard, ArdttFloatingShell, ArdttSectionTitle,
+│   │               ArdttLeadingIcon
+│   ├── control/    ввод: ArdttButton, ArdttPrimaryButton, ArdttChoiceChip(+Row),
+│   │               настроечные чипы, ArdttSwitchRow, ArdttCheckboxRow, ArdttSettingBlock,
+│   │               ArdttTextField / ArdttPasswordField / ArdttDigitsField,
+│   │               ArdttOverflowMenu, ArdttHaptics
+│   └── feedback/   состояние: ArdttStatusChip/Pill/Dot, ArdttIpChip/ArdttIpHostRow,
+│                   ArdttEmptyState/LoadingState/ErrorState, ArdttInlineFactRow,
+│                   ArdttStackedFactRow, ArdttCopyRow, ArdttLinearProgress, ArdttPingDot
 ├── util/           ClipboardActions.kt — копирование, вставка, «Поделиться»
 └── admin · settings · tunnel · profiles · exceptions · telemetry   # экраны
 ```
+
+## Реестр компонентов
+
+Единый список: прежде чем писать `Surface`, `OutlinedTextField`, `Switch`, `Checkbox`
+или `Text(titleSmall, SemiBold)` на экране — проверить таблицу. Новый общий элемент
+добавляется сюда и в структуру выше, а не остаётся приватным в экране.
+
+| Компонент | Роль | Где используется |
+|-----------|------|------------------|
+| `ArdttButton` (`Primary` / `Tonal` / `Outlined` / `Text` / `Danger` / `Icon`) | все кнопки; `busy`, `enabled`, единый disabled | везде |
+| `ArdttPrimaryButton` | полноширинный CTA (sticky) | Туннель, Профили, Клиенты, Тестирование |
+| `ArdttChoiceChipRow` / `ArdttChoiceChip` | сегментный выбор одного из N (radio-семантика) | режим/адрес/тема (Настройки, Туннель), панели Тестирование и Обход, ЧС/БС |
+| `PathModeChipRow`, `HideIpChipRow`, `DialPathChipRow`, `ThemeModeChipRow` | готовые ряды чипов над `ArdttChoiceChipRow` | Настройки, Туннель |
+| `ArdttSwitchRow` | заголовок + подзаголовок + Switch, одна toggleable-нода | Настройки, Туннель, Деплой, Обход |
+| `ArdttCheckboxRow` | Checkbox + подпись, одна toggleable-нода | соглашение тестирования, выбор серверов |
+| `ArdttSettingBlock` | заголовок + подзаголовок + произвольный контрол | Настройки, Туннель |
+| `ArdttTextField` / `ArdttPasswordField` / `ArdttDigitsField` | единственный текстовый ввод; пароль с показом; цифры с числовой клавиатурой | Деплой, Клиенты, Профили, Журнал, Тестирование, код звонка |
+| `ArdttOverflowMenu` / `ArdttOverflowMenuItem` | меню ⋮ | Профили, Серверы, Журнал |
+| `ArdttSectionCard` | базовая карточка | все ленты |
+| `ArdttSettingsCard` | пресет карточки настроек (Large / SmallPlus) | Настройки |
+| `ArdttCompactCard` | плотная карточка списка | Серверы, Клиенты, Профили |
+| `ArdttSectionTitle`, `ArdttLeadingIcon` | заголовок блока, квадратная иконка | карточки, ряды |
+| `ArdttDialog` | нижний лист с действиями | все диалоги |
+| `ArdttConfirmDialog` | подтверждение необратимого / меняющего сессию действия | очистка журнала, удаление профиля/записи/клиента, отвязка устройства, выход из admin, выход из VK |
+| `ArdttBottomSheet` | прокручиваемый лист без кнопок | добавление профиля, настройки клиента |
+| `ArdttLinkShareDialog`, `ArdttQrCode` | ссылка + QR | профиль, сервер |
+| `ArdttTerminalCard` | монотекст лога | прогресс деплоя |
+| `ArdttFeedScaffold` / `ArdttLazyFeedScaffold` / `ArdttScrollChrome` | каркас экрана | все вкладки |
+| `ArdttTabHeader` / `ArdttFeedHeader` / `ArdttPageHeader` | шапка | все вкладки |
+| `ArdttNavigationBar` | нижняя панель | `AppRoot` |
+| `ArdttStickyBottomBar`, `ArdttBottomChrome` | закреплённые действия снизу | Туннель, Профили, Клиенты, Диагностика, Тестирование |
+| `ArdttDestinationRow` | строка-переход с шевроном | Настройки, Диагностика, Серверы |
+| `ArdttPullRefresh` / `rememberPullRefresh` | обновление жестом | ленты |
+| `ArdttEmptyState` / `ArdttLoadingState` / `ArdttErrorState` | состояния экрана | Профили, Обход, Клиенты, Журнал, Тестирование |
+| `ArdttStatusChip` / `ArdttStatusPill` / `ArdttStatusDot` / `ArdttIpChip` / `ArdttIpHostRow` | статусы и адреса | списки |
+| `ArdttInlineFactRow` / `ArdttStackedFactRow` / `ArdttCopyRow` | факт + значение | статус туннеля, листы |
+| `ArdttLinearProgress`, `ArdttPingDot` | прогресс, пинг | деплой, сеть |
+| `rememberArdttHaptics`, `RisingEdgeSuccessHaptic` | тактильный отклик | кнопки, подключение |
+
+Экранные приватные виджеты, осознанно не поднятые в дизайн-систему (одно место
+использования): `AdminUnlockSlider` (ворота admin), `UpdateFillButton` (кнопка с
+заливкой прогресса), `TunnelPowerToggle` / `ThemeModeBadge` / `ProfileSwitcherBar`
+(иллюстрированный туннель), `BypassSearchBar`, `HopConnector`, `ServerOsBadge`.
+
+## Реестр токенов
+
+| Объект | Что задаёт |
+|--------|------------|
+| `ArdttSpacing` | шаговая шкала отступов `None … XXXLarge` |
+| `ArdttLayout` | роли шагов: `ScreenPadding`, `FeedSpacing`, `CardPadding`, `CardSpacing`, `SettingsCardPadding`, `SettingsCardSpacing`, `CompactCardPadding`, `ListSpacing`, `ControlSpacing`, `DialogPadding`, `SheetPadding` |
+| `ArdttRadius` / `ArdttShapes` | радиусы и формы по типу поверхности (`Badge … Section`, `Field`, `Pill`, `Sheet`) |
+| `ArdttElevation` | `None`, `Low`, `Card`, `Raised`, `Floating`, `FloatingDark` |
+| `ArdttSize` | размеры контролов и глифов: иконки, спиннеры, `Chip`/`ChipCompact`, `Button`/`ButtonCompact`/`ButtonCluster`, `TouchTarget`, `NavTrack`/`NavZone`, `Border`/`Contour`/`Stroke`, `RecordingFrame` |
+| `ArdttAlpha` | роли прозрачности: `Contour`, `Fill`, `FillSoft`, `Outline`, `Divider`, `Shadow`, `Disabled`, `DisabledContainer`, `Muted`, `Subtle`, `Strong` |
+| `ArdttMotion` | длительности `Quick … Pulse` |
+| `ArdttChrome` | blur/fade верхней панели |
+| `ArdttColors` | семантика вне `ColorScheme`: `Connected`/`Warning` (+ `On*`, `*OnLight`/`*OnDark`), `SessionLit`, `Recording`, `PathDirect`/`PathBypass`, `Terminal*` |
+| `ArdttSurface` | `isDark`, `contentColorOn`, `contrastRatio`, заливки карточек и «стекла» |
+| `ArdttWallpaperTextShadow` | единственная тень текста прямо на обоях |
+| `ArdttTerminalTextStyle` / `ArdttTerminalLabelStyle` | монотекст лога и метка уровня |
+
+Экранные `*Defaults`-объекты (`UserTunnelDefaults`, `SettingsDefaults`,
+`AdminUnlockDefaults`, `TunnelPollDefaults`, `ServerOsBadgeDefaults`) держат
+разовую геометрию и интервалы рядом с местом использования, с именем — литерал в
+вызове недопустим.
 
 ## Нейминг
 
@@ -51,20 +120,40 @@ ui/
 
 Роль контролов задаётся общим компонентом, не копией на экране.
 
-| Экран | Каркас | Кнопки / действия |
-|-------|--------|-------------------|
-| Туннель | свой layout + wallpaper | питание (`ConnectionControls`), Connecting → отмена, центр профиля → импорт/управление |
-| Сеть | `ArdttFeedScaffold` | обновление в заголовке, «Повторить» на hop-карточке |
-| Серверы / деплой | `ArdttScrollChrome` | `ArdttButton` сохранить / установить / назад |
-| Клиенты | `ArdttScrollChrome` + sticky CTA | `ArdttButton` создать / лимит / вкл.; лист `ClientSettingsSheet` |
-| Профили | `ArdttLazyFeedScaffold` | «Добавить», карточки с ключом `id` |
-| Обход | `ArdttScrollChrome` | поиск, «Очистить поиск», «Добавить» |
-| Логи | `ArdttScrollChrome` | follow / к последним / поиск / уровень (`LogsCatalog`) |
-| Диагностика | `ArdttFeedScaffold` + sticky | «Сеть» / «Журнал» / «Тестирование» снизу над таб-баром |
-| Настройки | `ArdttFeedScaffold` | `ArdttButton` Wi‑Fi, админ-сессия, код звонка |
-| Тестирование | `ArdttScrollChrome` | запись, отправка, история |
+| Экран | Режим | Каркас | Кнопки / действия | Диалоги / листы |
+|-------|-------|--------|-------------------|-----------------|
+| Туннель (иллюстрированный) | user | `BoxWithConstraints`: кольцо + статус + чипы + переключатель профиля снизу; short-landscape → кольцо слева | питание (`ConnectionControls`), Connecting → отмена, «Добавить код звонка», центр профиля → импорт/управление, бейдж темы | — |
+| Туннель (панель) | admin, user classic | `ArdttFeedScaffold` + sticky CTA | подключить/остановить, чипы режима/адреса, Wi‑Fi | `BypassMethodDialog` |
+| Профили | оба | `ArdttLazyFeedScaffold` + sticky «Добавить» | выбрать (radio), ⋮ подключить/копировать/поделиться/переименовать/удалить | `ProfileAddSheet`, подписка / ручной ввод / переименование, `ArdttConfirmDialog` удаления, `ProfileShareDialog` |
+| Обход | user — вкладка; admin — из Настроек | `ArdttScrollChrome` + плавающий поиск | панель Приложения/Правила (`ArdttChoiceChipRow`), ЧС/БС, системные приложения, «Очистить» | подтверждение очистки правил |
+| Журнал | user — вкладка; admin — из Диагностики | `ArdttScrollChrome` | очистить (с подтверждением) / копировать / поделиться, поиск, уровень, автопрокрутка, «К последним» | `ArdttConfirmDialog` |
+| Настройки | оба; admin-блоки скрыты у user | `ArdttFeedScaffold` | чипы режима/адреса/темы, свитчи, Wi‑Fi, слайдер admin / «Завершить сессию» | соглашение тестирования, подтверждение выхода из admin, код звонка, подтверждение выхода из VK |
+| Серверы → карточка → Клиенты / Деплой | admin | `ArdttScrollChrome` (+ sticky CTA) | список: «Добавить сервер», экспорт/импорт; карточка: клиенты / обновить / удалить / деинсталляция; деплой: сохранить / установить / назад | `DeployProgressSheet`, переименование, удаление/переустановка, `ClientSettingsSheet`, лимиты, `ArdttConfirmDialog` отвязки |
+| Диагностика | admin | `ArdttFeedScaffold` + sticky | «Сеть» / «Журнал» / «Тестирование» снизу над таб-баром | — |
+| Сеть | admin (из Диагностики) | `ArdttFeedScaffold` | обновление в заголовке, «Повторить» на hop-карточке | — |
+| Тестирование | оба, при включённом режиме (из Диагностики / Журнала / Настроек) | `ArdttScrollChrome` + sticky «Начать/Остановить запись» | панели Хранилище/История, отправить / удалить (с подтверждением) | комментарий к логу, `ArdttConfirmDialog` удаления |
 
 Вложенный `Deploy` открывается с Серверов, не вкладка. «Ещё» нет: пять основных пунктов, редко используемые экраны — вложенные маршруты.
+
+## Режимы: пользователь и администратор
+
+Один флаг — `AppSettingsRepository.isAdminUnlocked`; `AppRoot` читает его один раз
+в `SessionChromeFlags` и передаёт экранам параметром (`isAdmin`), чтобы первый кадр
+не мигал чужим режимом.
+
+- Вход: слайдер `AdminUnlockSlider` в карточке «Описание и доступ» (жест, действие
+  TalkBack «Активировать», Enter/DPAD на фокусе). Выход: кнопка «Завершить сессию
+  администратора» → `ArdttConfirmDialog` с перечислением последствий.
+- Текущий режим виден в подзаголовке Настроек (`AdminModeCopy.modeSubtitle`).
+- Набор вкладок задаёт `ArdttNavPlan.primary(admin, …)`; admin-маршруты (`Servers`,
+  `Diagnostics`, `Network`) перечислены в `AppDestination.adminOnly`. Если админ выключен,
+  пока открыт admin-экран, `AppRoot` уводит на Туннель (`LaunchedEffect(admin, …, currentRoute)`).
+- Admin-only элементы **скрываются** (`if (admin)`), не блокируются: свитчи «Скрыть
+  быстрые настройки» и «Кнопки во время соединения», `DialPathChipRow`, ссылка
+  «Правила обхода» в Настройках, статус-панель туннеля с IP/узлами, подробные логи.
+- User-only: иллюстрированный туннель с обоями и «Классический вид» (админ всегда на
+  панельном туннеле). Обход и Журнал у пользователя — вкладки, у админа — вложенные
+  маршруты из Настроек / Диагностики; содержимое одно и то же.
 
 ## Токены
 
@@ -108,6 +197,29 @@ ui/
 Круглая кнопка питания туннеля сохраняет свою форму; цвета и доступность — из
 той же системы.
 
+Disabled считается в одном месте (`ardttDisabledButtonColors`): залитые варианты
+уходят в `ArdttAlpha.DisabledContainer` и держат подпись на `Subtle`, контурные /
+текстовые / иконочные — подпись на `ArdttAlpha.Disabled`. Тот же `Disabled` у пунктов
+меню, приглушённых чипов и подписей выключенных `ArdttSwitchRow`. Явный
+`containerColor` вызывающей стороны (замок переключателя профилей) не переопределяется.
+`Icon`-вариант наследует `LocalContentColor`, если `contentColor` не задан.
+
+## Подтверждения
+
+Необратимое или меняющее сессию действие идёт через `ArdttConfirmDialog` с текстом
+последствий: очистка журнала, удаление профиля / записи телеметрии / клиента /
+карточки сервера, деинсталляция, отвязка устройства, выход из режима администратора,
+выход из сессии ВКонтакте. Пока операция идёт, `busy = true` блокирует обе кнопки и
+закрытие. Отключение туннеля, удаление доверенной сети Wi‑Fi и сброс фильтра
+подтверждения не требуют: они обратимы одним касанием.
+
+## Ввод
+
+`ArdttTextField` — единственный текстовый ввод (форма `Field`, полная ширина, одна
+строка по умолчанию, прокрутка к полю при фокусе). `ArdttPasswordField` добавляет
+переключатель видимости, `ArdttDigitsField` — цифровую клавиатуру и фильтр цифр с
+`maxLength`. Ошибка ввода — `isError` + `supportingText` в самом поле.
+
 ## Цвета и контраст
 
 Ориентир WCAG 2.2: текст и подписи кнопок ≥ 4,5:1, значимые нетекстовые контуры
@@ -129,6 +241,16 @@ ui/
 `testing`, `exceptions`, карточка сервера) выделяет родительскую вкладку.
 Повторный выбор вкладки и admin/testing-ограничения не менялись; включение
 тестирования не перестраивает набор вкладок.
+
+Системная кнопка «Назад» на вложенном маршруте ведёт туда же, куда стрелка в шапке:
+`ArdttNavPlan.backTarget(route, admin)` → `BackHandler` в `AppRoot`. Корневые
+вкладки оставляют стандартный стек (→ Туннель → выход). Экранные `BackHandler`
+(блокировка ухода во время деплоя, выход из режима выбора) регистрируются позже и
+имеют приоритет.
+
+Deep-link в Настройки (`PendingUiAction.openCallHashSettings` / `openUpdateDownload` /
+`openAppearanceSettings`) один сценарий: прокрутка к карточке + вспышка контура
+(`revealSection`).
 
 ## Верхняя панель (`ArdttScrollChrome`)
 
@@ -174,7 +296,39 @@ Pull-to-refresh и нижние закреплённые действия (`stic
 Минимальная область касания 48×48 dp (`ArdttSize.TouchTarget`). Шапка
 (`ArdttHeaderDefaults.TitleRowHeight`) совпадает с этим минимумом. Disabled-контроль
 не должен быть единственным путём без объяснения: Connecting остаётся доступным
-для отмены; пустой каталог ведёт к импорту.
+для отмены; пустой каталог ведёт к импорту; подсказка «добавьте код звонка» имеет
+кнопку.
+
+Одно действие — одна нода: `ArdttSwitchRow` и `ArdttCheckboxRow` делают toggleable
+всю строку (`Role.Switch` / `Role.Checkbox`), сам `Switch`/`Checkbox` без обработчика;
+строка приложения в Обходе устроена так же. Сегментные чипы — `selectableGroup` +
+`Role.RadioButton` + `selected`; карточка профиля — `selectable` с `Role.RadioButton`.
+Чисто декоративные элементы (соединитель hop-карточек, скелетон) — `clearAndSetSemantics {}`.
+Жестовый контрол обязан иметь альтернативу: у слайдера admin — `CustomAccessibilityAction`
+и Enter/DPAD-center на фокусе. Клавиатура: Tab обходит `clickable`/`toggleable`/кнопки
+штатно, Enter активирует, Esc/Back закрывает `ArdttDialog`/`ArdttBottomSheet`.
+
+## Адаптивность
+
+Главный контрол и ключевые действия — снизу и достижимы на любой высоте: sticky CTA
+над таб-баром, кольцо питания и переключатель профиля прижаты к низу `Spacer(weight)`.
+Иллюстрированный туннель масштабирует кольцо от высоты окна
+(`UserTunnelDefaults.ringSize`, 132–198 dp) и в коротком landscape раскладывает
+кольцо и статус рядом (`sideBySide`). Длинные значения — `maxLines` + `Ellipsis`
+(имена серверов/профилей/приложений, заголовок hop-карточки); ряды чипов профилей —
+`horizontalScroll`. Фиксированные ширины допустимы только как `widthIn(max)`.
+
+## Производительность
+
+- Опросы (`while (true) { delay }`) оборачиваются в `repeatOnLifecycle(STARTED)`:
+  статус туннеля, здоровье сервера, список клиентов, история тестирования, аптайм.
+- Пассивная проверка обновлений при входе в Настройки объединяется на
+  `BACKGROUND_CHECK_INTERVAL_MS`; pull-to-refresh идёт мимо троттла.
+- Пакетные результаты (`probeAll`) пишутся в состояние один раз, не по одному.
+- Списки — `LazyColumn` со стабильными `key`; фильтрация — `remember(keys)` /
+  `derivedStateOf`; тяжёлые данные (иконки приложений) грузятся один раз на IO и кэшируются.
+- Экран не читает `collectAsState(false)` для флагов, которые уже есть у `AppRoot`
+  (`isAdmin`, `classicAppearance`) — иначе первый кадр мигает чужим режимом.
 
 ## Тёмная тема
 

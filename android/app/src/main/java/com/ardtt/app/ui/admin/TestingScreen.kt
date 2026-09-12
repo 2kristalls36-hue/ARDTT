@@ -22,8 +22,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,8 +48,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.ardtt.app.BuildConfig
+import com.ardtt.app.ui.AppDestination
 import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.telemetry.TESTING_AUTHOR_REPLY_TITLE
@@ -71,6 +75,8 @@ import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttChoice
 import com.ardtt.app.ui.components.control.ArdttChoiceChipRow
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
+import com.ardtt.app.ui.components.control.ArdttTextField
+import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
@@ -80,8 +86,10 @@ import com.ardtt.app.ui.components.layout.ArdttStickyBottomBar
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
+import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttDialogDefaults
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttLayout
@@ -123,8 +131,10 @@ fun TestingScreen(
     var editingSubmit by remember { mutableStateOf(false) }
     var draftsReady by remember { mutableStateOf(false) }
     var tickets by remember { mutableStateOf<List<TestingTicket>>(emptyList()) }
+    var deleteCandidate by remember { mutableStateOf<TelemetryLogEntry?>(null) }
     val latestComments = rememberUpdatedState(comments)
     val inboxLock = remember { Mutex() }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -212,11 +222,14 @@ fun TestingScreen(
         draftsReady = true
     }
 
-    LaunchedEffect(pane, uploadUrl) {
+    LaunchedEffect(pane, uploadUrl, lifecycleOwner) {
         if (pane != TestingPane.History) return@LaunchedEffect
-        while (true) {
-            refreshInbox()
-            delay(INBOX_POLL_MS)
+        // History polls the server only while the screen is visible.
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                refreshInbox()
+                delay(INBOX_POLL_MS)
+            }
         }
     }
 
@@ -341,7 +354,8 @@ fun TestingScreen(
         ArdttScrollChrome(
             header = {
                 ArdttTabHeader(
-                    title = "Режим тестирования",
+                    // Same word as the Diagnostics row and the Settings link that lead here.
+                    title = AppDestination.Testing.label,
                     subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
                     onBack = onBack,
                 )
@@ -403,13 +417,7 @@ fun TestingScreen(
                             editingLog = entry.file.name
                             editingSubmit = false
                         },
-                        onDelete = {
-                            scope.launch {
-                                withContext(Dispatchers.IO) { fileManager.delete(entry.file) }
-                                dropLogComment(entry.file.name)
-                                refreshLogs()
-                            }
-                        },
+                        onDelete = { deleteCandidate = entry },
                         onUpload = { beginSubmit(entry) },
                     )
                 }
@@ -483,6 +491,24 @@ fun TestingScreen(
             },
         )
     }
+
+    deleteCandidate?.let { entry ->
+        ArdttConfirmDialog(
+            title = "Удалить запись?",
+            body = "Файл ${entry.file.name} (${formatSize(entry.sizeBytes)}) будет удалён с устройства. " +
+                "Если он ещё не отправлен, восстановить его будет нельзя.",
+            confirmText = ArdttDialogDefaults.DELETE,
+            onConfirm = {
+                deleteCandidate = null
+                scope.launch {
+                    withContext(Dispatchers.IO) { fileManager.delete(entry.file) }
+                    dropLogComment(entry.file.name)
+                    refreshLogs()
+                }
+            },
+            onDismiss = { deleteCandidate = null },
+        )
+    }
     }
 }
 
@@ -513,20 +539,18 @@ private fun LogCommentSheet(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
+        ArdttTextField(
             value = comment,
             onValueChange = { onCommentChange(it.take(TestingTicketStore.MAX_COMMENT)) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester),
-            label = { Text("Что произошло") },
-            placeholder = { Text("Например: после смены Wi‑Fi туннель не восстановился…") },
+            modifier = Modifier.focusRequester(focusRequester),
+            label = "Что произошло",
+            placeholder = "Например: после смены Wi‑Fi туннель не восстановился…",
+            singleLine = false,
             minLines = 3,
             maxLines = 8,
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences,
             ),
-            shape = ArdttShapes.Field,
         )
     }
 }
@@ -609,24 +633,20 @@ private fun TicketRow(ticket: TestingTicket) {
 
 @Composable
 private fun EmptyLogsBlock() {
-    ArdttCompactCard {
-        Text(
-            "Запись запускается кнопкой внизу экрана. После остановки файл появится здесь — его можно отправить или удалить.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    ArdttEmptyState(
+        title = "Записей пока нет",
+        description = "Запись запускается кнопкой внизу экрана. После остановки файл появится здесь — его можно отправить или удалить.",
+        icon = Icons.Outlined.Science,
+    )
 }
 
 @Composable
 private fun EmptyHistoryBlock() {
-    ArdttCompactCard {
-        Text(
-            "После отправки файл пропадает из хранилища и попадает сюда с номером, который выдаёт сервер. Когда автор откроет лог, обращение помечается как прочитанное. Когда разбор закончится, здесь появится ответ автора.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    ArdttEmptyState(
+        title = "Отправленных файлов пока нет",
+        description = "После отправки файл пропадает из хранилища и попадает сюда с номером, который выдаёт сервер. Когда автор откроет лог, обращение помечается как прочитанное. Когда разбор закончится, здесь появится ответ автора.",
+        icon = Icons.AutoMirrored.Outlined.Send,
+    )
 }
 
 @Composable

@@ -2,12 +2,10 @@ package com.ardtt.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,11 +13,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.legal.TestingModeAgreement
+import com.ardtt.app.ui.components.control.ArdttCheckboxRow
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -44,7 +42,10 @@ fun TestingModeAgreementDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 160.dp, max = 380.dp)
+                .heightIn(
+                    min = AgreementDialogDefaults.MinBodyHeight,
+                    max = AgreementDialogDefaults.MaxBodyHeight,
+                )
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.MediumPlus),
         ) {
@@ -63,19 +64,16 @@ fun TestingModeAgreementDialog(
                 }
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Checkbox(
-                checked = accepted,
-                onCheckedChange = { accepted = it },
-            )
-            Text(
-                "Я прочитал(а) Соглашение полностью и принимаю его условия",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        ArdttCheckboxRow(
+            label = "Я прочитал(а) Соглашение полностью и принимаю его условия",
+            checked = accepted,
+            onCheckedChange = { accepted = it },
+        )
     }
+}
+
+private object AgreementDialogDefaults {
+    /** Scrollable agreement body: tall enough to read, short enough to keep the consent row on screen. */
+    val MinBodyHeight = 160.dp
+    val MaxBodyHeight = 380.dp
 }
