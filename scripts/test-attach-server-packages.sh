@@ -45,6 +45,10 @@ case "${1:-} ${2:-}" in
     printf '%s\n' "$@" >"${GH_STATE_DIR:?}/upload"
     exit 0
     ;;
+  "release edit")
+    printf '%s\n' "$@" >"${GH_STATE_DIR:?}/edit"
+    exit 0
+    ;;
   *)
     echo "unexpected gh $*" >&2
     exit 1
@@ -94,6 +98,10 @@ case "${1:-} ${2:-}" in
     printf '%s\n' "$@" >"${GH_STATE_DIR:?}/upload"
     exit 0
     ;;
+  "release edit")
+    printf '%s\n' "$@" >"${GH_STATE_DIR:?}/edit"
+    exit 0
+    ;;
   *)
     echo "unexpected gh $*" >&2
     exit 1
@@ -115,6 +123,11 @@ EOF
   fi
   if [ ! -f "$work/upload" ]; then
     fail "$name: did not upload"
+    return 0
+  fi
+  if [ ! -f "$work/edit" ] || ! grep -q -- '--draft=false' "$work/edit" || ! grep -q -- '--latest' "$work/edit"; then
+    fail "$name: did not publish the GitHub Release (edit --draft=false --latest)"
+    cat "$log" >&2 || true
     return 0
   fi
   case "$mode" in

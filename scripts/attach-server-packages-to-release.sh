@@ -131,6 +131,19 @@ def load_release_assets():
         raise SystemExit(err or f"gh release view {tag} failed")
     return None
 
+def publish_release():
+    # Deleting and recreating a git tag can leave the GitHub Release as a
+    # draft (untagged-… URL). Users and /releases/latest do not see drafts.
+    edited = gh(
+        "release", "edit", tag, "--repo", repo,
+        "--draft=false", "--latest",
+        check=False,
+    )
+    if edited.returncode != 0:
+        err = (edited.stderr or edited.stdout or "").strip()
+        raise SystemExit(f"cannot publish GitHub Release {tag}: {err}")
+    print("published GitHub Release https://github.com/%s/releases/tag/%s" % (repo, tag))
+
 remote_assets = load_release_assets()
 if remote_assets is None:
     # Tag workflows race: Server package can finish while Android build has
@@ -206,6 +219,8 @@ if overlap:
             + "\n  ".join(mismatches)
         )
     print("already attached (digest match) to https://github.com/%s/releases/tag/%s" % (repo, tag))
+    if not dry:
+        publish_release()
     sys.exit(0)
 
 print("Attach to https://github.com/%s/releases/tag/%s (%d files, %d partial-deploy index(es))"
@@ -223,4 +238,5 @@ if sums_clobber:
     sums_cmd.append("--clobber")
 subprocess.check_call(sums_cmd)
 print(f"Attached {len(pkgs)} server packages (+{len(upload) - len(pkgs)} assets) to {tag}")
+publish_release()
 PY
