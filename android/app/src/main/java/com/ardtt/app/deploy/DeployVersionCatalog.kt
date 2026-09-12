@@ -36,15 +36,25 @@ object DeployVersionCatalog {
     private val _latest = MutableStateFlow<String?>(null)
     val latest: StateFlow<String?> = _latest.asStateFlow()
 
+    /**
+     * Max of the live Releases catalog and the APK-bundled git stack.
+     * UI must recompose when [latest] changes — do not snapshot this once
+     * with `remember { expectedVersion(context) }`.
+     */
+    fun resolvedExpected(catalogLatest: String?, bundled: String): String =
+        DeployBundle.maxVersion(catalogLatest.orEmpty(), bundled)
+
     fun expectedVersion(context: Context): String {
         val bundled = DeployBundle.offlineFallback(context)
         cached.get()?.takeIf { it.isNotBlank() }?.let {
-            return DeployBundle.maxVersion(it, bundled)
+            val merged = resolvedExpected(it, bundled)
+            if (_latest.value != merged) _latest.value = merged
+            return merged
         }
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY_LATEST, null)?.trim().orEmpty()
         if (stored.isNotEmpty()) {
-            val merged = DeployBundle.maxVersion(stored, bundled)
+            val merged = resolvedExpected(stored, bundled)
             cached.set(merged)
             _latest.value = merged
             return merged
@@ -56,7 +66,7 @@ object DeployVersionCatalog {
         val app = context.applicationContext
         val bundled = DeployBundle.offlineFallback(app)
         val fromGithub = runCatching { fetchLatestFromGitHub() }.getOrNull()?.trim().orEmpty()
-        val resolved = DeployBundle.maxVersion(fromGithub, bundled)
+        val resolved = resolvedExpected(fromGithub, bundled)
         cached.set(resolved)
         _latest.value = resolved
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

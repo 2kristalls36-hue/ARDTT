@@ -251,6 +251,29 @@ class ServerDeployCardLogicTest {
                 "1.0.51",
             ),
         )
+        // Installed 1.0.52 after rollback; VPS GitHub cache still says 1.0.52;
+        // catalog/APK already know 1.0.53 — the card must offer the update.
+        assertEquals(
+            "1.0.53",
+            effectiveExpectedVersion(
+                HealthUi.Online("1.0.52", latestDeployVersion = "1.0.52"),
+                "1.0.53",
+            ),
+        )
+        assertEquals(
+            "Требуется обновление · 1.0.52 → 1.0.53",
+            serverCardDeployText(
+                HealthUi.Online("1.0.52", latestDeployVersion = "1.0.52"),
+                "1.0.53",
+            ),
+        )
+        assertEquals(
+            ServerOverviewPrimaryAction.Update,
+            serverOverviewPrimaryAction(
+                HealthUi.Online("1.0.52", latestDeployVersion = "1.0.52"),
+                "1.0.53",
+            ),
+        )
     }
 
     @Test
