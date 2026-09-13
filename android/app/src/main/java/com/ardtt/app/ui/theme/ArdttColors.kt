@@ -50,6 +50,15 @@ object ArdttColors {
     /** Bypass path accent (RAW Dial via TURN). */
     val PathBypass = Color(0xFF1565C0)
 
+    /** Entry VPS / VPS 1 card rim and host-metrics tile. */
+    val HopVps1 = Color(0xFF0E8F7A)
+
+    /** Exit VPS / VPS 2 card rim and host-metrics tile. */
+    val HopVps2 = Color(0xFFD97706)
+
+    /** Stick between VPS 1 and VPS 2 on the cascade path. */
+    val HopCascade = Color(0xFF6D4AFF)
+
     val TerminalBg = Color(0xFF1A1A2E)
     val TerminalBgDark = Color(0xFF0D0D1A)
     val TerminalText = Color(0xFFE0E0E0)

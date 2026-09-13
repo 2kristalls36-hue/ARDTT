@@ -1,6 +1,7 @@
 package com.ardtt.app.ui.admin
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.EgressIpProbe
@@ -10,6 +11,7 @@ import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttSize
 
 /** Labels for the Network tab connection map. */
 internal object NetworkMapCopy {
@@ -290,17 +292,41 @@ internal data class HopHealthPings(
     val exitMs: Long = -1L,
 )
 
-/** Gray rim for unhighlighted hop cards and the stick between them (theme outline is blue-gray). */
+/** Gray rim for the provider card and the stick between unrelated hops (theme outline is blue-gray). */
 internal fun hopMapGrayStroke(outline: Color): Color {
     val luma = 0.299f * outline.red + 0.587f * outline.green + 0.114f * outline.blue
     return Color(red = luma, green = luma, blue = luma, alpha = outline.alpha)
 }
 
-internal fun hopCardStrokeColor(highlighted: Boolean, outline: Color, connected: Color): Color =
-    if (highlighted) connected else hopMapGrayStroke(outline)
+/** Stable hop identity: VPS 1, VPS 2, CloudFlare. Provider stays the gray map stroke. */
+internal fun hopIdentityColor(kind: NetworkMapHopKind, outline: Color): Color = when (kind) {
+    NetworkMapHopKind.Provider -> hopMapGrayStroke(outline)
+    NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1 -> ArdttColors.HopVps1
+    NetworkMapHopKind.Vps2 -> ArdttColors.HopVps2
+    NetworkMapHopKind.Cloudflare -> ArdttColors.PathBypass
+}
+
+/** Colored rim around a hop card. Identity, not the live Direct/Bypass path. */
+internal fun hopCardStrokeColor(kind: NetworkMapHopKind, outline: Color): Color =
+    hopIdentityColor(kind, outline)
+
+internal fun hopCardStrokeWidth(highlighted: Boolean): Dp =
+    if (highlighted) ArdttSize.StrokeThick else ArdttSize.Contour
+
+/** Cascade stick is violet; every other hop-to-hop stick stays gray. */
+internal fun hopLinkColor(
+    from: NetworkMapHopKind,
+    to: NetworkMapHopKind,
+    outline: Color,
+): Color {
+    if (from == NetworkMapHopKind.Vps1 && to == NetworkMapHopKind.Vps2) {
+        return ArdttColors.HopCascade
+    }
+    return hopMapGrayStroke(outline)
+}
 
 /**
- * Terminal hop rim: green for Direct, blue for Bypass.
+ * Ping fallback / path chip: green for Direct, blue for Bypass.
  * Falls back to the Direct green when the live path is unknown.
  */
 internal fun hopCardAccentColor(activePath: VpnPath?): Color = when (activePath) {

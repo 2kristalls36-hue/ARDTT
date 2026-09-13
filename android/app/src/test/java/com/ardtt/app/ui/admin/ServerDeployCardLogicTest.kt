@@ -670,4 +670,41 @@ class ServerDeployCardLogicTest {
         assertNull(healthStatusParts(HealthUi.Unreachable).deploy)
     }
 
+    @Test
+    fun hostMetricsTitleAndKindFollowCascadeRole() {
+        assertEquals(HostMetricsCopy.SERVER, hostMetricsTitle(cascadeEnabled = false, exit = false))
+        assertEquals(HostMetricsCopy.VPS1, hostMetricsTitle(cascadeEnabled = true, exit = false))
+        assertEquals(HostMetricsCopy.VPS2, hostMetricsTitle(cascadeEnabled = true, exit = true))
+        assertEquals(NetworkMapHopKind.Vps, hostMetricsHopKind(cascadeEnabled = false, exit = false))
+        assertEquals(NetworkMapHopKind.Vps1, hostMetricsHopKind(cascadeEnabled = true, exit = false))
+        assertEquals(NetworkMapHopKind.Vps2, hostMetricsHopKind(cascadeEnabled = true, exit = true))
+    }
+
+    @Test
+    fun hostMetricSpecsAreCpuRamHddInThatOrder() {
+        val host = ProvisionAdminApi.HostMetrics(
+            cpuPercent = 10f,
+            cpuCores = 2f,
+            memUsedBytes = 1L shl 30,
+            memTotalBytes = 4L shl 30,
+            memPercent = 25f,
+            diskUsedBytes = 10L shl 30,
+            diskTotalBytes = 40L shl 30,
+            diskPercent = 40f,
+        )
+        val specs = hostMetricSpecs(host)
+        assertEquals(listOf(HostMetricsCopy.CPU, HostMetricsCopy.RAM, HostMetricsCopy.HDD), specs.map { it.title })
+        assertEquals(listOf(10f, 25f, 40f), specs.map { it.percent })
+        assertEquals(3, specs.size)
+    }
+
+    @Test
+    fun attachExitHostMetricsOnlyOnOnline() {
+        val exit = ProvisionAdminApi.HostMetrics(cpuPercent = 3f, cpuCores = 1f)
+        val online = HealthUi.Online("1.0.6", host = ProvisionAdminApi.HostMetrics(cpuPercent = 1f))
+        assertEquals(exit, (attachExitHostMetrics(online, exit) as HealthUi.Online).exitHost)
+        assertEquals(HealthUi.Unreachable, attachExitHostMetrics(HealthUi.Unreachable, exit))
+        assertNull((attachExitHostMetrics(online, null) as HealthUi.Online).exitHost)
+    }
+
 }

@@ -3,18 +3,13 @@ package com.ardtt.app.ui.admin
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.MaterialTheme
@@ -29,7 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -54,7 +48,6 @@ import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
-import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
@@ -243,7 +236,13 @@ fun NetworkScreen(
         Column {
             visibleHops.forEachIndexed { index, view ->
                 if (index > 0) {
-                    HopConnector()
+                    HopRoleConnector(
+                        color = hopLinkColor(
+                            from = visibleHops[index - 1].hop.kind,
+                            to = view.hop.kind,
+                            outline = MaterialTheme.colorScheme.outline,
+                        ),
+                    )
                 }
                 IpInfoCard(
                     title = view.hop.title,
@@ -438,26 +437,6 @@ private suspend fun loadCloudflare(
 }
 
 @Composable
-private fun HopConnector() {
-    val color = hopMapGrayStroke(MaterialTheme.colorScheme.outline)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(ArdttSize.Icon)
-            // Purely decorative: TalkBack must not stop on every connector.
-            .clearAndSetSemantics {},
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .width(ArdttSize.Contour)
-                .fillMaxHeight()
-                .background(color, ArdttShapes.Pill),
-        )
-    }
-}
-
-@Composable
 private fun IpInfoCard(
     title: String,
     kind: NetworkMapHopKind,
@@ -482,12 +461,8 @@ private fun IpInfoCard(
         shadowElevation = ArdttElevation.None,
         tonalElevation = ArdttElevation.None,
         border = BorderStroke(
-            ArdttSectionCardDefaults.ContourWidth,
-            hopCardStrokeColor(
-                highlighted = highlighted,
-                outline = MaterialTheme.colorScheme.outline,
-                connected = accentColor,
-            ),
+            hopCardStrokeWidth(highlighted),
+            hopCardStrokeColor(kind, MaterialTheme.colorScheme.outline),
         ),
     ) {
         Row(

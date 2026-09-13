@@ -118,7 +118,7 @@ internal fun ServerOverviewHost(
     LaunchedEffect(serverId, server?.host, server?.publicHost) {
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
-        health = probeServerHealthUi(target, serversRepo)
+        health = probeServerHealthUi(target, serversRepo, includeExitHost = true)
     }
 
     LaunchedEffect(busy, activeTargetId, serverId, engineIsUninstall) {
@@ -153,7 +153,7 @@ internal fun ServerOverviewHost(
         }
         val target = server ?: return@LaunchedEffect
         health = HealthUi.Checking
-        health = probeServerHealthUi(target, serversRepo)
+        health = probeServerHealthUi(target, serversRepo, includeExitHost = true)
     }
 
     fun startRedeploy(target: DeployTarget, diskCleanup: Boolean = false) {
@@ -201,7 +201,7 @@ internal fun ServerOverviewHost(
 
     val pull = rememberPullRefresh {
         val target = server ?: return@rememberPullRefresh
-        health = probeServerHealthUi(target, serversRepo)
+        health = probeServerHealthUi(target, serversRepo, includeExitHost = true)
     }
 
     // Live host gauges while the overview is open (also refreshed by pull-to-refresh).
@@ -213,7 +213,7 @@ internal fun ServerOverviewHost(
             while (true) {
                 delay(ServerOverviewDefaults.HealthPollMs)
                 if (busy) continue
-                health = probeServerHealthUi(target, serversRepo)
+                health = probeServerHealthUi(target, serversRepo, includeExitHost = true)
             }
         }
     }
@@ -234,7 +234,7 @@ internal fun ServerOverviewHost(
                     when (serverOverviewPrimaryAction(health, expectedVersion)) {
                         ServerOverviewPrimaryAction.Check -> scope.launch {
                             health = HealthUi.Checking
-                            health = probeServerHealthUi(server, serversRepo)
+                            health = probeServerHealthUi(server, serversRepo, includeExitHost = true)
                         }
                         ServerOverviewPrimaryAction.Install,
                         ServerOverviewPrimaryAction.Update,
@@ -469,7 +469,36 @@ private fun ServerOverviewScreen(
                 val online = health as? HealthUi.Online
                 val host = online?.host
                 if (host != null) {
-                    ServerHostMetricsCard(host = host)
+                    val cascade = server.cascadeEnabled
+                    val outline = MaterialTheme.colorScheme.outline
+                    Column {
+                        ServerHostMetricsCard(
+                            host = host,
+                            title = hostMetricsTitle(cascadeEnabled = cascade, exit = false),
+                            borderColor = hopIdentityColor(
+                                hostMetricsHopKind(cascadeEnabled = cascade, exit = false),
+                                outline,
+                            ),
+                        )
+                        val exitHost = online.exitHost
+                        if (exitHost != null) {
+                            HopRoleConnector(
+                                color = hopLinkColor(
+                                    from = NetworkMapHopKind.Vps1,
+                                    to = NetworkMapHopKind.Vps2,
+                                    outline = outline,
+                                ),
+                            )
+                            ServerHostMetricsCard(
+                                host = exitHost,
+                                title = hostMetricsTitle(cascadeEnabled = true, exit = true),
+                                borderColor = hopIdentityColor(
+                                    hostMetricsHopKind(cascadeEnabled = true, exit = true),
+                                    outline,
+                                ),
+                            )
+                        }
+                    }
                 }
             }
             item {

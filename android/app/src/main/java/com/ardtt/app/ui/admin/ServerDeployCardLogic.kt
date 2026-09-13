@@ -9,6 +9,8 @@ import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServerOsProbe
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.deploy.serverOsBadgeLabel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 internal sealed class HealthUi {
     data object Checking : HealthUi()
@@ -18,6 +20,8 @@ internal sealed class HealthUi {
         /** From provision `/health` when the VPS knows a newer stack release. */
         val latestDeployVersion: String = "",
         val host: ProvisionAdminApi.HostMetrics? = null,
+        /** Cascade exit `/health` host metrics, when overview asked for them. */
+        val exitHost: ProvisionAdminApi.HostMetrics? = null,
     ) : HealthUi()
     /** SSH/auth failed — host or credentials unreachable. */
     data object Unreachable : HealthUi()
@@ -46,6 +50,19 @@ internal fun healthUiOf(info: ProvisionAdminApi.HealthInfo?): HealthUi =
 internal suspend fun probeServerHealthUi(
     target: DeployTarget,
     repo: ServersRepository,
+    includeExitHost: Boolean = false,
+): HealthUi {
+    if (!includeExitHost) return probeIngressHealthUi(target, repo)
+    return coroutineScope {
+        val ingress = async { probeIngressHealthUi(target, repo) }
+        val exitHost = async { probeExitHostMetrics(target) }
+        attachExitHostMetrics(ingress.await(), exitHost.await())
+    }
+}
+
+internal suspend fun probeIngressHealthUi(
+    target: DeployTarget,
+    repo: ServersRepository,
 ): HealthUi {
     val info = ProvisionAdminApi.health(ProvisionAdminApi.provisionBase(target)).getOrNull()
     if (info != null && info.ok) {
@@ -57,6 +74,20 @@ internal suspend fun probeServerHealthUi(
         ServerOsProbe.refreshStored(repo, target)
     }
     return healthUiFromProbes(info, sshOk)
+}
+
+internal suspend fun probeExitHostMetrics(target: DeployTarget): ProvisionAdminApi.HostMetrics? {
+    val url = DeployHop.exitProvisionUrl(target) ?: return null
+    val info = ProvisionAdminApi.health(url).getOrNull() ?: return null
+    return info.takeIf { it.ok }?.host
+}
+
+internal fun attachExitHostMetrics(
+    health: HealthUi,
+    exitHost: ProvisionAdminApi.HostMetrics?,
+): HealthUi {
+    val online = health as? HealthUi.Online ?: return health
+    return online.copy(exitHost = exitHost)
 }
 
 internal fun formatHealthPingMs(pingMs: Long): String {
@@ -578,5 +609,39 @@ internal fun formatHostDiskDetail(host: ProvisionAdminApi.HostMetrics): String {
 
 internal fun formatHostPercent(pct: Float): String =
     "${pct.toInt().coerceIn(0, 100)}%"
+
+internal object HostMetricsCopy {
+    const val SERVER = "Ресурсы сервера"
+    const val VPS1 = "Ресурсы VPS 1"
+    const val VPS2 = "Ресурсы VPS 2"
+    const val CPU = "CPU"
+    const val RAM = "RAM"
+    const val HDD = "HDD"
+}
+
+internal data class HostMetricSpec(
+    val title: String,
+    val detail: String,
+    val percent: Float,
+)
+
+/** CPU → RAM → HDD, one row each. The gauges are stacked, not squeezed into a single row. */
+internal fun hostMetricSpecs(host: ProvisionAdminApi.HostMetrics): List<HostMetricSpec> = listOf(
+    HostMetricSpec(HostMetricsCopy.CPU, formatHostCpuCores(host.cpuCores), host.cpuPercent),
+    HostMetricSpec(HostMetricsCopy.RAM, formatHostMemDetail(host), host.memPercent),
+    HostMetricSpec(HostMetricsCopy.HDD, formatHostDiskDetail(host), host.diskPercent),
+)
+
+internal fun hostMetricsTitle(cascadeEnabled: Boolean, exit: Boolean): String = when {
+    exit -> HostMetricsCopy.VPS2
+    cascadeEnabled -> HostMetricsCopy.VPS1
+    else -> HostMetricsCopy.SERVER
+}
+
+internal fun hostMetricsHopKind(cascadeEnabled: Boolean, exit: Boolean): NetworkMapHopKind = when {
+    exit -> NetworkMapHopKind.Vps2
+    cascadeEnabled -> NetworkMapHopKind.Vps1
+    else -> NetworkMapHopKind.Vps
+}
 
 

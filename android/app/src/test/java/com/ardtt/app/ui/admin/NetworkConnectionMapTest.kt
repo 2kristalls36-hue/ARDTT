@@ -8,6 +8,7 @@ import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttSize
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -516,31 +517,59 @@ class NetworkConnectionMapTest {
     }
 
     @Test
-    fun hopMapGrayStrokeDropsBlueCastAndMatchesCardRim() {
+    fun hopMapGrayStrokeDropsBlueCast() {
         val outline = Color(0xFFB2C2D7)
         val gray = hopMapGrayStroke(outline)
         assertEquals(gray.red, gray.green, 1e-5f)
         assertEquals(gray.green, gray.blue, 1e-5f)
-        assertEquals(gray, hopCardStrokeColor(highlighted = false, outline = outline, connected = ArdttColors.Connected))
-        assertEquals(
-            ArdttColors.Connected,
-            hopCardStrokeColor(highlighted = true, outline = outline, connected = ArdttColors.Connected),
-        )
     }
 
     @Test
-    fun hopCardAccentFollowsLiveVpnPath() {
+    fun hopIdentityColorsDistinguishVps1Vps2AndCascade() {
+        val outline = Color(0xFF6B7F96)
+        assertEquals(ArdttColors.HopVps1, hopIdentityColor(NetworkMapHopKind.Vps, outline))
+        assertEquals(ArdttColors.HopVps1, hopIdentityColor(NetworkMapHopKind.Vps1, outline))
+        assertEquals(ArdttColors.HopVps2, hopIdentityColor(NetworkMapHopKind.Vps2, outline))
+        assertEquals(ArdttColors.PathBypass, hopIdentityColor(NetworkMapHopKind.Cloudflare, outline))
+        val provider = hopIdentityColor(NetworkMapHopKind.Provider, outline)
+        assertEquals(provider, hopMapGrayStroke(outline))
+        assertEquals(
+            ArdttColors.HopCascade,
+            hopLinkColor(NetworkMapHopKind.Vps1, NetworkMapHopKind.Vps2, outline),
+        )
+        assertEquals(
+            hopMapGrayStroke(outline),
+            hopLinkColor(NetworkMapHopKind.Provider, NetworkMapHopKind.Vps, outline),
+        )
+        assertEquals(
+            hopMapGrayStroke(outline),
+            hopLinkColor(NetworkMapHopKind.Vps2, NetworkMapHopKind.Cloudflare, outline),
+        )
+        assertTrue(ArdttColors.HopVps1 != ArdttColors.HopVps2)
+        assertTrue(ArdttColors.HopVps1 != ArdttColors.HopCascade)
+        assertTrue(ArdttColors.HopVps2 != ArdttColors.HopCascade)
+    }
+
+    @Test
+    fun hopCardStrokeFollowsHopIdentityNotVpnPath() {
+        val outline = Color(0xFFB2C2D7)
+        assertEquals(
+            hopMapGrayStroke(outline),
+            hopCardStrokeColor(NetworkMapHopKind.Provider, outline),
+        )
+        assertEquals(ArdttColors.HopVps1, hopCardStrokeColor(NetworkMapHopKind.Vps, outline))
+        assertEquals(ArdttColors.HopVps1, hopCardStrokeColor(NetworkMapHopKind.Vps1, outline))
+        assertEquals(ArdttColors.HopVps2, hopCardStrokeColor(NetworkMapHopKind.Vps2, outline))
+        assertEquals(ArdttColors.PathBypass, hopCardStrokeColor(NetworkMapHopKind.Cloudflare, outline))
         assertEquals(ArdttColors.Connected, hopCardAccentColor(VpnPath.Direct))
         assertEquals(ArdttColors.Connected, hopCardAccentColor(null))
         assertEquals(ArdttColors.PathBypass, hopCardAccentColor(VpnPath.Bypass))
-        assertEquals(
-            ArdttColors.PathBypass,
-            hopCardStrokeColor(
-                highlighted = true,
-                outline = Color(0xFFB2C2D7),
-                connected = hopCardAccentColor(VpnPath.Bypass),
-            ),
-        )
+    }
+
+    @Test
+    fun hopCardStrokeIsThickerOnTerminalHop() {
+        assertEquals(ArdttSize.Contour, hopCardStrokeWidth(highlighted = false))
+        assertEquals(ArdttSize.StrokeThick, hopCardStrokeWidth(highlighted = true))
     }
 
     @Test

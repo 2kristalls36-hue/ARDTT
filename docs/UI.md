@@ -80,7 +80,7 @@ ui/
 Экранные приватные виджеты, осознанно не поднятые в дизайн-систему (одно место
 использования): `AdminUnlockSlider` (ворота admin), `UpdateFillButton` (кнопка с
 заливкой прогресса), `TunnelPowerToggle` / `ThemeModeBadge` / `ProfileSwitcherBar`
-(иллюстрированный туннель), `BypassSearchBar`, `HopConnector`, `ServerOsBadge`.
+(иллюстрированный туннель), `BypassSearchBar`, `HopRoleConnector`, `ServerOsBadge`.
 
 ## Реестр токенов
 
@@ -94,7 +94,7 @@ ui/
 | `ArdttAlpha` | роли прозрачности: `Contour`, `Fill`, `FillSoft`, `Outline`, `Divider`, `Shadow`, `Disabled`, `DisabledContainer`, `Muted`, `Subtle`, `Strong` |
 | `ArdttMotion` | длительности `Quick … Pulse` |
 | `ArdttChrome` | blur/fade верхней панели |
-| `ArdttColors` | семантика вне `ColorScheme`: `Connected`/`Warning` (+ `On*`, `*OnLight`/`*OnDark`), `SessionLit`, `Recording`, `PathDirect`/`PathBypass`, `Terminal*` |
+| `ArdttColors` | семантика вне `ColorScheme`: `Connected`/`Warning` (+ `On*`, `*OnLight`/`*OnDark`), `SessionLit`, `Recording`, `PathDirect`/`PathBypass`, `HopVps1`/`HopVps2`/`HopCascade`, `Terminal*` |
 | `ArdttSurface` | `isDark`, `contentColorOn`, `contrastRatio`, заливки карточек и «стекла» |
 | `ArdttWallpaperTextShadow` | единственная тень текста прямо на обоях |
 | `ArdttTerminalTextStyle` / `ArdttTerminalLabelStyle` | монотекст лога и метка уровня |
@@ -130,7 +130,7 @@ ui/
 | Настройки | оба; admin-блоки скрыты у user | `ArdttFeedScaffold` | чипы режима/адреса/темы, свитчи, Wi‑Fi, слайдер admin / «Завершить сессию» | соглашение тестирования, подтверждение выхода из admin, код звонка, подтверждение выхода из VK |
 | Серверы → карточка → Клиенты / Деплой | admin | `ArdttScrollChrome` (+ sticky CTA) | список: «Добавить сервер», экспорт/импорт; карточка: клиенты / обновить / удалить / деинсталляция; деплой: сохранить / установить / назад | `DeployProgressSheet`, переименование, удаление/переустановка, `ClientSettingsSheet`, лимиты, `ArdttConfirmDialog` отвязки |
 | Диагностика | admin | `ArdttFeedScaffold` + sticky | «Сеть» / «Журнал» / «Тестирование» снизу над таб-баром | — |
-| Сеть | admin (из Диагностики) | `ArdttFeedScaffold` | обновление в заголовке, «Повторить» на hop-карточке | — |
+| Сеть | admin (из Диагностики) | `ArdttFeedScaffold` | hop-рамки по роли (`HopVps1` / `HopVps2` / CloudFlare), фиолетовый стержень каскада, обновление в заголовке, «Повторить» на hop-карточке | — |
 | Тестирование | оба, при включённом режиме (из Диагностики / Журнала / Настроек) | `ArdttScrollChrome` + sticky «Начать/Остановить запись» | панели Хранилище/История, отправить / удалить (с подтверждением) | комментарий к логу, `ArdttConfirmDialog` удаления |
 
 Вложенный `Deploy` открывается с Серверов, не вкладка. «Ещё» нет: пять основных пунктов, редко используемые экраны — вложенные маршруты.

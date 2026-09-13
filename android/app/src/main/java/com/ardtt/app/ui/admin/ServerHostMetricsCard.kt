@@ -1,13 +1,19 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,11 +24,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 
@@ -30,43 +39,41 @@ import com.ardtt.app.ui.theme.ArdttSpacing
 internal fun ServerHostMetricsCard(
     host: ProvisionAdminApi.HostMetrics,
     modifier: Modifier = Modifier,
+    title: String = HostMetricsCopy.SERVER,
+    borderColor: Color? = null,
 ) {
-    ArdttSectionCard(modifier = modifier.fillMaxWidth()) {
+    ArdttSectionCard(
+        modifier = modifier.fillMaxWidth(),
+        border = borderColor?.let { BorderStroke(ArdttSize.Contour, it) },
+    ) {
         Text(
-            "Ресурсы сервера",
+            title,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(bottom = ArdttSpacing.Small),
         )
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(ArdttLayout.CardSpacing),
         ) {
-            HostMetricCell(
-                percent = host.cpuPercent,
-                title = "CPU",
-                detail = formatHostCpuCores(host.cpuCores),
-                ringColor = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f),
-            )
-            HostMetricCell(
-                percent = host.memPercent,
-                title = "RAM",
-                detail = formatHostMemDetail(host),
-                ringColor = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.weight(1f),
-            )
-            HostMetricCell(
-                percent = host.diskPercent,
-                title = "HDD",
-                detail = formatHostDiskDetail(host),
-                ringColor = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.weight(1f),
-            )
+            hostMetricSpecs(host).forEach { spec ->
+                HostMetricCell(
+                    percent = spec.percent,
+                    title = spec.title,
+                    detail = spec.detail,
+                    ringColor = hostMetricRingColor(spec.title, MaterialTheme.colorScheme),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
+}
+
+private fun hostMetricRingColor(title: String, scheme: ColorScheme): Color = when (title) {
+    HostMetricsCopy.CPU -> scheme.primary
+    HostMetricsCopy.RAM -> scheme.tertiary
+    else -> scheme.secondary
 }
 
 @Composable
@@ -78,9 +85,9 @@ private fun HostMetricCell(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.padding(horizontal = ArdttSpacing.Hairline),
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
     ) {
         HostMetricRing(
             percent = percent,
@@ -168,6 +175,25 @@ private fun BoxWithRing(
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/** Stick between hop tiles (and between VPS 1 / VPS 2 resource cards). Decorative only. */
+@Composable
+internal fun HopRoleConnector(color: Color) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(ArdttSize.Icon)
+            .clearAndSetSemantics {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(ArdttSize.Contour)
+                .fillMaxHeight()
+                .background(color, ArdttShapes.Pill),
         )
     }
 }
