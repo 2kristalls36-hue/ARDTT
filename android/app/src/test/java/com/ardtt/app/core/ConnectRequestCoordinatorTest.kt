@@ -372,6 +372,54 @@ class ConnectRequestCoordinatorTest {
     }
 
     @Test
+    fun errorAndReadyNeedAFreshUserConnectEvenIfIntentStuck() {
+        assertTrue(needsFreshUserConnect(ConnState.Error, wantsConnected = true))
+        assertTrue(needsFreshUserConnect(ConnState.Ready, wantsConnected = true))
+        assertTrue(needsFreshUserConnect(ConnState.Idle, wantsConnected = true))
+        assertTrue(needsFreshUserConnect(ConnState.NeedsUserAction, wantsConnected = true))
+        assertFalse(needsFreshUserConnect(ConnState.Connecting, wantsConnected = true))
+        assertFalse(needsFreshUserConnect(ConnState.Connected, wantsConnected = true))
+        assertTrue(needsFreshUserConnect(ConnState.Connecting, wantsConnected = false))
+    }
+
+    @Test
+    fun finishAttemptIdleFoldsInitialFinalInsteadOfDrivingReducer() {
+        val c = ConnectRequestCoordinator()
+        val first = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "late",
+            sessionEpoch = 2L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = first.requestId,
+        )
+        c.markLaunched(first.requestId)
+        c.finishAttempt()
+        val admit = c.admitAndApplyFinal(
+            ProbeCallback(
+                seriesId = "late",
+                sessionEpoch = 2L,
+                networkEpoch = 1L,
+                profileId = "p",
+                networkKey = cell,
+                ordinarySuccess = false,
+                sample = RestrictionSample.Positive,
+                wantsConnected = true,
+                uiState = ConnState.Error,
+                liveNetworkKey = cell,
+                liveProfileId = "p",
+                userStop = false,
+            ),
+        ) {}
+        assertTrue(admit.accepted)
+        assertTrue(admit.idleFold)
+        assertFalse(admit.applyToReducer)
+        assertFalse(admit.completeWait)
+    }
+
+    @Test
     fun backgroundDiagnosticIsAcceptedAfterStopAndFreshReconnect() {
         val c = ConnectRequestCoordinator()
         val wait = c.onConnectRequested(ctx()) as ConnectLaunchAction.EnqueueWait

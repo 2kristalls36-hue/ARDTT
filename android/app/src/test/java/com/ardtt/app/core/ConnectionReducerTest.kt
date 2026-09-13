@@ -2677,4 +2677,58 @@ class ConnectionReducerTest {
         )
         assertEquals(VpnPath.Bypass, reeval.state.activePath)
     }
+
+    @Test
+    fun attemptFailedClearsInFlightAndKeepsErrorThroughUnderlay() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
+            10L,
+        )
+        assertTrue(started.command is RecoveryCommand.StartDirect)
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.AttemptFailed("В профиле нет ключей AWG"),
+            11L,
+        )
+        assertFalse(failed.state.intent.wantsConnected)
+        assertFalse(failed.state.recovery.inFlight)
+        assertEquals(ConnState.Error, failed.state.ui.connState)
+        val underlay = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.UnderlayUpdated(usableCellular()),
+            12L,
+        )
+        assertEquals(RecoveryCommand.None, underlay.command)
+        assertEquals(ConnState.Error, underlay.state.ui.connState)
+        val retry = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
+            13L,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartDirect)
+    }
+
+    @Test
+    fun attemptFailedKeepReadyDoesNotStayStarting() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            10L,
+        )
+        val stopped = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.AttemptFailed("Отключено", keepReady = true),
+            11L,
+        )
+        assertFalse(stopped.state.intent.wantsConnected)
+        assertEquals(ConnState.Ready, stopped.state.ui.connState)
+        assertEquals(TransportLifecycle.Stopped, stopped.state.transport)
+        val retry = ConnectionReducer.reduce(
+            stopped.state,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            12L,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartDirect)
+    }
 }
