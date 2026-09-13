@@ -3029,11 +3029,15 @@ class ConnectionManager(
                 uiState = _ui.value.state,
                 liveNetworkKey = recoverySnapshot.underlay.key,
                 liveProfileId = recoverySnapshot.intent.profileId,
-                userStop = recoverySnapshot.recovery.permit.userStop,
+                userStop = _ui.value.state == ConnState.Disconnecting,
             ),
         )
         if (!admit.accepted) {
-            if (!sessionOwnsProbe(sessionEpoch, networkEpoch)) return
+            if (connectRequests.lateCallbackBlocked() ||
+                !sessionOwnsProbe(sessionEpoch, networkEpoch)
+            ) {
+                return
+            }
         } else if (!admit.applyToReducer) {
             logAutoPathDecision(
                 eventKind = "early",
@@ -3115,11 +3119,13 @@ class ConnectionManager(
                 uiState = _ui.value.state,
                 liveNetworkKey = recoverySnapshot.underlay.key,
                 liveProfileId = recoverySnapshot.intent.profileId,
-                userStop = recoverySnapshot.recovery.permit.userStop,
+                userStop = _ui.value.state == ConnState.Disconnecting,
             ),
         )
         if (!admit.accepted) {
-            if (!sessionOwnsProbe(sessionEpoch, networkEpoch)) {
+            if (connectRequests.lateCallbackBlocked() ||
+                !sessionOwnsProbe(sessionEpoch, networkEpoch)
+            ) {
                 AppLog.v(TAG, "probe result rejected series=${shown.seriesId}")
                 return
             }
@@ -3128,7 +3134,10 @@ class ConnectionManager(
         }
         val scoreBefore = recoverySnapshot.evidence?.whitelistScorePercent ?: 0
         val pathBefore = recoverySnapshot.activePath
-        if (admit.applyToReducer || (!admit.accepted && sessionOwnsProbe(sessionEpoch, networkEpoch))) {
+        if (admit.applyToReducer ||
+            (!admit.accepted && !connectRequests.lateCallbackBlocked() &&
+                sessionOwnsProbe(sessionEpoch, networkEpoch))
+        ) {
             dispatchRecovery(
                 ConnectionEvent.ProbeFinished(
                     evidence = incoming,

@@ -80,15 +80,16 @@ class ConnectRequestCoordinatorTest {
         assertFalse(again.startProbe)
 
         val yandex = c.admitEarly(
-            callback("s1", ordinary = false, sample = RestrictionSample.Ignore),
+            callback("s1", ordinary = false, sample = RestrictionSample.Ignore, userStop = true),
         )
         assertTrue(yandex.accepted)
         assertFalse(yandex.completeWait)
 
         val early = c.admitEarly(
-            callback("s1", ordinary = true, sample = RestrictionSample.Open),
+            callback("s1", ordinary = true, sample = RestrictionSample.Open, userStop = true),
         )
         assertTrue(early.completeWait)
+        assertFalse(early.applyToReducer)
         val proceeded = c.continueAfterWait(
             ctx(ui = ConnState.Probing, probeActive = true),
             wait.requestId,
@@ -125,9 +126,10 @@ class ConnectRequestCoordinatorTest {
             requestId = wait.requestId,
         )
         val finalAdmit = c.admitFinal(
-            callback("u1", ordinary = false, sample = RestrictionSample.Ignore),
+            callback("u1", ordinary = false, sample = RestrictionSample.Ignore, userStop = true),
         )
         assertTrue(finalAdmit.completeWait)
+        assertFalse(finalAdmit.applyToReducer)
         val proceeded = c.continueAfterWait(
             ctx(ui = ConnState.Probing, probeActive = true),
             wait.requestId,
@@ -154,6 +156,7 @@ class ConnectRequestCoordinatorTest {
         )
         val revoke = c.revokeConnectWork()
         assertTrue(revoke.cancelProbe)
+        assertTrue(c.lateCallbackBlocked())
         assertEquals(
             ConnectLaunchAction.Ignore,
             c.continueAfterWait(ctx(ui = ConnState.Disconnecting, probeActive = true), wait.requestId),
@@ -163,11 +166,12 @@ class ConnectRequestCoordinatorTest {
         )
         assertFalse(early.accepted)
         val finalAdmit = c.admitFinal(
-            callback("late", ordinary = true, sample = RestrictionSample.Open, userStop = true, ui = ConnState.Disconnecting),
+            callback("late", ordinary = true, sample = RestrictionSample.Open, wantsConnected = true, userStop = true, ui = ConnState.Disconnecting),
         )
         assertFalse(finalAdmit.accepted)
         assertFalse(finalAdmit.idleFold)
         assertFalse(finalAdmit.allowReadyUi)
+        assertFalse(finalAdmit.applyToReducer)
     }
 
     @Test
@@ -270,12 +274,47 @@ class ConnectRequestCoordinatorTest {
             profileId = "p",
             networkKey = cell,
         )
-        val ok = c.admitFinal(callback("idle", ordinary = false, sample = RestrictionSample.Ignore))
+        val ok = c.admitFinal(
+            callback("idle", ordinary = false, sample = RestrictionSample.Ignore, userStop = true),
+        )
         assertTrue(ok.accepted)
         assertTrue(ok.idleFold)
         assertTrue(ok.allowReadyUi)
-        val dup = c.admitFinal(callback("idle", ordinary = false, sample = RestrictionSample.Ignore))
+        val dup = c.admitFinal(
+            callback("idle", ordinary = false, sample = RestrictionSample.Ignore, userStop = true),
+        )
         assertFalse(dup.accepted)
+    }
+
+    @Test
+    fun revokedSeriesDoesNotDispatchEvenIfSessionStillWantsConnect() {
+        val c = ConnectRequestCoordinator()
+        val wait = c.onConnectRequested(ctx()) as ConnectLaunchAction.EnqueueWait
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "owned",
+            sessionEpoch = 0L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = wait.requestId,
+        )
+        c.continueAfterWait(ctx(ui = ConnState.Probing, probeActive = true), wait.requestId)
+        c.markLaunched(wait.requestId)
+        c.revokeConnectWork()
+        assertTrue(c.lateCallbackBlocked())
+        val late = c.admitFinal(
+            callback(
+                "owned",
+                ordinary = true,
+                sample = RestrictionSample.Open,
+                wantsConnected = true,
+                ui = ConnState.Connecting,
+            ),
+        )
+        assertFalse(late.accepted)
+        assertFalse(late.applyToReducer)
+        assertFalse(late.idleFold)
     }
 
     @Test

@@ -248,18 +248,25 @@ class ConnectRequestCoordinator {
         }
     }
 
+    /**
+     * RecoveryPermit.userStop is true whenever the user is not connected.
+     * That idle flag must not cancel a Connect wait or an idle diagnostic.
+     * Actual Stop revokes the probe; this reports that revoked owner.
+     */
+    fun lateCallbackBlocked(): Boolean = synchronized(lock) {
+        probe?.revoked == true
+    }
+
     fun admitEarly(cb: ProbeCallback): ProbeAdmitResult = synchronized(lock) {
         if (!matchesLocked(cb)) return rejected()
-        if (probe?.revoked == true || cb.userStop) return rejected()
         if (cb.ordinarySuccess) {
             completeDecisionLocked(ProbeDecisionKind.OrdinarySuccess)
         }
-        val applyReducer = cb.wantsConnected && !cb.userStop
         ProbeAdmitResult(
             accepted = true,
             completeWait = cb.ordinarySuccess,
             decisionKind = if (cb.ordinarySuccess) ProbeDecisionKind.OrdinarySuccess else null,
-            applyToReducer = applyReducer,
+            applyToReducer = cb.wantsConnected,
             idleFold = false,
             allowReadyUi = false,
         )
@@ -268,7 +275,6 @@ class ConnectRequestCoordinator {
     fun admitFinal(cb: ProbeCallback): ProbeAdmitResult = synchronized(lock) {
         if (!matchesLocked(cb)) return rejected()
         val current = probe ?: return rejected()
-        if (current.revoked) return rejected()
         if (current.finalApplied &&
             current.seriesId.isNotEmpty() &&
             cb.seriesId == current.seriesId
@@ -276,14 +282,14 @@ class ConnectRequestCoordinator {
             return rejected()
         }
         val req = active
-        if (cb.userStop || req?.revoked == true && current.role == ProbeRole.ConnectInitial) {
+        if (req != null && req.revoked && current.role == ProbeRole.ConnectInitial) {
             return rejected()
         }
         current.finalApplied = true
         if (cb.seriesId.isNotEmpty()) current.seriesId = cb.seriesId
         completeDecisionLocked(ProbeDecisionKind.RoundFinished)
         val disconnecting = cb.uiState == ConnState.Disconnecting
-        if (cb.wantsConnected && !cb.userStop) {
+        if (cb.wantsConnected) {
             return ProbeAdmitResult(
                 accepted = true,
                 completeWait = true,
@@ -293,7 +299,7 @@ class ConnectRequestCoordinator {
                 allowReadyUi = false,
             )
         }
-        if (current.role == ProbeRole.IdleDiagnostic && !cb.userStop) {
+        if (current.role == ProbeRole.IdleDiagnostic) {
             return ProbeAdmitResult(
                 accepted = true,
                 completeWait = true,
