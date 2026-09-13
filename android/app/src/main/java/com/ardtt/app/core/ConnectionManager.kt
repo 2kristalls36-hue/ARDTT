@@ -1211,16 +1211,18 @@ class ConnectionManager(
             recoverySnapshot.intent.profileId ?: profile?.name,
             nowElapsedMs = SystemClock.elapsedRealtime(),
         )
-        recoverySnapshot = recoverySnapshot.copy(
-            underlay = underlay,
-            networkEpoch = underlay.networkEpoch,
-            evidence = if (underlay.kind == UnderlayKind.Cellular && adopted != null) {
-                adopted
-            } else {
-                recoverySnapshot.evidence
-            },
-        )
-        val connectEvent = if (!recoverySnapshot.intent.wantsConnected) {
+        synchronized(recoveryGate) {
+            recoverySnapshot = recoverySnapshot.copy(
+                underlay = underlay,
+                networkEpoch = underlay.networkEpoch,
+                evidence = if (underlay.kind == UnderlayKind.Cellular && adopted != null) {
+                    adopted
+                } else {
+                    recoverySnapshot.evidence
+                },
+            )
+        }
+        val connectEvent = if (needsFreshUserConnect(current.state, recoverySnapshot.intent.wantsConnected)) {
             ConnectionEvent.UserConnect(
                 mode = mode,
                 profileId = profile?.name,
@@ -1494,53 +1496,40 @@ class ConnectionManager(
                     )
                 }
                 if (usePath == null) {
+                    AppLog.w(TAG, "Connect deferred — no path yet: ${fresh.message}")
+                    endUserAttempt(fresh.message, keepReady = true)
                     applyProbe(
                         fresh,
                         sessionEpoch = connectSessionEpoch,
                         networkEpoch = connectNetworkEpoch,
                         capturedNetworkKey = connectCapturedKey,
                     )
-                    val underlay = readUnderlaySnapshot()
-                    dispatchRecovery(ConnectionEvent.UnderlayUpdated(underlay))
-                    AppLog.w(TAG, "Connect deferred — no path yet: ${fresh.message}")
-                    connectRequests.finishAttempt()
                     return@launch
                 }
                 if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
                     AppLog.e(TAG, "Profile uses documentation IP — import JSON from VPS")
+                    endUserAttempt("Профиль с документационным IP (203.0.113.x). Импортируйте JSON с VPS.")
                     _ui.value = _ui.value.copy(
-                        state = ConnState.Error,
                         probe = fresh,
-                        lastError = "Профиль с документационным IP (203.0.113.x). Импортируйте JSON с VPS.",
-                        connectEnabled = true,
                         softInfo = softInfoFor(fresh),
                     )
-                    connectRequests.finishAttempt()
                     return@launch
                 }
                 if (usePath == VpnPath.Direct) {
                     val d = profile?.direct
                     if (d == null || d.privateKey.isBlank() || d.peerPublicKey.isBlank()) {
                         AppLog.e(TAG, "Direct: missing AWG keys in profile")
-                        _ui.value = _ui.value.copy(
-                            state = ConnState.Error,
-                            lastError = "В профиле нет ключей AWG — нужен JSON с provision/smoke",
-                            connectEnabled = true,
-                        )
-                        connectRequests.finishAttempt()
+                        endUserAttempt("В профиле нет ключей AWG — нужен JSON с provision/smoke")
                         return@launch
                     }
                 }
                 if (usePath == VpnPath.Bypass && callHashOrNull().isNullOrBlank()) {
                     AppLog.e(TAG, "Bypass: call hash missing")
+                    endUserAttempt("Для обхода необходимо сохранить код звонка на устройстве.")
                     _ui.value = _ui.value.copy(
-                        state = ConnState.Error,
                         probe = fresh,
-                        lastError = "Для обхода необходимо сохранить код звонка на устройстве.",
-                        connectEnabled = true,
                         softInfo = softInfoFor(fresh),
                     )
-                    connectRequests.finishAttempt()
                     return@launch
                 }
                 startTunnel(usePath)
@@ -1563,25 +1552,28 @@ class ConnectionManager(
                 throw t
             } catch (t: Throwable) {
                 AppLog.e(TAG, "Connect crash: ${t.message ?: t.javaClass.simpleName}")
-                _ui.value = _ui.value.copy(
-                    state = ConnState.Error,
-                    lastError = t.message ?: "Сбой Connect",
-                    connectEnabled = true,
-                )
-                connectRequests.finishAttempt()
+                endUserAttempt(t.message ?: "Сбой Connect")
             }
         }
     }
 
     fun reportUserError(message: String) {
         AppLog.w(TAG, message)
+        endUserAttempt(message)
         _ui.value = _ui.value.copy(
-            state = ConnState.Error,
-            lastError = message,
             statusText = "Требуется действие",
             connectEnabled = connectAllowed(_ui.value.probe),
         )
+    }
+
+    private fun endUserAttempt(message: String, keepReady: Boolean = false) {
         connectRequests.finishAttempt()
+        dispatchRecovery(
+            ConnectionEvent.AttemptFailed(
+                message = message,
+                keepReady = keepReady,
+            ),
+        )
     }
 
     fun disconnect() {
@@ -2925,7 +2917,7 @@ class ConnectionManager(
                 callRecreatePrompt = null,
                 connectEnabled = true,
             )
-            connectRequests.finishAttempt()
+            endUserAttempt(_ui.value.statusText.ifBlank { "Отключено" }, keepReady = true)
             connect()
         }
     }
@@ -2947,16 +2939,15 @@ class ConnectionManager(
             return
         }
         // Set Error before stopSelf/onDestroy can flip Connecting → Ready and drop the dialog.
-        _ui.value = cur.copy(
-            state = ConnState.Error,
-            activePath = null,
-            statusText = status
-                ?: if (wasSoft) "Не удалось переподключиться" else "Ошибка подключения",
+        val statusText = status
+            ?: if (wasSoft) "Не удалось переподключиться" else "Ошибка подключения"
+        endUserAttempt(message)
+        _ui.value = _ui.value.copy(
+            statusText = statusText,
             lastError = message,
             callRecreatePrompt = prompt,
             connectEnabled = connectAllowed(cur.probe),
         )
-        connectRequests.finishAttempt()
         scope.launch { stopTunnel() }
     }
 
@@ -2979,7 +2970,17 @@ class ConnectionManager(
                 connectEnabled = connectAllowed(cur.probe),
             )
         }
+        val keepReady = _ui.value.state != ConnState.Error &&
+            _ui.value.state != ConnState.Disconnecting
         connectRequests.finishAttempt()
+        if (recoverySnapshot.intent.wantsConnected) {
+            dispatchRecovery(
+                ConnectionEvent.AttemptFailed(
+                    message = _ui.value.lastError ?: _ui.value.statusText.ifBlank { "Отключено" },
+                    keepReady = keepReady,
+                ),
+            )
+        }
         runCatching {
             com.ardtt.app.TunnelWidgetProvider.updateWidgetState(
                 appContext,
@@ -3170,34 +3171,37 @@ class ConnectionManager(
                 return@admitAndApplyFinal
             }
             if (!admitted.idleFold) return@admitAndApplyFinal
-            if (shown.seriesId.isNotEmpty() && shown.seriesId in recoverySnapshot.seenProbeSeriesIds) {
-                return@admitAndApplyFinal
+            val overlay: ProbeResult
+            synchronized(recoveryGate) {
+                if (shown.seriesId.isNotEmpty() && shown.seriesId in recoverySnapshot.seenProbeSeriesIds) {
+                    return@admitAndApplyFinal
+                }
+                val folded = foldReachabilityEvidence(
+                    previous = recoverySnapshot.evidence,
+                    incoming = incoming,
+                    cellular = cellular,
+                    elapsedMs = now,
+                )
+                recoverySnapshot = recoverySnapshot.copy(
+                    evidence = folded,
+                    cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
+                    seenProbeSeriesIds = rememberProbeSeriesId(
+                        recoverySnapshot.seenProbeSeriesIds,
+                        shown.seriesId,
+                    ),
+                )
+                overlay = shown.withWhitelistEvidence(folded, cellular, now)
+                logAutoPathDecision(
+                    eventKind = "final",
+                    seriesId = shown.seriesId,
+                    sample = sample,
+                    evidence = folded,
+                    pathBefore = pathBefore,
+                    command = "idle-stash",
+                    roundMs = result.elapsedMs,
+                    scoreBefore = scoreBefore,
+                )
             }
-            val folded = foldReachabilityEvidence(
-                previous = recoverySnapshot.evidence,
-                incoming = incoming,
-                cellular = cellular,
-                elapsedMs = now,
-            )
-            recoverySnapshot = recoverySnapshot.copy(
-                evidence = folded,
-                cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
-                seenProbeSeriesIds = rememberProbeSeriesId(
-                    recoverySnapshot.seenProbeSeriesIds,
-                    shown.seriesId,
-                ),
-            )
-            val overlay = shown.withWhitelistEvidence(folded, cellular, now)
-            logAutoPathDecision(
-                eventKind = "final",
-                seriesId = shown.seriesId,
-                sample = sample,
-                evidence = folded,
-                pathBefore = pathBefore,
-                command = "idle-stash",
-                roundMs = result.elapsedMs,
-                scoreBefore = scoreBefore,
-            )
             val connecting = _ui.value.state == ConnState.Connecting ||
                 _ui.value.state == ConnState.Connected
             val disconnecting = _ui.value.state == ConnState.Disconnecting

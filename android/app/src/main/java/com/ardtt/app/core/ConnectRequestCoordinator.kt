@@ -16,6 +16,19 @@ enum class ConnectEntryPoint {
     Widget,
 }
 
+/** Error/Ready after a finished attempt must open a new UserConnect, not Stay. */
+fun needsFreshUserConnect(uiState: ConnState, wantsConnected: Boolean): Boolean {
+    if (!wantsConnected) return true
+    return when (uiState) {
+        ConnState.Error,
+        ConnState.Ready,
+        ConnState.Idle,
+        ConnState.NeedsUserAction,
+        -> true
+        else -> false
+    }
+}
+
 enum class ProbeRole {
     ConnectInitial,
     IdleDiagnostic,
@@ -248,7 +261,9 @@ class ConnectRequestCoordinator {
 
     /**
      * The attempt ended (Error, service gone, Ready) without a user Stop.
-     * Does not revoke probe series, so a still-legal initial final can fold.
+     * Does not revoke probe series, so a still-legal initial final can idle-fold.
+     * Pair with [ConnectionEvent.AttemptFailed] so leftover Starting cannot
+     * overwrite Error or ignore the next Connect.
      */
     fun finishAttempt() {
         synchronized(lock) { finishAttemptLocked() }
@@ -315,12 +330,11 @@ class ConnectRequestCoordinator {
         current.finalApplied = true
         if (cb.seriesId.isNotEmpty()) current.seriesId = cb.seriesId
         val disconnecting = cb.uiState == ConnState.Disconnecting
-        if (cb.wantsConnected) {
+        val liveRequest = req != null && !req.revoked
+        if (cb.wantsConnected && liveRequest) {
             return ProbeAdmitResult(
                 accepted = true,
                 completeWait = current.role == ProbeRole.ConnectInitial &&
-                    req != null &&
-                    !req.revoked &&
                     (current.requestId == null || current.requestId == req?.id),
                 decisionKind = ProbeDecisionKind.RoundFinished,
                 applyToReducer = true,
@@ -329,25 +343,16 @@ class ConnectRequestCoordinator {
             )
         }
         if (current.role == ProbeRole.IdleDiagnostic ||
-            current.role == ProbeRole.BackgroundDiagnostic
+            current.role == ProbeRole.BackgroundDiagnostic ||
+            current.role == ProbeRole.ConnectInitial
         ) {
             return ProbeAdmitResult(
                 accepted = true,
-                completeWait = false,
+                completeWait = current.role == ProbeRole.ConnectInitial && liveRequest,
                 decisionKind = ProbeDecisionKind.RoundFinished,
                 applyToReducer = false,
                 idleFold = true,
                 allowReadyUi = !disconnecting && current.role == ProbeRole.IdleDiagnostic,
-            )
-        }
-        if (current.role == ProbeRole.ConnectInitial && req != null && !req.revoked) {
-            return ProbeAdmitResult(
-                accepted = true,
-                completeWait = true,
-                decisionKind = ProbeDecisionKind.RoundFinished,
-                applyToReducer = false,
-                idleFold = true,
-                allowReadyUi = false,
             )
         }
         rejected()

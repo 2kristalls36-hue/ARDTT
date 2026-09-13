@@ -312,4 +312,138 @@ class ConnectAttemptFlowTest {
             ),
         )
     }
+
+    @Test
+    fun leftoverStartingAfterErrorDoesNotBlockTheNextUserConnect() {
+        val started = ConnectionReducer.reduce(
+            ConnectionSnapshot(underlay = underlay()),
+            ConnectionEvent.UserConnect(
+                ConnPathMode.Auto,
+                "p",
+                hasCallHash = true,
+                silentRecreate = false,
+            ),
+            10L,
+        )
+        assertTrue(started.command is RecoveryCommand.StartDirect)
+        assertTrue(started.state.intent.wantsConnected)
+        assertTrue(started.state.recovery.inFlight)
+        assertEquals(TransportLifecycle.Starting, started.state.transport)
+
+        val withoutAbort = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.UnderlayUpdated(underlay()),
+            20L,
+        )
+        assertEquals(RecoveryCommand.None, withoutAbort.command)
+        assertEquals(ConnState.Connecting, withoutAbort.state.ui.connState)
+        assertTrue(withoutAbort.state.intent.wantsConnected)
+
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.AttemptFailed("В профиле нет ключей AWG"),
+            21L,
+        )
+        assertEquals(RecoveryCommand.StopAll, failed.command)
+        assertFalse(failed.state.intent.wantsConnected)
+        assertFalse(failed.state.recovery.inFlight)
+        assertEquals(TransportLifecycle.Stopped, failed.state.transport)
+        assertEquals(ConnState.Error, failed.state.ui.connState)
+
+        val afterUnderlay = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.UnderlayUpdated(underlay()),
+            22L,
+        )
+        assertEquals(RecoveryCommand.None, afterUnderlay.command)
+        assertEquals(ConnState.Error, afterUnderlay.state.ui.connState)
+        assertFalse(afterUnderlay.state.intent.wantsConnected)
+
+        assertTrue(needsFreshUserConnect(ConnState.Error, failed.state.intent.wantsConnected))
+        val retry = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.UserConnect(
+                ConnPathMode.Auto,
+                "p",
+                hasCallHash = true,
+                silentRecreate = false,
+            ),
+            23L,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartDirect)
+        assertTrue(retry.state.intent.wantsConnected)
+        assertTrue(retry.state.recovery.inFlight)
+    }
+
+    @Test
+    fun finishAttemptThenLateFinalDoesNotSelectANewRoute() {
+        val c = ConnectRequestCoordinator()
+        val proceed = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "late-err",
+            sessionEpoch = 2L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = proceed.requestId,
+        )
+        c.markLaunched(proceed.requestId)
+        var snapshot = ConnectionReducer.reduce(
+            ConnectionSnapshot(underlay = underlay()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            10L,
+        ).state
+        c.finishAttempt()
+        snapshot = ConnectionReducer.reduce(
+            snapshot,
+            ConnectionEvent.AttemptFailed("В профиле нет ключей AWG"),
+            11L,
+        ).state
+        val commands = mutableListOf<RecoveryCommand>()
+        c.admitAndApplyFinal(
+            ProbeCallback(
+                seriesId = "late-err",
+                sessionEpoch = 2L,
+                networkEpoch = 1L,
+                profileId = "p",
+                networkKey = cell,
+                ordinarySuccess = false,
+                sample = RestrictionSample.Positive,
+                wantsConnected = true,
+                uiState = ConnState.Error,
+                liveNetworkKey = cell,
+                liveProfileId = "p",
+                userStop = false,
+            ),
+        ) { admitted ->
+            assertTrue(admitted.idleFold)
+            assertFalse(admitted.applyToReducer)
+            snapshot = snapshot.copy(
+                evidence = foldReachabilityEvidence(
+                    previous = snapshot.evidence,
+                    incoming = positiveEvidence("late-err"),
+                    cellular = true,
+                    elapsedMs = 12L,
+                ),
+            )
+        }
+        val after = ConnectionReducer.reduce(
+            snapshot,
+            ConnectionEvent.UnderlayUpdated(underlay()),
+            13L,
+        )
+        commands += after.command
+        assertEquals(RecoveryCommand.None, after.command)
+        assertEquals(ConnState.Error, after.state.ui.connState)
+        assertTrue(snapshot.evidence?.hasFreshStrong(12L, cell, "p") == true)
+        assertTrue(needsFreshUserConnect(ConnState.Error, snapshot.intent.wantsConnected))
+        val retry = ConnectionReducer.reduce(
+            snapshot,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", hasCallHash = true, silentRecreate = false),
+            14L,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartBypass)
+        assertEquals(1, commands.size)
+    }
 }

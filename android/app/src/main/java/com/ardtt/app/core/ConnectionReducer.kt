@@ -14,6 +14,16 @@ sealed class ConnectionEvent {
     data object UserDisconnect : ConnectionEvent()
     data object UserCancelWait : ConnectionEvent()
     data object UserRetryNow : ConnectionEvent()
+
+    /**
+     * Terminal Error / service gone. Clears in-flight Starting so underlay
+     * callbacks cannot overwrite Error/Ready, and the next tap is a new
+     * [UserConnect] rather than a no-op Stay.
+     */
+    data class AttemptFailed(
+        val message: String,
+        val keepReady: Boolean = false,
+    ) : ConnectionEvent()
     data class PathModeChanged(val mode: ConnPathMode) : ConnectionEvent()
 
     data class UnderlayUpdated(val snapshot: UnderlaySnapshot) : ConnectionEvent()
@@ -149,6 +159,7 @@ object ConnectionReducer {
             ConnectionEvent.UserCancelWait,
             -> disconnect(state)
             is ConnectionEvent.UserConnect -> connect(state, event, elapsedMs)
+            is ConnectionEvent.AttemptFailed -> failAttempt(state, event)
             is ConnectionEvent.PathModeChanged ->
                 state.copy(intent = state.intent.copy(mode = event.mode)).let {
                     if (it.intent.wantsConnected) decideNext(it, elapsedMs, jitterPermille) else ReduceResult(it, RecoveryCommand.None)
@@ -212,6 +223,36 @@ object ConnectionReducer {
                 restriction = RestrictionHint.Unknown,
                 transport = TransportLifecycle.Stopped,
                 retryInMs = null,
+            ),
+        )
+        return ReduceResult(next, RecoveryCommand.StopAll)
+    }
+
+    private fun failAttempt(
+        state: ConnectionSnapshot,
+        event: ConnectionEvent.AttemptFailed,
+    ): ReduceResult {
+        val connState = if (event.keepReady) ConnState.Ready else ConnState.Error
+        val next = state.copy(
+            intent = state.intent.copy(wantsConnected = false),
+            activePath = null,
+            transport = TransportLifecycle.Stopped,
+            parkedRawAlive = false,
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Idle,
+                inheritedProbeSessionEpoch = state.recovery.inheritedProbeSessionEpoch,
+                permit = RecoveryPermit(
+                    sessionEpoch = state.sessionEpoch,
+                    networkEpoch = state.networkEpoch,
+                    transportEpoch = state.transportEpoch,
+                    netOpsAllowed = false,
+                    userStop = false,
+                ),
+            ),
+            ui = ConnectionUiModel(
+                phase = if (event.keepReady) ConnectionUiPhase.Ready else ConnectionUiPhase.Error,
+                message = event.message,
+                connState = connState,
             ),
         )
         return ReduceResult(next, RecoveryCommand.StopAll)
