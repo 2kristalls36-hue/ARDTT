@@ -3,11 +3,13 @@ package com.ardtt.app.core
 import kotlinx.coroutines.CompletableDeferred
 
 /**
- * Owns one user Connect request and the probe round that may satisfy it.
+ * Owns user Connect requests and probe rounds that may satisfy them.
  *
  * Button, widget and tile share this path so an early ordinary-success cannot
- * re-enter the wait queue of the same job, and a Stop revokes late callbacks
- * even if the coroutine is still running.
+ * re-enter the wait queue of the same job. Stop revokes specific series so a
+ * later background diagnostic is not blocked by a stale revoked record.
+ * Final evidence is applied before the waiter is released, so the first
+ * path decision sees that fold.
  */
 enum class ConnectEntryPoint {
     Button,
@@ -17,6 +19,7 @@ enum class ConnectEntryPoint {
 enum class ProbeRole {
     ConnectInitial,
     IdleDiagnostic,
+    BackgroundDiagnostic,
 }
 
 enum class ProbeDecisionKind {
@@ -86,7 +89,7 @@ class ConnectRequestCoordinator {
     private val lock = Any()
     private var nextRequestId = 1L
     private var active: Request? = null
-    private var probe: Probe? = null
+    private val ops = ArrayDeque<ProbeOp>()
 
     private data class Request(
         val id: Long,
@@ -98,9 +101,10 @@ class ConnectRequestCoordinator {
         var revoked: Boolean = false,
         var launched: Boolean = false,
         var continued: Boolean = false,
+        var finished: Boolean = false,
     )
 
-    private data class Probe(
+    private data class ProbeOp(
         var requestId: Long?,
         var role: ProbeRole,
         var seriesId: String,
@@ -116,13 +120,18 @@ class ConnectRequestCoordinator {
         if (
             ctx.uiState == ConnState.Connected ||
             ctx.uiState == ConnState.Connecting ||
-            ctx.uiState == ConnState.PausedTrustedWifi
+            ctx.uiState == ConnState.PausedTrustedWifi ||
+            ctx.uiState == ConnState.Disconnecting
         ) {
             return ConnectLaunchAction.Ignore
         }
-        val existing = active?.takeIf { !it.revoked }
+        var existing = active?.takeIf { !it.revoked && !it.finished }
+        if (existing != null && (existing.launched || existing.continued)) {
+            if (!isTerminalForNewConnect(ctx)) return ConnectLaunchAction.Ignore
+            finishAttemptLocked()
+            existing = null
+        }
         if (existing != null) {
-            if (existing.launched || existing.continued) return ConnectLaunchAction.Ignore
             if (shouldWaitForDecision(ctx) && !existing.decision.isCompleted) {
                 return ConnectLaunchAction.EnqueueWait(
                     requestId = existing.id,
@@ -154,7 +163,7 @@ class ConnectRequestCoordinator {
     fun continueAfterWait(ctx: ConnectLaunchContext, requestId: Long): ConnectLaunchAction =
         synchronized(lock) {
             val req = active
-            if (req == null || req.id != requestId || req.revoked) {
+            if (req == null || req.id != requestId || req.revoked || req.finished) {
                 return ConnectLaunchAction.Ignore
             }
             if (req.launched || req.continued) return ConnectLaunchAction.Ignore
@@ -162,26 +171,28 @@ class ConnectRequestCoordinator {
                 return ConnectLaunchAction.Ignore
             }
             if (!shouldConnectAfterProbeJoin(ctx.uiState) && ctx.uiState != ConnState.Probing) {
+                finishAttemptLocked()
                 return ConnectLaunchAction.Ignore
             }
-            if (ctx.profileId != null && req.profileId != null && ctx.profileId != req.profileId) {
+            val scopeChanged =
+                (ctx.profileId != null && req.profileId != null && ctx.profileId != req.profileId) ||
+                    (
+                        ctx.underlayKey != null &&
+                            req.networkKey != null &&
+                            !req.networkKey.samePhysicalNetwork(ctx.underlayKey)
+                        ) ||
+                    ctx.mode != req.mode
+            if (scopeChanged) {
+                finishAttemptLocked()
                 return ConnectLaunchAction.Ignore
             }
-            if (
-                ctx.underlayKey != null &&
-                req.networkKey != null &&
-                !req.networkKey.samePhysicalNetwork(ctx.underlayKey)
-            ) {
-                return ConnectLaunchAction.Ignore
-            }
-            if (ctx.mode != req.mode) return ConnectLaunchAction.Ignore
             if (ctx.transportStartingOrLive) return ConnectLaunchAction.Ignore
             return proceedLocked(req, ctx)
         }
 
     suspend fun awaitDecision(requestId: Long) {
         val deferred = synchronized(lock) {
-            active?.takeIf { it.id == requestId && !it.revoked }?.decision
+            active?.takeIf { it.id == requestId && !it.revoked && !it.finished }?.decision
         } ?: return
         deferred.await()
     }
@@ -196,28 +207,35 @@ class ConnectRequestCoordinator {
         requestId: Long? = null,
     ) {
         synchronized(lock) {
-            val ownedRequest = requestId ?: active?.takeIf { !it.revoked }?.id
-            val resolvedRole = if (ownedRequest != null) ProbeRole.ConnectInitial else role
-            probe = Probe(
-                requestId = if (resolvedRole == ProbeRole.ConnectInitial) ownedRequest else null,
-                role = resolvedRole,
-                seriesId = seriesId,
-                sessionEpoch = sessionEpoch,
-                networkEpoch = networkEpoch,
-                profileId = profileId,
-                networkKey = networkKey,
+            val waiting = active?.takeIf { !it.revoked && !it.finished && !it.launched }
+            val ownedRequest = requestId ?: waiting?.id
+            val resolvedRole = when {
+                role == ProbeRole.BackgroundDiagnostic -> ProbeRole.BackgroundDiagnostic
+                ownedRequest != null && role != ProbeRole.BackgroundDiagnostic ->
+                    ProbeRole.ConnectInitial
+                else -> role
+            }
+            rememberOpLocked(
+                ProbeOp(
+                    requestId = ownedRequest,
+                    role = resolvedRole,
+                    seriesId = seriesId,
+                    sessionEpoch = sessionEpoch,
+                    networkEpoch = networkEpoch,
+                    profileId = profileId,
+                    networkKey = networkKey,
+                ),
             )
         }
     }
 
     fun retainInFlightProbe() {
         synchronized(lock) {
-            val req = active?.takeIf { !it.revoked } ?: return
-            val current = probe
-            if (current != null && !current.revoked) {
-                current.requestId = req.id
-                current.role = ProbeRole.ConnectInitial
-            }
+            val req = active?.takeIf { !it.revoked && !it.finished } ?: return
+            val current = liveConnectInitialLocked() ?: return
+            if (current.revoked) return
+            current.requestId = req.id
+            current.role = ProbeRole.ConnectInitial
         }
     }
 
@@ -228,37 +246,46 @@ class ConnectRequestCoordinator {
         }
     }
 
+    /**
+     * The attempt ended (Error, service gone, Ready) without a user Stop.
+     * Does not revoke probe series, so a still-legal initial final can fold.
+     */
+    fun finishAttempt() {
+        synchronized(lock) { finishAttemptLocked() }
+    }
+
     fun revokeConnectWork(): ConnectRevokeResult = synchronized(lock) {
         val req = active
         req?.revoked = true
+        req?.finished = true
         req?.decision?.cancel()
-        val current = probe
-        val cancelProbe = current != null &&
-            !current.revoked &&
-            (current.role == ProbeRole.ConnectInitial || current.requestId == req?.id)
-        if (cancelProbe) current?.revoked = true
+        var cancelProbe = false
+        for (op in ops) {
+            if (!op.revoked) {
+                op.revoked = true
+                cancelProbe = true
+            }
+        }
         active = null
         ConnectRevokeResult(cancelProbe = cancelProbe, cancelWait = true)
     }
 
     fun revokeIdleDiagnostic() {
         synchronized(lock) {
-            val current = probe ?: return
-            if (current.role == ProbeRole.IdleDiagnostic) current.revoked = true
+            for (op in ops) {
+                if (op.role == ProbeRole.IdleDiagnostic) op.revoked = true
+            }
         }
     }
 
-    /**
-     * RecoveryPermit.userStop is true whenever the user is not connected.
-     * That idle flag must not cancel a Connect wait or an idle diagnostic.
-     * Actual Stop revokes the probe; this reports that revoked owner.
-     */
-    fun lateCallbackBlocked(): Boolean = synchronized(lock) {
-        probe?.revoked == true
+    fun lateCallbackBlocked(seriesId: String): Boolean = synchronized(lock) {
+        if (seriesId.isEmpty()) return false
+        ops.any { it.seriesId == seriesId && it.revoked }
     }
 
     fun admitEarly(cb: ProbeCallback): ProbeAdmitResult = synchronized(lock) {
-        if (!matchesLocked(cb)) return rejected()
+        val current = findOpLocked(cb) ?: return rejected()
+        if (!matchesLocked(current, cb)) return rejected()
         if (cb.ordinarySuccess) {
             completeDecisionLocked(ProbeDecisionKind.OrdinarySuccess)
         }
@@ -273,40 +300,44 @@ class ConnectRequestCoordinator {
     }
 
     fun admitFinal(cb: ProbeCallback): ProbeAdmitResult = synchronized(lock) {
-        if (!matchesLocked(cb)) return rejected()
-        val current = probe ?: return rejected()
+        val current = findOpLocked(cb) ?: return rejected()
+        if (!matchesLocked(current, cb)) return rejected()
         if (current.finalApplied &&
             current.seriesId.isNotEmpty() &&
             cb.seriesId == current.seriesId
         ) {
             return rejected()
         }
-        val req = active
+        val req = active?.takeIf { !it.finished }
         if (req != null && req.revoked && current.role == ProbeRole.ConnectInitial) {
             return rejected()
         }
         current.finalApplied = true
         if (cb.seriesId.isNotEmpty()) current.seriesId = cb.seriesId
-        completeDecisionLocked(ProbeDecisionKind.RoundFinished)
         val disconnecting = cb.uiState == ConnState.Disconnecting
         if (cb.wantsConnected) {
             return ProbeAdmitResult(
                 accepted = true,
-                completeWait = true,
+                completeWait = current.role == ProbeRole.ConnectInitial &&
+                    req != null &&
+                    !req.revoked &&
+                    (current.requestId == null || current.requestId == req?.id),
                 decisionKind = ProbeDecisionKind.RoundFinished,
                 applyToReducer = true,
                 idleFold = false,
                 allowReadyUi = false,
             )
         }
-        if (current.role == ProbeRole.IdleDiagnostic) {
+        if (current.role == ProbeRole.IdleDiagnostic ||
+            current.role == ProbeRole.BackgroundDiagnostic
+        ) {
             return ProbeAdmitResult(
                 accepted = true,
-                completeWait = true,
+                completeWait = false,
                 decisionKind = ProbeDecisionKind.RoundFinished,
                 applyToReducer = false,
                 idleFold = true,
-                allowReadyUi = !disconnecting,
+                allowReadyUi = !disconnecting && current.role == ProbeRole.IdleDiagnostic,
             )
         }
         if (current.role == ProbeRole.ConnectInitial && req != null && !req.revoked) {
@@ -322,15 +353,42 @@ class ConnectRequestCoordinator {
         rejected()
     }
 
-    fun activeRequestId(): Long? = synchronized(lock) { active?.takeIf { !it.revoked }?.id }
+    /**
+     * Admit the final, apply evidence/counters, then release the Connect waiter.
+     * Completing the deferred inside [admitFinal] would let Main.immediate
+     * resume path selection before the fold.
+     */
+    fun admitAndApplyFinal(
+        cb: ProbeCallback,
+        apply: (ProbeAdmitResult) -> Unit,
+    ): ProbeAdmitResult {
+        val admit = admitFinal(cb)
+        if (!admit.accepted) return admit
+        apply(admit)
+        if (admit.completeWait) {
+            releaseWait(admit.decisionKind ?: ProbeDecisionKind.RoundFinished)
+        }
+        return admit
+    }
+
+    fun releaseWait(kind: ProbeDecisionKind) {
+        synchronized(lock) { completeDecisionLocked(kind) }
+    }
+
+    fun activeRequestId(): Long? = synchronized(lock) {
+        active?.takeIf { !it.revoked && !it.finished }?.id
+    }
 
     fun inheritEpochIfProbeInFlight(probeJobActive: Boolean): Long? = synchronized(lock) {
-        val req = active?.takeIf { !it.revoked } ?: return null
-        val current = probe ?: return null
-        if (current.revoked || !probeJobActive) return null
-        if (current.role != ProbeRole.ConnectInitial) return null
-        if (current.requestId != null && current.requestId != req.id) return null
-        current.sessionEpoch
+        val req = active?.takeIf { !it.revoked && !it.finished } ?: return null
+        inheritEpochIfProbeInFlightLocked(probeJobActive, req)
+    }
+
+    private fun isTerminalForNewConnect(ctx: ConnectLaunchContext): Boolean {
+        if (ctx.transportStartingOrLive) return false
+        return ctx.uiState == ConnState.Error ||
+            ctx.uiState == ConnState.Ready ||
+            ctx.uiState == ConnState.Idle
     }
 
     private fun shouldWaitForDecision(ctx: ConnectLaunchContext): Boolean {
@@ -351,32 +409,59 @@ class ConnectRequestCoordinator {
     }
 
     private fun inheritEpochIfProbeInFlightLocked(probeJobActive: Boolean, req: Request): Long? {
-        val current = probe ?: return null
-        if (current.revoked || !probeJobActive) return null
-        if (current.role != ProbeRole.ConnectInitial) return null
+        if (!probeJobActive) return null
+        val current = liveConnectInitialLocked() ?: return null
+        if (current.revoked) return null
         if (current.requestId != null && current.requestId != req.id) return null
         return current.sessionEpoch
     }
 
     private fun attachIdleProbeToRequestLocked(request: Request) {
-        val current = probe ?: return
-        if (current.revoked || current.finalApplied) return
+        val current = ops.lastOrNull { !it.revoked && !it.finalApplied } ?: return
+        if (current.role == ProbeRole.BackgroundDiagnostic) return
         current.requestId = request.id
         current.role = ProbeRole.ConnectInitial
     }
 
+    private fun finishAttemptLocked() {
+        val req = active ?: return
+        req.finished = true
+        if (!req.decision.isCompleted) req.decision.cancel()
+        active = null
+    }
+
     private fun completeDecisionLocked(kind: ProbeDecisionKind) {
         val req = active ?: return
-        if (req.revoked) return
-        val current = probe
-        if (current?.requestId != null && current.requestId != req.id) return
+        if (req.revoked || req.finished) return
         if (!req.decision.isCompleted) {
             req.decision.complete(kind)
         }
     }
 
-    private fun matchesLocked(cb: ProbeCallback): Boolean {
-        val current = probe ?: return false
+    private fun rememberOpLocked(op: ProbeOp) {
+        if (op.seriesId.isNotEmpty()) {
+            ops.removeAll { it.seriesId == op.seriesId }
+        }
+        while (ops.size >= OP_LIMIT) ops.removeFirst()
+        ops.addLast(op)
+    }
+
+    private fun findOpLocked(cb: ProbeCallback): ProbeOp? {
+        if (cb.seriesId.isNotEmpty()) {
+            ops.lastOrNull { it.seriesId == cb.seriesId }?.let { return it }
+        }
+        return ops.lastOrNull { op ->
+            !op.revoked &&
+                op.sessionEpoch == cb.sessionEpoch &&
+                op.networkEpoch == cb.networkEpoch &&
+                (op.seriesId.isEmpty() || cb.seriesId.isEmpty())
+        }
+    }
+
+    private fun liveConnectInitialLocked(): ProbeOp? =
+        ops.lastOrNull { it.role == ProbeRole.ConnectInitial && !it.revoked }
+
+    private fun matchesLocked(current: ProbeOp, cb: ProbeCallback): Boolean {
         if (current.revoked) return false
         if (current.sessionEpoch != cb.sessionEpoch) return false
         if (current.networkEpoch != cb.networkEpoch) return false
@@ -405,4 +490,8 @@ class ConnectRequestCoordinator {
     }
 
     private fun rejected(): ProbeAdmitResult = ProbeAdmitResult(accepted = false)
+
+    companion object {
+        private const val OP_LIMIT = 8
+    }
 }

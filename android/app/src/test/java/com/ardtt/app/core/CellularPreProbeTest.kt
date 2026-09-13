@@ -252,4 +252,144 @@ class CellularPreProbeTest {
         assertFalse(expired.hasFreshStrong(1L, aKnownX, "p"))
         assertFalse(positive(aKnownX).hasFreshStrong(10L, aKnownX, "other-profile"))
     }
+
+    @Test
+    fun ignoreAfterUnknownOriginStrongDoesNotConfirmAnotherHandle() {
+        val aUnknown = NetworkKey(1L, UnderlayKind.Cellular, 11, "a")
+        val aKnown = NetworkKey(1L, UnderlayKind.Cellular, 11, "a", carrier = "25001")
+        val bKnown = NetworkKey(9L, UnderlayKind.Cellular, 11, "b", carrier = "25001")
+        val strong = foldReachabilityEvidence(
+            previous = null,
+            incoming = positive(aUnknown).copy(
+                measuredAtElapsedMs = 1_000L,
+                ruService = CheckOutcome.Success,
+            ),
+            cellular = true,
+            elapsedMs = 1_000L,
+        )
+        assertEquals(80, strong.whitelistScorePercent)
+        assertTrue(strong.hasFreshStrong(1_000L, aUnknown, "p"))
+        assertFalse(strong.hasFreshStrong(1_000L, bKnown, "p"))
+        val afterIgnore = foldReachabilityEvidence(
+            previous = strong,
+            incoming = ReachabilityEvidence(
+                networkKey = aKnown,
+                originNetworkKey = aKnown,
+                profileId = "p",
+                yandex = CheckOutcome.Timeout,
+                seriesId = "ign",
+            ),
+            cellular = true,
+            elapsedMs = 2_000L,
+        )
+        assertEquals(aUnknown, afterIgnore.originNetworkKey)
+        assertEquals(80, afterIgnore.whitelistScorePercent)
+        assertEquals(strong.strongAtElapsedMs, afterIgnore.strongAtElapsedMs)
+        val adopted = adoptCellularEvidence(afterIgnore, bKnown)
+        assertNull(adopted)
+        val chain = whitelistEvidenceForUnderlay(
+            evidence = afterIgnore,
+            cellularEvidence = afterIgnore,
+            key = bKnown,
+            profileId = "p",
+            nowElapsedMs = 3_000L,
+        )
+        assertNull(chain)
+        assertFalse(afterIgnore.hasFreshStrong(3_000L, bKnown, "p"))
+        assertFalse(
+            RestrictionScore.mayEnterBypassForWhitelist(
+                afterIgnore.historicalWhitelistScore(bKnown, "p"),
+                afterIgnore.hasFreshStrong(3_000L, bKnown, "p"),
+            ),
+        )
+        val onB = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = UnderlaySnapshot(
+                    key = bKnown,
+                    kind = UnderlayKind.Cellular,
+                    availability = UnderlayAvailability.Usable,
+                    handle = 9L,
+                    simId = 11,
+                    cellularConnected = true,
+                    networkEpoch = 1L,
+                ),
+                evidence = afterIgnore,
+                currentPath = null,
+                transport = TransportLifecycle.Stopped,
+                hasCallHash = true,
+                elapsedMs = 3_000L,
+                profileId = "p",
+            ),
+        )
+        assertTrue(onB is AutoDecision.StartDirect)
+        val measuredB = foldReachabilityEvidence(
+            previous = null,
+            incoming = positive(bKnown).copy(
+                measuredAtElapsedMs = 4_000L,
+                ruService = CheckOutcome.Success,
+            ),
+            cellular = true,
+            elapsedMs = 4_000L,
+        )
+        assertTrue(measuredB.hasFreshStrong(4_000L, bKnown, "p"))
+        val enterB = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = UnderlaySnapshot(
+                    key = bKnown,
+                    kind = UnderlayKind.Cellular,
+                    availability = UnderlayAvailability.Usable,
+                    handle = 9L,
+                    simId = 11,
+                    cellularConnected = true,
+                    networkEpoch = 1L,
+                ),
+                evidence = measuredB,
+                currentPath = null,
+                transport = TransportLifecycle.Stopped,
+                hasCallHash = true,
+                elapsedMs = 4_000L,
+                profileId = "p",
+            ),
+        )
+        assertTrue(enterB is AutoDecision.StartBypass)
+    }
+
+    @Test
+    fun weakAfterUnknownOriginStrongDoesNotRewriteStrongOrigin() {
+        val aUnknown = NetworkKey(1L, UnderlayKind.Cellular, 11, "a")
+        val aKnown = NetworkKey(1L, UnderlayKind.Cellular, 11, "a", carrier = "25001")
+        val bKnown = NetworkKey(9L, UnderlayKind.Cellular, 11, "b", carrier = "25001")
+        val strong = foldReachabilityEvidence(
+            previous = null,
+            incoming = positive(aUnknown).copy(ruService = CheckOutcome.Success),
+            cellular = true,
+            elapsedMs = 1_000L,
+        )
+        val weak = foldReachabilityEvidence(
+            previous = strong,
+            incoming = ReachabilityEvidence(
+                networkKey = aKnown,
+                originNetworkKey = aKnown,
+                profileId = "p",
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.NotRun,
+                ruService = CheckOutcome.Success,
+                seriesId = "w",
+            ),
+            cellular = true,
+            elapsedMs = 2_000L,
+        )
+        assertEquals(aUnknown, weak.originNetworkKey)
+        assertTrue(weak.hasFreshStrong(2_000L, aUnknown, "p"))
+        assertFalse(weak.hasFreshStrong(2_000L, bKnown, "p"))
+        repeat(3) { i ->
+            val again = adoptCellularEvidence(weak, aKnown)
+            assertEquals(aUnknown, again?.originNetworkKey)
+            assertFalse(again!!.hasFreshStrong(3_000L + i, bKnown, "p"))
+        }
+        assertNull(adoptCellularEvidence(weak, bKnown))
+    }
 }

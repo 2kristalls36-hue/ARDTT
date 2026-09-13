@@ -1032,6 +1032,15 @@ class ConnectionManager(
         val seriesId = java.util.UUID.randomUUID().toString()
         val capturedKey = recoverySnapshot.underlay.key
         val capturedProfileId = recoverySnapshot.intent.profileId
+        connectRequests.registerProbe(
+            role = ProbeRole.BackgroundDiagnostic,
+            seriesId = seriesId,
+            sessionEpoch = sessionEpoch,
+            networkEpoch = networkEpoch,
+            profileId = capturedProfileId,
+            networkKey = capturedKey,
+            requestId = connectRequests.activeRequestId(),
+        )
         val bind = pickBestUnderlayNetwork(appContext)
         diagnosticJob = scope.launch {
             AppLog.i(TAG, "auto-stage probe_round_started series=$seriesId")
@@ -1494,6 +1503,7 @@ class ConnectionManager(
                     val underlay = readUnderlaySnapshot()
                     dispatchRecovery(ConnectionEvent.UnderlayUpdated(underlay))
                     AppLog.w(TAG, "Connect deferred — no path yet: ${fresh.message}")
+                    connectRequests.finishAttempt()
                     return@launch
                 }
                 if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
@@ -1505,6 +1515,7 @@ class ConnectionManager(
                         connectEnabled = true,
                         softInfo = softInfoFor(fresh),
                     )
+                    connectRequests.finishAttempt()
                     return@launch
                 }
                 if (usePath == VpnPath.Direct) {
@@ -1516,6 +1527,7 @@ class ConnectionManager(
                             lastError = "В профиле нет ключей AWG — нужен JSON с provision/smoke",
                             connectEnabled = true,
                         )
+                        connectRequests.finishAttempt()
                         return@launch
                     }
                 }
@@ -1528,6 +1540,7 @@ class ConnectionManager(
                         connectEnabled = true,
                         softInfo = softInfoFor(fresh),
                     )
+                    connectRequests.finishAttempt()
                     return@launch
                 }
                 startTunnel(usePath)
@@ -1555,6 +1568,7 @@ class ConnectionManager(
                     lastError = t.message ?: "Сбой Connect",
                     connectEnabled = true,
                 )
+                connectRequests.finishAttempt()
             }
         }
     }
@@ -1567,6 +1581,7 @@ class ConnectionManager(
             statusText = "Требуется действие",
             connectEnabled = connectAllowed(_ui.value.probe),
         )
+        connectRequests.finishAttempt()
     }
 
     fun disconnect() {
@@ -2910,6 +2925,7 @@ class ConnectionManager(
                 callRecreatePrompt = null,
                 connectEnabled = true,
             )
+            connectRequests.finishAttempt()
             connect()
         }
     }
@@ -2940,6 +2956,7 @@ class ConnectionManager(
             callRecreatePrompt = prompt,
             connectEnabled = connectAllowed(cur.probe),
         )
+        connectRequests.finishAttempt()
         scope.launch { stopTunnel() }
     }
 
@@ -2962,6 +2979,7 @@ class ConnectionManager(
                 connectEnabled = connectAllowed(cur.probe),
             )
         }
+        connectRequests.finishAttempt()
         runCatching {
             com.ardtt.app.TunnelWidgetProvider.updateWidgetState(
                 appContext,
@@ -3033,11 +3051,8 @@ class ConnectionManager(
             ),
         )
         if (!admit.accepted) {
-            if (connectRequests.lateCallbackBlocked() ||
-                !sessionOwnsProbe(sessionEpoch, networkEpoch)
-            ) {
-                return
-            }
+            if (connectRequests.lateCallbackBlocked(result.seriesId)) return
+            return
         } else if (!admit.applyToReducer) {
             logAutoPathDecision(
                 eventKind = "early",
@@ -3106,118 +3121,108 @@ class ConnectionManager(
             incoming.google,
             incoming.ruService,
         )
-        val admit = connectRequests.admitFinal(
-            ProbeCallback(
-                seriesId = shown.seriesId,
-                sessionEpoch = sessionEpoch,
-                networkEpoch = networkEpoch,
-                profileId = profileId,
-                networkKey = capturedKey,
-                ordinarySuccess = shown.bigtechOutcome.isSuccess || shown.googleOutcome.isSuccess,
-                sample = sample,
-                wantsConnected = recoverySnapshot.intent.wantsConnected,
-                uiState = _ui.value.state,
-                liveNetworkKey = recoverySnapshot.underlay.key,
-                liveProfileId = recoverySnapshot.intent.profileId,
-                userStop = _ui.value.state == ConnState.Disconnecting,
-            ),
+        val callback = ProbeCallback(
+            seriesId = shown.seriesId,
+            sessionEpoch = sessionEpoch,
+            networkEpoch = networkEpoch,
+            profileId = profileId,
+            networkKey = capturedKey,
+            ordinarySuccess = shown.bigtechOutcome.isSuccess || shown.googleOutcome.isSuccess,
+            sample = sample,
+            wantsConnected = recoverySnapshot.intent.wantsConnected,
+            uiState = _ui.value.state,
+            liveNetworkKey = recoverySnapshot.underlay.key,
+            liveProfileId = recoverySnapshot.intent.profileId,
+            userStop = _ui.value.state == ConnState.Disconnecting,
         )
-        if (!admit.accepted) {
-            if (connectRequests.lateCallbackBlocked() ||
-                !sessionOwnsProbe(sessionEpoch, networkEpoch)
-            ) {
-                AppLog.v(TAG, "probe result rejected series=${shown.seriesId}")
-                return
+        val admit = connectRequests.admitAndApplyFinal(callback) { admitted ->
+            val scoreBefore = recoverySnapshot.evidence?.whitelistScorePercent ?: 0
+            val pathBefore = recoverySnapshot.activePath
+            if (admitted.applyToReducer) {
+                dispatchRecovery(
+                    ConnectionEvent.ProbeFinished(
+                        evidence = incoming,
+                        sessionEpoch = sessionEpoch,
+                        networkEpoch = networkEpoch,
+                    ),
+                )
+                val folded = recoverySnapshot.evidence
+                val overlay = if (folded != null) {
+                    shown.withWhitelistEvidence(folded, cellular, now)
+                } else {
+                    shown
+                }
+                logAutoPathDecision(
+                    eventKind = "final",
+                    seriesId = shown.seriesId,
+                    sample = sample,
+                    evidence = folded,
+                    pathBefore = pathBefore,
+                    command = recoverySnapshot.recovery.phase.name,
+                    roundMs = result.elapsedMs,
+                    scoreBefore = scoreBefore,
+                )
+                _ui.value = _ui.value.copy(
+                    probe = overlay,
+                    softInfo = softInfoFor(overlay),
+                )
+                refreshHashFlag()
+                return@admitAndApplyFinal
             }
-        } else if (!admit.applyToReducer && !admit.idleFold) {
-            return
-        }
-        val scoreBefore = recoverySnapshot.evidence?.whitelistScorePercent ?: 0
-        val pathBefore = recoverySnapshot.activePath
-        if (admit.applyToReducer ||
-            (!admit.accepted && !connectRequests.lateCallbackBlocked() &&
-                sessionOwnsProbe(sessionEpoch, networkEpoch))
-        ) {
-            dispatchRecovery(
-                ConnectionEvent.ProbeFinished(
-                    evidence = incoming,
-                    sessionEpoch = sessionEpoch,
-                    networkEpoch = networkEpoch,
+            if (!admitted.idleFold) return@admitAndApplyFinal
+            if (shown.seriesId.isNotEmpty() && shown.seriesId in recoverySnapshot.seenProbeSeriesIds) {
+                return@admitAndApplyFinal
+            }
+            val folded = foldReachabilityEvidence(
+                previous = recoverySnapshot.evidence,
+                incoming = incoming,
+                cellular = cellular,
+                elapsedMs = now,
+            )
+            recoverySnapshot = recoverySnapshot.copy(
+                evidence = folded,
+                cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
+                seenProbeSeriesIds = rememberProbeSeriesId(
+                    recoverySnapshot.seenProbeSeriesIds,
+                    shown.seriesId,
                 ),
             )
-            val folded = recoverySnapshot.evidence
-            val overlay = if (folded != null) {
-                shown.withWhitelistEvidence(folded, cellular, now)
-            } else {
-                shown
-            }
+            val overlay = shown.withWhitelistEvidence(folded, cellular, now)
             logAutoPathDecision(
                 eventKind = "final",
                 seriesId = shown.seriesId,
                 sample = sample,
                 evidence = folded,
                 pathBefore = pathBefore,
-                command = recoverySnapshot.recovery.phase.name,
+                command = "idle-stash",
                 roundMs = result.elapsedMs,
                 scoreBefore = scoreBefore,
             )
-            _ui.value = _ui.value.copy(
-                probe = overlay,
-                softInfo = softInfoFor(overlay),
-            )
+            val connecting = _ui.value.state == ConnState.Connecting ||
+                _ui.value.state == ConnState.Connected
+            val disconnecting = _ui.value.state == ConnState.Disconnecting
+            _ui.value = if (connecting || disconnecting || !admitted.allowReadyUi) {
+                _ui.value.copy(
+                    probe = overlay,
+                    softInfo = softInfoFor(overlay),
+                )
+            } else {
+                _ui.value.copy(
+                    state = ConnState.Ready,
+                    probe = overlay,
+                    pathMode = pathMode,
+                    statusText = overlay.message,
+                    softInfo = softInfoFor(overlay),
+                    connectEnabled = connectAllowed(overlay),
+                    lastError = if (!connectAllowed(overlay)) overlay.message else null,
+                )
+            }
             refreshHashFlag()
-            return
+            Log.i(TAG, "probe class=${overlay.networkClass} path=${overlay.preselectedPath} ${overlay.elapsedMs}ms")
         }
-        if (!admit.idleFold) return
-        if (shown.seriesId.isNotEmpty() && shown.seriesId in recoverySnapshot.seenProbeSeriesIds) {
-            return
+        if (!admit.accepted) {
+            AppLog.v(TAG, "probe result rejected series=${shown.seriesId}")
         }
-        val folded = foldReachabilityEvidence(
-            previous = recoverySnapshot.evidence,
-            incoming = incoming,
-            cellular = cellular,
-            elapsedMs = now,
-        )
-        recoverySnapshot = recoverySnapshot.copy(
-            evidence = folded,
-            cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
-            seenProbeSeriesIds = rememberProbeSeriesId(
-                recoverySnapshot.seenProbeSeriesIds,
-                shown.seriesId,
-            ),
-        )
-        val overlay = shown.withWhitelistEvidence(folded, cellular, now)
-        logAutoPathDecision(
-            eventKind = "final",
-            seriesId = shown.seriesId,
-            sample = sample,
-            evidence = folded,
-            pathBefore = pathBefore,
-            command = "idle-stash",
-            roundMs = result.elapsedMs,
-            scoreBefore = scoreBefore,
-        )
-        val connecting = _ui.value.state == ConnState.Connecting ||
-            _ui.value.state == ConnState.Connected
-        val disconnecting = _ui.value.state == ConnState.Disconnecting
-        _ui.value = if (connecting || disconnecting || !admit.allowReadyUi) {
-            _ui.value.copy(
-                probe = overlay,
-                softInfo = softInfoFor(overlay),
-            )
-        } else {
-            _ui.value.copy(
-                state = ConnState.Ready,
-                probe = overlay,
-                pathMode = pathMode,
-                statusText = overlay.message,
-                softInfo = softInfoFor(overlay),
-                connectEnabled = connectAllowed(overlay),
-                lastError = if (!connectAllowed(overlay)) overlay.message else null,
-            )
-        }
-        refreshHashFlag()
-        Log.i(TAG, "probe class=${overlay.networkClass} path=${overlay.preselectedPath} ${overlay.elapsedMs}ms")
     }
 
     private fun sessionOwnsProbe(sessionEpoch: Long, networkEpoch: Long): Boolean =
