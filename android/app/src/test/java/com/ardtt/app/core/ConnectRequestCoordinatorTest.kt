@@ -125,9 +125,9 @@ class ConnectRequestCoordinatorTest {
             networkKey = cell,
             requestId = wait.requestId,
         )
-        val finalAdmit = c.admitFinal(
+        val finalAdmit = c.admitAndApplyFinal(
             callback("u1", ordinary = false, sample = RestrictionSample.Ignore, userStop = true),
-        )
+        ) {}
         assertTrue(finalAdmit.completeWait)
         assertFalse(finalAdmit.applyToReducer)
         val proceeded = c.continueAfterWait(
@@ -156,7 +156,7 @@ class ConnectRequestCoordinatorTest {
         )
         val revoke = c.revokeConnectWork()
         assertTrue(revoke.cancelProbe)
-        assertTrue(c.lateCallbackBlocked())
+        assertTrue(c.lateCallbackBlocked("late"))
         assertEquals(
             ConnectLaunchAction.Ignore,
             c.continueAfterWait(ctx(ui = ConnState.Disconnecting, probeActive = true), wait.requestId),
@@ -203,7 +203,7 @@ class ConnectRequestCoordinatorTest {
         )
         assertFalse(late.accepted)
         assertEquals(second.requestId, c.activeRequestId())
-        val own = c.admitFinal(
+        val own = c.admitAndApplyFinal(
             ProbeCallback(
                 seriesId = "new",
                 sessionEpoch = 2L,
@@ -218,7 +218,7 @@ class ConnectRequestCoordinatorTest {
                 liveProfileId = "p",
                 userStop = false,
             ),
-        )
+        ) {}
         assertTrue(own.accepted)
         c.awaitDecision(second.requestId)
     }
@@ -253,7 +253,7 @@ class ConnectRequestCoordinatorTest {
             networkKey = cell,
             requestId = wait2.requestId,
         )
-        c2.admitFinal(callback("s2", ordinary = false, sample = RestrictionSample.Ignore))
+        c2.admitAndApplyFinal(callback("s2", ordinary = false, sample = RestrictionSample.Ignore)) {}
         assertEquals(
             ConnectLaunchAction.Ignore,
             c2.continueAfterWait(
@@ -261,6 +261,8 @@ class ConnectRequestCoordinatorTest {
                 wait2.requestId,
             ),
         )
+        val next = c2.onConnectRequested(ctx(profileId = "q"))
+        assertTrue(next is ConnectLaunchAction.EnqueueWait || next is ConnectLaunchAction.Proceed)
     }
 
     @Test
@@ -302,7 +304,7 @@ class ConnectRequestCoordinatorTest {
         c.continueAfterWait(ctx(ui = ConnState.Probing, probeActive = true), wait.requestId)
         c.markLaunched(wait.requestId)
         c.revokeConnectWork()
-        assertTrue(c.lateCallbackBlocked())
+        assertTrue(c.lateCallbackBlocked("owned"))
         val late = c.admitFinal(
             callback(
                 "owned",
@@ -338,5 +340,137 @@ class ConnectRequestCoordinatorTest {
             callback("owned", ordinary = true, sample = RestrictionSample.Open, wantsConnected = true),
         )
         assertFalse(dup.accepted)
+    }
+
+    @Test
+    fun errorOrReadyAfterLaunchAllowsANewConnect() {
+        val c = ConnectRequestCoordinator()
+        val first = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed
+        c.markLaunched(first.requestId)
+        assertEquals(
+            ConnectLaunchAction.Ignore,
+            c.onConnectRequested(ctx(ui = ConnState.Connecting, transportBusy = true)),
+        )
+        val afterError = c.onConnectRequested(ctx(ui = ConnState.Error, hasEvidence = true))
+        assertTrue(afterError is ConnectLaunchAction.Proceed)
+        val secondId = (afterError as ConnectLaunchAction.Proceed).requestId
+        assertTrue(secondId != first.requestId)
+        c.markLaunched(secondId)
+        c.finishAttempt()
+        val afterReady = c.onConnectRequested(ctx(ui = ConnState.Ready, hasEvidence = true))
+        assertTrue(afterReady is ConnectLaunchAction.Proceed)
+    }
+
+    @Test
+    fun finishAttemptUnblocksInternalReconnect() {
+        val c = ConnectRequestCoordinator()
+        val first = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed
+        c.markLaunched(first.requestId)
+        c.finishAttempt()
+        val again = c.onConnectRequested(ctx(ui = ConnState.Ready, hasEvidence = true))
+        assertTrue(again is ConnectLaunchAction.Proceed)
+    }
+
+    @Test
+    fun backgroundDiagnosticIsAcceptedAfterStopAndFreshReconnect() {
+        val c = ConnectRequestCoordinator()
+        val wait = c.onConnectRequested(ctx()) as ConnectLaunchAction.EnqueueWait
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "init",
+            sessionEpoch = 0L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = wait.requestId,
+        )
+        c.admitAndApplyFinal(
+            callback("init", ordinary = false, sample = RestrictionSample.Positive, wantsConnected = true),
+        ) {}
+        c.markLaunched(wait.requestId)
+        c.revokeConnectWork()
+        assertTrue(c.lateCallbackBlocked("init"))
+        val reconnect = c.onConnectRequested(ctx(ui = ConnState.Ready, hasEvidence = true))
+        val proceed = reconnect as ConnectLaunchAction.Proceed
+        c.markLaunched(proceed.requestId)
+        c.registerProbe(
+            role = ProbeRole.BackgroundDiagnostic,
+            seriesId = "bg",
+            sessionEpoch = 4L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = proceed.requestId,
+        )
+        val bg = c.admitAndApplyFinal(
+            ProbeCallback(
+                seriesId = "bg",
+                sessionEpoch = 4L,
+                networkEpoch = 1L,
+                profileId = "p",
+                networkKey = cell,
+                ordinarySuccess = false,
+                sample = RestrictionSample.Positive,
+                wantsConnected = true,
+                uiState = ConnState.Connected,
+                liveNetworkKey = cell,
+                liveProfileId = "p",
+                userStop = false,
+            ),
+        ) {}
+        assertTrue(bg.accepted)
+        assertTrue(bg.applyToReducer)
+        assertFalse(c.lateCallbackBlocked("bg"))
+        val lateOld = c.admitFinal(
+            callback("init", ordinary = false, sample = RestrictionSample.Positive, wantsConnected = true),
+        )
+        assertFalse(lateOld.accepted)
+    }
+
+    @Test
+    fun registeringBackgroundDoesNotRevokeInitialOwner() {
+        val c = ConnectRequestCoordinator()
+        val wait = c.onConnectRequested(ctx()) as ConnectLaunchAction.EnqueueWait
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "init",
+            sessionEpoch = 0L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = wait.requestId,
+        )
+        c.registerProbe(
+            role = ProbeRole.BackgroundDiagnostic,
+            seriesId = "bg",
+            sessionEpoch = 0L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = wait.requestId,
+        )
+        val initFinal = c.admitFinal(
+            callback("init", ordinary = false, sample = RestrictionSample.Ignore),
+        )
+        assertTrue(initFinal.accepted)
+        val bg = c.admitFinal(
+            ProbeCallback(
+                seriesId = "bg",
+                sessionEpoch = 0L,
+                networkEpoch = 1L,
+                profileId = "p",
+                networkKey = cell,
+                ordinarySuccess = false,
+                sample = RestrictionSample.Ignore,
+                wantsConnected = true,
+                uiState = ConnState.Connecting,
+                liveNetworkKey = cell,
+                liveProfileId = "p",
+                userStop = false,
+            ),
+        )
+        assertTrue(bg.accepted)
+        val dupInit = c.admitFinal(callback("init", ordinary = false, sample = RestrictionSample.Ignore))
+        assertFalse(dupInit.accepted)
     }
 }

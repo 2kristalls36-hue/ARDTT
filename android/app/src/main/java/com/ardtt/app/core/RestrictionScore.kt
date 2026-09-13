@@ -320,7 +320,15 @@ fun foldReachabilityEvidence(
         sample == RestrictionSample.Ignore -> (previous?.unknownStreak ?: 0) + 1
         else -> 0
     }
-    val origin = incoming.measurementOrigin() ?: previous?.takeIf { samePhysical }?.measurementOrigin()
+    val origin = when {
+        // Strong TTL keeps the radio it was measured on. Ignore/Weak must not
+        // promote an unknown origin into a known carrier for a later rebind.
+        sample.isStrongEvidence() ->
+            incoming.measurementOrigin() ?: previous?.takeIf { samePhysical }?.measurementOrigin()
+        samePhysical ->
+            previous?.measurementOrigin() ?: incoming.measurementOrigin()
+        else -> incoming.measurementOrigin()
+    }
     return incoming.copy(
         originNetworkKey = origin,
         seriesCount = series,
