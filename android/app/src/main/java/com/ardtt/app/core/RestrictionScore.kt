@@ -145,7 +145,7 @@ object RestrictionScore {
         val exitLikely = likely(historicalScore, alreadyBypass = true)
         val staleScoreBlocks = !freshStrong &&
             !usable &&
-            historicalScore >= RecoverySettings.WHITELIST_ENTER_PERCENT &&
+            historicalScore >= RecoverySettings.WHITELIST_EXIT_PERCENT &&
             unknownStreak < RecoverySettings.WHITELIST_UNKNOWN_DIRECT_TRY_STREAK
         return (freshStrong && exitLikely) ||
             (usable && exitLikely) ||
@@ -320,10 +320,13 @@ fun foldReachabilityEvidence(
         sample == RestrictionSample.Ignore -> (previous?.unknownStreak ?: 0) + 1
         else -> 0
     }
+    val origin = incoming.measurementOrigin() ?: previous?.takeIf { samePhysical }?.measurementOrigin()
     return incoming.copy(
+        originNetworkKey = origin,
         seriesCount = series,
         completedSeries = completed,
         unknownStreak = unknownStreak,
+        lastSample = sample,
         measuredAtElapsedMs = elapsedMs,
         observedAtElapsedMs = observed,
         usableAtElapsedMs = usableAt,

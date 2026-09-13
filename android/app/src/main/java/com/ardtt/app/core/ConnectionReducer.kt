@@ -8,6 +8,7 @@ sealed class ConnectionEvent {
         val silentRecreate: Boolean,
         val callIdentityToken: String = "",
         val directConfigRevision: String = "",
+        val inheritProbeSessionEpoch: Long? = null,
     ) : ConnectionEvent()
 
     data object UserDisconnect : ConnectionEvent()
@@ -260,7 +261,7 @@ object ConnectionReducer {
             pathReadiness = PathReadiness.None,
             recovery = RecoveryState(
                 phase = RecoveryPhase.Probing,
-                inheritedProbeSessionEpoch = state.sessionEpoch,
+                inheritedProbeSessionEpoch = event.inheritProbeSessionEpoch,
             ),
             evidence = if (state.underlay.kind == UnderlayKind.Cellular) {
                 adoptCellularEvidence(state.cellularEvidence, state.underlay.key)
@@ -537,15 +538,19 @@ object ConnectionReducer {
         )
         val liveCellular = state.underlay.kind == UnderlayKind.Cellular
         val appliesNow = liveCellular &&
-            (incoming.networkKey == null ||
-                incoming.networkKey.matchesCellularUnderlay(state.underlay.key) ||
-                state.underlay.key == null)
+            whitelistOriginAllowsBind(
+                incoming.measurementOrigin(),
+                state.underlay.key,
+            )
         val next = state.copy(
             cellularEvidence = folded,
             evidence = if (appliesNow) {
                 foldReachabilityEvidence(
                     previous = state.evidence,
-                    incoming = incoming.copy(networkKey = state.underlay.key ?: incoming.networkKey),
+                    incoming = incoming.copy(
+                        networkKey = state.underlay.key ?: incoming.networkKey,
+                        originNetworkKey = incoming.measurementOrigin(),
+                    ),
                     cellular = true,
                     elapsedMs = elapsedMs,
                 )

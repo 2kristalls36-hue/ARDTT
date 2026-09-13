@@ -95,13 +95,15 @@ data class RecoveryPermit(
         fun acceptsProbe(
             sessionEpoch: Long,
             networkEpoch: Long?,
-            inheritedProbeSessionEpoch: Long,
+            inheritedProbeSessionEpoch: Long?,
         ): Boolean {
             if (userStop) return false
             if (networkEpoch != null && networkEpoch != this.networkEpoch) return false
             if (sessionEpoch == this.sessionEpoch) return true
-            // Idle starts at epoch 0; UserConnect must still own that in-flight probe.
-            return sessionEpoch == inheritedProbeSessionEpoch
+            // Only the in-flight initial probe named by UserConnect is inherited.
+            // Epoch 0 is a real idle epoch, not a wildcard for any old round.
+            return inheritedProbeSessionEpoch != null &&
+                sessionEpoch == inheritedProbeSessionEpoch
         }
 
     val allowsWatchdogRestart: Boolean
@@ -143,11 +145,12 @@ data class RecoveryState(
     val callOpInFlight: Boolean = false,
     val permit: RecoveryPermit = RecoveryPermit(),
     /**
-     * In-flight initial probe was started on the previous session epoch.
-     * UserConnect bumps [sessionEpoch]; ProbeFinished for that probe must
-     * still be accepted.
+     * In-flight initial probe started on this session epoch. UserConnect
+     * bumps [sessionEpoch]; ProbeFinished for that named probe may still be
+     * accepted. Null means no inherit — including when the previous epoch
+     * was 0.
      */
-    val inheritedProbeSessionEpoch: Long = 0L,
+    val inheritedProbeSessionEpoch: Long? = null,
 ) {
     /** Deadline of a failure backoff; a pending re-check does not gate retries. */
     val backoffDueAtElapsedMs: Long?
@@ -184,16 +187,27 @@ data class ReachabilityEvidence(
     val completedSeries: Int = 0,
     /** Consecutive Ignore / incomplete rounds in this restriction scope. */
     val unknownStreak: Int = 0,
+    /** Last accepted sample in this scope; drives the diagnostic schedule. */
+    val lastSample: RestrictionSample = RestrictionSample.Ignore,
     val bindHandle: Long? = null,
     val routeReason: String = "unverified",
     val restrictionReason: String? = null,
     val seriesId: String = "",
+    /** Immutable radio the sample was taken on. Rebind must not overwrite this. */
+    val originNetworkKey: NetworkKey? = null,
 ) {
+    fun measurementOrigin(): NetworkKey? = originNetworkKey ?: networkKey
+
     fun originMatches(key: NetworkKey?, profileId: String?): Boolean {
-        if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return false
-        if (networkKey != null && key != null && !networkKey.sameCarrier(key)) return false
-        if (this.profileId != null && profileId != null && this.profileId != profileId) return false
-        return true
+        if (this.profileId != null && profileId != null && this.profileId != profileId) {
+            return false
+        }
+        if (key == null) return true
+        val bound = networkKey
+        if (bound != null && bound.samePhysicalNetwork(key) && bound.sameCarrier(key)) {
+            return true
+        }
+        return whitelistOriginAllowsBind(measurementOrigin(), key)
     }
 
     fun usableUntilElapsedMs(): Long =
@@ -218,25 +232,19 @@ data class ReachabilityEvidence(
     }
 
     fun hasFreshStrong(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
+        if (key == null) return false
         if (!originMatches(key, profileId)) return false
         if (!originAllowsStrongConfirmation(key)) return false
         return !RecoverySettings.evidenceExpired(elapsedMs, strongUntil())
     }
 
     /**
-     * Unknown-origin measurements must not confirm a whitelist on a network
-     * whose operator we now know. A failed live read on the same radio still
+     * Unknown-origin measurements must not confirm a whitelist on another
+     * physical network. A failed live carrier read on the same radio still
      * keeps a known measurement.
      */
-    fun originAllowsStrongConfirmation(key: NetworkKey?): Boolean {
-        if (key == null || networkKey == null) return true
-        if (networkKey.samePhysicalNetwork(key) || networkKey.sameCellularSim(key)) {
-            return true
-        }
-        val measured = networkKey.carrier?.takeIf { it.isNotBlank() } ?: return false
-        val live = key.carrier?.takeIf { it.isNotBlank() } ?: return false
-        return measured == live
-    }
+    fun originAllowsStrongConfirmation(key: NetworkKey?): Boolean =
+        whitelistOriginAllowsBind(measurementOrigin(), key)
 
     fun restrictionAt(elapsedMs: Long, key: NetworkKey?, profileId: String?): RestrictionHint {
         if (hasFreshStrong(elapsedMs, key, profileId) &&

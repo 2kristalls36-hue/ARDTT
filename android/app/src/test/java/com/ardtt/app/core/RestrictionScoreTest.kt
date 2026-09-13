@@ -418,6 +418,8 @@ class RestrictionScoreTest {
                 seriesCount = 2,
                 unknownStreak = 0,
                 strongFresh = true,
+                usableFresh = true,
+                lastSample = RestrictionSample.Positive,
             ),
         )
         assertEquals(
@@ -428,6 +430,7 @@ class RestrictionScoreTest {
                 seriesCount = 2,
                 unknownStreak = 1,
                 strongFresh = false,
+                lastSample = RestrictionSample.Ignore,
             ),
         )
     }
@@ -495,6 +498,243 @@ class RestrictionScoreTest {
                 bigtech = CheckOutcome.TlsFailure,
                 google = CheckOutcome.NotRun,
                 ruService = CheckOutcome.Success,
+            ),
+        )
+    }
+
+    @Test
+    fun liveBypassHoldUsesExitThresholdNotEnter() {
+        val scores = listOf(55, 62, 64, 79, 80)
+        for (score in scores) {
+            assertTrue(
+                "stale score $score should hold Bypass",
+                RestrictionScore.bypassHoldsDirectReeval(
+                    historicalScore = score,
+                    freshStrong = false,
+                    usable = false,
+                    unknownStreak = 3,
+                    alreadyBypass = true,
+                ),
+            )
+            assertFalse(
+                "stale score $score after 4 unknowns should not hold",
+                RestrictionScore.bypassHoldsDirectReeval(
+                    historicalScore = score,
+                    freshStrong = false,
+                    usable = false,
+                    unknownStreak = 4,
+                    alreadyBypass = true,
+                ),
+            )
+        }
+        assertFalse(
+            RestrictionScore.bypassHoldsDirectReeval(
+                historicalScore = 54,
+                freshStrong = false,
+                usable = true,
+                unknownStreak = 0,
+                alreadyBypass = true,
+            ),
+        )
+        assertTrue(
+            RestrictionScore.bypassHoldsDirectReeval(
+                historicalScore = 55,
+                freshStrong = true,
+                usable = true,
+                unknownStreak = 9,
+                alreadyBypass = true,
+            ),
+        )
+        assertFalse(
+            RestrictionScore.mayEnterBypassForWhitelist(80, freshStrongConfirmation = false),
+        )
+        assertFalse(
+            RestrictionScore.mayEnterBypassForWhitelist(100, freshStrongConfirmation = false),
+        )
+    }
+
+    @Test
+    fun sixWeakRoundsStayOnRestrictionRefresh() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        var ev: ReachabilityEvidence? = null
+        repeat(6) { i ->
+            ev = foldReachabilityEvidence(
+                previous = ev,
+                incoming = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.NotRun,
+                    ruService = CheckOutcome.Success,
+                    seriesId = "w$i",
+                ),
+                cellular = true,
+                elapsedMs = (i + 1) * 1_000L,
+            )
+            val now = (i + 1) * 1_000L
+            assertEquals(RestrictionSample.WeakPositive, ev!!.lastSample)
+            assertTrue(ev!!.whitelistScorePercent <= RecoverySettings.WHITELIST_WEAK_ONLY_CAP_PERCENT)
+            assertFalse(ev!!.hasFreshStrong(now, key, null))
+            assertEquals(
+                RecoverySettings.DIAGNOSTIC_RESTRICTION_REFRESH_MS,
+                RecoverySettings.nextDiagnosticDelayMs(ev, now, key, null),
+            )
+        }
+    }
+
+    @Test
+    fun ignoreBackoffThenWeakThenIgnoreRestartsAtTwoSeconds() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val expected = longArrayOf(2_000L, 5_000L, 10_000L, 30_000L, 60_000L, 60_000L)
+        var ev: ReachabilityEvidence? = null
+        expected.forEachIndexed { i, delay ->
+            ev = foldReachabilityEvidence(
+                previous = ev,
+                incoming = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Timeout,
+                    seriesId = "i$i",
+                ),
+                cellular = true,
+                elapsedMs = (i + 1) * 1_000L,
+            )
+            assertEquals(delay, RecoverySettings.nextDiagnosticDelayMs(ev, (i + 1) * 1_000L, key, null))
+        }
+        val weak = foldReachabilityEvidence(
+            previous = ev,
+            incoming = ReachabilityEvidence(
+                networkKey = key,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.NotRun,
+                ruService = CheckOutcome.Success,
+                seriesId = "w",
+            ),
+            cellular = true,
+            elapsedMs = 8_000L,
+        )
+        assertEquals(0, weak.unknownStreak)
+        assertEquals(
+            RecoverySettings.DIAGNOSTIC_RESTRICTION_REFRESH_MS,
+            RecoverySettings.nextDiagnosticDelayMs(weak, 8_000L, key, null),
+        )
+        val ignoreAgain = foldReachabilityEvidence(
+            previous = weak,
+            incoming = ReachabilityEvidence(
+                networkKey = key,
+                yandex = CheckOutcome.Timeout,
+                seriesId = "i-next",
+            ),
+            cellular = true,
+            elapsedMs = 9_000L,
+        )
+        assertEquals(1, ignoreAgain.unknownStreak)
+        assertEquals(2_000L, RecoverySettings.nextDiagnosticDelayMs(ignoreAgain, 9_000L, key, null))
+    }
+
+    @Test
+    fun openSampleUsesOpenScheduleAndStaleSuspectedIsNotTwentyFiveSeconds() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val open = foldReachabilityEvidence(
+            previous = null,
+            incoming = ReachabilityEvidence(
+                networkKey = key,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Success,
+                google = CheckOutcome.Success,
+                seriesId = "o",
+            ),
+            cellular = true,
+            elapsedMs = 10L,
+        )
+        assertEquals(0, open.unknownStreak)
+        assertEquals(
+            RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS,
+            RecoverySettings.nextDiagnosticDelayMs(open, 10L, key, null),
+        )
+        val stale = open.copy(
+            restriction = RestrictionHint.Suspected,
+            lastSample = RestrictionSample.WeakPositive,
+            ttlUntilElapsedMs = 10L,
+            strongUntilElapsedMs = 10L,
+            usableAtElapsedMs = 10L,
+        )
+        assertEquals(
+            2_000L,
+            RecoverySettings.nextDiagnosticDelayMs(stale, 10L, key, null),
+        )
+    }
+
+    @Test
+    fun positiveThenOpenThenTtlThenFourUnknownReleasesBypassHold() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val strong = foldReachabilityEvidence(
+            previous = null,
+            incoming = ReachabilityEvidence(
+                networkKey = key,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
+                seriesId = "s",
+            ),
+            cellular = true,
+            elapsedMs = 10L,
+        )
+        val opened = foldReachabilityEvidence(
+            previous = strong,
+            incoming = ReachabilityEvidence(
+                networkKey = key,
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Success,
+                google = CheckOutcome.Success,
+                seriesId = "o",
+            ),
+            cellular = true,
+            elapsedMs = 20L,
+        )
+        assertEquals(62, opened.whitelistScorePercent)
+        val expiredAt = opened.usableUntilElapsedMs()
+        assertTrue(RecoverySettings.evidenceExpired(expiredAt, opened.usableUntilElapsedMs()))
+        var ev = opened
+        repeat(3) { i ->
+            ev = foldReachabilityEvidence(
+                previous = ev,
+                incoming = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Timeout,
+                    seriesId = "u$i",
+                ),
+                cellular = true,
+                elapsedMs = expiredAt + i + 1,
+            )
+            assertTrue(
+                RestrictionScore.bypassHoldsDirectReeval(
+                    historicalScore = ev!!.historicalWhitelistScore(key, null),
+                    freshStrong = ev!!.hasFreshStrong(expiredAt + i + 1, key, null),
+                    usable = ev!!.usableAt(expiredAt + i + 1, key, null),
+                    unknownStreak = ev!!.unknownStreak,
+                    alreadyBypass = true,
+                ),
+            )
+        }
+        ev = foldReachabilityEvidence(
+            previous = ev,
+            incoming = ReachabilityEvidence(
+                networkKey = key,
+                yandex = CheckOutcome.Timeout,
+                seriesId = "u4",
+            ),
+            cellular = true,
+            elapsedMs = expiredAt + 4,
+        )
+        assertFalse(
+            RestrictionScore.bypassHoldsDirectReeval(
+                historicalScore = ev!!.historicalWhitelistScore(key, null),
+                freshStrong = ev!!.hasFreshStrong(expiredAt + 4, key, null),
+                usable = ev!!.usableAt(expiredAt + 4, key, null),
+                unknownStreak = ev!!.unknownStreak,
+                alreadyBypass = true,
             ),
         )
     }
