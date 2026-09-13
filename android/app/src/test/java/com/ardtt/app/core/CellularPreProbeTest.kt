@@ -36,11 +36,15 @@ class CellularPreProbeCarrierTest {
     }
 
     @Test
-    fun anUnreadableOperatorKeepsTheScore() {
+    fun anUnreadableOperatorKeepsTheScoreOnTheSameRadio() {
         assertTrue(mts.sameCarrier(unknownCarrier))
         assertTrue(unknownCarrier.sameCarrier(mts))
         assertEquals(80, scored(mts).whitelistScoreAt(unknownCarrier, "p"))
         assertEquals(80, scored(unknownCarrier).whitelistScoreAt(mts, "p"))
+        assertTrue(scored(unknownCarrier).withFreshStrongTtl().hasFreshStrong(1L, mts, "p"))
+        val otherHandle = NetworkKey(9L, UnderlayKind.Cellular, 11, "cell-b", carrier = "25001")
+        assertFalse(scored(unknownCarrier).hasFreshStrong(1L, otherHandle, "p"))
+        assertFalse(scored(unknownCarrier).hasFreshStrong(1L, beeline.copy(handle = 9L), "p"))
     }
 
     @Test
@@ -50,7 +54,9 @@ class CellularPreProbeCarrierTest {
         assertFalse(negative.stillBlocks(0L, beeline, null))
 
         assertNull(adoptCellularEvidence(scored(mts), beeline))
-        assertEquals(beeline, adoptCellularEvidence(scored(unknownCarrier), beeline)?.networkKey)
+        val unknownAdopted = adoptCellularEvidence(scored(unknownCarrier), beeline)
+        assertEquals(beeline, unknownAdopted?.networkKey)
+        assertEquals(unknownCarrier, unknownAdopted?.originNetworkKey)
         assertFalse(mts.directConfirmedOn(beeline))
         assertTrue(mts.directConfirmedOn(mts))
     }
@@ -84,6 +90,8 @@ class CellularPreProbeCarrierTest {
 class CellularPreProbeTest {
     private val cellA = NetworkKey(1L, UnderlayKind.Cellular, 11, "cell-a")
     private val cellBSameSim = NetworkKey(9L, UnderlayKind.Cellular, 11, "cell-b")
+    private val cellAKnown = NetworkKey(1L, UnderlayKind.Cellular, 11, "cell-a", carrier = "25001")
+    private val cellBKnown = NetworkKey(9L, UnderlayKind.Cellular, 11, "cell-b", carrier = "25001")
     private val cellOtherSim = NetworkKey(3L, UnderlayKind.Cellular, 22, "cell-other")
     private val wifi = NetworkKey(2L, UnderlayKind.Wifi, null, "wifi")
 
@@ -114,14 +122,40 @@ class CellularPreProbeTest {
     }
 
     @Test
-    fun adoptRebindsHandleForSameSim() {
-        val adopted = adoptCellularEvidence(positive(cellA), cellBSameSim)
+    fun adoptRebindsHandleForSameKnownOperator() {
+        val adopted = adoptCellularEvidence(positive(cellAKnown), cellBKnown)
         assertNotNull(adopted)
-        assertEquals(cellBSameSim, adopted?.networkKey)
+        assertEquals(cellBKnown, adopted?.networkKey)
+        assertEquals(cellAKnown, adopted?.originNetworkKey)
         assertEquals(80, adopted?.whitelistScorePercent)
         assertEquals(1L, adopted?.measuredAtElapsedMs)
         assertEquals(1L, adopted?.strongAtElapsedMs)
         assertEquals(90_000L, adopted?.ttlUntilElapsedMs)
+        assertTrue(adopted!!.hasFreshStrong(10L, cellBKnown, "p"))
+    }
+
+    @Test
+    fun unknownOriginDoesNotBecomeFreshStrongOnAnotherHandle() {
+        val adopted = adoptCellularEvidence(positive(cellA), cellBSameSim)
+        assertNull(adopted)
+        assertFalse(positive(cellA).hasFreshStrong(10L, cellBSameSim, "p"))
+        val chain = whitelistEvidenceForUnderlay(
+            evidence = null,
+            cellularEvidence = positive(cellA),
+            key = cellBSameSim.copy(carrier = "25001"),
+            profileId = "p",
+            nowElapsedMs = 10L,
+        )
+        assertNull(chain)
+        val liveB = cellBSameSim.copy(carrier = "25001")
+        assertFalse(
+            RestrictionScore.mayEnterBypassForWhitelist(
+                positive(cellA).historicalWhitelistScore(liveB, "p"),
+                positive(cellA).hasFreshStrong(10L, liveB, "p"),
+            ),
+        )
+        val measuredOnB = positive(liveB)
+        assertTrue(measuredOnB.hasFreshStrong(10L, liveB, "p"))
     }
 
     @Test
@@ -140,13 +174,17 @@ class CellularPreProbeTest {
         )
         val chosen = whitelistEvidenceForUnderlay(
             evidence = wifiEvidence,
-            cellularEvidence = positive(cellA),
-            key = cellBSameSim,
+            cellularEvidence = positive(cellAKnown),
+            key = cellBKnown,
             profileId = "p",
             nowElapsedMs = 10L,
         )
         assertEquals(80, chosen?.whitelistScorePercent)
-        assertEquals(cellBSameSim, chosen?.networkKey)
+        assertEquals(cellBKnown, chosen?.networkKey)
+        assertEquals(cellAKnown, chosen?.originNetworkKey)
+        assertTrue(chosen!!.hasFreshStrong(10L, cellBKnown, "p"))
+        val again = adoptCellularEvidence(chosen, cellBKnown)
+        assertEquals(cellAKnown, again?.originNetworkKey)
     }
 
     @Test
@@ -187,5 +225,31 @@ class CellularPreProbeTest {
                 expired.hasFreshStrong(20L, cellBSameSim, "p"),
             ),
         )
+    }
+
+    @Test
+    fun whitelistOriginMatrix() {
+        val simS = 11
+        val aUnknown = NetworkKey(1L, UnderlayKind.Cellular, simS, "a")
+        val bKnown = NetworkKey(9L, UnderlayKind.Cellular, simS, "b", carrier = "25001")
+        val aKnownX = NetworkKey(1L, UnderlayKind.Cellular, simS, "a", carrier = "25001")
+        val bKnownX = NetworkKey(9L, UnderlayKind.Cellular, simS, "b", carrier = "25001")
+        val sameHandleY = NetworkKey(1L, UnderlayKind.Cellular, simS, "a", carrier = "25099")
+        val otherSim = NetworkKey(3L, UnderlayKind.Cellular, 22, "other", carrier = "25001")
+        val emptyLive = NetworkKey(1L, UnderlayKind.Cellular, simS, "a")
+        assertFalse(positive(aUnknown).hasFreshStrong(10L, bKnown, "p"))
+        assertFalse(
+            ReachabilityEvidence(whitelistScorePercent = 80, strongAtElapsedMs = 1L, strongUntilElapsedMs = 90_000L)
+                .hasFreshStrong(10L, bKnown, "p"),
+        )
+        assertTrue(positive(aKnownX).hasFreshStrong(10L, bKnownX, "p"))
+        assertFalse(positive(aKnownX).hasFreshStrong(10L, sameHandleY, "p"))
+        assertFalse(positive(aKnownX).hasFreshStrong(10L, otherSim, "p"))
+        assertTrue(positive(aKnownX).hasFreshStrong(10L, emptyLive, "p"))
+        assertTrue(positive(aUnknown).hasFreshStrong(10L, aUnknown, "p"))
+        assertFalse(positive(aUnknown).hasFreshStrong(10L, bKnown, "p"))
+        val expired = positive(aKnownX).copy(ttlUntilElapsedMs = 1L, strongUntilElapsedMs = 1L)
+        assertFalse(expired.hasFreshStrong(1L, aKnownX, "p"))
+        assertFalse(positive(aKnownX).hasFreshStrong(10L, aKnownX, "other-profile"))
     }
 }

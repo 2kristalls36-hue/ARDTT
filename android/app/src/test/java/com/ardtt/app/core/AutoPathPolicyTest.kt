@@ -152,11 +152,13 @@ class AutoPathPolicyTest {
 
     @Test
     fun cellularTriesDirectWhenWhitelistScoreIsWeak() {
+        val underlay = cellular()
         val d = decideAutoPath(
             AutoPathInput(
                 mode = ConnPathMode.Auto,
-                underlay = cellular(),
+                underlay = underlay,
                 evidence = ReachabilityEvidence(
+                    networkKey = underlay.key,
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Timeout,
                     google = CheckOutcome.NotRun,
@@ -179,11 +181,13 @@ class AutoPathPolicyTest {
 
     @Test
     fun cellularStartsBypassWhenWhitelistScoreIsHigh() {
+        val underlay = cellular()
         val d = decideAutoPath(
             AutoPathInput(
                 mode = ConnPathMode.Auto,
-                underlay = cellular(),
+                underlay = underlay,
                 evidence = ReachabilityEvidence(
+                    networkKey = underlay.key,
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Timeout,
                     google = CheckOutcome.Timeout,
@@ -231,6 +235,7 @@ class AutoPathPolicyTest {
                 mode = ConnPathMode.Auto,
                 underlay = cellular(key = key),
                 evidence = ReachabilityEvidence(
+                    networkKey = key,
                     yandex = CheckOutcome.Success,
                     bigtech = CheckOutcome.Success,
                     provision = CheckOutcome.Timeout,
@@ -840,5 +845,36 @@ class AutoPathPolicyTest {
             ),
         )
         assertEquals(AutoDecision.ShowCaptive, captive)
+    }
+
+    @Test
+    fun staleExitRangeScoreHoldsLiveBypassOnReeval() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val expiredAt = 10L + RecoverySettings.PROBE_RESTRICTION_TTL_MS
+        for (score in listOf(55, 62, 64, 79)) {
+            val d = decideAutoPath(
+                AutoPathInput(
+                    mode = ConnPathMode.Auto,
+                    underlay = cellular(key = key),
+                    evidence = ReachabilityEvidence(
+                        networkKey = key,
+                        whitelistScorePercent = score,
+                        restriction = RestrictionHint.Suspected,
+                        measuredAtElapsedMs = 10L,
+                        usableAtElapsedMs = 10L,
+                        strongAtElapsedMs = 10L,
+                        ttlUntilElapsedMs = expiredAt,
+                        strongUntilElapsedMs = expiredAt,
+                        unknownStreak = 1,
+                    ),
+                    currentPath = VpnPath.Bypass,
+                    transport = TransportLifecycle.Running,
+                    hasCallHash = true,
+                    elapsedMs = expiredAt,
+                    reevalDue = true,
+                ),
+            )
+            assertEquals("score $score", AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), d)
+        }
     }
 }

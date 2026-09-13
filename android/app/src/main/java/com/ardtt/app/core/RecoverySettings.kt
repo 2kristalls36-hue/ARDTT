@@ -160,33 +160,56 @@ object RecoverySettings {
     }
 
     /**
-     * Next diagnostic delay for cellular. Restriction confidence ([seriesCount]) is
-     * separate from completed work ([completedSeries]) and from the consecutive
-     * unknown streak used for the 2/5/10/30/60 schedule.
+     * Next diagnostic delay for cellular. The last accepted sample, usable
+     * freshness and strong freshness are independent of the UI restriction
+     * label: a leftover Suspected name without usable evidence is not a 25s
+     * refresh, and a Weak round is not an Unknown backoff.
      */
     fun nextDiagnosticDelayMs(
         completedSeries: Int,
         restriction: RestrictionHint,
         @Suppress("UNUSED_PARAMETER") seriesCount: Int,
         unknownStreak: Int = 0,
-        strongFresh: Boolean = restriction == RestrictionHint.Confirmed ||
-            restriction == RestrictionHint.Suspected,
+        strongFresh: Boolean = false,
+        usableFresh: Boolean = false,
+        lastSample: RestrictionSample = RestrictionSample.Ignore,
     ): Long? {
-        val treatAsUnknown = restriction == RestrictionHint.Unknown ||
-            ((restriction == RestrictionHint.Confirmed ||
-                restriction == RestrictionHint.Suspected) && !strongFresh)
-        return when {
-            treatAsUnknown -> unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
-            restriction == RestrictionHint.Suspected ||
-                restriction == RestrictionHint.Confirmed ->
-                DIAGNOSTIC_RESTRICTION_REFRESH_MS
-            restriction == RestrictionHint.None ->
-                if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
+        return when (lastSample) {
+            RestrictionSample.Ignore ->
+                unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
+            RestrictionSample.Open ->
+                if (restriction != RestrictionHint.None && !usableFresh) {
+                    unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
+                } else if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
                     DIAGNOSTIC_SERIES_GAP_MS
                 } else {
                     DIAGNOSTIC_OPEN_INTERVAL_MS
                 }
-            else -> unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
+            RestrictionSample.WeakPositive,
+            RestrictionSample.Positive,
+            -> if (usableFresh || strongFresh) {
+                DIAGNOSTIC_RESTRICTION_REFRESH_MS
+            } else {
+                unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
+            }
         }
+    }
+
+    fun nextDiagnosticDelayMs(
+        evidence: ReachabilityEvidence?,
+        nowElapsedMs: Long,
+        key: NetworkKey?,
+        profileId: String?,
+    ): Long? {
+        if (evidence == null) return unknownDiagnosticDelayMs(1)
+        return nextDiagnosticDelayMs(
+            completedSeries = evidence.completedSeries,
+            restriction = evidence.restrictionAt(nowElapsedMs, key, profileId),
+            seriesCount = evidence.seriesCount,
+            unknownStreak = evidence.unknownStreak,
+            strongFresh = evidence.hasFreshStrong(nowElapsedMs, key, profileId),
+            usableFresh = evidence.usableAt(nowElapsedMs, key, profileId),
+            lastSample = evidence.lastSample,
+        )
     }
 }
