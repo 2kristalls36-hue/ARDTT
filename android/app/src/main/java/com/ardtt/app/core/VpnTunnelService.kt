@@ -73,7 +73,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var networkChangeJob: Job? = null
     @Volatile private var softRestartJob: Job? = null
     @Volatile private var userStopRequested = false
-    @Volatile private var boundTransportOwner = 0L
+    private val transportSession = TunnelServiceSession()
     @Volatile private var softRestartInProgress = false
     @Volatile private var backendEpoch: Int = 0
     @Volatile private var tunnelSessionActive = false
@@ -138,13 +138,40 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                userStopRequested = true
-                trustedWifiWaiting = false
-                cancelAllRecovery()
-                stopSession(keepService = false)
-                ConnectionManager.getOrNull()?.onServiceStopped(boundTransportOwner)
-                stopSelf()
-                return START_NOT_STICKY
+                val requestedOwner = if (intent.hasExtra(EXTRA_TRANSPORT_OWNER)) {
+                    intent.getLongExtra(EXTRA_TRANSPORT_OWNER, 0L)
+                } else {
+                    0L
+                }
+                val decision = transportSession.onStop(requestedOwner, startId)
+                AppLog.v(
+                    TAG,
+                    "STOP cmd startId=$startId requested=$requestedOwner " +
+                        "bound=${transportSession.boundOwner} teardown=${decision.applyTeardown} " +
+                        "report=${decision.reportOwner}",
+                )
+                if (decision.applyTeardown) {
+                    userStopRequested = true
+                    trustedWifiWaiting = false
+                    cancelAllRecovery()
+                    stopSession(keepService = false)
+                }
+                ConnectionManager.getOrNull()?.onServiceStopped(
+                    owner = decision.reportOwner,
+                    releaseStartGate = false,
+                )
+                val stopSelfId = decision.stopSelfStartId
+                var instanceGone = false
+                if (stopSelfId != null) {
+                    instanceGone = stopSelfResult(stopSelfId)
+                    if (!instanceGone) {
+                        ConnectionManager.getOrNull()?.onServiceStopped(
+                            owner = decision.reportOwner,
+                            releaseStartGate = true,
+                        )
+                    }
+                }
+                return if (instanceGone) START_NOT_STICKY else START_STICKY
             }
             ACTION_RESTART_TRANSPORT -> {
                 if ((tunnelSessionActive || trustedWifiWaiting) && !userStopRequested) {
@@ -223,9 +250,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             ACTION_START, null -> {
                 userStopRequested = false
                 trustedWifiWaiting = false
-                if (intent?.hasExtra(EXTRA_TRANSPORT_OWNER) == true) {
-                    boundTransportOwner = intent.getLongExtra(EXTRA_TRANSPORT_OWNER, 0L)
+                val owner = if (intent?.hasExtra(EXTRA_TRANSPORT_OWNER) == true) {
+                    intent.getLongExtra(EXTRA_TRANSPORT_OWNER, 0L)
+                } else {
+                    0L
                 }
+                transportSession.onStart(owner, startId)
+                AppLog.v(
+                    TAG,
+                    "START cmd startId=$startId owner=$owner bound=${transportSession.boundOwner}",
+                )
                 startSession()
             }
         }
@@ -316,7 +350,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             releaseWakeHold()
             softRestartInProgress = false
             ConnectionManager.getOrNull()?.onTunnelFailed("Нет конфигурации сессии")
-            stopSelf()
+            stopForCommand(transportSession.boundStartId)
             return
         }
         val path = config.path
@@ -527,7 +561,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 softRestartInProgress = false
                 tunnelSessionActive = true
             }
-            TunnelFailureAction.Stop -> stopSelf()
+            TunnelFailureAction.Stop -> stopForCommand(transportSession.boundStartId)
         }
     }
 
@@ -2129,6 +2163,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         return found.toList()
     }
 
+    private fun stopForCommand(commandStartId: Int) {
+        if (commandStartId > 0) {
+            stopSelfResult(commandStartId)
+        } else {
+            stopSelf()
+        }
+    }
+
     private fun stopSession(keepService: Boolean) {
         tunnelSessionActive = false
         if (!keepService) {
@@ -2149,11 +2191,19 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     override fun onDestroy() {
         userStopRequested = true
         trustedWifiWaiting = false
+        val reportOwner = transportSession.ownerForDestroy()
+        AppLog.v(
+            TAG,
+            "onDestroy bound=${transportSession.boundOwner} destroying=${transportSession.destroyingOwner} report=$reportOwner",
+        )
         stopSession(keepService = false)
         handoverWakeLock.releaseNow()
         restartWakeLock.releaseNow()
         scope.cancel()
-        ConnectionManager.getOrNull()?.onServiceStopped(boundTransportOwner)
+        ConnectionManager.getOrNull()?.onServiceStopped(
+            owner = reportOwner,
+            releaseStartGate = true,
+        )
         com.ardtt.app.TunnelWidgetProvider.updateWidgetState(
             this,
             running = false,
