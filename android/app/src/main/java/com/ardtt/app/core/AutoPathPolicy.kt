@@ -83,7 +83,7 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
                     input.transport == TransportLifecycle.Running
                 ) {
                     AutoDecision.Stay(VpnPath.Bypass, "captive-wifi-keep-mobile")
-                } else if (input.hasCallHash) {
+                } else if (mayReuseCall(input)) {
                     AutoDecision.StartBypass(reuseCall = true, reason = "captive-wifi-keep-mobile")
                 } else {
                     AutoDecision.ShowCaptive
@@ -146,7 +146,7 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         }
         if (input.wifiFailStreak >= RecoverySettings.WIFI_DEGRADED_FAILS_BEFORE_HYSTERESIS &&
             input.underlay.cellularConnected &&
-            (input.parkedRawAlive || input.hasCallHash) &&
+            (input.parkedRawAlive || mayReuseCall(input)) &&
             input.transport != TransportLifecycle.Running &&
             input.transport != TransportLifecycle.Starting
         ) {
@@ -270,7 +270,7 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         ) {
             return AutoDecision.Stay(VpnPath.Direct, "direct-try-in-flight")
         }
-        if (whitelistLikely && input.hasCallHash) {
+        if (whitelistLikely && mayReuseCall(input)) {
             return AutoDecision.StartBypass(
                 reuseCall = true,
                 reason = "cellular-whitelist",
@@ -289,7 +289,7 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         )
     }
 
-    if (input.hasCallHash && input.call.canReuse) {
+    if (mayReuseCall(input)) {
         return AutoDecision.StartBypass(reuseCall = true, reason = "cellular-direct-failed")
     }
 
@@ -297,6 +297,12 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         return AutoDecision.ServerFault("vps-unreachable")
     }
     return AutoDecision.Backoff("all-paths-failed")
+}
+
+private fun mayReuseCall(input: AutoPathInput): Boolean {
+    if (input.call.validity == CallValidity.ConfirmedDead) return false
+    if (input.call.validity == CallValidity.NeedsAuth) return false
+    return input.hasCallHash || input.call.hashPresent
 }
 
 private fun manualPath(path: VpnPath, input: AutoPathInput): AutoDecision {
@@ -313,7 +319,7 @@ private fun manualPath(path: VpnPath, input: AutoPathInput): AutoDecision {
             reason = "manual-direct",
         )
         VpnPath.Bypass -> AutoDecision.StartBypass(
-            reuseCall = true,
+            reuseCall = mayReuseCall(input),
             reason = "manual-bypass",
         )
     }

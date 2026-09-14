@@ -12,16 +12,24 @@ internal class TunnelServiceSession {
         private set
     @Volatile var boundStartId: Int = 0
         private set
+    @Volatile var lastCommandStartId: Int = 0
+        private set
     @Volatile var destroyingOwner: Long = 0L
         private set
 
+    fun noteCommand(startId: Int) {
+        if (startId > 0) lastCommandStartId = startId
+    }
+
     fun onStart(owner: Long, startId: Int) {
+        noteCommand(startId)
         if (owner != 0L) boundOwner = owner
         boundStartId = startId
         destroyingOwner = 0L
     }
 
     fun onStop(requestedOwner: Long, commandStartId: Int): TunnelStopDecision {
+        noteCommand(commandStartId)
         val stale = requestedOwner != 0L &&
             boundOwner != 0L &&
             requestedOwner != boundOwner
@@ -43,6 +51,10 @@ internal class TunnelServiceSession {
 
     fun ownerForDestroy(): Long =
         if (destroyingOwner != 0L) destroyingOwner else boundOwner
+
+    fun markRevoked(owner: Long) {
+        destroyingOwner = if (owner != 0L) owner else boundOwner
+    }
 }
 
 internal data class TunnelStopDecision(
@@ -50,6 +62,35 @@ internal data class TunnelStopDecision(
     val stopSelfStartId: Int?,
     val reportOwner: Long,
 )
+
+internal data class TunnelRevokeDecision(
+    val applyTeardown: Boolean,
+    val stopSelfStartId: Int,
+    val fallbackStopSelf: Boolean,
+    val reportOwner: Long,
+)
+
+internal fun decideVpnRevoke(
+    capturedOwner: Long,
+    liveOwner: Long,
+    lastCommandStartId: Int,
+): TunnelRevokeDecision {
+    val stale = liveOwner != 0L && capturedOwner != liveOwner
+    if (stale) {
+        return TunnelRevokeDecision(
+            applyTeardown = false,
+            stopSelfStartId = lastCommandStartId,
+            fallbackStopSelf = false,
+            reportOwner = capturedOwner,
+        )
+    }
+    return TunnelRevokeDecision(
+        applyTeardown = true,
+        stopSelfStartId = lastCommandStartId,
+        fallbackStopSelf = true,
+        reportOwner = if (capturedOwner != 0L) capturedOwner else liveOwner,
+    )
+}
 
 internal data class DeferredTunnelStart(
     val ticket: Long,

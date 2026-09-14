@@ -286,8 +286,10 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 
 - настройка выкл. → диалог «Создать новый»;
 - настройка вкл. и есть cookie `remixsid` → создать звонок через `VkCallHashGenerator` (`CallHashOutcome`, без throw наружу) и перезапустить Bypass, не роняя VpnService;
-- временная сеть (timeout/IO) → WaitingForNetwork / Recovering, `wantsConnected` сохраняется, ограниченный backoff, не UserDisconnect;
-- нет сессии / капча / некорректный ответ VK → действие пользователя, не «неверный логин» на таймауте;
+- временная сеть (timeout/IO) и HTTP 429/5xx → WaitingForNetwork / Recovering, `wantsConnected` сохраняется, ограниченный backoff, не UserDisconnect;
+- recreate идёт через `CallRecreateChanged` в reducer: Running/Connected не сохраняются без нового подтверждения; старый звонок `ConfirmedDead`, ошибка создания — отдельно;
+- нет сессии / капча / некорректный ответ VK → действие пользователя, не «неверный логин» на таймауте; Captcha ≠ SignIn;
+- onRevoke останавливает сервис по последнему Android command startId (включая REFRESH/SESSION_CONTROL/RESTART); отказ `stopSelfResult` → `stopSelf` только в revoke, не в обычном STOP;
 - нет сессии → диалог «Войти и создать»;
 - повторный мёртвый hash в том же цикле → стоп, «создайте код вручную» (без петли).
 

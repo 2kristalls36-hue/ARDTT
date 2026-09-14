@@ -74,6 +74,7 @@ internal data class VkHttpResponse(
     val code: Int,
     val body: String,
     val location: String? = null,
+    val retryAfterMs: Long? = null,
 )
 
 internal suspend fun generateCallHash(
@@ -92,15 +93,10 @@ internal suspend fun generateCallHash(
         )
     }
     try {
-        val token = obtainAccessTokenViaHttp(cookieHeader, userAgent, transport)
-            ?: return@withContext CallHashOutcome.Failure(
-                CallHashFailure(
-                    kind = CallHashErrorKind.AuthRequired,
-                    phase = CallHashPhase.OAuth,
-                    message = AUTH_REQUIRED_MESSAGE,
-                ),
-            )
-        startCall(token, transport)
+        when (val token = obtainAccessTokenViaHttp(cookieHeader, userAgent, transport)) {
+            is AccessTokenResult.Fail -> return@withContext CallHashOutcome.Failure(token.error)
+            is AccessTokenResult.Ok -> startCall(token.token, transport)
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (t: Throwable) {
@@ -108,14 +104,31 @@ internal suspend fun generateCallHash(
     }
 }
 
-private data class HttpHop(val token: String? = null, val nextUrl: String? = null)
+private sealed class AccessTokenResult {
+    data class Ok(val token: String) : AccessTokenResult()
+    data class Fail(val error: CallHashFailure) : AccessTokenResult()
+}
+
+private sealed class OAuthHop {
+    data class Token(val token: String) : OAuthHop()
+    data class Continue(val nextUrl: String) : OAuthHop()
+    data class Fail(val error: CallHashFailure) : OAuthHop()
+}
 
 private fun obtainAccessTokenViaHttp(
     cookieHeader: String,
     userAgent: String,
     transport: VkApiTransport,
-): String? {
-    if (cookieHeader.isBlank()) return null
+): AccessTokenResult {
+    if (cookieHeader.isBlank()) {
+        return AccessTokenResult.Fail(
+            CallHashFailure(
+                kind = CallHashErrorKind.AuthRequired,
+                phase = CallHashPhase.OAuth,
+                message = AUTH_REQUIRED_MESSAGE,
+            ),
+        )
+    }
     var url = VkCallHashGenerator.oauthTokenStartUrl()
     repeat(12) {
         val hop = try {
@@ -126,26 +139,124 @@ private fun obtainAccessTokenViaHttp(
         } catch (t: Throwable) {
             throw t
         }
-        hop.token?.let { return it }
-        val next = hop.nextUrl ?: return null
-        url = next
+        when (hop) {
+            is OAuthHop.Token -> return AccessTokenResult.Ok(hop.token)
+            is OAuthHop.Fail -> return AccessTokenResult.Fail(hop.error)
+            is OAuthHop.Continue -> url = hop.nextUrl
+        }
     }
-    return null
+    return AccessTokenResult.Fail(
+        CallHashFailure(
+            kind = CallHashErrorKind.AuthRequired,
+            phase = CallHashPhase.OAuth,
+            message = AUTH_REQUIRED_MESSAGE,
+        ),
+    )
 }
 
-private fun parseAuthorizeResponse(response: VkHttpResponse): HttpHop {
+internal fun parseRetryAfterMs(raw: String?): Long? {
+    if (raw.isNullOrBlank()) return null
+    val seconds = raw.trim().toLongOrNull() ?: return null
+    if (seconds < 0L) return 0L
+    return (seconds * 1000L).coerceAtMost(60_000L)
+}
+
+internal fun httpStatusFailure(
+    code: Int,
+    phase: CallHashPhase,
+    retryAfterMs: Long?,
+    body: String = "",
+): CallHashFailure? {
+    if (code in 200..399) return null
+    if (code == 429 || code in 500..599) {
+        return CallHashFailure(
+            kind = CallHashErrorKind.TransientNetwork,
+            phase = phase,
+            message = TRANSIENT_NETWORK_MESSAGE,
+            httpCode = code,
+            retryAfterMs = retryAfterMs,
+        )
+    }
+    if (code == 401) {
+        return CallHashFailure(
+            kind = CallHashErrorKind.AuthRequired,
+            phase = phase,
+            message = AUTH_REQUIRED_MESSAGE,
+            httpCode = code,
+        )
+    }
+    if (code == 403) {
+        return forbiddenFailure(phase, body, retryAfterMs)
+    }
+    return CallHashFailure(
+        kind = CallHashErrorKind.InvalidResponse,
+        phase = phase,
+        message = INVALID_RESPONSE_MESSAGE,
+        httpCode = code,
+        retryAfterMs = retryAfterMs,
+    )
+}
+
+private fun forbiddenFailure(
+    phase: CallHashPhase,
+    body: String,
+    retryAfterMs: Long?,
+): CallHashFailure {
+    if (body.isNotBlank()) {
+        val parsed = parseCallsStartBody(body)
+        if (parsed is CallHashOutcome.Failure) {
+            when (parsed.error.kind) {
+                CallHashErrorKind.Captcha,
+                CallHashErrorKind.AuthRequired,
+                -> return parsed.error.copy(httpCode = 403, phase = phase)
+                else -> Unit
+            }
+        }
+        val lower = body.lowercase()
+        if (lower.contains("captcha")) {
+            return CallHashFailure(
+                kind = CallHashErrorKind.Captcha,
+                phase = phase,
+                message = body.take(180),
+                httpCode = 403,
+            )
+        }
+    }
+    return CallHashFailure(
+        kind = CallHashErrorKind.TransientNetwork,
+        phase = phase,
+        message = TRANSIENT_NETWORK_MESSAGE,
+        httpCode = 403,
+        retryAfterMs = retryAfterMs,
+    )
+}
+
+private fun parseAuthorizeResponse(response: VkHttpResponse): OAuthHop {
     val location = response.location.orEmpty()
-    VkCallHashGenerator.extractAccessToken(location)?.let { return HttpHop(token = it) }
-    if (location.isNotBlank()) return HttpHop(nextUrl = location)
-    if (response.code !in 200..299) return HttpHop()
+    VkCallHashGenerator.extractAccessToken(location)?.let { return OAuthHop.Token(it) }
+    if (location.isNotBlank()) return OAuthHop.Continue(location)
+    httpStatusFailure(
+        code = response.code,
+        phase = CallHashPhase.OAuth,
+        retryAfterMs = response.retryAfterMs,
+        body = response.body,
+    )?.let { return OAuthHop.Fail(it) }
     val body = response.body
     val href = Regex("""location\.href\s*=\s*["']([^"']+)["']""")
         .find(body)?.groupValues?.getOrNull(1).orEmpty()
-    VkCallHashGenerator.extractAccessToken(href)?.let { return HttpHop(token = it) }
+    VkCallHashGenerator.extractAccessToken(href)?.let { return OAuthHop.Token(it) }
     val grantUrl = Regex("""(https://login\.vk\.com/\?act=grant_access[^"'\\s<]+)""")
         .find(body)?.groupValues?.getOrNull(1)
         ?.replace("&amp;", "&")
-    return HttpHop(nextUrl = grantUrl)
+    if (!grantUrl.isNullOrBlank()) return OAuthHop.Continue(grantUrl)
+    return OAuthHop.Fail(
+        CallHashFailure(
+            kind = CallHashErrorKind.AuthRequired,
+            phase = CallHashPhase.OAuth,
+            message = AUTH_REQUIRED_MESSAGE,
+            httpCode = response.code,
+        ),
+    )
 }
 
 private fun startCall(accessToken: String, transport: VkApiTransport): CallHashOutcome {
@@ -161,9 +272,20 @@ private fun startCall(accessToken: String, transport: VkApiTransport): CallHashO
     } catch (t: Throwable) {
         return CallHashOutcome.Failure(classifyCallHashThrowable(t, CallHashPhase.CallsStart))
     }
+    httpStatusFailure(
+        code = response.code,
+        phase = CallHashPhase.CallsStart,
+        retryAfterMs = response.retryAfterMs,
+        body = response.body,
+    )?.let { return CallHashOutcome.Failure(it) }
     return parseCallsStartBody(response.body).let { outcome ->
         if (outcome is CallHashOutcome.Failure && outcome.error.httpCode == null) {
-            CallHashOutcome.Failure(outcome.error.copy(httpCode = response.code))
+            CallHashOutcome.Failure(
+                outcome.error.copy(
+                    httpCode = response.code,
+                    retryAfterMs = outcome.error.retryAfterMs ?: response.retryAfterMs,
+                ),
+            )
         } else {
             outcome
         }
@@ -188,6 +310,7 @@ private object DefaultVkApiTransport : VkApiTransport {
                 code = response.code,
                 body = response.body?.string().orEmpty(),
                 location = response.header("Location"),
+                retryAfterMs = parseRetryAfterMs(response.header("Retry-After")),
             )
         }
     }

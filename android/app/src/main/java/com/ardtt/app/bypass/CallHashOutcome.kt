@@ -1,8 +1,11 @@
 package com.ardtt.app.bypass
 
+import com.ardtt.app.core.CallCreateOp
 import com.ardtt.app.core.CallValidity
 import com.ardtt.app.core.ConnState
+import com.ardtt.app.core.ConnectionEvent
 import com.ardtt.app.core.RecoverySettings
+import com.ardtt.app.core.UserActionKind
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -32,6 +35,7 @@ data class CallHashFailure(
     val message: String,
     val httpCode: Int? = null,
     val apiCode: Int? = null,
+    val retryAfterMs: Long? = null,
 ) {
     val userMessage: String
         get() = when (kind) {
@@ -129,7 +133,7 @@ fun planCallRecreateApply(
                 ConnState.WaitingForNetwork
             },
             status = decision.status,
-            dispatchValidity = if (underlayAllowsOps) null else decision.validity,
+            dispatchValidity = if (underlayAllowsOps) null else CallValidity.ConfirmedDead,
             keepWantsConnected = true,
             decisionName = "wait_retry",
         )
@@ -274,17 +278,19 @@ private fun decideCallHashFailure(
     return when (error.kind) {
         CallHashErrorKind.TransientNetwork -> {
             val next = networkAttempts + 1
+            val policy = RecoverySettings.retryDelayMs(networkAttempts)
+            val delay = maxOf(policy, error.retryAfterMs ?: 0L).coerceAtMost(60_000L)
             if (next < maxNetworkAttempts) {
                 CallRecreateDecision.WaitAndRetry(
-                    delayMs = RecoverySettings.retryDelayMs(networkAttempts),
-                    status = "${TRANSIENT_NETWORK_MESSAGE}. Повтор через ${RecoverySettings.retryDelayMs(networkAttempts) / 1000} с",
-                    validity = CallValidity.UnknownDueToNetwork,
+                    delayMs = delay,
+                    status = "${TRANSIENT_NETWORK_MESSAGE}. Повтор через ${delay / 1000} с",
+                    validity = CallValidity.ConfirmedDead,
                 )
             } else {
                 CallRecreateDecision.UserAction(
                     prompt = CallRecreatePrompt.Ask,
                     message = TRANSIENT_NETWORK_MESSAGE,
-                    validity = CallValidity.UnknownDueToNetwork,
+                    validity = CallValidity.ConfirmedDead,
                     stopTunnel = false,
                 )
             }
@@ -298,7 +304,7 @@ private fun decideCallHashFailure(
         CallHashErrorKind.Captcha -> CallRecreateDecision.UserAction(
             prompt = CallRecreatePrompt.Ask,
             message = error.userMessage,
-            validity = CallValidity.NeedsAuth,
+            validity = CallValidity.ConfirmedDead,
             stopTunnel = false,
         )
         CallHashErrorKind.ApiError,
@@ -321,3 +327,105 @@ private fun safeCallHashErrorMessage(error: Throwable): String {
 internal const val TRANSIENT_NETWORK_MESSAGE = "Нет связи с ВКонтакте"
 internal const val AUTH_REQUIRED_MESSAGE = "Нужна авторизация ВКонтакте"
 internal const val INVALID_RESPONSE_MESSAGE = "Некорректный ответ ВКонтакте"
+
+fun beginCallRecreateChanged(
+    identity: CallRecreateIdentity,
+    holdService: Boolean,
+    underlayAllowsOps: Boolean,
+    networkAttempts: Int = 0,
+): ConnectionEvent.CallRecreateChanged = ConnectionEvent.CallRecreateChanged(
+    sessionEpoch = identity.sessionEpoch,
+    generation = identity.generation,
+    callEpoch = identity.callEpoch,
+    requestId = identity.requestId,
+    op = if (underlayAllowsOps) CallCreateOp.InFlight else CallCreateOp.WaitingNetwork,
+    holdService = holdService,
+    networkAttempts = networkAttempts,
+)
+
+fun callRecreateChangedFromOutcome(
+    captured: CallRecreateIdentity,
+    live: CallRecreateIdentity,
+    outcome: CallHashOutcome,
+    holdService: Boolean,
+    networkAttempts: Int,
+    underlayAllowsOps: Boolean,
+): ConnectionEvent.CallRecreateChanged? {
+    val decision = evaluateCallRecreateResult(
+        captured = captured,
+        live = live,
+        outcome = outcome,
+        networkAttempts = networkAttempts,
+    )
+    return callRecreateChangedFromDecision(
+        identity = captured,
+        decision = decision,
+        holdService = holdService,
+        networkAttempts = networkAttempts,
+        underlayAllowsOps = underlayAllowsOps,
+        failure = (outcome as? CallHashOutcome.Failure)?.error,
+    )
+}
+
+fun callRecreateChangedFromDecision(
+    identity: CallRecreateIdentity,
+    decision: CallRecreateDecision,
+    holdService: Boolean,
+    networkAttempts: Int,
+    underlayAllowsOps: Boolean,
+    failure: CallHashFailure? = null,
+): ConnectionEvent.CallRecreateChanged? {
+    return when (decision) {
+        is CallRecreateDecision.ApplyHash -> ConnectionEvent.CallRecreateChanged(
+            sessionEpoch = identity.sessionEpoch,
+            generation = identity.generation,
+            callEpoch = identity.callEpoch,
+            requestId = identity.requestId,
+            op = CallCreateOp.Applied,
+            holdService = holdService,
+            networkAttempts = 0,
+        )
+        is CallRecreateDecision.WaitAndRetry -> ConnectionEvent.CallRecreateChanged(
+            sessionEpoch = identity.sessionEpoch,
+            generation = identity.generation,
+            callEpoch = identity.callEpoch,
+            requestId = identity.requestId,
+            op = if (underlayAllowsOps) CallCreateOp.Backoff else CallCreateOp.WaitingNetwork,
+            holdService = holdService,
+            networkAttempts = networkAttempts + 1,
+            retryDelayMs = decision.delayMs.takeIf { underlayAllowsOps },
+        )
+        is CallRecreateDecision.UserAction -> ConnectionEvent.CallRecreateChanged(
+            sessionEpoch = identity.sessionEpoch,
+            generation = identity.generation,
+            callEpoch = identity.callEpoch,
+            requestId = identity.requestId,
+            op = CallCreateOp.NeedsUser,
+            holdService = holdService,
+            networkAttempts = networkAttempts +
+                if (failure?.kind == CallHashErrorKind.TransientNetwork) 1 else 0,
+            userAction = userActionForCallCreate(decision, failure),
+        )
+        CallRecreateDecision.IgnoreStale,
+        CallRecreateDecision.IgnoreCancelled,
+        -> null
+    }
+}
+
+internal fun userActionForCallCreate(
+    decision: CallRecreateDecision.UserAction,
+    failure: CallHashFailure?,
+): UserActionKind {
+    if (failure?.kind == CallHashErrorKind.AuthRequired ||
+        decision.prompt == CallRecreatePrompt.NeedLogin
+    ) {
+        return UserActionKind.SignIn
+    }
+    if (failure?.kind == CallHashErrorKind.Captcha ||
+        decision.message.contains("капч", ignoreCase = true) ||
+        decision.message.contains("captcha", ignoreCase = true)
+    ) {
+        return UserActionKind.Captcha
+    }
+    return UserActionKind.CallDead
+}

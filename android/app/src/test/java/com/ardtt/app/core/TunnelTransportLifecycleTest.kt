@@ -474,6 +474,102 @@ class TunnelTransportLifecycleTest {
         assertFalse(host.finishedAttempts.contains(ownerC))
         assertEquals(ownerC, host.session.boundOwner)
     }
+
+    @Test
+    fun revokeAfterRefreshUsesLastCommandStartId() {
+        val host = FakeTunnelHost()
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        assertEquals(1, host.session.boundStartId)
+        host.systemAcceptAuxiliary()
+        host.deliverAll()
+        assertEquals(1, host.session.boundStartId)
+        assertEquals(2, host.session.lastCommandStartId)
+        host.systemRevoke()
+        assertFalse(host.serviceAlive)
+        assertEquals(1, host.destroyCount)
+        assertEquals(true, host.lastRevokeStopSelfResult)
+        assertEquals(0, host.stopSelfFallbackCount)
+    }
+
+    @Test
+    fun revokeAfterSessionControlAndRestartUsesLastStartId() {
+        val host = FakeTunnelHost()
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.systemAcceptAuxiliary()
+        host.deliverAll()
+        host.systemAcceptAuxiliary()
+        host.deliverAll()
+        assertEquals(1, host.session.boundStartId)
+        assertEquals(3, host.session.lastCommandStartId)
+        host.systemRevoke()
+        assertFalse(host.serviceAlive)
+        assertEquals(1, host.destroyCount)
+        assertEquals(true, host.lastRevokeStopSelfResult)
+    }
+
+    @Test
+    fun revokeFallsBackToStopSelfWhenStartIdIsStale() {
+        val session = TunnelServiceSession()
+        session.onStart(owner = 5L, startId = 1)
+        session.noteCommand(2)
+        val decision = decideVpnRevoke(
+            capturedOwner = 5L,
+            liveOwner = 5L,
+            lastCommandStartId = 1,
+        )
+        assertTrue(decision.applyTeardown)
+        assertTrue(decision.fallbackStopSelf)
+        val host = FakeTunnelHost()
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.systemAcceptAuxiliary()
+        host.deliverAll()
+        host.lastAcceptedStartId = 99
+        host.systemRevoke()
+        assertEquals(false, host.lastRevokeStopSelfResult)
+        assertEquals(1, host.stopSelfFallbackCount)
+        assertFalse(host.serviceAlive)
+        assertEquals(1, host.destroyCount)
+    }
+
+    @Test
+    fun backgroundRevokeDoesNotKillNewerConnect() {
+        val host = FakeTunnelHost()
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        val ownerA = host.managerRequestStart()!!
+        host.deliverAll()
+        host.systemRevoke(deferToMain = true)
+        host.requests.revokeConnectWork()
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        val ownerB = host.forceStartNow()
+        host.deliverAll()
+        host.flushMain()
+        assertEquals(1, host.revokeIgnored)
+        assertEquals(0, host.revokeTeardowns)
+        assertEquals(ownerB, host.session.boundOwner)
+        assertNotEquals(ownerA, ownerB)
+        assertTrue(host.backendAlive)
+        assertEquals(0, host.destroyCount)
+    }
+
+    @Test
+    fun repeatRevokeAndDestroyAreIdempotent() {
+        val host = FakeTunnelHost()
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.systemRevoke()
+        assertEquals(1, host.destroyCount)
+        host.systemRevoke()
+        host.injectDestroy()
+        assertFalse(host.backendAlive)
+        assertFalse(host.serviceAlive)
+    }
 }
 
 /**
@@ -508,6 +604,11 @@ internal class FakeTunnelHost {
     val finishedAttempts = mutableListOf<Long>()
     val startedOwners = mutableListOf<Long>()
     val rejectedStarts = mutableListOf<String>()
+    var stopSelfFallbackCount = 0
+    var revokeTeardowns = 0
+    var revokeIgnored = 0
+    var lastRevokeStopSelfResult: Boolean? = null
+    private var deferredRevoke: (() -> Unit)? = null
 
     fun liveCheck() = LiveDeferredStart(
         requestId = requests.activeRequestId(),
@@ -594,6 +695,63 @@ internal class FakeTunnelHost {
 
     fun systemAcceptStartWithoutSerializer(owner: Long): Int = systemAcceptStart(owner)
 
+    fun systemAcceptAuxiliary(): Int {
+        val id = nextStartId++
+        lastAcceptedStartId = id
+        pending.addLast(FakeServiceCommand(stop = false, owner = 0L, startId = id, auxiliary = true))
+        serviceAlive = true
+        return id
+    }
+
+    fun systemRevoke(deferToMain: Boolean = false) {
+        val capturedOwner = session.boundOwner
+        val capturedStartId = session.lastCommandStartId
+        val work = {
+            applyRevoke(capturedOwner, capturedStartId)
+        }
+        if (deferToMain) {
+            deferredRevoke = work
+        } else {
+            work()
+        }
+    }
+
+    fun flushMain() {
+        deferredRevoke?.invoke()
+        deferredRevoke = null
+        finishDestroyIfScheduled()
+    }
+
+    private fun applyRevoke(capturedOwner: Long, capturedStartId: Int) {
+        val decision = decideVpnRevoke(capturedOwner, session.boundOwner, capturedStartId)
+        if (!decision.applyTeardown) {
+            revokeIgnored++
+            return
+        }
+        revokeTeardowns++
+        session.markRevoked(decision.reportOwner)
+        backendAlive = false
+        tunAlive = false
+        val gone = if (decision.stopSelfStartId > 0) {
+            amsStopSelfResult(decision.stopSelfStartId)
+        } else {
+            false
+        }
+        lastRevokeStopSelfResult = gone
+        if (!gone && decision.fallbackStopSelf) {
+            stopSelfFallbackCount++
+        }
+        if (gone || decision.fallbackStopSelf) {
+            destroyScheduled = true
+            destroyScheduled = false
+            destroyFromAms()
+        }
+    }
+
+    fun injectDestroy() {
+        destroyFromAms()
+    }
+
     fun systemAcceptStop(requestedOwner: Long): Int {
         val id = nextStartId++
         lastAcceptedStartId = id
@@ -612,15 +770,17 @@ internal class FakeTunnelHost {
 
     fun deliverNext() {
         val cmd = pending.removeFirst()
-        if (cmd.stop) {
-            deliverStop(cmd)
-        } else {
-            session.onStart(cmd.owner, cmd.startId)
-            backendAlive = true
-            tunAlive = true
-            scopeAlive = true
-            startDeliveries++
-            startedOwners += cmd.owner
+        when {
+            cmd.auxiliary -> session.noteCommand(cmd.startId)
+            cmd.stop -> deliverStop(cmd)
+            else -> {
+                session.onStart(cmd.owner, cmd.startId)
+                backendAlive = true
+                tunAlive = true
+                scopeAlive = true
+                startDeliveries++
+                startedOwners += cmd.owner
+            }
         }
     }
 
@@ -717,4 +877,5 @@ internal data class FakeServiceCommand(
     val stop: Boolean,
     val owner: Long,
     val startId: Int,
+    val auxiliary: Boolean = false,
 )

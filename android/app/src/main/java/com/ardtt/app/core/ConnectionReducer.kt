@@ -100,6 +100,18 @@ sealed class ConnectionEvent {
         val validity: CallValidity,
     ) : ConnectionEvent()
 
+    data class CallRecreateChanged(
+        val sessionEpoch: Long,
+        val generation: Long,
+        val callEpoch: Long,
+        val requestId: Long? = null,
+        val op: CallCreateOp,
+        val holdService: Boolean = false,
+        val networkAttempts: Int = 0,
+        val userAction: UserActionKind? = null,
+        val retryDelayMs: Long? = null,
+    ) : ConnectionEvent()
+
     data class SessionParamsChanged(
         val profileId: String?,
         val hasCallHash: Boolean,
@@ -130,6 +142,8 @@ sealed class RecoveryCommand {
     data object PauseNetOps : RecoveryCommand()
     data class ScheduleRetry(val delayMs: Long) : RecoveryCommand()
     data class ScheduleReeval(val delayMs: Long) : RecoveryCommand()
+    data object ResumeCallCreate : RecoveryCommand()
+    data object ReleaseCallHold : RecoveryCommand()
     data class DiscardStaleCall(
         val staleCallEpoch: Long,
         val staleIdentityToken: String,
@@ -181,6 +195,7 @@ object ConnectionReducer {
             is ConnectionEvent.ParkedProcessDied -> onParkedDied(state, event)
             is ConnectionEvent.TransportDied -> onTransportDied(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.CallValidityChanged -> onCallValidity(state, event, elapsedMs, jitterPermille)
+            is ConnectionEvent.CallRecreateChanged -> onCallRecreate(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.SessionParamsChanged -> onSessionParams(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.CallIdentityChanged -> onCallIdentity(state, event, elapsedMs, jitterPermille)
             is ConnectionEvent.Clock -> onClock(state, event.elapsedMs, jitterPermille)
@@ -294,6 +309,12 @@ object ConnectionReducer {
                     identityChanged -> CallValidity.Valid
                     else -> state.call.validity
                 },
+                createOp = CallCreateOp.None,
+                createGeneration = 0L,
+                createHold = false,
+                createNetworkAttempts = 0,
+                createUserAction = null,
+                createRequestId = null,
             ),
             parkedRawAlive = if (identityChanged) false else state.parkedRawAlive,
             sessionEpoch = sessionEpoch,
@@ -334,6 +355,10 @@ object ConnectionReducer {
         if (!state.intent.wantsConnected || state.recovery.permit.userStop) {
             return ReduceResult(state, RecoveryCommand.None)
         }
+        if (state.call.createOp == CallCreateOp.Backoff && state.underlay.allowsNetworkOps) {
+            return resumeCallCreateNow(state, elapsedMs)
+        }
+        interceptCallCreate(state, elapsedMs)?.let { return it }
         if (!state.underlay.allowsNetworkOps) {
             return decideNext(state, elapsedMs, jitterPermille)
         }
@@ -390,7 +415,10 @@ object ConnectionReducer {
             directRecheckFromBypass = !scopeChanged && state.directRecheckFromBypass,
             wifiFailStreak = if (leftWifiEpisode) 0 else state.wifiFailStreak,
             wifiStableHits = if (leftWifiEpisode) 0 else state.wifiStableHits,
-            call = if (snapshot.availability == UnderlayAvailability.None) {
+            call = if (
+                snapshot.availability == UnderlayAvailability.None &&
+                state.call.createOp == CallCreateOp.None
+            ) {
                 state.call.copy(
                     validity = if (state.call.validity == CallValidity.ConfirmedDead) {
                         CallValidity.ConfirmedDead
@@ -403,6 +431,9 @@ object ConnectionReducer {
             },
         )
         val fromNetworkGap = !state.underlay.allowsNetworkOps && snapshot.allowsNetworkOps
+        if (state.call.createOp != CallCreateOp.None) {
+            return onUnderlayDuringCallCreate(next, snapshot, elapsedMs, fromNetworkGap)
+        }
         val recovered = if (snapshot.allowsNetworkOps && (scopeChanged || fromNetworkGap)) {
             next.copy(
                 transport = if (next.transport == TransportLifecycle.Failed) {
@@ -768,6 +799,13 @@ object ConnectionReducer {
             pathReadiness = readiness,
             lastConfirmedPath = if (pathConfirmed) VpnPath.Bypass else state.lastConfirmedPath,
             parkedRawAlive = true,
+            call = state.call.copy(
+                createOp = CallCreateOp.None,
+                createHold = false,
+                createNetworkAttempts = 0,
+                createUserAction = null,
+                createRequestId = null,
+            ),
             recovery = state.recovery.copy(
                 phase = RecoveryPhase.Connected,
                 failureIndex = if (pathConfirmed) 0 else state.recovery.failureIndex,
@@ -853,6 +891,136 @@ object ConnectionReducer {
             elapsedMs,
             jitterPermille,
         )
+    }
+
+    private fun onCallRecreate(
+        state: ConnectionSnapshot,
+        event: ConnectionEvent.CallRecreateChanged,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult {
+        if (event.sessionEpoch != state.sessionEpoch) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (!state.intent.wantsConnected) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (
+            event.op != CallCreateOp.InFlight &&
+            state.call.createGeneration != 0L &&
+            event.generation != 0L &&
+            event.generation != state.call.createGeneration
+        ) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (
+            event.op != CallCreateOp.Applied &&
+            event.callEpoch != 0L &&
+            state.call.callEpoch != 0L &&
+            event.callEpoch != state.call.callEpoch
+        ) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        val validity = when {
+            event.op == CallCreateOp.Applied -> CallValidity.Valid
+            event.userAction == UserActionKind.SignIn -> CallValidity.NeedsAuth
+            else -> CallValidity.ConfirmedDead
+        }
+        val createOp = event.op
+        val generation = if (event.op == CallCreateOp.InFlight || state.call.createGeneration == 0L) {
+            event.generation
+        } else {
+            state.call.createGeneration
+        }
+        val leavingLive = event.op != CallCreateOp.Applied &&
+            event.op != CallCreateOp.None &&
+            (state.transport == TransportLifecycle.Running ||
+                state.transport == TransportLifecycle.Starting)
+        val transport = if (leavingLive) {
+            TransportLifecycle.Failed
+        } else {
+            state.transport
+        }
+        val transportEpoch = if (leavingLive) state.transportEpoch + 1L else state.transportEpoch
+        val phase = when (event.op) {
+            CallCreateOp.InFlight,
+            CallCreateOp.Backoff,
+            -> RecoveryPhase.Backoff
+            CallCreateOp.WaitingNetwork -> RecoveryPhase.WaitingForNetwork
+            CallCreateOp.NeedsUser -> RecoveryPhase.NeedsUserAction
+            CallCreateOp.Applied -> RecoveryPhase.ConnectingBypass
+            CallCreateOp.None -> state.recovery.phase.let {
+                if (it == RecoveryPhase.Connected) RecoveryPhase.Backoff else it
+            }
+        }
+        val retryMs = event.retryDelayMs.takeIf { event.op == CallCreateOp.Backoff }
+        var next = state.copy(
+            call = state.call.copy(
+                validity = validity,
+                createOp = createOp,
+                createGeneration = generation,
+                createHold = event.holdService && createOp != CallCreateOp.None,
+                createNetworkAttempts = event.networkAttempts,
+                createUserAction = event.userAction,
+                createRequestId = event.requestId,
+            ),
+            transport = transport,
+            transportEpoch = transportEpoch,
+            pathReadiness = if (transport == TransportLifecycle.Failed) {
+                PathReadiness.None
+            } else {
+                state.pathReadiness
+            },
+            recovery = state.recovery.copy(
+                phase = phase,
+                inFlight = false,
+                callOpInFlight = createOp == CallCreateOp.InFlight ||
+                    createOp == CallCreateOp.Backoff ||
+                    createOp == CallCreateOp.WaitingNetwork ||
+                    createOp == CallCreateOp.Applied,
+                nextRetryAtElapsedMs = retryMs?.let { elapsedMs + it },
+                pendingTimer = if (retryMs != null) PendingTimer.Backoff else PendingTimer.None,
+                permit = permitFrom(
+                    state.copy(transportEpoch = transportEpoch),
+                    netOps = state.underlay.allowsNetworkOps,
+                    inFlight = false,
+                ),
+            ),
+        )
+        next = withUi(next, elapsedMs)
+        return when (event.op) {
+            CallCreateOp.Backoff -> ReduceResult(
+                next,
+                retryMs?.let { RecoveryCommand.ScheduleRetry(it) } ?: RecoveryCommand.None,
+            )
+            CallCreateOp.WaitingNetwork -> ReduceResult(next, RecoveryCommand.PauseNetOps)
+            CallCreateOp.NeedsUser -> finishCallCreateUserAction(next, elapsedMs, jitterPermille)
+            CallCreateOp.Applied -> ReduceResult(next, RecoveryCommand.ReleaseCallHold)
+            CallCreateOp.InFlight,
+            CallCreateOp.None,
+            -> ReduceResult(next, RecoveryCommand.None)
+        }
+    }
+
+    private fun finishCallCreateUserAction(
+        state: ConnectionSnapshot,
+        elapsedMs: Long,
+        jitterPermille: Int,
+    ): ReduceResult {
+        if (state.intent.mode == ConnPathMode.Auto) {
+            val follow = decideNext(
+                state.copy(call = state.call.copy(createOp = CallCreateOp.None)),
+                elapsedMs,
+                jitterPermille,
+            )
+            if (
+                follow.command is RecoveryCommand.StartDirect ||
+                follow.command is RecoveryCommand.ParkBypassForDirect
+            ) {
+                return follow
+            }
+        }
+        return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.ReleaseCallHold)
     }
 
     private fun onCallValidity(
@@ -1058,10 +1226,21 @@ object ConnectionReducer {
         elapsedMs: Long,
         jitterPermille: Int,
     ): ReduceResult {
-        val due = state.recovery.nextRetryAtElapsedMs
         if (!state.intent.wantsConnected) {
             return ReduceResult(state, RecoveryCommand.None)
         }
+        if (state.call.createOp == CallCreateOp.Backoff) {
+            val due = state.recovery.nextRetryAtElapsedMs
+            if (due == null || elapsedMs < due) {
+                return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
+            }
+            if (!state.underlay.allowsNetworkOps) {
+                return parkCallCreateForNetwork(state, elapsedMs)
+            }
+            return resumeCallCreateNow(state, elapsedMs)
+        }
+        interceptCallCreate(state, elapsedMs)?.let { return it }
+        val due = state.recovery.nextRetryAtElapsedMs
         if (due == null || elapsedMs < due) {
             return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
         }
@@ -1092,6 +1271,7 @@ object ConnectionReducer {
         if (!state.intent.wantsConnected || state.recovery.permit.userStop) {
             return ReduceResult(state, RecoveryCommand.None)
         }
+        interceptCallCreate(state, elapsedMs)?.let { return it }
         val decision = decideAutoPath(
             AutoPathInput(
                 mode = state.intent.mode,
@@ -1481,17 +1661,155 @@ object ConnectionReducer {
                 state.intent.profileId,
             ) == true,
         )
-        return state.copy(
+        val next = state.copy(
             ui = connectionUiModel(
                 phase = state.recovery.phase,
                 activePath = state.activePath,
                 restriction = restriction,
                 transport = state.transport,
                 retryInMs = remaining,
+                userActionKind = state.call.createUserAction,
                 underlayKind = state.underlay.kind,
                 pathReadiness = state.pathReadiness,
                 restrictionDisplay = display,
             ),
         )
+        return when (state.call.createOp) {
+            CallCreateOp.InFlight -> next.copy(
+                ui = next.ui.copy(
+                    phase = ConnectionUiPhase.Recovering,
+                    message = if (state.call.createHold) {
+                        "Обновляю звонок…"
+                    } else {
+                        "Создаю новый звонок…"
+                    },
+                    connState = ConnState.Recovering,
+                    actions = listOf(ConnectionUiAction.Disconnect),
+                ),
+            )
+            else -> next
+        }
+    }
+
+    private fun interceptCallCreate(
+        state: ConnectionSnapshot,
+        elapsedMs: Long,
+    ): ReduceResult? {
+        return when (state.call.createOp) {
+            CallCreateOp.None -> null
+            CallCreateOp.InFlight,
+            CallCreateOp.Applied,
+            -> ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
+            CallCreateOp.Backoff -> ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
+            CallCreateOp.WaitingNetwork -> {
+                if (state.underlay.allowsNetworkOps) {
+                    resumeCallCreateNow(state, elapsedMs)
+                } else {
+                    parkCallCreateForNetwork(state, elapsedMs)
+                }
+            }
+            CallCreateOp.NeedsUser -> ReduceResult(
+                withUi(
+                    state.copy(
+                        recovery = state.recovery.copy(phase = RecoveryPhase.NeedsUserAction),
+                    ),
+                    elapsedMs,
+                ),
+                RecoveryCommand.None,
+            )
+        }
+    }
+
+    private fun resumeCallCreateNow(
+        state: ConnectionSnapshot,
+        elapsedMs: Long,
+    ): ReduceResult {
+        val next = state.copy(
+            call = state.call.copy(createOp = CallCreateOp.InFlight),
+            transport = if (
+                state.transport == TransportLifecycle.Running ||
+                state.transport == TransportLifecycle.Starting
+            ) {
+                TransportLifecycle.Failed
+            } else {
+                state.transport
+            },
+            pathReadiness = PathReadiness.None,
+            recovery = state.recovery.copy(
+                phase = RecoveryPhase.Backoff,
+                inFlight = false,
+                callOpInFlight = true,
+                nextRetryAtElapsedMs = null,
+                pendingTimer = PendingTimer.None,
+                permit = permitFrom(state, netOps = state.underlay.allowsNetworkOps, inFlight = false),
+            ),
+        )
+        return ReduceResult(withUi(next, elapsedMs), RecoveryCommand.ResumeCallCreate)
+    }
+
+    private fun parkCallCreateForNetwork(
+        state: ConnectionSnapshot,
+        elapsedMs: Long,
+    ): ReduceResult {
+        val next = state.copy(
+            call = state.call.copy(createOp = CallCreateOp.WaitingNetwork),
+            transport = if (
+                state.transport == TransportLifecycle.Running ||
+                state.transport == TransportLifecycle.Starting
+            ) {
+                TransportLifecycle.Failed
+            } else {
+                state.transport
+            },
+            recovery = state.recovery.copy(
+                phase = RecoveryPhase.WaitingForNetwork,
+                inFlight = false,
+                callOpInFlight = true,
+                nextRetryAtElapsedMs = null,
+                pendingTimer = PendingTimer.None,
+                permit = permitFrom(state, netOps = false, inFlight = false),
+            ),
+        )
+        return ReduceResult(withUi(next, elapsedMs), RecoveryCommand.PauseNetOps)
+    }
+
+    private fun onUnderlayDuringCallCreate(
+        state: ConnectionSnapshot,
+        snapshot: UnderlaySnapshot,
+        elapsedMs: Long,
+        fromNetworkGap: Boolean,
+    ): ReduceResult {
+        if (!snapshot.allowsNetworkOps) {
+            return when (state.call.createOp) {
+                CallCreateOp.NeedsUser,
+                CallCreateOp.Applied,
+                -> ReduceResult(
+                    withUi(
+                        state.copy(
+                            recovery = state.recovery.copy(
+                                permit = permitFrom(state, netOps = false, inFlight = false),
+                                nextRetryAtElapsedMs = null,
+                                pendingTimer = PendingTimer.None,
+                            ),
+                        ),
+                        elapsedMs,
+                    ),
+                    RecoveryCommand.PauseNetOps,
+                )
+                CallCreateOp.None -> ReduceResult(state, RecoveryCommand.None)
+                CallCreateOp.InFlight,
+                CallCreateOp.Backoff,
+                CallCreateOp.WaitingNetwork,
+                -> parkCallCreateForNetwork(state, elapsedMs)
+            }
+        }
+        if (state.call.createOp == CallCreateOp.WaitingNetwork && fromNetworkGap) {
+            return resumeCallCreateNow(state, elapsedMs)
+        }
+        if (state.call.createOp == CallCreateOp.WaitingNetwork && snapshot.allowsNetworkOps) {
+            return resumeCallCreateNow(state, elapsedMs)
+        }
+        interceptCallCreate(state, elapsedMs)?.let { return it }
+        return ReduceResult(withUi(state, elapsedMs), RecoveryCommand.None)
     }
 }
