@@ -195,7 +195,7 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 
 ### При нажатии Connect
 
-На LTE Auto кнопка, виджет и плитка делят один запрос (`ConnectRequestCoordinator`). Ожидание принадлежит этой операции и серии. Ранний ordinary-успех может завершить ожидание сразу; финал сначала применяется в evidence, затем waiter выбирает маршрут. Завершённая попытка (`AttemptFailed`: Error / остановка сервиса / Ready) снимает `wantsConnected` и in-flight Starting, поэтому underlay не затирает Error, а следующий Connect идёт новым `UserConnect`. Ещё допустимый final после этого только idle-fold, не выбор маршрута. Stop отзывает конкретные seriesId; фоновая диагностика регистрируется отдельно и не блокируется старым revoked-probe. Яндекс/VK ожидание не завершают. Wi‑Fi Auto идёт сразу в Direct. Устаревший балл 80 не выбирает обход: нужен свежий сильный раунд.
+На LTE Auto кнопка, виджет и плитка делят один запрос (`ConnectRequestCoordinator`). Ожидание принадлежит этой операции и серии. Ранний ordinary-успех может завершить ожидание сразу; финал сначала применяется в evidence, затем waiter выбирает маршрут. Завершённая попытка (`AttemptFailed`: Error / остановка сервиса / Ready) снимает `wantsConnected`, поднимает `transportEpoch` и отзывает PathConfirm: поздний Direct/BypassConfirmed не возвращает Connected. Ещё допустимый final initial probe после ошибки только idle-fold. Stop и `onDestroy` сервиса несут id экземпляра, зафиксированный при START; поздний/повторный callback A не завершает Connect B. Яндекс/VK ожидание не завершают. Wi‑Fi Auto идёт сразу в Direct. Устаревший балл 80 не выбирает обход: нужен свежий сильный раунд.
 
 
 ### Классификация (не блокирует легитимный обход)

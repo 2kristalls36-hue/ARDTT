@@ -2731,4 +2731,157 @@ class ConnectionReducerTest {
         )
         assertTrue(retry.command is RecoveryCommand.StartDirect)
     }
+
+    @Test
+    fun lateDirectConfirmationCannotReviveFailedAttempt() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
+            10L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.AttemptFailed("terminal failure"),
+            11L,
+        )
+        val late = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = started.state.underlay.key,
+                pathConfirmed = true,
+                protocolReady = true,
+            ),
+            12L,
+        )
+        assertFalse(late.state.intent.wantsConnected)
+        assertEquals(ConnState.Error, late.state.ui.connState)
+        assertEquals(TransportLifecycle.Stopped, late.state.transport)
+        assertNull(late.state.activePath)
+        assertEquals(RecoveryCommand.None, late.command)
+        assertFalse(acceptedLiveTunnelConfirm(late))
+    }
+
+    @Test
+    fun lateBypassConfirmationCannotReviveFailedAttempt() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Bypass, "p", true, false),
+            10L,
+        )
+        assertTrue(started.command is RecoveryCommand.StartBypass)
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.AttemptFailed("terminal failure"),
+            11L,
+        )
+        listOf(
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                backendRunning = true,
+                callEpoch = started.state.call.callEpoch,
+            ),
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                protocolReady = true,
+                callEpoch = started.state.call.callEpoch,
+            ),
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                pathConfirmed = true,
+                protocolReady = true,
+                callEpoch = started.state.call.callEpoch,
+            ),
+        ).forEach { event ->
+            val late = ConnectionReducer.reduce(failed.state, event, 12L)
+            assertFalse(late.state.intent.wantsConnected)
+            assertEquals(ConnState.Error, late.state.ui.connState)
+            assertEquals(TransportLifecycle.Stopped, late.state.transport)
+            assertNull(late.state.activePath)
+            assertEquals(RecoveryCommand.None, late.command)
+            assertFalse(acceptedLiveTunnelConfirm(late))
+        }
+    }
+
+    @Test
+    fun lateDirectConfirmationCannotReviveKeepReadyAttempt() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
+            10L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.AttemptFailed("Отключено", keepReady = true),
+            11L,
+        )
+        val late = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = started.state.underlay.key,
+                pathConfirmed = true,
+                protocolReady = true,
+            ),
+            12L,
+        )
+        assertEquals(ConnState.Ready, late.state.ui.connState)
+        assertFalse(late.state.intent.wantsConnected)
+        assertEquals(TransportLifecycle.Stopped, late.state.transport)
+        assertNull(late.state.activePath)
+        assertEquals(RecoveryCommand.None, late.command)
+    }
+
+    @Test
+    fun newConnectAfterAttemptFailedAcceptsOnlyTheNewTransport() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
+            10L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.AttemptFailed("terminal failure"),
+            11L,
+        )
+        val retry = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", false, false),
+            12L,
+        )
+        assertTrue(retry.command is RecoveryCommand.StartDirect)
+        val old = ConnectionReducer.reduce(
+            retry.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+            ),
+            13L,
+        )
+        assertEquals(RecoveryCommand.None, old.command)
+        assertEquals(TransportLifecycle.Starting, old.state.transport)
+        val fresh = ConnectionReducer.reduce(
+            retry.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = retry.state.sessionEpoch,
+                transportEpoch = retry.state.transportEpoch,
+                networkKey = cellKey,
+                pathConfirmed = true,
+                protocolReady = true,
+            ),
+            14L,
+        )
+        assertEquals(RecoveryPhase.Connected, fresh.state.recovery.phase)
+        assertEquals(TransportLifecycle.Running, fresh.state.transport)
+        assertEquals(VpnPath.Direct, fresh.state.activePath)
+        assertTrue(acceptedLiveTunnelConfirm(fresh))
+    }
 }

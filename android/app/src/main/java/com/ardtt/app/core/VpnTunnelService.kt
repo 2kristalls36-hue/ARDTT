@@ -73,6 +73,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var networkChangeJob: Job? = null
     @Volatile private var softRestartJob: Job? = null
     @Volatile private var userStopRequested = false
+    @Volatile private var boundTransportOwner = 0L
     @Volatile private var softRestartInProgress = false
     @Volatile private var backendEpoch: Int = 0
     @Volatile private var tunnelSessionActive = false
@@ -141,7 +142,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 trustedWifiWaiting = false
                 cancelAllRecovery()
                 stopSession(keepService = false)
-                ConnectionManager.getOrNull()?.onServiceStopped()
+                ConnectionManager.getOrNull()?.onServiceStopped(boundTransportOwner)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -222,6 +223,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             ACTION_START, null -> {
                 userStopRequested = false
                 trustedWifiWaiting = false
+                if (intent?.hasExtra(EXTRA_TRANSPORT_OWNER) == true) {
+                    boundTransportOwner = intent.getLongExtra(EXTRA_TRANSPORT_OWNER, 0L)
+                }
                 startSession()
             }
         }
@@ -2149,7 +2153,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         handoverWakeLock.releaseNow()
         restartWakeLock.releaseNow()
         scope.cancel()
-        ConnectionManager.getOrNull()?.onServiceStopped()
+        ConnectionManager.getOrNull()?.onServiceStopped(boundTransportOwner)
         com.ardtt.app.TunnelWidgetProvider.updateWidgetState(
             this,
             running = false,
@@ -2458,6 +2462,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_DISCARD_ACTIVE = "discard_active"
         const val EXTRA_CALL_EPOCH = "call_epoch"
         const val EXTRA_IDENTITY_TOKEN = "identity_token"
+        const val EXTRA_TRANSPORT_OWNER = "transport_owner"
         const val NETWORK_SCOPE_ACTIVE = "active"
         const val NETWORK_SCOPE_PARKED = "parked"
         private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =
