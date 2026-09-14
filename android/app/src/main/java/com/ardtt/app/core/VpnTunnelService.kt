@@ -164,6 +164,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 ConnectionManager.getOrNull()?.onServiceStopped(
                     owner = decision.reportOwner,
                     releaseStartGate = false,
+                    acceptedUserStop = decision.applyTeardown,
                 )
                 val stopSelfId = decision.stopSelfStartId
                 var instanceGone = false
@@ -173,6 +174,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         ConnectionManager.getOrNull()?.onServiceStopped(
                             owner = decision.reportOwner,
                             releaseStartGate = true,
+                            acceptedUserStop = decision.applyTeardown,
                         )
                     }
                 }

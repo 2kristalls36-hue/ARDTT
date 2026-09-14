@@ -1684,48 +1684,22 @@ class ConnectionManager(
         ) {
             return
         }
-        stopWatchingUnderlay()
-        tunnelStartSerializer.revokePending()
-        dispatchRecovery(ConnectionEvent.UserDisconnect)
-        softRestartInProgress = false
-        handoverProbeStreak = ProbeStreak()
-        lastHandoverBindHandle = null
-        deadDirectBindHandle = null
-        blockBypassToDirectUntilUnderlayChange = false
-        callRecreateAttempts = 0
-        callRecreateNetworkFails = 0
-        callRecreateJob?.cancel()
-        callRecreateJob = null
-        presenceJob?.cancel()
-        presenceJob = null
-        connectJob?.cancel()
-        connectJob = null
-        runningNotifyJob?.cancel()
-        runningNotifyJob = null
-        val generation = bumpSessionGeneration("disconnect")
-        transportRestartJob?.cancel()
-        transportRestartJob = null
+        revokeLiveConnectIntent("disconnect")
         AppLog.i(
             TAG,
-            "Stop requested by=user gen=$generation session=${recoverySnapshot.sessionEpoch} " +
+            "Stop requested by=user gen=${sessionGeneration.get()} session=${recoverySnapshot.sessionEpoch} " +
                 "transport=${recoverySnapshot.transportEpoch} call=${recoverySnapshot.call.callEpoch}",
         )
         logTunnelLifecycle(
             "stop_requested",
             extra = JSONObject()
                 .put("by", "user")
-                .put("generation", generation)
+                .put("generation", sessionGeneration.get())
                 .put("session_epoch", recoverySnapshot.sessionEpoch)
                 .put("transport_epoch", recoverySnapshot.transportEpoch)
                 .put("call_epoch", recoverySnapshot.call.callEpoch),
         )
-        // Flip state synchronously to avoid double-disconnect race on rapid taps.
-        _ui.value = _ui.value.copy(
-            state = ConnState.Disconnecting,
-            statusText = "Отключение…",
-            connectEnabled = false,
-            lastError = null,
-        )
+        val generation = sessionGeneration.get()
         scope.launch {
             try {
                 // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
@@ -3175,18 +3149,80 @@ class ConnectionManager(
         scope.launch { stopTunnel() }
     }
 
-    fun onServiceStopped(owner: Long, releaseStartGate: Boolean = true) {
+    /**
+     * User Stop from the shade ACTION_STOP, or [disconnect]. Does not send
+     * another ACTION_STOP — the service may already be tearing down.
+     */
+    private fun revokeLiveConnectIntent(
+        reason: String,
+        markDisconnecting: Boolean = true,
+    ): Long {
+        recoveryTimer.clear()
+        connectRequests.revokeConnectWork()
+        connectWaitJob?.cancel()
+        connectWaitJob = null
+        probeJob?.cancel()
+        probeJob = null
+        diagnosticJob?.cancel()
+        diagnosticJob = null
+        stopWatchingUnderlay()
+        tunnelStartSerializer.revokePending()
+        dispatchRecovery(ConnectionEvent.UserDisconnect)
+        softRestartInProgress = false
+        handoverProbeStreak = ProbeStreak()
+        lastHandoverBindHandle = null
+        deadDirectBindHandle = null
+        blockBypassToDirectUntilUnderlayChange = false
+        callRecreateAttempts = 0
+        callRecreateNetworkFails = 0
+        callRecreateJob?.cancel()
+        callRecreateJob = null
+        presenceJob?.cancel()
+        presenceJob = null
+        connectJob?.cancel()
+        connectJob = null
+        runningNotifyJob?.cancel()
+        runningNotifyJob = null
+        transportRestartJob?.cancel()
+        transportRestartJob = null
+        val generation = bumpSessionGeneration(reason)
+        if (markDisconnecting) {
+            _ui.value = _ui.value.copy(
+                state = ConnState.Disconnecting,
+                statusText = "Отключение…",
+                connectEnabled = false,
+                lastError = null,
+            )
+        }
+        return generation
+    }
+
+    fun onServiceStopped(
+        owner: Long,
+        releaseStartGate: Boolean = true,
+        acceptedUserStop: Boolean = false,
+    ) {
+        val ignoreAsSoftRestart = treatStopAsSoftRestart(softRestartInProgress, acceptedUserStop)
+        if (
+            shouldRevokeConnectOnAcceptedUserStop(
+                acceptedUserStop,
+                recoverySnapshot.intent.wantsConnected,
+                softRestartInProgress,
+            )
+        ) {
+            revokeLiveConnectIntent("notification-stop", markDisconnecting = false)
+        }
         val dispatched = dispatchServiceStopped(
             requests = connectRequests,
             serializer = tunnelStartSerializer,
             owner = owner,
             releaseStartGate = releaseStartGate,
-            softRestart = softRestartInProgress,
+            softRestart = ignoreAsSoftRestart,
         )
         val cause = when {
             vpnPermissionRevoked -> "revoke"
-            softRestartInProgress -> "soft_restart"
-            _ui.value.state == ConnState.Disconnecting -> "user_stop"
+            ignoreAsSoftRestart -> "soft_restart"
+            acceptedUserStop || _ui.value.state == ConnState.Disconnecting -> "user_stop"
             !recoverySnapshot.intent.wantsConnected -> "expected"
             else -> "unexpected"
         }
@@ -3207,7 +3243,7 @@ class ConnectionManager(
                 .put("deferred_ticket", dispatched.deferredStart?.ticket ?: JSONObject.NULL),
             verbose = cause != "unexpected" && cause != "revoke",
         )
-        if (softRestartInProgress) {
+        if (ignoreAsSoftRestart) {
             AppLog.v(TAG, "Ignoring service stopped during soft restart")
             postDeferredTunnelStart(dispatched.deferredStart)
             return
