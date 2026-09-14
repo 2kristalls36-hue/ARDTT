@@ -51,18 +51,54 @@ internal data class TunnelStopDecision(
     val reportOwner: Long,
 )
 
+internal data class DeferredTunnelStart(
+    val ticket: Long,
+    val gateEpoch: Long,
+    val requestId: Long?,
+    val sessionEpoch: Long,
+    val generation: Long,
+    val path: VpnPath,
+)
+
+internal data class LiveDeferredStart(
+    val requestId: Long?,
+    val sessionEpoch: Long,
+    val generation: Long,
+    val wantsConnected: Boolean,
+)
+
 /**
  * Holds the next START until the STOP that is already in flight has
  * destroyed the service. Sending START B before that lets ACTION_STOP
  * of A run stopSelf against an instance Android may already reuse for B.
+ *
+ * A queued or already posted lease is still rejected after UserDisconnect
+ * / AttemptFailed because [revokePending] bumps [gateEpoch].
  */
 internal class TunnelStartSerializer {
     @Volatile var lastBoundOwner: Long = 0L
         private set
     @Volatile var stoppingOwner: Long? = null
         private set
+    @Volatile var gateEpoch: Long = 0L
+        private set
 
-    private var queuedStart: (() -> Unit)? = null
+    private var nextTicket = 1L
+    private var queuedStart: DeferredTunnelStart? = null
+
+    fun nextLease(
+        requestId: Long?,
+        sessionEpoch: Long,
+        generation: Long,
+        path: VpnPath,
+    ): DeferredTunnelStart = DeferredTunnelStart(
+        ticket = nextTicket++,
+        gateEpoch = gateEpoch,
+        requestId = requestId,
+        sessionEpoch = sessionEpoch,
+        generation = generation,
+        path = path,
+    )
 
     fun noteStartIssued(owner: Long) {
         lastBoundOwner = owner
@@ -71,21 +107,25 @@ internal class TunnelStartSerializer {
     }
 
     fun beginStop(): Long {
-        queuedStart = null
         val owner = lastBoundOwner
         if (owner != 0L) stoppingOwner = owner
         return owner
     }
 
-    fun admitStart(start: () -> Unit): Boolean {
+    fun revokePending() {
+        queuedStart = null
+        gateEpoch++
+    }
+
+    fun admitStart(lease: DeferredTunnelStart): Boolean {
         if (stoppingOwner != null) {
-            queuedStart = start
+            queuedStart = lease
             return false
         }
         return true
     }
 
-    fun onDestroyed(owner: Long): (() -> Unit)? {
+    fun onDestroyed(owner: Long): DeferredTunnelStart? {
         val waiting = stoppingOwner ?: return null
         if (owner != 0L && owner != waiting) return null
         stoppingOwner = null
@@ -96,9 +136,22 @@ internal class TunnelStartSerializer {
     }
 }
 
+internal fun deferredStartRejectReason(
+    lease: DeferredTunnelStart,
+    live: LiveDeferredStart,
+    serializerGateEpoch: Long,
+): String? {
+    if (lease.gateEpoch != serializerGateEpoch) return "revoked"
+    if (!live.wantsConnected) return "wantsConnected"
+    if (lease.generation != live.generation) return "generation"
+    if (lease.sessionEpoch != live.sessionEpoch) return "session"
+    if (lease.requestId != null && live.requestId != lease.requestId) return "request"
+    return null
+}
+
 internal data class ServiceStoppedDispatch(
     val finishLiveAttempt: Boolean,
-    val deferredStart: (() -> Unit)?,
+    val deferredStart: DeferredTunnelStart?,
 )
 
 internal fun dispatchServiceStopped(

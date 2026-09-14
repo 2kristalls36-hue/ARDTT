@@ -12,16 +12,26 @@ import android.os.Looper
 import android.os.SystemClock
 import android.telephony.TelephonyManager
 import android.util.Log
+import com.ardtt.app.bypass.CallHashErrorKind
+import com.ardtt.app.bypass.CallHashFailure
+import com.ardtt.app.bypass.CallHashOutcome
+import com.ardtt.app.bypass.CallHashPhase
 import com.ardtt.app.bypass.CallHashStore
+import com.ardtt.app.bypass.CallRecreateIdentity
 import com.ardtt.app.bypass.CallRecreatePrompt
 import com.ardtt.app.bypass.DeadCallAction
 import com.ardtt.app.bypass.DialPath
 import com.ardtt.app.bypass.VkCallHashGenerator
 import com.ardtt.app.bypass.VkLoginActivity
 import com.ardtt.app.bypass.VkSession
+import com.ardtt.app.bypass.callRecreateIdentityStillCurrent
+import com.ardtt.app.bypass.classifyCallHashThrowable
+import com.ardtt.app.bypass.evaluateCallRecreateResult
+import com.ardtt.app.bypass.planCallRecreateApply
 import com.ardtt.app.bypass.decideDeadCallAction
 import com.ardtt.app.bypass.isDeadCallMessage
 import com.ardtt.app.bypass.userActionForBypassFailure
+import com.ardtt.app.telemetry.TelemetryBridge
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.deploy.DeployHop
@@ -40,6 +50,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
@@ -103,7 +114,9 @@ class ConnectionManager(
     private var workers: Int = BypassWorkers.DEFAULT
     @Volatile private var silentRecreate: Boolean = false
     @Volatile private var callRecreateAttempts: Int = 0
+    private var callRecreateNetworkFails: Int = 0
     private var callRecreateJob: Job? = null
+    @Volatile private var vpnPermissionRevoked: Boolean = false
     private var dialPath: DialPath = DialPath.Auto
     private var pathMode: ConnPathMode = ConnPathMode.Auto
     /** Soft transport restart in progress (Wi‑Fi↔LTE); do not treat as user disconnect. */
@@ -1192,6 +1205,7 @@ class ConnectionManager(
     }
 
     private fun proceedUserConnect(inheritProbeSessionEpoch: Long? = null) {
+        vpnPermissionRevoked = false
         val current = _ui.value
         val mode = pathMode
         if (current.state == ConnState.Connecting && recoverySnapshot.recovery.inFlight &&
@@ -1569,6 +1583,7 @@ class ConnectionManager(
     }
 
     private fun endUserAttempt(message: String, keepReady: Boolean = false) {
+        tunnelStartSerializer.revokePending()
         connectRequests.finishAttempt()
         bumpSessionGeneration("attempt-failed")
         dispatchRecovery(
@@ -1626,6 +1641,7 @@ class ConnectionManager(
             return
         }
         stopWatchingUnderlay()
+        tunnelStartSerializer.revokePending()
         dispatchRecovery(ConnectionEvent.UserDisconnect)
         softRestartInProgress = false
         handoverProbeStreak = ProbeStreak()
@@ -1633,6 +1649,7 @@ class ConnectionManager(
         deadDirectBindHandle = null
         blockBypassToDirectUntilUnderlayChange = false
         callRecreateAttempts = 0
+        callRecreateNetworkFails = 0
         callRecreateJob?.cancel()
         callRecreateJob = null
         presenceJob?.cancel()
@@ -1644,6 +1661,20 @@ class ConnectionManager(
         val generation = bumpSessionGeneration("disconnect")
         transportRestartJob?.cancel()
         transportRestartJob = null
+        AppLog.i(
+            TAG,
+            "Stop requested by=user gen=$generation session=${recoverySnapshot.sessionEpoch} " +
+                "transport=${recoverySnapshot.transportEpoch} call=${recoverySnapshot.call.callEpoch}",
+        )
+        logTunnelLifecycle(
+            "stop_requested",
+            extra = JSONObject()
+                .put("by", "user")
+                .put("generation", generation)
+                .put("session_epoch", recoverySnapshot.sessionEpoch)
+                .put("transport_epoch", recoverySnapshot.transportEpoch)
+                .put("call_epoch", recoverySnapshot.call.callEpoch),
+        )
         // Flip state synchronously to avoid double-disconnect race on rapid taps.
         _ui.value = _ui.value.copy(
             state = ConnState.Disconnecting,
@@ -2824,7 +2855,26 @@ class ConnectionManager(
             return
         }
         callRecreateJob = scope.launch {
-            recreateCallThenReconnect(holdService = holdService)
+            try {
+                recreateCallThenReconnect(holdService = holdService)
+            } catch (e: CancellationException) {
+                AppLog.i(TAG, "Call recreate cancelled hold=$holdService")
+                logTunnelLifecycle(
+                    "call_recreate",
+                    JSONObject().put("decision", "cancelled").put("hold", holdService),
+                )
+                throw e
+            } catch (t: Throwable) {
+                TelemetryBridge.handledError("call_recreate", t)
+                AppLog.e(TAG, "Call recreate handled: ${t.message ?: t.javaClass.simpleName}")
+                applyCallRecreateOutcome(
+                    captured = currentRecreateIdentity(),
+                    outcome = CallHashOutcome.Failure(
+                        classifyCallHashThrowable(t, CallHashPhase.OAuth),
+                    ),
+                    holdService = holdService,
+                )
+            }
         }
     }
 
@@ -2873,8 +2923,27 @@ class ConnectionManager(
         }
     }
 
-    private suspend fun recreateCallThenReconnect(holdService: Boolean) {
-        callRecreateAttempts++
+    private fun currentRecreateIdentity(): CallRecreateIdentity {
+        return CallRecreateIdentity(
+            sessionEpoch = recoverySnapshot.sessionEpoch,
+            generation = sessionGeneration.get(),
+            profileId = recoverySnapshot.intent.profileId ?: profile?.name,
+            callEpoch = recoverySnapshot.call.callEpoch,
+            requestId = connectRequests.activeRequestId(),
+            wantsConnected = recoverySnapshot.intent.wantsConnected,
+        )
+    }
+
+    private suspend fun recreateCallThenReconnect(
+        holdService: Boolean,
+        countDeadAttempt: Boolean = true,
+    ) {
+        val captured = currentRecreateIdentity()
+        if (!captured.wantsConnected) {
+            AppLog.i(TAG, "Call recreate skipped — wantsConnected=false")
+            return
+        }
+        if (countDeadAttempt) callRecreateAttempts++
         _ui.value = _ui.value.copy(
             state = ConnState.Connecting,
             activePath = VpnPath.Bypass,
@@ -2884,49 +2953,166 @@ class ConnectionManager(
             connectEnabled = true,
             softInfo = "Нужна сессия ВКонтакте на этом устройстве.",
         )
+        logTunnelLifecycle(
+            "call_recreate",
+            JSONObject()
+                .put("phase", "start")
+                .put("hold", holdService)
+                .put("network_fails", callRecreateNetworkFails)
+                .put("attempts", callRecreateAttempts),
+        )
         if (!VkSession.hasSessionCookie()) {
-            val login = runCatching { VkLoginActivity.login(appContext) }.getOrElse { Result.failure(it) }
+            val login = try {
+                VkLoginActivity.login(appContext)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Result.failure(t)
+            }
             if (login.isFailure || !VkSession.hasSessionCookie()) {
-                failToError(
-                    message = login.exceptionOrNull()?.message
-                        ?: "Авторизация ВКонтакте не выполнена.",
-                    prompt = CallRecreatePrompt.NeedLogin,
-                    status = "Нужна авторизация ВКонтакте",
+                val failure = login.exceptionOrNull()?.let {
+                    classifyCallHashThrowable(it, CallHashPhase.Session)
+                } ?: CallHashFailure(
+                    kind = CallHashErrorKind.AuthRequired,
+                    phase = CallHashPhase.Session,
+                    message = "Авторизация ВКонтакте не выполнена.",
                 )
-                if (holdService) stopTunnel()
+                applyCallRecreateOutcome(
+                    captured = captured,
+                    outcome = CallHashOutcome.Failure(failure),
+                    holdService = holdService,
+                )
                 return
             }
         }
-        val generated = VkCallHashGenerator.generateOne(appContext)
-        val hash = generated.getOrNull()
-        if (hash.isNullOrBlank()) {
-            failToError(
-                message = generated.exceptionOrNull()?.message
-                    ?: "Не удалось создать новый звонок.",
-                prompt = if (VkSession.hasSessionCookie()) {
-                    CallRecreatePrompt.Ask
-                } else {
-                    CallRecreatePrompt.NeedLogin
-                },
-                status = "Не удалось обновить звонок",
-            )
-            if (holdService) stopTunnel()
-            return
+        val outcome = try {
+            VkCallHashGenerator.generateOutcome(appContext)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            TelemetryBridge.handledError("call_recreate_generate", t)
+            CallHashOutcome.Failure(classifyCallHashThrowable(t, CallHashPhase.OAuth))
         }
-        saveCallHash(hash)
-        applySessionPath(VpnPath.Bypass)
-        AppLog.i(TAG, "Saved recreated call hash, restarting Bypass hold=$holdService")
-        if (holdService && TunnelSessionHolder.config != null) {
-            requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
-        } else {
-            _ui.value = _ui.value.copy(
-                state = ConnState.Ready,
-                lastError = null,
-                callRecreatePrompt = null,
-                connectEnabled = true,
-            )
-            endUserAttempt(_ui.value.statusText.ifBlank { "Отключено" }, keepReady = true)
-            connect()
+        applyCallRecreateOutcome(captured, outcome, holdService)
+    }
+
+    private fun applyCallRecreateOutcome(
+        captured: CallRecreateIdentity,
+        outcome: CallHashOutcome,
+        holdService: Boolean,
+    ) {
+        val live = currentRecreateIdentity()
+        val decision = evaluateCallRecreateResult(
+            captured = captured,
+            live = live,
+            outcome = outcome,
+            networkAttempts = callRecreateNetworkFails,
+        )
+        val plan = planCallRecreateApply(
+            decision = decision,
+            underlayAllowsOps = recoverySnapshot.underlay.allowsNetworkOps,
+            silentRecreateInFlight = holdService && silentRecreate,
+        )
+        val kind = (outcome as? CallHashOutcome.Failure)?.error?.kind?.name
+        val phase = (outcome as? CallHashOutcome.Failure)?.error?.phase?.name
+        val apiCode = (outcome as? CallHashOutcome.Failure)?.error?.apiCode
+        val httpCode = (outcome as? CallHashOutcome.Failure)?.error?.httpCode
+        AppLog.i(
+            TAG,
+            "Call recreate decision=${plan.decisionName} kind=$kind phase=$phase " +
+                "api=$apiCode http=$httpCode keep=${plan.keepWantsConnected} stop=${plan.stopTunnel}",
+        )
+        logTunnelLifecycle(
+            "call_recreate",
+            JSONObject()
+                .put("decision", plan.decisionName)
+                .put("kind", kind ?: JSONObject.NULL)
+                .put("phase", phase ?: JSONObject.NULL)
+                .put("api_code", apiCode ?: JSONObject.NULL)
+                .put("http_code", httpCode ?: JSONObject.NULL)
+                .put("retry_ms", plan.retryDelayMs ?: JSONObject.NULL)
+                .put("hold", holdService),
+        )
+        when {
+            plan.saveHash != null && plan.reconnectBypass -> {
+                if (!callRecreateIdentityStillCurrent(captured, currentRecreateIdentity())) {
+                    AppLog.i(TAG, "Call recreate hash ignored — session changed")
+                    return
+                }
+                callRecreateNetworkFails = 0
+                saveCallHash(plan.saveHash)
+                applySessionPath(VpnPath.Bypass)
+                AppLog.i(TAG, "Saved recreated call hash, restarting Bypass hold=$holdService")
+                if (holdService && TunnelSessionHolder.config != null) {
+                    requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
+                } else {
+                    _ui.value = _ui.value.copy(
+                        state = ConnState.Ready,
+                        lastError = null,
+                        callRecreatePrompt = null,
+                        connectEnabled = true,
+                    )
+                    endUserAttempt(_ui.value.statusText.ifBlank { "Отключено" }, keepReady = true)
+                    connect()
+                }
+            }
+            plan.retryDelayMs != null -> {
+                callRecreateNetworkFails++
+                plan.uiState?.let { state ->
+                    _ui.value = _ui.value.copy(
+                        state = state,
+                        statusText = plan.status ?: "Нет связи с ВКонтакте",
+                        lastError = plan.status,
+                        callRecreatePrompt = null,
+                        connectEnabled = true,
+                    )
+                }
+                plan.dispatchValidity?.let { validity ->
+                    dispatchRecovery(
+                        ConnectionEvent.CallValidityChanged(
+                            sessionEpoch = recoverySnapshot.sessionEpoch,
+                            validity = validity,
+                        ),
+                    )
+                }
+                val delayMs = plan.retryDelayMs
+                callRecreateJob = scope.launch {
+                    delay(delayMs)
+                    if (!callRecreateIdentityStillCurrent(captured, currentRecreateIdentity())) {
+                        AppLog.v(TAG, "Call recreate retry skipped — session changed")
+                        return@launch
+                    }
+                    recreateCallThenReconnect(holdService = holdService, countDeadAttempt = false)
+                }
+            }
+            plan.decisionName == "ignore_stale" || plan.decisionName == "ignore_cancelled" -> {
+                AppLog.i(TAG, "Call recreate ignored (${plan.decisionName})")
+            }
+            else -> {
+                callRecreateNetworkFails = 0
+                _ui.value = _ui.value.copy(
+                    state = plan.uiState ?: ConnState.NeedsUserAction,
+                    statusText = plan.status ?: "Не удалось обновить звонок",
+                    lastError = plan.status,
+                    callRecreatePrompt = plan.prompt,
+                    connectEnabled = connectAllowed(_ui.value.probe),
+                )
+                plan.dispatchValidity?.let { validity ->
+                    dispatchRecovery(
+                        ConnectionEvent.CallValidityChanged(
+                            sessionEpoch = recoverySnapshot.sessionEpoch,
+                            validity = validity,
+                        ),
+                    )
+                }
+                if (plan.stopTunnel && holdService) {
+                    scope.launch { stopTunnel() }
+                }
+                if (plan.endUserAttempt) {
+                    endUserAttempt(plan.status ?: "Не удалось обновить звонок")
+                }
+                refreshVpnNotification()
+            }
         }
     }
 
@@ -2967,6 +3153,30 @@ class ConnectionManager(
             releaseStartGate = releaseStartGate,
             softRestart = softRestartInProgress,
         )
+        val cause = when {
+            vpnPermissionRevoked -> "revoke"
+            softRestartInProgress -> "soft_restart"
+            _ui.value.state == ConnState.Disconnecting -> "user_stop"
+            !recoverySnapshot.intent.wantsConnected -> "expected"
+            else -> "unexpected"
+        }
+        val line =
+            "Service stopped cause=$cause owner=$owner finish=${dispatched.finishLiveAttempt} " +
+                "wants=${recoverySnapshot.intent.wantsConnected} gen=${sessionGeneration.get()}"
+        if (cause == "unexpected") {
+            AppLog.i(TAG, "Unexpected VPN service stop. $line")
+        } else {
+            AppLog.i(TAG, line)
+        }
+        logTunnelLifecycle(
+            "service_stopped",
+            JSONObject()
+                .put("cause", cause)
+                .put("owner", owner)
+                .put("finish_attempt", dispatched.finishLiveAttempt)
+                .put("deferred_ticket", dispatched.deferredStart?.ticket ?: JSONObject.NULL),
+            verbose = cause != "unexpected" && cause != "revoke",
+        )
         if (softRestartInProgress) {
             AppLog.v(TAG, "Ignoring service stopped during soft restart")
             postDeferredTunnelStart(dispatched.deferredStart)
@@ -2987,7 +3197,11 @@ class ConnectionManager(
             _ui.value = cur.copy(
                 state = ConnState.Ready,
                 activePath = null,
-                statusText = cur.probe?.message ?: "Отключено",
+                statusText = when (cause) {
+                    "revoke" -> "Система отозвала разрешение VPN"
+                    "unexpected" -> "VPN-сервис остановился"
+                    else -> cur.probe?.message ?: "Отключено"
+                },
                 softInfo = softInfoFor(cur.probe),
                 connectEnabled = connectAllowed(cur.probe),
             )
@@ -2995,7 +3209,11 @@ class ConnectionManager(
         val keepReady = _ui.value.state != ConnState.Error &&
             _ui.value.state != ConnState.Disconnecting
         connectRequests.finishAttempt()
-        if (recoverySnapshot.intent.wantsConnected) {
+        if (
+            recoverySnapshot.intent.wantsConnected &&
+            !vpnPermissionRevoked &&
+            cause != "user_stop"
+        ) {
             dispatchRecovery(
                 ConnectionEvent.AttemptFailed(
                     message = _ui.value.lastError ?: _ui.value.statusText.ifBlank { "Отключено" },
@@ -3015,12 +3233,75 @@ class ConnectionManager(
         postDeferredTunnelStart(dispatched.deferredStart)
     }
 
-    private fun postDeferredTunnelStart(start: (() -> Unit)?) {
-        if (start == null) return
+    fun onVpnPermissionRevoked(owner: Long) {
+        vpnPermissionRevoked = true
+        tunnelStartSerializer.revokePending()
+        callRecreateJob?.cancel()
+        callRecreateJob = null
+        callRecreateNetworkFails = 0
+        recoveryTimer.clear()
+        val generation = bumpSessionGeneration("vpn-revoke")
+        AppLog.i(
+            TAG,
+            "VPN permission revoked by Android owner=$owner gen=$generation " +
+                "session=${recoverySnapshot.sessionEpoch} transport=${recoverySnapshot.transportEpoch}",
+        )
+        logTunnelLifecycle(
+            "on_revoke",
+            JSONObject().put("owner", owner).put("by", "android"),
+        )
+        if (recoverySnapshot.intent.wantsConnected) {
+            dispatchRecovery(
+                ConnectionEvent.AttemptFailed(
+                    message = "Система отозвала разрешение VPN",
+                    keepReady = true,
+                ),
+            )
+        }
+        _ui.value = _ui.value.copy(
+            state = ConnState.Ready,
+            activePath = null,
+            statusText = "Система отозвала разрешение VPN",
+            lastError = "Система отозвала разрешение VPN",
+            connectEnabled = connectAllowed(_ui.value.probe),
+            callRecreatePrompt = null,
+        )
+    }
+
+    private fun postDeferredTunnelStart(lease: DeferredTunnelStart?) {
+        if (lease == null) return
+        AppLog.v(
+            TAG,
+            "Deferred tunnel start posted ticket=${lease.ticket} request=${lease.requestId} " +
+                "session=${lease.sessionEpoch} gen=${lease.generation} path=${lease.path}",
+        )
+        logTunnelLifecycle(
+            "start_posted",
+            JSONObject()
+                .put("ticket", lease.ticket)
+                .put("request_id", lease.requestId ?: JSONObject.NULL)
+                .put("session_epoch", lease.sessionEpoch)
+                .put("generation", lease.generation)
+                .put("path", lease.path.name)
+                .put("gate_epoch", lease.gateEpoch),
+            verbose = true,
+        )
         mainHandler.post {
-            runCatching { start() }.onFailure { t ->
-                AppLog.e(TAG, "deferred tunnel start failed: ${t.message}")
-                endUserAttempt(t.message ?: "Сбой запуска туннеля")
+            runCatching { startTunnelServiceIfCurrent(lease) }.onFailure { t ->
+                AppLog.e(TAG, "Deferred tunnel start failed: ${t.message}")
+                if (deferredStartReject(lease) != null) {
+                    AppLog.i(
+                        TAG,
+                        "Deferred start failure ignored: lease no longer current ticket=${lease.ticket}",
+                    )
+                    logTunnelLifecycle(
+                        "start_stale_failure",
+                        JSONObject().put("ticket", lease.ticket),
+                    )
+                    return@post
+                }
+                val msg = t.message ?: "Не удалось запустить VPN"
+                endUserAttempt(msg)
             }
         }
     }
@@ -3575,13 +3856,82 @@ class ConnectionManager(
         return System.currentTimeMillis() - tunnelStartedAtMs
     }
 
+    private fun liveDeferredStart(): LiveDeferredStart {
+        return LiveDeferredStart(
+            wantsConnected = recoverySnapshot.intent.wantsConnected,
+            requestId = connectRequests.activeRequestId(),
+            sessionEpoch = recoverySnapshot.sessionEpoch,
+            generation = sessionGeneration.get(),
+        )
+    }
+
+    private fun deferredStartReject(lease: DeferredTunnelStart): String? {
+        return deferredStartRejectReason(
+            lease = lease,
+            live = liveDeferredStart(),
+            serializerGateEpoch = tunnelStartSerializer.gateEpoch,
+        )
+    }
+
     private fun startTunnel(path: VpnPath) {
-        val launch = { startTunnelService(path) }
-        if (!tunnelStartSerializer.admitStart(launch)) {
-            AppLog.v(TAG, "Defer tunnel start path=$path until previous stop finishes")
+        val lease = tunnelStartSerializer.nextLease(
+            requestId = connectRequests.activeRequestId(),
+            sessionEpoch = recoverySnapshot.sessionEpoch,
+            generation = sessionGeneration.get(),
+            path = path,
+        )
+        if (!tunnelStartSerializer.admitStart(lease)) {
+            AppLog.v(
+                TAG,
+                "Defer tunnel start ticket=${lease.ticket} path=$path request=${lease.requestId} " +
+                    "session=${lease.sessionEpoch} gen=${lease.generation}",
+            )
+            logTunnelLifecycle(
+                "start_queued",
+                JSONObject()
+                    .put("ticket", lease.ticket)
+                    .put("path", path.name)
+                    .put("request_id", lease.requestId ?: JSONObject.NULL)
+                    .put("session_epoch", lease.sessionEpoch)
+                    .put("generation", lease.generation)
+                    .put("gate_epoch", lease.gateEpoch),
+                verbose = true,
+            )
             return
         }
-        launch()
+        startTunnelServiceIfCurrent(lease)
+    }
+
+    private fun startTunnelServiceIfCurrent(lease: DeferredTunnelStart) {
+        val reject = deferredStartReject(lease)
+        if (reject != null) {
+            AppLog.i(
+                TAG,
+                "Rejected deferred tunnel start ticket=${lease.ticket} reason=$reject " +
+                    "request=${lease.requestId} session=${lease.sessionEpoch} gen=${lease.generation}",
+            )
+            logTunnelLifecycle(
+                "start_rejected",
+                JSONObject()
+                    .put("ticket", lease.ticket)
+                    .put("reason", reject)
+                    .put("request_id", lease.requestId ?: JSONObject.NULL)
+                    .put("session_epoch", lease.sessionEpoch)
+                    .put("generation", lease.generation)
+                    .put("path", lease.path.name),
+            )
+            return
+        }
+        startTunnelService(lease.path)
+        logTunnelLifecycle(
+            "start_executed",
+            JSONObject()
+                .put("ticket", lease.ticket)
+                .put("request_id", lease.requestId ?: JSONObject.NULL)
+                .put("session_epoch", lease.sessionEpoch)
+                .put("generation", lease.generation)
+                .put("path", lease.path.name),
+        )
     }
 
     private fun startTunnelService(path: VpnPath) {
@@ -3618,6 +3968,12 @@ class ConnectionManager(
                 appContext.startService(intent)
             }
             tunnelStartSerializer.noteStartIssued(transportOwner)
+            AppLog.i(
+                TAG,
+                "Tunnel START issued owner=$transportOwner path=$path " +
+                    "request=${connectRequests.activeRequestId()} " +
+                    "session=${recoverySnapshot.sessionEpoch} gen=${sessionGeneration.get()}",
+            )
         } catch (t: Throwable) {
             AppLog.e(TAG, "startForegroundService failed: ${t.message}")
             throw t
@@ -3627,10 +3983,21 @@ class ConnectionManager(
     private fun stopTunnel() {
         presenceJob?.cancel()
         presenceJob = null
-        AppLog.v(TAG, "Stop tunnel")
+        val owner = tunnelStartSerializer.beginStop()
+        AppLog.i(
+            TAG,
+            "Tunnel STOP issued by=manager owner=$owner gen=${sessionGeneration.get()} " +
+                "session=${recoverySnapshot.sessionEpoch} transport=${recoverySnapshot.transportEpoch} " +
+                "wants=${recoverySnapshot.intent.wantsConnected}",
+        )
+        logTunnelLifecycle(
+            "stop_issued",
+            JSONObject()
+                .put("by", "manager")
+                .put("owner", owner),
+        )
         EgressIpProbe.clear()
         TunnelSessionHolder.config = null
-        val owner = tunnelStartSerializer.beginStop()
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_STOP
             if (owner != 0L) {
@@ -3817,6 +4184,62 @@ class ConnectionManager(
                 path = path,
             ),
         )
+    }
+
+    private fun screenInteractive(): Boolean {
+        val pm = appContext.getSystemService(android.os.PowerManager::class.java)
+        return pm?.isInteractive == true
+    }
+
+    private fun logTunnelLifecycle(
+        action: String,
+        extra: JSONObject = JSONObject(),
+        verbose: Boolean = false,
+    ) {
+        extra.put("ui", _ui.value.state.name)
+        extra.put("intent_wants", recoverySnapshot.intent.wantsConnected)
+        extra.put("recovery_phase", recoverySnapshot.recovery.phase.name)
+        extra.put("transport", recoverySnapshot.transport.name)
+        if (!extra.has("active_path")) {
+            extra.put("active_path", _ui.value.activePath?.name ?: JSONObject.NULL)
+        }
+        if (!extra.has("request_id")) {
+            extra.put("request_id", connectRequests.activeRequestId() ?: JSONObject.NULL)
+        }
+        if (!extra.has("owner")) {
+            extra.put("owner", tunnelStartSerializer.lastBoundOwner)
+        }
+        if (!extra.has("session_epoch")) {
+            extra.put("session_epoch", recoverySnapshot.sessionEpoch)
+        }
+        extra.put("network_epoch", recoverySnapshot.networkEpoch)
+        if (!extra.has("transport_epoch")) {
+            extra.put("transport_epoch", recoverySnapshot.transportEpoch)
+        }
+        if (!extra.has("call_epoch")) {
+            extra.put("call_epoch", recoverySnapshot.call.callEpoch)
+        }
+        if (!extra.has("generation")) {
+            extra.put("generation", sessionGeneration.get())
+        }
+        extra.put("underlay", recoverySnapshot.underlay.kind.name)
+        extra.put("screen_on", screenInteractive())
+        extra.put("trusted_wifi", _ui.value.state == ConnState.PausedTrustedWifi)
+        extra.put("revoke", vpnPermissionRevoked)
+        val summary = buildString {
+            append(action)
+            extra.optString("by").takeIf { it.isNotBlank() }?.let { append(" by=").append(it) }
+            extra.optString("cause").takeIf { it.isNotBlank() }?.let { append(" cause=").append(it) }
+            extra.optString("reason").takeIf { it.isNotBlank() }?.let { append(" reason=").append(it) }
+            extra.optString("decision").takeIf { it.isNotBlank() }?.let { append(" decision=").append(it) }
+            extra.optString("kind").takeIf { it.isNotBlank() }?.let { append(" kind=").append(it) }
+        }
+        if (verbose) {
+            AppLog.v(TAG, "lifecycle $summary")
+        } else {
+            AppLog.i(TAG, "lifecycle $summary")
+        }
+        TelemetryBridge.lifecycle(action, extra)
     }
 
     companion object {

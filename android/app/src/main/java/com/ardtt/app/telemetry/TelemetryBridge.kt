@@ -7,6 +7,18 @@ import org.json.JSONObject
  * Every method is a no-op when recording is disabled.
  */
 object TelemetryBridge {
+    fun lifecycle(action: String, details: JSONObject = JSONObject()) {
+        val data = JSONObject().put("action", action.take(80))
+        details.keys().forEach { key ->
+            val value = details.opt(key)
+            data.put(
+                key,
+                if (value is String) TelemetryRedactor.redact(value) else value,
+            )
+        }
+        recorder()?.log(TelemetryEventType.Lifecycle, data)
+    }
+
     fun appLog(level: String, tag: String, message: String, verbose: Boolean) {
         recorder()?.log(
             TelemetryEventType.AppLog,

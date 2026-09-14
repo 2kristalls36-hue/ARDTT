@@ -323,6 +323,157 @@ class TunnelTransportLifecycleTest {
         assertFalse(host.backendAlive)
         assertFalse(host.serviceAlive)
     }
+
+    @Test
+    fun postedStartBAfterStopBDoesNotStart() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.managerStop(uiToReady = true)
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        assertNull(host.managerRequestStart())
+        host.deliverAll()
+        assertEquals(1, host.posted.size)
+        assertEquals(1, host.startDeliveries)
+
+        host.managerStop(uiToReady = true)
+        host.flushPosted()
+        assertEquals(1, host.startDeliveries)
+        assertNull(host.sessionHolderPath)
+        assertEquals(1, host.rejectedStarts.size)
+    }
+
+    @Test
+    fun postedStartBAfterAttemptFailedDoesNotStart() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.managerStop(uiToReady = true)
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        assertNull(host.managerRequestStart())
+        host.deliverAll()
+        host.requests.finishAttempt()
+        host.serializer.revokePending()
+        host.generation++
+        host.wantsConnected = false
+        host.flushPosted()
+        assertEquals(1, host.startDeliveries)
+        assertTrue(host.rejectedStarts.contains("revoked") || host.rejectedStarts.contains("wantsConnected"))
+    }
+
+    @Test
+    fun postedStartBDoesNotTakeConnectCOwner() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.managerStop(uiToReady = true)
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        assertNull(host.managerRequestStart())
+        host.deliverAll()
+        assertEquals(1, host.posted.size)
+
+        host.managerStop(uiToReady = true)
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        val ownerC = host.managerRequestStart()
+        assertNotNull(ownerC)
+        host.deliverAll()
+        val deliveriesBeforeFlush = host.startDeliveries
+        host.flushPosted()
+        assertEquals(deliveriesBeforeFlush, host.startDeliveries)
+        assertEquals(ownerC, host.session.boundOwner)
+        assertFalse(host.finishedAttempts.contains(ownerC))
+    }
+
+    @Test
+    fun revokeBeforeStopTunnelDropsQueuedStart() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.managerStop(uiToReady = true)
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        assertNull(host.managerRequestStart())
+        host.serializer.revokePending()
+        host.generation++
+        host.wantsConnected = false
+        host.deliverAll()
+        host.flushPosted()
+        assertEquals(1, host.startDeliveries)
+        assertTrue(host.posted.isEmpty())
+    }
+
+    @Test
+    fun legitimatePostedStartBRunsOnce() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.managerStop(uiToReady = true)
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        assertNull(host.managerRequestStart())
+        host.deliverAll()
+        assertEquals(1, host.startDeliveries)
+        host.flushPosted()
+        assertEquals(2, host.startDeliveries)
+        host.flushPosted()
+        assertEquals(2, host.startDeliveries)
+        assertTrue(host.backendAlive)
+    }
+
+    @Test
+    fun deferredLeaseRejectsAfterRevokeEvenIfWantsConnected() {
+        val serializer = TunnelStartSerializer()
+        val lease = serializer.nextLease(
+            requestId = 1L,
+            sessionEpoch = 2L,
+            generation = 3L,
+            path = VpnPath.Direct,
+        )
+        serializer.revokePending()
+        val live = LiveDeferredStart(
+            requestId = 1L,
+            sessionEpoch = 2L,
+            generation = 3L,
+            wantsConnected = true,
+        )
+        assertEquals("revoked", deferredStartRejectReason(lease, live, serializer.gateEpoch))
+        val current = serializer.nextLease(1L, 2L, 3L, VpnPath.Direct)
+        assertNull(deferredStartRejectReason(current, live, serializer.gateEpoch))
+        val stopped = live.copy(wantsConnected = false, generation = 4L, requestId = 9L)
+        assertEquals("wantsConnected", deferredStartRejectReason(current, stopped, serializer.gateEpoch))
+        val otherRequest = live.copy(requestId = 9L)
+        assertEquals("request", deferredStartRejectReason(current, otherRequest, serializer.gateEpoch))
+    }
+
+    @Test
+    fun failedPostedStartDoesNotFailConnectC() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.managerStop(uiToReady = true)
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        assertNull(host.managerRequestStart())
+        host.deliverAll()
+        host.managerStop(uiToReady = true)
+        host.requests.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.Proceed
+        val ownerC = host.managerRequestStart()
+        assertNotNull(ownerC)
+        host.deliverAll()
+        host.failNextStart = true
+        host.flushPosted()
+        assertFalse(host.finishedAttempts.contains(ownerC))
+        assertEquals(ownerC, host.session.boundOwner)
+    }
 }
 
 /**
@@ -338,6 +489,13 @@ internal class FakeTunnelHost {
     private var nextStartId = 1
     var lastAcceptedStartId = 0
     val pending = ArrayDeque<FakeServiceCommand>()
+    val posted = ArrayDeque<DeferredTunnelStart>()
+    var autoFlushPosted = true
+    var failNextStart = false
+    var sessionHolderPath: VpnPath? = null
+    var generation = 0L
+    var sessionEpoch = 0L
+    var wantsConnected = true
     var serviceAlive = false
     var backendAlive = false
     var tunAlive = false
@@ -349,19 +507,59 @@ internal class FakeTunnelHost {
     var destroyScheduled = false
     val finishedAttempts = mutableListOf<Long>()
     val startedOwners = mutableListOf<Long>()
+    val rejectedStarts = mutableListOf<String>()
+
+    fun liveCheck() = LiveDeferredStart(
+        requestId = requests.activeRequestId(),
+        sessionEpoch = sessionEpoch,
+        generation = generation,
+        wantsConnected = wantsConnected,
+    )
 
     fun managerRequestStart(): Long? {
-        var issued: Long? = null
-        val launch = {
-            val owner = requests.bindNewTransport()
-            serializer.noteStartIssued(owner)
-            systemAcceptStart(owner)
-            issued = owner
+        wantsConnected = true
+        sessionEpoch++
+        val lease = serializer.nextLease(
+            requestId = requests.activeRequestId(),
+            sessionEpoch = sessionEpoch,
+            generation = generation,
+            path = VpnPath.Direct,
+        )
+        if (!serializer.admitStart(lease)) return null
+        return executeLease(lease)
+    }
+
+    fun executeLease(lease: DeferredTunnelStart): Long? {
+        val reason = deferredStartRejectReason(lease, liveCheck(), serializer.gateEpoch)
+        if (reason != null) {
+            rejectedStarts += reason
+            return null
         }
-        if (serializer.admitStart(launch)) {
-            launch()
+        if (failNextStart) {
+            failNextStart = false
+            throw IllegalStateException("startForegroundService failed")
         }
-        return issued
+        sessionHolderPath = lease.path
+        val owner = requests.bindNewTransport()
+        serializer.noteStartIssued(owner)
+        systemAcceptStart(owner)
+        return owner
+    }
+
+    fun flushPosted() {
+        while (posted.isNotEmpty()) {
+            val lease = posted.removeFirst()
+            runCatching { executeLease(lease) }.onFailure { error ->
+                val reason = deferredStartRejectReason(lease, liveCheck(), serializer.gateEpoch)
+                if (reason != null) {
+                    rejectedStarts += reason
+                } else {
+                    throw error
+                }
+            }
+        }
+        while (pending.isNotEmpty()) deliverNext()
+        finishDestroyIfScheduled()
     }
 
     fun forceStartNow(): Long {
@@ -373,6 +571,10 @@ internal class FakeTunnelHost {
 
     fun managerStop(uiToReady: Boolean) {
         requests.revokeConnectWork()
+        serializer.revokePending()
+        generation++
+        wantsConnected = false
+        sessionHolderPath = null
         val owner = serializer.beginStop()
         systemAcceptStop(owner)
         if (uiToReady) uiReadyAfterStop = true
@@ -401,8 +603,11 @@ internal class FakeTunnelHost {
     }
 
     fun deliverAll() {
-        while (pending.isNotEmpty()) deliverNext()
-        finishDestroyIfScheduled()
+        do {
+            while (pending.isNotEmpty()) deliverNext()
+            finishDestroyIfScheduled()
+            if (autoFlushPosted) flushPosted()
+        } while (pending.isNotEmpty() || (autoFlushPosted && posted.isNotEmpty()))
     }
 
     fun deliverNext() {
@@ -441,7 +646,8 @@ internal class FakeTunnelHost {
             softRestart = false,
         )
         recordFinish(owner, dispatched)
-        dispatched.deferredStart?.invoke()
+        dispatched.deferredStart?.let { posted.addLast(it) }
+        if (autoFlushPosted) flushPosted()
     }
 
     private fun deliverStop(cmd: FakeServiceCommand, runScheduledDestroy: Boolean = true) {
@@ -476,13 +682,11 @@ internal class FakeTunnelHost {
                 softRestart = false,
             )
             recordFinish(decision.reportOwner, flush)
-            flush.deferredStart?.invoke()
+            flush.deferredStart?.let { posted.addLast(it) }
         }
     }
 
     private fun amsStopSelfResult(startId: Int): Boolean {
-        // Mirrors ActivityManager: lastStartId is raised when a start is
-        // accepted (queued), not only when onStartCommand runs.
         return startId == lastAcceptedStartId
     }
 
@@ -501,7 +705,7 @@ internal class FakeTunnelHost {
             softRestart = false,
         )
         recordFinish(report, dispatched)
-        dispatched.deferredStart?.invoke()
+        dispatched.deferredStart?.let { posted.addLast(it) }
     }
 
     private fun recordFinish(owner: Long, dispatched: ServiceStoppedDispatch) {

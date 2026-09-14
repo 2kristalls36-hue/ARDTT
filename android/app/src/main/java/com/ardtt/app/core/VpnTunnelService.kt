@@ -15,9 +15,11 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
-import android.system.OsConstants
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
+import android.system.OsConstants
 import android.util.Log
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
@@ -31,6 +33,7 @@ import com.ardtt.app.tunnel.TunEstablisher
 import com.ardtt.app.tunnel.TunnelBackend
 import com.ardtt.app.tunnel.TunnelBackendState
 import com.ardtt.app.tunnel.TunnelSessionHolder
+import com.ardtt.app.telemetry.TelemetryBridge
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +44,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import org.json.JSONObject
 
 /**
  * Single VpnService for Path A (AWG) and Path B (RAW/WRAP).
@@ -171,6 +175,21 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         )
                     }
                 }
+                AppLog.i(
+                    TAG,
+                    "STOP applied teardown=${decision.applyTeardown} owner=${decision.reportOwner} " +
+                        "stopSelfId=$stopSelfId gone=$instanceGone",
+                )
+                TelemetryBridge.lifecycle(
+                    "vpn_stop_cmd",
+                    JSONObject()
+                        .put("requested_owner", requestedOwner)
+                        .put("bound_owner", transportSession.boundOwner)
+                        .put("teardown", decision.applyTeardown)
+                        .put("stop_self_id", stopSelfId ?: JSONObject.NULL)
+                        .put("instance_gone", instanceGone)
+                        .put("start_id", startId),
+                )
                 return if (instanceGone) START_NOT_STICKY else START_STICKY
             }
             ACTION_RESTART_TRANSPORT -> {
@@ -256,9 +275,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     0L
                 }
                 transportSession.onStart(owner, startId)
-                AppLog.v(
+                AppLog.i(
                     TAG,
                     "START cmd startId=$startId owner=$owner bound=${transportSession.boundOwner}",
+                )
+                TelemetryBridge.lifecycle(
+                    "vpn_start_cmd",
+                    JSONObject()
+                        .put("owner", owner)
+                        .put("start_id", startId)
+                        .put("path", TunnelSessionHolder.config?.path?.name ?: JSONObject.NULL),
                 )
                 startSession()
             }
@@ -2188,13 +2214,64 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
     }
 
+    override fun onRevoke() {
+        val reportOwner = transportSession.ownerForDestroy()
+        val startId = transportSession.boundStartId
+        AppLog.i(
+            TAG,
+            "onRevoke owner=$reportOwner startId=$startId bound=${transportSession.boundOwner}",
+        )
+        TelemetryBridge.lifecycle(
+            "on_revoke",
+            JSONObject()
+                .put("owner", reportOwner)
+                .put("start_id", startId)
+                .put("path", TunnelSessionHolder.config?.path?.name ?: JSONObject.NULL)
+                .put("trusted_wifi", trustedWifiWaiting),
+        )
+        userStopRequested = true
+        trustedWifiWaiting = false
+        cancelAllRecovery()
+        stopSession(keepService = false)
+        val notify = {
+            ConnectionManager.getOrNull()?.onVpnPermissionRevoked(reportOwner)
+            Unit
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            notify()
+        } else {
+            Handler(Looper.getMainLooper()).postAtFrontOfQueue(notify)
+        }
+        val gone = if (startId > 0) stopSelfResult(startId) else {
+            stopSelf()
+            true
+        }
+        AppLog.i(TAG, "onRevoke stopSelfResult=$gone startId=$startId")
+        TelemetryBridge.lifecycle(
+            "on_revoke_stop",
+            JSONObject()
+                .put("owner", reportOwner)
+                .put("instance_gone", gone)
+                .put("start_id", startId),
+        )
+    }
+
     override fun onDestroy() {
         userStopRequested = true
         trustedWifiWaiting = false
         val reportOwner = transportSession.ownerForDestroy()
-        AppLog.v(
+        AppLog.i(
             TAG,
             "onDestroy bound=${transportSession.boundOwner} destroying=${transportSession.destroyingOwner} report=$reportOwner",
+        )
+        TelemetryBridge.lifecycle(
+            "on_destroy",
+            JSONObject()
+                .put("owner", reportOwner)
+                .put("bound_owner", transportSession.boundOwner)
+                .put("destroying_owner", transportSession.destroyingOwner)
+                .put("start_id", transportSession.boundStartId)
+                .put("path", TunnelSessionHolder.config?.path?.name ?: JSONObject.NULL),
         )
         stopSession(keepService = false)
         handoverWakeLock.releaseNow()
