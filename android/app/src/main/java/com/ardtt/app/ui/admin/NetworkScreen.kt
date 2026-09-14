@@ -37,7 +37,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.ConnectionManager
-import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.core.IpApiLookup
 import com.ardtt.app.deploy.DeployHop
@@ -342,13 +341,13 @@ private suspend fun loadHop(
 ): IpApiInfo {
     val loaded = try {
         when (hop.kind) {
-            NetworkMapHopKind.Provider -> loadProvider(
+            NetworkMapHopKind.Provider -> IpApiLookup.fetchUnderlay(
                 context,
                 rejectIps = inputs.layout.hops.mapNotNull { hopHost(it.knownHost) },
             )
             NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1, NetworkMapHopKind.Vps2 ->
                 loadKnownHost(context, hop.knownHost)
-            NetworkMapHopKind.Cloudflare -> loadCloudflare(
+            NetworkMapHopKind.Cloudflare -> IpApiLookup.fetchWarpEgress(
                 context = context,
                 entryProvision = inputs.entryProvision,
                 exitProvision = inputs.exitProvision,
@@ -377,18 +376,6 @@ private fun mergeHopInfo(previous: IpApiInfo, loaded: IpApiInfo): IpApiInfo {
     return loaded
 }
 
-private suspend fun loadProvider(
-    context: Context,
-    rejectIps: Collection<String> = emptyList(),
-): IpApiInfo =
-    try {
-        IpApiLookup.fetchUnderlay(context, rejectIps)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        IpApiInfo.Empty.copy(error = IpApiLookup.friendlyError(e.message))
-    }
-
 private suspend fun loadKnownHost(context: Context, host: String?): IpApiInfo {
     val ip = hopHost(host)
     if (ip.isNullOrBlank()) {
@@ -401,40 +388,6 @@ private suspend fun loadKnownHost(context: Context, host: String?): IpApiInfo {
     } catch (_: Exception) {
         IpApiInfo(ip = ip, subtitle = "")
     }
-}
-
-private suspend fun loadCloudflare(
-    context: Context,
-    entryProvision: String?,
-    exitProvision: String?,
-    deviceId: String?,
-    viaVpn: Boolean,
-    hideIp: Boolean,
-): IpApiInfo {
-    val urls = linkedSetOf<String>()
-    exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
-    entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
-    var lastIp: String? = null
-    for (base in urls) {
-        val ip = EgressIpProbe.probeProvision(
-            viaWarp = true,
-            provisionBaseUrl = base,
-            deviceId = deviceId,
-            context = context,
-            viaVpn = viaVpn,
-        )
-        if (ip.isNullOrBlank()) continue
-        lastIp = ip
-        if (EgressIpProbe.isLikelyCloudflare(ip) || urls.size == 1) {
-            if (hideIp) EgressIpProbe.remember(ip, "provision/warp")
-            return IpApiLookup.lookupAddress(context, ip)
-        }
-    }
-    if (!lastIp.isNullOrBlank()) {
-        if (hideIp) EgressIpProbe.remember(lastIp, "provision/warp")
-        return IpApiLookup.lookupAddress(context, lastIp)
-    }
-    return IpApiInfo.Empty.copy(error = "Не удалось определить IP")
 }
 
 @Composable
