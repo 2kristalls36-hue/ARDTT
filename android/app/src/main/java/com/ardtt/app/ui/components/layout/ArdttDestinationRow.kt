@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,11 +39,18 @@ fun ArdttDestinationRow(
     subtitle: String? = null,
     contentDescription: String = title,
     border: BorderStroke? = null,
+    /** `null` = nested destination chevron; otherwise an expand/collapse disclosure. */
+    expanded: Boolean? = null,
 ) {
+    val clickLabel = when (expanded) {
+        true -> "Свернуть $title"
+        false -> "Развернуть $title"
+        null -> contentDescription
+    }
     ArdttCompactCard(
         modifier = modifier.clickable(
             onClick = onClick,
-            onClickLabel = contentDescription,
+            onClickLabel = clickLabel,
             role = Role.Button,
         ),
         border = border,
@@ -81,7 +90,11 @@ fun ArdttDestinationRow(
                 }
             }
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                imageVector = when (expanded) {
+                    true -> Icons.Filled.KeyboardArrowUp
+                    false -> Icons.Filled.KeyboardArrowDown
+                    null -> Icons.AutoMirrored.Filled.KeyboardArrowRight
+                },
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )

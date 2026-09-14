@@ -10,11 +10,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +53,7 @@ import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.feedback.ArdttPingDot
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
@@ -71,6 +75,7 @@ fun NetworkScreen(
     profiles: ProfileRepository,
     serversRepo: ServersRepository,
     onBack: (() -> Unit)? = null,
+    embedded: Boolean = false,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -218,27 +223,8 @@ fun NetworkScreen(
 
     val pull = rememberPullRefresh { refreshAll() }
 
-    ArdttFeedScaffold(
-        refreshing = pull.refreshing,
-        onRefresh = pull.onRefresh,
-        header = {
-            ArdttTabHeader(
-                title = "Сеть",
-                subtitle = NetworkMapCopy.SUBTITLE,
-                onBack = onBack,
-                actions = {
-                    ArdttButton(
-                        onClick = pull.onRefresh,
-                        enabled = !pull.refreshing,
-                        variant = ArdttButtonVariant.Icon,
-                        icon = Icons.Filled.Refresh,
-                        contentDescription = "Обновить карту сети",
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    )
-                },
-            )
-        },
-    ) {
+    @Composable
+    fun NetworkHops() {
         Column {
             visibleHops.forEachIndexed { index, view ->
                 if (index > 0) {
@@ -260,6 +246,59 @@ fun NetworkScreen(
                 )
             }
         }
+    }
+
+    if (embedded) {
+        ArdttPullRefresh(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    ArdttButton(
+                        onClick = pull.onRefresh,
+                        enabled = !pull.refreshing,
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Обновить карту сети",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                NetworkHops()
+            }
+        }
+        return
+    }
+
+    ArdttFeedScaffold(
+        refreshing = pull.refreshing,
+        onRefresh = pull.onRefresh,
+        header = {
+            ArdttTabHeader(
+                title = "Сеть",
+                subtitle = NetworkMapCopy.SUBTITLE,
+                onBack = onBack,
+                actions = {
+                    ArdttButton(
+                        onClick = pull.onRefresh,
+                        enabled = !pull.refreshing,
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Обновить карту сети",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
+                },
+            )
+        },
+    ) {
+        NetworkHops()
     }
 }
 
