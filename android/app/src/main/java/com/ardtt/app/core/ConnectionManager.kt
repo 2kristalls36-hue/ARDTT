@@ -3200,17 +3200,29 @@ class ConnectionManager(
     fun onServiceStopped(
         owner: Long,
         releaseStartGate: Boolean = true,
-        acceptedUserStop: Boolean = false,
+        origin: TunnelStopOrigin = TunnelStopOrigin.Destroy,
+        applyTeardown: Boolean = true,
     ) {
+        val acceptedUserStop = acceptedUserStopFromOrigin(origin, applyTeardown)
         val ignoreAsSoftRestart = treatStopAsSoftRestart(softRestartInProgress, acceptedUserStop)
         if (
-            shouldRevokeConnectOnAcceptedUserStop(
-                acceptedUserStop,
-                recoverySnapshot.intent.wantsConnected,
-                softRestartInProgress,
+            shouldRevokeConnectOnServiceStop(
+                origin = origin,
+                applyTeardown = applyTeardown,
+                stoppedOwner = owner,
+                liveTransportOwner = connectRequests.liveTransportOwnerId(),
+                activeRequestTransportOwner = connectRequests.activeRequestTransportOwner(),
+                hasActiveConnectRequest = connectRequests.hasActiveConnectRequest(),
+                wantsConnected = recoverySnapshot.intent.wantsConnected,
+                managerSoftRestart = softRestartInProgress,
             )
         ) {
-            revokeLiveConnectIntent("notification-stop", markDisconnecting = false)
+            val reason = if (origin == TunnelStopOrigin.Shade) {
+                "notification-stop"
+            } else {
+                "targeted-stop"
+            }
+            revokeLiveConnectIntent(reason, markDisconnecting = false)
         }
         val dispatched = dispatchServiceStopped(
             requests = connectRequests,
@@ -3223,11 +3235,12 @@ class ConnectionManager(
             vpnPermissionRevoked -> "revoke"
             ignoreAsSoftRestart -> "soft_restart"
             acceptedUserStop || _ui.value.state == ConnState.Disconnecting -> "user_stop"
+            !dispatched.finishLiveAttempt -> "expected"
             !recoverySnapshot.intent.wantsConnected -> "expected"
             else -> "unexpected"
         }
         val line =
-            "Service stopped cause=$cause owner=$owner finish=${dispatched.finishLiveAttempt} " +
+            "Service stopped cause=$cause origin=$origin owner=$owner finish=${dispatched.finishLiveAttempt} " +
                 "wants=${recoverySnapshot.intent.wantsConnected} gen=${sessionGeneration.get()}"
         if (cause == "unexpected") {
             AppLog.i(TAG, "Unexpected VPN service stop. $line")
@@ -3238,6 +3251,8 @@ class ConnectionManager(
             "service_stopped",
             JSONObject()
                 .put("cause", cause)
+                .put("origin", origin.name)
+                .put("apply_teardown", applyTeardown)
                 .put("owner", owner)
                 .put("finish_attempt", dispatched.finishLiveAttempt)
                 .put("deferred_ticket", dispatched.deferredStart?.ticket ?: JSONObject.NULL),

@@ -332,6 +332,129 @@ class TunnelTransportLifecycleTest {
     }
 
     @Test
+    fun targetedStopDoesNotRevokeNewerUnboundConnect() {
+        assertFalse(
+            shouldRevokeConnectOnServiceStop(
+                origin = TunnelStopOrigin.TargetedStop,
+                applyTeardown = true,
+                stoppedOwner = 1L,
+                liveTransportOwner = 1L,
+                activeRequestTransportOwner = 0L,
+                hasActiveConnectRequest = true,
+                wantsConnected = true,
+                managerSoftRestart = false,
+            ),
+        )
+    }
+
+    @Test
+    fun targetedStopDoesNotRevokeNewerBoundConnect() {
+        assertFalse(
+            shouldRevokeConnectOnServiceStop(
+                origin = TunnelStopOrigin.TargetedStop,
+                applyTeardown = true,
+                stoppedOwner = 1L,
+                liveTransportOwner = 2L,
+                activeRequestTransportOwner = 2L,
+                hasActiveConnectRequest = true,
+                wantsConnected = true,
+                managerSoftRestart = false,
+            ),
+        )
+    }
+
+    @Test
+    fun shadeStopRevokesWaitingConnect() {
+        assertTrue(
+            shouldRevokeConnectOnServiceStop(
+                origin = TunnelStopOrigin.Shade,
+                applyTeardown = true,
+                stoppedOwner = 1L,
+                liveTransportOwner = 1L,
+                activeRequestTransportOwner = 0L,
+                hasActiveConnectRequest = true,
+                wantsConnected = true,
+                managerSoftRestart = false,
+            ),
+        )
+        assertTrue(
+            shouldRevokeConnectOnServiceStop(
+                origin = TunnelStopOrigin.Shade,
+                applyTeardown = true,
+                stoppedOwner = 1L,
+                liveTransportOwner = 1L,
+                activeRequestTransportOwner = 0L,
+                hasActiveConnectRequest = true,
+                wantsConnected = true,
+                managerSoftRestart = true,
+            ),
+        )
+    }
+
+    @Test
+    fun destroyCallbackDoesNotRevokeConnectIntent() {
+        assertFalse(
+            shouldRevokeConnectOnServiceStop(
+                origin = TunnelStopOrigin.Destroy,
+                applyTeardown = true,
+                stoppedOwner = 1L,
+                liveTransportOwner = 1L,
+                activeRequestTransportOwner = 0L,
+                hasActiveConnectRequest = true,
+                wantsConnected = true,
+                managerSoftRestart = false,
+            ),
+        )
+    }
+
+    @Test
+    fun targetedStopOfCurrentAttemptStillRevokes() {
+        assertTrue(
+            shouldRevokeConnectOnServiceStop(
+                origin = TunnelStopOrigin.TargetedStop,
+                applyTeardown = true,
+                stoppedOwner = 1L,
+                liveTransportOwner = 1L,
+                activeRequestTransportOwner = 1L,
+                hasActiveConnectRequest = true,
+                wantsConnected = true,
+                managerSoftRestart = false,
+            ),
+        )
+    }
+
+    @Test
+    fun rejectedTeardownDoesNotRevokeConnect() {
+        assertFalse(
+            shouldRevokeConnectOnServiceStop(
+                origin = TunnelStopOrigin.Shade,
+                applyTeardown = false,
+                stoppedOwner = 1L,
+                liveTransportOwner = 1L,
+                activeRequestTransportOwner = 0L,
+                hasActiveConnectRequest = true,
+                wantsConnected = true,
+                managerSoftRestart = true,
+            ),
+        )
+    }
+
+    private fun startAThenStopAndConnectB(
+        host: FakeTunnelHost,
+        connectCtx: ConnectLaunchContext = ctx(ui = ConnState.Ready),
+    ): ConnectLaunchAction {
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        host.managerRequestStart()
+        host.deliverAll()
+        host.managerStop(uiToReady = true)
+        val action = host.requests.onConnectRequested(connectCtx)
+        if (action !is ConnectLaunchAction.Ignore) {
+            host.applyLiveConnectIntent()
+        }
+        return action
+    }
+
+    @Test
     fun notificationStopDuringSilentRecreateRevokesIntentBeforeLateGenerator() {
         val host = FakeTunnelHost()
         host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
@@ -364,11 +487,11 @@ class TunnelTransportLifecycleTest {
         assertTrue(host.finishedAttempts.contains(owner))
         assertTrue(host.recreateCancelled)
         assertTrue(host.timerCleared)
-        assertFalse(host.snapshot!!.intent.wantsConnected)
+        assertFalse(host.snapshot.intent.wantsConnected)
         assertFalse(host.wantsConnected)
         assertEquals(1, host.destroyCount)
 
-        val tokenBefore = host.snapshot!!.call.identityToken
+        val tokenBefore = host.snapshot.call.identityToken
         host.lateRecreateOutcome(CallHashOutcome.Success(hash))
         host.lateRecreateOutcome(
             CallHashOutcome.Failure(
@@ -385,16 +508,109 @@ class TunnelTransportLifecycleTest {
         assertTrue(host.savedHashes.isEmpty())
         assertEquals(0, host.reconnectIssued)
         assertEquals(startsBeforeStop, host.startDeliveries)
-        assertFalse(host.snapshot!!.intent.wantsConnected)
-        assertEquals(tokenBefore, host.snapshot!!.call.identityToken)
+        assertFalse(host.snapshot.intent.wantsConnected)
+        assertEquals(tokenBefore, host.snapshot.call.identityToken)
         assertEquals(
             RecoveryCommand.None,
             ConnectionReducer.reduce(
-                host.snapshot!!,
+                host.snapshot,
                 ConnectionEvent.Clock(120_000L),
                 120_000L,
             ).command,
         )
+        assertNull(host.requests.activeRequestId())
+    }
+
+    @Test
+    fun targetedStopAAfterConnectBStartsBOnce() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        startAThenStopAndConnectB(host)
+        assertNull(host.managerRequestStart())
+        val requestB = host.requests.activeRequestId()
+        assertNotNull(requestB)
+        assertTrue(host.snapshot.intent.wantsConnected)
+        host.deliverAll()
+        assertEquals(requestB, host.requests.activeRequestId())
+        assertTrue(host.snapshot.intent.wantsConnected)
+        assertFalse(host.recreateCancelled)
+        host.flushPosted()
+        assertEquals(2, host.startDeliveries)
+        host.flushPosted()
+        assertEquals(2, host.startDeliveries)
+        assertEquals(requestB, host.requests.activeRequestId())
+        assertTrue(host.backendAlive)
+        assertTrue(host.snapshot.intent.wantsConnected)
+    }
+
+    @Test
+    fun targetedStopAWhileBWaitsForProbeDoesNotCancelB() {
+        val host = FakeTunnelHost()
+        val action = startAThenStopAndConnectB(host, ctx(ui = ConnState.Ready, hasEvidence = false))
+        assertTrue(action is ConnectLaunchAction.EnqueueWait)
+        val requestB = host.requests.activeRequestId()
+        assertNotNull(requestB)
+        host.deliverAll()
+        assertEquals(requestB, host.requests.activeRequestId())
+        assertTrue(host.snapshot.intent.wantsConnected)
+        assertTrue(host.wantsConnected)
+        assertFalse(host.recreateCancelled)
+        assertEquals(1, host.startDeliveries)
+        assertTrue(host.posted.isEmpty())
+    }
+
+    @Test
+    fun shadeStopWhileBWaitingCancelsBAndDoesNotStartLater() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        startAThenStopAndConnectB(host)
+        assertNull(host.managerRequestStart())
+        assertNotNull(host.requests.activeRequestId())
+        host.notificationStop()
+        host.deliverAll()
+        host.flushPosted()
+        assertNull(host.requests.activeRequestId())
+        assertFalse(host.snapshot.intent.wantsConnected)
+        assertEquals(1, host.startDeliveries)
+        assertTrue(host.recreateCancelled)
+        assertTrue(host.posted.isEmpty())
+    }
+
+    @Test
+    fun duplicateStopAndDestroyCallbacksDoNotChangeNextAttempt() {
+        val host = FakeTunnelHost()
+        host.autoFlushPosted = false
+        startAThenStopAndConnectB(host)
+        assertNull(host.managerRequestStart())
+        val requestB = host.requests.activeRequestId()
+        assertNotNull(requestB)
+        val ownerA = host.session.boundOwner
+        host.deliverStopCommandOnly()
+        assertEquals(requestB, host.requests.activeRequestId())
+        assertTrue(host.snapshot.intent.wantsConnected)
+        host.replayStopped(
+            owner = ownerA,
+            origin = TunnelStopOrigin.TargetedStop,
+            applyTeardown = true,
+            releaseStartGate = false,
+        )
+        assertEquals(requestB, host.requests.activeRequestId())
+        host.finishDestroyIfScheduled()
+        host.injectDestroy()
+        host.flushPosted()
+        assertEquals(2, host.startDeliveries)
+        assertEquals(requestB, host.requests.activeRequestId())
+        assertTrue(host.snapshot.intent.wantsConnected)
+        host.injectDestroy()
+        host.replayStopped(
+            owner = ownerA,
+            origin = TunnelStopOrigin.TargetedStop,
+            applyTeardown = true,
+            releaseStartGate = true,
+        )
+        assertEquals(requestB, host.requests.activeRequestId())
+        assertEquals(2, host.startDeliveries)
+        assertTrue(host.snapshot.intent.wantsConnected)
     }
 
     @Test
@@ -733,7 +949,7 @@ internal class FakeTunnelHost {
     var autoFlushPosted = true
     var failNextStart = false
     var managerSoftRestart = false
-    var snapshot: ConnectionSnapshot? = null
+    var snapshot: ConnectionSnapshot = ConnectionSnapshot()
     var capturedRecreate: CallRecreateIdentity? = null
     var recreateCancelled = false
     var timerCleared = false
@@ -769,7 +985,7 @@ internal class FakeTunnelHost {
     )
 
     fun managerRequestStart(): Long? {
-        wantsConnected = true
+        applyLiveConnectIntent()
         sessionEpoch++
         val lease = serializer.nextLease(
             requestId = requests.activeRequestId(),
@@ -821,11 +1037,17 @@ internal class FakeTunnelHost {
         return owner
     }
 
+    fun applyLiveConnectIntent() {
+        wantsConnected = true
+        snapshot = snapshot.copy(intent = snapshot.intent.copy(wantsConnected = true))
+    }
+
     fun managerStop(uiToReady: Boolean) {
         requests.revokeConnectWork()
         serializer.revokePending()
         generation++
-        wantsConnected = false
+        snapshot = ConnectionReducer.reduce(snapshot, ConnectionEvent.UserDisconnect, 50L).state
+        wantsConnected = snapshot.intent.wantsConnected
         sessionHolderPath = null
         val owner = serializer.beginStop()
         systemAcceptStop(owner)
@@ -961,8 +1183,27 @@ internal class FakeTunnelHost {
         if (autoFlushPosted) flushPosted()
     }
 
+    fun replayStopped(
+        owner: Long,
+        origin: TunnelStopOrigin,
+        applyTeardown: Boolean,
+        releaseStartGate: Boolean,
+    ) {
+        dispatchManagerServiceStopped(
+            owner = owner,
+            releaseStartGate = releaseStartGate,
+            origin = origin,
+            applyTeardown = applyTeardown,
+        )
+    }
+
     private fun deliverStop(cmd: FakeServiceCommand, runScheduledDestroy: Boolean = true) {
         val decision = session.onStop(cmd.owner, cmd.startId)
+        val origin = if (cmd.owner == 0L) {
+            TunnelStopOrigin.Shade
+        } else {
+            TunnelStopOrigin.TargetedStop
+        }
         if (decision.applyTeardown) {
             backendAlive = false
             tunAlive = false
@@ -971,7 +1212,8 @@ internal class FakeTunnelHost {
         val dispatched = dispatchManagerServiceStopped(
             owner = decision.reportOwner,
             releaseStartGate = false,
-            acceptedUserStop = decision.applyTeardown,
+            origin = origin,
+            applyTeardown = decision.applyTeardown,
         )
         assertNull(dispatched.deferredStart)
         val stopId = decision.stopSelfStartId
@@ -981,11 +1223,12 @@ internal class FakeTunnelHost {
                 destroyScheduled = false
                 destroyFromAms()
             }
-        } else if (stopId != null && decision.applyTeardown) {
+        } else if (stopId != null) {
             dispatchManagerServiceStopped(
                 owner = decision.reportOwner,
                 releaseStartGate = true,
-                acceptedUserStop = true,
+                origin = origin,
+                applyTeardown = decision.applyTeardown,
             )
         }
     }
@@ -1004,27 +1247,28 @@ internal class FakeTunnelHost {
         dispatchManagerServiceStopped(
             owner = report,
             releaseStartGate = true,
-            acceptedUserStop = false,
+            origin = TunnelStopOrigin.Destroy,
+            applyTeardown = true,
         )
     }
 
     fun lateRecreateOutcome(outcome: CallHashOutcome) {
         val captured = capturedRecreate ?: return
         val live = CallRecreateIdentity(
-            sessionEpoch = snapshot?.sessionEpoch ?: sessionEpoch,
+            sessionEpoch = snapshot.sessionEpoch,
             generation = generation,
-            profileId = snapshot?.intent?.profileId ?: captured.profileId,
-            callEpoch = snapshot?.call?.callEpoch ?: captured.callEpoch,
+            profileId = snapshot.intent.profileId ?: captured.profileId,
+            callEpoch = snapshot.call.callEpoch,
             requestId = requests.activeRequestId(),
-            wantsConnected = snapshot?.intent?.wantsConnected ?: wantsConnected,
+            wantsConnected = snapshot.intent.wantsConnected,
         )
         val event = callRecreateChangedFromOutcome(
             captured = captured,
             live = live,
             outcome = outcome,
             holdService = true,
-            networkAttempts = snapshot?.call?.createNetworkAttempts ?: 0,
-            underlayAllowsOps = snapshot?.underlay?.allowsNetworkOps ?: true,
+            networkAttempts = snapshot.call.createNetworkAttempts,
+            underlayAllowsOps = snapshot.underlay.allowsNetworkOps,
         )
         if (event == null) {
             return
@@ -1034,35 +1278,40 @@ internal class FakeTunnelHost {
             savedHashes += hash
             reconnectIssued++
         }
-        snapshot = snapshot?.let { ConnectionReducer.reduce(it, event, 80L).state }
+        snapshot = ConnectionReducer.reduce(snapshot, event, 80L).state
     }
 
     fun fireRecoveryTimer() {
-        val snap = snapshot ?: return
-        val due = snap.recovery.nextRetryAtElapsedMs ?: 90_000L
-        snapshot = ConnectionReducer.reduce(snap, ConnectionEvent.Clock(due), due).state
+        val due = snapshot.recovery.nextRetryAtElapsedMs ?: 90_000L
+        snapshot = ConnectionReducer.reduce(snapshot, ConnectionEvent.Clock(due), due).state
     }
 
     private fun dispatchManagerServiceStopped(
         owner: Long,
         releaseStartGate: Boolean,
-        acceptedUserStop: Boolean,
+        origin: TunnelStopOrigin,
+        applyTeardown: Boolean,
     ): ServiceStoppedDispatch {
+        val acceptedUserStop = acceptedUserStopFromOrigin(origin, applyTeardown)
         val ignore = treatStopAsSoftRestart(managerSoftRestart, acceptedUserStop)
-        val snap = snapshot
         if (
-            snap != null &&
-            shouldRevokeConnectOnAcceptedUserStop(
-                acceptedUserStop,
-                snap.intent.wantsConnected,
-                managerSoftRestart,
+            shouldRevokeConnectOnServiceStop(
+                origin = origin,
+                applyTeardown = applyTeardown,
+                stoppedOwner = owner,
+                liveTransportOwner = requests.liveTransportOwnerId(),
+                activeRequestTransportOwner = requests.activeRequestTransportOwner(),
+                hasActiveConnectRequest = requests.hasActiveConnectRequest(),
+                wantsConnected = snapshot.intent.wantsConnected,
+                managerSoftRestart = managerSoftRestart,
             )
         ) {
             recreateCancelled = true
             timerCleared = true
+            requests.revokeConnectWork()
             serializer.revokePending()
-            snapshot = ConnectionReducer.reduce(snap, ConnectionEvent.UserDisconnect, 50L).state
-            wantsConnected = false
+            snapshot = ConnectionReducer.reduce(snapshot, ConnectionEvent.UserDisconnect, 50L).state
+            wantsConnected = snapshot.intent.wantsConnected
             managerSoftRestart = false
             generation++
         }
