@@ -49,7 +49,7 @@ class CallHashOutcomeTest {
             networkAttempts = 0,
         )
         val retry = decision as CallRecreateDecision.WaitAndRetry
-        assertEquals(CallValidity.UnknownDueToNetwork, retry.validity)
+        assertEquals(CallValidity.ConfirmedDead, retry.validity)
         assertTrue(retry.delayMs > 0L)
     }
 
@@ -205,7 +205,7 @@ class CallHashOutcomeTest {
         assertTrue(plan.keepWantsConnected)
         assertFalse(plan.stopTunnel)
         assertEquals(ConnState.WaitingForNetwork, plan.uiState)
-        assertEquals(CallValidity.UnknownDueToNetwork, plan.dispatchValidity)
+        assertEquals(CallValidity.ConfirmedDead, plan.dispatchValidity)
     }
 
     @Test

@@ -24,10 +24,10 @@ import com.ardtt.app.bypass.DialPath
 import com.ardtt.app.bypass.VkCallHashGenerator
 import com.ardtt.app.bypass.VkLoginActivity
 import com.ardtt.app.bypass.VkSession
+import com.ardtt.app.bypass.beginCallRecreateChanged
+import com.ardtt.app.bypass.callRecreateChangedFromOutcome
 import com.ardtt.app.bypass.callRecreateIdentityStillCurrent
 import com.ardtt.app.bypass.classifyCallHashThrowable
-import com.ardtt.app.bypass.evaluateCallRecreateResult
-import com.ardtt.app.bypass.planCallRecreateApply
 import com.ardtt.app.bypass.decideDeadCallAction
 import com.ardtt.app.bypass.isDeadCallMessage
 import com.ardtt.app.bypass.userActionForBypassFailure
@@ -688,6 +688,33 @@ class ConnectionManager(
                     executeRecoveryCommand(result.copy(command = cmd.then))
                 }
             }
+            RecoveryCommand.ResumeCallCreate -> {
+                if (callRecreateJob?.isActive == true) Unit
+                else {
+                    val hold = recoverySnapshot.call.createHold
+                    callRecreateJob = scope.launch {
+                        try {
+                            recreateCallThenReconnect(holdService = hold, countDeadAttempt = false)
+                        } catch (e: CancellationException) {
+                            AppLog.i(TAG, "Call recreate resume cancelled")
+                            throw e
+                        } catch (t: Throwable) {
+                            TelemetryBridge.handledError("call_recreate_resume", t)
+                            applyCallRecreateOutcome(
+                                captured = currentRecreateIdentity(),
+                                outcome = CallHashOutcome.Failure(
+                                    classifyCallHashThrowable(t, CallHashPhase.OAuth),
+                                ),
+                                holdService = hold,
+                            )
+                        }
+                    }
+                }
+            }
+            RecoveryCommand.ReleaseCallHold -> {
+                softRestartInProgress = false
+                requestReleaseCallHold()
+            }
         }
     }
 
@@ -774,6 +801,13 @@ class ConnectionManager(
         runCatching { appContext.startService(intent) }
     }
 
+    private fun requestReleaseCallHold() {
+        val intent = Intent(appContext, VpnTunnelService::class.java)
+            .setAction(VpnTunnelService.ACTION_SESSION_CONTROL)
+            .putExtra(VpnTunnelService.EXTRA_RELEASE_CALL_HOLD, true)
+        runCatching { appContext.startService(intent) }
+    }
+
     private fun applyRecoveryUi(snapshot: ConnectionSnapshot) {
         val model = snapshot.ui
         _ui.value = _ui.value.copy(
@@ -790,6 +824,16 @@ class ConnectionManager(
             },
             uiModel = model,
             activePath = snapshot.activePath ?: _ui.value.activePath,
+            callRecreatePrompt = when (snapshot.call.createOp) {
+                CallCreateOp.NeedsUser ->
+                    if (snapshot.call.createUserAction == UserActionKind.SignIn) {
+                        CallRecreatePrompt.NeedLogin
+                    } else {
+                        CallRecreatePrompt.Ask
+                    }
+                CallCreateOp.None -> _ui.value.callRecreatePrompt
+                else -> null
+            },
         )
     }
 
@@ -2823,10 +2867,21 @@ class ConnectionManager(
             underlayAllowsOps = recoverySnapshot.underlay.allowsNetworkOps,
             userRequestedNew = !holdService,
             autoRecreate = silentRecreate,
-            createInFlight = callRecreateJob?.isActive == true,
+            createInFlight = callRecreateJob?.isActive == true ||
+                recoverySnapshot.call.createOp == CallCreateOp.InFlight ||
+                recoverySnapshot.call.createOp == CallCreateOp.Backoff ||
+                recoverySnapshot.call.createOp == CallCreateOp.WaitingNetwork,
         )
         if (update == CallUpdateDecision.WaitForNetwork) {
             AppLog.w(TAG, "Call recreate deferred — no underlay")
+            dispatchRecovery(
+                beginCallRecreateChanged(
+                    identity = currentRecreateIdentity(),
+                    holdService = holdService,
+                    underlayAllowsOps = false,
+                    networkAttempts = recoverySnapshot.call.createNetworkAttempts,
+                ),
+            )
             watchUnderlayUntilUsable()
             return
         }
@@ -2852,6 +2907,20 @@ class ConnectionManager(
         }
         if (callRecreateJob?.isActive == true) {
             AppLog.w(TAG, "Call recreate already in progress")
+            return
+        }
+        bumpSessionGeneration("call-recreate")
+        if (holdService) softRestartInProgress = true
+        dispatchRecovery(
+            beginCallRecreateChanged(
+                identity = currentRecreateIdentity(),
+                holdService = holdService,
+                underlayAllowsOps = recoverySnapshot.underlay.allowsNetworkOps,
+                networkAttempts = recoverySnapshot.call.createNetworkAttempts,
+            ),
+        )
+        if (!recoverySnapshot.underlay.allowsNetworkOps) {
+            watchUnderlayUntilUsable()
             return
         }
         callRecreateJob = scope.launch {
@@ -2943,23 +3012,28 @@ class ConnectionManager(
             AppLog.i(TAG, "Call recreate skipped — wantsConnected=false")
             return
         }
+        if (!recoverySnapshot.underlay.allowsNetworkOps) {
+            dispatchRecovery(
+                beginCallRecreateChanged(
+                    identity = captured,
+                    holdService = holdService,
+                    underlayAllowsOps = false,
+                    networkAttempts = recoverySnapshot.call.createNetworkAttempts,
+                ),
+            )
+            return
+        }
         if (countDeadAttempt) callRecreateAttempts++
-        _ui.value = _ui.value.copy(
-            state = ConnState.Connecting,
-            activePath = VpnPath.Bypass,
-            statusText = if (holdService) "Обновляю звонок…" else "Создаю новый звонок…",
-            lastError = null,
-            callRecreatePrompt = null,
-            connectEnabled = true,
-            softInfo = "Нужна сессия ВКонтакте на этом устройстве.",
-        )
         logTunnelLifecycle(
             "call_recreate",
             JSONObject()
-                .put("phase", "start")
+                .put("phase", "http")
                 .put("hold", holdService)
-                .put("network_fails", callRecreateNetworkFails)
-                .put("attempts", callRecreateAttempts),
+                .put("network_fails", recoverySnapshot.call.createNetworkAttempts)
+                .put("attempts", callRecreateAttempts)
+                .put("create_op", recoverySnapshot.call.createOp.name)
+                .put("recovery_phase", recoverySnapshot.recovery.phase.name)
+                .put("transport", recoverySnapshot.transport.name),
         )
         if (!VkSession.hasSessionCookie()) {
             val login = try {
@@ -3002,116 +3076,72 @@ class ConnectionManager(
         holdService: Boolean,
     ) {
         val live = currentRecreateIdentity()
-        val decision = evaluateCallRecreateResult(
+        val attempts = recoverySnapshot.call.createNetworkAttempts
+        val event = callRecreateChangedFromOutcome(
             captured = captured,
             live = live,
             outcome = outcome,
-            networkAttempts = callRecreateNetworkFails,
-        )
-        val plan = planCallRecreateApply(
-            decision = decision,
+            holdService = holdService,
+            networkAttempts = attempts,
             underlayAllowsOps = recoverySnapshot.underlay.allowsNetworkOps,
-            silentRecreateInFlight = holdService && silentRecreate,
         )
         val kind = (outcome as? CallHashOutcome.Failure)?.error?.kind?.name
         val phase = (outcome as? CallHashOutcome.Failure)?.error?.phase?.name
         val apiCode = (outcome as? CallHashOutcome.Failure)?.error?.apiCode
         val httpCode = (outcome as? CallHashOutcome.Failure)?.error?.httpCode
+        val decisionName = when {
+            event == null && !live.wantsConnected -> "ignore_cancelled"
+            event == null -> "ignore_stale"
+            event.op == CallCreateOp.Applied -> "apply_hash"
+            event.op == CallCreateOp.Backoff -> "wait_retry"
+            event.op == CallCreateOp.WaitingNetwork -> "wait_network"
+            event.op == CallCreateOp.NeedsUser -> "user_action"
+            else -> event.op.name.lowercase()
+        }
         AppLog.i(
             TAG,
-            "Call recreate decision=${plan.decisionName} kind=$kind phase=$phase " +
-                "api=$apiCode http=$httpCode keep=${plan.keepWantsConnected} stop=${plan.stopTunnel}",
+            "Call recreate decision=$decisionName kind=$kind phase=$phase " +
+                "api=$apiCode http=$httpCode op=${event?.op} attempts=$attempts",
         )
         logTunnelLifecycle(
             "call_recreate",
             JSONObject()
-                .put("decision", plan.decisionName)
+                .put("decision", decisionName)
                 .put("kind", kind ?: JSONObject.NULL)
                 .put("phase", phase ?: JSONObject.NULL)
                 .put("api_code", apiCode ?: JSONObject.NULL)
                 .put("http_code", httpCode ?: JSONObject.NULL)
-                .put("retry_ms", plan.retryDelayMs ?: JSONObject.NULL)
-                .put("hold", holdService),
+                .put("create_op", event?.op?.name ?: JSONObject.NULL)
+                .put("retry_ms", event?.retryDelayMs ?: JSONObject.NULL)
+                .put("hold", holdService)
+                .put("recovery_phase", recoverySnapshot.recovery.phase.name)
+                .put("transport", recoverySnapshot.transport.name)
+                .put("ui", recoverySnapshot.ui.connState.name),
         )
-        when {
-            plan.saveHash != null && plan.reconnectBypass -> {
-                if (!callRecreateIdentityStillCurrent(captured, currentRecreateIdentity())) {
-                    AppLog.i(TAG, "Call recreate hash ignored — session changed")
-                    return
-                }
-                callRecreateNetworkFails = 0
-                saveCallHash(plan.saveHash)
-                applySessionPath(VpnPath.Bypass)
-                AppLog.i(TAG, "Saved recreated call hash, restarting Bypass hold=$holdService")
-                if (holdService && TunnelSessionHolder.config != null) {
-                    requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
-                } else {
-                    _ui.value = _ui.value.copy(
-                        state = ConnState.Ready,
-                        lastError = null,
-                        callRecreatePrompt = null,
-                        connectEnabled = true,
-                    )
-                    endUserAttempt(_ui.value.statusText.ifBlank { "Отключено" }, keepReady = true)
-                    connect()
-                }
+        if (event == null) {
+            return
+        }
+        val hash = (outcome as? CallHashOutcome.Success)?.hash
+        if (hash != null && event.op == CallCreateOp.Applied) {
+            if (!callRecreateIdentityStillCurrent(captured, currentRecreateIdentity())) {
+                AppLog.i(TAG, "Call recreate hash ignored — session changed")
+                return
             }
-            plan.retryDelayMs != null -> {
-                callRecreateNetworkFails++
-                plan.uiState?.let { state ->
-                    _ui.value = _ui.value.copy(
-                        state = state,
-                        statusText = plan.status ?: "Нет связи с ВКонтакте",
-                        lastError = plan.status,
-                        callRecreatePrompt = null,
-                        connectEnabled = true,
-                    )
-                }
-                plan.dispatchValidity?.let { validity ->
-                    dispatchRecovery(
-                        ConnectionEvent.CallValidityChanged(
-                            sessionEpoch = recoverySnapshot.sessionEpoch,
-                            validity = validity,
-                        ),
-                    )
-                }
-                val delayMs = plan.retryDelayMs
-                callRecreateJob = scope.launch {
-                    delay(delayMs)
-                    if (!callRecreateIdentityStillCurrent(captured, currentRecreateIdentity())) {
-                        AppLog.v(TAG, "Call recreate retry skipped — session changed")
-                        return@launch
-                    }
-                    recreateCallThenReconnect(holdService = holdService, countDeadAttempt = false)
-                }
-            }
-            plan.decisionName == "ignore_stale" || plan.decisionName == "ignore_cancelled" -> {
-                AppLog.i(TAG, "Call recreate ignored (${plan.decisionName})")
-            }
-            else -> {
-                callRecreateNetworkFails = 0
-                _ui.value = _ui.value.copy(
-                    state = plan.uiState ?: ConnState.NeedsUserAction,
-                    statusText = plan.status ?: "Не удалось обновить звонок",
-                    lastError = plan.status,
-                    callRecreatePrompt = plan.prompt,
-                    connectEnabled = connectAllowed(_ui.value.probe),
-                )
-                plan.dispatchValidity?.let { validity ->
-                    dispatchRecovery(
-                        ConnectionEvent.CallValidityChanged(
-                            sessionEpoch = recoverySnapshot.sessionEpoch,
-                            validity = validity,
-                        ),
-                    )
-                }
-                if (plan.stopTunnel && holdService) {
-                    scope.launch { stopTunnel() }
-                }
-                if (plan.endUserAttempt) {
-                    endUserAttempt(plan.status ?: "Не удалось обновить звонок")
-                }
-                refreshVpnNotification()
+            saveCallHash(hash)
+            applySessionPath(VpnPath.Bypass)
+        }
+        dispatchRecovery(event)
+        if (
+            event.op == CallCreateOp.Applied &&
+            callRecreateIdentityStillCurrent(captured, currentRecreateIdentity())
+        ) {
+            AppLog.i(TAG, "Saved recreated call hash, restarting Bypass hold=$holdService")
+            if (holdService && TunnelSessionHolder.config != null) {
+                requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
+            } else if (TunnelSessionHolder.config != null) {
+                requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
+            } else {
+                connect()
             }
         }
     }
@@ -3234,6 +3264,11 @@ class ConnectionManager(
     }
 
     fun onVpnPermissionRevoked(owner: Long) {
+        val live = tunnelStartSerializer.lastBoundOwner
+        if (owner != 0L && live != 0L && owner != live) {
+            AppLog.i(TAG, "Ignoring stale VPN revoke owner=$owner live=$live")
+            return
+        }
         vpnPermissionRevoked = true
         tunnelStartSerializer.revokePending()
         callRecreateJob?.cancel()

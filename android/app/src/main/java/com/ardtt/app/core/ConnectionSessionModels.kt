@@ -18,6 +18,16 @@ enum class CallValidity {
     ConfirmedDead,
 }
 
+/** In-flight creation of a replacement VK call. Distinct from [CallValidity] of the old session. */
+enum class CallCreateOp {
+    None,
+    InFlight,
+    WaitingNetwork,
+    Backoff,
+    NeedsUser,
+    Applied,
+}
+
 data class CallSessionState(
     val hashPresent: Boolean = false,
     val validity: CallValidity = CallValidity.Valid,
@@ -25,6 +35,12 @@ data class CallSessionState(
     val createdThisGeneration: Boolean = false,
     val identityToken: String = "",
     val callEpoch: Long = 0L,
+    val createOp: CallCreateOp = CallCreateOp.None,
+    val createGeneration: Long = 0L,
+    val createHold: Boolean = false,
+    val createNetworkAttempts: Int = 0,
+    val createUserAction: UserActionKind? = null,
+    val createRequestId: Long? = null,
 ) {
     val canReuse: Boolean
         get() = hashPresent &&
