@@ -3197,7 +3197,7 @@ class ConnectionManager(
         return generation
     }
 
-    fun onServiceStopped(
+    internal fun onServiceStopped(
         owner: Long,
         releaseStartGate: Boolean = true,
         origin: TunnelStopOrigin = TunnelStopOrigin.Destroy,
