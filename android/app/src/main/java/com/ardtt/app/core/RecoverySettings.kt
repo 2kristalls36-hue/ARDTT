@@ -58,6 +58,9 @@ object RecoverySettings {
     /** Max completed diagnostic rounds in the initial open-LTE burst. */
     const val DIAGNOSTIC_OPEN_BURST_SERIES = 1
 
+    /** Transient VK OAuth/calls.start failures before asking the user. */
+    const val CALL_RECREATE_NETWORK_ATTEMPTS = 3
+
     val retryBackoffMs: LongArray = longArrayOf(
         2_000L, 5_000L, 10_000L, 20_000L, 30_000L, 60_000L,
     )

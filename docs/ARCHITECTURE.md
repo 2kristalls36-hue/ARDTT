@@ -285,9 +285,13 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 **Для нас (тихий recreate, реализовано):** hash на устройстве; Connect остаётся anonymous `vkcalls`. Если `libclient` / логи дают мёртвый звонок (`CALL_UNAVAILABLE`, `VK call is unavailable`, `error_code=951/954`, «Звонок не найден»):
 
 - настройка выкл. → диалог «Создать новый»;
-- настройка вкл. и есть cookie `remixsid` → создать звонок через `VkCallHashGenerator` и перезапустить Bypass, не роняя VpnService;
+- настройка вкл. и есть cookie `remixsid` → создать звонок через `VkCallHashGenerator` (`CallHashOutcome`, без throw наружу) и перезапустить Bypass, не роняя VpnService;
+- временная сеть (timeout/IO) → WaitingForNetwork / Recovering, `wantsConnected` сохраняется, ограниченный backoff, не UserDisconnect;
+- нет сессии / капча / некорректный ответ VK → действие пользователя, не «неверный логин» на таймауте;
 - нет сессии → диалог «Войти и создать»;
 - повторный мёртвый hash в том же цикле → стоп, «создайте код вручную» (без петли).
+
+Отложенный START после STOP A — `DeferredTunnelStart` с ticket/gateEpoch/request/session/generation. `revokePending()` синхронно на UserDisconnect/AttemptFailed до Hide-IP; callback в Handler заново проверяет актуальность перед ACTION_START.
 
 TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9 мин). Пароль VK не храним. Legacy captcha WebView — отдельно, не часть этого контура.
 
