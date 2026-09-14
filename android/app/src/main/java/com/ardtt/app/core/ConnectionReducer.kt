@@ -138,6 +138,11 @@ sealed class RecoveryCommand {
     ) : RecoveryCommand()
 }
 
+fun acceptedLiveTunnelConfirm(result: ReduceResult): Boolean =
+    result.state.intent.wantsConnected &&
+        result.state.recovery.phase == RecoveryPhase.Connected &&
+        result.state.transport == TransportLifecycle.Running
+
 data class ReduceResult(
     val state: ConnectionSnapshot,
     val command: RecoveryCommand,
@@ -233,10 +238,12 @@ object ConnectionReducer {
         event: ConnectionEvent.AttemptFailed,
     ): ReduceResult {
         val connState = if (event.keepReady) ConnState.Ready else ConnState.Error
+        val transportEpoch = state.transportEpoch + 1L
         val next = state.copy(
             intent = state.intent.copy(wantsConnected = false),
             activePath = null,
             transport = TransportLifecycle.Stopped,
+            transportEpoch = transportEpoch,
             parkedRawAlive = false,
             recovery = RecoveryState(
                 phase = RecoveryPhase.Idle,
@@ -244,7 +251,7 @@ object ConnectionReducer {
                 permit = RecoveryPermit(
                     sessionEpoch = state.sessionEpoch,
                     networkEpoch = state.networkEpoch,
-                    transportEpoch = state.transportEpoch,
+                    transportEpoch = transportEpoch,
                     netOpsAllowed = false,
                     userStop = false,
                 ),
@@ -613,6 +620,9 @@ object ConnectionReducer {
         if (!event.pathConfirmed && !event.protocolReady && !event.probeConfirmed) {
             return ReduceResult(state, RecoveryCommand.None)
         }
+        if (!state.intent.wantsConnected) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
         // Direct readiness is independent of VK CallSession epochs.
         if (!state.recovery.permit.accepts(
                 event.sessionEpoch,
@@ -727,6 +737,9 @@ object ConnectionReducer {
             !event.probeConfirmed &&
             !event.backendRunning
         ) {
+            return ReduceResult(state, RecoveryCommand.None)
+        }
+        if (!state.intent.wantsConnected) {
             return ReduceResult(state, RecoveryCommand.None)
         }
         if (!state.recovery.permit.accepts(

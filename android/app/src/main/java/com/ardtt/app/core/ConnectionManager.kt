@@ -1568,6 +1568,7 @@ class ConnectionManager(
 
     private fun endUserAttempt(message: String, keepReady: Boolean = false) {
         connectRequests.finishAttempt()
+        bumpSessionGeneration("attempt-failed")
         dispatchRecovery(
             ConnectionEvent.AttemptFailed(
                 message = message,
@@ -2487,7 +2488,8 @@ class ConnectionManager(
                 val pc = verdict == PathConfirmVerdict.PathConfirmed
                 val pr = verdict == PathConfirmVerdict.ProtocolReady || pc
                 val br = PathConfirm.bypassMayConnect(verdict)
-                if (path == VpnPath.Direct) {
+                if (generation != sessionGeneration.get()) return
+                val confirmed = if (path == VpnPath.Direct) {
                     dispatchRecovery(
                         ConnectionEvent.DirectConfirmed(
                             sessionEpoch = sessionEpoch,
@@ -2511,6 +2513,10 @@ class ConnectionManager(
                             callEpoch = callEpoch,
                         ),
                     )
+                }
+                if (!acceptedLiveTunnelConfirm(confirmed)) {
+                    AppLog.w(TAG, "Partial tunnel confirm ignored path=$path")
+                    return
                 }
                 _ui.value = _ui.value.copy(
                     state = ConnState.Connected,
@@ -2639,7 +2645,7 @@ class ConnectionManager(
                     ),
                 )
             }
-            if (confirmed.state.recovery.phase != RecoveryPhase.Connected) {
+            if (!acceptedLiveTunnelConfirm(confirmed)) {
                 AppLog.w(TAG, "Tunnel running ignored — confirm rejected path=$path")
                 return@launch
             }
@@ -2951,11 +2957,16 @@ class ConnectionManager(
         scope.launch { stopTunnel() }
     }
 
-    fun onServiceStopped() {
+    fun onServiceStopped(owner: Long) {
         if (softRestartInProgress) {
             AppLog.v(TAG, "Ignoring service stopped during soft restart")
             return
         }
+        if (!connectRequests.onOwnedServiceStopped(owner)) {
+            AppLog.v(TAG, "Ignoring stale service stop owner=$owner")
+            return
+        }
+        bumpSessionGeneration("service-stopped")
         val cur = _ui.value
         if (
             cur.state == ConnState.Connected ||
@@ -3561,11 +3572,13 @@ class ConnectionManager(
             callEpoch = recoverySnapshot.call.callEpoch,
         )
 
+        val transportOwner = connectRequests.bindNewTransport()
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_START
             putExtra(VpnTunnelService.EXTRA_PATH, path.name)
             putExtra(VpnTunnelService.EXTRA_HIDE_IP, false)
             putExtra(VpnTunnelService.EXTRA_TUN_ADDRESS, addr)
+            putExtra(VpnTunnelService.EXTRA_TRANSPORT_OWNER, transportOwner)
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

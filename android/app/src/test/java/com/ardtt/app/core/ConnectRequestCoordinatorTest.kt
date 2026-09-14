@@ -521,4 +521,66 @@ class ConnectRequestCoordinatorTest {
         val dupInit = c.admitFinal(callback("init", ordinary = false, sample = RestrictionSample.Ignore))
         assertFalse(dupInit.accepted)
     }
+
+    @Test
+    fun lateServiceStopOfADoesNotFinishWaitingB() {
+        val c = ConnectRequestCoordinator()
+        val first = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed
+        val ownerA = c.bindNewTransport()
+        c.markLaunched(first.requestId)
+        c.revokeConnectWork()
+        val waitB = c.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.EnqueueWait
+        assertFalse(c.onOwnedServiceStopped(ownerA))
+        assertEquals(waitB.requestId, c.activeRequestId())
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "b",
+            sessionEpoch = 0L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = waitB.requestId,
+        )
+        val early = c.admitEarly(
+            callback("b", ordinary = true, sample = RestrictionSample.Open),
+        )
+        assertTrue(early.completeWait)
+        val proceeded = c.continueAfterWait(ctx(ui = ConnState.Probing, probeActive = true), waitB.requestId)
+        assertTrue(proceeded is ConnectLaunchAction.Proceed)
+    }
+
+    @Test
+    fun connectingBIgnoresRepeatStopOfA() {
+        val c = ConnectRequestCoordinator()
+        val first = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed
+        val ownerA = c.bindNewTransport()
+        c.markLaunched(first.requestId)
+        assertTrue(c.onOwnedServiceStopped(ownerA))
+        c.finishAttempt()
+        val second = c.onConnectRequested(ctx(ui = ConnState.Ready, hasEvidence = true))
+            as ConnectLaunchAction.Proceed
+        c.markLaunched(second.requestId)
+        val ownerB = c.bindNewTransport()
+        assertFalse(c.onOwnedServiceStopped(ownerA))
+        assertEquals(second.requestId, c.activeRequestId())
+        assertTrue(c.onOwnedServiceStopped(ownerB))
+        c.finishAttempt()
+        val third = c.onConnectRequested(ctx(ui = ConnState.Ready, hasEvidence = true))
+        assertTrue(third is ConnectLaunchAction.Proceed)
+    }
+
+    @Test
+    fun sameNetworkAndHashDoNotSubstituteTransportOwner() {
+        val c = ConnectRequestCoordinator()
+        val a = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed
+        val ownerA = c.bindNewTransport()
+        c.markLaunched(a.requestId)
+        c.revokeConnectWork()
+        val b = c.onConnectRequested(ctx(ui = ConnState.Ready, hasEvidence = true))
+            as ConnectLaunchAction.Proceed
+        c.markLaunched(b.requestId)
+        c.bindNewTransport()
+        assertFalse(c.onOwnedServiceStopped(ownerA))
+        assertEquals(b.requestId, c.activeRequestId())
+    }
 }

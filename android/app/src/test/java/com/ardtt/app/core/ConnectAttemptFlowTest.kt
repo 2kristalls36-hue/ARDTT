@@ -5,6 +5,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -445,5 +446,76 @@ class ConnectAttemptFlowTest {
         )
         assertTrue(retry.command is RecoveryCommand.StartBypass)
         assertEquals(1, commands.size)
+    }
+
+    @Test
+    fun lateTransportConfirmAfterAttemptFailedDoesNotApplyConnectedUi() {
+        val started = ConnectionReducer.reduce(
+            ConnectionSnapshot(underlay = underlay()),
+            ConnectionEvent.UserConnect(ConnPathMode.Direct, "p", hasCallHash = false, silentRecreate = false),
+            10L,
+        )
+        val failed = ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.AttemptFailed("В профиле нет ключей AWG"),
+            11L,
+        )
+        val c = ConnectRequestCoordinator()
+        val proceed = c.onConnectRequested(ctx(ui = ConnState.Error, hasEvidence = true))
+            as ConnectLaunchAction.Proceed
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "idle-ok",
+            sessionEpoch = started.state.sessionEpoch,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = proceed.requestId,
+        )
+        c.markLaunched(proceed.requestId)
+        c.finishAttempt()
+        var evidence: ReachabilityEvidence? = null
+        val admit = c.admitAndApplyFinal(
+            ProbeCallback(
+                seriesId = "idle-ok",
+                sessionEpoch = started.state.sessionEpoch,
+                networkEpoch = 1L,
+                profileId = "p",
+                networkKey = cell,
+                ordinarySuccess = false,
+                sample = RestrictionSample.Positive,
+                wantsConnected = true,
+                uiState = ConnState.Error,
+                liveNetworkKey = cell,
+                liveProfileId = "p",
+                userStop = false,
+            ),
+        ) { admitted ->
+            assertTrue(admitted.idleFold)
+            assertFalse(admitted.applyToReducer)
+            evidence = foldReachabilityEvidence(
+                previous = null,
+                incoming = positiveEvidence("idle-ok"),
+                cellular = true,
+                elapsedMs = 12L,
+            )
+        }
+        assertTrue(admit.accepted)
+        val late = ConnectionReducer.reduce(
+            failed.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                networkKey = cell,
+                pathConfirmed = true,
+                protocolReady = true,
+            ),
+            13L,
+        )
+        assertFalse(acceptedLiveTunnelConfirm(late))
+        assertEquals(ConnState.Error, late.state.ui.connState)
+        assertEquals(TransportLifecycle.Stopped, late.state.transport)
+        assertTrue(evidence!!.hasFreshStrong(12L, cell, "p"))
+        assertNull(late.state.activePath)
     }
 }

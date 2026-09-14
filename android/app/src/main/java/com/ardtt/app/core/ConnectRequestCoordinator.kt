@@ -101,6 +101,9 @@ data class ProbeAdmitResult(
 class ConnectRequestCoordinator {
     private val lock = Any()
     private var nextRequestId = 1L
+    private var nextTransportOwner = 1L
+    private var liveTransportOwner: Long? = null
+    private val stoppedOwners = ArrayDeque<Long>()
     private var active: Request? = null
     private val ops = ArrayDeque<ProbeOp>()
 
@@ -115,6 +118,7 @@ class ConnectRequestCoordinator {
         var launched: Boolean = false,
         var continued: Boolean = false,
         var finished: Boolean = false,
+        var transportOwner: Long? = null,
     )
 
     private data class ProbeOp(
@@ -267,6 +271,34 @@ class ConnectRequestCoordinator {
      */
     fun finishAttempt() {
         synchronized(lock) { finishAttemptLocked() }
+    }
+
+    /**
+     * Stamp the VPN service instance that belongs to the current Connect
+     * request. Late stop callbacks must send this same id.
+     */
+    fun bindNewTransport(): Long = synchronized(lock) {
+        val owner = nextTransportOwner++
+        liveTransportOwner = owner
+        active?.takeIf { !it.finished && !it.revoked }?.transportOwner = owner
+        owner
+    }
+
+    /**
+     * True when this service instance still owns the current attempt.
+     * A delayed ACTION_STOP/onDestroy of A must not finish Connect B.
+     */
+    fun onOwnedServiceStopped(owner: Long): Boolean = synchronized(lock) {
+        if (owner == 0L) return false
+        if (stoppedOwners.contains(owner)) return false
+        while (stoppedOwners.size >= 8) stoppedOwners.removeFirst()
+        stoppedOwners.addLast(owner)
+        val matchesLive = liveTransportOwner == owner
+        if (matchesLive) liveTransportOwner = null
+        val req = active?.takeIf { !it.finished && !it.revoked }
+        if (req != null && req.transportOwner != owner) return false
+        if (req == null) return matchesLive
+        true
     }
 
     fun revokeConnectWork(): ConnectRevokeResult = synchronized(lock) {
