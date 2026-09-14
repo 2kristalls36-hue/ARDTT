@@ -195,6 +195,12 @@ internal data class ServiceStoppedDispatch(
     val deferredStart: DeferredTunnelStart?,
 )
 
+internal enum class TunnelStopOrigin {
+    Shade,
+    TargetedStop,
+    Destroy,
+}
+
 /**
  * Expected in-process restart must not finish the Connect attempt.
  * An accepted notification/user ACTION_STOP is not that restart.
@@ -204,11 +210,52 @@ internal fun treatStopAsSoftRestart(
     acceptedUserStop: Boolean,
 ): Boolean = managerSoftRestart && !acceptedUserStop
 
-internal fun shouldRevokeConnectOnAcceptedUserStop(
-    acceptedUserStop: Boolean,
+internal fun acceptedUserStopFromOrigin(
+    origin: TunnelStopOrigin,
+    applyTeardown: Boolean,
+): Boolean = origin == TunnelStopOrigin.Shade && applyTeardown
+
+/**
+ * Revoke the live Connect intent only when this stop is a new user cancel
+ * of the current request. Targeted ACTION_STOP of an older attempt is the
+ * confirmation of a teardown that already ran; it must not UserDisconnect
+ * a newer Connect that is waiting or queued.
+ */
+internal fun shouldRevokeConnectOnServiceStop(
+    origin: TunnelStopOrigin,
+    applyTeardown: Boolean,
+    stoppedOwner: Long,
+    liveTransportOwner: Long,
+    activeRequestTransportOwner: Long,
+    hasActiveConnectRequest: Boolean,
     wantsConnected: Boolean,
     managerSoftRestart: Boolean,
-): Boolean = acceptedUserStop && (wantsConnected || managerSoftRestart)
+): Boolean {
+    if (!applyTeardown) return false
+    if (!wantsConnected && !managerSoftRestart) return false
+    return when (origin) {
+        TunnelStopOrigin.Shade -> true
+        TunnelStopOrigin.Destroy -> false
+        TunnelStopOrigin.TargetedStop -> targetedStopAppliesToCurrentConnect(
+            stoppedOwner = stoppedOwner,
+            liveTransportOwner = liveTransportOwner,
+            activeRequestTransportOwner = activeRequestTransportOwner,
+            hasActiveConnectRequest = hasActiveConnectRequest,
+        )
+    }
+}
+
+internal fun targetedStopAppliesToCurrentConnect(
+    stoppedOwner: Long,
+    liveTransportOwner: Long,
+    activeRequestTransportOwner: Long,
+    hasActiveConnectRequest: Boolean,
+): Boolean {
+    if (hasActiveConnectRequest) {
+        return activeRequestTransportOwner == stoppedOwner
+    }
+    return liveTransportOwner == 0L || liveTransportOwner == stoppedOwner
+}
 
 internal fun dispatchServiceStopped(
     requests: ConnectRequestCoordinator,

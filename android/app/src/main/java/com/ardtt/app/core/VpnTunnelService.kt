@@ -149,9 +149,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     0L
                 }
                 val decision = transportSession.onStop(requestedOwner, startId)
+                val origin = if (intent.hasExtra(EXTRA_TRANSPORT_OWNER)) {
+                    TunnelStopOrigin.TargetedStop
+                } else {
+                    TunnelStopOrigin.Shade
+                }
                 AppLog.v(
                     TAG,
-                    "STOP cmd startId=$startId requested=$requestedOwner " +
+                    "STOP cmd startId=$startId requested=$requestedOwner origin=$origin " +
                         "bound=${transportSession.boundOwner} teardown=${decision.applyTeardown} " +
                         "report=${decision.reportOwner}",
                 )
@@ -164,7 +169,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 ConnectionManager.getOrNull()?.onServiceStopped(
                     owner = decision.reportOwner,
                     releaseStartGate = false,
-                    acceptedUserStop = decision.applyTeardown,
+                    origin = origin,
+                    applyTeardown = decision.applyTeardown,
                 )
                 val stopSelfId = decision.stopSelfStartId
                 var instanceGone = false
@@ -174,20 +180,22 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         ConnectionManager.getOrNull()?.onServiceStopped(
                             owner = decision.reportOwner,
                             releaseStartGate = true,
-                            acceptedUserStop = decision.applyTeardown,
+                            origin = origin,
+                            applyTeardown = decision.applyTeardown,
                         )
                     }
                 }
                 AppLog.i(
                     TAG,
                     "STOP applied teardown=${decision.applyTeardown} owner=${decision.reportOwner} " +
-                        "stopSelfId=$stopSelfId gone=$instanceGone",
+                        "origin=$origin stopSelfId=$stopSelfId gone=$instanceGone",
                 )
                 TelemetryBridge.lifecycle(
                     "vpn_stop_cmd",
                     JSONObject()
                         .put("requested_owner", requestedOwner)
                         .put("bound_owner", transportSession.boundOwner)
+                        .put("origin", origin.name)
                         .put("teardown", decision.applyTeardown)
                         .put("stop_self_id", stopSelfId ?: JSONObject.NULL)
                         .put("instance_gone", instanceGone)
@@ -2309,6 +2317,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         ConnectionManager.getOrNull()?.onServiceStopped(
             owner = reportOwner,
             releaseStartGate = true,
+            origin = TunnelStopOrigin.Destroy,
+            applyTeardown = true,
         )
         com.ardtt.app.TunnelWidgetProvider.updateWidgetState(
             this,

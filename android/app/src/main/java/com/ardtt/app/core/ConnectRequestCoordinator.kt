@@ -417,6 +417,18 @@ class ConnectRequestCoordinator {
         active?.takeIf { !it.revoked && !it.finished }?.id
     }
 
+    fun liveTransportOwnerId(): Long = synchronized(lock) {
+        liveTransportOwner ?: 0L
+    }
+
+    fun activeRequestTransportOwner(): Long = synchronized(lock) {
+        active?.takeIf { !it.revoked && !it.finished }?.transportOwner ?: 0L
+    }
+
+    fun hasActiveConnectRequest(): Boolean = synchronized(lock) {
+        active?.takeIf { !it.revoked && !it.finished } != null
+    }
+
     fun inheritEpochIfProbeInFlight(probeJobActive: Boolean): Long? = synchronized(lock) {
         val req = active?.takeIf { !it.revoked && !it.finished } ?: return null
         inheritEpochIfProbeInFlightLocked(probeJobActive, req)
