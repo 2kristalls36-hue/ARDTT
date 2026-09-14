@@ -1,5 +1,12 @@
 package com.ardtt.app.core
 
+import com.ardtt.app.bypass.CallHashFailure
+import com.ardtt.app.bypass.CallHashErrorKind
+import com.ardtt.app.bypass.CallHashOutcome
+import com.ardtt.app.bypass.CallHashPhase
+import com.ardtt.app.bypass.CallRecreateIdentity
+import com.ardtt.app.bypass.beginCallRecreateChanged
+import com.ardtt.app.bypass.callRecreateChangedFromOutcome
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -17,6 +24,69 @@ import org.junit.Test
  */
 class TunnelTransportLifecycleTest {
     private val cell = NetworkKey(1L, UnderlayKind.Cellular, 11, "cell", carrier = "25001")
+
+    private val hash = "LrSXnSsyDo_yNx28kZQp9GBC-8T7xjCAx4D0tJ2paLI"
+
+    private fun connectedBypassSnapshot(): ConnectionSnapshot {
+        val evidence = ReachabilityEvidence(
+            networkKey = cell,
+            profileId = "p",
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Timeout,
+            google = CheckOutcome.Timeout,
+            ruService = CheckOutcome.Success,
+            restriction = RestrictionHint.Confirmed,
+            whitelistScorePercent = 80,
+        ).withFreshStrongTtl(atElapsedMs = 1L)
+        val started = ConnectionReducer.reduce(
+            ConnectionSnapshot(
+                underlay = UnderlaySnapshot(
+                    key = cell,
+                    kind = UnderlayKind.Cellular,
+                    availability = UnderlayAvailability.Usable,
+                    handle = 1L,
+                    simId = 11,
+                    cellularConnected = true,
+                    networkEpoch = 1L,
+                ),
+                call = CallSessionState(
+                    hashPresent = true,
+                    validity = CallValidity.Valid,
+                    profileId = "p",
+                    identityToken = "h",
+                    callEpoch = 2L,
+                ),
+                evidence = evidence,
+            ),
+            ConnectionEvent.UserConnect(
+                mode = ConnPathMode.Bypass,
+                profileId = "p",
+                hasCallHash = true,
+                silentRecreate = true,
+                callIdentityToken = "h",
+            ),
+            1L,
+        )
+        return ConnectionReducer.reduce(
+            started.state,
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = started.state.sessionEpoch,
+                transportEpoch = started.state.transportEpoch,
+                pathConfirmed = true,
+                callEpoch = started.state.call.callEpoch,
+            ),
+            10L,
+        ).state
+    }
+
+    private fun recreateIdentity(state: ConnectionSnapshot) = CallRecreateIdentity(
+        sessionEpoch = state.sessionEpoch,
+        generation = if (state.call.createGeneration != 0L) state.call.createGeneration else 4L,
+        profileId = state.intent.profileId,
+        callEpoch = state.call.callEpoch,
+        requestId = 8L,
+        wantsConnected = state.intent.wantsConnected,
+    )
 
     private fun ctx(
         ui: ConnState = ConnState.Idle,
@@ -251,6 +321,80 @@ class TunnelTransportLifecycleTest {
         assertFalse(host.backendAlive)
         assertFalse(host.scopeAlive)
         assertTrue(host.finishedAttempts.contains(owner))
+    }
+
+    @Test
+    fun treatStopAsSoftRestartIgnoresOnlyInternalRestart() {
+        assertTrue(treatStopAsSoftRestart(managerSoftRestart = true, acceptedUserStop = false))
+        assertFalse(treatStopAsSoftRestart(managerSoftRestart = true, acceptedUserStop = true))
+        assertFalse(treatStopAsSoftRestart(managerSoftRestart = false, acceptedUserStop = true))
+        assertFalse(treatStopAsSoftRestart(managerSoftRestart = false, acceptedUserStop = false))
+    }
+
+    @Test
+    fun notificationStopDuringSilentRecreateRevokesIntentBeforeLateGenerator() {
+        val host = FakeTunnelHost()
+        host.requests.onConnectRequested(ctx()) as ConnectLaunchAction.Proceed
+        val owner = host.managerRequestStart()!!
+        host.deliverAll()
+        val startsBeforeStop = host.startDeliveries
+
+        var state = connectedBypassSnapshot()
+        state = ConnectionReducer.reduce(
+            state,
+            beginCallRecreateChanged(
+                identity = recreateIdentity(state),
+                holdService = true,
+                underlayAllowsOps = true,
+            ),
+            20L,
+        ).state
+        val captured = recreateIdentity(state)
+        host.snapshot = state
+        host.capturedRecreate = captured
+        host.managerSoftRestart = true
+        host.generation = captured.generation
+        host.sessionEpoch = state.sessionEpoch
+        host.wantsConnected = true
+
+        host.notificationStop()
+        host.deliverAll()
+
+        assertFalse(host.serviceAlive)
+        assertTrue(host.finishedAttempts.contains(owner))
+        assertTrue(host.recreateCancelled)
+        assertTrue(host.timerCleared)
+        assertFalse(host.snapshot!!.intent.wantsConnected)
+        assertFalse(host.wantsConnected)
+        assertEquals(1, host.destroyCount)
+
+        val tokenBefore = host.snapshot!!.call.identityToken
+        host.lateRecreateOutcome(CallHashOutcome.Success(hash))
+        host.lateRecreateOutcome(
+            CallHashOutcome.Failure(
+                CallHashFailure(
+                    kind = CallHashErrorKind.TransientNetwork,
+                    phase = CallHashPhase.OAuth,
+                    message = "timeout",
+                ),
+            ),
+        )
+        host.fireRecoveryTimer()
+        host.injectDestroy()
+
+        assertTrue(host.savedHashes.isEmpty())
+        assertEquals(0, host.reconnectIssued)
+        assertEquals(startsBeforeStop, host.startDeliveries)
+        assertFalse(host.snapshot!!.intent.wantsConnected)
+        assertEquals(tokenBefore, host.snapshot!!.call.identityToken)
+        assertEquals(
+            RecoveryCommand.None,
+            ConnectionReducer.reduce(
+                host.snapshot!!,
+                ConnectionEvent.Clock(120_000L),
+                120_000L,
+            ).command,
+        )
     }
 
     @Test
@@ -588,6 +732,13 @@ internal class FakeTunnelHost {
     val posted = ArrayDeque<DeferredTunnelStart>()
     var autoFlushPosted = true
     var failNextStart = false
+    var managerSoftRestart = false
+    var snapshot: ConnectionSnapshot? = null
+    var capturedRecreate: CallRecreateIdentity? = null
+    var recreateCancelled = false
+    var timerCleared = false
+    val savedHashes = mutableListOf<String>()
+    var reconnectIssued = 0
     var sessionHolderPath: VpnPath? = null
     var generation = 0L
     var sessionEpoch = 0L
@@ -817,14 +968,11 @@ internal class FakeTunnelHost {
             tunAlive = false
             backendStopCount++
         }
-        val dispatched = dispatchServiceStopped(
-            requests = requests,
-            serializer = serializer,
+        val dispatched = dispatchManagerServiceStopped(
             owner = decision.reportOwner,
             releaseStartGate = false,
-            softRestart = false,
+            acceptedUserStop = decision.applyTeardown,
         )
-        recordFinish(decision.reportOwner, dispatched)
         assertNull(dispatched.deferredStart)
         val stopId = decision.stopSelfStartId
         if (stopId != null && amsStopSelfResult(stopId)) {
@@ -834,15 +982,11 @@ internal class FakeTunnelHost {
                 destroyFromAms()
             }
         } else if (stopId != null && decision.applyTeardown) {
-            val flush = dispatchServiceStopped(
-                requests = requests,
-                serializer = serializer,
+            dispatchManagerServiceStopped(
                 owner = decision.reportOwner,
                 releaseStartGate = true,
-                softRestart = false,
+                acceptedUserStop = true,
             )
-            recordFinish(decision.reportOwner, flush)
-            flush.deferredStart?.let { posted.addLast(it) }
         }
     }
 
@@ -857,15 +1001,81 @@ internal class FakeTunnelHost {
         scopeAlive = false
         destroyCount++
         val report = session.ownerForDestroy()
+        dispatchManagerServiceStopped(
+            owner = report,
+            releaseStartGate = true,
+            acceptedUserStop = false,
+        )
+    }
+
+    fun lateRecreateOutcome(outcome: CallHashOutcome) {
+        val captured = capturedRecreate ?: return
+        val live = CallRecreateIdentity(
+            sessionEpoch = snapshot?.sessionEpoch ?: sessionEpoch,
+            generation = generation,
+            profileId = snapshot?.intent?.profileId ?: captured.profileId,
+            callEpoch = snapshot?.call?.callEpoch ?: captured.callEpoch,
+            requestId = requests.activeRequestId(),
+            wantsConnected = snapshot?.intent?.wantsConnected ?: wantsConnected,
+        )
+        val event = callRecreateChangedFromOutcome(
+            captured = captured,
+            live = live,
+            outcome = outcome,
+            holdService = true,
+            networkAttempts = snapshot?.call?.createNetworkAttempts ?: 0,
+            underlayAllowsOps = snapshot?.underlay?.allowsNetworkOps ?: true,
+        )
+        if (event == null) {
+            return
+        }
+        val hash = (outcome as? CallHashOutcome.Success)?.hash
+        if (hash != null && event.op == CallCreateOp.Applied) {
+            savedHashes += hash
+            reconnectIssued++
+        }
+        snapshot = snapshot?.let { ConnectionReducer.reduce(it, event, 80L).state }
+    }
+
+    fun fireRecoveryTimer() {
+        val snap = snapshot ?: return
+        val due = snap.recovery.nextRetryAtElapsedMs ?: 90_000L
+        snapshot = ConnectionReducer.reduce(snap, ConnectionEvent.Clock(due), due).state
+    }
+
+    private fun dispatchManagerServiceStopped(
+        owner: Long,
+        releaseStartGate: Boolean,
+        acceptedUserStop: Boolean,
+    ): ServiceStoppedDispatch {
+        val ignore = treatStopAsSoftRestart(managerSoftRestart, acceptedUserStop)
+        val snap = snapshot
+        if (
+            snap != null &&
+            shouldRevokeConnectOnAcceptedUserStop(
+                acceptedUserStop,
+                snap.intent.wantsConnected,
+                managerSoftRestart,
+            )
+        ) {
+            recreateCancelled = true
+            timerCleared = true
+            serializer.revokePending()
+            snapshot = ConnectionReducer.reduce(snap, ConnectionEvent.UserDisconnect, 50L).state
+            wantsConnected = false
+            managerSoftRestart = false
+            generation++
+        }
         val dispatched = dispatchServiceStopped(
             requests = requests,
             serializer = serializer,
-            owner = report,
-            releaseStartGate = true,
-            softRestart = false,
+            owner = owner,
+            releaseStartGate = releaseStartGate,
+            softRestart = ignore,
         )
-        recordFinish(report, dispatched)
+        recordFinish(owner, dispatched)
         dispatched.deferredStart?.let { posted.addLast(it) }
+        return dispatched
     }
 
     private fun recordFinish(owner: Long, dispatched: ServiceStoppedDispatch) {

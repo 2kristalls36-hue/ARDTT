@@ -22,6 +22,7 @@ import org.junit.Test
  */
 class CallRecreateRecoveryTest {
     private val cellKey = NetworkKey(1L, UnderlayKind.Cellular, 11, "cell", carrier = "25001")
+    private val wifiKey = NetworkKey(2L, UnderlayKind.Wifi, null, "wifi")
     private val hash = "LrSXnSsyDo_yNx28kZQp9GBC-8T7xjCAx4D0tJ2paLI"
 
     private fun usableCellular(epoch: Long = 1L) = UnderlaySnapshot(
@@ -38,6 +39,16 @@ class CallRecreateRecoveryTest {
         key = null,
         kind = UnderlayKind.Other,
         availability = UnderlayAvailability.None,
+        networkEpoch = epoch,
+    )
+
+    private fun usableWifi(epoch: Long = 2L) = UnderlaySnapshot(
+        key = wifiKey,
+        kind = UnderlayKind.Wifi,
+        availability = UnderlayAvailability.Usable,
+        handle = 2L,
+        wifiConnected = true,
+        cellularConnected = true,
         networkEpoch = epoch,
     )
 
@@ -433,5 +444,311 @@ class CallRecreateRecoveryTest {
         assertTrue((r.command as RecoveryCommand.ScheduleRetry).delayMs >= 5_000L)
         assertNotConnected(r.state)
         assertEquals(CallValidity.ConfirmedDead, r.state.call.validity)
+    }
+
+    /**
+     * Manager: saveCallHash → CallIdentityChanged → StartBypass(reuse) →
+     * CallRecreateChanged(Applied). Applied must not freeze transport recovery.
+     */
+    private fun applySuccessfulRecreateLikeManager(
+        inFlight: ConnectionSnapshot,
+        elapsedMs: Long,
+    ): ReduceResult {
+        val captured = identityOf(inFlight)
+        val saved = reduce(
+            inFlight,
+            ConnectionEvent.CallIdentityChanged(
+                profileId = inFlight.intent.profileId,
+                hashPresent = true,
+                identityToken = "new-hash-r7",
+            ),
+            elapsedMs,
+        )
+        val discard = saved.command as RecoveryCommand.DiscardStaleCall
+        assertTrue(
+            "saveCallHash must start Bypass with the new hash, not calls.start",
+            discard.then is RecoveryCommand.StartBypass &&
+                (discard.then as RecoveryCommand.StartBypass).reuseCall,
+        )
+        assertTrue(saved.state.call.callEpoch > inFlight.call.callEpoch)
+        val event = callRecreateChangedFromOutcome(
+            captured = captured,
+            live = captured,
+            outcome = CallHashOutcome.Success(hash),
+            holdService = inFlight.call.createHold,
+            networkAttempts = inFlight.call.createNetworkAttempts,
+            underlayAllowsOps = true,
+        )
+        assertTrue(event != null)
+        assertEquals(CallCreateOp.Applied, event!!.op)
+        val applied = reduce(saved.state, event, elapsedMs + 1L)
+        assertEquals(RecoveryCommand.ReleaseCallHold, applied.command)
+        assertNotEquals(
+            "Applied must not issue a second calls.start",
+            RecoveryCommand.ResumeCallCreate,
+            applied.command,
+        )
+        return applied
+    }
+
+    private fun assertTransportRecoveryNotFrozen(result: ReduceResult) {
+        assertNotEquals(RecoveryCommand.None, result.command)
+        assertNotEquals(RecoveryCommand.ResumeCallCreate, result.command)
+        assertTrue(
+            result.command is RecoveryCommand.StartBypass ||
+                result.command is RecoveryCommand.ScheduleRetry,
+        )
+        if (result.command is RecoveryCommand.StartBypass) {
+            assertTrue((result.command as RecoveryCommand.StartBypass).reuseCall)
+        }
+        assertNotEquals(RecoveryPhase.Connected, result.state.recovery.phase)
+        if (result.state.recovery.phase == RecoveryPhase.ConnectingBypass) {
+            assertEquals(TransportLifecycle.Starting, result.state.transport)
+        }
+        assertNotEquals(ConnState.Connected, result.state.ui.connState)
+    }
+
+    @Test
+    fun appliedThenBypassFailedRecoversWithSameHash() {
+        var state = connectBypass()
+        state = begin(state, 20L).state
+        val applied = applySuccessfulRecreateLikeManager(state, 30L)
+        assertEquals(CallCreateOp.Applied, applied.state.call.createOp)
+        assertNotConnected(applied.state)
+
+        val failed = reduce(
+            applied.state,
+            ConnectionEvent.BypassFailed(
+                sessionEpoch = applied.state.sessionEpoch,
+                transportEpoch = applied.state.transportEpoch,
+                reason = "transport failed",
+                callEpoch = applied.state.call.callEpoch,
+            ),
+            40L,
+        )
+        assertTransportRecoveryNotFrozen(failed)
+        assertTrue(failed.state.recovery.permit.netOpsAllowed)
+        assertEquals("new-hash-r7", failed.state.call.identityToken)
+
+        val staleConfirm = reduce(
+            failed.state,
+            ConnectionEvent.BypassConfirmed(
+                sessionEpoch = applied.state.sessionEpoch,
+                transportEpoch = applied.state.transportEpoch,
+                pathConfirmed = true,
+                callEpoch = state.call.callEpoch,
+            ),
+            50L,
+        )
+        assertNotEquals(RecoveryPhase.Connected, staleConfirm.state.recovery.phase)
+    }
+
+    @Test
+    fun appliedThenTransportDiedRecoversWithSameHash() {
+        var state = connectBypass()
+        state = begin(state, 20L).state
+        val applied = applySuccessfulRecreateLikeManager(state, 30L)
+        val died = reduce(
+            applied.state,
+            ConnectionEvent.TransportDied(
+                sessionEpoch = applied.state.sessionEpoch,
+                transportEpoch = applied.state.transportEpoch,
+                path = VpnPath.Bypass,
+            ),
+            40L,
+        )
+        assertTransportRecoveryNotFrozen(died)
+        assertTrue(died.state.recovery.permit.netOpsAllowed)
+        assertNotEquals(RecoveryCommand.ResumeCallCreate, died.command)
+    }
+
+    @Test
+    fun appliedNetworkLossThenReturnRestoresPermit() {
+        var state = connectBypass()
+        state = begin(state, 20L).state
+        val applied = applySuccessfulRecreateLikeManager(state, 30L)
+        val lost = reduce(
+            applied.state,
+            ConnectionEvent.UnderlayUpdated(noNetwork(11L)),
+            40L,
+        )
+        assertFalse(lost.state.recovery.permit.netOpsAllowed)
+        assertEquals(RecoveryCommand.PauseNetOps, lost.command)
+        assertNotEquals(RecoveryPhase.Connected, lost.state.recovery.phase)
+
+        val restored = reduce(
+            lost.state,
+            ConnectionEvent.UnderlayUpdated(usableCellular(12L)),
+            50L,
+        )
+        assertTrue(restored.state.recovery.permit.netOpsAllowed)
+        assertNotEquals(RecoveryCommand.ResumeCallCreate, restored.command)
+        if (restored.command is RecoveryCommand.StartBypass) {
+            assertTrue((restored.command as RecoveryCommand.StartBypass).reuseCall)
+        } else if (restored.command is RecoveryCommand.None) {
+            assertEquals(TransportLifecycle.Starting, restored.state.transport)
+        } else {
+            assertTrue(
+                restored.command is RecoveryCommand.ScheduleRetry ||
+                    restored.command is RecoveryCommand.PauseNetOps,
+            )
+        }
+        assertNotEquals(ConnState.Connected, restored.state.ui.connState)
+        if (restored.state.recovery.phase == RecoveryPhase.ConnectingBypass) {
+            assertTrue(
+                restored.state.transport == TransportLifecycle.Starting ||
+                    restored.command is RecoveryCommand.StartBypass ||
+                    restored.command is RecoveryCommand.ScheduleRetry,
+            )
+        }
+    }
+
+    @Test
+    fun needsUserManualDirectStartsIndependentPath() {
+        var state = connectBypass()
+        state = begin(state, 20L).state
+        val needsUser = applyOutcome(
+            state,
+            CallHashOutcome.Failure(
+                CallHashFailure(
+                    kind = CallHashErrorKind.AuthRequired,
+                    phase = CallHashPhase.OAuth,
+                    message = AUTH_REQUIRED_MESSAGE,
+                ),
+            ),
+            30L,
+        )
+        assertEquals(CallCreateOp.NeedsUser, needsUser.state.call.createOp)
+        assertEquals(UserActionKind.SignIn, needsUser.state.call.createUserAction)
+
+        val direct = reduce(
+            needsUser.state,
+            ConnectionEvent.PathModeChanged(ConnPathMode.Direct),
+            40L,
+        )
+        assertTrue(
+            "cmd=${direct.command} phase=${direct.state.recovery.phase}",
+            direct.command is RecoveryCommand.StartDirect ||
+                direct.command is RecoveryCommand.ParkBypassForDirect,
+        )
+        assertEquals(ConnPathMode.Direct, direct.state.intent.mode)
+        assertTrue(
+            direct.state.recovery.phase == RecoveryPhase.ConnectingDirect ||
+                direct.state.recovery.phase == RecoveryPhase.SwitchingToWifi,
+        )
+        assertEquals(UserActionKind.SignIn, direct.state.call.createUserAction)
+        assertEquals(CallValidity.NeedsAuth, direct.state.call.validity)
+        assertNotEquals(RecoveryCommand.ResumeCallCreate, direct.command)
+    }
+
+    @Test
+    fun autoNeedsUserOnLteStartsDirectWhenWifiAppears() {
+        var state = connectBypass()
+        state = begin(state, 20L).state
+        val needsUser = applyOutcome(
+            state,
+            CallHashOutcome.Failure(
+                CallHashFailure(
+                    kind = CallHashErrorKind.Captcha,
+                    phase = CallHashPhase.CallsStart,
+                    message = "Captcha needed",
+                    apiCode = 14,
+                ),
+            ),
+            30L,
+        )
+        assertEquals(CallCreateOp.NeedsUser, needsUser.state.call.createOp)
+        assertEquals(UserActionKind.Captcha, needsUser.state.call.createUserAction)
+
+        val autoOnLte = reduce(
+            needsUser.state,
+            ConnectionEvent.PathModeChanged(ConnPathMode.Auto),
+            35L,
+        )
+        val waiting = if (autoOnLte.state.call.createOp == CallCreateOp.NeedsUser) {
+            autoOnLte.state
+        } else {
+            autoOnLte.state.copy(
+                call = needsUser.state.call,
+                recovery = needsUser.state.recovery.copy(
+                    phase = RecoveryPhase.NeedsUserAction,
+                    inFlight = false,
+                ),
+                transport = TransportLifecycle.Failed,
+                activePath = VpnPath.Bypass,
+                underlay = usableCellular(3L),
+            )
+        }
+        val wifi = reduce(
+            waiting,
+            ConnectionEvent.UnderlayUpdated(usableWifi(4L)),
+            40L,
+        )
+        assertTrue(
+            "cmd=${wifi.command} phase=${wifi.state.recovery.phase} path=${wifi.state.activePath} " +
+                "transport=${wifi.state.transport} underlay=${wifi.state.underlay.kind}",
+            wifi.command is RecoveryCommand.StartDirect ||
+                wifi.command is RecoveryCommand.ParkBypassForDirect,
+        )
+        assertEquals(UserActionKind.Captcha, wifi.state.call.createUserAction)
+        assertNotEquals(RecoveryCommand.ResumeCallCreate, wifi.command)
+        assertNotEquals(RecoveryPhase.NeedsUserAction, wifi.state.recovery.phase)
+    }
+
+    @Test
+    fun lateRecreateCallbackDoesNotLeaveWorkingDirect() {
+        var state = connectBypass()
+        state = begin(state, 20L).state
+        val inFlightIdentity = identityOf(state)
+        val needsUser = applyOutcome(
+            state,
+            CallHashOutcome.Failure(
+                CallHashFailure(
+                    kind = CallHashErrorKind.AuthRequired,
+                    phase = CallHashPhase.OAuth,
+                    message = AUTH_REQUIRED_MESSAGE,
+                ),
+            ),
+            30L,
+        )
+        val direct = reduce(
+            needsUser.state,
+            ConnectionEvent.PathModeChanged(ConnPathMode.Direct),
+            40L,
+        )
+        val running = reduce(
+            direct.state,
+            ConnectionEvent.DirectConfirmed(
+                sessionEpoch = direct.state.sessionEpoch,
+                transportEpoch = direct.state.transportEpoch,
+                networkKey = cellKey,
+                pathConfirmed = true,
+            ),
+            50L,
+        )
+        assertEquals(RecoveryPhase.Connected, running.state.recovery.phase)
+        assertEquals(VpnPath.Direct, running.state.activePath)
+        assertEquals(TransportLifecycle.Running, running.state.transport)
+
+        val late = callRecreateChangedFromOutcome(
+            captured = inFlightIdentity,
+            live = inFlightIdentity.copy(
+                sessionEpoch = running.state.sessionEpoch,
+                callEpoch = running.state.call.callEpoch,
+                wantsConnected = true,
+            ),
+            outcome = CallHashOutcome.Success(hash),
+            holdService = true,
+            networkAttempts = 0,
+            underlayAllowsOps = true,
+        )
+        assertTrue(late != null)
+        val after = reduce(running.state, late!!, 60L)
+        assertEquals(VpnPath.Direct, after.state.activePath)
+        assertEquals(TransportLifecycle.Running, after.state.transport)
+        assertEquals(RecoveryPhase.Connected, after.state.recovery.phase)
+        assertNotEquals(RecoveryPhase.ConnectingBypass, after.state.recovery.phase)
+        assertNotEquals(RecoveryCommand.StartBypass(reuseCall = true), after.command)
+        assertEquals(UserActionKind.SignIn, after.state.call.createUserAction)
     }
 }

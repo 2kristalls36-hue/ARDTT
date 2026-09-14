@@ -195,6 +195,21 @@ internal data class ServiceStoppedDispatch(
     val deferredStart: DeferredTunnelStart?,
 )
 
+/**
+ * Expected in-process restart must not finish the Connect attempt.
+ * An accepted notification/user ACTION_STOP is not that restart.
+ */
+internal fun treatStopAsSoftRestart(
+    managerSoftRestart: Boolean,
+    acceptedUserStop: Boolean,
+): Boolean = managerSoftRestart && !acceptedUserStop
+
+internal fun shouldRevokeConnectOnAcceptedUserStop(
+    acceptedUserStop: Boolean,
+    wantsConnected: Boolean,
+    managerSoftRestart: Boolean,
+): Boolean = acceptedUserStop && (wantsConnected || managerSoftRestart)
+
 internal fun dispatchServiceStopped(
     requests: ConnectRequestCoordinator,
     serializer: TunnelStartSerializer,
