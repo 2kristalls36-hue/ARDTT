@@ -49,6 +49,15 @@ object DeployHop {
         return provisionUrl(exit, server.cascadeProvisionPort)
     }
 
+    /** Public VPS addresses that must not be shown as the phone's provider IP. */
+    fun knownPublicHosts(profileHost: String?, server: DeployTarget?): List<String> =
+        listOfNotNull(
+            host(profileHost),
+            host(server?.publicHost),
+            host(server?.host),
+            host(server?.cascadeHost),
+        ).distinct()
+
     /** Last hop first (cascade exit), then entry. Tunnel tab uses this for the public egress IP. */
     fun lastHopProvisionUrls(entryProvision: String?, exitProvision: String?): List<String> {
         val urls = linkedSetOf<String>()
