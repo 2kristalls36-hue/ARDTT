@@ -53,8 +53,8 @@ import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.EgressIpProbe
+import com.ardtt.app.core.IpApiLookup
 import com.ardtt.app.core.NetcheckClient
-import com.ardtt.app.core.NetcheckItem
 import com.ardtt.app.core.NetcheckReport
 import com.ardtt.app.core.NetcheckTone
 import com.ardtt.app.core.NetcheckUiRow
@@ -108,6 +108,8 @@ import com.ardtt.app.ui.tunnelStickyCtaEnabled
 import com.ardtt.app.ui.tunnelStickyCtaIsDestructive
 import com.ardtt.app.ui.tunnelStickyCtaLabel
 import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -154,8 +156,14 @@ fun TunnelScreen(
             NetworkEndpoint.hostOf(it.direct.endpoint) ?: NetworkEndpoint.hostOf(it.bypass.peer)
         }
     }
-    val exitProvisionUrl = remember(servers, profileHost) {
-        DeployHop.exitProvisionUrl(DeployHop.matchingServer(servers, profileHost))
+    val matchingServer = remember(servers, profileHost) {
+        DeployHop.matchingServer(servers, profileHost)
+    }
+    val exitProvisionUrl = remember(matchingServer) {
+        DeployHop.exitProvisionUrl(matchingServer)
+    }
+    val rejectProviderIps = remember(profileHost, matchingServer) {
+        DeployHop.knownPublicHosts(profileHost, matchingServer)
     }
     val scope = rememberCoroutineScope()
     var publicIp by remember { mutableStateOf(EgressIpProbe.current()) }
@@ -165,26 +173,7 @@ fun TunnelScreen(
     var highlightBypassDialog by remember { mutableStateOf(false) }
     var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
     var lastUnderlayId by remember { mutableStateOf("") }
-
-    suspend fun refreshUnderlayStats(forceProviderIp: Boolean) {
-        accessLabel = readUnderlayAccessLabel(context)
-        val id = underlayIdentity(context)
-        if (!forceProviderIp && id == lastUnderlayId) {
-            providerIp = EgressIpProbe.currentUnderlay() ?: providerIp
-            providerIpError = EgressIpProbe.lastUnderlayError
-            return
-        }
-        if (id != lastUnderlayId) {
-            AppLog.v("Tunnel", "underlay identity $lastUnderlayId → $id")
-            EgressIpProbe.invalidateUnderlay()
-            providerIp = null
-            providerIpError = null
-        }
-        lastUnderlayId = id
-        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
-        providerIp = ip ?: EgressIpProbe.currentUnderlay()
-        providerIpError = EgressIpProbe.lastUnderlayError
-    }
+    var lastIpFetchKey by remember { mutableStateOf("") }
 
     LaunchedEffect(profile) {
         conn.updateProfile(profile)
@@ -224,6 +213,63 @@ fun TunnelScreen(
     var netcheck by remember { mutableStateOf<NetcheckReport?>(null) }
     /** Service probes only while the tunnel is up — not on pause / idle. */
     val netcheckActive = connected
+    val probeTunnelIp = connecting || connected
+
+    suspend fun refreshPublicIps(force: Boolean) {
+        accessLabel = readUnderlayAccessLabel(context)
+        val id = underlayIdentity(context)
+        val key = listOf(
+            id,
+            hideIp,
+            profile?.provisionBaseUrl.orEmpty(),
+            exitProvisionUrl.orEmpty(),
+            profile?.deviceId.orEmpty(),
+            probeTunnelIp,
+        ).joinToString("|")
+        if (!force && key == lastIpFetchKey) {
+            providerIp = EgressIpProbe.currentUnderlay() ?: providerIp
+            providerIpError = EgressIpProbe.lastUnderlayError
+            publicIp = EgressIpProbe.current() ?: publicIp
+            return
+        }
+        if (id != lastUnderlayId) {
+            AppLog.v("Tunnel", "underlay identity $lastUnderlayId → $id")
+            EgressIpProbe.invalidateUnderlay()
+            providerIp = null
+            providerIpError = null
+        }
+        lastUnderlayId = id
+        lastIpFetchKey = key
+        val snapshot = runCatching {
+            IpApiLookup.fetchPublicIps(
+                context = context,
+                hideIp = hideIp,
+                provisionBaseUrl = profile?.provisionBaseUrl,
+                exitProvisionBaseUrl = exitProvisionUrl,
+                deviceId = profile?.deviceId,
+                viaVpn = sessionUp,
+                rejectIps = rejectProviderIps,
+                probeTunnel = probeTunnelIp,
+            )
+        }.getOrElse {
+            AppLog.w("Tunnel", "public ip lookup failed: ${it.message}")
+            null
+        }
+        if (snapshot == null) {
+            providerIp = EgressIpProbe.currentUnderlay()
+            providerIpError = EgressIpProbe.lastUnderlayError
+            publicIp = EgressIpProbe.current()
+            return
+        }
+        val providerAddress = snapshot.provider.ip.takeIf { it.isNotBlank() }
+        providerIp = providerAddress ?: EgressIpProbe.currentUnderlay()
+        providerIpError = when {
+            !providerAddress.isNullOrBlank() -> null
+            else -> snapshot.provider.error ?: EgressIpProbe.lastUnderlayError
+        }
+        val tunnelAddress = snapshot.tunnel.ip.takeIf { it.isNotBlank() }
+        publicIp = tunnelAddress ?: EgressIpProbe.current()
+    }
 
     suspend fun refreshNetcheck(force: Boolean) {
         if (!netcheckActive) {
@@ -241,9 +287,7 @@ fun TunnelScreen(
             ok = false,
             viaWarp = hideIp,
             cached = false,
-            items = NetcheckClient.slots.map { (id, label) ->
-                NetcheckItem(id, label, "error", "не удалось проверить")
-            },
+            items = emptyList(),
         )
     }
 
@@ -267,10 +311,17 @@ fun TunnelScreen(
         }
     }
 
-    LaunchedEffect(lifecycleOwner) {
+    LaunchedEffect(
+        lifecycleOwner,
+        hideIp,
+        profile?.provisionBaseUrl,
+        exitProvisionUrl,
+        profile?.deviceId,
+        probeTunnelIp,
+    ) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
-                refreshUnderlayStats(forceProviderIp = false)
+                refreshPublicIps(force = false)
                 delay(TunnelPollDefaults.UnderlayMs)
             }
         }
@@ -280,7 +331,7 @@ fun TunnelScreen(
         val sm = context.getSystemService(SubscriptionManager::class.java)
         val listener = object : SubscriptionManager.OnSubscriptionsChangedListener() {
             override fun onSubscriptionsChanged() {
-                scope.launch { refreshUnderlayStats(forceProviderIp = true) }
+                scope.launch { refreshPublicIps(force = true) }
             }
         }
         if (sm != null) {
@@ -296,8 +347,8 @@ fun TunnelScreen(
         }
     }
 
-    LaunchedEffect(sessionUp, ui.probe?.networkClass, ui.probe?.elapsedMs) {
-        refreshUnderlayStats(forceProviderIp = true)
+    LaunchedEffect(sessionUp, hideIp, ui.probe?.networkClass, ui.probe?.elapsedMs) {
+        refreshPublicIps(force = true)
     }
 
     LaunchedEffect(netcheckActive, hideIp, profile?.provisionBaseUrl, profile?.deviceId) {
@@ -314,18 +365,12 @@ fun TunnelScreen(
     )
 
     val pull = rememberPullRefresh {
-        refreshUnderlayStats(forceProviderIp = true)
-        val ip = runCatching {
-            EgressIpProbe.refresh(
-                hideIp = hideIp,
-                provisionBaseUrl = profile?.provisionBaseUrl,
-                exitProvisionBaseUrl = exitProvisionUrl,
-                deviceId = profile?.deviceId,
-                context = context,
-                viaVpn = sessionUp,
-            )
-        }.getOrNull()
-        publicIp = ip ?: EgressIpProbe.current()
+        coroutineScope {
+            val ips = async { refreshPublicIps(force = true) }
+            val nc = async { refreshNetcheck(force = true) }
+            ips.await()
+            nc.await()
+        }
         val skipProbe = connecting || connected || pausedTrusted || disconnecting
         if (!skipProbe) {
             conn.startInitialProbe()
@@ -333,7 +378,6 @@ fun TunnelScreen(
                 conn.ui.first { it.state != ConnState.Probing }
             }
         }
-        refreshNetcheck(force = true)
     }
 
     ArdttFeedScaffold(
@@ -516,7 +560,6 @@ fun TunnelScreen(
                     ui.state == ConnState.Error -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurface
                 },
-                selectedModeLabel = selectedModeLabel(pathMode),
                 currentModeLabel = currentModeLabel(ui.state, ui.activePath),
                 currentModeColor = when (ui.activePath) {
                     VpnPath.Direct -> ArdttColors.PathDirect
@@ -531,7 +574,13 @@ fun TunnelScreen(
                 },
                 ipPending = (connecting || connected) && publicIp.isNullOrBlank(),
                 onIpClick = if (connecting || connected) {
-                    { conn.requestEgressIpRefresh() }
+                    {
+                        scope.launch {
+                            EgressIpProbe.invalidate()
+                            publicIp = null
+                            refreshPublicIps(force = true)
+                        }
+                    }
                 } else {
                     null
                 },
@@ -548,11 +597,8 @@ fun TunnelScreen(
                         EgressIpProbe.invalidateUnderlay()
                         providerIp = null
                         providerIpError = null
-                        val ip = runCatching { EgressIpProbe.refreshUnderlay(context) }.getOrNull()
-                        providerIp = ip ?: EgressIpProbe.currentUnderlay()
-                        providerIpError = EgressIpProbe.lastUnderlayError
-                        lastUnderlayId = underlayIdentity(context)
-                        accessLabel = readUnderlayAccessLabel(context)
+                        lastIpFetchKey = ""
+                        refreshPublicIps(force = true)
                     }
                 },
                 showWarpIcon = !publicIp.isNullOrBlank() && (
@@ -565,7 +611,7 @@ fun TunnelScreen(
                 provisionLine = profile?.let { p ->
                     p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
                 },
-                netcheckRows = NetcheckClient.uiRows(netcheck, probeActive = netcheckActive),
+                netcheckRows = NetcheckClient.summaryRows(netcheck, probeActive = netcheckActive),
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
@@ -684,7 +730,6 @@ private fun TunnelQuickSettingsProfileRow(
 private fun TunnelStatusPanel(
     statusText: String,
     statusColor: Color,
-    selectedModeLabel: String,
     currentModeLabel: String,
     currentModeColor: Color?,
     publicIp: String,
@@ -719,17 +764,16 @@ private fun TunnelStatusPanel(
                 value = statusText,
                 valueColor = statusColor,
             )
-            StatusFactRow(label = "Выбран режим", value = selectedModeLabel)
-        }
-
-        HorizontalDivider(color = dividerColor)
-
-        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
             StatusFactRow(
                 label = "Текущий режим",
                 value = currentModeLabel,
                 valueColor = if (currentModeLabel == "—") muted else currentModeColor,
             )
+        }
+
+        HorizontalDivider(color = dividerColor)
+
+        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
             StatusFactRow(label = "Оператор", value = accessLabel)
             StatusFactRow(
                 label = "IP провайдера",
