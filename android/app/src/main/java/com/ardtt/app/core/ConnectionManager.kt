@@ -86,6 +86,8 @@ class ConnectionManager(
     private val settingsRepo = AppSettingsRepository(appContext)
     private var probeJob: Job? = null
     private val connectRequests = ConnectRequestCoordinator()
+    private val tunnelStartSerializer = TunnelStartSerializer()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var diagnosticJob: Job? = null
     private var connectJob: Job? = null
     private var connectWaitJob: Job? = null
@@ -2957,13 +2959,22 @@ class ConnectionManager(
         scope.launch { stopTunnel() }
     }
 
-    fun onServiceStopped(owner: Long) {
+    fun onServiceStopped(owner: Long, releaseStartGate: Boolean = true) {
+        val dispatched = dispatchServiceStopped(
+            requests = connectRequests,
+            serializer = tunnelStartSerializer,
+            owner = owner,
+            releaseStartGate = releaseStartGate,
+            softRestart = softRestartInProgress,
+        )
         if (softRestartInProgress) {
             AppLog.v(TAG, "Ignoring service stopped during soft restart")
+            postDeferredTunnelStart(dispatched.deferredStart)
             return
         }
-        if (!connectRequests.onOwnedServiceStopped(owner)) {
+        if (!dispatched.finishLiveAttempt) {
             AppLog.v(TAG, "Ignoring stale service stop owner=$owner")
+            postDeferredTunnelStart(dispatched.deferredStart)
             return
         }
         bumpSessionGeneration("service-stopped")
@@ -3000,6 +3011,17 @@ class ConnectionManager(
             )
             com.ardtt.app.QuickToggleTileService.requestTileUpdate(appContext)
             com.ardtt.app.AppShortcuts.refreshAsync(appContext)
+        }
+        postDeferredTunnelStart(dispatched.deferredStart)
+    }
+
+    private fun postDeferredTunnelStart(start: (() -> Unit)?) {
+        if (start == null) return
+        mainHandler.post {
+            runCatching { start() }.onFailure { t ->
+                AppLog.e(TAG, "deferred tunnel start failed: ${t.message}")
+                endUserAttempt(t.message ?: "Сбой запуска туннеля")
+            }
         }
     }
 
@@ -3554,6 +3576,15 @@ class ConnectionManager(
     }
 
     private fun startTunnel(path: VpnPath) {
+        val launch = { startTunnelService(path) }
+        if (!tunnelStartSerializer.admitStart(launch)) {
+            AppLog.v(TAG, "Defer tunnel start path=$path until previous stop finishes")
+            return
+        }
+        launch()
+    }
+
+    private fun startTunnelService(path: VpnPath) {
         tunnelStartedAtMs = System.currentTimeMillis()
         val addr = when (path) {
             VpnPath.Direct -> profile?.direct?.address ?: tunAddress
@@ -3586,6 +3617,7 @@ class ConnectionManager(
             } else {
                 appContext.startService(intent)
             }
+            tunnelStartSerializer.noteStartIssued(transportOwner)
         } catch (t: Throwable) {
             AppLog.e(TAG, "startForegroundService failed: ${t.message}")
             throw t
@@ -3598,8 +3630,12 @@ class ConnectionManager(
         AppLog.v(TAG, "Stop tunnel")
         EgressIpProbe.clear()
         TunnelSessionHolder.config = null
+        val owner = tunnelStartSerializer.beginStop()
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_STOP
+            if (owner != 0L) {
+                putExtra(VpnTunnelService.EXTRA_TRANSPORT_OWNER, owner)
+            }
         }
         appContext.startService(intent)
     }

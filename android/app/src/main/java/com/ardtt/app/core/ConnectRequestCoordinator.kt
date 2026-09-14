@@ -274,8 +274,9 @@ class ConnectRequestCoordinator {
     }
 
     /**
-     * Stamp the VPN service instance that belongs to the current Connect
-     * request. Late stop callbacks must send this same id.
+     * Stamp the Connect attempt that owns the live VPN transport.
+     * This is not the Android Service instance and not a startId.
+     * Late stop callbacks must send this same attempt id.
      */
     fun bindNewTransport(): Long = synchronized(lock) {
         val owner = nextTransportOwner++
@@ -285,8 +286,8 @@ class ConnectRequestCoordinator {
     }
 
     /**
-     * True when this service instance still owns the current attempt.
-     * A delayed ACTION_STOP/onDestroy of A must not finish Connect B.
+     * True when this stop belongs to the current Connect attempt.
+     * A delayed ACTION_STOP/onDestroy of attempt A must not finish Connect B.
      */
     fun onOwnedServiceStopped(owner: Long): Boolean = synchronized(lock) {
         if (owner == 0L) return false
