@@ -2010,6 +2010,61 @@ class ConnectionReducerTest {
     }
 
     @Test
+    fun cellularHandleFlapKeepsDirectNegativeOnSameSim() {
+        val flapped = NetworkKey(99L, UnderlayKind.Cellular, 11, "cell-bs-2")
+        val connected = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = usableCellular(),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 1L,
+            transportEpoch = 4L,
+            directReevalFailures = 2,
+            directNegative = DirectNegativeEvidence(
+                key = cellKey,
+                profileId = "p",
+                retryAfterElapsedMs = 60_000L,
+            ),
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                nextRetryAtElapsedMs = 60_000L,
+                pendingTimer = PendingTimer.Reeval,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 1L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val updated = ConnectionReducer.reduce(
+            connected,
+            ConnectionEvent.UnderlayUpdated(
+                usableCellular(epoch = 2L).copy(key = flapped, handle = 99L),
+            ),
+            elapsedMs = 5_000L,
+        )
+        assertEquals(2, updated.state.directReevalFailures)
+        assertEquals(flapped, updated.state.directNegative?.key)
+        assertTrue(updated.state.directNegative?.stillBlocks(5_000L, flapped, "p") == true)
+        assertEquals(PendingTimer.Reeval, updated.state.recovery.pendingTimer)
+        assertEquals(60_000L, updated.state.recovery.nextRetryAtElapsedMs)
+        assertEquals(VpnPath.Bypass, updated.state.activePath)
+        assertEquals(RecoveryCommand.None, updated.command)
+    }
+
+    @Test
     fun cellularProbeOnWifiStoresStashWithoutTouchingWifiEvidence() {
         val wifiEvidence = ReachabilityEvidence(
             networkKey = wifiKey,

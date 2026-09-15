@@ -368,7 +368,12 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 parkedCallEpoch = 0L
                 sessionJob = scope.launch {
                     val epochResume = epoch
-                    val ok = parked.resumeParked(this@VpnTunnelService) { state ->
+                    val net = ConnectionManager.getOrNull()?.bypassResumeNetwork()
+                    val ok = parked.resumeParked(
+                        service = this@VpnTunnelService,
+                        networkKind = net?.first,
+                        networkHandle = net?.second,
+                    ) { state ->
                         if (epochResume != backendEpoch) return@resumeParked
                         when (state) {
                             is TunnelBackendState.Running -> {

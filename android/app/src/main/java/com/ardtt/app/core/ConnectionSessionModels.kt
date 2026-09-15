@@ -58,7 +58,12 @@ data class DirectNegativeEvidence(
     val retryAfterElapsedMs: Long = 0L,
 ) {
     fun stillBlocks(elapsedMs: Long, key: NetworkKey?, profileId: String?): Boolean {
-        if (key == null || !this.key.samePhysicalNetwork(key)) return false
+        if (key == null) return false
+        if (this.key.isCellular && key.isCellular) {
+            if (!this.key.matchesCellularUnderlay(key)) return false
+        } else if (!this.key.samePhysicalNetwork(key)) {
+            return false
+        }
         // A new operator may route AWG UDP where the previous one dropped it.
         if (!this.key.sameCarrier(key)) return false
         if (this.profileId != null && profileId != null && this.profileId != profileId) return false

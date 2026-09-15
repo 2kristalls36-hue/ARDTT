@@ -212,11 +212,19 @@ object PathConfirm {
         } else {
             0L
         }
+        val handshakeGrewNow = handshakeGrew(handshakeBaselineSec, handshakeNowSec, newBackend)
         // Trade-off: a Direct attempt that only received the handshake response is
         // ProtocolReady, not PathConfirmed, so it still connects (directMayConnect)
         // but the watchdog's dead-no-rx clock keeps running instead of being reset
         // by protocol chatter a blackholing cell happily answers.
-        val usefulRx = if (RecoverySettings.directRxLooksLikeData(rxDelta)) rxDelta else 0L
+        // RX without a handshake on this operation is leftover AWG/UID accounting,
+        // not payload — MegaFon trips were PathConfirmed in <500ms with rx=0/hs=0
+        // at awg-up, which cleared Direct-negative and parked Bypass.
+        val usefulRx = if (handshakeGrewNow && RecoverySettings.directRxLooksLikeData(rxDelta)) {
+            rxDelta
+        } else {
+            0L
+        }
         return PathConfirmObservation(
             capturedSessionEpoch = capturedSessionEpoch,
             capturedTransportEpoch = capturedTransportEpoch,
@@ -234,7 +242,7 @@ object PathConfirm {
             tunWriteOkDelta = tunWriteOkDelta,
             tunWriteErrDelta = tunWriteErrDelta,
             usefulRxDelta = usefulRx,
-            handshakeGrew = handshakeGrew(handshakeBaselineSec, handshakeNowSec, newBackend),
+            handshakeGrew = handshakeGrewNow,
             probeSucceeded = false,
             workersPresent = false,
             source = source,
