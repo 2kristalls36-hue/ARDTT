@@ -109,6 +109,27 @@ load_instance_from_env || err "load_instance_from_env failed"
 [ "$INSTANCE_ID" = "deadbeef" ] || err "env fallback instance id"
 ok "uninstall identity from current/.env"
 
+# ARDTT_ACTION=rollback used to hit set -u on INSTANCE_ID/COMPOSE_PROJECT.
+unset INSTANCE_ID COMPOSE_PROJECT ARDTT_CONTAINER_NAME ARDTT_NETWORK_NAME || true
+mkdir -p "$INSTALL_DIR/current"
+cat > "$INSTALL_DIR/instance.json" <<EOF
+{"instanceId":"deadbeef","composeProject":"ardttdeadbeef","containerName":"ardtt","networkName":"ardtt-deadbeef","bridgeSubnet":"10.112.0.0/24","imageTag":"ardtt/server:1.0.45"}
+EOF
+set -u
+load_required_instance_identity || err "load_required_instance_identity failed"
+[ "$INSTANCE_ID" = "deadbeef" ] || err "rollback identity instance id"
+[ "$COMPOSE_PROJECT" = "ardttdeadbeef" ] || err "rollback identity compose project"
+# compose_up_cmd interpolates COMPOSE_PROJECT under set -u
+compose_up_cmd() { : "${COMPOSE_PROJECT:?}"; echo "ok $COMPOSE_PROJECT" >> "$COMPOSE_LOG"; }
+list_owned_containers >/dev/null || err "list_owned_containers must not crash with set -u"
+ok "rollback identity loads under set -u"
+
+if grep -q 'load_required_instance_identity' "$ROOT/server/install.sh"; then
+  ok "install.sh rollback loads instance identity"
+else
+  err "install.sh rollback must load instance identity before rollback_previous"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "rollback restore tests failed" >&2
   exit 1

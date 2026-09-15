@@ -146,6 +146,7 @@ _rollback_failed() {
 rollback_previous() {
   local prev="${INSTALL_DIR}/previous"
   [ -f "$prev/docker-compose.yml" ] || die "Нет предыдущей версии для отката"
+  load_required_instance_identity || die --code STATE "Нет instance.json/.env (INSTANCE_ID/COMPOSE_PROJECT) для отката"
   local img
   img="$(env_file_val "$prev/.env" ARDTT_IMAGE)"
   [ -n "$img" ] || die "В previous/.env нет ARDTT_IMAGE"

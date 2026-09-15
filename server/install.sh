@@ -751,6 +751,7 @@ case "$ACTION" in
   rollback)
     migrate_legacy_install_dir
     acquire_lock
+    load_required_instance_identity || die --code STATE "Нет instance.json/.env (INSTANCE_ID/COMPOSE_PROJECT) для отката"
     rollback_previous
     ;;
   install|update|"")
