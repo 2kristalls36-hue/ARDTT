@@ -1,0 +1,24 @@
+name: USB testlab scripts
+
+on:
+  pull_request:
+    paths:
+      - "scripts/windows-usb-testlab/**"
+      - ".github/workflows/usb-testlab.yml"
+  push:
+    paths:
+      - "scripts/windows-usb-testlab/**"
+      - ".github/workflows/usb-testlab.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Lab script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run lab tests
+        run: bash scripts/windows-usb-testlab/tests/run.sh

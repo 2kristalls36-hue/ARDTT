@@ -1,0 +1,21 @@
+{
+  "schema": "ardtt-lab-ci-apk/v1",
+  "pr": 221,
+  "runId": 34944525811,
+  "runUrl": "https://github.com/2kristalls36-hue/ARDTT/actions/runs/34944525811",
+  "event": "pull_request",
+  "headSha": "604c850344de0752946e11bb61796a7aaf65e1ab",
+  "artifactName": "ardtt-0.5.265-3f14a8c-arm64-v8a",
+  "artifactApk": "app-arm64-v8a-release.apk",
+  "artifactSha256": "8ba45dd66a13bafeb4faec3ee8a114a0d31c35e0c94a06141637929ca34d0642",
+  "versionName": "0.5.265",
+  "versionCode": 284,
+  "signingCertSha256": "e07400a728fd0dc1c6c84874a4bea5b157b8f3e7015ecef3d21ed0bc0fa245fa",
+  "signingCertDn": "CN=ARDTT, OU=Release, O=ARDTT, L=Internet, ST=NA, C=RU",
+  "nativeLibsInApk": [
+    "lib/arm64-v8a/libclient.so",
+    "lib/arm64-v8a/libwg-go.so"
+  ],
+  "note": "Sideload this over GitHub v0.5.264 (versionCode 283). pull_request artifact name uses merge-commit short SHA 3f14a8c, not the branch head.",
+  "downloadedAtUtc": "2026-09-15T08:11:00Z"
+}
