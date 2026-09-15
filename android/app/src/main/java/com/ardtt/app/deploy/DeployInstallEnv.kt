@@ -244,6 +244,12 @@ object DeployInstallEnv {
     fun intField(fields: Map<String, String>, key: String): Int? =
         fields[key]?.toIntOrNull()?.takeIf { it in 1..65535 }
 
+    /** Exit 0 without a terminal done payload is not a successful deploy. */
+    fun missingDonePayload(exitCode: Int, doneFields: Map<String, String>, failed: String?): Boolean {
+        if (failed != null) return false
+        return exitCode == 0 && doneFields.isEmpty()
+    }
+
     /**
      * Compact extractor run after the outer SHA-256 check. Rejects .. / absolute
      * paths / symlinks. Does not execute archive members.

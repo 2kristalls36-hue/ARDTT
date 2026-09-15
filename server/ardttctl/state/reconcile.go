@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Reconcile maps an interrupted phase onto a unique next action.
@@ -19,11 +20,27 @@ func Reconcile(installDir string) (State, error) {
 	currentOK := fileExists(filepath.Join(installDir, "current", "docker-compose.yml"))
 	previousOK := fileExists(filepath.Join(installDir, "previous", "docker-compose.yml"))
 	sameLive := samePointerTarget(installDir, "current", "previous")
+	phase := s.Phase
+	if phase == PhaseStartCandidate {
+		phase = PhaseStart
+	}
+	if phase == PhaseReadiness {
+		phase = PhaseHealth
+	}
 
-	switch s.Phase {
+	switch phase {
 	case PhaseIdle:
 		return s, nil
 	case PhaseCommit:
+		if !commitLooksComplete(installDir, s) {
+			s.Phase = PhaseRecoveryRequired
+			s.LastErrorCode = "RECOVERY_REQUIRED"
+			s.LastError = "commit interrupted: current pointer/metadata do not match recorded version"
+			if err := Save(installDir, s); err != nil {
+				return s, err
+			}
+			return s, ErrRecoveryRequired
+		}
 		s.Phase = PhaseIdle
 		s.LastError = ""
 		s.LastErrorCode = ""
@@ -31,7 +48,7 @@ func Reconcile(installDir string) (State, error) {
 			return s, err
 		}
 		return s, nil
-	case PhaseFetch, PhaseVerify, PhaseStage, PhasePreflight:
+	case PhaseFetch, PhaseVerify, PhaseStage, PhasePreflight, PhasePrepare:
 		// Pointers still on the old current. Retry from the start is unique.
 		s.Phase = PhaseIdle
 		if err := Save(installDir, s); err != nil {
@@ -92,6 +109,47 @@ func Reconcile(installDir string) (State, error) {
 		_ = Save(installDir, s)
 		return s, ErrRecoveryRequired
 	}
+}
+
+func commitLooksComplete(installDir string, s State) bool {
+	curCompose := filepath.Join(installDir, "current", "docker-compose.yml")
+	if !fileExists(curCompose) {
+		return false
+	}
+	if s.CurrentVersion == "" {
+		return true
+	}
+	envVer := envFileVal(filepath.Join(installDir, "current", ".env"), "ARDTT_DEPLOY_VERSION")
+	if envVer == "" {
+		envVer = strings.TrimSpace(readFile(filepath.Join(installDir, "current", "DEPLOY_VERSION")))
+	}
+	if envVer == "" {
+		return false
+	}
+	return envVer == s.CurrentVersion
+}
+
+func envFileVal(path, key string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	prefix := key + "="
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, prefix)), "\"'")
+		}
+	}
+	return ""
+}
+
+func readFile(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func samePointerTarget(installDir, a, b string) bool {

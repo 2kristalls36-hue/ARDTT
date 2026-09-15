@@ -216,23 +216,30 @@ func runHealth() int {
 	out, err := exec.Command("docker", "inspect", "-f",
 		"{{.State.Status}} {{.State.OOMKilled}} {{.State.Restarting}}", name).CombinedOutput()
 	msg := strings.TrimSpace(string(out))
-	status := "unhealthy"
+	status := "unknown"
+	liveness := "unknown"
+	readiness := "not_checked"
+	functional := "not_checked"
 	if err == nil {
 		parts := strings.Fields(msg)
 		if len(parts) >= 1 && parts[0] == "running" {
-			status = "healthy"
+			liveness = "alive"
+			status = "alive"
 			if len(parts) >= 3 && (parts[1] == "true" || parts[2] == "true") {
+				liveness = "unhealthy"
 				status = "unhealthy"
 			}
 		} else if len(parts) >= 1 {
+			liveness = parts[0]
 			status = parts[0]
 		}
 	} else {
 		msg = strings.TrimSpace(string(out) + " " + err.Error())
+		status = "unknown"
 	}
-	_ = protocol.Emit(os.Stdout, protocol.Event{Type: protocol.TypeHealth, Component: "container", Status: status, Message: name + " " + msg})
-	fmt.Printf("ARDTT_INFO|health %s %s\n", status, name)
-	if status != "healthy" {
+	_ = protocol.Emit(os.Stdout, protocol.Event{Type: protocol.TypeHealth, Component: "container", Status: status, Message: name + " liveness=" + liveness + " readiness=" + readiness + " functional=" + functional + " " + msg})
+	fmt.Printf("ARDTT_INFO|health liveness=%s readiness=%s functional=%s %s\n", liveness, readiness, functional, name)
+	if liveness != "alive" {
 		return 1
 	}
 	return 0
@@ -300,9 +307,11 @@ func runState(args []string) int {
 				st.LastErrorCode = args[i]
 			}
 		}
-		if origPhase == state.PhaseRecoveryRequired && !force && st.Phase != state.PhaseRecoveryRequired {
-			fmt.Fprintln(os.Stderr, "RECOVERY_REQUIRED: refuse to start a new deploy over corrupt/ambiguous state")
-			return 2
+		if origPhase == state.PhaseRecoveryRequired && st.Phase != state.PhaseRecoveryRequired {
+			if !force || !verifiedRecoveryResume(dir) {
+				fmt.Fprintln(os.Stderr, "RECOVERY_REQUIRED: refuse to start a new deploy over corrupt/ambiguous state")
+				return 2
+			}
 		}
 		if st.Phase == state.PhaseStart || st.Phase == state.PhaseFetch {
 			if st.StartedAt == "" {
@@ -332,6 +341,13 @@ func readTrim(p string) string {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+func verifiedRecoveryResume(dir string) bool {
+	if os.Getenv("ARDTT_FORCE_RECOVERY") != "1" {
+		return false
+	}
+	return fileExists(filepath.Join(dir, "current", "docker-compose.yml"))
 }
 
 func dirExists(p string) bool {

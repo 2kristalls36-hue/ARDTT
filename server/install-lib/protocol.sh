@@ -26,36 +26,48 @@ ardtt_emit() {
   "$bin" emit "$@"
 }
 
-ardtt_state_set() {
+ardtt_state_set_best_effort() {
   local bin
   bin="$(ardtt_ctl_bin)" || return 0
-  ARDTT_INSTALL_DIR="${INSTALL_DIR:-/opt/ardtt}" "$bin" state set "$@" 2>/dev/null || true
+  ARDTT_INSTALL_DIR="${INSTALL_DIR:-/opt/ardtt}" "$bin" state set "$@" >/dev/null 2>&1 || true
+}
+
+ardtt_state_set() {
+  ardtt_state_set_best_effort "$@"
 }
 
 ardtt_state_set_required() {
   local bin
-  bin="$(ardtt_ctl_bin)" || return 0
-  if ! ARDTT_INSTALL_DIR="${INSTALL_DIR:-/opt/ardtt}" "$bin" state set "$@"; then
-    echo "ARDTT_ERROR|code=STATE_SAVE_FAILED|Не удалось записать durable state" >&2
-    exit 1
+  if [ "${ARDTT_DRY_RUN:-0}" = "1" ]; then
+    ardtt_state_set_best_effort "$@"
+    return 0
   fi
+  if ! bin="$(ardtt_ctl_bin)"; then
+    echo "ARDTT_ERROR|code=STATE_WRITE_FAILED|нет ardttctl для записи durable state" >&2
+    return 1
+  fi
+  if ! ARDTT_INSTALL_DIR="${INSTALL_DIR:-/opt/ardtt}" "$bin" state set "$@"; then
+    echo "ARDTT_ERROR|code=STATE_WRITE_FAILED|Не удалось записать durable state" >&2
+    return 1
+  fi
+  return 0
 }
 
 ardtt_require_deployable() {
   local bin rc
-  if [ "${ARDTT_FORCE_RECOVERY:-0}" = "1" ]; then
-    return 0
-  fi
-  case "${ACTION:-install}" in
-    rollback|uninstall) return 0 ;;
-  esac
   bin="$(ardtt_ctl_bin)" || return 0
   set +e
   ARDTT_INSTALL_DIR="${INSTALL_DIR:-/opt/ardtt}" "$bin" state reconcile >/dev/null
   rc=$?
   set -e
   if [ "$rc" -eq 2 ]; then
-    die --code RECOVERY_REQUIRED "Состояние деплоя повреждено или неоднозначно. ardttctl diagnose; новый деплой заблокирован (ARDTT_FORCE_RECOVERY=1 только вручную)."
+    if [ "${ARDTT_FORCE_RECOVERY:-0}" = "1" ]; then
+      if [ -f "${INSTALL_DIR}/current/docker-compose.yml" ]; then
+        echo "ARDTT_WARN|ARDTT_FORCE_RECOVERY=1: указатели проверены, продолжаем поверх recovery"
+        return 0
+      fi
+    fi
+    die --code RECOVERY_REQUIRED "Состояние деплоя повреждено или неоднозначно. ardttctl diagnose; новый деплой заблокирован (ARDTT_FORCE_RECOVERY=1 только если current/docker-compose.yml на месте)."
   fi
   if [ "$rc" -ne 0 ]; then
     die --code STATE "Не удалось прочитать state/deploy.json"

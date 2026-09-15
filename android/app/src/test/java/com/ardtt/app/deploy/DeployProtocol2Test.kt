@@ -1,6 +1,7 @@
 package com.ardtt.app.deploy
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -39,5 +40,21 @@ class DeployProtocol2Test {
         assertNull(DeployInstallEnv.protocol2Error("""{"protocol":1,"type":"error","message":"x"}"""))
         assertNull(DeployInstallEnv.protocol2Progress("""{"not":"an event"}"""))
         assertTrue(DeployInstallEnv.doneFields("ARDTT_WARN|x").isEmpty())
+    }
+
+    @Test
+    fun exitZeroWithoutDoneIsNotSuccess() {
+        assertTrue(DeployInstallEnv.missingDonePayload(0, emptyMap(), null))
+        assertFalse(DeployInstallEnv.missingDonePayload(0, mapOf("direct_port" to "51820"), null))
+        assertFalse(DeployInstallEnv.missingDonePayload(1, emptyMap(), null))
+        assertFalse(DeployInstallEnv.missingDonePayload(0, emptyMap(), "code=BUSY|x"))
+    }
+
+    @Test
+    fun malformedAndUnknownProtocolAreIgnored() {
+        assertNull(DeployInstallEnv.protocol2Progress("{not json"))
+        assertNull(DeployInstallEnv.protocol2Error("""{"protocol":2,"type":"nope"}"""))
+        assertNull(DeployInstallEnv.protocol2DoneFields("""{"protocol":2,"type":"error","code":"X"}"""))
+        assertTrue(DeployInstallEnv.doneFields("""{"protocol":2,"type":"done"}""").isEmpty())
     }
 }

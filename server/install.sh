@@ -395,11 +395,21 @@ find_package_file() {
 }
 
 acquire_lock() {
+  if [ "${ARDTT_MUTATION_LOCK_HELD:-0}" = "1" ]; then
+    return 0
+  fi
   mkdir -p "$INSTALL_DIR"
+  # Persistent lock inode: never unlink. Reboot drops the flock.
+  : >>"$INSTALL_DIR/install.lock"
+  if [ ! -e "$INSTALL_DIR/fetch.lock" ]; then
+    ln "$INSTALL_DIR/install.lock" "$INSTALL_DIR/fetch.lock" 2>/dev/null || : >>"$INSTALL_DIR/fetch.lock"
+  fi
   exec 9>"$INSTALL_DIR/install.lock"
   if ! flock -n 9; then
-    die "Другая установка этого экземпляра уже выполняется (${INSTALL_DIR}/install.lock)"
+    die --code DEPLOY_IN_PROGRESS "Другая установка этого экземпляра уже выполняется (${INSTALL_DIR}/install.lock)"
   fi
+  ARDTT_MUTATION_LOCK_HELD=1
+  export ARDTT_MUTATION_LOCK_HELD
 }
 
 LOG_FILE=""
@@ -488,7 +498,9 @@ do_install() {
   require_manifest
   DEPLOY_VERSION="$PKG_DEPLOY_VERSION"
   ARDTT_IMAGE="${PKG_IMAGE_TAG:-ardtt/server:${DEPLOY_VERSION}}"
-  ardtt_state_set --phase verify --desired "$DEPLOY_VERSION"
+  DEPLOYMENT_ID="$(new_deployment_id)"
+  ardtt_state_set_required --phase verify --desired "$DEPLOY_VERSION" --id "$DEPLOYMENT_ID" \
+    || die --code STATE_WRITE_FAILED "Не удалось записать phase=verify"
 
   if [ "${ARDTT_DRY_RUN:-0}" != "1" ]; then
     prog 0.18 "Preflight (Docker из архива при необходимости, TUN, место, порты)"
@@ -582,11 +594,23 @@ do_install() {
     copy_data_tree "$data_src" "$INSTALL_DIR/data"
   fi
   migrate_confirmed_logs
-  ardtt_state_set --phase stage --desired "$DEPLOY_VERSION" --digest "${LOADED_IMAGE_ID:-}"
+  ardtt_state_set_required --phase stage --desired "$DEPLOY_VERSION" --id "$DEPLOYMENT_ID" --digest "${LOADED_IMAGE_ID:-}" \
+    || die --code STATE_WRITE_FAILED "Не удалось записать phase=stage"
+
+  # Confirmed current (ports, Cascade, WARP, instance) before any candidate writes.
+  if [ -d "$INSTALL_DIR/current" ] || [ -L "$INSTALL_DIR/current" ]; then
+    snapshot_current_to_previous || die --code STATE_WRITE_FAILED "Не удалось снять snapshot текущего release"
+  fi
 
   local release
-  release="$(release_staging_path "$DEPLOY_VERSION")"
-  rm -rf "$release"
+  release="${INSTALL_DIR}/releases/${DEPLOYMENT_ID}"
+  if release_is_pointer_target "$release" || [ -e "$release" ]; then
+    DEPLOYMENT_ID="$(new_deployment_id)"
+    release="${INSTALL_DIR}/releases/${DEPLOYMENT_ID}"
+  fi
+  if release_is_pointer_target "$release" || [ -e "$release" ]; then
+    die --code RELEASE_IN_USE "Каталог candidate совпал с current/previous"
+  fi
   mkdir -p "$release"
   cp -a "$PKG_DIR/docker-compose.yml" "$release/"
   [ -f "$PKG_DIR/docker-compose.exit.yml" ] && cp -a "$PKG_DIR/docker-compose.exit.yml" "$release/"
@@ -615,7 +639,6 @@ do_install() {
     cp -a "$SCRIPT_DIR/ready.sh" "$release/"
   fi
   write_env_file "$release/.env"
-  write_env_file "$INSTALL_DIR/.env"
   write_pending_instance
 
   if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
@@ -625,10 +648,10 @@ do_install() {
 
   local prev_link="${INSTALL_DIR}/current"
   prog 0.50 "Остановка только этого экземпляра ARDTT"
-  ardtt_state_set --phase start --desired "$DEPLOY_VERSION"
+  ardtt_state_set_required --phase start_candidate --desired "$DEPLOY_VERSION" --id "$DEPLOYMENT_ID" \
+    || die --code STATE_WRITE_FAILED "Не удалось записать phase=start_candidate"
   if [ -d "$prev_link" ] || [ -L "$prev_link" ] || [ -d "$INSTALL_DIR/stack" ]; then
     mkdir -p "$INSTALL_DIR/backups"
-    snapshot_current_to_previous
     stop_owned_stack "$prev_link"
     stop_legacy_owned
   fi
@@ -686,9 +709,15 @@ do_install() {
   mkdir -p "$INSTALL_DIR/data"
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/data/DEPLOY_VERSION"
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
+  if [ -f "$release/.env" ]; then
+    cp -a "$release/.env" "$INSTALL_DIR/.env"
+  else
+    write_env_file "$INSTALL_DIR/.env"
+  fi
   ardtt_state_set_required --phase commit --current "$DEPLOY_VERSION" --desired "$DEPLOY_VERSION" \
     --previous "$(env_file_val "$INSTALL_DIR/previous/.env" ARDTT_DEPLOY_VERSION)" \
-    --digest "${LOADED_IMAGE_ID:-}"
+    --id "$DEPLOYMENT_ID" --digest "${LOADED_IMAGE_ID:-}" \
+    || die --code STATE_WRITE_FAILED "Не удалось записать phase=commit"
   write_instance
   clear_pending_instance
   ARDTT_ALLOW_RELEASE_GC=1 ardtt_gc_releases "$release"

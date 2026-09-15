@@ -69,8 +69,8 @@ def main(argv: list[str]) -> int:
         target = real(raw)
         if target in FORBIDDEN_EXACT or target == inst or (home and target == home):
             die(f"refusing to delete {target}")
-        if not any(under(r, target) or target == r for r in roots):
-            # allow deleting a child of an allowed root; not the install root
+        if not any(under(r, target) for r in roots):
+            # allow deleting a child of an allowed root; never the root itself
             die(f"path not inside ARDTT-owned subtree: {raw} -> {target}")
         if target == inst:
             die("refusing to delete install dir")

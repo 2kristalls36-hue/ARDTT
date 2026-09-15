@@ -30,6 +30,9 @@ data class DeployIssue(
         const val COMPOSE_UP_FAILED = "COMPOSE_UP_FAILED"
         const val INSTALL_FAILED = "INSTALL_FAILED"
         const val BUSY = "BUSY"
+        const val DEPLOY_IN_PROGRESS = "DEPLOY_IN_PROGRESS"
+        const val STATE_WRITE_FAILED = "STATE_WRITE_FAILED"
+        const val DISK_MEASUREMENT_FAILED = "DISK_MEASUREMENT_FAILED"
 
         fun parseArdttError(raw: String): Pair<String?, String> {
             val line = raw.trim()
@@ -59,6 +62,8 @@ data class DeployIssue(
         ): DeployIssue {
             val (code, message) = parseArdttError(raw)
             val resolved = when {
+                code == DEPLOY_IN_PROGRESS -> BUSY
+                code == DISK_MEASUREMENT_FAILED -> INSUFFICIENT_DISK
                 !code.isNullOrBlank() -> code
                 message.contains("Мало места") ||
                     message.contains("no space", ignoreCase = true) -> DISK_FULL
@@ -77,7 +82,8 @@ data class DeployIssue(
         /** True when the operator can opt into safe VPS disk reclaim and retry. */
         fun offersDiskCleanup(issue: DeployIssue?): Boolean {
             if (issue == null) return false
-            if (issue.code == DISK_FULL || issue.code == INSUFFICIENT_DISK) return true
+            if (issue.code == DISK_FULL || issue.code == INSUFFICIENT_DISK ||
+                issue.code == DISK_MEASUREMENT_FAILED) return true
             val text = "${issue.summary} ${issue.detail}"
             return text.contains("Мало места") ||
                 text.contains("DISK_FULL") ||
@@ -127,7 +133,9 @@ data class DeployIssue(
             }
             return when (code) {
                 CANCELLED -> "Отменено"
-                BUSY -> "Деплой уже идёт"
+                BUSY, DEPLOY_IN_PROGRESS -> "Деплой уже идёт"
+                STATE_WRITE_FAILED ->
+                    "$hop: не удалось записать состояние деплоя.$entryNote"
                 DOCKER_MISSING ->
                     "$hop: не удалось поставить Docker Engine из архива.$entryNote"
                 DOCKER_NOT_RUNNING ->

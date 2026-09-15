@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fail=0
 err() { echo "FAIL: $*" >&2; fail=1; }
 ok() { echo "OK $*"; }
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
 
 PY="$ROOT/server/install-lib/disk-budget.py"
 run() {
@@ -26,10 +28,10 @@ out="$(run '{"installAvailableBytes": 2147483648, "dockerAvailableBytes": 104857
 echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] is False and d["phase"]=="docker-store", d' || err "separate docker fs miss"
 ok "different filesystem: docker store short"
 
-# cache hit: missingDockerLayerBytes=0 on small docker fs is ok if install has space
-out="$(run '{"installAvailableBytes": 3221225472, "dockerAvailableBytes": 10485760, "minDiskBytes": 0, "installFsDev": "1", "dockerFsDev": "2", "safelyReclaimableArdttBytes": 0, "candidateReleaseBytes": 8000000, "missingDockerLayerBytes": 0}')"
-echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] is True, d' || err "cache hit should pass docker fs"
-ok "cache hit: no docker-store demand"
+# docker image already loaded (missingDockerLayerBytes=0) on small docker fs is ok
+out="$(run '{"installAvailableBytes": 3221225472, "dockerAvailableBytes": 10485760, "minDiskBytes": 0, "installFsDev": "1", "dockerFsDev": "2", "safelyReclaimableArdttBytes": 0, "candidateReleaseBytes": 8000000, "missingDockerLayerBytes": 0, "dockerImportBytesRaw": 0}')"
+echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] is True, d' || err "loaded image should pass docker fs"
+ok "loaded image: no docker-store demand"
 
 # 1.0 / 1.5 / 2 GiB vs 1600 MiB floor
 for pair in "1073741824:fail" "1610612736:fail" "2147483648:pass"; do
@@ -53,10 +55,53 @@ out="$(run '{"installAvailableBytes": 3221225472, "dockerAvailableBytes": 322122
 echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] is False and d["phase"]=="inodes", d' || err "inodes"
 ok "inode exhaustion"
 
-# reclaimable only if passed as safelyReclaimable
-out="$(run '{"installAvailableBytes": 900000000, "dockerAvailableBytes": 900000000, "minDiskBytes": 0, "installFsDev": "1", "dockerFsDev": "1", "candidateReleaseBytes": 100, "missingDockerLayerBytes": 0, "safelyReclaimableArdttBytes": 800000000, "safetyMarginBytes": 0, "stateAndLogOverheadBytes": 0, "extractionOrStagingOverhead": 0}')"
+# reclaimable is advisory only: it must not turn a short disk into ok=true
+out="$(run '{"installAvailableBytes": 900000000, "dockerAvailableBytes": 900000000, "minDiskBytes": 0, "installFsDev": "1", "dockerFsDev": "1", "candidateReleaseBytes": 100, "missingDockerLayerBytes": 0, "safelyReclaimableArdttBytes": 800000000, "safetyMarginBytes": 0, "stateAndLogOverheadBytes": 0, "extractionOrStagingOverhead": 0}')" || true
 echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["reclaimableArdttBytes"]==800000000, d' || err "reclaimable accounted"
-ok "reclaimable bytes accounted"
+echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["requiredBytes"] >= d["candidateReleaseBytes"], d' || err "reclaimable must not shrink required before cleanup"
+ok "reclaimable bytes accounted as advisory"
+
+# available=0 is fail-closed, never ok=true
+set +e
+out="$(run '{"installAvailableBytes": 0, "dockerAvailableBytes": 0, "minDiskBytes": 0, "installFsDev": "1", "dockerFsDev": "1", "candidateReleaseBytes": 100, "missingDockerLayerBytes": 0}')"
+rc=$?
+set -e
+echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] is False, d' || err "available=0 must not be ok"
+[ "$rc" -ne 0 ] || err "available=0 must be non-zero exit"
+ok "available=0 fail-closed"
+
+# missing / unparsed available → DISK_MEASUREMENT_FAILED
+set +e
+out="$(run '{"minDiskBytes": 0, "installFsDev": "1", "dockerFsDev": "1", "candidateReleaseBytes": 100}')"
+set -e
+echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] is False and d.get("code") in ("DISK_MEASUREMENT_FAILED","INSUFFICIENT_DISK"), d' || err "missing available must fail"
+ok "missing available fail-closed"
+
+# cached compressed layer does not zero docker raw import
+INSTALL_DIR="$TMP/opt"
+mkdir -p "$INSTALL_DIR/cache/layers" "$INSTALL_DIR/images"
+python3 - "$INSTALL_DIR" <<'PY'
+import json, os, sys
+root = sys.argv[1]
+layout = {
+  "layers": [{
+    "diffId": "sha256:" + "ab"*32,
+    "gzSize": 1048576,
+    "rawSize": 1073741824,
+  }]
+}
+os.makedirs(os.path.join(root, "images"), exist_ok=True)
+json.dump(layout, open(os.path.join(root, "images", "layout.json"), "w"))
+open(os.path.join(root, "cache", "layers", "abababababababab.tar.gz"), "wb").write(b"x")
+PY
+# shellcheck disable=SC1091
+. "$ROOT/server/install-lib/disk-budget.sh"
+ARDTT_LAYER_CACHE_DIR="$INSTALL_DIR/cache/layers"
+PKG_DIR="$INSTALL_DIR"
+ARDTT_IMAGE=""
+missing="$(_missing_layer_bytes "$INSTALL_DIR/images")"
+[ "${missing:-0}" -gt 100000000 ] || err "cached gz 1MiB must not zero rawSize 1GiB docker budget (got $missing)"
+ok "cached gz does not zero docker raw budget"
 
 # Same fs: cannot double-count
 out="$(run '{"installAvailableBytes": 3221225472, "dockerAvailableBytes": 3221225472, "minDiskBytes": 0, "installFsDev": "8", "dockerFsDev": "1", "candidateReleaseBytes": 100, "missingDockerLayerBytes": 50}')"

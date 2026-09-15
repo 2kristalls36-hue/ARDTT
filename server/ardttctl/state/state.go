@@ -19,9 +19,12 @@ const (
 	PhaseFetch            = "fetch"
 	PhaseVerify           = "verify"
 	PhaseStage            = "stage"
+	PhasePrepare          = "prepare"
 	PhasePreflight        = "preflight"
 	PhaseStart            = "start"
+	PhaseStartCandidate   = "start_candidate"
 	PhaseHealth           = "health"
+	PhaseReadiness        = "readiness"
 	PhaseCommit           = "commit"
 	PhaseRollback         = "rollback"
 	PhaseRollbackFailed   = "rollback_failed"
@@ -82,8 +85,23 @@ func preserveCorrupt(p string, b []byte) (string, error) {
 		return "", err
 	}
 	bak := filepath.Join(dir, "deploy.json.corrupt."+randomSuffix())
-	if err := os.WriteFile(bak, b, 0o600); err != nil {
+	f, err := os.OpenFile(bak, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
 		return "", err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return "", err
+	}
+	if err := syncFileFn(f); err != nil {
+		f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	if err := syncDirFn(dir); err != nil {
+		return bak, err
 	}
 	return bak, nil
 }
@@ -111,6 +129,8 @@ func Load(installDir string) (State, error) {
 	}
 	if s.SchemaVersion == 0 {
 		s.SchemaVersion = SchemaVersion
+	} else if s.SchemaVersion != SchemaVersion {
+		return loadCorrupt(installDir, p, b, fmt.Sprintf("unknown schemaVersion %d", s.SchemaVersion))
 	}
 	if s.Phase == "" {
 		return loadCorrupt(installDir, p, b, "missing phase")
@@ -196,7 +216,7 @@ func Save(installDir string, s State) error {
 
 func BlocksNewDeploy(s State) bool {
 	switch s.Phase {
-	case PhaseRecoveryRequired, PhaseStart, PhaseHealth, PhaseRollback, PhaseRollbackFailed:
+	case PhaseRecoveryRequired, PhaseStart, PhaseStartCandidate, PhaseHealth, PhaseReadiness, PhaseRollback, PhaseRollbackFailed:
 		return true
 	default:
 		return false

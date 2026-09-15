@@ -6,9 +6,10 @@ Subcommands: replace | migrate | recover | validate | relpath | clean-next
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -162,6 +163,67 @@ def replace_symlink(install: str, name: str, rel_target: str) -> None:
         raise
 
 
+def tree_fingerprint(path: str) -> str:
+    h = hashlib.sha256()
+    if not os.path.isdir(path):
+        return ""
+    for dirpath, dirs, files in os.walk(path, followlinks=False):
+        dirs.sort()
+        for name in sorted(files):
+            fp = os.path.join(dirpath, name)
+            if os.path.islink(fp):
+                continue
+            rel = os.path.relpath(fp, path).replace("\\", "/")
+            h.update(rel.encode("utf-8", "replace"))
+            h.update(b"\0")
+            try:
+                with open(fp, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 16), b""):
+                        h.update(chunk)
+            except OSError:
+                continue
+    return h.hexdigest()
+
+
+def intent_path(install: str) -> str:
+    return os.path.join(install, "state", "migrate.json")
+
+
+def write_intent(install: str, data: dict) -> None:
+    os.makedirs(os.path.join(install, "state"), mode=0o700, exist_ok=True)
+    path = intent_path(install)
+    payload = json.dumps(data, indent=2) + "\n"
+    tmp = path + ".tmp." + os.urandom(4).hex()
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(payload)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.rename(tmp, path)
+    fsync_dir(os.path.join(install, "state"))
+
+
+def clear_intent(install: str) -> None:
+    p = intent_path(install)
+    try:
+        if os.path.isfile(p):
+            os.unlink(p)
+            fsync_dir(os.path.join(install, "state"))
+    except OSError:
+        pass
+
+
+def load_intent(install: str) -> dict | None:
+    p = intent_path(install)
+    try:
+        with open(p, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
 def unique_id(install: str, ver: str) -> str:
     base = ver if release_id_ok(ver) else f"legacy-{int(time.time())}"
     dest = os.path.join(install, "releases", base)
@@ -188,7 +250,6 @@ def migrate_pointer(install: str, name: str) -> str | None:
         try:
             return validate_pointer(install, name)
         except SystemExit:
-            # dangling or escaped: leave for recover()
             return None
     if not os.path.exists(path):
         return None
@@ -201,31 +262,72 @@ def migrate_pointer(install: str, name: str) -> str | None:
         ver = unique_id(install, f"legacy-{name}")
     dest = os.path.join(install, "releases", ver)
     path_real = real(path)
-    if os.path.exists(dest):
-        dest_real = real(dest)
-        if path_real == dest_real:
-            replace_symlink(install, name, f"releases/{ver}")
-            return f"releases/{ver}"
-        # Keep existing release; park the directory copy, then point at dest if valid.
-        if compose_ok(dest) and under_releases(install, dest):
-            park_id = unique_id(install, f"{ver}.copy")
-            park = os.path.join(install, "releases", park_id)
-            os.rename(path, park)
-            fsync_dir(os.path.join(install, "releases"))
-            replace_symlink(install, name, f"releases/{ver}")
-            # Directory current/previous was a leftover copy of dest.
-            shutil.rmtree(park, ignore_errors=True)
-            return f"releases/{ver}"
-        ver = unique_id(install, ver)
-        dest = os.path.join(install, "releases", ver)
-    os.rename(path, dest)
+    if os.path.exists(dest) and real(dest) == path_real:
+        replace_symlink(install, name, f"releases/{os.path.basename(dest)}")
+        clear_intent(install)
+        return f"releases/{os.path.basename(dest)}"
+
+    # Always park the live tree under a unique id. Never assume dest==src
+    # just because the version string and compose file exist.
+    park_id = unique_id(install, ver)
+    park = os.path.join(install, "releases", park_id)
+    identical = False
+    dest_rel = ""
+    if os.path.exists(dest) and under_releases(install, dest) and compose_ok(dest):
+        src_fp = tree_fingerprint(path)
+        dest_fp = tree_fingerprint(dest)
+        identical = bool(src_fp) and src_fp == dest_fp
+        dest_rel = f"releases/{os.path.basename(real(dest))}"
+
+    write_intent(install, {"name": name, "destRel": f"releases/{park_id}", "phase": "parked", "version": ver})
+    os.rename(path, park)
     fsync_dir(os.path.join(install, "releases"))
-    replace_symlink(install, name, f"releases/{ver}")
-    return f"releases/{ver}"
+
+    if identical and dest_rel:
+        write_intent(install, {"name": name, "destRel": dest_rel, "phase": "parked", "version": ver, "identical": True})
+        replace_symlink(install, name, dest_rel)
+    else:
+        replace_symlink(install, name, f"releases/{park_id}")
+        if os.path.exists(dest) and real(dest) != real(park):
+            collision = os.path.join(install, "state", "legacy-collision.json")
+            payload = json.dumps(
+                {
+                    "name": name,
+                    "active": f"releases/{park_id}",
+                    "stale": f"releases/{ver}",
+                    "reason": "same-version-different-content",
+                },
+                indent=2,
+            ) + "\n"
+            tmp = collision + ".tmp." + os.urandom(4).hex()
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.rename(tmp, collision)
+            fsync_dir(os.path.join(install, "state"))
+    clear_intent(install)
+    try:
+        return validate_pointer(install, name)
+    except SystemExit:
+        return f"releases/{park_id}"
 
 
 def recover(install: str) -> None:
     os.makedirs(os.path.join(install, "releases"), mode=0o755, exist_ok=True)
+    os.makedirs(os.path.join(install, "state"), mode=0o700, exist_ok=True)
+    intent = load_intent(install)
+    if intent:
+        name = str(intent.get("name") or "current")
+        rel = str(intent.get("destRel") or "")
+        dest = os.path.join(install, rel) if rel.startswith("releases/") else ""
+        path = os.path.join(install, name)
+        if dest and compose_ok(dest) and under_releases(install, dest) and not os.path.lexists(path):
+            try:
+                replace_symlink(install, name, rel)
+                clear_intent(install)
+            except SystemExit:
+                pass
     for name in POINTER_NAMES:
         clean_next(install, name)
         path = os.path.join(install, name)
