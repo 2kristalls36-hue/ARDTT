@@ -25,6 +25,8 @@ data class DeployIssue(
         const val UNSUPPORTED_RUNTIME = "UNSUPPORTED_RUNTIME"
         const val PREFLIGHT_FAILED = "PREFLIGHT_FAILED"
         const val DISK_FULL = "DISK_FULL"
+        const val INSUFFICIENT_DISK = "INSUFFICIENT_DISK"
+        const val RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
         const val COMPOSE_UP_FAILED = "COMPOSE_UP_FAILED"
         const val INSTALL_FAILED = "INSTALL_FAILED"
         const val BUSY = "BUSY"
@@ -75,10 +77,11 @@ data class DeployIssue(
         /** True when the operator can opt into safe VPS disk reclaim and retry. */
         fun offersDiskCleanup(issue: DeployIssue?): Boolean {
             if (issue == null) return false
-            if (issue.code == DISK_FULL) return true
+            if (issue.code == DISK_FULL || issue.code == INSUFFICIENT_DISK) return true
             val text = "${issue.summary} ${issue.detail}"
             return text.contains("Мало места") ||
                 text.contains("DISK_FULL") ||
+                text.contains("INSUFFICIENT_DISK") ||
                 text.contains("no space", ignoreCase = true)
         }
 
@@ -144,8 +147,10 @@ data class DeployIssue(
                     "Не удалось открыть SSH${hopHostPart(hopRole, hop)}."
                 PREFLIGHT_FAILED ->
                     "$hop не прошёл предварительную проверку."
-                DISK_FULL ->
+                DISK_FULL, INSUFFICIENT_DISK ->
                     "$hop: мало места на диске. Можно очистить кэш/логи и повторить.$entryNote"
+                RECOVERY_REQUIRED ->
+                    "$hop: состояние деплоя повреждено или неоднозначно. Новый деплой заблокирован.$entryNote"
                 COMPOSE_UP_FAILED ->
                     "$hop: не удалось запустить контейнер (docker compose up).$entryNote"
                 else -> message.ifBlank { "$hop: установка не завершилась." }
