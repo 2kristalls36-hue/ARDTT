@@ -543,6 +543,10 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 						vkDelayRandom(800, 1500)
 						continue
 					}
+					if isTransientCaptchaSolveError(solveErr) {
+						log.Printf("[STREAM %d] [Captcha] Transient solve failure, not locking out: %v", streamID, solveErr)
+						return "", "", nil, solveErr
+					}
 					log.Printf("[STREAM %d] [Captcha] Solve failed: %v", streamID, solveErr)
 					globalCaptchaLockout.Store(time.Now().Add(60 * time.Second).Unix())
 					return "", "", nil, fmt.Errorf("CAPTCHA_WAIT_REQUIRED")
@@ -794,6 +798,34 @@ func requestWebViewCaptcha(streamID int, captchaErr *VkCaptchaError, mode string
 
 func isWebViewCaptchaTimeout(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "timed out")
+}
+
+// Network / timeout failures during AUTO must not lock the client into
+// CAPTCHA_WAIT_REQUIRED — that previously bounced Auto onto a dead Direct
+// during LTE trips (ticket 22).
+func isTransientCaptchaSolveError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "captcha init json not found"),
+		strings.Contains(msg, "context canceled"),
+		strings.Contains(msg, "timed out"),
+		strings.Contains(msg, "timeout"),
+		strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "network is unreachable"),
+		strings.Contains(msg, "connection refused"),
+		strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "no such host"),
+		strings.Contains(msg, "temporary failure"):
+		return true
+	default:
+		return false
+	}
 }
 
 func turnURLsToAddresses(urls []string) []string {

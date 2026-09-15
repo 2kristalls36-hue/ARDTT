@@ -303,6 +303,7 @@ object ConnectionReducer {
     ): ReduceResult {
         val networkChanged = state.underlay.key.physicalIdentityChanged(snapshot.key)
         val scopeChanged = state.underlay.key.restrictionScopeChanged(snapshot.key)
+        val failureScopeChanged = state.underlay.key.directFailureScopeChanged(snapshot.key)
         val carried = carryWhitelistEvidence(state, snapshot, scopeChanged)
         if (!state.intent.wantsConnected) {
             return ReduceResult(
@@ -322,9 +323,14 @@ object ConnectionReducer {
             wifiUsableSinceMs = wifiUsableSince,
             underlay = snapshot,
             networkEpoch = snapshot.networkEpoch,
-            directNegative = if (scopeChanged) null else state.directNegative,
-            directReevalFailures = if (scopeChanged) 0 else state.directReevalFailures,
-            directRecheckFromBypass = !scopeChanged && state.directRecheckFromBypass,
+            directNegative = when {
+                failureScopeChanged -> null
+                state.directNegative == null -> null
+                snapshot.key == null -> state.directNegative
+                else -> state.directNegative.copy(key = snapshot.key)
+            },
+            directReevalFailures = if (failureScopeChanged) 0 else state.directReevalFailures,
+            directRecheckFromBypass = !failureScopeChanged && state.directRecheckFromBypass,
             wifiFailStreak = if (leftWifiEpisode) 0 else state.wifiFailStreak,
             wifiStableHits = if (leftWifiEpisode) 0 else state.wifiStableHits,
             call = if (snapshot.availability == UnderlayAvailability.None) {
@@ -341,16 +347,21 @@ object ConnectionReducer {
         )
         val fromNetworkGap = !state.underlay.allowsNetworkOps && snapshot.allowsNetworkOps
         val recovered = if (snapshot.allowsNetworkOps && (scopeChanged || fromNetworkGap)) {
+            val dropTimer = failureScopeChanged || fromNetworkGap
             next.copy(
                 transport = if (next.transport == TransportLifecycle.Failed) {
                     TransportLifecycle.Stopped
                 } else {
                     next.transport
                 },
-                recovery = next.recovery.copy(
-                    nextRetryAtElapsedMs = null,
-                    pendingTimer = PendingTimer.None,
-                ),
+                recovery = if (dropTimer) {
+                    next.recovery.copy(
+                        nextRetryAtElapsedMs = null,
+                        pendingTimer = PendingTimer.None,
+                    )
+                } else {
+                    next.recovery
+                },
             )
         } else {
             next

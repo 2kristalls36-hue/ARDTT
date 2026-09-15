@@ -111,11 +111,12 @@ class ConnectionManager(
     /** Last underlay handle we probed / bound for handover. */
     private var lastHandoverBindHandle: Long? = null
     /**
-     * Direct died (no TUN rx) on this underlay handle. Do not Auto-upgrade
-     * Bypass→Direct on the same network: TCP :9100 / a SYN to 1.1.1.1 can
-     * still look open while AWG UDP is dead.
+     * Direct died (no TUN rx) on this underlay. Do not Auto-upgrade
+     * Bypass→Direct on the same radio/SIM/operator: TCP :9100 / a SYN to
+     * 1.1.1.1 can still look open while AWG UDP is dead. LTE handle flaps
+     * during a trip are the same underlay for this latch.
      */
-    private var deadDirectBindHandle: Long? = null
+    private var deadDirectNetworkKey: NetworkKey? = null
     private var blockBypassToDirectUntilUnderlayChange: Boolean = false
     private val diagnosticLog = SessionDiagnosticLog()
     private var recoverySnapshot = ConnectionSnapshot()
@@ -1199,7 +1200,7 @@ class ConnectionManager(
         }
         handoverProbeStreak = ProbeStreak()
         lastHandoverBindHandle = null
-        deadDirectBindHandle = null
+        deadDirectNetworkKey = null
         blockBypassToDirectUntilUnderlayChange = false
         callRecreateAttempts = 0
         bumpSessionGeneration("connect")
@@ -1536,7 +1537,7 @@ class ConnectionManager(
         softRestartInProgress = false
         handoverProbeStreak = ProbeStreak()
         lastHandoverBindHandle = null
-        deadDirectBindHandle = null
+        deadDirectNetworkKey = null
         blockBypassToDirectUntilUnderlayChange = false
         callRecreateAttempts = 0
         callRecreateJob?.cancel()
@@ -1653,14 +1654,17 @@ class ConnectionManager(
         val bypassAllowed = hashStore.hasHash(profile?.name)
         val pathHealthy = currentPathLooksHealthy(currentPath)
         bindNetwork?.networkHandle?.let { lastHandoverBindHandle = it }
-        val sameDeadUnderlay = deadDirectBindHandle != null &&
-            bindNetwork?.networkHandle == deadDirectBindHandle
+        val liveKey = keyForBind(bindNetwork)
+        val sameDeadUnderlay = deadDirectBlocksLiveUnderlay(
+            blockUntilUnderlayChange = blockBypassToDirectUntilUnderlayChange,
+            deadKey = deadDirectNetworkKey,
+            liveKey = liveKey,
+        )
         if (underlayChanged && !sameDeadUnderlay) {
-            deadDirectBindHandle = null
+            deadDirectNetworkKey = null
             blockBypassToDirectUntilUnderlayChange = false
         }
-        val directFailedOnCurrentUnderlay = blockBypassToDirectUntilUnderlayChange &&
-            (sameDeadUnderlay || deadDirectBindHandle == null || bindNetwork == null)
+        val directFailedOnCurrentUnderlay = sameDeadUnderlay
         val kind = underlayKindOf(bindNetwork)
         val whitelistLikely = RestrictionScore.likely(
             whitelistScoreForBind(bindNetwork),
@@ -2201,6 +2205,14 @@ class ConnectionManager(
                 )
     }
 
+    /** Kind+handle for rebinding a parked RAW process before TUN attach. */
+    fun bypassResumeNetwork(): Pair<String, Long>? {
+        val underlay = recoverySnapshot.underlay
+        val handle = underlay.handle ?: underlay.key?.handle ?: return null
+        if (handle == 0L) return null
+        return underlay.kind.name to handle
+    }
+
     /** True when the live Direct attempt already proved useful delivery. */
     fun directPathConfirmed(): Boolean =
         recoverySnapshot.activePath == VpnPath.Direct &&
@@ -2247,7 +2259,7 @@ class ConnectionManager(
             DeadDirectDecision.SwitchToBypass -> {
                 AppLog.w(TAG, "Dead Direct (no TUN rx) — Auto recovery → Bypass")
                 handoverProbeStreak = ProbeStreak(VpnPath.Bypass, 1)
-                deadDirectBindHandle = lastHandoverBindHandle
+                deadDirectNetworkKey = recoverySnapshot.underlay.key
                 blockBypassToDirectUntilUnderlayChange = true
                 dispatchRecovery(
                     ConnectionEvent.DirectFailed(

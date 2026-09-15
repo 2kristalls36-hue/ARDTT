@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -60,5 +61,20 @@ func TestStaleAnonymTokenFromOKCDN(t *testing.T) {
 	}
 	if isStaleAnonymTokenError(&CallUnavailableError{Code: 951, Message: "call not found"}) {
 		t.Fatal("missing call is not a stale anonym token")
+	}
+}
+
+func TestTransientCaptchaSolveDoesNotLookLikeHardLockout(t *testing.T) {
+	if !isTransientCaptchaSolveError(errors.New("captcha init json not found")) {
+		t.Fatal("missing captcha page is a network/page failure")
+	}
+	if !isTransientCaptchaSolveError(errors.New("webview captcha timed out")) {
+		t.Fatal("webview timeout is transient")
+	}
+	if !isTransientCaptchaSolveError(context.Canceled) {
+		t.Fatal("canceled solve is transient")
+	}
+	if isTransientCaptchaSolveError(errors.New("CAPTCHA_WAIT_REQUIRED")) {
+		t.Fatal("hard lockout must stay a lockout")
 	}
 }

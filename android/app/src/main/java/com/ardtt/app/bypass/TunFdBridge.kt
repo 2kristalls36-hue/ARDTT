@@ -23,25 +23,31 @@ object TunFdBridge {
     /** Path for go_client -tun-fd-sock (abstract namespace). */
     fun goSockPath(name: String): String = "@$name"
 
+    /** Single abstract-socket connect. Caller retries until go_client listens. */
+    fun tryConnectOnce(name: String, pfd: ParcelFileDescriptor): Boolean {
+        var client: LocalSocket? = null
+        return try {
+            client = LocalSocket()
+            client.connect(LocalSocketAddress(name, LocalSocketAddress.Namespace.ABSTRACT))
+            client.setFileDescriptorsForSend(arrayOf(pfd.fileDescriptor))
+            client.outputStream.write(1)
+            client.outputStream.flush()
+            Log.i(TAG, "TUN fd sent via $name")
+            true
+        } catch (e: Exception) {
+            Log.d(TAG, "connect failed: ${e.message}")
+            false
+        } finally {
+            runCatching { client?.close() }
+        }
+    }
+
     suspend fun sendOnce(name: String, pfd: ParcelFileDescriptor) = withContext(Dispatchers.IO) {
         var lastError: Throwable? = null
         for (attempt in 1..MAX_ATTEMPTS) {
-            var client: LocalSocket? = null
-            try {
-                Log.d(TAG, "connect attempt=$attempt name=$name")
-                client = LocalSocket()
-                client.connect(LocalSocketAddress(name, LocalSocketAddress.Namespace.ABSTRACT))
-                client.setFileDescriptorsForSend(arrayOf(pfd.fileDescriptor))
-                client.outputStream.write(1)
-                client.outputStream.flush()
-                Log.i(TAG, "TUN fd sent via $name (attempt=$attempt)")
-                return@withContext
-            } catch (e: Exception) {
-                lastError = e
-                Log.d(TAG, "attempt $attempt failed: ${e.message}")
-            } finally {
-                runCatching { client?.close() }
-            }
+            Log.d(TAG, "connect attempt=$attempt name=$name")
+            if (tryConnectOnce(name, pfd)) return@withContext
+            lastError = IllegalStateException("attempt $attempt failed")
             delay(CONNECT_RETRY_DELAY_MS)
         }
         throw IllegalStateException(

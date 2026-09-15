@@ -428,6 +428,43 @@ class AutoPathPolicyTest {
     }
 
     @Test
+    fun lteHandleFlapStillBlocksDirectWhileBypassRuns() {
+        val first = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell-a", carrier = "25002")
+        val flapped = NetworkKey(99L, UnderlayKind.Cellular, 7, "cell-b", carrier = "25002")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = flapped),
+                evidence = ReachabilityEvidence(
+                    networkKey = flapped,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Success,
+                    provision = CheckOutcome.Success,
+                    restriction = RestrictionHint.None,
+                ),
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                call = CallSessionState(hashPresent = true, validity = CallValidity.Valid),
+                directNegative = DirectNegativeEvidence(
+                    key = first,
+                    failedAtElapsedMs = 0L,
+                    retryAfterElapsedMs = 120_000L,
+                ),
+                elapsedMs = 5_000L,
+                reevalDue = true,
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), d)
+        assertTrue(
+            DirectNegativeEvidence(
+                key = first,
+                retryAfterElapsedMs = 120_000L,
+            ).stillBlocks(5_000L, flapped, null),
+        )
+    }
+
+    @Test
     fun expiredDirectEvidenceKeepsBypassUntilReevalTimer() {
         val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
         val input = AutoPathInput(
