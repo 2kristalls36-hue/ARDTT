@@ -93,26 +93,38 @@ grep -qx 'GOOD-ROLLBACK' "$INSTALL_DIR/previous/docker-compose.yml" || err "prev
 sum_prev="$(checksum_tree "$(readlink -f "$INSTALL_DIR/previous")")"
 ok "second same-version deploy keeps first tree as previous"
 
-# Third deploy must not choose previous's directory (the audit reproduction).
+# Third same-version deploy must retarget previous to the last confirmed (r2),
+# not skip snapshot just because deployVersion matches (live VPS regression).
+sum_r2="$(checksum_tree "$(readlink -f "$r2")")"
 r3="$(stage_and_activate PARTIAL-CANDIDATE 1.0.54)" || err "third deploy failed"
-grep -qx 'GOOD-ROLLBACK' "$INSTALL_DIR/previous/docker-compose.yml" \
-  || err "third deploy overwrote previous (got $(cat "$INSTALL_DIR/previous/docker-compose.yml"))"
-sum_prev2="$(checksum_tree "$(readlink -f "$INSTALL_DIR/previous")")"
-[ "$sum_prev" = "$sum_prev2" ] || err "previous bytes changed on third deploy"
+[ "$(readlink -f "$INSTALL_DIR/previous")" = "$(readlink -f "$r2")" ] \
+  || err "previous must move to last confirmed current, not stay on first (got $(readlink -f "$INSTALL_DIR/previous"))"
+grep -qx 'CANDIDATE-2' "$INSTALL_DIR/previous/docker-compose.yml" \
+  || err "previous should be CANDIDATE-2 (got $(cat "$INSTALL_DIR/previous/docker-compose.yml"))"
+grep -qx 'GOOD-ROLLBACK' "$INSTALL_DIR/releases/d-first/docker-compose.yml" \
+  || err "first confirmed tree was mutated"
+[ "$(checksum_tree "$(readlink -f "$r2")")" = "$sum_r2" ] || err "last confirmed tree mutated on third deploy"
+[ "$(checksum_tree "$(readlink -f "$INSTALL_DIR/releases/d-first")")" = "$sum_prev" ] \
+  || err "first tree bytes changed on third deploy"
 [ "$(readlink -f "$r3")" != "$(readlink -f "$INSTALL_DIR/previous")" ] \
   || err "third staging path is previous"
 [ "$(readlink -f "$INSTALL_DIR/current")" != "$(readlink -f "$INSTALL_DIR/previous")" ] \
   || err "current and previous collapsed"
-ok "third same-version deploy does not clobber previous"
+ok "third same-version deploy retargets previous to last confirmed"
 
-# Five sequential same-version deploys: unique paths, previous checksum stable after first snapshot.
+# Five sequential same-version deploys: unique paths; previous is last confirmed; trees immutable.
 paths=("$INSTALL_DIR/releases/d-first" "$r2" "$r3")
-sum_keep="$sum_prev2"
+last_current="$r3"
+last_sum="$(checksum_tree "$(readlink -f "$r3")")"
 for i in 4 5; do
   p="$(stage_and_activate "CANDIDATE-$i" 1.0.54)" || err "deploy $i failed"
   paths+=("$p")
-  [ "$(checksum_tree "$(readlink -f "$INSTALL_DIR/previous")")" = "$sum_keep" ] \
-    || err "previous mutated on deploy $i"
+  [ "$(readlink -f "$INSTALL_DIR/previous")" = "$(readlink -f "$last_current")" ] \
+    || err "previous not last confirmed after deploy $i"
+  [ "$(checksum_tree "$(readlink -f "$last_current")")" = "$last_sum" ] \
+    || err "last confirmed tree mutated on deploy $i"
+  last_current="$p"
+  last_sum="$(checksum_tree "$(readlink -f "$p")")"
 done
 uniq="$(printf '%s\n' "${paths[@]}" | while read -r p; do readlink -f "$p"; done | sort -u | wc -l)"
 [ "$uniq" -eq "${#paths[@]}" ] || err "duplicate staging paths among five deploys"
@@ -123,11 +135,21 @@ fail_rel="$(release_staging_path 1.0.54)"
 mkdir -p "$fail_rel"
 echo 'BROKEN' > "$fail_rel/docker-compose.yml"
 echo 'ARDTT_DEPLOY_VERSION=1.0.54' > "$fail_rel/.env"
-# Do not activate. previous must stay GOOD-ROLLBACK.
-grep -qx 'GOOD-ROLLBACK' "$INSTALL_DIR/previous/docker-compose.yml" || err "failed candidate affected previous"
+[ "$(readlink -f "$INSTALL_DIR/previous")" != "$(readlink -f "$fail_rel")" ] \
+  || err "unactivated candidate became previous"
+[ "$(readlink -f "$INSTALL_DIR/current")" != "$(readlink -f "$fail_rel")" ] \
+  || err "unactivated candidate became current"
 python3 "$ROOT/server/install-lib/atomic-pointer.py" validate "$INSTALL_DIR" previous >/dev/null \
   || err "previous invalid after failed candidate"
 ok "incomplete staging is not a rollback target"
+
+# Snapshot after activate of this attempt must not retarget previous onto the candidate.
+DEPLOYMENT_ID="$(basename "$(pointer_real current)")"
+prev_before="$(pointer_real previous)"
+snapshot_current_to_previous
+[ "$(pointer_real previous)" = "$prev_before" ] \
+  || err "snapshot after activate retargeted previous onto this candidate"
+ok "snapshot skip is by deploymentId, not version string"
 
 # Static: install.sh must not rm -rf the staging path blindly if it is a pointer.
 if grep -E 'rm -rf "\$release"' "$ROOT/server/install.sh"; then

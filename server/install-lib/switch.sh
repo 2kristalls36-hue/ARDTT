@@ -75,11 +75,11 @@ snapshot_current_to_previous() {
     return 0
   fi
   [ -f "$src/docker-compose.yml" ] || return 0
-  local cur_ver=""
-  cur_ver="$(env_file_val "$src/.env" ARDTT_DEPLOY_VERSION)"
-  # Retry after the candidate pointer was already switched: do not retarget
-  # previous onto the candidate and lose the last good rollback release.
-  if [ -n "${DEPLOY_VERSION:-}" ] && [ -n "$cur_ver" ] && [ "$cur_ver" = "$DEPLOY_VERSION" ]; then
+  # Same deployVersion is normal for restage. Skip only if current already
+  # points at this attempt's own candidate (snapshot invoked after activate).
+  local cur_id=""
+  cur_id="$(basename "$src")"
+  if [ -n "${DEPLOYMENT_ID:-}" ] && [ -n "$cur_id" ] && [ "$cur_id" = "$DEPLOYMENT_ID" ]; then
     if [ -f "${INSTALL_DIR}/previous/docker-compose.yml" ]; then
       if declare -F snapshot_confirmed_metadata >/dev/null; then
         snapshot_confirmed_metadata "${INSTALL_DIR}/state/rollback"
