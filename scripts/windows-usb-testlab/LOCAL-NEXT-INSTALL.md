@@ -27,7 +27,7 @@
 git fetch origin auto/windows-usb-testlab-85a8
 git checkout auto/windows-usb-testlab-85a8
 git pull --ff-only origin auto/windows-usb-testlab-85a8
-# HEAD должен быть 07e7afad или новее
+# HEAD должен быть 54e784f9 или новее
 
 cd scripts\windows-usb-testlab
 Set-ExecutionPolicy -Scope Process Bypass
