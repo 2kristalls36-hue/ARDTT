@@ -18,6 +18,7 @@ need=(
   Restore-ARDTT-TestState.ps1
   README-Windows-USB.md
   HANDOFF-LOCAL-AGENT.md
+  LOCAL-NEXT-INSTALL.md
   lab-config.example.json
   scenarios.json
   Install-LinuxToolchain.sh

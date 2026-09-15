@@ -50,6 +50,14 @@ if ($versions.ARDTT_MIN_INSTALL_VERSION_NAME) {
     $minName = [string]$versions.ARDTT_MIN_INSTALL_VERSION_NAME
 }
 
+$apkPathHash = (Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$rejectHash = $null
+if ($versions.ARDTT_REJECT_APK_SHA256) {
+    $rejectHash = ([string]$versions.ARDTT_REJECT_APK_SHA256).ToLowerInvariant()
+}
+$apkLeaf = [IO.Path]::GetFileNameWithoutExtension($ApkPath)
+$rejectArt = [string]$versions.ARDTT_REJECT_ARTIFACT_SHA
+
 Write-ArdttLog INFO 'снимок установленного приложения до install'
 $before = Get-InstalledPackageInfo
 
@@ -91,7 +99,16 @@ if ($before.apkPath) {
 }
 
 $blocker = $null
-if ($apkVersionCode -and ($apkVersionCode -lt $minCode)) {
+if ($rejectHash -and $apkPathHash -eq $rejectHash) {
+    $blocker = ("это байты Preview 51cf7ce ({0}). lastUpdateTime меняется, versionCode остаётся 283. Нужен APK {1} SHA {2}." -f $apkPathHash, $minName, $versions.ARDTT_PREVIEW_APK_SHA256)
+}
+if (-not $blocker -and $rejectArt -and $apkLeaf -like "*$rejectArt*") {
+    $blocker = "имя APK содержит $rejectArt (старый Preview PR 217). Не ставить."
+}
+if (-not $blocker -and $apkLeaf -like '*0.5.264*') {
+    $blocker = 'это APK 0.5.264. Android не обновит уже установленный 0.5.264/283.'
+}
+if (-not $blocker -and $apkVersionCode -and ($apkVersionCode -lt $minCode)) {
     $blocker = ("это APK {0} (versionCode {1}), а для обновления нужен {2} ({3}). GitHub releases/latest = v0.5.264 / 283 — Android не заменит уже установленный 0.5.264. Скачайте Preview APK run {4}." -f $(if ($apkVersionName) { $apkVersionName } else { '?' }), $apkVersionCode, $minName, $minCode, $versions.ARDTT_PREVIEW_RUN_ID)
 }
 if (-not $blocker -and $before.installed -and $apkVersionCode -and $before.versionCode -and ($apkVersionCode -le [int]$before.versionCode)) {
@@ -109,6 +126,7 @@ if ($before.installed -and $pulled -and $sdkApksigner -and $certNew) {
 $result = [ordered]@{
     before     = $before
     apk        = $ApkPath
+    apkSha256  = $apkPathHash
     blocker    = $blocker
     installed  = $false
 }
@@ -137,9 +155,13 @@ if ($inst.Stdout -match 'Failure' -or $inst.ExitCode -ne 0) {
     throw "adb install failed: $msg"
 }
 $result.installed = $true
+$result.apkSha256 = $apkPathHash
 $result.after = Get-InstalledPackageInfo
-if ($before.versionCode -and $result.after.versionCode -and ([int]$result.after.versionCode -le [int]$before.versionCode)) {
-    Write-ArdttLog WARN ("versionCode не вырос ({0} → {1}). Android мог оставить старый пакет: нужен APK с большим versionCode и той же подписью." -f $before.versionCode, $result.after.versionCode)
+if (-not $result.after.versionCode -or ([int]$result.after.versionCode -lt $minCode)) {
+    $msg = ("на устройстве versionName={0} versionCode={1}, нужен {2}/{3}. Повтор 51cf7ce или GitHub v0.5.264 не обновление — lastUpdateTime мог смениться при тех же байтах." -f $result.after.versionName, $result.after.versionCode, $minName, $minCode)
+    $result.blocker = $msg
+    Save-ArdttUtf8 -Path $report -Text ($result | ConvertTo-Json -Depth 8)
+    throw $msg
 }
 Save-ArdttUtf8 -Path $report -Text ($result | ConvertTo-Json -Depth 8)
-Write-ArdttLog INFO ("установлено versionName={0} versionCode={1}" -f $result.after.versionName, $result.after.versionCode)
+Write-ArdttLog INFO ("установлено versionName={0} versionCode={1} sha256={2}" -f $result.after.versionName, $result.after.versionCode, $apkPathHash)

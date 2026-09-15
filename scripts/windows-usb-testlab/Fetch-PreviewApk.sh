@@ -52,10 +52,15 @@ APK="$(find "$OUT_DIR/raw" -type f -name '*.apk' | head -1)"
 
 NAME="$(basename "$(dirname "$APK")")"
 ardtt_assert_preview_apk_current "$NAME"
+ardtt_assert_apk_sha_not_rejected "$APK"
 ardtt_assert_apk_version_code "$APK"
-STABLE="$OUT_DIR/$(basename "$APK")"
+# Keep version + merge SHA in the filename. Generic app-*-release.apk is how 51cf7ce
+# got reinstalled as a "new" package with the same bytes.
+STABLE="$OUT_DIR/${NAME}.apk"
 cp -f -- "$APK" "$STABLE"
 APK="$STABLE"
+GOT_SHA="$(ardtt_sha256_file "$APK")"
+ardtt_log INFO "saved $APK sha256=$GOT_SHA version=${ARDTT_MIN_INSTALL_VERSION_NAME} (not 0.5.264/51cf7ce)"
 # workflow names artifact ardtt-<version>-<shortSha>-arm64-v8a where shortSha is GITHUB_SHA (merge commit on pull_request)
 python3 - "$OUT_DIR/provenance.json" <<PY
 import json, datetime
@@ -68,6 +73,7 @@ doc = {
   "headSha": "$HEAD_SHA",
   "artifactDirName": "$NAME",
   "apkPath": "$APK",
+  "apkSha256": "$GOT_SHA",
   "minVersionName": "$ARDTT_MIN_INSTALL_VERSION_NAME",
   "minVersionCode": int("$ARDTT_MIN_INSTALL_VERSION_CODE"),
   "note": "Do not install GitHub releases/latest (v0.5.264 / 283). pull_request artifact SHA is the merge commit, not the PR head.",
