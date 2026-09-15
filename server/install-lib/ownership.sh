@@ -103,9 +103,22 @@ clear_pending_instance() {
   rm -f "$(pending_instance_file)"
 }
 
+rollback_meta_dir() { printf '%s' "${INSTALL_DIR}/state/rollback"; }
+
+# Host-level rollback metadata. Never write into an immutable release tree.
 snapshot_confirmed_metadata() {
-  local dest="$1"
+  local dest="${1:-$(rollback_meta_dir)}"
+  local releases abs
+  releases="$(readlink -f "${INSTALL_DIR}/releases" 2>/dev/null || echo "${INSTALL_DIR}/releases")"
+  abs="$(readlink -f "$dest" 2>/dev/null || echo "$dest")"
+  case "$abs" in
+    "$releases"|"$releases"/*)
+      dest="$(rollback_meta_dir)"
+      ;;
+  esac
   mkdir -p "$dest"
+  chmod 700 "$(dirname "$dest")" 2>/dev/null || true
+  chmod 700 "$dest" 2>/dev/null || true
   if [ -f "$(instance_file)" ]; then
     cp -a "$(instance_file)" "$dest/instance.json"
   fi
