@@ -4,6 +4,8 @@
 
 ---
 
+**СТОП.** Если на OnePlus сейчас `0.5.264` / `versionCode` 283 / SHA `c6e9a361…` / артефакт `51cf7ce` — это **не** нужная сборка. `lastUpdateTime` мог обновиться при повторной установке тех же байт. Сначала выполни целиком `LOCAL-NEXT-INSTALL.md` (git pull + Fetch-PreviewApk + Install **ardtt-0.5.265-3f14a8c-arm64-v8a.apk**). Не ставь `app-arm64-v8a-release.apk` из старого download.
+
 Ты локальный агент на Windows 11 с доступом к терминалу и USB. Облачный агент Cursor (Linux VM, 15.09.2026) **уже** выполнил всё, что можно без этого ПК. Не начинай лабораторию с нуля и не переписывай скрипты, если они есть в checkout.
 
 ## Задача, которую тебе передают
@@ -37,7 +39,8 @@
 | `Install-LinuxToolchain.sh` | JDK/Go 1.25.14/SDK 35/NDK 27.0.12077973/CMake 3.22.1, хеши официальные |
 | `Doctor-ARDTT.ps1` / `Doctor-ARDTT.sh` | Windows USB и Linux toolchain |
 | `Build-ARDTT.ps1` / `Build-ARDTT.sh` | WSL/Linux сборка + `build-manifest.json` |
-| `Fetch-PreviewApk.sh` / `Fetch-PreviewApk.ps1` | CI Preview **0.5.265/284**; отказ от GitHub `v0.5.264` |
+| `Fetch-PreviewApk.sh` / `Fetch-PreviewApk.ps1` | CI Preview **0.5.265/284**; отказ от `51cf7ce` / SHA `c6e9a361…` |
+| `LOCAL-NEXT-INSTALL.md` | что делать, если на телефоне снова 0.5.264 |
 | `Install-ARDTT.ps1` | только `adb install -r` после сравнения подписи; **нет** uninstall |
 | `Start/Mark/Capture/Stop-ARDTT-Diagnostics.ps1` | сессия, logcat без `-c`, только свои PID |
 | `Test-ARDTT-Scenario.ps1` | S00 авто; S01–S12 PENDING без живых условий |

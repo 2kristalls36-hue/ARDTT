@@ -5,8 +5,9 @@
 ardtt_apk_artifact_looks_current() {
   local name=$1
   local min_name=${ARDTT_MIN_INSTALL_VERSION_NAME:-0.5.265}
+  local reject_sha=${ARDTT_REJECT_ARTIFACT_SHA:-51cf7ce}
   case "$name" in
-    *"0.5.264"*|*"ardtt-0.5.263"*|*"ardtt-0.5.262"*)
+    *"0.5.264"*|*"ardtt-0.5.263"*|*"ardtt-0.5.262"*|*"$reject_sha"*)
       return 1
       ;;
   esac
@@ -46,6 +47,16 @@ ardtt_apk_version_code() {
   local aapt
   aapt="$(ardtt_aapt_bin)" || return 1
   "$aapt" dump badging "$apk" 2>/dev/null | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -1
+}
+
+ardtt_assert_apk_sha_not_rejected() {
+  local apk=$1
+  local reject=${ARDTT_REJECT_APK_SHA256:-c6e9a361d1f12a6d943c9babbfdefdb37827f95c9d18a07a1e76251785ea20fd}
+  local got
+  got="$(ardtt_sha256_file "$apk")"
+  if [[ "${got,,}" == "${reject,,}" ]]; then
+    ardtt_die "это повтор Preview 51cf7ce (SHA-256 ${got}). На OnePlus он уже стоит как 0.5.264/283. Нужен APK ${ARDTT_MIN_INSTALL_VERSION_NAME:-0.5.265} SHA ${ARDTT_PREVIEW_APK_SHA256:-8ba45dd66a13bafeb4faec3ee8a114a0d31c35e0c94a06141637929ca34d0642} (run ${ARDTT_PREVIEW_RUN_ID:-34944525811})."
+  fi
 }
 
 ardtt_assert_apk_version_code() {

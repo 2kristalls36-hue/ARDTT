@@ -36,12 +36,19 @@ $apk = Get-ChildItem -Path $raw -Recurse -Filter *.apk | Select-Object -First 1
 if (-not $apk) { throw "в артефактах run $RunId нет APK" }
 
 $minName = [string]$versions.ARDTT_MIN_INSTALL_VERSION_NAME
+$rejectSha = [string]$versions.ARDTT_REJECT_ARTIFACT_SHA
 $parent = $apk.Directory.Name
-if ($parent -notlike "*$minName*" -and $apk.Name -notlike "*$minName*") {
-    throw ("это не APK {0}: {1}\{2}. GitHub v0.5.264 (283) не обновляет уже установленный 0.5.264. Нужен run {3}." -f $minName, $parent, $apk.Name, $versions.ARDTT_PREVIEW_RUN_ID)
+if ($parent -notlike "*$minName*" -or ($rejectSha -and $parent -like "*$rejectSha*")) {
+    throw ("это не APK {0}: {1}\{2}. Запрещён повтор 0.5.264 / 51cf7ce. Нужен run {3}." -f $minName, $parent, $apk.Name, $versions.ARDTT_PREVIEW_RUN_ID)
 }
 
-$dest = Join-Path $OutDir $apk.Name
+$hash = (Get-FileHash -LiteralPath $apk.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+$rejectHash = ([string]$versions.ARDTT_REJECT_APK_SHA256).ToLowerInvariant()
+if ($rejectHash -and $hash -eq $rejectHash) {
+    throw ("это байты Preview 51cf7ce ($hash). На телефоне они уже стоят как 0.5.264/283. Нужен SHA $($versions.ARDTT_PREVIEW_APK_SHA256).")
+}
+
+$dest = Join-Path $OutDir ($parent + '.apk')
 Copy-Item -Force -LiteralPath $apk.FullName -Destination $dest
-Write-ArdttLog INFO ("APK: {0}" -f $dest)
+Write-ArdttLog INFO ("APK: {0} sha256={1}" -f $dest, $hash)
 Write-Output $dest

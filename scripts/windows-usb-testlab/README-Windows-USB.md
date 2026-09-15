@@ -27,7 +27,7 @@ cd scripts\windows-usb-testlab
 .\Setup-ARDTT-TestLab.ps1
 .\Doctor-ARDTT.ps1
 .\Fetch-PreviewApk.ps1
-.\Install-ARDTT.ps1 -ApkPath "$env:LOCALAPPDATA\ARDTT-TestLab\apk\app-arm64-v8a-release.apk"
+.\Install-ARDTT.ps1 -ApkPath "$env:LOCALAPPDATA\ARDTT-TestLab\apk\ardtt-0.5.265-3f14a8c-arm64-v8a.apk"
 .\Start-ARDTT-Diagnostics.ps1 -Scenario S00
 .\Mark-ARDTT-Event.ps1 -Note "wifi-on-no-ap"
 .\Capture-ARDTT-State.ps1 -Label mid
@@ -65,7 +65,7 @@ bash scripts/windows-usb-testlab/tests/run.sh
 - SHA-256: `8ba45dd66a13bafeb4faec3ee8a114a0d31c35e0c94a06141637929ca34d0642`
 - Подпись release `e07400a728…` (как у v0.5.264)
 
-`Fetch-PreviewApk.ps1` / `Fetch-PreviewApk.sh` качают именно этот run и отказываются от 0.5.264.
+`Fetch-PreviewApk.ps1` / `Fetch-PreviewApk.sh` сохраняют файл как `ardtt-0.5.265-3f14a8c-arm64-v8a.apk` (не generic `app-arm64-v8a-release.apk`) и отказываются от SHA `c6e9a361…` / артефакта `51cf7ce`. `Install-ARDTT.ps1` падает, если после `adb install -r` на устройстве всё ещё `versionCode` &lt; 284.
 
 Launcher: `com.ardtt.app/.MainActivity`. Системный диалог VPN принимает пользователь.
 
