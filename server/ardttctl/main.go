@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,6 +30,8 @@ func main() {
 		os.Exit(runHealth())
 	case "state":
 		os.Exit(runState(os.Args[2:]))
+	case "reconcile":
+		os.Exit(runReconcile())
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -47,7 +50,9 @@ Commands:
   diagnose
   health
   state get
-  state set --phase P [--desired V] [--current V] [--previous V] [--id ID] [--digest D] [--error MSG] [--code C]
+  state set --phase P [--desired V] [--current V] [--previous V] [--id ID] [--digest D] [--error MSG] [--code C] [--force]
+  state reconcile
+  reconcile
 
 Install dir: ARDTT_INSTALL_DIR (default /opt/ardtt).
 `)
@@ -93,6 +98,21 @@ func runEmit(args []string) int {
 		case a == "--version" && i+1 < len(args):
 			i++
 			ev.Version = args[i]
+		case a == "--filesystem" && i+1 < len(args):
+			i++
+			ev.Filesystem = args[i]
+		case a == "--required-bytes" && i+1 < len(args):
+			i++
+			ev.RequiredBytes = parseInt64Ptr(args[i])
+		case a == "--available-bytes" && i+1 < len(args):
+			i++
+			ev.AvailableBytes = parseInt64Ptr(args[i])
+		case a == "--reclaimable-bytes" && i+1 < len(args):
+			i++
+			ev.ReclaimableArdttBytes = parseInt64Ptr(args[i])
+		case a == "--safety-margin-bytes" && i+1 < len(args):
+			i++
+			ev.SafetyMarginBytes = parseInt64Ptr(args[i])
 		case strings.HasPrefix(a, "--") && i+1 < len(args):
 			key := strings.TrimPrefix(a, "--")
 			i++
@@ -115,7 +135,7 @@ func runEmit(args []string) int {
 func runStatus() int {
 	dir := installDir()
 	st, err := state.Load(dir)
-	if err != nil {
+	if err != nil && st.Phase != state.PhaseRecoveryRequired {
 		_ = protocol.Emit(os.Stdout, protocol.Event{Type: protocol.TypeError, Code: "STATE", Message: err.Error()})
 		return 1
 	}
@@ -125,6 +145,9 @@ func runStatus() int {
 	}
 	status := "idle"
 	if st.Phase != "" && st.Phase != state.PhaseIdle && st.Phase != state.PhaseCommit {
+		status = st.Phase
+	}
+	if state.BlocksNewDeploy(st) {
 		status = st.Phase
 	}
 	ev := protocol.Event{
@@ -143,46 +166,42 @@ func runStatus() int {
 func runDiagnose() int {
 	dir := installDir()
 	st, _ := state.Load(dir)
-	type diag struct {
-		InstallDir      string `json:"installDir"`
-		CurrentVersion  string `json:"currentVersion"`
-		PreviousVersion string `json:"previousVersion"`
-		Phase           string `json:"phase"`
-		CurrentIsLink   bool   `json:"currentIsSymlink"`
-		HasPrevious     bool   `json:"hasPrevious"`
-		HasData         bool   `json:"hasData"`
-		Container       string `json:"container,omitempty"`
-		ImageDigest     string `json:"imageDigest,omitempty"`
-		LastErrorCode   string `json:"lastErrorCode,omitempty"`
-	}
-	current := filepath.Join(dir, "current")
-	fi, err := os.Lstat(current)
-	isLink := err == nil && fi.Mode()&os.ModeSymlink != 0
-	d := diag{
-		InstallDir:      dir,
-		CurrentVersion:  nz(st.CurrentVersion, readTrim(filepath.Join(dir, "DEPLOY_VERSION"))),
-		PreviousVersion: st.PreviousVersion,
-		Phase:           st.Phase,
-		CurrentIsLink:   isLink,
-		HasPrevious:     fileExists(filepath.Join(dir, "previous", "docker-compose.yml")),
-		HasData:         dirExists(filepath.Join(dir, "data")),
-		ImageDigest:     st.ImageDigest,
-		LastErrorCode:   st.LastErrorCode,
+	d := state.DiagnoseMap(dir, st)
+	d["currentVersion"] = nz(st.CurrentVersion, readTrim(filepath.Join(dir, "DEPLOY_VERSION")))
+	if st.ImageDigest != "" {
+		d["imageDigest"] = st.ImageDigest
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "instance.json")); err == nil {
 		var obj map[string]any
 		if json.Unmarshal(b, &obj) == nil {
 			if c, ok := obj["containerName"].(string); ok {
-				d.Container = c
+				d["container"] = c
 			} else if c, ok := obj["container"].(string); ok {
-				d.Container = c
+				d["container"] = c
 			}
 		}
 	}
 	enc, _ := json.Marshal(d)
 	fmt.Printf("{\"protocol\":2,\"type\":\"diagnose\",\"message\":%s}\n", strconv.Quote(string(enc)))
 	fmt.Printf("ARDTT_INFO|diagnose current=%s phase=%s previous_ok=%v data=%v symlink=%v\n",
-		d.CurrentVersion, d.Phase, d.HasPrevious, d.HasData, d.CurrentIsLink)
+		d["currentVersion"], d["phase"], d["hasPrevious"], d["hasData"], d["currentIsSymlink"])
+	return 0
+}
+
+func runReconcile() int {
+	dir := installDir()
+	st, err := state.Reconcile(dir)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(st)
+	if errors.Is(err, state.ErrRecoveryRequired) || state.BlocksNewDeploy(st) {
+		fmt.Fprintf(os.Stderr, "RECOVERY_REQUIRED phase=%s code=%s\n", st.Phase, st.LastErrorCode)
+		return 2
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	return 0
 }
 
@@ -228,7 +247,7 @@ func runState(args []string) int {
 	switch args[0] {
 	case "get":
 		st, err := state.Load(dir)
-		if err != nil {
+		if err != nil && st.Phase != state.PhaseRecoveryRequired {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
@@ -236,13 +255,21 @@ func runState(args []string) int {
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(st)
 		return 0
+	case "reconcile":
+		return runReconcile()
 	case "set":
 		st, err := state.Load(dir)
-		if err != nil {
+		if err != nil && st.Phase != state.PhaseRecoveryRequired {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
+		force := false
+		origPhase := st.Phase
 		for i := 1; i < len(args); i++ {
+			if args[i] == "--force" {
+				force = true
+				continue
+			}
 			if i+1 >= len(args) {
 				break
 			}
@@ -272,6 +299,10 @@ func runState(args []string) int {
 				i++
 				st.LastErrorCode = args[i]
 			}
+		}
+		if origPhase == state.PhaseRecoveryRequired && !force && st.Phase != state.PhaseRecoveryRequired {
+			fmt.Fprintln(os.Stderr, "RECOVERY_REQUIRED: refuse to start a new deploy over corrupt/ambiguous state")
+			return 2
 		}
 		if st.Phase == state.PhaseStart || st.Phase == state.PhaseFetch {
 			if st.StartedAt == "" {
@@ -306,6 +337,14 @@ func fileExists(p string) bool {
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
+}
+
+func parseInt64Ptr(v string) *int64 {
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &n
 }
 
 func nz(a, b string) string {
