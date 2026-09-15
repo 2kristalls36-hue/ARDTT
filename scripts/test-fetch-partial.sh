@@ -21,6 +21,9 @@ ARCH="$(uname -m)"
 case "$ARCH" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; esac
 DIST="$TMP/dist"
 mkdir -p "$DIST"
+ARDTT_ARDTTCTL_BIN="$TMP/ardttctl"
+bash "$ROOT/scripts/build-ardttctl.sh" "$ARCH" "$ARDTT_ARDTTCTL_BIN"
+export ARDTT_ARDTTCTL_BIN
 
 make_release() { # version [layer-seed]
   local ver="$1" seed="${2:-$1}" stage="$TMP/stage-$1"

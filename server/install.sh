@@ -32,6 +32,10 @@ fi
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/common.sh"
 # shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/protocol.sh"
+# shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/switch.sh"
+# shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/disk-cleanup.sh"
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/hostdeps.sh"
@@ -548,6 +552,7 @@ do_install() {
   require_manifest
   DEPLOY_VERSION="$PKG_DEPLOY_VERSION"
   ARDTT_IMAGE="${PKG_IMAGE_TAG:-ardtt/server:${DEPLOY_VERSION}}"
+  ardtt_state_set --phase verify --desired "$DEPLOY_VERSION"
 
   if [ "${ARDTT_DRY_RUN:-0}" != "1" ]; then
     prog 0.18 "Preflight (Docker из архива при необходимости, TUN, место, порты)"
@@ -590,7 +595,7 @@ do_install() {
     printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
     write_instance
     prog 1.00 "dry-run: пакет проверен, стек не переключали"
-    echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|provision_port=$PROVISION_PORT|telemetry_port=$TELEMETRY_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID"
+    emit_done "dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|provision_port=$PROVISION_PORT|telemetry_port=$TELEMETRY_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID"
     return 0
   fi
 
@@ -636,9 +641,10 @@ do_install() {
     copy_data_tree "$data_src" "$INSTALL_DIR/data"
   fi
   migrate_confirmed_logs
-  printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/data/DEPLOY_VERSION"
+  ardtt_state_set --phase stage --desired "$DEPLOY_VERSION" --digest "${LOADED_IMAGE_ID:-}"
 
-  local release="$INSTALL_DIR/releases/${DEPLOY_VERSION}"
+  local release
+  release="$(release_staging_path "$DEPLOY_VERSION")"
   rm -rf "$release"
   mkdir -p "$release"
   cp -a "$PKG_DIR/docker-compose.yml" "$release/"
@@ -648,6 +654,13 @@ do_install() {
   [ -f "$PKG_DIR/fetch-and-install.sh" ] && cp -a "$PKG_DIR/fetch-and-install.sh" "$release/" && chmod 755 "$release/fetch-and-install.sh" || true
   [ -d "$PKG_DIR/install-lib" ] && cp -a "$PKG_DIR/install-lib" "$release/"
   [ -d "$PKG_DIR/scripts" ] && cp -a "$PKG_DIR/scripts" "$release/"
+  if [ -x "$PKG_DIR/ardttctl" ]; then
+    cp -a "$PKG_DIR/ardttctl" "$release/ardttctl"
+    chmod 755 "$release/ardttctl"
+  elif [ -x "$SCRIPT_DIR/ardttctl" ]; then
+    cp -a "$SCRIPT_DIR/ardttctl" "$release/ardttctl"
+    chmod 755 "$release/ardttctl"
+  fi
   # Image layout (no blobs): lets the next partial update prune the layer cache
   # and compare the loaded image without re-downloading anything.
   if [ -f "$PKG_DIR/images/layout.json" ]; then
@@ -671,21 +684,16 @@ do_install() {
 
   local prev_link="${INSTALL_DIR}/current"
   prog 0.50 "Остановка только этого экземпляра ARDTT"
-  if [ -d "$prev_link" ] || [ -d "$INSTALL_DIR/stack" ]; then
+  ardtt_state_set --phase start --desired "$DEPLOY_VERSION"
+  if [ -d "$prev_link" ] || [ -L "$prev_link" ] || [ -d "$INSTALL_DIR/stack" ]; then
     mkdir -p "$INSTALL_DIR/backups"
-    if [ -f "${prev_link}/.env" ]; then
-      rm -rf "$INSTALL_DIR/previous"
-      cp -a "$prev_link" "$INSTALL_DIR/previous"
-      snapshot_confirmed_metadata "$INSTALL_DIR/previous"
-    fi
+    snapshot_current_to_previous
     stop_owned_stack "$prev_link"
     stop_legacy_owned
   fi
 
-  rm -rf "$INSTALL_DIR/current"
-  mkdir -p "$INSTALL_DIR/current"
-  cp -a "$release"/. "$INSTALL_DIR/current/"
-  ln -sfn "$release" "$INSTALL_DIR/current-release" 2>/dev/null || true
+  release="$(commit_release_staging "$release" "$DEPLOY_VERSION")"
+  activate_release_tree "$release"
 
   prog 0.62 "Запуск compose --no-build --pull never"
   local compose_log
@@ -700,7 +708,14 @@ do_install() {
     rm -f "$compose_log"
     # First install has nothing to restore: do not leave a Created container and
     # an orphan network behind on the host.
-    if ! restore_previous_release; then
+    local rb=0
+    restore_previous_release || rb=$?
+    if [ "$rb" -eq 2 ]; then
+      stop_owned_stack "$INSTALL_DIR/current" || true
+      remove_owned_networks || true
+      die --code ROLLBACK_FAILED "docker compose up не удался, откат предыдущего стека тоже не поднялся: ${compose_err:-код ≠ 0}"
+    fi
+    if [ "$rb" -ne 0 ]; then
       stop_owned_stack "$INSTALL_DIR/current" || true
       remove_owned_networks || true
     fi
@@ -714,13 +729,25 @@ do_install() {
     local detail
     detail="$(readiness_detail || true)"
     echo "ARDTT_WARN|readiness не прошла: ${detail}"
-    if ! restore_previous_release; then
+    local rb=0
+    restore_previous_release || rb=$?
+    if [ "$rb" -eq 2 ]; then
+      stop_owned_stack "$INSTALL_DIR/current" || true
+      die --code ROLLBACK_FAILED "Новая версия не прошла readiness, откат предыдущего стека тоже не поднялся. ${detail}"
+    fi
+    if [ "$rb" -ne 0 ]; then
       stop_owned_stack "$INSTALL_DIR/current" || true
     fi
     die "Новая версия не прошла readiness. Код ≠ 0, ARDTT_DONE нет. ${detail}"
   fi
 
+  # commit-version-after-readiness
+  mkdir -p "$INSTALL_DIR/data"
+  printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/data/DEPLOY_VERSION"
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
+  ardtt_state_set --phase commit --current "$DEPLOY_VERSION" --desired "$DEPLOY_VERSION" \
+    --previous "$(env_file_val "$INSTALL_DIR/previous/.env" ARDTT_DEPLOY_VERSION)" \
+    --digest "${LOADED_IMAGE_ID:-}"
   write_instance
   clear_pending_instance
   if [ "$ROLE" = "entry" ] && [ "$CASCADE_ENABLED" = "1" ]; then
@@ -730,7 +757,7 @@ do_install() {
   rm -rf "$PKG_DIR"
   # Keep previous until next successful install. Do not delete previous here.
   prog 1.00 "Готово"
-  echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|provision_port=$PROVISION_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID|container=$ARDTT_CONTAINER_NAME"
+  emit_done "install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|provision_port=$PROVISION_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID|container=$ARDTT_CONTAINER_NAME"
   echo "Создать пользователя: docker exec ${ARDTT_CONTAINER_NAME} provision -cmd create-user -name USER -data /data"
 }
 
