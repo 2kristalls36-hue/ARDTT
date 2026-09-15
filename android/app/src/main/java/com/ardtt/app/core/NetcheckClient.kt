@@ -34,53 +34,110 @@ data class NetcheckUiRow(
     val tone: NetcheckTone,
 )
 
-object NetcheckClient {
-    val slots: List<Pair<String, String>> = listOf(
-        "ip_type" to "Тип IP",
-        "netflix" to "Netflix",
-        "youtube" to "YouTube",
-        "disney" to "Disney+",
-        "chatgpt" to "ChatGPT",
-        "google" to "Google",
-        "tiktok" to "TikTok",
-        "instagram" to "Instagram",
-        "reddit" to "Reddit",
-    )
+internal object NetcheckCopy {
+    const val VERDICT_ID = "verdict"
+    const val VERDICT_LABEL = "Итог"
+    const val IP_TYPE_ID = "ip_type"
+    const val IP_TYPE_LABEL = "Тип адреса"
+    const val IDLE = "—"
+    const val OK = "В порядке"
+    const val RESTRICTED = "Есть ограничения"
+    const val BLOCKED = "Есть блокировки"
+    const val PARTIAL = "Проверено частично"
+    const val FAILED = "Не удалось проверить"
+}
 
+object NetcheckClient {
     /**
+     * Compact status-card rows: overall verdict + address kind.
+     * Service slot names stay on the server; the admin card does not list them.
+     *
      * @param probeActive when false (tunnel off / pause), rows show «—» without spinners.
      */
-    fun uiRows(report: NetcheckReport?, probeActive: Boolean): List<NetcheckUiRow> =
-        slots.map { (id, label) ->
-            if (!probeActive) {
-                NetcheckUiRow(
-                    id = id,
-                    label = label,
-                    pending = false,
-                    value = "—",
-                    tone = NetcheckTone.Neutral,
-                )
+    fun summaryRows(report: NetcheckReport?, probeActive: Boolean): List<NetcheckUiRow> =
+        listOf(verdictRow(report, probeActive), ipTypeRow(report, probeActive))
+
+    internal fun verdictOf(report: NetcheckReport): Pair<String, NetcheckTone> {
+        val services = report.items.filter { it.id != NetcheckCopy.IP_TYPE_ID }
+        if (services.isEmpty()) {
+            return if (report.ok) {
+                NetcheckCopy.OK to NetcheckTone.Ok
             } else {
-                val item = report?.items?.firstOrNull { it.id == id }
-                if (item == null) {
-                    NetcheckUiRow(
-                        id = id,
-                        label = label,
-                        pending = true,
-                        value = "",
-                        tone = NetcheckTone.Neutral,
-                    )
-                } else {
-                    NetcheckUiRow(
-                        id = id,
-                        label = label,
-                        pending = false,
-                        value = item.detail.ifBlank { statusFallback(item.status) },
-                        tone = toneOf(item.status),
-                    )
-                }
+                NetcheckCopy.FAILED to NetcheckTone.Error
             }
         }
+        val statuses = services.map { it.status.trim().lowercase() }
+        val blocked = statuses.count { it == "blocked" }
+        val restricted = statuses.count { it == "restricted" }
+        val errors = statuses.count { it == "error" }
+        val okish = statuses.count { it == "ok" || it == "isp" }
+        return when {
+            blocked > 0 -> NetcheckCopy.BLOCKED to NetcheckTone.Error
+            restricted > 0 -> NetcheckCopy.RESTRICTED to NetcheckTone.Warn
+            errors > 0 && okish == 0 -> NetcheckCopy.FAILED to NetcheckTone.Error
+            errors > 0 -> NetcheckCopy.PARTIAL to NetcheckTone.Warn
+            !report.ok -> NetcheckCopy.FAILED to NetcheckTone.Error
+            else -> NetcheckCopy.OK to NetcheckTone.Ok
+        }
+    }
+
+    private fun verdictRow(report: NetcheckReport?, probeActive: Boolean): NetcheckUiRow {
+        if (!probeActive) {
+            return NetcheckUiRow(
+                id = NetcheckCopy.VERDICT_ID,
+                label = NetcheckCopy.VERDICT_LABEL,
+                pending = false,
+                value = NetcheckCopy.IDLE,
+                tone = NetcheckTone.Neutral,
+            )
+        }
+        if (report == null) {
+            return NetcheckUiRow(
+                id = NetcheckCopy.VERDICT_ID,
+                label = NetcheckCopy.VERDICT_LABEL,
+                pending = true,
+                value = "",
+                tone = NetcheckTone.Neutral,
+            )
+        }
+        val (value, tone) = verdictOf(report)
+        return NetcheckUiRow(
+            id = NetcheckCopy.VERDICT_ID,
+            label = NetcheckCopy.VERDICT_LABEL,
+            pending = false,
+            value = value,
+            tone = tone,
+        )
+    }
+
+    private fun ipTypeRow(report: NetcheckReport?, probeActive: Boolean): NetcheckUiRow {
+        if (!probeActive) {
+            return NetcheckUiRow(
+                id = NetcheckCopy.IP_TYPE_ID,
+                label = NetcheckCopy.IP_TYPE_LABEL,
+                pending = false,
+                value = NetcheckCopy.IDLE,
+                tone = NetcheckTone.Neutral,
+            )
+        }
+        val item = report?.items?.firstOrNull { it.id == NetcheckCopy.IP_TYPE_ID }
+        if (item == null) {
+            return NetcheckUiRow(
+                id = NetcheckCopy.IP_TYPE_ID,
+                label = NetcheckCopy.IP_TYPE_LABEL,
+                pending = true,
+                value = "",
+                tone = NetcheckTone.Neutral,
+            )
+        }
+        return NetcheckUiRow(
+            id = NetcheckCopy.IP_TYPE_ID,
+            label = NetcheckCopy.IP_TYPE_LABEL,
+            pending = false,
+            value = item.detail.ifBlank { statusFallback(item.status) },
+            tone = toneOf(item.status),
+        )
+    }
 
     fun parse(raw: String): NetcheckReport {
         val o = JSONObject(raw)

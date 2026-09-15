@@ -5,6 +5,8 @@ import android.net.Network
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -18,9 +20,16 @@ data class IpApiInfo(
     }
 }
 
+/** Provider (underlay) and tunnel egress looked up the same way as the Network map. */
+data class PublicIpPair(
+    val provider: IpApiInfo,
+    val tunnel: IpApiInfo,
+)
+
 /**
  * Public IP + ISP/location via ip-api.com.
- * Provider path binds to underlay; tunnel path uses [EgressIpProbe] then geo lookup by IP.
+ * Provider path binds to underlay; tunnel path uses provision / WARP then geo lookup by IP.
+ * [fetchPublicIps] is the single entry for both addresses (parallel).
  */
 object IpApiLookup {
     private const val FIELDS = "status,message,query,isp,city,country,countryCode"
@@ -89,6 +98,90 @@ object IpApiLookup {
     }
 
     /**
+     * Provider IP and tunnel egress, in parallel, with the same probes as the Network map.
+     * When [probeTunnel] is false the tunnel side stays on the in-memory cache (no extra probe).
+     */
+    suspend fun fetchPublicIps(
+        context: Context,
+        hideIp: Boolean,
+        provisionBaseUrl: String?,
+        exitProvisionBaseUrl: String?,
+        deviceId: String?,
+        viaVpn: Boolean,
+        rejectIps: Collection<String> = emptyList(),
+        probeTunnel: Boolean,
+    ): PublicIpPair = supervisorScope {
+        val provider = async {
+            runCatching { fetchUnderlay(context, rejectIps) }
+                .getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
+        }
+        val tunnel = async {
+            when {
+                !probeTunnel -> cachedTunnelInfo()
+                hideIp -> runCatching {
+                    fetchWarpEgress(
+                        context = context,
+                        entryProvision = provisionBaseUrl,
+                        exitProvision = exitProvisionBaseUrl,
+                        deviceId = deviceId,
+                        viaVpn = viaVpn,
+                        hideIp = true,
+                    )
+                }.getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
+                else -> runCatching {
+                    fetchTunnelEgress(
+                        context = context,
+                        hideIp = false,
+                        provisionBaseUrl = provisionBaseUrl,
+                        exitProvisionBaseUrl = exitProvisionBaseUrl,
+                        deviceId = deviceId,
+                        viaVpn = viaVpn,
+                    )
+                }.getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
+            }
+        }
+        PublicIpPair(provider = provider.await(), tunnel = tunnel.await())
+    }
+
+    /**
+     * CloudFlare / WARP hop: last-hop provision with viaWarp, then ip-api geo.
+     * Same sequence as the Network map CloudFlare card.
+     */
+    suspend fun fetchWarpEgress(
+        context: Context,
+        entryProvision: String?,
+        exitProvision: String?,
+        deviceId: String?,
+        viaVpn: Boolean,
+        hideIp: Boolean,
+    ): IpApiInfo = withContext(Dispatchers.IO) {
+        val urls = linkedSetOf<String>()
+        exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
+        entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
+        var lastIp: String? = null
+        for (base in urls) {
+            val ip = EgressIpProbe.probeProvision(
+                viaWarp = true,
+                provisionBaseUrl = base,
+                deviceId = deviceId,
+                context = context,
+                viaVpn = viaVpn,
+            )
+            if (ip.isNullOrBlank()) continue
+            lastIp = ip
+            if (EgressIpProbe.isLikelyCloudflare(ip) || urls.size == 1) {
+                if (hideIp) EgressIpProbe.remember(ip, "provision/warp")
+                return@withContext lookupAddress(context, ip)
+            }
+        }
+        if (!lastIp.isNullOrBlank()) {
+            if (hideIp) EgressIpProbe.remember(lastIp, "provision/warp")
+            return@withContext lookupAddress(context, lastIp)
+        }
+        IpApiInfo.Empty.copy(error = "Не удалось определить IP")
+    }
+
+    /**
      * Tunnel egress IP from provision (works when the app process is excluded from TUN),
      * then ISP/location via ip-api for that address.
      */
@@ -98,10 +191,12 @@ object IpApiLookup {
         provisionBaseUrl: String?,
         deviceId: String?,
         viaVpn: Boolean,
+        exitProvisionBaseUrl: String? = null,
     ): IpApiInfo = withContext(Dispatchers.IO) {
         val ip = EgressIpProbe.refresh(
             hideIp = hideIp,
             provisionBaseUrl = provisionBaseUrl,
+            exitProvisionBaseUrl = exitProvisionBaseUrl,
             deviceId = deviceId,
             context = context,
             viaVpn = viaVpn,
@@ -193,6 +288,12 @@ object IpApiLookup {
     private fun openHttp(url: URL, bindNetwork: Network?): HttpURLConnection {
         val raw = if (bindNetwork != null) bindNetwork.openConnection(url) else url.openConnection()
         return raw as HttpURLConnection
+    }
+
+    private fun cachedTunnelInfo(): IpApiInfo {
+        val cached = EgressIpProbe.current().orEmpty()
+        if (cached.isBlank()) return IpApiInfo.Empty
+        return IpApiInfo(ip = cached, subtitle = "")
     }
 
     private const val TAG = "IpApi"
