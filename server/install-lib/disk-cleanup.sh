@@ -64,10 +64,24 @@ ardtt_protected_release_paths() {
   if [ -n "$staged" ]; then
     readlink -f "$staged" 2>/dev/null || printf '%s\n' "$staged"
   fi
-  if [ -n "${DEPLOY_VERSION:-}" ]; then
-    local want="${INSTALL_DIR}/releases/${DEPLOY_VERSION}"
-    [ -d "$want" ] && readlink -f "$want"
-    [ -d "${want}.new" ] && readlink -f "${want}.new"
+  if [ -n "${DEPLOYMENT_ID:-}" ]; then
+    local inflight="${INSTALL_DIR}/releases/${DEPLOYMENT_ID}"
+    [ -d "$inflight" ] && readlink -f "$inflight"
+  fi
+  if [ -f "${INSTALL_DIR}/state/deploy.json" ]; then
+    python3 - "${INSTALL_DIR}/state/deploy.json" "${INSTALL_DIR}" <<'PY'
+import json, os, sys
+p, root = sys.argv[1], sys.argv[2]
+try:
+    d = json.load(open(p, encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+did = d.get("deploymentId") or ""
+if did:
+    cand = os.path.join(root, "releases", did)
+    if os.path.isdir(cand):
+        print(os.path.realpath(cand))
+PY
   fi
 }
 
@@ -92,10 +106,20 @@ for name in ("current", "previous", "current-release"):
         if r:
             protected.add(r)
 
-extra = os.environ.get("ARDTT_GC_KEEP", "")
-for line in extra.splitlines():
-    line = line.strip()
-    if line:
+extra = []
+extra_json = os.environ.get("ARDTT_GC_KEEP", "")
+if extra_json.strip().startswith("["):
+    try:
+        extra = json.loads(extra_json)
+    except json.JSONDecodeError:
+        extra = []
+else:
+    for line in extra_json.splitlines():
+        line = line.strip()
+        if line:
+            extra.append(line)
+for line in extra:
+    if isinstance(line, str) and line.strip():
         protected.add(real(line) or line)
 
 def du(path):
@@ -152,7 +176,9 @@ ardtt_gc_releases() {
   local keep="" r
   keep="$(ardtt_protected_release_paths "${1:-}")"
   local report del path size
-  ARDTT_GC_KEEP="$keep" report="$(_ardtt_gc_plan 2>"${TMPDIR:-/tmp}/ardtt-gc-del.$$")" || true
+  local keep_json
+  keep_json="$(printf '%s\n' "$keep" | python3 -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
+  ARDTT_GC_KEEP="$keep_json" report="$(_ardtt_gc_plan 2>"${TMPDIR:-/tmp}/ardtt-gc-del.$$")" || true
   if [ -n "${report:-}" ]; then
     echo "ARDTT_INFO|gc releases ${report}"
   fi

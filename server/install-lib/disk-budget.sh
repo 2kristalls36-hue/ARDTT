@@ -94,12 +94,12 @@ _missing_layer_bytes() {
   local layout_dir="${1:-}"
   local layout="${layout_dir}/layout.json"
   [ -f "$layout" ] || { echo 0; return 0; }
-  local cache="${ARDTT_LAYER_CACHE_DIR:-$INSTALL_DIR/cache/layers}"
-  python3 - "$layout" "$cache" "${ARDTT_IMAGE:-}" <<'PY'
-import json, os, sys, subprocess
-layout, cache, image = sys.argv[1], sys.argv[2], sys.argv[3]
+  python3 - "$layout" "${ARDTT_IMAGE:-}" <<'PY'
+import json, sys, subprocess
+layout, image = sys.argv[1], sys.argv[2]
 d=json.load(open(layout,encoding="utf-8"))
-# If the image is already loaded, docker store already has the layers.
+# Cached compressed blobs save download/cache bytes only. Docker still needs
+# rawSize unless the image is already loaded in DockerRootDir.
 if image:
     try:
         r = subprocess.run(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -110,32 +110,29 @@ if image:
         pass
 missing = 0
 for layer in d.get("layers") or []:
-    diff = (layer or {}).get("diffId") or (layer or {}).get("digest") or ""
-    gz = int((layer or {}).get("gzSize") or 0)
-    hid = ""
-    if isinstance(diff, str) and diff.startswith("sha256:"):
-        hid = diff.split(":",1)[1][:16]
-    cand = []
-    if hid:
-        cand.append(os.path.join(cache, hid + ".tar.gz"))
-        cand.append(os.path.join(cache, diff.split(":",1)[-1] + ".tar.gz"))
-    if any(os.path.isfile(p) for p in cand):
-        continue
-    missing += gz
+    raw = int((layer or {}).get("rawSize") or 0)
+    if raw <= 0:
+        raw = int((layer or {}).get("gzSize") or 0)
+    missing += max(0, raw)
 print(max(0, missing))
 PY
 }
 
 emit_insufficient_disk() {
-  local fs="$1" req="$2" avail="$3" reclaim="$4" margin="$5" phase="$6" msg="$7"
-  if declare -F ardtt_emit >/dev/null && ardtt_emit error --code INSUFFICIENT_DISK --message "$msg" --phase "$phase" \
+  local fs="$1" req="$2" avail="$3" reclaim="$4" margin="$5" phase="$6" msg="$7" code="${8:-INSUFFICIENT_DISK}"
+  if declare -F ardtt_emit >/dev/null && ardtt_emit error --code "$code" --message "$msg" --phase "$phase" \
       --filesystem "$fs" --required-bytes "$req" --available-bytes "$avail" \
       --reclaimable-bytes "$reclaim" --safety-margin-bytes "$margin"; then
     :
   else
-    echo "ARDTT_ERROR|code=INSUFFICIENT_DISK|$msg" >&2
+    echo "ARDTT_ERROR|code=${code}|$msg" >&2
   fi
   exit 1
+}
+
+emit_disk_measurement_failed() {
+  emit_insufficient_disk "${1:-/opt/ardtt}" "${2:-0}" "${3:-0}" "${4:-0}" "${5:-0}" "${6:-measure}" \
+    "${7:-Не удалось измерить свободное место на диске.}" "DISK_MEASUREMENT_FAILED"
 }
 
 preflight_space_budget() {
@@ -169,10 +166,14 @@ preflight_space_budget() {
   min_bytes=$(( ${MIN_DISK_MB:-1600} * 1024 * 1024 ))
   local payload out rc
   local avail_i avail_d avail_t inodes_i
-  avail_i="$(disk_avail_bytes "$install_dir")"; avail_i="${avail_i:-0}"
-  avail_d="$(disk_avail_bytes "$docker_root")"; avail_d="${avail_d:-0}"
-  avail_t="$(disk_avail_bytes "$tmpdir")"; avail_t="${avail_t:-0}"
-  inodes_i="$(disk_inodes_avail "$install_dir")"; inodes_i="${inodes_i:-0}"
+  avail_i="$(disk_avail_bytes "$install_dir")"
+  avail_d="$(disk_avail_bytes "$docker_root")"
+  avail_t="$(disk_avail_bytes "$tmpdir")"
+  inodes_i="$(disk_inodes_avail "$install_dir")"
+  if [ -z "${avail_i:-}" ] || [ -z "${avail_d:-}" ]; then
+    emit_disk_measurement_failed "$install_dir" "$min_bytes" 0 "$reclaim" 0 "preflight" \
+      "Не удалось измерить свободное место (df) на ${install_dir} или DockerRootDir."
+  fi
   missing="${missing:-0}"
   reclaim="${reclaim:-0}"
   candidate="${candidate:-0}"
@@ -184,17 +185,19 @@ print(json.dumps({
   "downloadOrIncomingBytes": $download,
   "extractionOrStagingOverhead": $extract,
   "missingDockerLayerBytes": $missing,
+  "dockerImportBytesRaw": $missing,
   "rollbackReserveBytes": $rollback,
   "stateAndLogOverheadBytes": 64*1024*1024,
   "safelyReclaimableArdttBytes": $reclaim,
+  "actuallyReclaimedBytes": 0,
   "minDiskBytes": $min_bytes,
   "installFsDev": "$(fs_dev "$install_dir")",
   "dockerFsDev": "$(fs_dev "$docker_root")",
   "tmpFsDev": "$(fs_dev "$tmpdir")",
   "installAvailableBytes": $avail_i,
   "dockerAvailableBytes": $avail_d,
-  "tmpAvailableBytes": $avail_t,
-  "installInodesAvailable": $inodes_i,
+  "tmpAvailableBytes": ${avail_t:-0},
+  "installInodesAvailable": ${inodes_i:-0},
   "inodeNeed": 2000,
   "installPath": "$install_dir",
   "installMount": "$(fs_mount "$install_dir")",
@@ -202,70 +205,84 @@ print(json.dumps({
   "dockerMount": "$(fs_mount "$docker_root")",
   "tmpMount": "$(fs_mount "$tmpdir")",
   "phase": "preflight",
+  "estimationMethod": "layout-rawSize-and-local-du",
 }))
 PY
 )"
   set +e
-  out="$(printf '%s' "$payload" | python3 "$(_disk_budget_py)" compute --json - 2>/dev/null)"
+  out="$(printf '%s' "$payload" | python3 "$(_disk_budget_py)" compute --json -)"
   rc=$?
   set -e
-  [ -n "$out" ] || return 0
+  if [ -z "$out" ]; then
+    emit_disk_measurement_failed "$install_dir" "$min_bytes" "${avail_i:-0}" "$reclaim" 0 "preflight" \
+      "Не удалось вычислить disk budget."
+  fi
   echo "ARDTT_INFO|disk budget ${out}"
   if [ "$rc" -ne 0 ]; then
-    local fs req avail reclaim_b margin phase msg
+    local fs req avail reclaim_b margin phase msg code
     fs="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("filesystem",""))' "$out")"
     req="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("requiredBytes",0))' "$out")"
     avail="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("availableBytes",0))' "$out")"
     reclaim_b="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("reclaimableArdttBytes",0))' "$out")"
     margin="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("safetyMarginBytes",0))' "$out")"
     phase="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("phase",""))' "$out")"
-    msg="Мало места на ${fs}: свободно ${avail} Б (нужно ≥${req} Б, запас ${margin} Б, можно освободить до деплоя ${reclaim_b} Б). Повторите с ARDTT_DISK_CLEANUP=1 для хвостов ARDTT. Глобальная очистка сервера не выполняется."
+    code="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("code") or "INSUFFICIENT_DISK")' "$out")"
+    msg="Мало места на ${fs}: свободно ${avail} Б (нужно ≥${req} Б, запас ${margin} Б, можно освободить хвосты ARDTT до ${reclaim_b} Б — это оценка, не вычитается заранее). Повторите с ARDTT_DISK_CLEANUP=1 для хвостов ARDTT. Глобальная очистка сервера не выполняется."
+    if [ "$code" = "DISK_MEASUREMENT_FAILED" ]; then
+      emit_disk_measurement_failed "$fs" "$req" "$avail" "$reclaim_b" "$margin" "$phase" "$msg"
+    fi
     if [ "${DISK_CLEANUP:-0}" = "1" ] || [ "${DISK_CLEANUP:-}" = "yes" ] || [ "${DISK_CLEANUP:-}" = "true" ]; then
       :
     else
-      emit_insufficient_disk "$fs" "$req" "$avail" "$reclaim_b" "$margin" "$phase" "$msg"
+      emit_insufficient_disk "$fs" "$req" "$avail" "$reclaim_b" "$margin" "$phase" "$msg" "$code"
     fi
-    # After opt-in cleanup, recompute once.
+    local before_avail="$avail_i"
     ardtt_disk_cleanup
-    preflight_space_budget_recheck "$payload"
+    preflight_space_budget_recheck "$payload" "$before_avail"
   fi
 }
 
 preflight_space_budget_recheck() {
-  local payload="$1" out rc
-  set +e
-  out="$(printf '%s' "$payload" | python3 "$(_disk_budget_py)" compute --json - 2>/dev/null)"
-  rc=$?
-  set -e
-  # Refresh avail after cleanup.
-  payload="$(python3 - "$payload" "${INSTALL_DIR}" <<'PY'
-import json,sys,os,subprocess
+  local payload="$1" before_avail="${2:-0}" out rc
+  payload="$(python3 - "$payload" "${INSTALL_DIR}" "$before_avail" <<'PY'
+import json,sys,subprocess
 d=json.loads(sys.argv[1])
 install=sys.argv[2]
+before=int(sys.argv[3] or 0)
 def avail(p):
     try:
         out=subprocess.check_output(["df","-PB1",p], text=True).splitlines()[1].split()[3]
         return int(out)
     except Exception:
-        return 0
-d["installAvailableBytes"]=avail(install)
+        return None
+after=avail(install)
+if after is None:
+    d.pop("installAvailableBytes", None)
+else:
+    d["installAvailableBytes"]=after
+    d["actuallyReclaimedBytes"]=max(0, after-before)
+d["safelyReclaimableArdttBytes"]=0
 print(json.dumps(d))
 PY
 )"
   set +e
-  out="$(printf '%s' "$payload" | python3 "$(_disk_budget_py)" compute --json - 2>/dev/null)"
+  out="$(printf '%s' "$payload" | python3 "$(_disk_budget_py)" compute --json -)"
   rc=$?
   set -e
+  if [ -z "$out" ]; then
+    emit_disk_measurement_failed "${INSTALL_DIR}" 0 0 0 0 "preflight" "Не удалось пересчитать disk budget после очистки."
+  fi
   echo "ARDTT_INFO|disk budget after cleanup ${out}"
   if [ "$rc" -ne 0 ]; then
-    local fs req avail reclaim_b margin phase msg
+    local fs req avail reclaim_b margin phase msg code
     fs="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("filesystem",""))' "$out")"
     req="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("requiredBytes",0))' "$out")"
     avail="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("availableBytes",0))' "$out")"
-    reclaim_b="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("reclaimableArdttBytes",0))' "$out")"
+    reclaim_b="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("actuallyReclaimedBytes",0))' "$out")"
     margin="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("safetyMarginBytes",0))' "$out")"
     phase="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("phase",""))' "$out")"
-    msg="Мало места на ${fs}: свободно ${avail} Б (нужно ≥${req} Б) даже после очистки хвостов ARDTT. Освободите место вручную."
-    emit_insufficient_disk "$fs" "$req" "$avail" "$reclaim_b" "$margin" "$phase" "$msg"
+    code="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("code") or "INSUFFICIENT_DISK")' "$out")"
+    msg="Мало места на ${fs}: свободно ${avail} Б (нужно ≥${req} Б) даже после очистки хвостов ARDTT (фактически освобождено ${reclaim_b} Б). Освободите место вручную."
+    emit_insufficient_disk "$fs" "$req" "$avail" "$reclaim_b" "$margin" "$phase" "$msg" "$code"
   fi
 }

@@ -150,6 +150,15 @@ func TestSaveReplacesAtomically(t *testing.T) {
 
 func TestReconcileIdleAndCommit(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "current", "docker-compose.yml"), []byte("c"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "current", ".env"), []byte("ARDTT_DEPLOY_VERSION=1.0.54\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := Save(dir, State{Phase: PhaseCommit, CurrentVersion: "1.0.54"}); err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +168,40 @@ func TestReconcileIdleAndCommit(t *testing.T) {
 	}
 	if s.Phase != PhaseIdle {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestReconcileCommitMismatchIsRecovery(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "current", "docker-compose.yml"), []byte("c"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "current", ".env"), []byte("ARDTT_DEPLOY_VERSION=1.0.53\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(dir, State{Phase: PhaseCommit, CurrentVersion: "1.0.54"}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Reconcile(dir)
+	if !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("err=%v s=%+v", err, s)
+	}
+}
+
+func TestUnknownSchemaIsRecovery(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path(dir), []byte(`{"schemaVersion":99,"phase":"idle","controlProtocolVersion":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(dir)
+	if s.Phase != PhaseRecoveryRequired {
+		t.Fatalf("%+v err=%v", s, err)
 	}
 }
 

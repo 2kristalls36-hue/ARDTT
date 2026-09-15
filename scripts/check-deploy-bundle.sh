@@ -351,6 +351,7 @@ grep -q 'verify_index_staging' "$INSTALLER" || err "install.sh must verify parti
 grep -q 'adopt_layers_into_cache' "$INSTALLER" || err "install.sh must keep loaded layers in the cache"
 grep -q 'releases/latest/download' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back to SHA256SUMS-server.txt when the API is down"
 grep -q 'flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must lock against concurrent runs"
+grep -q 'fetch_disk_preflight' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must preflight disk before large downloads"
 python3 -m py_compile "$ROOT/scripts/layer-cache.py" || err "layer-cache.py"
 python3 -m py_compile "$ROOT/scripts/build-server-index.py" || err "build-server-index.py"
 bash -n "$ROOT/scripts/verify-server-index.sh" || err "bash -n verify-server-index"
@@ -432,6 +433,9 @@ fi
 if [ -f "$ROOT/scripts/test-install-switch.sh" ]; then
   bash "$ROOT/scripts/test-install-switch.sh" || err "install current symlink switch"
 fi
+if [ -f "$ROOT/scripts/test-install-unique-releases.sh" ]; then
+  bash "$ROOT/scripts/test-install-unique-releases.sh" || err "unique immutable releases"
+fi
 if [ -f "$ROOT/scripts/test-install-pointers.sh" ]; then
   bash "$ROOT/scripts/test-install-pointers.sh" || err "install pointer atomicity"
 fi
@@ -440,6 +444,12 @@ if [ -f "$ROOT/scripts/test-install-gc.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-disk-budget.sh" ]; then
   bash "$ROOT/scripts/test-disk-budget.sh" || err "disk budget"
+fi
+if [ -f "$ROOT/scripts/test-install-state-write.sh" ]; then
+  bash "$ROOT/scripts/test-install-state-write.sh" || err "state write required"
+fi
+if [ -f "$ROOT/scripts/test-install-lock.sh" ]; then
+  bash "$ROOT/scripts/test-install-lock.sh" || err "mutation lock"
 fi
 if [ -f "$ROOT/scripts/test-ardttctl.sh" ]; then
   command -v go >/dev/null 2>&1 || err "go is required for ardttctl tests"
@@ -450,13 +460,10 @@ if [ -f "$ROOT/scripts/test-package-extract.sh" ]; then
 fi
 
 if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
-if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
-  bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
-fi
   bash "$ROOT/scripts/test-install-disk-guard.sh" || err "disk guard"
+fi
 if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
   bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
-fi
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"

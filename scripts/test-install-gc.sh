@@ -54,7 +54,7 @@ ok "GC after health protects current/previous, drops obsolete"
 # Unsafe paths
 if ardtt_safe_rm_rf / 2>/dev/null; then err "safe-rm /"; else ok "refuse /"; fi
 if ardtt_safe_rm_rf /opt 2>/dev/null; then err "safe-rm /opt"; else ok "refuse /opt"; fi
-if ardtt_safe_rm_rf "$INSTALL_DIR" 2>/dev/null; then err "safe-rm install root"; else ok "refuse install root"; fi
+if ardtt_safe_rm_rf "$INSTALL_DIR/releases" 2>/dev/null; then err "safe-rm releases root"; else ok "refuse releases root"; fi
 if ardtt_safe_rm_rf "$TMP/foreign" 2>/dev/null; then err "safe-rm foreign"; else ok "refuse foreign path"; fi
 [ -f "$TMP/foreign/keep-me" ] || err "foreign file deleted"
 ok "foreign file intact"

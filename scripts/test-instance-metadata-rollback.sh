@@ -88,6 +88,43 @@ grep -q 'snapshot_confirmed_metadata' "$ROOT/server/install.sh" "$ROOT/server/in
   || err "update must snapshot confirmed instance.json"
 grep -q 'clear_pending_instance' "$ROOT/server/install.sh" || err "success must drop pending metadata"
 
+# P0.5: snapshot of confirmed current must happen before candidate .env writes.
+if ! awk '
+  /snapshot_current_to_previous/ { snap=NR }
+  /write_env_file "\$release\/\.env"/ { rel=NR }
+  /write_env_file "\$INSTALL_DIR\/\.env"/ { root=NR }
+  END {
+    if (!snap) { print "no snapshot"; exit 1 }
+    if (rel && snap > rel) { print "snapshot after release .env"; exit 1 }
+    if (root && snap > root) { print "snapshot after root .env"; exit 1 }
+  }
+' "$ROOT/server/install.sh"; then
+  err "install.sh snapshots rollback metadata after writing candidate .env"
+else
+  ok "install.sh snapshots confirmed metadata before candidate .env"
+fi
+
+# Behavioral: snapshot_confirmed_metadata must copy current release .env, not mutated root.
+SNAP="$TMP/snap"
+INSTALL_DIR="$SNAP"
+mkdir -p "$SNAP/releases/old" "$SNAP/state"
+echo 'ARDTT_DEPLOY_VERSION=1.0.53' > "$SNAP/releases/old/.env"
+echo 'ARDTT_DIRECT_PORT=51820' >> "$SNAP/releases/old/.env"
+echo 'GOOD' > "$SNAP/releases/old/docker-compose.yml"
+ln -sfn "releases/old" "$SNAP/current"
+echo 'ARDTT_DEPLOY_VERSION=1.0.54' > "$SNAP/.env"
+echo 'ARDTT_DIRECT_PORT=51899' >> "$SNAP/.env"
+# shellcheck disable=SC1091
+. "$ROOT/server/install-lib/common.sh"
+# shellcheck disable=SC1091
+. "$ROOT/server/install-lib/ownership.sh"
+snapshot_confirmed_metadata "$SNAP/state/rollback"
+grep -qx 'ARDTT_DEPLOY_VERSION=1.0.53' "$SNAP/state/rollback/root.env" \
+  || err "rollback root.env must be the confirmed current release, not candidate root .env"
+grep -q 'ARDTT_DIRECT_PORT=51820' "$SNAP/state/rollback/root.env" \
+  || err "rollback port must be the old Direct port"
+ok "snapshot uses current release .env, not mutated root"
+
 if [ "$fail" -ne 0 ]; then
   echo "instance metadata rollback tests failed" >&2
   exit 1

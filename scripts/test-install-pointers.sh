@@ -95,6 +95,72 @@ else
   ok "other-fs candidate rejected"
 fi
 
+# --- P0.2: legacy current dir vs existing same-version release ---
+MIG="$TMP/migrate"
+mkdir -p "$MIG/releases/1.0.53" "$MIG/current"
+printf 'STALE-SAME-VERSION\n' > "$MIG/releases/1.0.53/docker-compose.yml"
+printf 'ARDTT_DEPLOY_VERSION=1.0.53\n' > "$MIG/releases/1.0.53/.env"
+printf 'ACTIVE-LEGACY\n' > "$MIG/current/docker-compose.yml"
+printf 'ARDTT_DEPLOY_VERSION=1.0.53\n' > "$MIG/current/.env"
+echo extra-active > "$MIG/current/active.extra"
+python3 "$PY" migrate "$MIG" current
+[ -L "$MIG/current" ] || err "legacy current must become a symlink"
+grep -qx 'ACTIVE-LEGACY' "$MIG/current/docker-compose.yml" \
+  || err "migrate pointed at stale same-version release (lost ACTIVE-LEGACY)"
+[ -f "$MIG/current/active.extra" ] || err "active extra file lost"
+[ -f "$MIG/releases/1.0.53/docker-compose.yml" ] || err "pre-existing dest was deleted"
+grep -qx 'STALE-SAME-VERSION' "$MIG/releases/1.0.53/docker-compose.yml" \
+  || err "stale dest content changed"
+ok "legacy current with colliding version keeps the active tree"
+
+# Identical trees: migrate is allowed to point at dest; both trees remain until GC.
+IDN="$TMP/ident"
+mkdir -p "$IDN/releases/1.0.53" "$IDN/current"
+printf 'SAME\n' > "$IDN/releases/1.0.53/docker-compose.yml"
+printf 'ARDTT_DEPLOY_VERSION=1.0.53\n' > "$IDN/releases/1.0.53/.env"
+printf 'SAME\n' > "$IDN/current/docker-compose.yml"
+printf 'ARDTT_DEPLOY_VERSION=1.0.53\n' > "$IDN/current/.env"
+python3 "$PY" migrate "$IDN" current
+[ -L "$IDN/current" ] || err "identical legacy current must become a symlink"
+grep -qx 'SAME' "$IDN/current/docker-compose.yml" || err "identical migrate lost content"
+ok "legacy current identical to dest"
+
+# No existing release: park into releases/.
+FRESH="$TMP/fresh"
+mkdir -p "$FRESH/current"
+printf 'ONLY\n' > "$FRESH/current/docker-compose.yml"
+printf 'ARDTT_DEPLOY_VERSION=1.0.52\n' > "$FRESH/current/.env"
+python3 "$PY" migrate "$FRESH" current
+[ -L "$FRESH/current" ] || err "fresh legacy current must become a symlink"
+grep -qx 'ONLY' "$FRESH/current/docker-compose.yml" || err "fresh migrate lost content"
+case "$(readlink -f "$FRESH/current")" in
+  "$FRESH"/releases/*) ok "fresh legacy current parked under releases/" ;;
+  *) err "fresh migrate did not park under releases/: $(readlink -f "$FRESH/current")" ;;
+esac
+
+# Crash after park, before symlink: recover must restore current.
+CRASH="$TMP/crash"
+mkdir -p "$CRASH/state" "$CRASH/releases" "$CRASH/current"
+printf 'PARK-ME\n' > "$CRASH/current/docker-compose.yml"
+printf 'ARDTT_DEPLOY_VERSION=1.0.51\n' > "$CRASH/current/.env"
+# Simulate: intent written and directory renamed, pointer not created.
+python3 - "$PY" "$CRASH" <<'PY'
+import os, json, shutil, sys, importlib.util
+py, crash = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("ap", py)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+dest = os.path.join(crash, "releases", "d-parked")
+os.rename(os.path.join(crash, "current"), dest)
+intent = {"name": "current", "destRel": "releases/d-parked", "phase": "parked"}
+os.makedirs(os.path.join(crash, "state"), exist_ok=True)
+open(os.path.join(crash, "state", "migrate.json"), "w", encoding="utf-8").write(json.dumps(intent))
+PY
+python3 "$PY" recover "$CRASH"
+[ -L "$CRASH/current" ] || err "recover after park did not recreate current"
+grep -qx 'PARK-ME' "$CRASH/current/docker-compose.yml" || err "recover after park lost tree"
+ok "recover completes migrate after park"
+
 if [ "$fail" -ne 0 ]; then
   echo "pointer atomicity tests failed" >&2
   exit 1

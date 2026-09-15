@@ -56,11 +56,16 @@ ino2="$(stat -c %i "$INSTALL_DIR/previous/docker-compose.yml")"
 [ "$ino1" = "$ino2" ] || err "previous must be the same inode as the release (no copy)"
 ok "activate/snapshot are pointers, not copies"
 
-# Mutating an immutable release is a bug in the writer, not a snapshot property.
-# Restage of the same version uses .new so the live tree is not replaced in place.
+# Same-version restage uses a unique deployment id, never the live tree.
 live="$(release_staging_path 1.0.54)"
-[ "$live" = "$INSTALL_DIR/releases/1.0.54.new" ] || err "release_staging_path=$live"
-ok "release_staging_path uses .new when live"
+case "$live" in
+  "$INSTALL_DIR"/releases/d*) ;;
+  *) err "release_staging_path=$live" ;;
+esac
+[ "$live" != "$INSTALL_DIR/releases/1.0.54" ] || err "staging must not reuse version id"
+[ "$(readlink -f "$live" 2>/dev/null || echo "$live")" != "$(readlink -f "$INSTALL_DIR/current")" ] \
+  || err "staging must not be the live current tree"
+ok "release_staging_path is a unique deployment id"
 
 compose_up_cmd() { :; }
 # shellcheck disable=SC1091

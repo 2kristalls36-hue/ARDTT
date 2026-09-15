@@ -49,7 +49,8 @@ uninstall_this_instance() {
     "${INSTALL_DIR}/current-release" "${INSTALL_DIR}/previous" "${INSTALL_DIR}/stack" \
     "${INSTALL_DIR}/stack.old" "${INSTALL_DIR}/stack.staging" "${INSTALL_DIR}/bin" \
     "${INSTALL_DIR}/cache" "${INSTALL_DIR}/state" 2>/dev/null || true
-  rm -f "${INSTALL_DIR}/install.lock" "${INSTALL_DIR}/fetch.lock" "${INSTALL_DIR}/DEPLOY_VERSION" 2>/dev/null || true
+  # Never unlink flock inodes (install.lock / fetch.lock): a new inode would race.
+  rm -f "${INSTALL_DIR}/DEPLOY_VERSION" 2>/dev/null || true
   if [ "$purge" = "1" ]; then
     prog 0.85 "Удаление данных (ARDTT_PURGE_DATA=1)"
     rm -rf "${INSTALL_DIR}/data" "${INSTALL_DIR}/logs" "${INSTALL_DIR}/backups" \

@@ -23,23 +23,35 @@ ensure_release_pointers() {
   _switch_py_run recover "$INSTALL_DIR" || true
 }
 
-# If live current already points at releases/<ver>, stage into .new so we
-# do not mutate the running immutable tree.
+new_deployment_id() {
+  python3 -c 'import os,time; print("d{:x}-{}".format(int(time.time()), os.urandom(6).hex()))'
+}
+
+release_is_pointer_target() {
+  local path="$1" abs live name
+  abs="$(readlink -f "$path" 2>/dev/null || echo "$path")"
+  [ -n "$abs" ] || return 1
+  for name in current previous current-release; do
+    live="$(readlink -f "${INSTALL_DIR}/${name}" 2>/dev/null || true)"
+    if [ -n "$live" ] && [ "$live" = "$abs" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Unique releases/<deploymentId> for every attempt. Version is metadata, not the id.
 release_staging_path() {
-  local ver="$1"
-  case "$ver" in
-    ''|*/*|*..*) return 1 ;;
-  esac
-  printf '%s' "$ver" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$' || return 1
-  local want="${INSTALL_DIR}/releases/${ver}"
-  local live want_abs
-  live="$(current_real_path)"
-  want_abs="$(readlink -f "$want" 2>/dev/null || echo "$want")"
-  if [ -n "$live" ] && [ "$live" = "$want_abs" ]; then
-    printf '%s' "${want}.new"
-    return 0
-  fi
-  printf '%s' "$want"
+  local ver="${1:-}"
+  local id path
+  mkdir -p "${INSTALL_DIR}/releases"
+  id="$(new_deployment_id)"
+  path="${INSTALL_DIR}/releases/${id}"
+  while [ -e "$path" ] || release_is_pointer_target "$path"; do
+    id="$(new_deployment_id)"
+    path="${INSTALL_DIR}/releases/${id}"
+  done
+  printf '%s' "$path"
 }
 
 # Keep a restaged tree as its own immutable id (.new). Never swap over a live
