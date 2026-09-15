@@ -109,5 +109,8 @@ if ($inst.Stdout -match 'Failure' -or $inst.ExitCode -ne 0) {
 }
 $result.installed = $true
 $result.after = Get-InstalledPackageInfo
+if ($before.versionCode -and $result.after.versionCode -and ([int]$result.after.versionCode -le [int]$before.versionCode)) {
+    Write-ArdttLog WARN ("versionCode не вырос ({0} → {1}). Android мог оставить старый пакет: нужен APK с большим versionCode и той же подписью." -f $before.versionCode, $result.after.versionCode)
+}
 Save-ArdttUtf8 -Path $report -Text ($result | ConvertTo-Json -Depth 8)
 Write-ArdttLog INFO ("установлено versionName={0} versionCode={1}" -f $result.after.versionName, $result.after.versionCode)

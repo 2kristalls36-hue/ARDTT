@@ -21,7 +21,7 @@
 ## Checkout
 
 - Репозиторий: https://github.com/2kristalls36-hue/ARDTT
-- Код приложения (PR 217, draft): ветка `auto/auto-whitelist-evidence-f6dc`, SHA `a325b83e11ddf8c7bd42490a88db465b34075538`, пакет `com.ardtt.app` 0.5.264 (`versionCode` 283).
+- Код приложения (PR 217, draft): ветка `auto/auto-whitelist-evidence-f6dc`, SHA `a325b83e11ddf8c7bd42490a88db465b34075538`, пакет `com.ardtt.app`. Для установки поверх GitHub `0.5.264` (283) нужен **0.5.265 / versionCode 284** из этой лаборатории, иначе установщик не видит обновление.
 - Лаборатория (уже в git): ветка `auto/windows-usb-testlab-85a8`, коммит `615e312c`, PR https://github.com/2kristalls36-hue/ARDTT/pull/221 (base = ветка PR 217).
 - Каталог: `scripts/windows-usb-testlab/`. Отчёт облака: `setup-report.md`. Доказательства: `evidence/`.
 
@@ -87,7 +87,7 @@ Preview CI APK PR 217 (уже скачан и разобран, не latest rele
 1. Проверь, что это Windows (`$env:OS -eq 'Windows_NT'`), иначе остановись.
 2. Кабель data, не хаб; USB tethering выключен.
 3. Не удаляй приложение при `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
-4. Для телефона с release используй CI Preview или `assembleRelease` с уже имеющимся ключом пользователя — не debug и не keystore с VPS.
+4. Для телефона с release используй Preview APK **0.5.265 (284)** этой ветки (Actions artifact PR 221) или `assembleRelease` с ключом пользователя. Debug и GitHub `v0.5.264` (283) не заменяют друг друга как «обновление».
 5. Logcat не чистить (`-c`). Метка — `Mark-ARDTT-Event.ps1`. В logcat теги `ConnMgr` / `VpnTunnel`.
 6. Интерактив (scrcpy) ≠ фон/Doze. Forced idle ≠ естественный сон.
 7. Секреты в share-архив только через `pack-session.sh`.
