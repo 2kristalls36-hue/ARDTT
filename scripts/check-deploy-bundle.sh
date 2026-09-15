@@ -313,10 +313,18 @@ grep -q 'git clone' "$ROOT/server/fetch-and-install.sh" && err "fetch-and-instal
 grep -q 'fetch-and-install.sh' "$PACK_SERVER" || err "pack-server-package must include fetch-and-install.sh"
 # The archive must actually carry fetch-and-install.sh (tar list), so the VPS keeps
 # its own copy in /opt/ardtt/current and updates no longer depend on the APK bootstrap.
-grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$PACK_SERVER" \
-  || err "pack-server-package tar list must include fetch-and-install.sh"
-grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$ROOT/scripts/repack-server-host-files.sh" \
-  || err "repack-server-host-files tar list must include fetch-and-install.sh"
+grep -q 'install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts' "$PACK_SERVER" \
+  || err "pack-server-package tar list must include fetch-and-install.sh and ardttctl"
+grep -q 'install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts' "$ROOT/scripts/repack-server-host-files.sh" \
+  || err "repack-server-host-files tar list must include fetch-and-install.sh and ardttctl"
+grep -q 'build-ardttctl.sh' "$PACK_SERVER" || err "pack-server-package must build ardttctl"
+grep -q 'INSTALL_LIB_DIR/protocol.sh' "$INSTALLER" || err "install.sh must source protocol.sh"
+grep -q 'INSTALL_LIB_DIR/switch.sh' "$INSTALLER" || err "install.sh must source switch.sh"
+grep -q 'activate_release_tree' "$INSTALLER" || err "install.sh must activate current as a symlink"
+grep -q 'commit-version-after-readiness' "$INSTALLER" || err "data/DEPLOY_VERSION must be committed after readiness"
+if grep -E 'rm[[:space:]].*install\.lock' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not unlink install.lock (breaks flock)"
+fi
 [ -f "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" ] \
   || err "assets must ship fetch-and-install.sh bootstrap"
 cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
@@ -407,6 +415,13 @@ if [ -f "$ROOT/scripts/test-install-unpack.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-rollback.sh" ]; then
   bash "$ROOT/scripts/test-install-rollback.sh" || err "install rollback restore"
+fi
+if [ -f "$ROOT/scripts/test-install-switch.sh" ]; then
+  bash "$ROOT/scripts/test-install-switch.sh" || err "install current symlink switch"
+fi
+if [ -f "$ROOT/scripts/test-ardttctl.sh" ]; then
+  command -v go >/dev/null 2>&1 || err "go is required for ardttctl tests"
+  bash "$ROOT/scripts/test-ardttctl.sh" || err "ardttctl protocol/state"
 fi
 if [ -f "$ROOT/scripts/test-package-extract.sh" ]; then
   bash "$ROOT/scripts/test-package-extract.sh" || err "package extract safety"

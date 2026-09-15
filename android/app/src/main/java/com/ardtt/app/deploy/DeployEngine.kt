@@ -750,6 +750,18 @@ class DeployEngine(private val appContext: Context) {
                     doneFields = DeployInstallEnv.doneFields(line)
                     emitOn(hostLabel, progressEnd, "установка на VPS завершилась")
                 }
+                else -> {
+                    DeployInstallEnv.protocol2Progress(line)?.let { (frac, step) ->
+                        val mapped = (progressStart + span * (0.12f + 0.88f * frac.coerceIn(0f, 1f)))
+                            .coerceIn(0f, 1f)
+                        if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
+                    }
+                    DeployInstallEnv.protocol2Error(line)?.let { failed = it }
+                    DeployInstallEnv.protocol2DoneFields(line)?.let {
+                        doneFields = it
+                        emitOn(hostLabel, progressEnd, "установка на VPS завершилась")
+                    }
+                }
             }
         }
         if (failed != null) {

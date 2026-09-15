@@ -84,7 +84,8 @@ else
   err "install.sh still writes confirmed instance.json before readiness"
 fi
 grep -q 'write_pending_instance' "$ROOT/server/install.sh" || err "first install must record pending ownership"
-grep -q 'snapshot_confirmed_metadata' "$ROOT/server/install.sh" || err "update must snapshot confirmed instance.json"
+grep -q 'snapshot_confirmed_metadata' "$ROOT/server/install.sh" "$ROOT/server/install-lib/switch.sh" \
+  || err "update must snapshot confirmed instance.json"
 grep -q 'clear_pending_instance' "$ROOT/server/install.sh" || err "success must drop pending metadata"
 
 if [ "$fail" -ne 0 ]; then

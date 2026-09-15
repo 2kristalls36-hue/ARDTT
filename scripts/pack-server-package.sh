@@ -95,6 +95,8 @@ cp -f "$ROOT/server/docker-compose.exit.yml" "$STAGE/docker-compose.exit.yml"
 cp -f "$ROOT/server/.env.example" "$STAGE/.env.example"
 cp -f "$ROOT/server/DEPLOY_VERSION" "$STAGE/DEPLOY_VERSION"
 cp -f "$ROOT/server/third-party.lock.json" "$STAGE/third-party.lock.json"
+bash "$ROOT/scripts/build-ardttctl.sh" "$ARCH" "$STAGE/ardttctl"
+chmod 755 "$STAGE/ardttctl"
 cat > "$STAGE/README.md" <<EOF
 # ARDTT server package ${VER} (${ARCH})
 
@@ -148,6 +150,7 @@ FETCH_SHA="$(sha256sum "$STAGE/fetch-and-install.sh" | awk '{print $1}')"
 READY_SHA="$(sha256sum "$STAGE/ready.sh" | awk '{print $1}')"
 COMPOSE_FILE_SHA="$(sha256sum "$STAGE/docker-compose.yml" | awk '{print $1}')"
 ENGINE_FILE_SHA="$(sha256sum "$STAGE/vendor/docker.tgz" | awk '{print $1}')"
+CTL_SHA="$(sha256sum "$STAGE/ardttctl" | awk '{print $1}')"
 LAYER_COUNT="$(python3 -c 'import json; print(len(json.load(open("'"$STAGE/images/layout.json"'"))["layers"]))')"
 
 python3 - "$STAGE/manifest.json" <<PY
@@ -172,6 +175,7 @@ manifest = {
     "install.sh": "${INSTALL_SHA}",
     "fetch-and-install.sh": "${FETCH_SHA}",
     "ready.sh": "${READY_SHA}",
+    "ardttctl": "${CTL_SHA}",
     "docker-compose.yml": "${COMPOSE_FILE_SHA}",
     "vendor/docker.tgz": "${ENGINE_FILE_SHA}",
   },
@@ -194,7 +198,7 @@ PY
 
 (
   cd "$STAGE"
-  sha256sum install.sh fetch-and-install.sh ready.sh docker-compose.yml docker-compose.exit.yml \
+  sha256sum install.sh fetch-and-install.sh ready.sh ardttctl docker-compose.yml docker-compose.exit.yml \
     images/layout.json images/config.json bin/docker-compose vendor/docker.tgz \
     manifest.json third-party.lock.json scripts/assemble-docker-save.py scripts/layer-cache.py > SHA256SUMS
   find images/layers -type f -name '*.tar.gz' -print0 | sort -z | xargs -0 sha256sum >> SHA256SUMS
@@ -204,7 +208,7 @@ PY
 # /opt/ardtt/current and later updates no longer depend on the APK bootstrap.
 tar -czf "$OUT" -C "$STAGE" \
   manifest.json SHA256SUMS README.md DEPLOY_VERSION third-party.lock.json \
-  install.sh fetch-and-install.sh ready.sh install-lib scripts \
+  install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts \
   docker-compose.yml docker-compose.exit.yml .env.example \
   images bin vendor
 

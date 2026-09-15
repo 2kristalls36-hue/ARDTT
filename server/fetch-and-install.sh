@@ -30,31 +30,7 @@ set -euo pipefail
 # die "CODE|message" or die --code CODE "message" → ARDTT_ERROR|code=CODE|message
 # (the `code=` form is what the phone maps to a readable summary; install-lib
 # helpers sourced from the package use the --code form).
-die() {
-  local code="" msg
-  if [ "${1:-}" = "--code" ]; then
-    code="$2"
-    shift 2
-    msg="$*"
-  else
-    msg="$*"
-    if [[ "$msg" =~ ^([A-Z][A-Z0-9_]*)\|(.*)$ ]]; then
-      code="${BASH_REMATCH[1]}"
-      msg="${BASH_REMATCH[2]}"
-    fi
-  fi
-  if [ -n "$code" ]; then
-    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg"
-  else
-    printf 'ARDTT_ERROR|%s\n' "$msg"
-  fi
-  exit 1
-}
-
-prog() {
-  local frac="$1" step="$2"
-  printf 'ARDTT_PROGRESS|%s|%s\n' "$frac" "$step"
-}
+# Defined after SELF_DIR so ardttctl (protocol 2 + legacy) can be found.
 
 info() { printf 'ARDTT_INFO|%s\n' "$*"; }
 warn() { printf 'ARDTT_WARN|%s\n' "$*"; }
@@ -70,6 +46,60 @@ UA="${ARDTT_USER_AGENT:-ARDTT-VPS-fetch/2.0}"
 FETCH_MODE="${ARDTT_FETCH_MODE:-auto}"
 LAYER_CACHE="${ARDTT_LAYER_CACHE:-1}"
 SELF_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo .)"
+
+ardtt_ctl_bin() {
+  local c
+  for c in "${SELF_DIR}/ardttctl" "${INSTALL_DIR}/current/ardttctl"; do
+    if [ -f "$c" ]; then
+      chmod 755 "$c" 2>/dev/null || true
+      if [ -x "$c" ]; then
+        printf '%s' "$c"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+die() {
+  local code="" msg
+  if [ "${1:-}" = "--code" ]; then
+    code="$2"
+    shift 2
+    msg="$*"
+  else
+    msg="$*"
+    if [[ "$msg" =~ ^([A-Z][A-Z0-9_]*)\|(.*)$ ]]; then
+      code="${BASH_REMATCH[1]}"
+      msg="${BASH_REMATCH[2]}"
+    fi
+  fi
+  local bin=""
+  bin="$(ardtt_ctl_bin 2>/dev/null || true)"
+  if [ -n "$bin" ]; then
+    if [ -n "$code" ]; then
+      "$bin" emit error --code "$code" --message "$msg" && exit 1
+    else
+      "$bin" emit error --message "$msg" && exit 1
+    fi
+  fi
+  if [ -n "$code" ]; then
+    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg"
+  else
+    printf 'ARDTT_ERROR|%s\n' "$msg"
+  fi
+  exit 1
+}
+
+prog() {
+  local frac="$1" step="$2"
+  local bin=""
+  bin="$(ardtt_ctl_bin 2>/dev/null || true)"
+  if [ -n "$bin" ] && "$bin" emit progress --frac "$frac" --message "$step" --phase fetch; then
+    return 0
+  fi
+  printf 'ARDTT_PROGRESS|%s|%s\n' "$frac" "$step"
+}
 
 command -v python3 >/dev/null 2>&1 || die "PYTHON_MISSING|нужен python3 на VPS"
 command -v sha256sum >/dev/null 2>&1 || die "SHA256SUM_MISSING|нужен sha256sum (coreutils) на VPS"

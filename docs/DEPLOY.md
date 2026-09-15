@@ -9,11 +9,11 @@
 
 Каталог по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). Старый `/opt/nonamevpn` при обновлении переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.53**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.54**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
 
 > [!IMPORTANT]
-> Стек **1.0.53** — тот же самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (gzip-слои образа + Engine) **плюс** покомпонентные ассеты релиза и индекс `ardtt-server-<версия>-linux-<arch>.index.json`: VPS качает только то, чего у него нет ([частичный деплой](#частичный-деплой)).  
-> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.53. Нужен клиент с этой версии.
+> Стек **1.0.54** — тот же самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (gzip-слои образа + Engine) **плюс** покомпонентные ассеты релиза и индекс `ardtt-server-<версия>-linux-<arch>.index.json`: VPS качает только то, чего у него нет ([частичный деплой](#частичный-деплой)). Рядом с `install.sh` в архиве — host-контроллер `ardttctl` (JSONL protocol=2 и прежние строки `ARDTT_*`).  
+> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.54. Нужен клиент 0.5.264.
 
 ---
 
@@ -48,6 +48,7 @@ Entry и exit используют один образ своей архитек
 manifest.json          # format ardtt-server-v1, version, arch, image tag/id
 SHA256SUMS             # суммы файлов внутри (не источник доверия)
 install.sh + install-lib/
+ardttctl               # host-контроллер: emit/status/diagnose/health/state (JSONL + ARDTT_*)
 fetch-and-install.sh   # VPS сам качает релиз с GitHub
 ready.sh               # overlay в контейнер
 docker-compose.yml     # production: image + pull_policy: never, без build:
@@ -70,7 +71,7 @@ scripts/safe-extract-package.py
 |-------|---------|-------------|
 | `ardtt-server-<ver>-linux-<arch>.tar.gz` (+ `.sha256`) | монолитный архив выше | полная установка, старые APK-bootstrap'ы, `ARDTT_FETCH_MODE=full` |
 | `ardtt-server-<ver>-linux-<arch>.index.json` (+ `.sha256`) | формат `ardtt-server-index-v1`: все компоненты с SHA-256 и размером | единственный корень доверия частичной загрузки |
-| `ardtt-server-<ver>-linux-<arch>-hostfiles.tar.gz` | `install.sh`, `fetch-and-install.sh`, `install-lib/`, `scripts/` (`assemble-docker-save.py`, `layer-cache.py`, `safe-extract-package.py`), `docker-compose*.yml`, `.env.example`, `manifest.json`, `images/layout.json` + `images/config.json`, `third-party.lock.json`, `DEPLOY_VERSION`, README — **без** слоёв, Engine и Compose (≈100 КБ) | всегда |
+| `ardtt-server-<ver>-linux-<arch>-hostfiles.tar.gz` | `install.sh`, `fetch-and-install.sh`, `ardttctl`, `install-lib/`, `scripts/` (`assemble-docker-save.py`, `layer-cache.py`, `safe-extract-package.py`), `docker-compose*.yml`, `.env.example`, `manifest.json`, `images/layout.json` + `images/config.json`, `third-party.lock.json`, `DEPLOY_VERSION`, README — **без** слоёв, Engine и Compose | всегда |
 | `ardtt-server-<ver>-linux-<arch>-layer-NN-<16hex>.tar.gz` | один gzip на слой образа; адресуется **diff ID** слоя (SHA-256 распакованного tar слоя, `<16hex>` — его префикс) | только слои, которых нет в кэше VPS |
 | `ardtt-docker-engine-<engver>-linux-<arch>.tgz` | закреплённый статический Docker Engine побайтно (те же байты, что `vendor/docker.tgz`; сумма в `third-party.lock.json`). Engine 29.7.2: 85,7 МБ amd64 / 77,3 МБ arm64 | только если на VPS нет `docker` |
 | `ardtt-docker-compose-<cver>-linux-<arch>` | закреплённый Compose CLI побайтно (= `bin/docker-compose`). Compose 2.32.4: 64,7 МБ amd64 / 62,9 МБ arm64 | только если Compose на VPS нет |
@@ -164,7 +165,7 @@ scripts/safe-extract-package.py
 
 ## Путь 1 — деплой из Android
 
-Нужен APK этой линейки (стек **1.0.53**). APK **0.5.257** ещё останавливает каскад на preflight, если Docker на VPS нет. Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят.
+Нужен APK этой линейки (стек **1.0.54**). APK **0.5.257** ещё останавливает каскад на preflight, если Docker на VPS нет. Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят. APK **0.5.264** понимает только `ARDTT_*`; JSONL protocol=2 пишет `ardttctl` рядом и старым клиентам не мешает.
 
 ### Что ещё привязано к телефону
 
@@ -320,10 +321,11 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
   incoming/              # загруженный архив или компоненты релиза
   staging/               # распаковка текущей попытки
   cache/layers/          # gzip-слои образа по diff ID (частичный деплой)
-  current/               # активные compose + .env + install.sh + fetch-and-install.sh
-  current/images/layout.json   # манифест слоёв текущего образа (+ config.json), без блобов
-  previous/              # прошлое до следующего успеха
+  current/               # symlink → releases/<ver> (compose, .env, install.sh, fetch-and-install.sh, ardttctl)
+  current-release         # тот же указатель
+  previous/              # dereferenced-копия прошлого дерева до следующего успеха
   releases/<version>/
+  state/deploy.json      # фаза установки (ardttctl), atomic rename
   data/                  # users, ключи, warp; не в tar
   logs/                  # telemetry, не /var/logs/app хоста
   instance.json          # instanceId, compose project, container, subnet, image id

@@ -28,6 +28,10 @@ compose_up_cmd() {
   echo "$*" >> "$COMPOSE_LOG"
   return 0
 }
+wait_readiness() {
+  echo "wait_readiness" >> "$COMPOSE_LOG"
+  return 0
+}
 
 # shellcheck disable=SC1091
 . "$ROOT/server/install-lib/common.sh"
@@ -46,6 +50,7 @@ grep -qx '1.0.44' "$INSTALL_DIR/data/DEPLOY_VERSION" || err "data/DEPLOY_VERSION
 grep -qx '1.0.44' "$INSTALL_DIR/DEPLOY_VERSION" || err "host DEPLOY_VERSION not restored"
 grep -qx 'old-compose' "$INSTALL_DIR/previous/docker-compose.yml" || err "previous/ must remain for a later rollback"
 grep -q 'up -d --no-build --pull never' "$COMPOSE_LOG" || err "restore must compose up --no-build --pull never"
+grep -q 'wait_readiness' "$COMPOSE_LOG" || err "auto-rollback must wait_readiness of the restored stack"
 ok "restore_previous_release copies previous/ and DEPLOY_VERSION"
 
 rm -rf "$INSTALL_DIR/previous"
@@ -55,10 +60,25 @@ else
   ok "missing previous fails closed"
 fi
 
+# Restore that cannot pass readiness must return 2 and emit ROLLBACK_FAILED.
+mkdir -p "$INSTALL_DIR/previous"
+echo 'old-compose' > "$INSTALL_DIR/previous/docker-compose.yml"
+echo 'ARDTT_DEPLOY_VERSION=1.0.44' > "$INSTALL_DIR/previous/.env"
+wait_readiness() { return 1; }
+set +e
+restore_out="$(restore_previous_release 2>&1)"
+rb=$?
+set -e
+[ "$rb" -eq 2 ] || err "failed readiness rollback must return 2 (got $rb)"
+echo "$restore_out" | grep -q 'ROLLBACK_FAILED' || err "failed readiness rollback must emit ROLLBACK_FAILED"
+wait_readiness() { echo "wait_readiness" >> "$COMPOSE_LOG"; return 0; }
+ok "ROLLBACK_FAILED when restored stack is not ready"
+
 if grep -q '\[ -d "$INSTALL_DIR/previous/docker-compose.yml" \]' "$ROOT/server/install.sh"; then
   err "install.sh used [ -d previous/docker-compose.yml ] — rollback would never run"
 fi
 grep -q 'restore_previous_release' "$ROOT/server/install.sh" || err "install.sh must restore previous on failed switch"
+grep -q 'ROLLBACK_FAILED' "$ROOT/server/install.sh" || err "install.sh must surface ROLLBACK_FAILED if auto-rollback cannot start"
 grep -q 'stop_owned_stack' "$ROOT/server/install.sh" || err "install.sh must stop a failed first install"
 grep -q 'restore_previous_release' "$ROOT/server/install-lib/uninstall.sh" || err "restore helper missing"
 grep -q 'load_instance_from_env' "$ROOT/server/install-lib/uninstall.sh" || err "uninstall must read current/.env if instance.json is missing"

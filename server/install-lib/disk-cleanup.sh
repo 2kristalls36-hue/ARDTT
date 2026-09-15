@@ -73,7 +73,8 @@ ardtt_cleanup_ardtt_leftovers() {
       rm -rf "${root}/staging" 2>/dev/null || true
     fi
   fi
-  rm -f "${root}/install.lock" 2>/dev/null || true
+  # Never unlink the flock files: flock holds the inode. rm + recreate
+  # would let a second installer take a new lock file while this run still holds fd 9.
 }
 
 # Safe opt-in reclaim. Caller must set ARDTT_DISK_CLEANUP=1 intentionally.

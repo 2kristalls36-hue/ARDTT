@@ -17,6 +17,9 @@ grep -q 'Swap хоста не создаём' "$ROOT/server/install.sh" || err "
 grep -q 'ardtt_truncate_docker_json_logs' "$ROOT/server/install-lib/disk-cleanup.sh" || err "cleanup truncates large docker logs"
 grep -q 'docker system prune' "$ROOT/server/install-lib/disk-cleanup.sh" && err "must not docker system prune"
 grep -q 'rm -rf /var/lib/docker' "$ROOT/server/install-lib/disk-cleanup.sh" && err "must not wipe docker root"
+if grep -E 'rm[[:space:]].*install\.lock' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not unlink install.lock"
+fi
 # Cleanup must only run when DISK_CLEANUP flag is set (guarded).
 if ! grep -A2 'DISK_CLEANUP' "$ROOT/server/install.sh" | grep -q 'ardtt_disk_cleanup'; then
   err "cleanup must be gated on DISK_CLEANUP"
