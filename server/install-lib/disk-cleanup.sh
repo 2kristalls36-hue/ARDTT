@@ -1,50 +1,21 @@
 # shellcheck shell=bash
-# Opt-in safe disk reclaim before install. Never wipe Docker images in use,
-# foreign containers, /opt/ardtt/data, or host networking.
+# Opt-in reclaim of ARDTT-owned leftovers only. Never wipe foreign Docker,
+# host logs, kernel packages, or /opt/ardtt/data.
 
-# Truncate Docker container json logs (often hundreds of MB). Does not stop containers.
-ardtt_truncate_docker_json_logs() {
-  local f
-  shopt -s nullglob
-  for f in /var/lib/docker/containers/*/*-json.log; do
-    [ -f "$f" ] || continue
-    # Only truncate large logs (≥16 MiB) to avoid churn on tiny files.
-    if [ "$(wc -c <"$f" 2>/dev/null || echo 0)" -ge 16777216 ] 2>/dev/null; then
-      : >"$f" || true
-    fi
-  done
-  shopt -u nullglob
+_cleanup_lib_dir() {
+  local d
+  d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  printf '%s' "$d"
 }
 
-# Remove linux-headers for kernels that are not the running one.
-ardtt_purge_unused_linux_headers() {
-  local running base d pkg
-  running="$(uname -r 2>/dev/null || true)"
-  [ -n "$running" ] || return 0
-  shopt -s nullglob
-  for d in /usr/src/linux-headers-*; do
-    [ -e "$d" ] || continue
-    base="$(basename "$d")"
-    case "$base" in
-      *"${running}"*|*"${running%-generic}"*) ;;
-      *) rm -rf "$d" 2>/dev/null || true ;;
-    esac
-  done
-  shopt -u nullglob
-  if command -v dpkg >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
-    while read -r pkg; do
-      [ -n "$pkg" ] || continue
-      case "$pkg" in
-        *"${running}"*|*"${running%-generic}"*|linux-headers-generic*|linux-headers-virtual*)
-          continue
-          ;;
-      esac
-      DEBIAN_FRONTEND=noninteractive apt-get -y purge "$pkg" >/dev/null 2>&1 || true
-    done < <(dpkg -l 'linux-headers-*' 2>/dev/null | awk '/^ii/{print $2}')
-  fi
+ardtt_safe_rm_rf() {
+  local root="${INSTALL_DIR:-/opt/ardtt}" p
+  [ -n "$root" ] || return 1
+  python3 "$(_cleanup_lib_dir)/safe-rm.py" "$root" "$@"
 }
 
-# Drop failed-install leftovers under INSTALL_DIR without touching the active package/staging.
+# Drop failed-install leftovers under INSTALL_DIR without touching the active
+# package/staging of this run. Never unlink flock files (stable inode).
 ardtt_cleanup_ardtt_leftovers() {
   local root="${INSTALL_DIR:-/opt/ardtt}"
   local keep_pkg="${ARDTT_PACKAGE:-}"
@@ -52,9 +23,11 @@ ardtt_cleanup_ardtt_leftovers() {
   local f
 
   mkdir -p "${root}/incoming" 2>/dev/null || true
-  rm -f "${root}/incoming/"*.partial 2>/dev/null || true
-  # Stale packages in incoming (keep the one we are installing).
   shopt -s nullglob
+  for f in "${root}/incoming/"*.partial; do
+    [ -f "$f" ] || continue
+    ardtt_safe_rm_rf "$f" 2>/dev/null || rm -f "$f" 2>/dev/null || true
+  done
   for f in "${root}/incoming/"*.tar.gz; do
     [ -f "$f" ] || continue
     if [ -n "$keep_pkg" ] && [ "$f" -ef "$keep_pkg" ]; then
@@ -63,49 +36,191 @@ ardtt_cleanup_ardtt_leftovers() {
     if [ -n "$keep_pkg" ] && [ "$(readlink -f "$f" 2>/dev/null || echo "$f")" = "$(readlink -f "$keep_pkg" 2>/dev/null || echo "$keep_pkg")" ]; then
       continue
     fi
-    rm -f "$f" 2>/dev/null || true
+    ardtt_safe_rm_rf "$f" 2>/dev/null || rm -f "$f" 2>/dev/null || true
   done
   shopt -u nullglob
 
-  # Only remove staging if it is NOT the package dir of this run.
   if [ -d "${root}/staging" ]; then
     if [ -z "$keep_dir" ] || [ "$(readlink -f "${root}/staging" 2>/dev/null || echo "${root}/staging")" != "$(readlink -f "$keep_dir" 2>/dev/null || echo "$keep_dir")" ]; then
-      rm -rf "${root}/staging" 2>/dev/null || true
+      ardtt_safe_rm_rf "${root}/staging" 2>/dev/null || true
     fi
   fi
-  rm -f "${root}/install.lock" 2>/dev/null || true
+}
+
+_pointer_real() {
+  local name="$1"
+  if [ -L "${INSTALL_DIR}/${name}" ] || [ -d "${INSTALL_DIR}/${name}" ]; then
+    readlink -f "${INSTALL_DIR}/${name}" 2>/dev/null || true
+  fi
+}
+
+# Protected realpaths: current, previous, and an in-flight staging release.
+ardtt_protected_release_paths() {
+  local p staged="${1:-}"
+  for p in "$(_pointer_real current)" "$(_pointer_real previous)" "$(_pointer_real current-release)"; do
+    [ -n "$p" ] || continue
+    printf '%s\n' "$p"
+  done
+  if [ -n "$staged" ]; then
+    readlink -f "$staged" 2>/dev/null || printf '%s\n' "$staged"
+  fi
+  if [ -n "${DEPLOYMENT_ID:-}" ]; then
+    local inflight="${INSTALL_DIR}/releases/${DEPLOYMENT_ID}"
+    [ -d "$inflight" ] && readlink -f "$inflight"
+  fi
+  if [ -f "${INSTALL_DIR}/state/deploy.json" ]; then
+    python3 - "${INSTALL_DIR}/state/deploy.json" "${INSTALL_DIR}" <<'PY'
+import json, os, sys
+p, root = sys.argv[1], sys.argv[2]
+try:
+    d = json.load(open(p, encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+did = d.get("deploymentId") or ""
+if did:
+    cand = os.path.join(root, "releases", did)
+    if os.path.isdir(cand):
+        print(os.path.realpath(cand))
+PY
+  fi
+}
+
+_ardtt_gc_plan() {
+  python3 - "$INSTALL_DIR" "${ARDTT_GC_DRY_RUN:-0}" "${ARDTT_ALLOW_RELEASE_GC:-0}" <<'PY'
+import os, sys, json
+install, dry, allow = sys.argv[1], sys.argv[2] == "1", sys.argv[3] == "1"
+releases = os.path.join(install, "releases")
+report = {"examined": 0, "freed": 0, "skipped": 0, "reasons": [], "bytes": 0, "dryRun": dry, "allowed": allow}
+
+def real(p):
+    try:
+        return os.path.realpath(p)
+    except OSError:
+        return ""
+
+protected = set()
+for name in ("current", "previous", "current-release"):
+    p = os.path.join(install, name)
+    if os.path.lexists(p):
+        r = real(p)
+        if r:
+            protected.add(r)
+
+extra = []
+extra_json = os.environ.get("ARDTT_GC_KEEP", "")
+if extra_json.strip().startswith("["):
+    try:
+        extra = json.loads(extra_json)
+    except json.JSONDecodeError:
+        extra = []
+else:
+    for line in extra_json.splitlines():
+        line = line.strip()
+        if line:
+            extra.append(line)
+for line in extra:
+    if isinstance(line, str) and line.strip():
+        protected.add(real(line) or line)
+
+def du(path):
+    total = 0
+    for root, dirs, files in os.walk(path, followlinks=False):
+        for f in files:
+            fp = os.path.join(root, f)
+            try:
+                if os.path.islink(fp):
+                    continue
+                total += os.path.getsize(fp)
+            except OSError:
+                pass
+    return total
+
+if not os.path.isdir(releases):
+    json.dump(report, sys.stdout)
+    sys.exit(0)
+
+for ent in sorted(os.listdir(releases)):
+    path = os.path.join(releases, ent)
+    report["examined"] += 1
+    r = real(path)
+    if r in protected:
+        report["skipped"] += 1
+        report["reasons"].append({"id": ent, "reason": "protected_pointer"})
+        continue
+    if not os.path.isdir(path) or os.path.islink(path):
+        report["skipped"] += 1
+        report["reasons"].append({"id": ent, "reason": "not_a_release_dir"})
+        continue
+    if not allow:
+        report["skipped"] += 1
+        report["reasons"].append({"id": ent, "reason": "before_health_gate"})
+        continue
+    size = du(path)
+    report["reasons"].append({"id": ent, "reason": "obsolete", "bytes": size})
+    if dry:
+        report["freed"] += 1
+        report["bytes"] += size
+        continue
+    # actual delete is done by bash via safe-rm
+    print(f"DELETE\t{path}\t{size}", file=sys.stderr)
+    report["freed"] += 1
+    report["bytes"] += size
+json.dump(report, sys.stdout)
+PY
+}
+
+# GC obsolete releases. No-op until ARDTT_ALLOW_RELEASE_GC=1 (after health).
+# Does not docker prune. Does not touch data/, current, or previous.
+ardtt_gc_releases() {
+  local root="${INSTALL_DIR:-/opt/ardtt}"
+  local keep="" r
+  keep="$(ardtt_protected_release_paths "${1:-}")"
+  local report del path size
+  local keep_json
+  keep_json="$(printf '%s\n' "$keep" | python3 -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
+  ARDTT_GC_KEEP="$keep_json" report="$(_ardtt_gc_plan 2>"${TMPDIR:-/tmp}/ardtt-gc-del.$$")" || true
+  if [ -n "${report:-}" ]; then
+    echo "ARDTT_INFO|gc releases ${report}"
+  fi
+  if [ "${ARDTT_ALLOW_RELEASE_GC:-0}" != "1" ]; then
+    rm -f "${TMPDIR:-/tmp}/ardtt-gc-del.$$" 2>/dev/null || true
+    return 0
+  fi
+  if [ "${ARDTT_GC_DRY_RUN:-0}" = "1" ]; then
+    rm -f "${TMPDIR:-/tmp}/ardtt-gc-del.$$" 2>/dev/null || true
+    return 0
+  fi
+  if [ -f "${TMPDIR:-/tmp}/ardtt-gc-del.$$" ]; then
+    while IFS=$'\t' read -r del path size; do
+      [ "$del" = "DELETE" ] || continue
+      [ -n "$path" ] || continue
+      ardtt_safe_rm_rf "$path" || echo "ARDTT_WARN|gc skip ${path}"
+    done < "${TMPDIR:-/tmp}/ardtt-gc-del.$$"
+    rm -f "${TMPDIR:-/tmp}/ardtt-gc-del.$$"
+  fi
+}
+
+ardtt_gc_logs() {
+  local root="${INSTALL_DIR:-/opt/ardtt}/logs"
+  [ -d "$root" ] || return 0
+  # Retention: gzip'd / rotated files older than 14 days under our logs/ only.
+  find "$root" -type f \( -name '*.gz' -o -name '*.old' \) -mtime +14 -print0 2>/dev/null \
+    | while IFS= read -r -d '' f; do
+        ardtt_safe_rm_rf "$f" 2>/dev/null || true
+      done
+}
+
+ardtt_disk_cleanup_hint() {
+  echo "ARDTT_INFO|рекомендация (не выполняется автоматически): при нехватке места на хосте можно вручную сократить логи Docker, apt-кэш и journal. ARDTT чистит только свои incoming/staging/releases/cache/logs."
 }
 
 # Safe opt-in reclaim. Caller must set ARDTT_DISK_CLEANUP=1 intentionally.
 ardtt_disk_cleanup() {
   local before after
   before="$(disk_avail_mb "${INSTALL_DIR:-/}")"
-  echo "ARDTT_INFO|очистка диска (безопасно): логи Docker ≥16МиБ, apt-кэш, лишние linux-headers, хвосты ARDTT; свободно было ${before:-?} МБ"
-
-  ardtt_truncate_docker_json_logs
+  echo "ARDTT_INFO|очистка диска ARDTT: incoming/staging-хвосты; свободно было ${before:-?} МБ"
   ardtt_cleanup_ardtt_leftovers
-
-  if command -v apt-get >/dev/null 2>&1; then
-    apt-get clean >/dev/null 2>&1 || true
-    rm -rf /var/lib/apt/lists/* 2>/dev/null || true
-    rm -f /var/cache/apt/archives/*.deb 2>/dev/null || true
-  fi
-
-  if command -v journalctl >/dev/null 2>&1; then
-    journalctl --vacuum-size=50M >/dev/null 2>&1 || true
-  fi
-
-  ardtt_purge_unused_linux_headers
-
-  # Dangling images / stopped containers only — never prune running or tagged in-use.
-  if command -v docker >/dev/null 2>&1; then
-    docker container prune -f >/dev/null 2>&1 || true
-    docker image prune -f >/dev/null 2>&1 || true
-    docker volume prune -f >/dev/null 2>&1 || true
-  fi
-
-  find /var/log -type f \( -name '*.gz' -o -name '*.1' -o -name '*.old' \) -delete 2>/dev/null || true
-
+  ardtt_disk_cleanup_hint
   after="$(disk_avail_mb "${INSTALL_DIR:-/}")"
-  echo "ARDTT_INFO|очистка диска завершена: свободно ${after:-?} МБ (было ${before:-?} МБ)"
+  echo "ARDTT_INFO|очистка ARDTT завершена: свободно ${after:-?} МБ (было ${before:-?} МБ)"
 }

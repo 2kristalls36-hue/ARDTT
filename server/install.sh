@@ -32,7 +32,13 @@ fi
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/common.sh"
 # shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/protocol.sh"
+# shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/switch.sh"
+# shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/disk-cleanup.sh"
+# shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/disk-budget.sh"
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/hostdeps.sh"
 # shellcheck disable=SC1091
@@ -77,6 +83,7 @@ CASCADE_DNS="${ARDTT_CASCADE_DNS:-${NVPN_CASCADE_DNS:-10.10.0.2}}"
 MIN_DISK_MB="${ARDTT_MIN_DISK_MB:-${NVPN_MIN_DISK_MB:-1600}}"
 MIN_RAM_MB="${ARDTT_MIN_RAM_MB:-384}"
 # Opt-in only: never auto-prune the host. Phone / operator sets ARDTT_DISK_CLEANUP=1.
+# Глобальная очистка сервера не выполняется.
 DISK_CLEANUP="${ARDTT_DISK_CLEANUP:-${NVPN_DISK_CLEANUP:-0}}"
 DIRECT_LISTEN_PORT=51820
 BYPASS_LISTEN_PORT=56003
@@ -184,79 +191,8 @@ preflight_tun() {
   [ -e /dev/net/tun ] || die "Нет /dev/net/tun. Загрузите модуль tun. Установщик не меняет sysctl хоста."
 }
 
-preflight_space_need_mb() {
-  local need="$MIN_DISK_MB" layers_mb=0
-  # Layered packages need far less peak space than a full uncompressed docker save.
-  if [ -f "${PKG_DIR:-}/images/layout.json" ]; then
-    layers_mb="$(python3 - "${PKG_DIR}/images/layout.json" <<'PY' 2>/dev/null || echo 0
-import json,sys
-d=json.load(open(sys.argv[1],encoding="utf-8"))
-gz=sum(int((x or {}).get("gzSize") or 0) for x in (d.get("layers") or []))
-print(max(0, (gz + 1024*1024 - 1)//(1024*1024)))
-PY
-)"
-    # staging already extracted: need headroom for one decompressed layer stream + compose swap.
-    local layered_need=$(( layers_mb / 3 + 700 ))
-    [ "$layered_need" -lt 1200 ] && layered_need=1200
-    [ "$layered_need" -lt "$need" ] && need="$layered_need"
-    # Same image already loaded → only host files / previous metadata.
-    if [ -n "${ARDTT_IMAGE:-}" ] && docker image inspect "${ARDTT_IMAGE}" >/dev/null 2>&1; then
-      if [ -n "${IMAGE_LAYOUT:-}" ] && loaded_image_matches_layout "$IMAGE_LAYOUT" "$ARDTT_IMAGE" 2>/dev/null; then
-        need=800
-      fi
-    fi
-  elif [ -f "${PKG_DIR:-}/images/ardtt.tar" ]; then
-    local tar_mb
-    tar_mb="$(du -m "${PKG_DIR}/images/ardtt.tar" 2>/dev/null | awk '{print $1}')"
-    if [ -n "${tar_mb:-}" ]; then
-      local mono_need=$(( tar_mb + 800 ))
-      [ "$mono_need" -gt "$need" ] && need="$mono_need"
-    fi
-  fi
-  printf '%s %s' "$need" "$layers_mb"
-}
-
-disk_full_hint() {
-  echo "Повторите с безопасной очисткой перед установкой (ARDTT_DISK_CLEANUP=1): логи Docker, apt-кэш, лишние linux-headers, хвосты ARDTT. Чужие контейнеры и /opt/ardtt/data не трогаем. Глобальная очистка сервера не выполняется."
-}
-
 preflight_space() {
-  local need layers_mb avail docker_root avail_docker cleaned=0
-  read -r need layers_mb <<<"$(preflight_space_need_mb)"
-  avail="$(disk_avail_mb "$INSTALL_DIR")"
-  docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
-  avail_docker="$(disk_avail_mb "$docker_root")"
-  echo "ARDTT_INFO|диск install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need}; слои≈${layers_mb:-0} МБ gz)"
-
-  local short=0
-  if [ -n "${avail:-}" ] && [ "$avail" -lt "$need" ] 2>/dev/null; then
-    short=1
-  fi
-  if [ -n "${avail_docker:-}" ] && [ "$avail_docker" -lt "$need" ] 2>/dev/null; then
-    short=1
-  fi
-
-  if [ "$short" = 1 ] && { [ "$DISK_CLEANUP" = "1" ] || [ "$DISK_CLEANUP" = "yes" ] || [ "$DISK_CLEANUP" = "true" ]; }; then
-    prog 0.19 "Очистка места на диске…"
-    ardtt_disk_cleanup
-    cleaned=1
-    avail="$(disk_avail_mb "$INSTALL_DIR")"
-    avail_docker="$(disk_avail_mb "$docker_root")"
-    echo "ARDTT_INFO|после очистки install=${avail:-?} МБ DockerRootDir=${avail_docker:-?} МБ (нужно ≥${need})"
-  fi
-
-  if [ -n "${avail:-}" ] && [ "$avail" -lt "$need" ] 2>/dev/null; then
-    if [ "$cleaned" = 1 ]; then
-      die --code DISK_FULL "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ) даже после очистки. Освободите место вручную."
-    fi
-    die --code DISK_FULL "Мало места на ${INSTALL_DIR}: свободно ${avail} МБ (нужно ≥${need} МБ на распаковку, слои и резерв предыдущей версии). $(disk_full_hint)"
-  fi
-  if [ -n "${avail_docker:-}" ] && [ "$avail_docker" -lt "$need" ] 2>/dev/null; then
-    if [ "$cleaned" = 1 ]; then
-      die --code DISK_FULL "Мало места в DockerRootDir ${docker_root}: свободно ${avail_docker} МБ (нужно ≥${need} МБ) даже после очистки."
-    fi
-    die --code DISK_FULL "Мало места в DockerRootDir ${docker_root}: свободно ${avail_docker} МБ (нужно ≥${need} МБ). $(disk_full_hint)"
-  fi
+  preflight_space_budget
   local ram
   ram="$(mem_avail_mb)"
   if [ "${ram:-0}" -lt "$MIN_RAM_MB" ] 2>/dev/null; then
@@ -459,11 +395,21 @@ find_package_file() {
 }
 
 acquire_lock() {
+  if [ "${ARDTT_MUTATION_LOCK_HELD:-0}" = "1" ]; then
+    return 0
+  fi
   mkdir -p "$INSTALL_DIR"
+  # Persistent lock inode: never unlink. Reboot drops the flock.
+  : >>"$INSTALL_DIR/install.lock"
+  if [ ! -e "$INSTALL_DIR/fetch.lock" ]; then
+    ln "$INSTALL_DIR/install.lock" "$INSTALL_DIR/fetch.lock" 2>/dev/null || : >>"$INSTALL_DIR/fetch.lock"
+  fi
   exec 9>"$INSTALL_DIR/install.lock"
   if ! flock -n 9; then
-    die "Другая установка этого экземпляра уже выполняется (${INSTALL_DIR}/install.lock)"
+    die --code DEPLOY_IN_PROGRESS "Другая установка этого экземпляра уже выполняется (${INSTALL_DIR}/install.lock)"
   fi
+  ARDTT_MUTATION_LOCK_HELD=1
+  export ARDTT_MUTATION_LOCK_HELD
 }
 
 LOG_FILE=""
@@ -497,8 +443,12 @@ do_install() {
   [ "$CASCADE_ENABLED" = "1" ] && [ "$ROLE" = "entry" ] && PROG_ROLE="вход + каскад на ${CASCADE_PEER_ENDPOINT:-?}"
   prog 0.04 "Проверка прав · ${PROG_ROLE}"
 
-  mkdir -p "$INSTALL_DIR/incoming" "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/backups" "$INSTALL_DIR/releases"
+  mkdir -p "$INSTALL_DIR/incoming" "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/backups" "$INSTALL_DIR/releases" "$INSTALL_DIR/state"
   acquire_lock
+  if [ "${ARDTT_DRY_RUN:-0}" != "1" ]; then
+    ensure_release_pointers
+    ardtt_require_deployable
+  fi
 
   local env_now
   env_now="$(legacy_env_file || true)"
@@ -548,6 +498,9 @@ do_install() {
   require_manifest
   DEPLOY_VERSION="$PKG_DEPLOY_VERSION"
   ARDTT_IMAGE="${PKG_IMAGE_TAG:-ardtt/server:${DEPLOY_VERSION}}"
+  DEPLOYMENT_ID="$(new_deployment_id)"
+  ardtt_state_set_required --phase verify --desired "$DEPLOY_VERSION" --id "$DEPLOYMENT_ID" \
+    || die --code STATE_WRITE_FAILED "Не удалось записать phase=verify"
 
   if [ "${ARDTT_DRY_RUN:-0}" != "1" ]; then
     prog 0.18 "Preflight (Docker из архива при необходимости, TUN, место, порты)"
@@ -578,9 +531,14 @@ do_install() {
 
   if [ "${ARDTT_DRY_RUN:-0}" = "1" ]; then
     write_env_file "$PKG_DIR/.env"
-    mkdir -p "$INSTALL_DIR/current"
-    cp -a "$PKG_DIR/docker-compose.yml" "$INSTALL_DIR/current/" 2>/dev/null || true
-    cp -f "$PKG_DIR/.env" "$INSTALL_DIR/current/.env" 2>/dev/null || cp -f "$PKG_DIR/.env" "$INSTALL_DIR/.env"
+    if [ -L "$INSTALL_DIR/current" ]; then
+      # Do not mutate an immutable release through the live pointer.
+      write_env_file "$INSTALL_DIR/.env"
+    else
+      mkdir -p "$INSTALL_DIR/current"
+      cp -a "$PKG_DIR/docker-compose.yml" "$INSTALL_DIR/current/" 2>/dev/null || true
+      cp -f "$PKG_DIR/.env" "$INSTALL_DIR/current/.env" 2>/dev/null || cp -f "$PKG_DIR/.env" "$INSTALL_DIR/.env"
+    fi
     local data_src
     data_src="$(legacy_data_dir || true)"
     if [ -n "$data_src" ] && [ "$data_src" != "$INSTALL_DIR/data" ]; then
@@ -590,7 +548,7 @@ do_install() {
     printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
     write_instance
     prog 1.00 "dry-run: пакет проверен, стек не переключали"
-    echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|provision_port=$PROVISION_PORT|telemetry_port=$TELEMETRY_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID"
+    emit_done "dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|provision_port=$PROVISION_PORT|telemetry_port=$TELEMETRY_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID"
     return 0
   fi
 
@@ -636,10 +594,23 @@ do_install() {
     copy_data_tree "$data_src" "$INSTALL_DIR/data"
   fi
   migrate_confirmed_logs
-  printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/data/DEPLOY_VERSION"
+  ardtt_state_set_required --phase stage --desired "$DEPLOY_VERSION" --id "$DEPLOYMENT_ID" --digest "${LOADED_IMAGE_ID:-}" \
+    || die --code STATE_WRITE_FAILED "Не удалось записать phase=stage"
 
-  local release="$INSTALL_DIR/releases/${DEPLOY_VERSION}"
-  rm -rf "$release"
+  # Confirmed current (ports, Cascade, WARP, instance) before any candidate writes.
+  if [ -d "$INSTALL_DIR/current" ] || [ -L "$INSTALL_DIR/current" ]; then
+    snapshot_current_to_previous || die --code STATE_WRITE_FAILED "Не удалось снять snapshot текущего release"
+  fi
+
+  local release
+  release="${INSTALL_DIR}/releases/${DEPLOYMENT_ID}"
+  if release_is_pointer_target "$release" || [ -e "$release" ]; then
+    DEPLOYMENT_ID="$(new_deployment_id)"
+    release="${INSTALL_DIR}/releases/${DEPLOYMENT_ID}"
+  fi
+  if release_is_pointer_target "$release" || [ -e "$release" ]; then
+    die --code RELEASE_IN_USE "Каталог candidate совпал с current/previous"
+  fi
   mkdir -p "$release"
   cp -a "$PKG_DIR/docker-compose.yml" "$release/"
   [ -f "$PKG_DIR/docker-compose.exit.yml" ] && cp -a "$PKG_DIR/docker-compose.exit.yml" "$release/"
@@ -648,6 +619,13 @@ do_install() {
   [ -f "$PKG_DIR/fetch-and-install.sh" ] && cp -a "$PKG_DIR/fetch-and-install.sh" "$release/" && chmod 755 "$release/fetch-and-install.sh" || true
   [ -d "$PKG_DIR/install-lib" ] && cp -a "$PKG_DIR/install-lib" "$release/"
   [ -d "$PKG_DIR/scripts" ] && cp -a "$PKG_DIR/scripts" "$release/"
+  if [ -x "$PKG_DIR/ardttctl" ]; then
+    cp -a "$PKG_DIR/ardttctl" "$release/ardttctl"
+    chmod 755 "$release/ardttctl"
+  elif [ -x "$SCRIPT_DIR/ardttctl" ]; then
+    cp -a "$SCRIPT_DIR/ardttctl" "$release/ardttctl"
+    chmod 755 "$release/ardttctl"
+  fi
   # Image layout (no blobs): lets the next partial update prune the layer cache
   # and compare the loaded image without re-downloading anything.
   if [ -f "$PKG_DIR/images/layout.json" ]; then
@@ -661,7 +639,6 @@ do_install() {
     cp -a "$SCRIPT_DIR/ready.sh" "$release/"
   fi
   write_env_file "$release/.env"
-  write_env_file "$INSTALL_DIR/.env"
   write_pending_instance
 
   if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
@@ -671,21 +648,16 @@ do_install() {
 
   local prev_link="${INSTALL_DIR}/current"
   prog 0.50 "Остановка только этого экземпляра ARDTT"
-  if [ -d "$prev_link" ] || [ -d "$INSTALL_DIR/stack" ]; then
+  ardtt_state_set_required --phase start_candidate --desired "$DEPLOY_VERSION" --id "$DEPLOYMENT_ID" \
+    || die --code STATE_WRITE_FAILED "Не удалось записать phase=start_candidate"
+  if [ -d "$prev_link" ] || [ -L "$prev_link" ] || [ -d "$INSTALL_DIR/stack" ]; then
     mkdir -p "$INSTALL_DIR/backups"
-    if [ -f "${prev_link}/.env" ]; then
-      rm -rf "$INSTALL_DIR/previous"
-      cp -a "$prev_link" "$INSTALL_DIR/previous"
-      snapshot_confirmed_metadata "$INSTALL_DIR/previous"
-    fi
     stop_owned_stack "$prev_link"
     stop_legacy_owned
   fi
 
-  rm -rf "$INSTALL_DIR/current"
-  mkdir -p "$INSTALL_DIR/current"
-  cp -a "$release"/. "$INSTALL_DIR/current/"
-  ln -sfn "$release" "$INSTALL_DIR/current-release" 2>/dev/null || true
+  release="$(commit_release_staging "$release" "$DEPLOY_VERSION")"
+  activate_release_tree "$release"
 
   prog 0.62 "Запуск compose --no-build --pull never"
   local compose_log
@@ -700,7 +672,14 @@ do_install() {
     rm -f "$compose_log"
     # First install has nothing to restore: do not leave a Created container and
     # an orphan network behind on the host.
-    if ! restore_previous_release; then
+    local rb=0
+    restore_previous_release || rb=$?
+    if [ "$rb" -eq 2 ]; then
+      stop_owned_stack "$INSTALL_DIR/current" || true
+      remove_owned_networks || true
+      die --code ROLLBACK_FAILED "docker compose up не удался, откат предыдущего стека тоже не поднялся: ${compose_err:-код ≠ 0}"
+    fi
+    if [ "$rb" -ne 0 ]; then
       stop_owned_stack "$INSTALL_DIR/current" || true
       remove_owned_networks || true
     fi
@@ -714,15 +693,35 @@ do_install() {
     local detail
     detail="$(readiness_detail || true)"
     echo "ARDTT_WARN|readiness не прошла: ${detail}"
-    if ! restore_previous_release; then
+    local rb=0
+    restore_previous_release || rb=$?
+    if [ "$rb" -eq 2 ]; then
+      stop_owned_stack "$INSTALL_DIR/current" || true
+      die --code ROLLBACK_FAILED "Новая версия не прошла readiness, откат предыдущего стека тоже не поднялся. ${detail}"
+    fi
+    if [ "$rb" -ne 0 ]; then
       stop_owned_stack "$INSTALL_DIR/current" || true
     fi
     die "Новая версия не прошла readiness. Код ≠ 0, ARDTT_DONE нет. ${detail}"
   fi
 
+  # commit-version-after-readiness
+  mkdir -p "$INSTALL_DIR/data"
+  printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/data/DEPLOY_VERSION"
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
+  if [ -f "$release/.env" ]; then
+    cp -a "$release/.env" "$INSTALL_DIR/.env"
+  else
+    write_env_file "$INSTALL_DIR/.env"
+  fi
+  ardtt_state_set_required --phase commit --current "$DEPLOY_VERSION" --desired "$DEPLOY_VERSION" \
+    --previous "$(env_file_val "$INSTALL_DIR/previous/.env" ARDTT_DEPLOY_VERSION)" \
+    --id "$DEPLOYMENT_ID" --digest "${LOADED_IMAGE_ID:-}" \
+    || die --code STATE_WRITE_FAILED "Не удалось записать phase=commit"
   write_instance
   clear_pending_instance
+  ARDTT_ALLOW_RELEASE_GC=1 ardtt_gc_releases "$release"
+  ardtt_gc_logs
   if [ "$ROLE" = "entry" ] && [ "$CASCADE_ENABLED" = "1" ]; then
     prog 0.92 "Передача ключа каскада на выход"
     push_entry_pubkey_to_exit
@@ -730,7 +729,7 @@ do_install() {
   rm -rf "$PKG_DIR"
   # Keep previous until next successful install. Do not delete previous here.
   prog 1.00 "Готово"
-  echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|provision_port=$PROVISION_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID|container=$ARDTT_CONTAINER_NAME"
+  emit_done "install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|provision_port=$PROVISION_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID|container=$ARDTT_CONTAINER_NAME"
   echo "Создать пользователя: docker exec ${ARDTT_CONTAINER_NAME} provision -cmd create-user -name USER -data /data"
 }
 
@@ -752,6 +751,7 @@ case "$ACTION" in
   rollback)
     migrate_legacy_install_dir
     acquire_lock
+    load_required_instance_identity || die --code STATE "Нет instance.json/.env (INSTANCE_ID/COMPOSE_PROJECT) для отката"
     rollback_previous
     ;;
   install|update|"")

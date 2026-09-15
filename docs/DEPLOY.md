@@ -9,11 +9,11 @@
 
 Каталог по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). Старый `/opt/nonamevpn` при обновлении переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.53**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.54**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
 
 > [!IMPORTANT]
-> Стек **1.0.53** — тот же самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (gzip-слои образа + Engine) **плюс** покомпонентные ассеты релиза и индекс `ardtt-server-<версия>-linux-<arch>.index.json`: VPS качает только то, чего у него нет ([частичный деплой](#частичный-деплой)).  
-> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.53. Нужен клиент с этой версии.
+> Стек **1.0.54** — тот же самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (gzip-слои образа + Engine) **плюс** покомпонентные ассеты релиза и индекс `ardtt-server-<версия>-linux-<arch>.index.json`: VPS качает только то, чего у него нет ([частичный деплой](#частичный-деплой)). Рядом с `install.sh` в архиве — host-контроллер `ardttctl` (JSONL protocol=2 и прежние строки `ARDTT_*`).  
+> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.54. Нужен клиент 0.5.264.
 
 ---
 
@@ -48,6 +48,7 @@ Entry и exit используют один образ своей архитек
 manifest.json          # format ardtt-server-v1, version, arch, image tag/id
 SHA256SUMS             # суммы файлов внутри (не источник доверия)
 install.sh + install-lib/
+ardttctl               # host-контроллер: emit/status/diagnose/health/state (JSONL + ARDTT_*)
 fetch-and-install.sh   # VPS сам качает релиз с GitHub
 ready.sh               # overlay в контейнер
 docker-compose.yml     # production: image + pull_policy: never, без build:
@@ -70,7 +71,7 @@ scripts/safe-extract-package.py
 |-------|---------|-------------|
 | `ardtt-server-<ver>-linux-<arch>.tar.gz` (+ `.sha256`) | монолитный архив выше | полная установка, старые APK-bootstrap'ы, `ARDTT_FETCH_MODE=full` |
 | `ardtt-server-<ver>-linux-<arch>.index.json` (+ `.sha256`) | формат `ardtt-server-index-v1`: все компоненты с SHA-256 и размером | единственный корень доверия частичной загрузки |
-| `ardtt-server-<ver>-linux-<arch>-hostfiles.tar.gz` | `install.sh`, `fetch-and-install.sh`, `install-lib/`, `scripts/` (`assemble-docker-save.py`, `layer-cache.py`, `safe-extract-package.py`), `docker-compose*.yml`, `.env.example`, `manifest.json`, `images/layout.json` + `images/config.json`, `third-party.lock.json`, `DEPLOY_VERSION`, README — **без** слоёв, Engine и Compose (≈100 КБ) | всегда |
+| `ardtt-server-<ver>-linux-<arch>-hostfiles.tar.gz` | `install.sh`, `fetch-and-install.sh`, `ardttctl`, `install-lib/`, `scripts/` (`assemble-docker-save.py`, `layer-cache.py`, `safe-extract-package.py`), `docker-compose*.yml`, `.env.example`, `manifest.json`, `images/layout.json` + `images/config.json`, `third-party.lock.json`, `DEPLOY_VERSION`, README — **без** слоёв, Engine и Compose | всегда |
 | `ardtt-server-<ver>-linux-<arch>-layer-NN-<16hex>.tar.gz` | один gzip на слой образа; адресуется **diff ID** слоя (SHA-256 распакованного tar слоя, `<16hex>` — его префикс) | только слои, которых нет в кэше VPS |
 | `ardtt-docker-engine-<engver>-linux-<arch>.tgz` | закреплённый статический Docker Engine побайтно (те же байты, что `vendor/docker.tgz`; сумма в `third-party.lock.json`). Engine 29.7.2: 85,7 МБ amd64 / 77,3 МБ arm64 | только если на VPS нет `docker` |
 | `ardtt-docker-compose-<cver>-linux-<arch>` | закреплённый Compose CLI побайтно (= `bin/docker-compose`). Compose 2.32.4: 64,7 МБ amd64 / 62,9 МБ arm64 | только если Compose на VPS нет |
@@ -110,8 +111,10 @@ scripts/safe-extract-package.py
          (без индекса — монолитный ardtt-server-<ver>-linux-<arch>.tar.gz)
          сверка каждого файла с индексом + bash staging/install.sh
          /opt/ardtt/cache/layers/ ← gzip-слои по diff ID, переиспользуются
-         /opt/ardtt/current/     ← compose + .env этой версии
-         /opt/ardtt/previous/    ← прошлое, пока новая не прошла readiness
+         /opt/ardtt/current     ← symlink → releases/<id>
+         /opt/ardtt/previous    ← symlink → последний проверенный release (не копия дерева)
+         /opt/ardtt/releases/<id>/
+         /opt/ardtt/state/     ← deploy.json + rollback-метаданные
          /opt/ardtt/data         ← users.json, ключи, warp
          /opt/ardtt/logs
          контейнер с labels com.ardtt.owner / com.ardtt.instance
@@ -164,7 +167,7 @@ scripts/safe-extract-package.py
 
 ## Путь 1 — деплой из Android
 
-Нужен APK этой линейки (стек **1.0.53**). APK **0.5.257** ещё останавливает каскад на preflight, если Docker на VPS нет. Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят.
+Нужен APK этой линейки (стек **1.0.54**). APK **0.5.257** ещё останавливает каскад на preflight, если Docker на VPS нет. Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` этот пакет не ставят. APK **0.5.264** понимает только `ARDTT_*`; JSONL protocol=2 пишет `ardttctl` рядом и старым клиентам не мешает.
 
 ### Что ещё привязано к телефону
 
@@ -302,7 +305,7 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
 | Safe extract | запрет `..`, абсолютных путей, symlink/hardlink |
 | Preflight | Docker, python3, TUN, arch пакета, диск (install + DockerRootDir), RAM, порты TCP/UDP + Docker PortBindings, подсеть bridge. Если Engine ставится из архива (`ensure_docker_engine`) и iptables на хосте нет — сначала подтягивается пакет iptables из репозитория дистрибутива. **Старый ARDTT ещё работает** |
 | `docker load` | проверка image ID и arch |
-| Switch | только этот экземпляр по labels; `previous/` до readiness |
+| Switch | atomic pointers `current`/`previous` → `releases/<id>`; previous не копирует дерево |
 | Up | `docker compose up -d --no-build --pull never` |
 | Readiness | пакетный `ready.sh` через `bash` (процессы/интерфейсы роли), не один `/health` |
 | Ошибка | откат на `previous`, `ARDTT_ERROR`, код ≠ 0, **нет** `ARDTT_DONE` |
@@ -320,10 +323,12 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
   incoming/              # загруженный архив или компоненты релиза
   staging/               # распаковка текущей попытки
   cache/layers/          # gzip-слои образа по diff ID (частичный деплой)
-  current/               # активные compose + .env + install.sh + fetch-and-install.sh
-  current/images/layout.json   # манифест слоёв текущего образа (+ config.json), без блобов
-  previous/              # прошлое до следующего успеха
-  releases/<version>/
+  current                # atomic symlink → releases/<id>
+  current-release        # тот же указатель
+  previous               # atomic symlink → последний проверенный release (не копия)
+  releases/<id>/         # immutable после staging (compose, .env, install.sh, fetch-and-install.sh, ardttctl)
+  state/deploy.json      # фаза установки (ardttctl), random tmp + fsync dir
+  state/rollback/        # instance.json / root.env / DEPLOY_VERSION для отката
   data/                  # users, ключи, warp; не в tar
   logs/                  # telemetry, не /var/logs/app хоста
   instance.json          # instanceId, compose project, container, subnet, image id
@@ -413,8 +418,9 @@ docker exec "$NAME" provision -cmd create-user -name smoke -data /data
 | `IPTABLES_MISSING` | Docker нужно ставить из пакета, а `iptables` на хосте нет (минимальные Debian 13 / Ubuntu 26.04), и автоматическая установка из репозитория дистрибутива не удалась (нет доступа к репозиториям) или запрещена `ARDTT_INSTALL_IPTABLES=0`. Поставьте вручную (`apt install iptables` / `dnf install iptables-nft` / `apk add iptables`) и повторите; при `ARDTT_INSTALL_IPTABLES=1` (по умолчанию) установщик обычно ставит iptables сам |
 | `GITHUB_UNREACHABLE` | Ни GitHub API, ни `SHA256SUMS-server.txt` последнего релиза не получены. Нужен исходящий HTTPS к `api.github.com` / `github.com`; при лимите API помогает `ARDTT_GITHUB_TOKEN` |
 | Docker Engine не найден на чистом VPS | Норма для 1.0.46: пакет ставит Engine из `vendor/docker.tgz`. Если отказ — смотрите `DOCKER_MISSING` (нет tarball/SHA) или `DOCKER_NOT_RUNNING` (чужой демон / нет systemd). Нужен APK 0.5.258: 0.5.257 ещё обрывает preflight |
-| Мало места | Код `DISK_FULL`. Порог с запасом на load + слои + `previous/`. Без флага глобальная очистка **не** выполняется; в ошибке предлагается повтор с `ARDTT_DISK_CLEANUP=1` (логи Docker, apt-кэш, лишние headers, хвосты ARDTT). В приложении — кнопка «Очистить место и повторить». |
-| `ARDTT_ERROR` без `ARDTT_DONE` | Новый стек не прошёл readiness; смотрите `previous/` и `/opt/ardtt/install.log` |
+| Мало места | Код `INSUFFICIENT_DISK` (старый APK читает `code=` и текст «Мало места»). Peak: candidate + download + extract + missing layers + rollback reserve (0 при pointer-модели) + state/log + запас − reclaimable incoming/staging. Проверка отдельно, если `/opt/ardtt` и DockerRootDir на разных filesystem. Без флага глобальная очистка **не** выполняется; `ARDTT_DISK_CLEANUP=1` убирает только хвосты ARDTT. В приложении — кнопка «Очистить место и повторить». |
+| `RECOVERY_REQUIRED` | Повреждён или неоднозначен `state/deploy.json`. Новый деплой заблокирован, пока не разберут `ardttctl diagnose`. |
+| `ARDTT_ERROR` без `ARDTT_DONE` | Новый стек не прошёл readiness; смотрите `previous` (symlink на старый release) и `/opt/ardtt/install.log` |
 | Чужие контейнеры/VPN отвалились | Так быть не должно. Сообщите labels/имена; не включайте hostnet |
 | UDP Direct мёртв, TCP provision жив | Docker UDP DNAT. Hostnet-fallback нет — смотрите published ports и return path |
 | Карточка «нужно обновить» | APK новее стека — «Обновить деплой» |

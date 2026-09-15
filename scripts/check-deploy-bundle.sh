@@ -313,10 +313,31 @@ grep -q 'git clone' "$ROOT/server/fetch-and-install.sh" && err "fetch-and-instal
 grep -q 'fetch-and-install.sh' "$PACK_SERVER" || err "pack-server-package must include fetch-and-install.sh"
 # The archive must actually carry fetch-and-install.sh (tar list), so the VPS keeps
 # its own copy in /opt/ardtt/current and updates no longer depend on the APK bootstrap.
-grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$PACK_SERVER" \
-  || err "pack-server-package tar list must include fetch-and-install.sh"
-grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$ROOT/scripts/repack-server-host-files.sh" \
-  || err "repack-server-host-files tar list must include fetch-and-install.sh"
+grep -q 'install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts' "$PACK_SERVER" \
+  || err "pack-server-package tar list must include fetch-and-install.sh and ardttctl"
+grep -q 'install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts' "$ROOT/scripts/repack-server-host-files.sh" \
+  || err "repack-server-host-files tar list must include fetch-and-install.sh and ardttctl"
+grep -q 'build-ardttctl.sh' "$PACK_SERVER" || err "pack-server-package must build ardttctl"
+grep -q 'INSTALL_LIB_DIR/protocol.sh' "$INSTALLER" || err "install.sh must source protocol.sh"
+grep -q 'INSTALL_LIB_DIR/switch.sh' "$INSTALLER" || err "install.sh must source switch.sh"
+grep -q 'activate_release_tree' "$INSTALLER" || err "install.sh must activate current as a symlink"
+grep -q 'commit-version-after-readiness' "$INSTALLER" || err "data/DEPLOY_VERSION must be committed after readiness"
+if grep -q 'docker volume prune' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not docker volume prune"
+fi
+if grep -q 'docker image prune' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not docker image prune"
+fi
+if grep -q 'ardtt_truncate_docker_json_logs' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not truncate all Docker json logs"
+fi
+grep -q 'atomic-pointer.py' "$ROOT/server/install-lib/switch.sh" || err "switch.sh must use atomic-pointer.py"
+if grep -E 'cp[[:space:]]+-a[[:space:]]+"\$src"' "$ROOT/server/install-lib/switch.sh"; then
+  err "switch.sh must not cp -a the live release tree"
+fi
+python3 -m py_compile "$ROOT/server/install-lib/atomic-pointer.py" || err "atomic-pointer.py"
+python3 -m py_compile "$ROOT/server/install-lib/disk-budget.py" || err "disk-budget.py"
+python3 -m py_compile "$ROOT/server/install-lib/safe-rm.py" || err "safe-rm.py"
 [ -f "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" ] \
   || err "assets must ship fetch-and-install.sh bootstrap"
 cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
@@ -330,6 +351,7 @@ grep -q 'verify_index_staging' "$INSTALLER" || err "install.sh must verify parti
 grep -q 'adopt_layers_into_cache' "$INSTALLER" || err "install.sh must keep loaded layers in the cache"
 grep -q 'releases/latest/download' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back to SHA256SUMS-server.txt when the API is down"
 grep -q 'flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must lock against concurrent runs"
+grep -q 'fetch_disk_preflight' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must preflight disk before large downloads"
 python3 -m py_compile "$ROOT/scripts/layer-cache.py" || err "layer-cache.py"
 python3 -m py_compile "$ROOT/scripts/build-server-index.py" || err "build-server-index.py"
 bash -n "$ROOT/scripts/verify-server-index.sh" || err "bash -n verify-server-index"
@@ -408,18 +430,40 @@ fi
 if [ -f "$ROOT/scripts/test-install-rollback.sh" ]; then
   bash "$ROOT/scripts/test-install-rollback.sh" || err "install rollback restore"
 fi
+if [ -f "$ROOT/scripts/test-install-switch.sh" ]; then
+  bash "$ROOT/scripts/test-install-switch.sh" || err "install current symlink switch"
+fi
+if [ -f "$ROOT/scripts/test-install-unique-releases.sh" ]; then
+  bash "$ROOT/scripts/test-install-unique-releases.sh" || err "unique immutable releases"
+fi
+if [ -f "$ROOT/scripts/test-install-pointers.sh" ]; then
+  bash "$ROOT/scripts/test-install-pointers.sh" || err "install pointer atomicity"
+fi
+if [ -f "$ROOT/scripts/test-install-gc.sh" ]; then
+  bash "$ROOT/scripts/test-install-gc.sh" || err "install GC/cleanup"
+fi
+if [ -f "$ROOT/scripts/test-disk-budget.sh" ]; then
+  bash "$ROOT/scripts/test-disk-budget.sh" || err "disk budget"
+fi
+if [ -f "$ROOT/scripts/test-install-state-write.sh" ]; then
+  bash "$ROOT/scripts/test-install-state-write.sh" || err "state write required"
+fi
+if [ -f "$ROOT/scripts/test-install-lock.sh" ]; then
+  bash "$ROOT/scripts/test-install-lock.sh" || err "mutation lock"
+fi
+if [ -f "$ROOT/scripts/test-ardttctl.sh" ]; then
+  command -v go >/dev/null 2>&1 || err "go is required for ardttctl tests"
+  bash "$ROOT/scripts/test-ardttctl.sh" || err "ardttctl protocol/state"
+fi
 if [ -f "$ROOT/scripts/test-package-extract.sh" ]; then
   bash "$ROOT/scripts/test-package-extract.sh" || err "package extract safety"
 fi
 
 if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
-if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
-  bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
-fi
   bash "$ROOT/scripts/test-install-disk-guard.sh" || err "disk guard"
+fi
 if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
   bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
-fi
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"

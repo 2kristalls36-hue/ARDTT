@@ -1,8 +1,20 @@
 # ARDTT v0.5.264
 
-Клиент **0.5.264** (`versionCode` 283). Серверный стек **1.0.53** (`DEPLOY_VERSION`).
+Клиент **0.5.264** (`versionCode` 283). Серверный стек **1.0.54** (`DEPLOY_VERSION`).
 
-GitHub Release `v0.5.264`: APK (`versionCode` 283), `ardtt-update.json`, `ardtt-server-1.0.52` и **1.0.53** `linux-{amd64,arm64}` (архив, индекс, слои), Docker Engine, Compose CLI.
+GitHub Release `v0.5.264`: APK (`versionCode` 283), `ardtt-update.json`, `ardtt-server-1.0.52`, **1.0.53** и **1.0.54** `linux-{amd64,arm64}` (архив, индекс, слои), Docker Engine, Compose CLI.
+
+## стек 1.0.54 — ardttctl, dual protocol, atomic current
+
+- **Host-контроллер `ardttctl`.** Статический Go-бинарник в корне пакета и host-файлов (не в `bin/` — там Compose). Команды `emit` / `status` / `diagnose` / `health` / `state`. `install.sh` и `fetch-and-install.sh` вызывают его, если файл исполняемый, иначе оставляют прежний `echo ARDTT_*`.
+- **Два протокола сразу.** JSONL `protocol=2` первой строкой, затем `ARDTT_PROGRESS|` / `ERROR|code=…|` / `DONE|`. APK **0.5.264** по-прежнему читает только префиксы; JSON не ломает парсер. Новый клиент понимает оба. В первых 400 символах `install.sh` по-прежнему есть `ARDTT_PROGRESS|` и `ARDTT_DONE|` (APK ≤0.5.245).
+- **Состояние.** `/opt/ardtt/state/deploy.json` пишется через случайный tmp + fsync файла + `rename` + fsync каталога. Повреждённый JSON → `recovery_required` (не idle) и `deploy.json.corrupt.<id>`; новый деплой блокируется (`RECOVERY_REQUIRED`).
+- **`current` / `previous` — atomic pointers** (`symlink` → `releases/<id>`). Снимок previous **не** копирует дерево (`cp -a` убран). Rollback только переставляет указатель. Переключение через `current.next.<nonce>` и `rename(2)` в том же каталоге, без окна «current отсутствует». Метаданные отката — в `state/rollback/`, не внутри immutable release. Легаси-каталоги `current/`/`previous/` мигрируют идемпотентно.
+- **`data/DEPLOY_VERSION` только после readiness.** Раньше версия писалась в `data/` до stop — новый номер на ещё живом старом стеке. Теперь host и `data/DEPLOY_VERSION` вместе с `instance.json` на COMMIT.
+- **Auto-rollback ждёт readiness.** Если предыдущий стек не поднялся — код `ROLLBACK_FAILED` (исходная ошибка compose/readiness не подменяется, если откат удался).
+- **Диск.** Preflight считает peak (`INSUFFICIENT_DISK`: required/available/reclaimable/margin/filesystem/phase). Пол по умолчанию 1600 МБ. `ARDTT_DISK_CLEANUP=1` чистит только incoming/staging ARDTT; чужие контейнеры, Docker logs, `/var/log`, kernel headers и `docker volume prune` не трогаются. GC `releases/` — только после health gate, current/previous защищены.
+- **Lock.** Opt-in disk cleanup больше не делает `rm -f install.lock` при живом `flock` (новый inode пускал второй installer).
+- **Клиент.** `DeployEngine` читает JSONL protocol=2 наряду с `ARDTT_*`. `versionName` приложения не менялся: тот же тег `v0.5.264`, чтобы на релизе остался `SHA256SUMS-server.txt`.
 
 ## 0.5.264
 
