@@ -107,6 +107,22 @@ function Invoke-ArdttNative {
     }
 }
 
+function Get-ArdttLabVersions {
+    $path = Join-Path (Get-ArdttScriptRoot) 'versions.env'
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "нет versions.env: $path"
+    }
+    $map = [ordered]@{}
+    Get-Content -LiteralPath $path | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith('#')) { return }
+        $eq = $line.IndexOf('=')
+        if ($eq -lt 1) { return }
+        $map[$line.Substring(0, $eq)] = $line.Substring($eq + 1)
+    }
+    return [pscustomobject]$map
+}
+
 function Get-ArdttLabConfig {
     param([string]$ConfigPath)
     if (-not $ConfigPath) {

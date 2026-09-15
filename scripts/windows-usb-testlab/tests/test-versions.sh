@@ -30,6 +30,12 @@ app_id="$(sed -n 's/.*applicationId = "\([^"]*\)".*/\1/p' "$ROOT/android/app/bui
 [[ "$app_id" == "$ARDTT_PACKAGE" ]] || fail "applicationId $app_id != $ARDTT_PACKAGE"
 ok "package $ARDTT_PACKAGE"
 
+vc="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' "$ROOT/android/app/build.gradle.kts" | head -1)"
+vn="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' "$ROOT/android/app/build.gradle.kts" | head -1)"
+[[ "$vc" == "$ARDTT_MIN_INSTALL_VERSION_CODE" ]] || fail "versionCode $vc != $ARDTT_MIN_INSTALL_VERSION_CODE"
+[[ "$vn" == "$ARDTT_MIN_INSTALL_VERSION_NAME" ]] || fail "versionName $vn != $ARDTT_MIN_INSTALL_VERSION_NAME"
+ok "install gate $vn / $vc"
+
 mk_ver="$(sed -n 's/^GO_VERSION := //p' "$ROOT/android/tunnel/tools/libwg-go/Makefile" | head -1)"
 mk_hash="$(sed -n 's/^GO_HASH_linux-amd64 := //p' "$ROOT/android/tunnel/tools/libwg-go/Makefile" | head -1)"
 [[ "$mk_ver" == "$GO_LIBWG_VERSION" ]] || fail "libwg-go GO_VERSION $mk_ver != $GO_LIBWG_VERSION"

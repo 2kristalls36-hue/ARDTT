@@ -22,7 +22,7 @@
 
 - Репозиторий: https://github.com/2kristalls36-hue/ARDTT
 - Код приложения (PR 217, draft): ветка `auto/auto-whitelist-evidence-f6dc`, SHA `a325b83e11ddf8c7bd42490a88db465b34075538`, пакет `com.ardtt.app`. Для установки поверх GitHub `0.5.264` (283) нужен **0.5.265 / versionCode 284** из этой лаборатории, иначе установщик не видит обновление.
-- Лаборатория (уже в git): ветка `auto/windows-usb-testlab-85a8`, коммит `615e312c`, PR https://github.com/2kristalls36-hue/ARDTT/pull/221 (base = ветка PR 217).
+- Лаборатория (уже в git): ветка `auto/windows-usb-testlab-85a8`, PR https://github.com/2kristalls36-hue/ARDTT/pull/221 (base = ветка PR 217). Для телефона берите **Preview APK 0.5.265 / versionCode 284** этой ветки, не GitHub `releases/latest`.
 - Каталог: `scripts/windows-usb-testlab/`. Отчёт облака: `setup-report.md`. Доказательства: `evidence/`.
 
 Работай из `auto/windows-usb-testlab-85a8` (она содержит SHA приложения + скрипты). Не переключайся на `main`.
@@ -37,7 +37,7 @@
 | `Install-LinuxToolchain.sh` | JDK/Go 1.25.14/SDK 35/NDK 27.0.12077973/CMake 3.22.1, хеши официальные |
 | `Doctor-ARDTT.ps1` / `Doctor-ARDTT.sh` | Windows USB и Linux toolchain |
 | `Build-ARDTT.ps1` / `Build-ARDTT.sh` | WSL/Linux сборка + `build-manifest.json` |
-| `Fetch-PreviewApk.sh` | CI Preview; фиксирует merge commit ≠ head |
+| `Fetch-PreviewApk.sh` / `Fetch-PreviewApk.ps1` | CI Preview **0.5.265/284**; отказ от GitHub `v0.5.264` |
 | `Install-ARDTT.ps1` | только `adb install -r` после сравнения подписи; **нет** uninstall |
 | `Start/Mark/Capture/Stop-ARDTT-Diagnostics.ps1` | сессия, logcat без `-c`, только свои PID |
 | `Test-ARDTT-Scenario.ps1` | S00 авто; S01–S12 PENDING без живых условий |
@@ -62,15 +62,22 @@ Linux toolchain на облачной VM (не на вашем ПК):
 - подпись Android Debug `fb59b8ea4a4edf1c3d32b19d612d0823e88ba4ca52a4a68b22fc5f1f0ee378e2`
 - APK **не в git** (80 МБ). На облачной VM он был в `~/ardtt-testlab/apk/` — на Windows его нет, соберите заново в WSL или возьмите CI.
 
-Preview CI APK PR 217 (уже скачан и разобран, не latest release):
+Preview CI APK для телефона (release, не latest GitHub Release):
 
-- run https://github.com/2kristalls36-hue/ARDTT/actions/runs/34856621087
-- artifact `ardtt-0.5.264-51cf7ce-arm64-v8a` — **merge commit** `51cf7ce`, не чистый head `a325b83e`
-- `app-arm64-v8a-release.apk` SHA-256 `c6e9a361d1f12a6d943c9babbfdefdb37827f95c9d18a07a1e76251785ea20fd`
+- run https://github.com/2kristalls36-hue/ARDTT/actions/runs/34944525811
+- artifact `ardtt-0.5.265-3f14a8c-arm64-v8a` — **merge commit** `3f14a8c`, не чистый head
+- `app-arm64-v8a-release.apk` SHA-256 `8ba45dd66a13bafeb4faec3ee8a114a0d31c35e0c94a06141637929ca34d0642`
+- `versionName=0.5.265` **`versionCode=284`** — это и есть обновление поверх GitHub `v0.5.264` / 283
 - release cert `e07400a728fd0dc1c6c84874a4bea5b157b8f3e7015ecef3d21ed0bc0fa245fa` (CN=ARDTT) — **несовместима** с debug
-- native libs в CI APK тоже есть
+- native libs в CI APK есть
+- кнопка «Обновить» в приложении **не** поставит этот файл: GitHub `releases/latest` всё ещё 0.5.264/283, VPS `update.json` — 0.5.244/262
 
-Красный Preview APK у PR 221 (`sdkmanager` package `tools`) — побочный сбой Actions, не чинить в рамках USB-лаборатории. Для телефона берите артефакт PR 217 выше.
+Старый Preview PR 217 (run 34856621087, `0.5.264` / 283) **не ставить** — Android оставит уже установленный пакет.
+
+```powershell
+.\scripts\windows-usb-testlab\Fetch-PreviewApk.ps1
+.\scripts\windows-usb-testlab\Install-ARDTT.ps1 -ApkPath "$env:LOCALAPPDATA\ARDTT-TestLab\apk\app-arm64-v8a-release.apk"
+```
 
 ## Что облако НЕ сделало (это твоя работа)
 

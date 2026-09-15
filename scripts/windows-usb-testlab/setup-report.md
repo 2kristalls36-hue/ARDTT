@@ -12,7 +12,7 @@
 | WSL2 и Linux toolchain | PASS (Linux host) | JDK 21.0.10, Go 1.25.14, SDK 35, NDK 27.0.12077973 linux-x86_64, CMake 3.22.1, cmdline-tools 22.0. Хеш Go 1.27.0 для libwg-go совпал с go.dev. См. `evidence/cloud-linux-doctor.json`. |
 | Точный checkout | PASS | `git rev-parse HEAD` = `a325b83e11ddf8c7bd42490a88db465b34075538`, совпадает с head PR217. |
 | Нативные библиотеки и APK | PASS (debug, эта VM) | `assembleDebug -PtargetAbis=arm64-v8a`, в APK есть `libclient.so` и `libwg-go.so`. SHA-256 `7a5447f34f62c8dd3ec48f0fa645ba837fca48f97ada8059e4fb3089e8c9916b`. Подпись **Android Debug**. |
-| Preview CI APK (release) | PASS (скачан) | Run [34856621087](https://github.com/2kristalls36-hue/ARDTT/actions/runs/34856621087), artifact `ardtt-0.5.264-51cf7ce-arm64-v8a` — merge commit, не чистый head. SHA-256 `c6e9a361d1f12a6d943c9babbfdefdb37827f95c9d18a07a1e76251785ea20fd`, cert `e07400a728…`. |
+| Preview CI APK (release) | PASS (скачан) | Run [34944525811](https://github.com/2kristalls36-hue/ARDTT/actions/runs/34944525811), artifact `ardtt-0.5.265-3f14a8c-arm64-v8a`. **versionCode 284 / 0.5.265**. SHA-256 `8ba45dd66a13bafeb4faec3ee8a114a0d31c35e0c94a06141637929ca34d0642`, cert `e07400a728…`. GitHub `releases/latest` по-прежнему 283 — in-app update этот файл не предложит. |
 | USB и выбранный телефон | BLOCKED | Нет устройства `adb devices` в состоянии `device`. |
 | Управление/снимок экрана | BLOCKED | Нет USB; PNG-путь проверен на mock-adb (`tests/test-capture-state.sh`). |
 | Установка нужного APK | BLOCKED | Нет телефона. Debug и CI release подписаны **разными** сертификатами; `Install-ARDTT.ps1` не будет uninstall. |
@@ -39,4 +39,4 @@ scripts/windows-usb-testlab/Stop-ARDTT-Diagnostics.ps1
 scripts/windows-usb-testlab/Restore-ARDTT-TestState.ps1
 ```
 
-APK этой сессии **не** в git (80 МБ debug). На VM: `~/ardtt-testlab/apk/app-arm64-v8a-debug.apk`. Для телефона с release-подписью используйте Preview APK из CI или локальный `assembleRelease` с keystore пользователя (keystore с VPS лаборатория не скачивает).
+APK этой сессии **не** в git (gitignore `*.apk`). Для телефона с release-подписью: Preview APK **0.5.265 / 284** из [Actions run 34944525811](https://github.com/2kristalls36-hue/ARDTT/actions/runs/34944525811), не `releases/latest` и не локальный debug. Keystore с VPS лаборатория не скачивает.

@@ -40,6 +40,16 @@ function Get-InstalledPackageInfo {
     return [pscustomobject]$info
 }
 
+$versions = Get-ArdttLabVersions
+$minCode = 284
+if ($versions.ARDTT_MIN_INSTALL_VERSION_CODE) {
+    $minCode = [int]$versions.ARDTT_MIN_INSTALL_VERSION_CODE
+}
+$minName = '0.5.265'
+if ($versions.ARDTT_MIN_INSTALL_VERSION_NAME) {
+    $minName = [string]$versions.ARDTT_MIN_INSTALL_VERSION_NAME
+}
+
 Write-ArdttLog INFO 'снимок установленного приложения до install'
 $before = Get-InstalledPackageInfo
 
@@ -47,6 +57,19 @@ $sdkApksigner = $null
 if ($cfg.windowsSdkRoot) {
     $cand = Join-Path $cfg.windowsSdkRoot "build-tools\35.0.0\apksigner.bat"
     if (Test-Path -LiteralPath $cand) { $sdkApksigner = $cand }
+}
+
+$apkBadging = $null
+$apkVersionCode = $null
+$apkVersionName = $null
+if ($cfg.windowsSdkRoot) {
+    $aapt = Join-Path $cfg.windowsSdkRoot "build-tools\35.0.0\aapt.exe"
+    if (Test-Path -LiteralPath $aapt) {
+        $badging = Invoke-ArdttNative -FilePath $aapt -ArgumentList @('dump', 'badging', $ApkPath) -TimeoutSec 60
+        $apkBadging = $badging.Stdout
+        if ($apkBadging -match "versionCode='(\d+)'") { $apkVersionCode = [int]$Matches[1] }
+        if ($apkBadging -match "versionName='([^']+)'") { $apkVersionName = $Matches[1] }
+    }
 }
 
 $certNew = $null
@@ -68,6 +91,12 @@ if ($before.apkPath) {
 }
 
 $blocker = $null
+if ($apkVersionCode -and ($apkVersionCode -lt $minCode)) {
+    $blocker = ("это APK {0} (versionCode {1}), а для обновления нужен {2} ({3}). GitHub releases/latest = v0.5.264 / 283 — Android не заменит уже установленный 0.5.264. Скачайте Preview APK run {4}." -f $(if ($apkVersionName) { $apkVersionName } else { '?' }), $apkVersionCode, $minName, $minCode, $versions.ARDTT_PREVIEW_RUN_ID)
+}
+if (-not $blocker -and $before.installed -and $apkVersionCode -and $before.versionCode -and ($apkVersionCode -le [int]$before.versionCode)) {
+    $blocker = ("versionCode APK {0} не больше установленного {1}. Установщик не считает это обновлением." -f $apkVersionCode, $before.versionCode)
+}
 if ($before.installed -and $pulled -and $sdkApksigner -and $certNew) {
     $old = Invoke-ArdttNative -FilePath $sdkApksigner -ArgumentList @('verify', '--print-certs', $pulled) -TimeoutSec 60
     $newSha = [regex]::Match($certNew, 'SHA-256 digest:\s*([0-9a-fA-F: ]+)').Groups[1].Value

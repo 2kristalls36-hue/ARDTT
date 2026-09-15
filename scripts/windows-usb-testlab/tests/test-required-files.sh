@@ -22,6 +22,8 @@ need=(
   scenarios.json
   Install-LinuxToolchain.sh
   Fetch-PreviewApk.sh
+  Fetch-PreviewApk.ps1
+  lib/apk-gate.sh
   lib/ArdttLab.ps1
   lib/redact.py
   lib/pack-session.sh
