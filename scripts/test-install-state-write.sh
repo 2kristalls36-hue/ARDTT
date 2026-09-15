@@ -41,9 +41,14 @@ echo "$out" | grep -q 'STATE_WRITE_FAILED' || err "required write must mention S
 ok "required state write fails closed"
 
 # --force must not idle out of recovery without a verified pointer set.
-cd "$ROOT/server/ardttctl"
-bin="$(mktemp)"
-GOOS="$(go env GOOS)" GOARCH="$(go env GOARCH)" CGO_ENABLED=0 go build -o "$bin" .
+bin=""
+if [ -n "${ARDTTCTL_BIN:-}" ] && [ -x "${ARDTTCTL_BIN}" ]; then
+  bin="${ARDTTCTL_BIN}"
+else
+  cd "$ROOT/server/ardttctl"
+  bin="$(mktemp)"
+  GOOS="$(go env GOOS)" GOARCH="$(go env GOARCH)" CGO_ENABLED=0 go build -o "$bin" .
+fi
 mkdir -p "$INSTALL_DIR/state"
 cat > "$INSTALL_DIR/state/deploy.json" <<'EOF'
 {
