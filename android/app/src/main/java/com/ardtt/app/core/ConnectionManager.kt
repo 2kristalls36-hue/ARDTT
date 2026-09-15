@@ -12,16 +12,26 @@ import android.os.Looper
 import android.os.SystemClock
 import android.telephony.TelephonyManager
 import android.util.Log
+import com.ardtt.app.bypass.CallHashErrorKind
+import com.ardtt.app.bypass.CallHashFailure
+import com.ardtt.app.bypass.CallHashOutcome
+import com.ardtt.app.bypass.CallHashPhase
 import com.ardtt.app.bypass.CallHashStore
+import com.ardtt.app.bypass.CallRecreateIdentity
 import com.ardtt.app.bypass.CallRecreatePrompt
 import com.ardtt.app.bypass.DeadCallAction
 import com.ardtt.app.bypass.DialPath
 import com.ardtt.app.bypass.VkCallHashGenerator
 import com.ardtt.app.bypass.VkLoginActivity
 import com.ardtt.app.bypass.VkSession
+import com.ardtt.app.bypass.beginCallRecreateChanged
+import com.ardtt.app.bypass.callRecreateChangedFromOutcome
+import com.ardtt.app.bypass.callRecreateIdentityStillCurrent
+import com.ardtt.app.bypass.classifyCallHashThrowable
 import com.ardtt.app.bypass.decideDeadCallAction
 import com.ardtt.app.bypass.isDeadCallMessage
 import com.ardtt.app.bypass.userActionForBypassFailure
+import com.ardtt.app.telemetry.TelemetryBridge
 import com.ardtt.app.profile.VpnProfile
 import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.deploy.DeployHop
@@ -40,6 +50,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
@@ -85,9 +96,12 @@ class ConnectionManager(
     private val hashStore = CallHashStore(appContext)
     private val settingsRepo = AppSettingsRepository(appContext)
     private var probeJob: Job? = null
+    private val connectRequests = ConnectRequestCoordinator()
+    private val tunnelStartSerializer = TunnelStartSerializer()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var diagnosticJob: Job? = null
     private var connectJob: Job? = null
-    private var connectWhenReadyJob: Job? = null
+    private var connectWaitJob: Job? = null
     private var runningNotifyJob: Job? = null
     private val sessionGeneration = AtomicLong(0L)
     private var presenceJob: Job? = null
@@ -100,7 +114,9 @@ class ConnectionManager(
     private var workers: Int = BypassWorkers.DEFAULT
     @Volatile private var silentRecreate: Boolean = false
     @Volatile private var callRecreateAttempts: Int = 0
+    private var callRecreateNetworkFails: Int = 0
     private var callRecreateJob: Job? = null
+    @Volatile private var vpnPermissionRevoked: Boolean = false
     private var dialPath: DialPath = DialPath.Auto
     private var pathMode: ConnPathMode = ConnPathMode.Auto
     /** Soft transport restart in progress (Wi‑Fi↔LTE); do not treat as user disconnect. */
@@ -607,16 +623,22 @@ class ConnectionManager(
             RecoveryCommand.Probe -> startInitialProbe()
             is RecoveryCommand.StartDirect,
             RecoveryCommand.ParkBypassForDirect,
-            -> startRecoveryTransport(
-                path = VpnPath.Direct,
-                resumeExisting = false,
-                rebuildTun = false,
-            )
-            is RecoveryCommand.StartBypass -> startRecoveryTransport(
-                path = VpnPath.Bypass,
-                resumeExisting = false,
-                rebuildTun = false,
-            )
+            -> {
+                connectRequests.activeRequestId()?.let { connectRequests.markLaunched(it) }
+                startRecoveryTransport(
+                    path = VpnPath.Direct,
+                    resumeExisting = false,
+                    rebuildTun = false,
+                )
+            }
+            is RecoveryCommand.StartBypass -> {
+                connectRequests.activeRequestId()?.let { connectRequests.markLaunched(it) }
+                startRecoveryTransport(
+                    path = VpnPath.Bypass,
+                    resumeExisting = false,
+                    rebuildTun = false,
+                )
+            }
             RecoveryCommand.ResumeParkedRaw -> startRecoveryTransport(
                 path = VpnPath.Bypass,
                 resumeExisting = true,
@@ -665,6 +687,33 @@ class ConnectionManager(
                 if (cmd.then !is RecoveryCommand.None && cmd.then !is RecoveryCommand.DiscardStaleCall) {
                     executeRecoveryCommand(result.copy(command = cmd.then))
                 }
+            }
+            RecoveryCommand.ResumeCallCreate -> {
+                if (callRecreateJob?.isActive == true) Unit
+                else {
+                    val hold = recoverySnapshot.call.createHold
+                    callRecreateJob = scope.launch {
+                        try {
+                            recreateCallThenReconnect(holdService = hold, countDeadAttempt = false)
+                        } catch (e: CancellationException) {
+                            AppLog.i(TAG, "Call recreate resume cancelled")
+                            throw e
+                        } catch (t: Throwable) {
+                            TelemetryBridge.handledError("call_recreate_resume", t)
+                            applyCallRecreateOutcome(
+                                captured = currentRecreateIdentity(),
+                                outcome = CallHashOutcome.Failure(
+                                    classifyCallHashThrowable(t, CallHashPhase.OAuth),
+                                ),
+                                holdService = hold,
+                            )
+                        }
+                    }
+                }
+            }
+            RecoveryCommand.ReleaseCallHold -> {
+                softRestartInProgress = false
+                requestReleaseCallHold()
             }
         }
     }
@@ -752,6 +801,13 @@ class ConnectionManager(
         runCatching { appContext.startService(intent) }
     }
 
+    private fun requestReleaseCallHold() {
+        val intent = Intent(appContext, VpnTunnelService::class.java)
+            .setAction(VpnTunnelService.ACTION_SESSION_CONTROL)
+            .putExtra(VpnTunnelService.EXTRA_RELEASE_CALL_HOLD, true)
+        runCatching { appContext.startService(intent) }
+    }
+
     private fun applyRecoveryUi(snapshot: ConnectionSnapshot) {
         val model = snapshot.ui
         _ui.value = _ui.value.copy(
@@ -768,6 +824,16 @@ class ConnectionManager(
             },
             uiModel = model,
             activePath = snapshot.activePath ?: _ui.value.activePath,
+            callRecreatePrompt = when (snapshot.call.createOp) {
+                CallCreateOp.NeedsUser ->
+                    if (snapshot.call.createUserAction == UserActionKind.SignIn) {
+                        CallRecreatePrompt.NeedLogin
+                    } else {
+                        CallRecreatePrompt.Ask
+                    }
+                CallCreateOp.None -> _ui.value.callRecreatePrompt
+                else -> null
+            },
         )
     }
 
@@ -926,10 +992,32 @@ class ConnectionManager(
             AppLog.v(TAG, "Probe skipped — waiting for call recreate")
             return
         }
+        if (probeJob?.isActive == true) {
+            connectRequests.retainInFlightProbe()
+            AppLog.v(TAG, "Probe kept — round already in flight")
+            return
+        }
         probeJob?.cancel()
+        val seriesId = java.util.UUID.randomUUID().toString()
+        val probeSessionEpoch = recoverySnapshot.sessionEpoch
+        val probeNetworkEpoch = recoverySnapshot.networkEpoch
+        val capturedKey = readUnderlaySnapshot().key
+        val capturedProfileId = recoverySnapshot.intent.profileId ?: profile?.name
+        val role = if (connectRequests.activeRequestId() != null) {
+            ProbeRole.ConnectInitial
+        } else {
+            ProbeRole.IdleDiagnostic
+        }
+        connectRequests.registerProbe(
+            role = role,
+            seriesId = seriesId,
+            sessionEpoch = probeSessionEpoch,
+            networkEpoch = probeNetworkEpoch,
+            profileId = capturedProfileId,
+            networkKey = capturedKey,
+            requestId = connectRequests.activeRequestId(),
+        )
         probeJob = scope.launch {
-            val probeSessionEpoch = recoverySnapshot.sessionEpoch
-            val probeNetworkEpoch = recoverySnapshot.networkEpoch
             AppLog.v(TAG, "Probe start endpoint=$directEndpoint provision=$provisionUrl")
             val kind = currentAutoUnderlayKind()
             val underlay = readUnderlaySnapshot()
@@ -944,7 +1032,6 @@ class ConnectionManager(
                 ),
                 lastError = null,
             )
-            val capturedKey = underlay.key
             val bind = pickBestUnderlayNetwork(appContext)
             val result = if (autoUsesDirectOnWifi(pathMode, kind)) {
                 AppLog.v(TAG, "Probe skipped — Auto on Wi-Fi always Direct kind=$kind")
@@ -956,6 +1043,16 @@ class ConnectionManager(
                     directEndpoint = directEndpoint,
                     bindNetwork = bind,
                     quick = true,
+                    seriesId = seriesId,
+                    onFastDecision = { fast ->
+                        applyFastPathHint(
+                            fast,
+                            sessionEpoch = probeSessionEpoch,
+                            networkEpoch = probeNetworkEpoch,
+                            capturedNetworkKey = capturedKey,
+                            capturedProfileId = capturedProfileId,
+                        )
+                    },
                 )
             }
             AppLog.v(
@@ -964,17 +1061,12 @@ class ConnectionManager(
                     "yandex=${result.yandexOk} cloudflare=${result.bigtechOk} " +
                     "vps=${result.provisionOk} ${result.elapsedMs}ms kind=$kind",
             )
-            // Don't clobber an in-flight Connect started while we probed.
-            if (_ui.value.state == ConnState.Connecting || _ui.value.state == ConnState.Connected) {
-                AppLog.w(TAG, "Probe result ignored — already connecting/connected")
-                return@launch
-            }
             applyProbe(
                 result,
                 sessionEpoch = probeSessionEpoch,
                 networkEpoch = probeNetworkEpoch,
                 capturedNetworkKey = capturedKey,
-                capturedProfileId = recoverySnapshot.intent.profileId,
+                capturedProfileId = capturedProfileId,
             )
         }
         scheduleCellularPreProbe("initial")
@@ -999,6 +1091,15 @@ class ConnectionManager(
         val seriesId = java.util.UUID.randomUUID().toString()
         val capturedKey = recoverySnapshot.underlay.key
         val capturedProfileId = recoverySnapshot.intent.profileId
+        connectRequests.registerProbe(
+            role = ProbeRole.BackgroundDiagnostic,
+            seriesId = seriesId,
+            sessionEpoch = sessionEpoch,
+            networkEpoch = networkEpoch,
+            profileId = capturedProfileId,
+            networkKey = capturedKey,
+            requestId = connectRequests.activeRequestId(),
+        )
         val bind = pickBestUnderlayNetwork(appContext)
         diagnosticJob = scope.launch {
             AppLog.i(TAG, "auto-stage probe_round_started series=$seriesId")
@@ -1042,20 +1143,17 @@ class ConnectionManager(
             val evidence = recoverySnapshot.evidence
             if (recoverySnapshot.underlay.kind != UnderlayKind.Cellular) return@launch
             val now = SystemClock.elapsedRealtime()
-            val restriction = evidence?.restrictionAt(
-                now,
-                recoverySnapshot.underlay.key,
-                recoverySnapshot.intent.profileId,
-            ) ?: RestrictionHint.Unknown
             val delayMs = RecoverySettings.nextDiagnosticDelayMs(
-                completedSeries = evidence?.completedSeries ?: 0,
-                restriction = restriction,
-                seriesCount = evidence?.seriesCount ?: 0,
+                evidence = evidence,
+                nowElapsedMs = now,
+                key = recoverySnapshot.underlay.key,
+                profileId = recoverySnapshot.intent.profileId,
             ) ?: return@launch
             AppLog.i(
                 TAG,
                 "auto-stage probe_next_in_ms=$delayMs completed=${evidence?.completedSeries ?: 0} " +
-                    "restriction=$restriction seriesCount=${evidence?.seriesCount ?: 0}",
+                    "restriction=${evidence?.restrictionAt(now, recoverySnapshot.underlay.key, recoverySnapshot.intent.profileId)} " +
+                    "sample=${evidence?.lastSample} seriesCount=${evidence?.seriesCount ?: 0}",
             )
             delay(delayMs)
             if (recoverySnapshot.networkEpoch != networkEpoch) return@launch
@@ -1069,83 +1167,89 @@ class ConnectionManager(
      * Loads nothing itself — caller must [updateProfile] first — but waits
      * for the Auto probe that [connect] would otherwise ignore.
      */
-    fun connectWhenReady() {
+    fun connectWhenReady() = enqueueUserConnect(ConnectEntryPoint.Widget)
+
+    fun connect() = enqueueUserConnect(ConnectEntryPoint.Button)
+
+    private fun currentConnectLaunchContext(entry: ConnectEntryPoint): ConnectLaunchContext {
+        val underlay = readUnderlaySnapshot()
+        val liveKey = underlay.key
+        val kind = currentAutoUnderlayKind()
+        return ConnectLaunchContext(
+            entry = entry,
+            uiState = _ui.value.state,
+            mode = pathMode,
+            underlayKind = kind,
+            underlayUsable = underlay.availability == UnderlayAvailability.Usable,
+            underlayKey = liveKey,
+            profileId = recoverySnapshot.intent.profileId ?: profile?.name,
+            sessionEpoch = recoverySnapshot.sessionEpoch,
+            networkEpoch = recoverySnapshot.networkEpoch,
+            hasSameNetworkProbeEvidence = liveWhitelistEvidence(liveKey).let { ev ->
+                hasSameNetworkProbeEvidence(
+                    ev,
+                    liveKey,
+                    recoverySnapshot.intent.profileId,
+                    nowElapsedMs = SystemClock.elapsedRealtime(),
+                )
+            },
+            probeJobActive = probeJob?.isActive == true,
+            transportStartingOrLive = recoverySnapshot.transport == TransportLifecycle.Starting ||
+                recoverySnapshot.transport == TransportLifecycle.Running ||
+                _ui.value.state == ConnState.Connecting ||
+                _ui.value.state == ConnState.Connected,
+            hasCallHash = callHashOrNull() != null,
+        )
+    }
+
+    private fun enqueueUserConnect(entry: ConnectEntryPoint) {
         if (profile == null) {
             AppLog.w(TAG, "Connect ignored — no profile")
             return
         }
-        val state = _ui.value.state
-        if (
-            state == ConnState.Connected ||
-            state == ConnState.Connecting ||
-            state == ConnState.PausedTrustedWifi
-        ) {
-            return
-        }
-        val underlay = readUnderlaySnapshot()
-        val mode = pathMode
-        if (connectNeedsInitialProbe(
-                mode,
-                _ui.value.probe?.preselectedPath,
-                currentAutoUnderlayKind(),
-                callHashOrNull() != null,
-                underlayUsable = underlay.availability == UnderlayAvailability.Usable,
-            )
-        ) {
-            startInitialProbe()
-            connectWhenReadyJob?.cancel()
-            connectWhenReadyJob = scope.launch {
-                probeJob?.join()
-                if (!shouldConnectAfterProbeJoin(_ui.value.state)) {
-                    AppLog.v(TAG, "connectWhenReady skipped after probe state=${_ui.value.state}")
-                    return@launch
-                }
-                connect()
+        when (val action = connectRequests.onConnectRequested(currentConnectLaunchContext(entry))) {
+            ConnectLaunchAction.Ignore -> {
+                AppLog.v(TAG, "Connect ignored by coordinator state=${_ui.value.state}")
             }
-            return
+            is ConnectLaunchAction.EnqueueWait -> {
+                AppLog.i(
+                    TAG,
+                    "Connect waits for cellular whitelist probe request=${action.requestId} " +
+                        "startProbe=${action.startProbe} already=${action.alreadyWaiting}",
+                )
+                if (action.startProbe) {
+                    startInitialProbe()
+                }
+                if (!action.alreadyWaiting) {
+                    connectWaitJob?.cancel()
+                    connectWaitJob = scope.launch {
+                        try {
+                            connectRequests.awaitDecision(action.requestId)
+                        } catch (_: CancellationException) {
+                            return@launch
+                        }
+                        val cont = connectRequests.continueAfterWait(
+                            currentConnectLaunchContext(entry),
+                            action.requestId,
+                        )
+                        if (cont is ConnectLaunchAction.Proceed) {
+                            proceedUserConnect(inheritProbeSessionEpoch = cont.inheritProbeSessionEpoch)
+                        } else {
+                            AppLog.v(
+                                TAG,
+                                "connect wait skipped after probe state=${_ui.value.state}",
+                            )
+                        }
+                    }
+                }
+            }
+            is ConnectLaunchAction.Proceed ->
+                proceedUserConnect(inheritProbeSessionEpoch = action.inheritProbeSessionEpoch)
         }
-        connect()
     }
 
-    fun connect() {
-        val current = _ui.value
-        val mode = pathMode
-        val kind = currentAutoUnderlayKind()
-        val liveKey = readUnderlaySnapshot().key
-        val wait = shouldWaitForCellularWhitelistProbe(
-            mode = mode,
-            underlayKind = kind,
-            state = current.state,
-            hasSameNetworkProbeEvidence = liveWhitelistEvidence(liveKey) != null,
-        )
-        if (wait) {
-            if (connectWhenReadyJob?.isActive == true) {
-                AppLog.v(TAG, "Connect already waiting for cellular whitelist probe")
-                return
-            }
-            AppLog.i(TAG, "Connect waits for cellular whitelist probe state=${current.state}")
-            if (current.state != ConnState.Probing) {
-                startInitialProbe()
-            }
-            connectWhenReadyJob = scope.launch {
-                probeJob?.join()
-                val after = _ui.value.state
-                if (!shouldConnectAfterProbeJoin(after) && after != ConnState.Probing) {
-                    AppLog.v(TAG, "Connect skipped after whitelist probe state=$after")
-                    return@launch
-                }
-                proceedUserConnect()
-            }
-            return
-        }
-        if (current.state == ConnState.Probing) {
-            probeJob?.cancel()
-            AppLog.i(TAG, "Connect during probe — keep intent, start without waiting")
-        }
-        proceedUserConnect()
-    }
-
-    private fun proceedUserConnect() {
+    private fun proceedUserConnect(inheritProbeSessionEpoch: Long? = null) {
+        vpnPermissionRevoked = false
         val current = _ui.value
         val mode = pathMode
         if (current.state == ConnState.Connecting && recoverySnapshot.recovery.inFlight &&
@@ -1165,17 +1269,20 @@ class ConnectionManager(
             recoverySnapshot.cellularEvidence,
             underlay.key,
             recoverySnapshot.intent.profileId ?: profile?.name,
+            nowElapsedMs = SystemClock.elapsedRealtime(),
         )
-        recoverySnapshot = recoverySnapshot.copy(
-            underlay = underlay,
-            networkEpoch = underlay.networkEpoch,
-            evidence = if (underlay.kind == UnderlayKind.Cellular && adopted != null) {
-                adopted
-            } else {
-                recoverySnapshot.evidence
-            },
-        )
-        val connectEvent = if (!recoverySnapshot.intent.wantsConnected) {
+        synchronized(recoveryGate) {
+            recoverySnapshot = recoverySnapshot.copy(
+                underlay = underlay,
+                networkEpoch = underlay.networkEpoch,
+                evidence = if (underlay.kind == UnderlayKind.Cellular && adopted != null) {
+                    adopted
+                } else {
+                    recoverySnapshot.evidence
+                },
+            )
+        }
+        val connectEvent = if (needsFreshUserConnect(current.state, recoverySnapshot.intent.wantsConnected)) {
             ConnectionEvent.UserConnect(
                 mode = mode,
                 profileId = profile?.name,
@@ -1183,6 +1290,8 @@ class ConnectionManager(
                 silentRecreate = silentRecreate,
                 callIdentityToken = PathConfirm.identityToken(callHashOrNull()),
                 directConfigRevision = PathConfirm.directConfigRevision(profile),
+                inheritProbeSessionEpoch = inheritProbeSessionEpoch
+                    ?: connectRequests.inheritEpochIfProbeInFlight(probeJob?.isActive == true),
             )
         } else {
             ConnectionEvent.UnderlayUpdated(underlay)
@@ -1203,8 +1312,8 @@ class ConnectionManager(
         blockBypassToDirectUntilUnderlayChange = false
         callRecreateAttempts = 0
         bumpSessionGeneration("connect")
-        connectWhenReadyJob?.cancel()
-        connectWhenReadyJob = null
+        connectWaitJob?.cancel()
+        connectWaitJob = null
 
         // Sync Hide-IP preference to VPS (policy route via warp0). WARP must be up.
         if (_ui.value.hideIp) {
@@ -1224,16 +1333,26 @@ class ConnectionManager(
                 val bypassAllowed = callHashOrNull() != null
                 val forced = pendingConnectPath
                 pendingConnectPath = null
-                val skipProbe = forced == VpnPath.Bypass ||
-                    shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
                 val wifiAutoDirect = autoUsesDirectOnWifi(liveMode, kind)
                 val underlayUsable = readUnderlaySnapshot().availability == UnderlayAvailability.Usable
-                val whitelistScore = liveWhitelistEvidence()?.whitelistScoreAt(
+                val now = SystemClock.elapsedRealtime()
+                val evidence = liveWhitelistEvidence()
+                val whitelistScore = evidence?.historicalWhitelistScore(
                     recoverySnapshot.underlay.key,
                     recoverySnapshot.intent.profileId,
                 ) ?: 0
                 val whitelistBypass = autoMayUseBypass(liveMode, kind, bypassAllowed) &&
-                    RestrictionScore.likely(whitelistScore, alreadyBypass = false)
+                    RestrictionScore.mayEnterBypassForWhitelist(
+                        whitelistScore,
+                        evidence?.hasFreshStrong(
+                            now,
+                            recoverySnapshot.underlay.key,
+                            recoverySnapshot.intent.profileId,
+                        ) == true,
+                    )
+                val skipProbe = forced == VpnPath.Bypass ||
+                    shouldSkipConnectProbe(liveMode, bypassAllowed, kind) ||
+                    (whitelistBypass && forced != VpnPath.Direct)
                 val startDirectNow = (forced == VpnPath.Direct ||
                     shouldStartDirectWithoutDiagnostic(liveMode, kind, underlayUsable)) &&
                     forced != VpnPath.Bypass &&
@@ -1345,6 +1464,15 @@ class ConnectionManager(
                         directEndpoint = directEndpoint,
                         bindNetwork = pickBestUnderlayNetwork(appContext),
                         quick = true,
+                        onFastDecision = { fast ->
+                            applyFastPathHint(
+                                fast,
+                                sessionEpoch = connectSessionEpoch,
+                                networkEpoch = connectNetworkEpoch,
+                                capturedNetworkKey = connectCapturedKey,
+                                capturedProfileId = capturedProfileId,
+                            )
+                        },
                     )
                     AppLog.v(
                         TAG,
@@ -1382,6 +1510,15 @@ class ConnectionManager(
                         directEndpoint = directEndpoint,
                         bindNetwork = pickBestUnderlayNetwork(appContext),
                         quick = true,
+                        onFastDecision = { fast ->
+                            applyFastPathHint(
+                                fast,
+                                sessionEpoch = connectSessionEpoch,
+                                networkEpoch = connectNetworkEpoch,
+                                capturedNetworkKey = connectCapturedKey,
+                                capturedProfileId = capturedProfileId,
+                            )
+                        },
                     )
                 }
                 usePath = forced ?: resolveConnectPath(
@@ -1392,10 +1529,15 @@ class ConnectionManager(
                     underlayKind = kindNow,
                     bypassAllowed = bypassNow,
                     underlayUsable = readUnderlaySnapshot().availability == UnderlayAvailability.Usable,
-                    whitelistScorePercent = liveWhitelistEvidence()?.whitelistScoreAt(
+                    whitelistScorePercent = liveWhitelistEvidence()?.historicalWhitelistScore(
                         recoverySnapshot.underlay.key,
                         recoverySnapshot.intent.profileId,
                     ) ?: fresh.whitelistScorePercent,
+                    freshStrongConfirmation = liveWhitelistEvidence()?.hasFreshStrong(
+                        SystemClock.elapsedRealtime(),
+                        recoverySnapshot.underlay.key,
+                        recoverySnapshot.intent.profileId,
+                    ) == true,
                 )
                 AppLog.v(
                     TAG,
@@ -1414,24 +1556,21 @@ class ConnectionManager(
                     )
                 }
                 if (usePath == null) {
+                    AppLog.w(TAG, "Connect deferred — no path yet: ${fresh.message}")
+                    endUserAttempt(fresh.message, keepReady = true)
                     applyProbe(
                         fresh,
                         sessionEpoch = connectSessionEpoch,
                         networkEpoch = connectNetworkEpoch,
                         capturedNetworkKey = connectCapturedKey,
                     )
-                    val underlay = readUnderlaySnapshot()
-                    dispatchRecovery(ConnectionEvent.UnderlayUpdated(underlay))
-                    AppLog.w(TAG, "Connect deferred — no path yet: ${fresh.message}")
                     return@launch
                 }
                 if (isDocumentationHost(directEndpoint) || isDocumentationHost(profile?.bypass?.peer)) {
                     AppLog.e(TAG, "Profile uses documentation IP — import JSON from VPS")
+                    endUserAttempt("Профиль с документационным IP (203.0.113.x). Импортируйте JSON с VPS.")
                     _ui.value = _ui.value.copy(
-                        state = ConnState.Error,
                         probe = fresh,
-                        lastError = "Профиль с документационным IP (203.0.113.x). Импортируйте JSON с VPS.",
-                        connectEnabled = true,
                         softInfo = softInfoFor(fresh),
                     )
                     return@launch
@@ -1440,21 +1579,15 @@ class ConnectionManager(
                     val d = profile?.direct
                     if (d == null || d.privateKey.isBlank() || d.peerPublicKey.isBlank()) {
                         AppLog.e(TAG, "Direct: missing AWG keys in profile")
-                        _ui.value = _ui.value.copy(
-                            state = ConnState.Error,
-                            lastError = "В профиле нет ключей AWG — нужен JSON с provision/smoke",
-                            connectEnabled = true,
-                        )
+                        endUserAttempt("В профиле нет ключей AWG — нужен JSON с provision/smoke")
                         return@launch
                     }
                 }
                 if (usePath == VpnPath.Bypass && callHashOrNull().isNullOrBlank()) {
                     AppLog.e(TAG, "Bypass: call hash missing")
+                    endUserAttempt("Для обхода необходимо сохранить код звонка на устройстве.")
                     _ui.value = _ui.value.copy(
-                        state = ConnState.Error,
                         probe = fresh,
-                        lastError = "Для обхода необходимо сохранить код звонка на устройстве.",
-                        connectEnabled = true,
                         softInfo = softInfoFor(fresh),
                     )
                     return@launch
@@ -1479,22 +1612,29 @@ class ConnectionManager(
                 throw t
             } catch (t: Throwable) {
                 AppLog.e(TAG, "Connect crash: ${t.message ?: t.javaClass.simpleName}")
-                _ui.value = _ui.value.copy(
-                    state = ConnState.Error,
-                    lastError = t.message ?: "Сбой Connect",
-                    connectEnabled = true,
-                )
+                endUserAttempt(t.message ?: "Сбой Connect")
             }
         }
     }
 
     fun reportUserError(message: String) {
         AppLog.w(TAG, message)
+        endUserAttempt(message)
         _ui.value = _ui.value.copy(
-            state = ConnState.Error,
-            lastError = message,
             statusText = "Требуется действие",
             connectEnabled = connectAllowed(_ui.value.probe),
+        )
+    }
+
+    private fun endUserAttempt(message: String, keepReady: Boolean = false) {
+        tunnelStartSerializer.revokePending()
+        connectRequests.finishAttempt()
+        bumpSessionGeneration("attempt-failed")
+        dispatchRecovery(
+            ConnectionEvent.AttemptFailed(
+                message = message,
+                keepReady = keepReady,
+            ),
         )
     }
 
@@ -1505,11 +1645,22 @@ class ConnectionManager(
             return
         }
         recoveryTimer.clear()
-        if (state == ConnState.Probing) {
-            connectWhenReadyJob?.cancel()
-            connectWhenReadyJob = null
+        val revoke = connectRequests.revokeConnectWork()
+        connectWaitJob?.cancel()
+        connectWaitJob = null
+        if (revoke.cancelProbe || probeJob?.isActive == true) {
             probeJob?.cancel()
             probeJob = null
+        }
+        diagnosticJob?.cancel()
+        diagnosticJob = null
+        val wantsConnected = recoverySnapshot.intent.wantsConnected
+        val connectBusy = connectJob?.isActive == true
+        // ConnState.Probing is the pre-intent wait. After UserConnect the UI
+        // is Connecting, but Stop must still tear down intent if a race left
+        // the label on Probing.
+        val idleProbeOnly = state == ConnState.Probing && !wantsConnected && !connectBusy
+        if (idleProbeOnly) {
             _ui.value = _ui.value.copy(
                 state = if (_ui.value.probe != null) ConnState.Ready else ConnState.Idle,
                 statusText = _ui.value.probe?.message ?: "Отменено",
@@ -1521,6 +1672,8 @@ class ConnectionManager(
             return
         }
         if (
+            !wantsConnected &&
+            !connectBusy &&
             state != ConnState.Connected &&
             state != ConnState.Connecting &&
             state != ConnState.PausedTrustedWifi &&
@@ -1531,36 +1684,22 @@ class ConnectionManager(
         ) {
             return
         }
-        stopWatchingUnderlay()
-        dispatchRecovery(ConnectionEvent.UserDisconnect)
-        softRestartInProgress = false
-        handoverProbeStreak = ProbeStreak()
-        lastHandoverBindHandle = null
-        deadDirectBindHandle = null
-        blockBypassToDirectUntilUnderlayChange = false
-        callRecreateAttempts = 0
-        callRecreateJob?.cancel()
-        callRecreateJob = null
-        presenceJob?.cancel()
-        presenceJob = null
-        connectJob?.cancel()
-        connectJob = null
-        connectWhenReadyJob?.cancel()
-        connectWhenReadyJob = null
-        diagnosticJob?.cancel()
-        diagnosticJob = null
-        runningNotifyJob?.cancel()
-        runningNotifyJob = null
-        bumpSessionGeneration("disconnect")
-        transportRestartJob?.cancel()
-        transportRestartJob = null
-        // Flip state synchronously to avoid double-disconnect race on rapid taps.
-        _ui.value = _ui.value.copy(
-            state = ConnState.Disconnecting,
-            statusText = "Отключение…",
-            connectEnabled = false,
-            lastError = null,
+        revokeLiveConnectIntent("disconnect")
+        AppLog.i(
+            TAG,
+            "Stop requested by=user gen=${sessionGeneration.get()} session=${recoverySnapshot.sessionEpoch} " +
+                "transport=${recoverySnapshot.transportEpoch} call=${recoverySnapshot.call.callEpoch}",
         )
+        logTunnelLifecycle(
+            "stop_requested",
+            extra = JSONObject()
+                .put("by", "user")
+                .put("generation", sessionGeneration.get())
+                .put("session_epoch", recoverySnapshot.sessionEpoch)
+                .put("transport_epoch", recoverySnapshot.transportEpoch)
+                .put("call_epoch", recoverySnapshot.call.callEpoch),
+        )
+        val generation = sessionGeneration.get()
         scope.launch {
             try {
                 // Leave WARP policy as-is while hideIp stays on (next Connect reuses it).
@@ -1569,6 +1708,8 @@ class ConnectionManager(
                     runCatching { syncHideIpToProvision(false, viaVpn = hideIpViaVpn()) }
                 }
                 stopTunnel()
+                if (generation != sessionGeneration.get()) return@launch
+                if (_ui.value.state != ConnState.Disconnecting) return@launch
                 _ui.value = _ui.value.copy(
                     state = ConnState.Ready,
                     activePath = null,
@@ -1579,6 +1720,8 @@ class ConnectionManager(
                     callRecreatePrompt = null,
                 )
             } catch (_: CancellationException) {
+                if (generation != sessionGeneration.get()) return@launch
+                if (_ui.value.state != ConnState.Disconnecting) return@launch
                 _ui.value = _ui.value.copy(
                     state = ConnState.Ready,
                     activePath = null,
@@ -1589,6 +1732,8 @@ class ConnectionManager(
                     callRecreatePrompt = null,
                 )
             } catch (t: Throwable) {
+                if (generation != sessionGeneration.get()) return@launch
+                if (_ui.value.state != ConnState.Disconnecting) return@launch
                 val msg = t.message?.take(220) ?: t.javaClass.simpleName
                 AppLog.e(TAG, "Disconnect failed: $msg")
                 _ui.value = _ui.value.copy(
@@ -1662,8 +1807,15 @@ class ConnectionManager(
         val directFailedOnCurrentUnderlay = blockBypassToDirectUntilUnderlayChange &&
             (sameDeadUnderlay || deadDirectBindHandle == null || bindNetwork == null)
         val kind = underlayKindOf(bindNetwork)
-        val whitelistLikely = RestrictionScore.likely(
-            whitelistScoreForBind(bindNetwork),
+        val bindEv = evidenceForBind(bindNetwork)
+        val now = SystemClock.elapsedRealtime()
+        val bindKey = keyForBind(bindNetwork)
+        val whitelistLikely = RestrictionScore.bypassHoldsDirectReeval(
+            historicalScore = bindEv?.historicalWhitelistScore(bindKey, recoverySnapshot.intent.profileId)
+                ?: 0,
+            freshStrong = bindEv?.hasFreshStrong(now, bindKey, recoverySnapshot.intent.profileId) == true,
+            usable = bindEv?.usableAt(now, bindKey, recoverySnapshot.intent.profileId) == true,
+            unknownStreak = bindEv?.unknownStreak ?: 0,
             alreadyBypass = currentPath == VpnPath.Bypass,
         )
         if (mode != ConnPathMode.Auto) {
@@ -1792,14 +1944,31 @@ class ConnectionManager(
             ?: currentPath
         val liveBypass = hashStore.hasHash(profile?.name)
         val liveKind = underlayKindOf(bindNetwork)
-        val bindKey = keyForBind(bindNetwork)
         // The stored score can be absent on a cell we have never measured; a
         // single clean round already reaches the enter threshold, so read it
         // back after the round has been folded in.
-        fun measuredWhitelistLikely(): Boolean = RestrictionScore.likely(
-            liveWhitelistEvidence(bindKey)?.whitelistScorePercent ?: fresh.whitelistScorePercent,
-            alreadyBypass = livePath == VpnPath.Bypass,
-        )
+        fun measuredWhitelistLikely(): Boolean {
+            val ev = liveWhitelistEvidence(bindKey)
+            val now = SystemClock.elapsedRealtime()
+            val score = ev?.historicalWhitelistScore(bindKey, recoverySnapshot.intent.profileId)
+                ?: fresh.whitelistScorePercent
+            val freshRoundStrong = RestrictionScore.sample(
+                cellular = true,
+                yandex = fresh.yandexOutcome,
+                bigtech = fresh.bigtechOutcome,
+                google = fresh.googleOutcome,
+                ruService = fresh.ruServiceOutcome,
+            ) == RestrictionSample.Positive
+            return RestrictionScore.bypassHoldsDirectReeval(
+                historicalScore = score,
+                freshStrong = ev?.hasFreshStrong(now, bindKey, recoverySnapshot.intent.profileId) == true ||
+                    freshRoundStrong,
+                usable = ev?.usableAt(now, bindKey, recoverySnapshot.intent.profileId) == true ||
+                    freshRoundStrong,
+                unknownStreak = ev?.unknownStreak ?: 0,
+                alreadyBypass = livePath == VpnPath.Bypass,
+            )
+        }
         if (!shouldApplyHandoverProbe(mode, liveMode, currentPath, livePath)) {
             AppLog.v(
                 TAG,
@@ -1945,6 +2114,7 @@ class ConnectionManager(
         recoverySnapshot.cellularEvidence,
         key,
         recoverySnapshot.intent.profileId ?: profile?.name,
+        nowElapsedMs = SystemClock.elapsedRealtime(),
     )
 
     private fun keyForBind(bindNetwork: Network?): NetworkKey? {
@@ -2006,9 +2176,6 @@ class ConnectionManager(
             )
         }
     }
-
-    private fun whitelistScoreForBind(bindNetwork: Network?): Int =
-        evidenceForBind(bindNetwork)?.whitelistScorePercent ?: 0
 
     private fun mobileDataEnabled(): Boolean = runCatching {
         val tm = appContext.getSystemService(TelephonyManager::class.java) ?: return false
@@ -2098,13 +2265,18 @@ class ConnectionManager(
             return
         }
         val now = SystemClock.elapsedRealtime()
+        val previousKey = recoverySnapshot.cellularEvidence?.measurementOrigin()
+        if (previousKey != null && !whitelistOriginAllowsBind(previousKey, key) &&
+            previousKey.restrictionScopeChanged(key)
+        ) {
+            lastCellularProbeAtMs = 0L
+        }
         if (lastCellularProbeAtMs > 0L) {
-            val restriction = recoverySnapshot.cellularEvidence?.restriction
-                ?: RestrictionHint.Unknown
             val waitMs = RecoverySettings.nextDiagnosticDelayMs(
-                completedSeries = recoverySnapshot.cellularEvidence?.completedSeries ?: 0,
-                restriction = restriction,
-                seriesCount = recoverySnapshot.cellularEvidence?.seriesCount ?: 0,
+                evidence = recoverySnapshot.cellularEvidence,
+                nowElapsedMs = now,
+                key = key,
+                profileId = recoverySnapshot.intent.profileId,
             ) ?: RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS
             val since = now - lastCellularProbeAtMs
             if (since < waitMs && recoverySnapshot.cellularEvidence != null) {
@@ -2133,6 +2305,7 @@ class ConnectionManager(
         lastCellularProbeAtMs = SystemClock.elapsedRealtime()
         val incoming = ReachabilityEvidence(
             networkKey = key,
+            originNetworkKey = key,
             profileId = recoverySnapshot.intent.profileId ?: profile?.name,
             measuredAtElapsedMs = lastCellularProbeAtMs,
             yandex = result.yandexOutcome,
@@ -2158,9 +2331,10 @@ class ConnectionManager(
                 "google=${result.googleOutcome} ru=${result.ruServiceOutcome} ${result.elapsedMs}ms",
         )
         val delayMs = RecoverySettings.nextDiagnosticDelayMs(
-            completedSeries = reduced.state.cellularEvidence?.completedSeries ?: 0,
-            restriction = reduced.state.cellularEvidence?.restriction ?: RestrictionHint.Unknown,
-            seriesCount = reduced.state.cellularEvidence?.seriesCount ?: 0,
+            evidence = reduced.state.cellularEvidence,
+            nowElapsedMs = lastCellularProbeAtMs,
+            key = key,
+            profileId = recoverySnapshot.intent.profileId,
         ) ?: RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS
         // Holding the request between rounds keeps the modem attached for the
         // whole Wi-Fi session; the next round re-acquires or re-requests it.
@@ -2365,7 +2539,8 @@ class ConnectionManager(
                 val pc = verdict == PathConfirmVerdict.PathConfirmed
                 val pr = verdict == PathConfirmVerdict.ProtocolReady || pc
                 val br = PathConfirm.bypassMayConnect(verdict)
-                if (path == VpnPath.Direct) {
+                if (generation != sessionGeneration.get()) return
+                val confirmed = if (path == VpnPath.Direct) {
                     dispatchRecovery(
                         ConnectionEvent.DirectConfirmed(
                             sessionEpoch = sessionEpoch,
@@ -2389,6 +2564,10 @@ class ConnectionManager(
                             callEpoch = callEpoch,
                         ),
                     )
+                }
+                if (!acceptedLiveTunnelConfirm(confirmed)) {
+                    AppLog.w(TAG, "Partial tunnel confirm ignored path=$path")
+                    return
                 }
                 _ui.value = _ui.value.copy(
                     state = ConnState.Connected,
@@ -2517,7 +2696,7 @@ class ConnectionManager(
                     ),
                 )
             }
-            if (confirmed.state.recovery.phase != RecoveryPhase.Connected) {
+            if (!acceptedLiveTunnelConfirm(confirmed)) {
                 AppLog.w(TAG, "Tunnel running ignored — confirm rejected path=$path")
                 return@launch
             }
@@ -2662,10 +2841,21 @@ class ConnectionManager(
             underlayAllowsOps = recoverySnapshot.underlay.allowsNetworkOps,
             userRequestedNew = !holdService,
             autoRecreate = silentRecreate,
-            createInFlight = callRecreateJob?.isActive == true,
+            createInFlight = callRecreateJob?.isActive == true ||
+                recoverySnapshot.call.createOp == CallCreateOp.InFlight ||
+                recoverySnapshot.call.createOp == CallCreateOp.Backoff ||
+                recoverySnapshot.call.createOp == CallCreateOp.WaitingNetwork,
         )
         if (update == CallUpdateDecision.WaitForNetwork) {
             AppLog.w(TAG, "Call recreate deferred — no underlay")
+            dispatchRecovery(
+                beginCallRecreateChanged(
+                    identity = currentRecreateIdentity(),
+                    holdService = holdService,
+                    underlayAllowsOps = false,
+                    networkAttempts = recoverySnapshot.call.createNetworkAttempts,
+                ),
+            )
             watchUnderlayUntilUsable()
             return
         }
@@ -2693,8 +2883,41 @@ class ConnectionManager(
             AppLog.w(TAG, "Call recreate already in progress")
             return
         }
+        bumpSessionGeneration("call-recreate")
+        if (holdService) softRestartInProgress = true
+        dispatchRecovery(
+            beginCallRecreateChanged(
+                identity = currentRecreateIdentity(),
+                holdService = holdService,
+                underlayAllowsOps = recoverySnapshot.underlay.allowsNetworkOps,
+                networkAttempts = recoverySnapshot.call.createNetworkAttempts,
+            ),
+        )
+        if (!recoverySnapshot.underlay.allowsNetworkOps) {
+            watchUnderlayUntilUsable()
+            return
+        }
         callRecreateJob = scope.launch {
-            recreateCallThenReconnect(holdService = holdService)
+            try {
+                recreateCallThenReconnect(holdService = holdService)
+            } catch (e: CancellationException) {
+                AppLog.i(TAG, "Call recreate cancelled hold=$holdService")
+                logTunnelLifecycle(
+                    "call_recreate",
+                    JSONObject().put("decision", "cancelled").put("hold", holdService),
+                )
+                throw e
+            } catch (t: Throwable) {
+                TelemetryBridge.handledError("call_recreate", t)
+                AppLog.e(TAG, "Call recreate handled: ${t.message ?: t.javaClass.simpleName}")
+                applyCallRecreateOutcome(
+                    captured = currentRecreateIdentity(),
+                    outcome = CallHashOutcome.Failure(
+                        classifyCallHashThrowable(t, CallHashPhase.OAuth),
+                    ),
+                    holdService = holdService,
+                )
+            }
         }
     }
 
@@ -2743,59 +2966,157 @@ class ConnectionManager(
         }
     }
 
-    private suspend fun recreateCallThenReconnect(holdService: Boolean) {
-        callRecreateAttempts++
-        _ui.value = _ui.value.copy(
-            state = ConnState.Connecting,
-            activePath = VpnPath.Bypass,
-            statusText = if (holdService) "Обновляю звонок…" else "Создаю новый звонок…",
-            lastError = null,
-            callRecreatePrompt = null,
-            connectEnabled = true,
-            softInfo = "Нужна сессия ВКонтакте на этом устройстве.",
+    private fun currentRecreateIdentity(): CallRecreateIdentity {
+        return CallRecreateIdentity(
+            sessionEpoch = recoverySnapshot.sessionEpoch,
+            generation = sessionGeneration.get(),
+            profileId = recoverySnapshot.intent.profileId ?: profile?.name,
+            callEpoch = recoverySnapshot.call.callEpoch,
+            requestId = connectRequests.activeRequestId(),
+            wantsConnected = recoverySnapshot.intent.wantsConnected,
+        )
+    }
+
+    private suspend fun recreateCallThenReconnect(
+        holdService: Boolean,
+        countDeadAttempt: Boolean = true,
+    ) {
+        val captured = currentRecreateIdentity()
+        if (!captured.wantsConnected) {
+            AppLog.i(TAG, "Call recreate skipped — wantsConnected=false")
+            return
+        }
+        if (!recoverySnapshot.underlay.allowsNetworkOps) {
+            dispatchRecovery(
+                beginCallRecreateChanged(
+                    identity = captured,
+                    holdService = holdService,
+                    underlayAllowsOps = false,
+                    networkAttempts = recoverySnapshot.call.createNetworkAttempts,
+                ),
+            )
+            return
+        }
+        if (countDeadAttempt) callRecreateAttempts++
+        logTunnelLifecycle(
+            "call_recreate",
+            JSONObject()
+                .put("phase", "http")
+                .put("hold", holdService)
+                .put("network_fails", recoverySnapshot.call.createNetworkAttempts)
+                .put("attempts", callRecreateAttempts)
+                .put("create_op", recoverySnapshot.call.createOp.name)
+                .put("recovery_phase", recoverySnapshot.recovery.phase.name)
+                .put("transport", recoverySnapshot.transport.name),
         )
         if (!VkSession.hasSessionCookie()) {
-            val login = runCatching { VkLoginActivity.login(appContext) }.getOrElse { Result.failure(it) }
+            val login = try {
+                VkLoginActivity.login(appContext)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Result.failure(t)
+            }
             if (login.isFailure || !VkSession.hasSessionCookie()) {
-                failToError(
-                    message = login.exceptionOrNull()?.message
-                        ?: "Авторизация ВКонтакте не выполнена.",
-                    prompt = CallRecreatePrompt.NeedLogin,
-                    status = "Нужна авторизация ВКонтакте",
+                val failure = login.exceptionOrNull()?.let {
+                    classifyCallHashThrowable(it, CallHashPhase.Session)
+                } ?: CallHashFailure(
+                    kind = CallHashErrorKind.AuthRequired,
+                    phase = CallHashPhase.Session,
+                    message = "Авторизация ВКонтакте не выполнена.",
                 )
-                if (holdService) stopTunnel()
+                applyCallRecreateOutcome(
+                    captured = captured,
+                    outcome = CallHashOutcome.Failure(failure),
+                    holdService = holdService,
+                )
                 return
             }
         }
-        val generated = VkCallHashGenerator.generateOne(appContext)
-        val hash = generated.getOrNull()
-        if (hash.isNullOrBlank()) {
-            failToError(
-                message = generated.exceptionOrNull()?.message
-                    ?: "Не удалось создать новый звонок.",
-                prompt = if (VkSession.hasSessionCookie()) {
-                    CallRecreatePrompt.Ask
-                } else {
-                    CallRecreatePrompt.NeedLogin
-                },
-                status = "Не удалось обновить звонок",
-            )
-            if (holdService) stopTunnel()
+        val outcome = try {
+            VkCallHashGenerator.generateOutcome(appContext)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            TelemetryBridge.handledError("call_recreate_generate", t)
+            CallHashOutcome.Failure(classifyCallHashThrowable(t, CallHashPhase.OAuth))
+        }
+        applyCallRecreateOutcome(captured, outcome, holdService)
+    }
+
+    private fun applyCallRecreateOutcome(
+        captured: CallRecreateIdentity,
+        outcome: CallHashOutcome,
+        holdService: Boolean,
+    ) {
+        val live = currentRecreateIdentity()
+        val attempts = recoverySnapshot.call.createNetworkAttempts
+        val event = callRecreateChangedFromOutcome(
+            captured = captured,
+            live = live,
+            outcome = outcome,
+            holdService = holdService,
+            networkAttempts = attempts,
+            underlayAllowsOps = recoverySnapshot.underlay.allowsNetworkOps,
+        )
+        val kind = (outcome as? CallHashOutcome.Failure)?.error?.kind?.name
+        val phase = (outcome as? CallHashOutcome.Failure)?.error?.phase?.name
+        val apiCode = (outcome as? CallHashOutcome.Failure)?.error?.apiCode
+        val httpCode = (outcome as? CallHashOutcome.Failure)?.error?.httpCode
+        val decisionName = when {
+            event == null && !live.wantsConnected -> "ignore_cancelled"
+            event == null -> "ignore_stale"
+            event.op == CallCreateOp.Applied -> "apply_hash"
+            event.op == CallCreateOp.Backoff -> "wait_retry"
+            event.op == CallCreateOp.WaitingNetwork -> "wait_network"
+            event.op == CallCreateOp.NeedsUser -> "user_action"
+            else -> event.op.name.lowercase()
+        }
+        AppLog.i(
+            TAG,
+            "Call recreate decision=$decisionName kind=$kind phase=$phase " +
+                "api=$apiCode http=$httpCode op=${event?.op} attempts=$attempts",
+        )
+        logTunnelLifecycle(
+            "call_recreate",
+            JSONObject()
+                .put("decision", decisionName)
+                .put("kind", kind ?: JSONObject.NULL)
+                .put("phase", phase ?: JSONObject.NULL)
+                .put("api_code", apiCode ?: JSONObject.NULL)
+                .put("http_code", httpCode ?: JSONObject.NULL)
+                .put("create_op", event?.op?.name ?: JSONObject.NULL)
+                .put("retry_ms", event?.retryDelayMs ?: JSONObject.NULL)
+                .put("hold", holdService)
+                .put("recovery_phase", recoverySnapshot.recovery.phase.name)
+                .put("transport", recoverySnapshot.transport.name)
+                .put("ui", recoverySnapshot.ui.connState.name),
+        )
+        if (event == null) {
             return
         }
-        saveCallHash(hash)
-        applySessionPath(VpnPath.Bypass)
-        AppLog.i(TAG, "Saved recreated call hash, restarting Bypass hold=$holdService")
-        if (holdService && TunnelSessionHolder.config != null) {
-            requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
-        } else {
-            _ui.value = _ui.value.copy(
-                state = ConnState.Ready,
-                lastError = null,
-                callRecreatePrompt = null,
-                connectEnabled = true,
-            )
-            connect()
+        val hash = (outcome as? CallHashOutcome.Success)?.hash
+        if (hash != null && event.op == CallCreateOp.Applied) {
+            if (!callRecreateIdentityStillCurrent(captured, currentRecreateIdentity())) {
+                AppLog.i(TAG, "Call recreate hash ignored — session changed")
+                return
+            }
+            saveCallHash(hash)
+            applySessionPath(VpnPath.Bypass)
+        }
+        dispatchRecovery(event)
+        if (
+            event.op == CallCreateOp.Applied &&
+            callRecreateIdentityStillCurrent(captured, currentRecreateIdentity())
+        ) {
+            AppLog.i(TAG, "Saved recreated call hash, restarting Bypass hold=$holdService")
+            if (holdService && TunnelSessionHolder.config != null) {
+                requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
+            } else if (TunnelSessionHolder.config != null) {
+                requestTransportRestart("Новый код звонка", pathOverride = VpnPath.Bypass)
+            } else {
+                connect()
+            }
         }
     }
 
@@ -2816,11 +3137,11 @@ class ConnectionManager(
             return
         }
         // Set Error before stopSelf/onDestroy can flip Connecting → Ready and drop the dialog.
-        _ui.value = cur.copy(
-            state = ConnState.Error,
-            activePath = null,
-            statusText = status
-                ?: if (wasSoft) "Не удалось переподключиться" else "Ошибка подключения",
+        val statusText = status
+            ?: if (wasSoft) "Не удалось переподключиться" else "Ошибка подключения"
+        endUserAttempt(message)
+        _ui.value = _ui.value.copy(
+            statusText = statusText,
             lastError = message,
             callRecreatePrompt = prompt,
             connectEnabled = connectAllowed(cur.probe),
@@ -2828,11 +3149,126 @@ class ConnectionManager(
         scope.launch { stopTunnel() }
     }
 
-    fun onServiceStopped() {
-        if (softRestartInProgress) {
+    /**
+     * User Stop from the shade ACTION_STOP, or [disconnect]. Does not send
+     * another ACTION_STOP — the service may already be tearing down.
+     */
+    private fun revokeLiveConnectIntent(
+        reason: String,
+        markDisconnecting: Boolean = true,
+    ): Long {
+        recoveryTimer.clear()
+        connectRequests.revokeConnectWork()
+        connectWaitJob?.cancel()
+        connectWaitJob = null
+        probeJob?.cancel()
+        probeJob = null
+        diagnosticJob?.cancel()
+        diagnosticJob = null
+        stopWatchingUnderlay()
+        tunnelStartSerializer.revokePending()
+        dispatchRecovery(ConnectionEvent.UserDisconnect)
+        softRestartInProgress = false
+        handoverProbeStreak = ProbeStreak()
+        lastHandoverBindHandle = null
+        deadDirectBindHandle = null
+        blockBypassToDirectUntilUnderlayChange = false
+        callRecreateAttempts = 0
+        callRecreateNetworkFails = 0
+        callRecreateJob?.cancel()
+        callRecreateJob = null
+        presenceJob?.cancel()
+        presenceJob = null
+        connectJob?.cancel()
+        connectJob = null
+        runningNotifyJob?.cancel()
+        runningNotifyJob = null
+        transportRestartJob?.cancel()
+        transportRestartJob = null
+        val generation = bumpSessionGeneration(reason)
+        if (markDisconnecting) {
+            _ui.value = _ui.value.copy(
+                state = ConnState.Disconnecting,
+                statusText = "Отключение…",
+                connectEnabled = false,
+                lastError = null,
+            )
+        }
+        return generation
+    }
+
+    internal fun onServiceStopped(
+        owner: Long,
+        releaseStartGate: Boolean = true,
+        origin: TunnelStopOrigin = TunnelStopOrigin.Destroy,
+        applyTeardown: Boolean = true,
+    ) {
+        val acceptedUserStop = acceptedUserStopFromOrigin(origin, applyTeardown)
+        val ignoreAsSoftRestart = treatStopAsSoftRestart(softRestartInProgress, acceptedUserStop)
+        if (
+            shouldRevokeConnectOnServiceStop(
+                origin = origin,
+                applyTeardown = applyTeardown,
+                stoppedOwner = owner,
+                liveTransportOwner = connectRequests.liveTransportOwnerId(),
+                activeRequestTransportOwner = connectRequests.activeRequestTransportOwner(),
+                hasActiveConnectRequest = connectRequests.hasActiveConnectRequest(),
+                wantsConnected = recoverySnapshot.intent.wantsConnected,
+                managerSoftRestart = softRestartInProgress,
+            )
+        ) {
+            val reason = if (origin == TunnelStopOrigin.Shade) {
+                "notification-stop"
+            } else {
+                "targeted-stop"
+            }
+            revokeLiveConnectIntent(reason, markDisconnecting = false)
+        }
+        val dispatched = dispatchServiceStopped(
+            requests = connectRequests,
+            serializer = tunnelStartSerializer,
+            owner = owner,
+            releaseStartGate = releaseStartGate,
+            softRestart = ignoreAsSoftRestart,
+        )
+        val cause = when {
+            vpnPermissionRevoked -> "revoke"
+            ignoreAsSoftRestart -> "soft_restart"
+            acceptedUserStop || _ui.value.state == ConnState.Disconnecting -> "user_stop"
+            !dispatched.finishLiveAttempt -> "expected"
+            !recoverySnapshot.intent.wantsConnected -> "expected"
+            else -> "unexpected"
+        }
+        val line =
+            "Service stopped cause=$cause origin=$origin owner=$owner finish=${dispatched.finishLiveAttempt} " +
+                "wants=${recoverySnapshot.intent.wantsConnected} gen=${sessionGeneration.get()}"
+        if (cause == "unexpected") {
+            AppLog.i(TAG, "Unexpected VPN service stop. $line")
+        } else {
+            AppLog.i(TAG, line)
+        }
+        logTunnelLifecycle(
+            "service_stopped",
+            JSONObject()
+                .put("cause", cause)
+                .put("origin", origin.name)
+                .put("apply_teardown", applyTeardown)
+                .put("owner", owner)
+                .put("finish_attempt", dispatched.finishLiveAttempt)
+                .put("deferred_ticket", dispatched.deferredStart?.ticket ?: JSONObject.NULL),
+            verbose = cause != "unexpected" && cause != "revoke",
+        )
+        if (ignoreAsSoftRestart) {
             AppLog.v(TAG, "Ignoring service stopped during soft restart")
+            postDeferredTunnelStart(dispatched.deferredStart)
             return
         }
+        if (!dispatched.finishLiveAttempt) {
+            AppLog.v(TAG, "Ignoring stale service stop owner=$owner")
+            postDeferredTunnelStart(dispatched.deferredStart)
+            return
+        }
+        bumpSessionGeneration("service-stopped")
         val cur = _ui.value
         if (
             cur.state == ConnState.Connected ||
@@ -2842,9 +3278,28 @@ class ConnectionManager(
             _ui.value = cur.copy(
                 state = ConnState.Ready,
                 activePath = null,
-                statusText = cur.probe?.message ?: "Отключено",
+                statusText = when (cause) {
+                    "revoke" -> "Система отозвала разрешение VPN"
+                    "unexpected" -> "VPN-сервис остановился"
+                    else -> cur.probe?.message ?: "Отключено"
+                },
                 softInfo = softInfoFor(cur.probe),
                 connectEnabled = connectAllowed(cur.probe),
+            )
+        }
+        val keepReady = _ui.value.state != ConnState.Error &&
+            _ui.value.state != ConnState.Disconnecting
+        connectRequests.finishAttempt()
+        if (
+            recoverySnapshot.intent.wantsConnected &&
+            !vpnPermissionRevoked &&
+            cause != "user_stop"
+        ) {
+            dispatchRecovery(
+                ConnectionEvent.AttemptFailed(
+                    message = _ui.value.lastError ?: _ui.value.statusText.ifBlank { "Отключено" },
+                    keepReady = keepReady,
+                ),
             )
         }
         runCatching {
@@ -2855,6 +3310,85 @@ class ConnectionManager(
             )
             com.ardtt.app.QuickToggleTileService.requestTileUpdate(appContext)
             com.ardtt.app.AppShortcuts.refreshAsync(appContext)
+        }
+        postDeferredTunnelStart(dispatched.deferredStart)
+    }
+
+    fun onVpnPermissionRevoked(owner: Long) {
+        val live = tunnelStartSerializer.lastBoundOwner
+        if (owner != 0L && live != 0L && owner != live) {
+            AppLog.i(TAG, "Ignoring stale VPN revoke owner=$owner live=$live")
+            return
+        }
+        vpnPermissionRevoked = true
+        tunnelStartSerializer.revokePending()
+        callRecreateJob?.cancel()
+        callRecreateJob = null
+        callRecreateNetworkFails = 0
+        recoveryTimer.clear()
+        val generation = bumpSessionGeneration("vpn-revoke")
+        AppLog.i(
+            TAG,
+            "VPN permission revoked by Android owner=$owner gen=$generation " +
+                "session=${recoverySnapshot.sessionEpoch} transport=${recoverySnapshot.transportEpoch}",
+        )
+        logTunnelLifecycle(
+            "on_revoke",
+            JSONObject().put("owner", owner).put("by", "android"),
+        )
+        if (recoverySnapshot.intent.wantsConnected) {
+            dispatchRecovery(
+                ConnectionEvent.AttemptFailed(
+                    message = "Система отозвала разрешение VPN",
+                    keepReady = true,
+                ),
+            )
+        }
+        _ui.value = _ui.value.copy(
+            state = ConnState.Ready,
+            activePath = null,
+            statusText = "Система отозвала разрешение VPN",
+            lastError = "Система отозвала разрешение VPN",
+            connectEnabled = connectAllowed(_ui.value.probe),
+            callRecreatePrompt = null,
+        )
+    }
+
+    private fun postDeferredTunnelStart(lease: DeferredTunnelStart?) {
+        if (lease == null) return
+        AppLog.v(
+            TAG,
+            "Deferred tunnel start posted ticket=${lease.ticket} request=${lease.requestId} " +
+                "session=${lease.sessionEpoch} gen=${lease.generation} path=${lease.path}",
+        )
+        logTunnelLifecycle(
+            "start_posted",
+            JSONObject()
+                .put("ticket", lease.ticket)
+                .put("request_id", lease.requestId ?: JSONObject.NULL)
+                .put("session_epoch", lease.sessionEpoch)
+                .put("generation", lease.generation)
+                .put("path", lease.path.name)
+                .put("gate_epoch", lease.gateEpoch),
+            verbose = true,
+        )
+        mainHandler.post {
+            runCatching { startTunnelServiceIfCurrent(lease) }.onFailure { t ->
+                AppLog.e(TAG, "Deferred tunnel start failed: ${t.message}")
+                if (deferredStartReject(lease) != null) {
+                    AppLog.i(
+                        TAG,
+                        "Deferred start failure ignored: lease no longer current ticket=${lease.ticket}",
+                    )
+                    logTunnelLifecycle(
+                        "start_stale_failure",
+                        JSONObject().put("ticket", lease.ticket),
+                    )
+                    return@post
+                }
+                val msg = t.message ?: "Не удалось запустить VPN"
+                endUserAttempt(msg)
+            }
         }
     }
 
@@ -2873,6 +3407,83 @@ class ConnectionManager(
         }
     }
 
+    private fun applyFastPathHint(
+        result: ProbeResult,
+        sessionEpoch: Long,
+        networkEpoch: Long,
+        capturedNetworkKey: NetworkKey?,
+        capturedProfileId: String?,
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        val originKey = capturedNetworkKey ?: result.networkKey
+        val incoming = ReachabilityEvidence(
+            networkKey = originKey,
+            originNetworkKey = originKey,
+            profileId = capturedProfileId ?: recoverySnapshot.intent.profileId,
+            measuredAtElapsedMs = now,
+            yandex = result.yandexOutcome,
+            bigtech = result.bigtechOutcome,
+            google = result.googleOutcome,
+            ruService = result.ruServiceOutcome,
+            provision = result.provisionOutcome,
+            seriesId = result.seriesId,
+        )
+        val sample = RestrictionScore.sample(
+            cellular = true,
+            yandex = result.yandexOutcome,
+            bigtech = result.bigtechOutcome,
+            google = result.googleOutcome,
+            ruService = result.ruServiceOutcome,
+        )
+        val admit = connectRequests.admitEarly(
+            ProbeCallback(
+                seriesId = result.seriesId,
+                sessionEpoch = sessionEpoch,
+                networkEpoch = networkEpoch,
+                profileId = incoming.profileId,
+                networkKey = originKey,
+                ordinarySuccess = result.bigtechOutcome.isSuccess || result.googleOutcome.isSuccess,
+                sample = sample,
+                wantsConnected = recoverySnapshot.intent.wantsConnected,
+                uiState = _ui.value.state,
+                liveNetworkKey = recoverySnapshot.underlay.key,
+                liveProfileId = recoverySnapshot.intent.profileId,
+                userStop = _ui.value.state == ConnState.Disconnecting,
+            ),
+        )
+        if (!admit.accepted) {
+            if (connectRequests.lateCallbackBlocked(result.seriesId)) return
+            return
+        } else if (!admit.applyToReducer) {
+            logAutoPathDecision(
+                eventKind = "early",
+                seriesId = result.seriesId,
+                sample = sample,
+                evidence = incoming,
+                pathBefore = recoverySnapshot.activePath,
+                command = "fast-hint",
+                roundMs = result.elapsedMs,
+            )
+            return
+        }
+        logAutoPathDecision(
+            eventKind = "early",
+            seriesId = result.seriesId,
+            sample = sample,
+            evidence = incoming,
+            pathBefore = recoverySnapshot.activePath,
+            command = "fast-hint",
+            roundMs = result.elapsedMs,
+        )
+        dispatchRecovery(
+            ConnectionEvent.ProbeFastHint(
+                evidence = incoming,
+                sessionEpoch = sessionEpoch,
+                networkEpoch = networkEpoch,
+            ),
+        )
+    }
+
     private fun applyProbe(
         result: ProbeResult,
         sessionEpoch: Long,
@@ -2883,23 +3494,10 @@ class ConnectionManager(
         val shown = displayedAutoProbe(pathMode, currentAutoUnderlayKind(), result)
         val capturedKey = result.networkKey ?: capturedNetworkKey
         val profileId = capturedProfileId ?: recoverySnapshot.intent.profileId
-        if (capturedProfileId != null &&
-            recoverySnapshot.intent.profileId != null &&
-            capturedProfileId != recoverySnapshot.intent.profileId
-        ) {
-            AppLog.v(TAG, "probe UI skipped — profile changed since capture")
-            return
-        }
-        if (capturedKey != null &&
-            recoverySnapshot.underlay.key != null &&
-            !capturedKey.samePhysicalNetwork(recoverySnapshot.underlay.key)
-        ) {
-            AppLog.v(TAG, "probe UI skipped — network changed since capture")
-            return
-        }
         val now = SystemClock.elapsedRealtime()
         val incoming = ReachabilityEvidence(
             networkKey = capturedKey,
+            originNetworkKey = capturedKey,
             profileId = profileId,
             measuredAtElapsedMs = now,
             yandex = shown.yandexOutcome,
@@ -2917,54 +3515,162 @@ class ConnectionManager(
             seriesId = shown.seriesId,
         )
         val cellular = recoverySnapshot.underlay.kind == UnderlayKind.Cellular
-        if (recoverySnapshot.intent.wantsConnected) {
-            dispatchRecovery(
-                ConnectionEvent.ProbeFinished(
-                    evidence = incoming,
-                    sessionEpoch = sessionEpoch,
-                    networkEpoch = networkEpoch,
-                ),
-            )
-            val folded = recoverySnapshot.evidence
-            val overlay = if (folded != null) {
-                shown.withWhitelistEvidence(folded, cellular)
-            } else {
-                shown
+        val sample = RestrictionScore.sample(
+            cellular,
+            incoming.yandex,
+            incoming.bigtech,
+            incoming.google,
+            incoming.ruService,
+        )
+        val callback = ProbeCallback(
+            seriesId = shown.seriesId,
+            sessionEpoch = sessionEpoch,
+            networkEpoch = networkEpoch,
+            profileId = profileId,
+            networkKey = capturedKey,
+            ordinarySuccess = shown.bigtechOutcome.isSuccess || shown.googleOutcome.isSuccess,
+            sample = sample,
+            wantsConnected = recoverySnapshot.intent.wantsConnected,
+            uiState = _ui.value.state,
+            liveNetworkKey = recoverySnapshot.underlay.key,
+            liveProfileId = recoverySnapshot.intent.profileId,
+            userStop = _ui.value.state == ConnState.Disconnecting,
+        )
+        val admit = connectRequests.admitAndApplyFinal(callback) { admitted ->
+            val scoreBefore = recoverySnapshot.evidence?.whitelistScorePercent ?: 0
+            val pathBefore = recoverySnapshot.activePath
+            if (admitted.applyToReducer) {
+                dispatchRecovery(
+                    ConnectionEvent.ProbeFinished(
+                        evidence = incoming,
+                        sessionEpoch = sessionEpoch,
+                        networkEpoch = networkEpoch,
+                    ),
+                )
+                val folded = recoverySnapshot.evidence
+                val overlay = if (folded != null) {
+                    shown.withWhitelistEvidence(folded, cellular, now)
+                } else {
+                    shown
+                }
+                logAutoPathDecision(
+                    eventKind = "final",
+                    seriesId = shown.seriesId,
+                    sample = sample,
+                    evidence = folded,
+                    pathBefore = pathBefore,
+                    command = recoverySnapshot.recovery.phase.name,
+                    roundMs = result.elapsedMs,
+                    scoreBefore = scoreBefore,
+                )
+                _ui.value = _ui.value.copy(
+                    probe = overlay,
+                    softInfo = softInfoFor(overlay),
+                )
+                refreshHashFlag()
+                return@admitAndApplyFinal
             }
-            _ui.value = _ui.value.copy(
-                probe = overlay,
-                softInfo = softInfoFor(overlay),
-            )
+            if (!admitted.idleFold) return@admitAndApplyFinal
+            val overlay: ProbeResult
+            synchronized(recoveryGate) {
+                if (shown.seriesId.isNotEmpty() && shown.seriesId in recoverySnapshot.seenProbeSeriesIds) {
+                    return@admitAndApplyFinal
+                }
+                val folded = foldReachabilityEvidence(
+                    previous = recoverySnapshot.evidence,
+                    incoming = incoming,
+                    cellular = cellular,
+                    elapsedMs = now,
+                )
+                recoverySnapshot = recoverySnapshot.copy(
+                    evidence = folded,
+                    cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
+                    seenProbeSeriesIds = rememberProbeSeriesId(
+                        recoverySnapshot.seenProbeSeriesIds,
+                        shown.seriesId,
+                    ),
+                )
+                overlay = shown.withWhitelistEvidence(folded, cellular, now)
+                logAutoPathDecision(
+                    eventKind = "final",
+                    seriesId = shown.seriesId,
+                    sample = sample,
+                    evidence = folded,
+                    pathBefore = pathBefore,
+                    command = "idle-stash",
+                    roundMs = result.elapsedMs,
+                    scoreBefore = scoreBefore,
+                )
+            }
+            val connecting = _ui.value.state == ConnState.Connecting ||
+                _ui.value.state == ConnState.Connected
+            val disconnecting = _ui.value.state == ConnState.Disconnecting
+            _ui.value = if (connecting || disconnecting || !admitted.allowReadyUi) {
+                _ui.value.copy(
+                    probe = overlay,
+                    softInfo = softInfoFor(overlay),
+                )
+            } else {
+                _ui.value.copy(
+                    state = ConnState.Ready,
+                    probe = overlay,
+                    pathMode = pathMode,
+                    statusText = overlay.message,
+                    softInfo = softInfoFor(overlay),
+                    connectEnabled = connectAllowed(overlay),
+                    lastError = if (!connectAllowed(overlay)) overlay.message else null,
+                )
+            }
             refreshHashFlag()
-            return
+            Log.i(TAG, "probe class=${overlay.networkClass} path=${overlay.preselectedPath} ${overlay.elapsedMs}ms")
         }
-        val folded = foldReachabilityEvidence(
-            previous = recoverySnapshot.evidence,
-            incoming = incoming,
-            cellular = cellular,
-            elapsedMs = now,
+        if (!admit.accepted) {
+            AppLog.v(TAG, "probe result rejected series=${shown.seriesId}")
+        }
+    }
+
+    private fun sessionOwnsProbe(sessionEpoch: Long, networkEpoch: Long): Boolean =
+        recoverySnapshot.intent.wantsConnected &&
+            !recoverySnapshot.recovery.permit.userStop &&
+            recoverySnapshot.recovery.permit.acceptsProbe(
+                sessionEpoch,
+                networkEpoch,
+                recoverySnapshot.recovery.inheritedProbeSessionEpoch,
+            )
+
+    private fun logAutoPathDecision(
+        eventKind: String,
+        seriesId: String,
+        sample: RestrictionSample,
+        evidence: ReachabilityEvidence?,
+        pathBefore: VpnPath?,
+        command: String,
+        roundMs: Long,
+        scoreBefore: Int = 0,
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        val key = evidence?.networkKey ?: recoverySnapshot.underlay.key
+        val ttlLeft = evidence?.usableUntilElapsedMs()?.let { until ->
+            if (until <= 0L) 0L else (until - now).coerceAtLeast(0L)
+        } ?: 0L
+        val nextMs = RecoverySettings.nextDiagnosticDelayMs(
+            evidence = evidence,
+            nowElapsedMs = now,
+            key = key,
+            profileId = recoverySnapshot.intent.profileId,
         )
-        recoverySnapshot = recoverySnapshot.copy(
-            evidence = folded,
-            cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
-        )
-        val overlay = shown.withWhitelistEvidence(folded, cellular)
         AppLog.i(
             TAG,
-            "idle probe stashed score=${folded.whitelistScorePercent} " +
-                "restriction=${folded.restriction} path=${overlay.preselectedPath}",
+            "auto-stage path_decision series=${seriesId.take(8)} event=$eventKind " +
+                "net=${key?.handle} sim=${key?.simId} op=${key?.carrier} " +
+                "age_ms=${evidence?.let { now - it.observedAtElapsedMs } ?: 0} ttl_ms=$ttlLeft " +
+                "sample=$sample yandex=${evidence?.yandex} cf=${evidence?.bigtech} " +
+                "google=${evidence?.google} vk=${evidence?.ruService} " +
+                "score_before=$scoreBefore score_after=${evidence?.whitelistScorePercent} " +
+                "strong_fresh=${evidence?.hasFreshStrong(now, key, recoverySnapshot.intent.profileId)} " +
+                "path_before=$pathBefore path_after=${recoverySnapshot.activePath} " +
+                "reason=${evidence?.restrictionReason} cmd=$command next_ms=$nextMs round_ms=$roundMs",
         )
-        _ui.value = _ui.value.copy(
-            state = ConnState.Ready,
-            probe = overlay,
-            pathMode = pathMode,
-            statusText = overlay.message,
-            softInfo = softInfoFor(overlay),
-            connectEnabled = connectAllowed(overlay),
-            lastError = if (!connectAllowed(overlay)) overlay.message else null,
-        )
-        refreshHashFlag()
-        Log.i(TAG, "probe class=${overlay.networkClass} path=${overlay.preselectedPath} ${overlay.elapsedMs}ms")
     }
 
     private fun softInfoFor(result: ProbeResult?): String? {
@@ -2987,11 +3693,8 @@ class ConnectionManager(
         when (result.networkClass) {
             NetworkClass.NeedBypass ->
                 if (pathMode == ConnPathMode.Auto && !wifiAuto) {
-                    parts += if (
-                        result.preselectedPath == VpnPath.Bypass ||
-                        RestrictionScore.likely(result.whitelistScorePercent, alreadyBypass = false)
-                    ) {
-                        "Похоже на белый список оператора. Подключаемся через обход, без пробного прямого подключения."
+                    parts += if (result.preselectedPath == VpnPath.Bypass) {
+                        "Признаки белого списка подтверждены проверками. Подключаемся через обход, без пробного прямого подключения."
                     } else {
                         "Возможны ограничения мобильной сети. Прямое подключение к VPS проверяется."
                     }
@@ -3239,7 +3942,85 @@ class ConnectionManager(
         return System.currentTimeMillis() - tunnelStartedAtMs
     }
 
+    private fun liveDeferredStart(): LiveDeferredStart {
+        return LiveDeferredStart(
+            wantsConnected = recoverySnapshot.intent.wantsConnected,
+            requestId = connectRequests.activeRequestId(),
+            sessionEpoch = recoverySnapshot.sessionEpoch,
+            generation = sessionGeneration.get(),
+        )
+    }
+
+    private fun deferredStartReject(lease: DeferredTunnelStart): String? {
+        return deferredStartRejectReason(
+            lease = lease,
+            live = liveDeferredStart(),
+            serializerGateEpoch = tunnelStartSerializer.gateEpoch,
+        )
+    }
+
     private fun startTunnel(path: VpnPath) {
+        val lease = tunnelStartSerializer.nextLease(
+            requestId = connectRequests.activeRequestId(),
+            sessionEpoch = recoverySnapshot.sessionEpoch,
+            generation = sessionGeneration.get(),
+            path = path,
+        )
+        if (!tunnelStartSerializer.admitStart(lease)) {
+            AppLog.v(
+                TAG,
+                "Defer tunnel start ticket=${lease.ticket} path=$path request=${lease.requestId} " +
+                    "session=${lease.sessionEpoch} gen=${lease.generation}",
+            )
+            logTunnelLifecycle(
+                "start_queued",
+                JSONObject()
+                    .put("ticket", lease.ticket)
+                    .put("path", path.name)
+                    .put("request_id", lease.requestId ?: JSONObject.NULL)
+                    .put("session_epoch", lease.sessionEpoch)
+                    .put("generation", lease.generation)
+                    .put("gate_epoch", lease.gateEpoch),
+                verbose = true,
+            )
+            return
+        }
+        startTunnelServiceIfCurrent(lease)
+    }
+
+    private fun startTunnelServiceIfCurrent(lease: DeferredTunnelStart) {
+        val reject = deferredStartReject(lease)
+        if (reject != null) {
+            AppLog.i(
+                TAG,
+                "Rejected deferred tunnel start ticket=${lease.ticket} reason=$reject " +
+                    "request=${lease.requestId} session=${lease.sessionEpoch} gen=${lease.generation}",
+            )
+            logTunnelLifecycle(
+                "start_rejected",
+                JSONObject()
+                    .put("ticket", lease.ticket)
+                    .put("reason", reject)
+                    .put("request_id", lease.requestId ?: JSONObject.NULL)
+                    .put("session_epoch", lease.sessionEpoch)
+                    .put("generation", lease.generation)
+                    .put("path", lease.path.name),
+            )
+            return
+        }
+        startTunnelService(lease.path)
+        logTunnelLifecycle(
+            "start_executed",
+            JSONObject()
+                .put("ticket", lease.ticket)
+                .put("request_id", lease.requestId ?: JSONObject.NULL)
+                .put("session_epoch", lease.sessionEpoch)
+                .put("generation", lease.generation)
+                .put("path", lease.path.name),
+        )
+    }
+
+    private fun startTunnelService(path: VpnPath) {
         tunnelStartedAtMs = System.currentTimeMillis()
         val addr = when (path) {
             VpnPath.Direct -> profile?.direct?.address ?: tunAddress
@@ -3258,11 +4039,13 @@ class ConnectionManager(
             callEpoch = recoverySnapshot.call.callEpoch,
         )
 
+        val transportOwner = connectRequests.bindNewTransport()
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_START
             putExtra(VpnTunnelService.EXTRA_PATH, path.name)
             putExtra(VpnTunnelService.EXTRA_HIDE_IP, false)
             putExtra(VpnTunnelService.EXTRA_TUN_ADDRESS, addr)
+            putExtra(VpnTunnelService.EXTRA_TRANSPORT_OWNER, transportOwner)
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -3270,6 +4053,13 @@ class ConnectionManager(
             } else {
                 appContext.startService(intent)
             }
+            tunnelStartSerializer.noteStartIssued(transportOwner)
+            AppLog.i(
+                TAG,
+                "Tunnel START issued owner=$transportOwner path=$path " +
+                    "request=${connectRequests.activeRequestId()} " +
+                    "session=${recoverySnapshot.sessionEpoch} gen=${sessionGeneration.get()}",
+            )
         } catch (t: Throwable) {
             AppLog.e(TAG, "startForegroundService failed: ${t.message}")
             throw t
@@ -3279,11 +4069,26 @@ class ConnectionManager(
     private fun stopTunnel() {
         presenceJob?.cancel()
         presenceJob = null
-        AppLog.v(TAG, "Stop tunnel")
+        val owner = tunnelStartSerializer.beginStop()
+        AppLog.i(
+            TAG,
+            "Tunnel STOP issued by=manager owner=$owner gen=${sessionGeneration.get()} " +
+                "session=${recoverySnapshot.sessionEpoch} transport=${recoverySnapshot.transportEpoch} " +
+                "wants=${recoverySnapshot.intent.wantsConnected}",
+        )
+        logTunnelLifecycle(
+            "stop_issued",
+            JSONObject()
+                .put("by", "manager")
+                .put("owner", owner),
+        )
         EgressIpProbe.clear()
         TunnelSessionHolder.config = null
         val intent = Intent(appContext, VpnTunnelService::class.java).apply {
             action = VpnTunnelService.ACTION_STOP
+            if (owner != 0L) {
+                putExtra(VpnTunnelService.EXTRA_TRANSPORT_OWNER, owner)
+            }
         }
         appContext.startService(intent)
     }
@@ -3465,6 +4270,62 @@ class ConnectionManager(
                 path = path,
             ),
         )
+    }
+
+    private fun screenInteractive(): Boolean {
+        val pm = appContext.getSystemService(android.os.PowerManager::class.java)
+        return pm?.isInteractive == true
+    }
+
+    private fun logTunnelLifecycle(
+        action: String,
+        extra: JSONObject = JSONObject(),
+        verbose: Boolean = false,
+    ) {
+        extra.put("ui", _ui.value.state.name)
+        extra.put("intent_wants", recoverySnapshot.intent.wantsConnected)
+        extra.put("recovery_phase", recoverySnapshot.recovery.phase.name)
+        extra.put("transport", recoverySnapshot.transport.name)
+        if (!extra.has("active_path")) {
+            extra.put("active_path", _ui.value.activePath?.name ?: JSONObject.NULL)
+        }
+        if (!extra.has("request_id")) {
+            extra.put("request_id", connectRequests.activeRequestId() ?: JSONObject.NULL)
+        }
+        if (!extra.has("owner")) {
+            extra.put("owner", tunnelStartSerializer.lastBoundOwner)
+        }
+        if (!extra.has("session_epoch")) {
+            extra.put("session_epoch", recoverySnapshot.sessionEpoch)
+        }
+        extra.put("network_epoch", recoverySnapshot.networkEpoch)
+        if (!extra.has("transport_epoch")) {
+            extra.put("transport_epoch", recoverySnapshot.transportEpoch)
+        }
+        if (!extra.has("call_epoch")) {
+            extra.put("call_epoch", recoverySnapshot.call.callEpoch)
+        }
+        if (!extra.has("generation")) {
+            extra.put("generation", sessionGeneration.get())
+        }
+        extra.put("underlay", recoverySnapshot.underlay.kind.name)
+        extra.put("screen_on", screenInteractive())
+        extra.put("trusted_wifi", _ui.value.state == ConnState.PausedTrustedWifi)
+        extra.put("revoke", vpnPermissionRevoked)
+        val summary = buildString {
+            append(action)
+            extra.optString("by").takeIf { it.isNotBlank() }?.let { append(" by=").append(it) }
+            extra.optString("cause").takeIf { it.isNotBlank() }?.let { append(" cause=").append(it) }
+            extra.optString("reason").takeIf { it.isNotBlank() }?.let { append(" reason=").append(it) }
+            extra.optString("decision").takeIf { it.isNotBlank() }?.let { append(" decision=").append(it) }
+            extra.optString("kind").takeIf { it.isNotBlank() }?.let { append(" kind=").append(it) }
+        }
+        if (verbose) {
+            AppLog.v(TAG, "lifecycle $summary")
+        } else {
+            AppLog.i(TAG, "lifecycle $summary")
+        }
+        TelemetryBridge.lifecycle(action, extra)
     }
 
     companion object {

@@ -24,6 +24,13 @@ object RecoverySettings {
     const val WHITELIST_ENTER_PERCENT = 80
     /** Stay on Bypass until the score falls below this (hysteresis). */
     const val WHITELIST_EXIT_PERCENT = 55
+    /**
+     * Weak-only accumulation never reaches enter. Four +25 rounds stay at 50
+     * unless a fresh strong confirmation is still inside TTL.
+     */
+    const val WHITELIST_WEAK_ONLY_CAP_PERCENT = 50
+    /** Consecutive Ignore/unknown rounds before a live Bypass may re-try Direct. */
+    const val WHITELIST_UNKNOWN_DIRECT_TRY_STREAK = 4
     const val PROBE_CACHE_TTL_MS = 30_000L
     const val STABILIZE_AFTER_GAP_MS = 1_500L
     const val FIRST_WIFI_DIRECT_DELAY_MS = 0L
@@ -50,6 +57,9 @@ object RecoverySettings {
     const val PROBE_RESTRICTION_TTL_MS = 30_000L
     /** Max completed diagnostic rounds in the initial open-LTE burst. */
     const val DIAGNOSTIC_OPEN_BURST_SERIES = 1
+
+    /** Transient VK OAuth/calls.start failures before asking the user. */
+    const val CALL_RECREATE_NETWORK_ATTEMPTS = 3
 
     val retryBackoffMs: LongArray = longArrayOf(
         2_000L, 5_000L, 10_000L, 20_000L, 30_000L, 60_000L,
@@ -133,31 +143,76 @@ object RecoverySettings {
         directRxLooksLikeData(totalRx)
 
     /**
-     * Next diagnostic delay for cellular. Restriction confidence ([seriesCount]) is
-     * separate from completed work ([completedSeries]).
+     * Consecutive unknown/Ignore rounds: 2s, 5s, 10s, 30s, then 60s forever.
+     * Starting values for tuning, not a measured optimum.
+     */
+    val diagnosticUnknownBackoffMs: LongArray = longArrayOf(
+        2_000L, 5_000L, 10_000L, 30_000L, 60_000L,
+    )
+
+    fun unknownDiagnosticDelayMs(unknownStreak: Int): Long {
+        val idx = (unknownStreak - 1).coerceAtLeast(0)
+            .coerceAtMost(diagnosticUnknownBackoffMs.lastIndex)
+        return diagnosticUnknownBackoffMs[idx]
+    }
+
+    /** `now >= validUntil` is expired. A missing timestamp is never infinitely fresh. */
+    fun evidenceExpired(nowElapsedMs: Long, validUntilElapsedMs: Long): Boolean {
+        if (validUntilElapsedMs <= 0L) return true
+        return nowElapsedMs >= validUntilElapsedMs
+    }
+
+    /**
+     * Next diagnostic delay for cellular. The last accepted sample, usable
+     * freshness and strong freshness are independent of the UI restriction
+     * label: a leftover Suspected name without usable evidence is not a 25s
+     * refresh, and a Weak round is not an Unknown backoff.
      */
     fun nextDiagnosticDelayMs(
         completedSeries: Int,
         restriction: RestrictionHint,
-        seriesCount: Int,
+        @Suppress("UNUSED_PARAMETER") seriesCount: Int,
+        unknownStreak: Int = 0,
+        strongFresh: Boolean = false,
+        usableFresh: Boolean = false,
+        lastSample: RestrictionSample = RestrictionSample.Ignore,
     ): Long? {
-        return when (restriction) {
-            RestrictionHint.Suspected, RestrictionHint.Confirmed ->
+        return when (lastSample) {
+            RestrictionSample.Ignore ->
+                unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
+            RestrictionSample.Open ->
+                if (restriction != RestrictionHint.None && !usableFresh) {
+                    unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
+                } else if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
+                    DIAGNOSTIC_SERIES_GAP_MS
+                } else {
+                    DIAGNOSTIC_OPEN_INTERVAL_MS
+                }
+            RestrictionSample.WeakPositive,
+            RestrictionSample.Positive,
+            -> if (usableFresh || strongFresh) {
                 DIAGNOSTIC_RESTRICTION_REFRESH_MS
-            RestrictionHint.None ->
-                if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
-                    DIAGNOSTIC_SERIES_GAP_MS
-                } else {
-                    DIAGNOSTIC_OPEN_INTERVAL_MS
-                }
-            RestrictionHint.Unknown ->
-                if (completedSeries < DIAGNOSTIC_OPEN_BURST_SERIES) {
-                    DIAGNOSTIC_SERIES_GAP_MS
-                } else if (seriesCount > 0 && seriesCount < RESTRICTION_CONFIRM_SERIES) {
-                    DIAGNOSTIC_SERIES_GAP_MS
-                } else {
-                    DIAGNOSTIC_OPEN_INTERVAL_MS
-                }
+            } else {
+                unknownDiagnosticDelayMs(unknownStreak.coerceAtLeast(1))
+            }
         }
+    }
+
+    fun nextDiagnosticDelayMs(
+        evidence: ReachabilityEvidence?,
+        nowElapsedMs: Long,
+        key: NetworkKey?,
+        profileId: String?,
+    ): Long? {
+        if (evidence == null) return unknownDiagnosticDelayMs(1)
+        return nextDiagnosticDelayMs(
+            completedSeries = evidence.completedSeries,
+            restriction = evidence.restrictionAt(nowElapsedMs, key, profileId),
+            seriesCount = evidence.seriesCount,
+            unknownStreak = evidence.unknownStreak,
+            strongFresh = evidence.hasFreshStrong(nowElapsedMs, key, profileId),
+            usableFresh = evidence.usableAt(nowElapsedMs, key, profileId),
+            lastSample = evidence.lastSample,
+        )
     }
 }

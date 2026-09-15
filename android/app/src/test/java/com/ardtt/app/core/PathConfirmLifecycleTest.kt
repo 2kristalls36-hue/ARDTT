@@ -237,6 +237,8 @@ class PathConfirmLifecycleTest {
             completedSeries = 1,
             restriction = RestrictionHint.None,
             seriesCount = 0,
+            lastSample = RestrictionSample.Open,
+            usableFresh = true,
         )
         assertEquals(RecoverySettings.DIAGNOSTIC_OPEN_INTERVAL_MS, delay)
         assertTrue(delay!! > RecoverySettings.DIAGNOSTIC_SERIES_GAP_MS)
@@ -248,6 +250,9 @@ class PathConfirmLifecycleTest {
             completedSeries = 2,
             restriction = RestrictionHint.Confirmed,
             seriesCount = 2,
+            lastSample = RestrictionSample.Positive,
+            strongFresh = true,
+            usableFresh = true,
         )
         assertEquals(RecoverySettings.DIAGNOSTIC_RESTRICTION_REFRESH_MS, delay)
     }

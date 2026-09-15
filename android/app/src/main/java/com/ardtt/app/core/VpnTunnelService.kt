@@ -15,9 +15,11 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
-import android.system.OsConstants
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
+import android.system.OsConstants
 import android.util.Log
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
@@ -31,6 +33,7 @@ import com.ardtt.app.tunnel.TunEstablisher
 import com.ardtt.app.tunnel.TunnelBackend
 import com.ardtt.app.tunnel.TunnelBackendState
 import com.ardtt.app.tunnel.TunnelSessionHolder
+import com.ardtt.app.telemetry.TelemetryBridge
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +44,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import org.json.JSONObject
 
 /**
  * Single VpnService for Path A (AWG) and Path B (RAW/WRAP).
@@ -73,6 +77,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var networkChangeJob: Job? = null
     @Volatile private var softRestartJob: Job? = null
     @Volatile private var userStopRequested = false
+    private val transportSession = TunnelServiceSession()
     @Volatile private var softRestartInProgress = false
     @Volatile private var backendEpoch: Int = 0
     @Volatile private var tunnelSessionActive = false
@@ -135,15 +140,68 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private val restartWakeLock by lazy { RecoveryWakeLock(this, "ardtt:soft-restart") }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        transportSession.noteCommand(startId)
         when (intent?.action) {
             ACTION_STOP -> {
-                userStopRequested = true
-                trustedWifiWaiting = false
-                cancelAllRecovery()
-                stopSession(keepService = false)
-                ConnectionManager.getOrNull()?.onServiceStopped()
-                stopSelf()
-                return START_NOT_STICKY
+                val requestedOwner = if (intent.hasExtra(EXTRA_TRANSPORT_OWNER)) {
+                    intent.getLongExtra(EXTRA_TRANSPORT_OWNER, 0L)
+                } else {
+                    0L
+                }
+                val decision = transportSession.onStop(requestedOwner, startId)
+                val origin = if (intent.hasExtra(EXTRA_TRANSPORT_OWNER)) {
+                    TunnelStopOrigin.TargetedStop
+                } else {
+                    TunnelStopOrigin.Shade
+                }
+                AppLog.v(
+                    TAG,
+                    "STOP cmd startId=$startId requested=$requestedOwner origin=$origin " +
+                        "bound=${transportSession.boundOwner} teardown=${decision.applyTeardown} " +
+                        "report=${decision.reportOwner}",
+                )
+                if (decision.applyTeardown) {
+                    userStopRequested = true
+                    trustedWifiWaiting = false
+                    cancelAllRecovery()
+                    stopSession(keepService = false)
+                }
+                ConnectionManager.getOrNull()?.onServiceStopped(
+                    owner = decision.reportOwner,
+                    releaseStartGate = false,
+                    origin = origin,
+                    applyTeardown = decision.applyTeardown,
+                )
+                val stopSelfId = decision.stopSelfStartId
+                var instanceGone = false
+                if (stopSelfId != null) {
+                    instanceGone = stopSelfResult(stopSelfId)
+                    if (!instanceGone) {
+                        ConnectionManager.getOrNull()?.onServiceStopped(
+                            owner = decision.reportOwner,
+                            releaseStartGate = true,
+                            origin = origin,
+                            applyTeardown = decision.applyTeardown,
+                        )
+                    }
+                }
+                AppLog.i(
+                    TAG,
+                    "STOP applied teardown=${decision.applyTeardown} owner=${decision.reportOwner} " +
+                        "origin=$origin stopSelfId=$stopSelfId gone=$instanceGone",
+                )
+                TelemetryBridge.lifecycle(
+                    "vpn_stop_cmd",
+                    JSONObject()
+                        .put("requested_owner", requestedOwner)
+                        .put("bound_owner", transportSession.boundOwner)
+                        .put("origin", origin.name)
+                        .put("teardown", decision.applyTeardown)
+                        .put("stop_self_id", stopSelfId ?: JSONObject.NULL)
+                        .put("instance_gone", instanceGone)
+                        .put("start_id", startId),
+                )
+                return if (instanceGone) START_NOT_STICKY else START_STICKY
             }
             ACTION_RESTART_TRANSPORT -> {
                 if ((tunnelSessionActive || trustedWifiWaiting) && !userStopRequested) {
@@ -178,6 +236,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 return START_STICKY
             }
             ACTION_SESSION_CONTROL -> {
+                if (intent.getBooleanExtra(EXTRA_RELEASE_CALL_HOLD, false)) {
+                    softRestartInProgress = false
+                }
                 sessionControlNetOpsDelta(intent)?.let { allowed ->
                     (backend as? BypassBackend)?.setNetOpsAllowed(allowed)
                     parkedBypass?.setNetOpsAllowed(allowed)
@@ -222,6 +283,23 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             ACTION_START, null -> {
                 userStopRequested = false
                 trustedWifiWaiting = false
+                val owner = if (intent?.hasExtra(EXTRA_TRANSPORT_OWNER) == true) {
+                    intent.getLongExtra(EXTRA_TRANSPORT_OWNER, 0L)
+                } else {
+                    0L
+                }
+                transportSession.onStart(owner, startId)
+                AppLog.i(
+                    TAG,
+                    "START cmd startId=$startId owner=$owner bound=${transportSession.boundOwner}",
+                )
+                TelemetryBridge.lifecycle(
+                    "vpn_start_cmd",
+                    JSONObject()
+                        .put("owner", owner)
+                        .put("start_id", startId)
+                        .put("path", TunnelSessionHolder.config?.path?.name ?: JSONObject.NULL),
+                )
                 startSession()
             }
         }
@@ -312,7 +390,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             releaseWakeHold()
             softRestartInProgress = false
             ConnectionManager.getOrNull()?.onTunnelFailed("Нет конфигурации сессии")
-            stopSelf()
+            stopForCommand(transportSession.boundStartId)
             return
         }
         val path = config.path
@@ -523,7 +601,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 softRestartInProgress = false
                 tunnelSessionActive = true
             }
-            TunnelFailureAction.Stop -> stopSelf()
+            TunnelFailureAction.Stop -> stopForCommand(transportSession.boundStartId)
         }
     }
 
@@ -2125,6 +2203,14 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         return found.toList()
     }
 
+    private fun stopForCommand(commandStartId: Int) {
+        if (commandStartId > 0) {
+            stopSelfResult(commandStartId)
+        } else {
+            stopSelf()
+        }
+    }
+
     private fun stopSession(keepService: Boolean) {
         tunnelSessionActive = false
         if (!keepService) {
@@ -2142,14 +2228,98 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         }
     }
 
+    override fun onRevoke() {
+        val capturedOwner = transportSession.boundOwner
+        val capturedCommandStartId = transportSession.lastCommandStartId
+        val work = Runnable {
+            applyVpnRevoke(capturedOwner, capturedCommandStartId)
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            work.run()
+        } else {
+            Handler(Looper.getMainLooper()).postAtFrontOfQueue(work)
+        }
+    }
+
+    private fun applyVpnRevoke(capturedOwner: Long, capturedCommandStartId: Int) {
+        val liveOwner = transportSession.boundOwner
+        val decision = decideVpnRevoke(capturedOwner, liveOwner, capturedCommandStartId)
+        AppLog.i(
+            TAG,
+            "onRevoke captured=$capturedOwner live=$liveOwner " +
+                "cmdStartId=$capturedCommandStartId teardown=${decision.applyTeardown}",
+        )
+        TelemetryBridge.lifecycle(
+            "on_revoke",
+            JSONObject()
+                .put("owner", decision.reportOwner)
+                .put("captured_owner", capturedOwner)
+                .put("live_owner", liveOwner)
+                .put("start_id", capturedCommandStartId)
+                .put("teardown", decision.applyTeardown)
+                .put("path", TunnelSessionHolder.config?.path?.name ?: JSONObject.NULL)
+                .put("trusted_wifi", trustedWifiWaiting),
+        )
+        if (!decision.applyTeardown) {
+            AppLog.i(TAG, "onRevoke ignored stale owner=$capturedOwner live=$liveOwner")
+            return
+        }
+        transportSession.markRevoked(decision.reportOwner)
+        userStopRequested = true
+        trustedWifiWaiting = false
+        cancelAllRecovery()
+        stopSession(keepService = false)
+        ConnectionManager.getOrNull()?.onVpnPermissionRevoked(decision.reportOwner)
+        val gone = if (decision.stopSelfStartId > 0) {
+            stopSelfResult(decision.stopSelfStartId)
+        } else {
+            stopSelf()
+            true
+        }
+        if (!gone && decision.fallbackStopSelf) {
+            stopSelf()
+        }
+        AppLog.i(
+            TAG,
+            "onRevoke stopSelfResult=$gone startId=${decision.stopSelfStartId} fallback=${!gone && decision.fallbackStopSelf}",
+        )
+        TelemetryBridge.lifecycle(
+            "on_revoke_stop",
+            JSONObject()
+                .put("owner", decision.reportOwner)
+                .put("instance_gone", gone)
+                .put("start_id", decision.stopSelfStartId)
+                .put("fallback_stop_self", !gone && decision.fallbackStopSelf),
+        )
+    }
+
     override fun onDestroy() {
         userStopRequested = true
         trustedWifiWaiting = false
+        val reportOwner = transportSession.ownerForDestroy()
+        AppLog.i(
+            TAG,
+            "onDestroy bound=${transportSession.boundOwner} destroying=${transportSession.destroyingOwner} report=$reportOwner",
+        )
+        TelemetryBridge.lifecycle(
+            "on_destroy",
+            JSONObject()
+                .put("owner", reportOwner)
+                .put("bound_owner", transportSession.boundOwner)
+                .put("destroying_owner", transportSession.destroyingOwner)
+                .put("start_id", transportSession.boundStartId)
+                .put("path", TunnelSessionHolder.config?.path?.name ?: JSONObject.NULL),
+        )
         stopSession(keepService = false)
         handoverWakeLock.releaseNow()
         restartWakeLock.releaseNow()
         scope.cancel()
-        ConnectionManager.getOrNull()?.onServiceStopped()
+        ConnectionManager.getOrNull()?.onServiceStopped(
+            owner = reportOwner,
+            releaseStartGate = true,
+            origin = TunnelStopOrigin.Destroy,
+            applyTeardown = true,
+        )
         com.ardtt.app.TunnelWidgetProvider.updateWidgetState(
             this,
             running = false,
@@ -2458,6 +2628,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         const val EXTRA_DISCARD_ACTIVE = "discard_active"
         const val EXTRA_CALL_EPOCH = "call_epoch"
         const val EXTRA_IDENTITY_TOKEN = "identity_token"
+        const val EXTRA_TRANSPORT_OWNER = "transport_owner"
+        const val EXTRA_RELEASE_CALL_HOLD = "release_call_hold"
         const val NETWORK_SCOPE_ACTIVE = "active"
         const val NETWORK_SCOPE_PARKED = "parked"
         private const val ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED =
