@@ -10,11 +10,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +40,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ardtt.app.R
 import com.ardtt.app.core.ConnectionManager
-import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.core.IpApiLookup
 import com.ardtt.app.deploy.DeployHop
@@ -51,6 +53,7 @@ import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.feedback.ArdttPingDot
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
+import com.ardtt.app.ui.components.layout.ArdttPullRefresh
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
@@ -72,6 +75,7 @@ fun NetworkScreen(
     profiles: ProfileRepository,
     serversRepo: ServersRepository,
     onBack: (() -> Unit)? = null,
+    embedded: Boolean = false,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -219,27 +223,8 @@ fun NetworkScreen(
 
     val pull = rememberPullRefresh { refreshAll() }
 
-    ArdttFeedScaffold(
-        refreshing = pull.refreshing,
-        onRefresh = pull.onRefresh,
-        header = {
-            ArdttTabHeader(
-                title = "Сеть",
-                subtitle = NetworkMapCopy.SUBTITLE,
-                onBack = onBack,
-                actions = {
-                    ArdttButton(
-                        onClick = pull.onRefresh,
-                        enabled = !pull.refreshing,
-                        variant = ArdttButtonVariant.Icon,
-                        icon = Icons.Filled.Refresh,
-                        contentDescription = "Обновить карту сети",
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    )
-                },
-            )
-        },
-    ) {
+    @Composable
+    fun NetworkHops() {
         Column {
             visibleHops.forEachIndexed { index, view ->
                 if (index > 0) {
@@ -261,6 +246,59 @@ fun NetworkScreen(
                 )
             }
         }
+    }
+
+    if (embedded) {
+        ArdttPullRefresh(
+            refreshing = pull.refreshing,
+            onRefresh = pull.onRefresh,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    ArdttButton(
+                        onClick = pull.onRefresh,
+                        enabled = !pull.refreshing,
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Обновить карту сети",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                NetworkHops()
+            }
+        }
+        return
+    }
+
+    ArdttFeedScaffold(
+        refreshing = pull.refreshing,
+        onRefresh = pull.onRefresh,
+        header = {
+            ArdttTabHeader(
+                title = "Сеть",
+                subtitle = NetworkMapCopy.SUBTITLE,
+                onBack = onBack,
+                actions = {
+                    ArdttButton(
+                        onClick = pull.onRefresh,
+                        enabled = !pull.refreshing,
+                        variant = ArdttButtonVariant.Icon,
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Обновить карту сети",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
+                },
+            )
+        },
+    ) {
+        NetworkHops()
     }
 }
 
@@ -342,13 +380,13 @@ private suspend fun loadHop(
 ): IpApiInfo {
     val loaded = try {
         when (hop.kind) {
-            NetworkMapHopKind.Provider -> loadProvider(
+            NetworkMapHopKind.Provider -> IpApiLookup.fetchUnderlay(
                 context,
                 rejectIps = inputs.layout.hops.mapNotNull { hopHost(it.knownHost) },
             )
             NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1, NetworkMapHopKind.Vps2 ->
                 loadKnownHost(context, hop.knownHost)
-            NetworkMapHopKind.Cloudflare -> loadCloudflare(
+            NetworkMapHopKind.Cloudflare -> IpApiLookup.fetchWarpEgress(
                 context = context,
                 entryProvision = inputs.entryProvision,
                 exitProvision = inputs.exitProvision,
@@ -377,18 +415,6 @@ private fun mergeHopInfo(previous: IpApiInfo, loaded: IpApiInfo): IpApiInfo {
     return loaded
 }
 
-private suspend fun loadProvider(
-    context: Context,
-    rejectIps: Collection<String> = emptyList(),
-): IpApiInfo =
-    try {
-        IpApiLookup.fetchUnderlay(context, rejectIps)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        IpApiInfo.Empty.copy(error = IpApiLookup.friendlyError(e.message))
-    }
-
 private suspend fun loadKnownHost(context: Context, host: String?): IpApiInfo {
     val ip = hopHost(host)
     if (ip.isNullOrBlank()) {
@@ -401,40 +427,6 @@ private suspend fun loadKnownHost(context: Context, host: String?): IpApiInfo {
     } catch (_: Exception) {
         IpApiInfo(ip = ip, subtitle = "")
     }
-}
-
-private suspend fun loadCloudflare(
-    context: Context,
-    entryProvision: String?,
-    exitProvision: String?,
-    deviceId: String?,
-    viaVpn: Boolean,
-    hideIp: Boolean,
-): IpApiInfo {
-    val urls = linkedSetOf<String>()
-    exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
-    entryProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
-    var lastIp: String? = null
-    for (base in urls) {
-        val ip = EgressIpProbe.probeProvision(
-            viaWarp = true,
-            provisionBaseUrl = base,
-            deviceId = deviceId,
-            context = context,
-            viaVpn = viaVpn,
-        )
-        if (ip.isNullOrBlank()) continue
-        lastIp = ip
-        if (EgressIpProbe.isLikelyCloudflare(ip) || urls.size == 1) {
-            if (hideIp) EgressIpProbe.remember(ip, "provision/warp")
-            return IpApiLookup.lookupAddress(context, ip)
-        }
-    }
-    if (!lastIp.isNullOrBlank()) {
-        if (hideIp) EgressIpProbe.remember(lastIp, "provision/warp")
-        return IpApiLookup.lookupAddress(context, lastIp)
-    }
-    return IpApiInfo.Empty.copy(error = "Не удалось определить IP")
 }
 
 @Composable

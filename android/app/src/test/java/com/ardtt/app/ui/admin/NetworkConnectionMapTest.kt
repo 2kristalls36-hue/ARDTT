@@ -272,6 +272,20 @@ class NetworkConnectionMapTest {
     }
 
     @Test
+    fun knownPublicHostsRejectVpsAddressesAsProvider() {
+        val match = server(
+            host = "10.0.0.1",
+            publicHost = "45.129.2.3",
+            cascadeEnabled = true,
+            cascadeHost = "2.26.125.160",
+        )
+        assertEquals(
+            listOf("45.129.2.3", "10.0.0.1", "2.26.125.160"),
+            DeployHop.knownPublicHosts("45.129.2.3", match),
+        )
+    }
+
+    @Test
     fun matchingPrefersNewestStandaloneOverOlderCascade() {
         val servers = listOf(
             server(

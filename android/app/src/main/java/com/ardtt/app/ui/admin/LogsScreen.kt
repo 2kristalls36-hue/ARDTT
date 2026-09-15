@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +45,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -86,6 +88,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun LogsScreen(
     onBack: (() -> Unit)? = null,
+    embedded: Boolean = false,
 ) {
     val context = LocalContext.current
     val conn = remember { ConnectionManager.get(context) }
@@ -187,48 +190,38 @@ fun LogsScreen(
         }
     }
 
-    ArdttScrollChrome(
-        header = {
-            ArdttTabHeader(
-                title = "Журнал событий",
-                subtitle = if (AppLog.isDetailedEnabled()) {
-                    "Подробные события (админ)"
-                } else {
-                    "Краткие события туннеля"
-                },
-                onBack = onBack,
-                actions = {
-                    ArdttButton(
-                        onClick = { showClearConfirm = true },
-                        variant = ArdttButtonVariant.Icon,
-                        icon = Icons.Default.Delete,
-                        contentDescription = LogsCopy.CLEAR,
-                        enabled = entries.isNotEmpty(),
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    )
-                    ArdttButton(
-                        onClick = { copyToClipboard(context, dumpBody(), "ARDTT logs") },
-                        variant = ArdttButtonVariant.Icon,
-                        icon = Icons.Default.ContentCopy,
-                        contentDescription = "Копировать",
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    )
-                    ArdttButton(
-                        onClick = { shareText(context, dumpBody(), "ARDTT logs", "Экспорт логов") },
-                        variant = ArdttButtonVariant.Icon,
-                        icon = Icons.Default.Share,
-                        contentDescription = "Поделиться",
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    )
-                },
-            )
-        },
-    ) { topPad ->
+    val logActions: @Composable RowScope.() -> Unit = {
+        ArdttButton(
+            onClick = { showClearConfirm = true },
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Default.Delete,
+            contentDescription = LogsCopy.CLEAR,
+            enabled = entries.isNotEmpty(),
+            contentColor = MaterialTheme.colorScheme.primary,
+        )
+        ArdttButton(
+            onClick = { copyToClipboard(context, dumpBody(), "ARDTT logs") },
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Default.ContentCopy,
+            contentDescription = "Копировать",
+            contentColor = MaterialTheme.colorScheme.primary,
+        )
+        ArdttButton(
+            onClick = { shareText(context, dumpBody(), "ARDTT logs", "Экспорт логов") },
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Default.Share,
+            contentDescription = "Поделиться",
+            contentColor = MaterialTheme.colorScheme.primary,
+        )
+    }
+
+    @Composable
+    fun LogsBody(topContentPadding: Dp, bottomContentPadding: Dp) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = topPad, bottom = bottomReserve)
-                .padding(horizontal = ArdttSpacing.Large),
+                .padding(top = topContentPadding, bottom = bottomContentPadding)
+                .padding(horizontal = if (embedded) ArdttSpacing.None else ArdttSpacing.Large),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
         ) {
             ui.lastError?.takeIf { it.isNotBlank() }?.let { fatal ->
@@ -430,6 +423,35 @@ fun LogsScreen(
                     )
                 }
             }
+        }
+    }
+
+    if (embedded) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+                content = logActions,
+            )
+            LogsBody(ArdttSpacing.None, ArdttSpacing.None)
+        }
+    } else {
+        ArdttScrollChrome(
+            header = {
+                ArdttTabHeader(
+                    title = "Журнал событий",
+                    subtitle = if (AppLog.isDetailedEnabled()) {
+                        "Подробные события (админ)"
+                    } else {
+                        "Краткие события туннеля"
+                    },
+                    onBack = onBack,
+                    actions = logActions,
+                )
+            },
+        ) { chromeTop ->
+            LogsBody(chromeTop, bottomReserve)
         }
     }
 

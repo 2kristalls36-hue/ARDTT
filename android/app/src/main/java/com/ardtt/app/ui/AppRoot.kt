@@ -454,9 +454,10 @@ fun AppRoot(
                             DiagnosticsScreen(
                                 testingVisible = testingTabVisible,
                                 isRecording = isRecording,
-                                onOpenNetwork = { navigateTab(AppDestination.Network.route) },
-                                onOpenLogs = { navigateTab(AppDestination.Logs.route) },
-                                onOpenTesting = { navigateTab(AppDestination.Testing.route) },
+                                settings = settings,
+                                profiles = profiles,
+                                serversRepo = serversRepo,
+                                reselectSignal = tabReselectSignal[AppDestination.Diagnostics.route] ?: 0,
                             )
                         }
                         composable(AppDestination.Network.route) {

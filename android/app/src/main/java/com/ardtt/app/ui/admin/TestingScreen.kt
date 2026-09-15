@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -112,6 +113,7 @@ private enum class TestingPane { Storage, History }
 fun TestingScreen(
     profiles: ProfileRepository,
     onBack: (() -> Unit)? = null,
+    embedded: Boolean = false,
 ) {
     val context = LocalContext.current
     val recorder = remember { TelemetryRecorder.get(context) }
@@ -350,122 +352,147 @@ fun TestingScreen(
         if (pane == TestingPane.History) refreshInbox(notify = true) else refreshLogs()
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        ArdttScrollChrome(
-            header = {
-                ArdttTabHeader(
-                    // Same word as the Diagnostics row and the Settings link that lead here.
-                    title = AppDestination.Testing.label,
-                    subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
-                    onBack = onBack,
-                )
-            },
-        ) { topPad ->
-        ArdttPullRefresh(
-            refreshing = pull.refreshing,
-            onRefresh = pull.onRefresh,
-        ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = ArdttLayout.ScreenPadding,
-                end = ArdttLayout.ScreenPadding,
-                top = topPad,
-                bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small),
-            ),
-            verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
-        ) {
-
-            item(key = "pane") {
-                ArdttChoiceChipRow(
-                    choices = listOf(
-                        ArdttChoice(TestingPane.Storage, "Хранилище"),
-                        ArdttChoice(TestingPane.History, "История"),
-                    ),
-                    selected = pane,
-                    onSelect = { pane = it },
-                    chipHeight = ArdttSize.ChipCompact,
-                )
-            }
-
-            if (pane == TestingPane.Storage) {
-                item(key = "logs-header") {
-                    Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
-                        ArdttSectionTitle("Локальное хранилище")
-                        Text(
-                            if (logs.isEmpty()) {
-                                "Записей пока нет"
-                            } else {
-                                "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (logs.isEmpty()) {
-                            EmptyLogsBlock()
-                        }
-                    }
-                }
-
-                items(logs, key = { it.file.name }) { entry ->
-                    LogRow(
-                        entry = entry,
-                        comment = comments[entry.file.name].orEmpty(),
-                        uploading = uploadingFile == entry.file.name,
-                        progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
-                        onOpenEditor = {
-                            editingLog = entry.file.name
-                            editingSubmit = false
-                        },
-                        onDelete = { deleteCandidate = entry },
-                        onUpload = { beginSubmit(entry) },
-                    )
-                }
-            } else {
-                item(key = "tickets-header") {
-                    Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
-                        ArdttSectionTitle("История обращений")
-                        Text(
-                            if (tickets.isEmpty()) {
-                                "Отправленных файлов пока нет"
-                            } else {
-                                val unread = tickets.count { !it.read }
-                                if (unread > 0) {
-                                    "${tickets.size} обращений · $unread ждут разбора"
-                                } else {
-                                    "${tickets.size} обращений"
-                                }
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (tickets.isEmpty()) {
-                            EmptyHistoryBlock()
-                        }
-                    }
-                }
-                items(tickets, key = { "ticket-${it.number}-${it.logName}" }) { ticket ->
-                    TicketRow(ticket)
-                }
-            }
-        }
-        }
-
-        ArdttStickyBottomBar {
-            ArdttPrimaryButton(
-                text = if (isRecording) "Остановить запись" else "Начать запись",
-                onClick = { toggleRecording() },
-                containerColor = if (isRecording) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
-                contentColor = if (isRecording) {
-                    MaterialTheme.colorScheme.onError
-                } else {
-                    MaterialTheme.colorScheme.onPrimary
-                },
+    val testingItems: LazyListScope.() -> Unit = {
+        item(key = "pane") {
+            ArdttChoiceChipRow(
+                choices = listOf(
+                    ArdttChoice(TestingPane.Storage, "Хранилище"),
+                    ArdttChoice(TestingPane.History, "История"),
+                ),
+                selected = pane,
+                onSelect = { pane = it },
+                chipHeight = ArdttSize.ChipCompact,
             )
+        }
+
+        if (pane == TestingPane.Storage) {
+            item(key = "logs-header") {
+                Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
+                    ArdttSectionTitle("Локальное хранилище")
+                    Text(
+                        if (logs.isEmpty()) {
+                            "Записей пока нет"
+                        } else {
+                            "${logs.size} файлов · ${formatSize(logs.sumOf { it.sizeBytes })}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (logs.isEmpty()) {
+                        EmptyLogsBlock()
+                    }
+                }
+            }
+
+            items(logs, key = { it.file.name }) { entry ->
+                LogRow(
+                    entry = entry,
+                    comment = comments[entry.file.name].orEmpty(),
+                    uploading = uploadingFile == entry.file.name,
+                    progress = if (uploadingFile == entry.file.name) uploadProgress else 0f,
+                    onOpenEditor = {
+                        editingLog = entry.file.name
+                        editingSubmit = false
+                    },
+                    onDelete = { deleteCandidate = entry },
+                    onUpload = { beginSubmit(entry) },
+                )
+            }
+        } else {
+            item(key = "tickets-header") {
+                Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
+                    ArdttSectionTitle("История обращений")
+                    Text(
+                        if (tickets.isEmpty()) {
+                            "Отправленных файлов пока нет"
+                        } else {
+                            val unread = tickets.count { !it.read }
+                            if (unread > 0) {
+                                "${tickets.size} обращений · $unread ждут разбора"
+                            } else {
+                                "${tickets.size} обращений"
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (tickets.isEmpty()) {
+                        EmptyHistoryBlock()
+                    }
+                }
+            }
+            items(tickets, key = { "ticket-${it.number}-${it.logName}" }) { ticket ->
+                TicketRow(ticket)
+            }
+        }
+    }
+
+    @Composable
+    fun RecordButton() {
+        ArdttPrimaryButton(
+            text = if (isRecording) "Остановить запись" else "Начать запись",
+            onClick = { toggleRecording() },
+            containerColor = if (isRecording) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            contentColor = if (isRecording) {
+                MaterialTheme.colorScheme.onError
+            } else {
+                MaterialTheme.colorScheme.onPrimary
+            },
+        )
+    }
+
+    if (embedded) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            ArdttPullRefresh(
+                refreshing = pull.refreshing,
+                onRefresh = pull.onRefresh,
+                modifier = Modifier.weight(1f),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = ArdttSpacing.Small),
+                    verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
+                    content = testingItems,
+                )
+            }
+            RecordButton()
+        }
+    } else {
+        Box(modifier = Modifier.fillMaxSize()) {
+            ArdttScrollChrome(
+                header = {
+                    ArdttTabHeader(
+                        // Same word as the Diagnostics row and the Settings link that lead here.
+                        title = AppDestination.Testing.label,
+                        subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
+                        onBack = onBack,
+                    )
+                },
+            ) { topPad ->
+                ArdttPullRefresh(
+                    refreshing = pull.refreshing,
+                    onRefresh = pull.onRefresh,
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = ArdttLayout.ScreenPadding,
+                            end = ArdttLayout.ScreenPadding,
+                            top = topPad,
+                            bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small),
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
+                        content = testingItems,
+                    )
+                    ArdttStickyBottomBar {
+                        RecordButton()
+                    }
+                }
+            }
         }
     }
 
@@ -508,7 +535,6 @@ fun TestingScreen(
             },
             onDismiss = { deleteCandidate = null },
         )
-    }
     }
 }
 
