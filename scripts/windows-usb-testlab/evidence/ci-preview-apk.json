@@ -1,0 +1,19 @@
+{
+  "schema": "ardtt-lab-ci-apk/v1",
+  "pr": 217,
+  "runId": 34856621087,
+  "runUrl": "https://github.com/2kristalls36-hue/ARDTT/actions/runs/34856621087",
+  "event": "pull_request",
+  "headSha": "a325b83e11ddf8c7bd42490a88db465b34075538",
+  "artifactName": "ardtt-0.5.264-51cf7ce-arm64-v8a",
+  "artifactApk": "app-arm64-v8a-release.apk",
+  "artifactSha256": "c6e9a361d1f12a6d943c9babbfdefdb37827f95c9d18a07a1e76251785ea20fd",
+  "signingCertSha256": "e07400a728fd0dc1c6c84874a4bea5b157b8f3e7015ecef3d21ed0bc0fa245fa",
+  "signingCertDn": "CN=ARDTT, OU=Release, O=ARDTT, L=Internet, ST=NA, C=RU",
+  "nativeLibsInApk": [
+    "lib/arm64-v8a/libclient.so",
+    "lib/arm64-v8a/libwg-go.so"
+  ],
+  "note": "pull_request workflows build a merge commit (GITHUB_SHA shown in the artifact name as 51cf7ce), not the raw PR head. Debug local APK uses the Android Debug certificate and cannot replace a release install without uninstall.",
+  "downloadedAtUtc": "2026-09-15T06:53:20Z"
+}

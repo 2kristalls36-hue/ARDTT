@@ -1,0 +1,25 @@
+{
+  "schema": "ardtt-lab-config/v1",
+  "package": "com.ardtt.app",
+  "launcherActivity": "com.ardtt.app/.MainActivity",
+  "logcatTags": ["ConnMgr", "VpnTunnel", "ArdttApp", "Telemetry"],
+  "wslDistro": "",
+  "deviceSerial": "",
+  "adbPath": "",
+  "scrcpyPath": "",
+  "windowsSdkRoot": "",
+  "wslSdkRoot": "/home/REPLACE/Android/Sdk",
+  "wslCheckout": "/home/REPLACE/ardtt-testlab/src/ARDTT",
+  "sourceRepo": "https://github.com/2kristalls36-hue/ARDTT.git",
+  "requestedRef": "auto/auto-whitelist-evidence-f6dc",
+  "requestedSha": "a325b83e11ddf8c7bd42490a88db465b34075538",
+  "prNumber": 217,
+  "targetAbi": "arm64-v8a",
+  "buildVariant": "debug",
+  "logcatBuffers": ["main", "system", "crash", "events"],
+  "forbidUsbTethering": true,
+  "notes": [
+    "Do not store passwords, tokens, or keystore paths in this file.",
+    "deviceSerial is a local identifier; shareable archives must alias it."
+  ]
+}

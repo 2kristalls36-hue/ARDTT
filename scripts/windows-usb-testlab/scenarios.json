@@ -1,0 +1,104 @@
+{
+  "schema": "ardtt-lab-scenarios/v1",
+  "package": "com.ardtt.app",
+  "notes": [
+    "Наличие надписи оператора и один недоступный сайт не являются ground truth для БС.",
+    "Не менять пороги Auto ради ускорения прогона.",
+    "USB tethering должен быть выключен."
+  ],
+  "scenarios": [
+    {
+      "id": "S00",
+      "title": "Smoke диагностики",
+      "needs": ["usb", "app-installed"],
+      "actions": ["launch-app", "mark", "capture", "archive"],
+      "checks": ["session-complete"]
+    },
+    {
+      "id": "S01",
+      "title": "LTE, Wi-Fi выключен, Auto",
+      "needs": ["usb", "cellular", "wifi-radio-off", "profile"],
+      "actions": ["wifi-off", "connect-auto", "capture"],
+      "checks": ["underlay-cellular", "path-logged"]
+    },
+    {
+      "id": "S02",
+      "title": "LTE, Wi-Fi включён без AP",
+      "needs": ["usb", "cellular", "wifi-radio-on-no-ap", "profile"],
+      "actions": ["compare-s01", "wifi-on-no-ap", "connect-auto", "capture"],
+      "checks": ["underlay-cellular", "no-unfounded-wifi-label"]
+    },
+    {
+      "id": "S03",
+      "title": "Wi-Fi был, AP потеряна, radio включён",
+      "needs": ["usb", "cellular", "wifi-radio-on", "profile"],
+      "actions": ["drop-ap-keep-radio", "connect-auto", "capture"],
+      "checks": ["no-stale-wifi-handle", "bs-bound-to-current-network"]
+    },
+    {
+      "id": "S04",
+      "title": "Мобильная сеть с БС, Auto, Wi-Fi сканирует",
+      "needs": ["usb", "cellular-bs", "profile", "bypass-ready"],
+      "actions": ["connect-auto", "capture"],
+      "checks": ["bypass-when-fresh-strong"]
+    },
+    {
+      "id": "S05",
+      "title": "Обычная LTE без БС",
+      "needs": ["usb", "cellular-no-bs", "profile"],
+      "actions": ["wifi-toggle", "connect-auto", "capture"],
+      "checks": ["wifi-on-does-not-fake-bs"]
+    },
+    {
+      "id": "S06",
+      "title": "Wi-Fi → LTE → Wi-Fi",
+      "needs": ["usb", "cellular", "working-wifi", "profile"],
+      "actions": ["handover-wifi-lte-wifi", "capture"],
+      "checks": ["socket-path-ui-agree"]
+    },
+    {
+      "id": "S07",
+      "title": "Wi-Fi captive / без интернета при LTE",
+      "needs": ["usb", "cellular", "captive-or-dead-wifi", "profile"],
+      "actions": ["join-captive", "connect-auto", "capture"],
+      "checks": ["no-fake-directok"]
+    },
+    {
+      "id": "S08",
+      "title": "Кратковременная потеря сети",
+      "needs": ["usb", "profile"],
+      "actions": ["drop-network-briefly", "capture"],
+      "checks": ["not-user-stop"]
+    },
+    {
+      "id": "S09",
+      "title": "Явные Direct и Bypass",
+      "needs": ["usb", "profile"],
+      "actions": ["force-direct", "force-bypass", "capture"],
+      "checks": ["manual-mode-honored"]
+    },
+    {
+      "id": "S10",
+      "title": "Stop из приложения и из шторки",
+      "needs": ["usb", "profile", "vpn-consent"],
+      "actions": ["stop-in-app", "stop-in-shade", "capture"],
+      "checks": ["late-callback-does-not-restart"]
+    },
+    {
+      "id": "S11",
+      "title": "Экран выключен, приложение в фоне",
+      "needs": ["usb", "profile"],
+      "mode": "background",
+      "actions": ["screen-off", "background", "observe"],
+      "checks": ["distinguish-traffic-backend-service-process"]
+    },
+    {
+      "id": "S12",
+      "title": "Принудительный Doze",
+      "needs": ["usb", "profile"],
+      "mode": "doze",
+      "actions": ["save-state", "battery-unplug", "force-idle", "observe", "restore"],
+      "checks": ["restore-settings", "predictable-recovery"]
+    }
+  ]
+}
