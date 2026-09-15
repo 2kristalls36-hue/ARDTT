@@ -24,17 +24,22 @@ const (
 
 // Event is one JSON Lines record. Unknown fields on the reader side must be ignored.
 type Event struct {
-	Protocol     int               `json:"protocol"`
-	Type         string            `json:"type"`
-	Phase        string            `json:"phase,omitempty"`
-	Progress     *float64          `json:"progress,omitempty"`
-	Code         string            `json:"code,omitempty"`
-	Message      string            `json:"message,omitempty"`
-	Version      string            `json:"version,omitempty"`
-	DeploymentID string            `json:"deploymentId,omitempty"`
-	Component    string            `json:"component,omitempty"`
-	Status       string            `json:"status,omitempty"`
-	Done         map[string]string `json:"done,omitempty"`
+	Protocol              int               `json:"protocol"`
+	Type                  string            `json:"type"`
+	Phase                 string            `json:"phase,omitempty"`
+	Progress              *float64          `json:"progress,omitempty"`
+	Code                  string            `json:"code,omitempty"`
+	Message               string            `json:"message,omitempty"`
+	Version               string            `json:"version,omitempty"`
+	DeploymentID          string            `json:"deploymentId,omitempty"`
+	Component             string            `json:"component,omitempty"`
+	Status                string            `json:"status,omitempty"`
+	Done                  map[string]string `json:"done,omitempty"`
+	Filesystem            string            `json:"filesystem,omitempty"`
+	RequiredBytes         *int64            `json:"requiredBytes,omitempty"`
+	AvailableBytes        *int64            `json:"availableBytes,omitempty"`
+	ReclaimableArdttBytes *int64            `json:"reclaimableArdttBytes,omitempty"`
+	SafetyMarginBytes     *int64            `json:"safetyMarginBytes,omitempty"`
 }
 
 func (e Event) JSONLine() string {

@@ -32,6 +32,36 @@ ardtt_state_set() {
   ARDTT_INSTALL_DIR="${INSTALL_DIR:-/opt/ardtt}" "$bin" state set "$@" 2>/dev/null || true
 }
 
+ardtt_state_set_required() {
+  local bin
+  bin="$(ardtt_ctl_bin)" || return 0
+  if ! ARDTT_INSTALL_DIR="${INSTALL_DIR:-/opt/ardtt}" "$bin" state set "$@"; then
+    echo "ARDTT_ERROR|code=STATE_SAVE_FAILED|Не удалось записать durable state" >&2
+    exit 1
+  fi
+}
+
+ardtt_require_deployable() {
+  local bin rc
+  if [ "${ARDTT_FORCE_RECOVERY:-0}" = "1" ]; then
+    return 0
+  fi
+  case "${ACTION:-install}" in
+    rollback|uninstall) return 0 ;;
+  esac
+  bin="$(ardtt_ctl_bin)" || return 0
+  set +e
+  ARDTT_INSTALL_DIR="${INSTALL_DIR:-/opt/ardtt}" "$bin" state reconcile >/dev/null
+  rc=$?
+  set -e
+  if [ "$rc" -eq 2 ]; then
+    die --code RECOVERY_REQUIRED "Состояние деплоя повреждено или неоднозначно. ardttctl diagnose; новый деплой заблокирован (ARDTT_FORCE_RECOVERY=1 только вручную)."
+  fi
+  if [ "$rc" -ne 0 ]; then
+    die --code STATE "Не удалось прочитать state/deploy.json"
+  fi
+}
+
 prog() {
   if ardtt_emit progress --frac "$1" --message "$2"; then
     return 0

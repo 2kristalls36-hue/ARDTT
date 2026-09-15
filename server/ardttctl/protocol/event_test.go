@@ -77,6 +77,32 @@ func TestDoneDryRunFirst(t *testing.T) {
 	}
 }
 
+func TestInsufficientDiskFields(t *testing.T) {
+	req := int64(1500)
+	avail := int64(800)
+	var buf bytes.Buffer
+	if err := Emit(&buf, Event{
+		Type:           TypeError,
+		Code:           "INSUFFICIENT_DISK",
+		Message:        "Мало места",
+		Filesystem:     "/opt/ardtt",
+		RequiredBytes:  &req,
+		AvailableBytes: &avail,
+		Phase:          "preflight",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"code":"INSUFFICIENT_DISK"`) {
+		t.Fatal(buf.String())
+	}
+	if !strings.Contains(buf.String(), `"requiredBytes":1500`) {
+		t.Fatal(buf.String())
+	}
+	if !strings.Contains(buf.String(), "ARDTT_ERROR|code=INSUFFICIENT_DISK|Мало места") {
+		t.Fatal(buf.String())
+	}
+}
+
 func TestDoneExtraKeysSorted(t *testing.T) {
 	leg := Event{Type: TypeDone, Done: map[string]string{
 		"zeta":        "1",
