@@ -87,7 +87,7 @@ Preview CI APK PR 217 (уже скачан и разобран, не latest rele
 1. Проверь, что это Windows (`$env:OS -eq 'Windows_NT'`), иначе остановись.
 2. Кабель data, не хаб; USB tethering выключен.
 3. Не удаляй приложение при `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
-4. Для телефона с release используй Preview APK **0.5.265 (284)** этой ветки (Actions artifact PR 221) или `assembleRelease` с ключом пользователя. Debug и GitHub `v0.5.264` (283) не заменяют друг друга как «обновление».
+4. Для телефона с release используй Preview APK **0.5.265 (284)** run https://github.com/2kristalls36-hue/ARDTT/actions/runs/34944525811 (артефакт `ardtt-0.5.265-3f14a8c-arm64-v8a`). Debug и GitHub `v0.5.264` (283) не заменяют друг друга как «обновление».
 5. Logcat не чистить (`-c`). Метка — `Mark-ARDTT-Event.ps1`. В logcat теги `ConnMgr` / `VpnTunnel`.
 6. Интерактив (scrcpy) ≠ фон/Doze. Forced idle ≠ естественный сон.
 7. Секреты в share-архив только через `pack-session.sh`.
