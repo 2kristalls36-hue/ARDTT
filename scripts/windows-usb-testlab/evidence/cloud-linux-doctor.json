@@ -1,0 +1,63 @@
+{
+  "schema": "ardtt-lab-doctor/v1",
+  "checkedAtUtc": "2026-09-15T06:58:53Z",
+  "host": "Linux-x86_64",
+  "summary": "BLOCKED",
+  "checks": [
+    {
+      "name": "java",
+      "status": "PASS",
+      "detail": "openjdk version \"21.0.10\" 2026-01-20"
+    },
+    {
+      "name": "go",
+      "status": "PASS",
+      "detail": "go version go1.25.14 linux/amd64"
+    },
+    {
+      "name": "sdkmanager",
+      "status": "PASS",
+      "detail": "/home/ubuntu/Android/Sdk/cmdline-tools/latest/bin/sdkmanager"
+    },
+    {
+      "name": "platform",
+      "status": "PASS",
+      "detail": "android-35"
+    },
+    {
+      "name": "ndk",
+      "status": "PASS",
+      "detail": "/home/ubuntu/Android/Sdk/ndk/27.0.12077973"
+    },
+    {
+      "name": "clang-arm64",
+      "status": "PASS",
+      "detail": "/home/ubuntu/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
+    },
+    {
+      "name": "cmake-sdk",
+      "status": "PASS",
+      "detail": "cmake 3.22.1"
+    },
+    {
+      "name": "gradlew",
+      "status": "PASS",
+      "detail": "/workspace/scripts/windows-usb-testlab/../../android/gradlew"
+    },
+    {
+      "name": "usb-device",
+      "status": "BLOCKED",
+      "detail": "no device in state device (unauthorized/offline/missing)"
+    },
+    {
+      "name": "adb",
+      "status": "PASS",
+      "detail": "Android Debug Bridge version 1.0.41"
+    },
+    {
+      "name": "linux-x86_64-host",
+      "status": "PASS",
+      "detail": "Linux-x86_64"
+    }
+  ]
+}
