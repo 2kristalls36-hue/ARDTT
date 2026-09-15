@@ -181,6 +181,19 @@ new_instance_id() {
   fi
 }
 
+# Rollback/uninstall can run without do_install having set identity.
+load_required_instance_identity() {
+  if [ -n "${INSTANCE_ID:-}" ] && [ -n "${COMPOSE_PROJECT:-}" ]; then
+    [ -n "${ARDTT_CONTAINER_NAME:-}" ] || ARDTT_CONTAINER_NAME=ardtt
+    return 0
+  fi
+  if load_instance || load_pending_instance || load_instance_from_env; then
+    [ -n "${ARDTT_CONTAINER_NAME:-}" ] || ARDTT_CONTAINER_NAME=ardtt
+    return 0
+  fi
+  return 1
+}
+
 ensure_instance() {
   if load_instance; then
     return 0
@@ -244,10 +257,12 @@ container_looks_like_legacy_ardtt() {
 
 list_owned_containers() {
   command -v docker >/dev/null 2>&1 || return 0
+  [ -n "${INSTANCE_ID:-}" ] || return 0
   docker ps -a --filter "label=${OWNER_LABEL}=ardtt" --filter "label=${INSTANCE_LABEL}=${INSTANCE_ID}" --format '{{.ID}}' 2>/dev/null || true
 }
 
 list_owned_networks() {
+  [ -n "${INSTANCE_ID:-}" ] || return 0
   docker network ls --filter "label=${OWNER_LABEL}=ardtt" --filter "label=${INSTANCE_LABEL}=${INSTANCE_ID}" --format '{{.ID}}' 2>/dev/null || true
 }
 
