@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# restore_previous_release must copy previous/ (a compose FILE) back to current/
-# and restore DEPLOY_VERSION. [ -d previous/docker-compose.yml ] is always false.
+# restore_previous_release must retarget current at previous (symlink or migrated
+# legacy directory) and restore DEPLOY_VERSION. [ -d previous/docker-compose.yml ]
+# is always false.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fail=0
@@ -51,7 +52,7 @@ grep -qx '1.0.44' "$INSTALL_DIR/DEPLOY_VERSION" || err "host DEPLOY_VERSION not 
 grep -qx 'old-compose' "$INSTALL_DIR/previous/docker-compose.yml" || err "previous/ must remain for a later rollback"
 grep -q 'up -d --no-build --pull never' "$COMPOSE_LOG" || err "restore must compose up --no-build --pull never"
 grep -q 'wait_readiness' "$COMPOSE_LOG" || err "auto-rollback must wait_readiness of the restored stack"
-ok "restore_previous_release copies previous/ and DEPLOY_VERSION"
+ok "restore_previous_release retargets current from previous and restores DEPLOY_VERSION"
 
 rm -rf "$INSTALL_DIR/previous"
 if restore_previous_release; then

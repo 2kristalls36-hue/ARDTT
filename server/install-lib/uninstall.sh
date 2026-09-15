@@ -63,14 +63,15 @@ uninstall_this_instance() {
   echo "ARDTT_UNINSTALLED"
 }
 
-# Copy previous/ onto current/ (directory tree, not a symlink into releases/)
-# and start it. Does not emit ARDTT_DONE — a failed update must still return
-# ARDTT_ERROR even after restoring the old stack.
+# Retarget current at the previous release pointer and start it.
+# Does not emit ARDTT_DONE — a failed update must still return ARDTT_ERROR
+# even after restoring the old stack.
 # Returns: 0 restored (and ready if wait_readiness exists), 1 no previous,
 # 2 rollback attempted and failed (compose or readiness).
 # docker-compose.yml is a file: [ -d that-path ] is always false.
 restore_previous_release() {
   local prev="${INSTALL_DIR}/previous"
+  local meta="${INSTALL_DIR}/state/rollback"
   [ -f "$prev/docker-compose.yml" ] || return 1
   echo "ARDTT_WARN|откат на предыдущую версию"
   if declare -F ardtt_state_set >/dev/null; then
@@ -85,9 +86,7 @@ restore_previous_release() {
   if declare -F restore_current_from_previous_tree >/dev/null; then
     restore_current_from_previous_tree || return 2
   else
-    rm -rf "${INSTALL_DIR}/current"
-    mkdir -p "${INSTALL_DIR}/current"
-    cp -a "$prev"/. "${INSTALL_DIR}/current"/
+    return 2
   fi
   local prev_ver
   prev_ver="$(env_file_val "$prev/.env" ARDTT_DEPLOY_VERSION)"
@@ -96,12 +95,17 @@ restore_previous_release() {
     printf '%s\n' "$prev_ver" > "${INSTALL_DIR}/data/DEPLOY_VERSION"
     printf '%s\n' "$prev_ver" > "${INSTALL_DIR}/DEPLOY_VERSION"
   fi
-  if [ -f "$prev/root.env" ]; then
+  if [ -f "$meta/root.env" ]; then
+    cp -a "$meta/root.env" "${INSTALL_DIR}/.env"
+  elif [ -f "$prev/root.env" ]; then
     cp -a "$prev/root.env" "${INSTALL_DIR}/.env"
   elif [ -f "$prev/.env" ]; then
     cp -a "$prev/.env" "${INSTALL_DIR}/.env"
   fi
-  if [ -f "$prev/instance.json" ]; then
+  if [ -f "$meta/instance.json" ]; then
+    cp -a "$meta/instance.json" "${INSTALL_DIR}/instance.json"
+    chmod 600 "${INSTALL_DIR}/instance.json" 2>/dev/null || true
+  elif [ -f "$prev/instance.json" ]; then
     cp -a "$prev/instance.json" "${INSTALL_DIR}/instance.json"
     chmod 600 "${INSTALL_DIR}/instance.json" 2>/dev/null || true
   fi
@@ -147,10 +151,6 @@ rollback_previous() {
   docker image inspect "$img" >/dev/null 2>&1 || die "Предыдущий образ $img отсутствует"
   local live="${INSTALL_DIR}/current"
   stop_owned_stack "$live"
-  if [ -d "$live" ]; then
-    rm -rf "${INSTALL_DIR}/failed"
-    mv "$live" "${INSTALL_DIR}/failed" || true
-  fi
   restore_previous_release || die --code ROLLBACK_FAILED "Откат: compose up / readiness не удались"
   if declare -F emit_done >/dev/null; then
     emit_done "rollback=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$(cat "${INSTALL_DIR}/DEPLOY_VERSION")"
