@@ -15,5 +15,6 @@
 3. Вставьте **целиком** файл `scripts/windows-usb-testlab/HANDOFF-LOCAL-AGENT.md` (объём уже сделанной облачной работы + что делать на ПК).
 4. При необходимости приложите исходный длинный промпт `ARDTT_Grok_4_6_Windows11_USB_Test_Environment.md`. Не просите агента заново писать скрипты лаборатории.
 5. Нужны: терминал Windows, интернет, телефон с USB debugging.
+6. APK: `.\scripts\windows-usb-testlab\Fetch-PreviewApk.ps1` затем `Install-ARDTT.ps1` на `app-arm64-v8a-release.apk`. Не GitHub Latest (0.5.264 / 283) и не debug.
 
 Ручное участие по-прежнему нужно только для UAC, reboot, RSA, VPN-диалога и паролей.

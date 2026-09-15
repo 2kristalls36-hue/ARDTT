@@ -26,8 +26,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 cd scripts\windows-usb-testlab
 .\Setup-ARDTT-TestLab.ps1
 .\Doctor-ARDTT.ps1
-.\Build-ARDTT.ps1 -ForceNative
-.\Install-ARDTT.ps1 -ApkPath "$env:LOCALAPPDATA\ARDTT-TestLab\apk\app-arm64-v8a-debug.apk"
+.\Fetch-PreviewApk.ps1
+.\Install-ARDTT.ps1 -ApkPath "$env:LOCALAPPDATA\ARDTT-TestLab\apk\app-arm64-v8a-release.apk"
 .\Start-ARDTT-Diagnostics.ps1 -Scenario S00
 .\Mark-ARDTT-Event.ps1 -Note "wifi-on-no-ap"
 .\Capture-ARDTT-State.ps1 -Label mid
@@ -58,6 +58,15 @@ bash scripts/windows-usb-testlab/tests/run.sh
 
 `Install-ARDTT.ps1` делает `adb install -r` только после сравнения. При `INSTALL_FAILED_UPDATE_INCOMPATIBLE` или другой подписи **не** вызывает uninstall/clear. Debug и release в этом проекте подписаны разными ключами — debug рядом с установленным release не ставится.
 
+**Не ставьте GitHub `releases/latest`.** Сейчас это `v0.5.264` / `versionCode` **283** — тот же код, что уже на телефоне, Android не считает это обновлением. Кнопка обновления в приложении тоже смотрит на этот релиз (и на устаревший `https://45.129.2.3/update.json` с 0.5.244). Нужный файл — signed Preview APK **0.5.265 / 284**:
+
+- Run: https://github.com/2kristalls36-hue/ARDTT/actions/runs/34944525811
+- Artifact: `ardtt-0.5.265-3f14a8c-arm64-v8a` → `app-arm64-v8a-release.apk`
+- SHA-256: `8ba45dd66a13bafeb4faec3ee8a114a0d31c35e0c94a06141637929ca34d0642`
+- Подпись release `e07400a728…` (как у v0.5.264)
+
+`Fetch-PreviewApk.ps1` / `Fetch-PreviewApk.sh` качают именно этот run и отказываются от 0.5.264.
+
 Launcher: `com.ardtt.app/.MainActivity`. Системный диалог VPN принимает пользователь.
 
 ## Диагностика
@@ -81,7 +90,7 @@ Launcher: `com.ardtt.app/.MainActivity`. Системный диалог VPN п�
 | WSL нужен reboot | `setup-state.json` + `RESUME.txt`; `Setup-ARDTT-TestLab.ps1 -Resume` |
 | Сборка ищет NDK windows | Сборка только в WSL Linux SDK; USB остаётся на Windows adb |
 | Нет `libclient.so` в APK | `--force-native`: preBuild пропускает сборку, если .so уже лежит |
-| Preview APK из CI | `Fetch-PreviewApk.sh` — workflow `pull_request` собирает **merge commit**, не чистый head |
+| Preview APK из CI | `Fetch-PreviewApk.ps1` — только 0.5.265/284. `pull_request` собирает **merge commit**, не чистый head. `releases/latest` не использовать |
 
 ## Что лаборатория не делает
 
