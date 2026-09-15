@@ -4,6 +4,8 @@
 
 Облачный Linux-агент **не** ставит программы на ваш ПК и **не** видит USB. Эта папка — готовая лаборатория: на Windows её доводит локальный Cursor Agent / PowerShell.
 
+Передача с облака: [HANDOFF-LOCAL-AGENT.md](HANDOFF-LOCAL-AGENT.md).
+
 ## Каталоги
 
 | Где | Зачем |

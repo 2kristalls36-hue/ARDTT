@@ -17,6 +17,7 @@ need=(
   Test-ARDTT-Doze.ps1
   Restore-ARDTT-TestState.ps1
   README-Windows-USB.md
+  HANDOFF-LOCAL-AGENT.md
   lab-config.example.json
   scenarios.json
   Install-LinuxToolchain.sh

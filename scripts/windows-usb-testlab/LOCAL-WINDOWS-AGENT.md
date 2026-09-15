@@ -12,8 +12,8 @@
 
 1. Откройте **локальный** Cursor Agent Mode (не Cloud) в checkout ARDTT.
 2. Обновите ветку с лабораторией (PR к `auto/auto-whitelist-evidence-f6dc`) либо cherry-pick каталог `scripts/windows-usb-testlab`.
-3. Вставьте исходный промпт `ARDTT_Grok_4_6_Windows11_USB_Test_Environment.md` **целиком**.
-4. Добавьте одной строкой: «скрипты лаборатории уже лежат в `scripts/windows-usb-testlab/`; не дублируй их с нуля, доведи Setup/USB/S00 на этой машине».
+3. Вставьте **целиком** файл `scripts/windows-usb-testlab/HANDOFF-LOCAL-AGENT.md` (объём уже сделанной облачной работы + что делать на ПК).
+4. При необходимости приложите исходный длинный промпт `ARDTT_Grok_4_6_Windows11_USB_Test_Environment.md`. Не просите агента заново писать скрипты лаборатории.
 5. Нужны: терминал Windows, интернет, телефон с USB debugging.
 
 Ручное участие по-прежнему нужно только для UAC, reboot, RSA, VPN-диалога и паролей.
