@@ -124,7 +124,7 @@ ardttctl health                                 # docker inspect + ready.sh ес
 
 `install.sh` / `fetch-and-install.sh` вызывают `./ardttctl` если executable, иначе старый `echo ARDTT_*`.
 
-State: `/opt/ardtt/state/deploy.json` (schemaVersion=1). Phases: `idle|fetch|verify|stage|preflight|start|health|commit|rollback|rollback_failed|idle`.
+State: `/opt/ardtt/state/deploy.json` (schemaVersion=1). Phases: `idle|fetch|verify|stage|preflight|start|health|commit|rollback|rollback_failed|recovery_required`.
 
 Lock: существующие `fetch.lock` / `install.lock` (flock). Cleanup **не** удаляет lock-файлы. `ardttctl` не берёт отдельный lock в этом срезе.
 
@@ -139,8 +139,8 @@ Lock: существующие `fetch.lock` / `install.lock` (flock). Cleanup **
 
 1. Старый APK + новый installer: JSONL игнорируется, `ARDTT_*` работают.
 2. Новый APK + старый installer: только `ARDTT_*`.
-3. Обновление 1.0.53 → 1.0.54: обычный fetch; после stop `current/` (dir) заменяется symlink. Окно downtime как сейчас (~секунды compose).
-4. Откат 1.0.54 → previous (копия дерева) поднимает directory `current/` — следующий update снова сделает symlink.
+3. Обновление 1.0.53 → 1.0.54: обычный fetch; после stop `current/` (dir) мигрирует в `releases/<id>` и становится atomic symlink. Окно downtime как сейчас (~секунды compose).
+4. Откат 1.0.54 → previous (тот же immutable release, не копия дерева) переставляет `current`. Следующий update снова atomic rename.
 5. OCI / подписи / split контейнера — отдельные фазы после измерений.
 
 ## 13. Compatibility matrix
@@ -176,12 +176,14 @@ Lock: существующие `fetch.lock` / `install.lock` (flock). Cleanup **
 - `go test` / `go vet` `server/ardttctl`
 - Dual emit: JSONL + `ARDTT_PROGRESS` / `ERROR` с `code=`
 - Atomic state: crash mid-write оставляет предыдущий файл
-- Snapshot symlink vs directory
-- `test-install-rollback.sh` + новый wait/ROLLBACK_FAILED
+- Snapshot pointer vs directory; atomic rename; no `cp -a` of the live tree
+- `test-install-rollback.sh` + wait/ROLLBACK_FAILED; pointer restore
+- `test-install-pointers.sh` / `test-install-gc.sh` / `test-disk-budget.sh`
 - `test-install-unpack.sh` dry-run
-- Isolation: `install.lock` не в `rm` disk-cleanup
+- Isolation: `install.lock` не в `rm` disk-cleanup; нет docker prune/volume prune
+- Corrupt state → `recovery_required`, directory fsync
 - `check-deploy-bundle.sh` целиком
-- Android unit: JSON-строка не fail; protocol=2 progress обновляет шаг
+- Android unit: JSON-строка не fail; protocol=2 progress обновляет шаг; `INSUFFICIENT_DISK`
 
 Не в этом PR: live compose на amd64 (уже есть job), OCI, подписи, functional UDP health, закрытие 9100.
 

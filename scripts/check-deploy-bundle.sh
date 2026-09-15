@@ -322,9 +322,22 @@ grep -q 'INSTALL_LIB_DIR/protocol.sh' "$INSTALLER" || err "install.sh must sourc
 grep -q 'INSTALL_LIB_DIR/switch.sh' "$INSTALLER" || err "install.sh must source switch.sh"
 grep -q 'activate_release_tree' "$INSTALLER" || err "install.sh must activate current as a symlink"
 grep -q 'commit-version-after-readiness' "$INSTALLER" || err "data/DEPLOY_VERSION must be committed after readiness"
-if grep -E 'rm[[:space:]].*install\.lock' "$ROOT/server/install-lib/disk-cleanup.sh"; then
-  err "disk-cleanup must not unlink install.lock (breaks flock)"
+if grep -q 'docker volume prune' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not docker volume prune"
 fi
+if grep -q 'docker image prune' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not docker image prune"
+fi
+if grep -q 'ardtt_truncate_docker_json_logs' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not truncate all Docker json logs"
+fi
+grep -q 'atomic-pointer.py' "$ROOT/server/install-lib/switch.sh" || err "switch.sh must use atomic-pointer.py"
+if grep -E 'cp[[:space:]]+-a[[:space:]]+"\$src"' "$ROOT/server/install-lib/switch.sh"; then
+  err "switch.sh must not cp -a the live release tree"
+fi
+python3 -m py_compile "$ROOT/server/install-lib/atomic-pointer.py" || err "atomic-pointer.py"
+python3 -m py_compile "$ROOT/server/install-lib/disk-budget.py" || err "disk-budget.py"
+python3 -m py_compile "$ROOT/server/install-lib/safe-rm.py" || err "safe-rm.py"
 [ -f "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" ] \
   || err "assets must ship fetch-and-install.sh bootstrap"
 cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
@@ -418,6 +431,15 @@ if [ -f "$ROOT/scripts/test-install-rollback.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-switch.sh" ]; then
   bash "$ROOT/scripts/test-install-switch.sh" || err "install current symlink switch"
+fi
+if [ -f "$ROOT/scripts/test-install-pointers.sh" ]; then
+  bash "$ROOT/scripts/test-install-pointers.sh" || err "install pointer atomicity"
+fi
+if [ -f "$ROOT/scripts/test-install-gc.sh" ]; then
+  bash "$ROOT/scripts/test-install-gc.sh" || err "install GC/cleanup"
+fi
+if [ -f "$ROOT/scripts/test-disk-budget.sh" ]; then
+  bash "$ROOT/scripts/test-disk-budget.sh" || err "disk budget"
 fi
 if [ -f "$ROOT/scripts/test-ardttctl.sh" ]; then
   command -v go >/dev/null 2>&1 || err "go is required for ardttctl tests"
