@@ -108,10 +108,13 @@ Preview CI APK для телефона (release, не latest GitHub Release):
 ```powershell
 cd scripts\windows-usb-testlab
 Set-ExecutionPolicy -Scope Process Bypass
-.\Setup-ARDTT-TestLab.ps1
+.\Fetch-PreviewApk.ps1
+.\Install-ARDTT.ps1 -ApkPath "$env:LOCALAPPDATA\ARDTT-TestLab\apk\ardtt-0.5.265-3f14a8c-arm64-v8a.apk"
 .\Doctor-ARDTT.ps1
 .\Test-ARDTT-Scenario.ps1 -Scenario S00
 ```
+
+S00 из сессии `20260915T075437Z-S00-a325b83` относится к **0.5.264/51cf7ce**. После смены APK на 0.5.265/284 прогони S00 заново. Не трактуй тот PASS как проверку новой сборки.
 
 При необходимости reboot WSL: `.\Setup-ARDTT-TestLab.ps1 -Resume`.
 
