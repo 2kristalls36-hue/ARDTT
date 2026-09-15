@@ -79,7 +79,7 @@ Preview CI APK для телефона (release, не latest GitHub Release):
 
 ```powershell
 .\scripts\windows-usb-testlab\Fetch-PreviewApk.ps1
-.\scripts\windows-usb-testlab\Install-ARDTT.ps1 -ApkPath "$env:LOCALAPPDATA\ARDTT-TestLab\apk\app-arm64-v8a-release.apk"
+.\scripts\windows-usb-testlab\Install-ARDTT.ps1 -ApkPath "$env:LOCALAPPDATA\ARDTT-TestLab\apk\ardtt-0.5.265-3f14a8c-arm64-v8a.apk"
 ```
 
 ## Что облако НЕ сделало (это твоя работа)
