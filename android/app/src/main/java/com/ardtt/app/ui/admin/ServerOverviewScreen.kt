@@ -390,58 +390,8 @@ private fun ServerOverviewScreen(
             header = {
                 ArdttTabHeader(
                     title = server.name.ifBlank { server.host },
-                    subtitle = "Управление сервером",
+                    subtitle = serverOverviewHeaderSubtitle(),
                     onBack = onBack,
-                    actions = {
-                        Box {
-                            ArdttButton(
-                                onClick = { onShowActions(true) },
-                                variant = ArdttButtonVariant.Icon,
-                                icon = Icons.Filled.MoreVert,
-                                contentDescription = "Действия с сервером",
-                                contentColor = MaterialTheme.colorScheme.primary,
-                            )
-                            ArdttOverflowMenu(
-                                expanded = showActions,
-                                onDismissRequest = { onShowActions(false) },
-                            ) {
-                                ArdttOverflowMenuItem(
-                                    text = serverOverviewDeployActionLabel(health),
-                                    leadingIcon = Icons.Filled.CloudUpload,
-                                    onClick = {
-                                        onShowActions(false)
-                                        onUpdateDeploy()
-                                    },
-                                )
-                                ArdttOverflowMenuItem(
-                                    text = "Переименовать",
-                                    leadingIcon = Icons.Filled.Edit,
-                                    onClick = {
-                                        onShowActions(false)
-                                        onRename()
-                                    },
-                                )
-                                ArdttOverflowMenuItem(
-                                    text = serverRemoveMenuLabel(ServerRemoveKind.Card),
-                                    leadingIcon = Icons.Filled.Delete,
-                                    destructive = true,
-                                    onClick = {
-                                        onShowActions(false)
-                                        onDeleteCard()
-                                    },
-                                )
-                                ArdttOverflowMenuItem(
-                                    text = serverRemoveMenuLabel(ServerRemoveKind.Uninstall),
-                                    leadingIcon = Icons.Filled.DeleteForever,
-                                    destructive = true,
-                                    onClick = {
-                                        onShowActions(false)
-                                        onUninstallServer()
-                                    },
-                                )
-                            }
-                        }
-                    },
                 )
             },
         ) { topPad ->
@@ -477,6 +427,17 @@ private fun ServerOverviewScreen(
                     server = server,
                     health = health,
                     expectedVersion = expectedVersion,
+                    overflow = {
+                        ServerOverviewCardMenu(
+                            expanded = showActions,
+                            onShow = onShowActions,
+                            health = health,
+                            onUpdateDeploy = onUpdateDeploy,
+                            onRename = onRename,
+                            onDeleteCard = onDeleteCard,
+                            onUninstallServer = onUninstallServer,
+                        )
+                    },
                 )
             }
             item {
@@ -533,6 +494,67 @@ private fun ServerOverviewScreen(
         }
     }
 }
+
+@Composable
+private fun ServerOverviewCardMenu(
+    expanded: Boolean,
+    onShow: (Boolean) -> Unit,
+    health: HealthUi?,
+    onUpdateDeploy: () -> Unit,
+    onRename: () -> Unit,
+    onDeleteCard: () -> Unit,
+    onUninstallServer: () -> Unit,
+) {
+    Box {
+        ArdttButton(
+            onClick = { onShow(true) },
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Filled.MoreVert,
+            contentDescription = "Действия с сервером",
+            contentColor = MaterialTheme.colorScheme.primary,
+        )
+        ArdttOverflowMenu(
+            expanded = expanded,
+            onDismissRequest = { onShow(false) },
+        ) {
+            ArdttOverflowMenuItem(
+                text = serverOverviewDeployActionLabel(health),
+                leadingIcon = Icons.Filled.CloudUpload,
+                onClick = {
+                    onShow(false)
+                    onUpdateDeploy()
+                },
+            )
+            ArdttOverflowMenuItem(
+                text = "Переименовать",
+                leadingIcon = Icons.Filled.Edit,
+                onClick = {
+                    onShow(false)
+                    onRename()
+                },
+            )
+            ArdttOverflowMenuItem(
+                text = serverRemoveMenuLabel(ServerRemoveKind.Card),
+                leadingIcon = Icons.Filled.Delete,
+                destructive = true,
+                onClick = {
+                    onShow(false)
+                    onDeleteCard()
+                },
+            )
+            ArdttOverflowMenuItem(
+                text = serverRemoveMenuLabel(ServerRemoveKind.Uninstall),
+                leadingIcon = Icons.Filled.DeleteForever,
+                destructive = true,
+                onClick = {
+                    onShow(false)
+                    onUninstallServer()
+                },
+            )
+        }
+    }
+}
+
 @Composable
 private fun ServerActionCard(
     icon: ImageVector,

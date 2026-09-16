@@ -537,6 +537,7 @@ internal fun ServerCard(
     expectedVersion: String,
     onOpenServer: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    overflow: (@Composable () -> Unit)? = null,
 ) {
     ArdttCompactCard(
         modifier = if (onOpenServer != null) {
@@ -553,6 +554,7 @@ internal fun ServerCard(
             health = health,
             expectedVersion = expectedVersion,
             showOpenHint = onOpenServer != null,
+            overflow = overflow,
         )
     }
 }
@@ -562,6 +564,7 @@ private fun ServerIdentityBody(
     health: HealthUi?,
     expectedVersion: String,
     showOpenHint: Boolean = false,
+    overflow: (@Composable () -> Unit)? = null,
 ) {
     val cascadeHosts = serverCardCascadeHosts(
         host = server.host,
@@ -620,6 +623,7 @@ private fun ServerIdentityBody(
                     osId = server.osId,
                     osVersion = server.osVersion,
                 )
+                overflow?.invoke()
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
