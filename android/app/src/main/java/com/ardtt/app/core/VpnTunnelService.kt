@@ -66,6 +66,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     private val suspendedNetworks = ConcurrentHashMap<Long, Long>()
     @Volatile private var lastValidatedNetworkId: Long? = null
     @Volatile private var lastPreferredUnderlayHandle: Long? = null
+    @Volatile private var lastPushedBypassHandle: Long? = null
     @Volatile private var stableNetworkWasLost = false
     @Volatile private var handoverPreviousNetworkId: Long? = null
     @Volatile private var pendingHandoverUnderlayChanged = false
@@ -1285,6 +1286,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 if (lastPreferredUnderlayHandle == lostId) {
                     lastPreferredUnderlayHandle =
                         pickBestUnderlayNetwork(this@VpnTunnelService)?.networkHandle
+                    pushBypassUnderlayHandle("preferred-lost")
                 }
 
                 val shouldTrack = shouldTrackUnderlyingNetworkLoss(
@@ -1522,6 +1524,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             "$reason — wait VALIDATED then settle ${policy.networkSettleDelayMs}ms " +
                 "path=$path underlayChanged=$underlayChanged",
         )
+        if (underlayChanged) {
+            pushBypassUnderlayHandle("handover-start $reason")
+        }
 
         networkChangeEpoch++
         val myEpoch = networkChangeEpoch
@@ -1666,6 +1671,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         )
                     }
                     AppLog.v(TAG, "skip reconnect: session state changed")
+                    pushBypassUnderlayHandle("skip-reconnect $reason")
                     return@launch
                 }
                 VpnLiveStats.sample()
@@ -1685,6 +1691,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         "handover: skip restart — $livePath already has inbound traffic " +
                             "since $evidence ($reason)",
                     )
+                    pushBypassUnderlayHandle("skip-fresh-traffic $reason")
                     return@launch
                 }
                 if (!validatedNow && livePath == VpnPath.Bypass) {
@@ -2048,6 +2055,34 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             pickBestKind = pick,
             wifiConnected = readConnectedWifiState(this, requireBackground = false).connected,
         )
+    }
+
+    /**
+     * Rebind Go TURN sockets to the live underlay. A skipped handover reconnect
+     * otherwise keeps dialing the dead Wi‑Fi handle.
+     */
+    private fun pushBypassUnderlayHandle(reason: String) {
+        val path = TunnelSessionHolder.config?.path
+        val parked = parkedBypass != null
+        val network = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
+        val handle = network?.networkHandle ?: return
+        if (
+            !shouldPushBypassNetworkHandle(
+                path = path,
+                parkedRawAlive = parked,
+                previousHandle = lastPushedBypassHandle,
+                currentHandle = handle,
+            )
+        ) {
+            return
+        }
+        val kind = currentUnderlayKind().name
+        lastPushedBypassHandle = handle
+        AppLog.i(TAG, "Bypass UPDATE_NETWORK handle=$handle kind=$kind ($reason)")
+        if (path == VpnPath.Bypass) {
+            (backend as? BypassBackend)?.updateNetwork(kind, handle)
+        }
+        parkedBypass?.updateNetwork(kind, handle)
     }
 
     private fun parkBypassCall(backend: BypassBackend) {

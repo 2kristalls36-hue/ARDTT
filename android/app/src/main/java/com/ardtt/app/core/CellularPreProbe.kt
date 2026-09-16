@@ -72,3 +72,48 @@ fun whitelistEvidenceForUnderlay(
     if (hasSameNetworkProbeEvidence(evidence, key, profileId)) return evidence
     return null
 }
+
+/**
+ * Tag a probe round with the radio it actually measured.
+ *
+ * After Wi‑Fi→LTE the ConnMgr snapshot can still say Wi‑Fi while sockets
+ * already bind to the cell. Folding that round as Wi‑Fi stubs the score to 0
+ * and Auto starts Direct despite NeedBypass.
+ */
+fun measurementNetworkKeyForWhitelist(
+    capturedKey: NetworkKey?,
+    liveKey: NetworkKey?,
+    liveKind: UnderlayKind,
+    autoKind: UnderlayKind = liveKind,
+): NetworkKey? {
+    if (WhitelistDetection.appliesTo(capturedKey)) return capturedKey
+    val cellLive = liveKey?.takeIf { WhitelistDetection.appliesTo(it) }
+    if (liveKind == UnderlayKind.Cellular || autoKind == UnderlayKind.Cellular) {
+        return cellLive ?: capturedKey
+    }
+    return capturedKey
+}
+
+fun measurementIsCellularForWhitelist(
+    measurementKey: NetworkKey?,
+    liveKind: UnderlayKind,
+    snapshotKind: UnderlayKind,
+    autoKind: UnderlayKind = liveKind,
+): Boolean = WhitelistDetection.appliesTo(measurementKey) ||
+    liveKind == UnderlayKind.Cellular ||
+    snapshotKind == UnderlayKind.Cellular ||
+    autoKind == UnderlayKind.Cellular
+
+/**
+ * A probe round still describes the live radio. ConnMgr's snapshot can lag
+ * on Wi‑Fi→LTE; that is not a different physical network.
+ */
+fun probeResultAppliesToSnapshot(
+    capturedKey: NetworkKey?,
+    snapshotKey: NetworkKey?,
+): Boolean {
+    if (capturedKey == null || snapshotKey == null) return true
+    if (capturedKey.samePhysicalNetwork(snapshotKey)) return true
+    if (capturedKey.matchesCellularUnderlay(snapshotKey)) return true
+    return !snapshotKey.isCellular && capturedKey.isCellular
+}

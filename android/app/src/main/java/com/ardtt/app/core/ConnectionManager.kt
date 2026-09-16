@@ -944,8 +944,8 @@ class ConnectionManager(
                 ),
                 lastError = null,
             )
-            val capturedKey = underlay.key
             val bind = pickBestUnderlayNetwork(appContext)
+            val capturedKey = keyForBind(bind) ?: underlay.key
             val result = if (autoUsesDirectOnWifi(pathMode, kind)) {
                 AppLog.v(TAG, "Probe skipped — Auto on Wi-Fi always Direct kind=$kind")
                 wifiAutoDirectProbe()
@@ -1222,18 +1222,35 @@ class ConnectionManager(
                 val liveMode = pathMode
                 val kind = currentAutoUnderlayKind()
                 val bypassAllowed = callHashOrNull() != null
-                val forced = pendingConnectPath
+                val requestedPath = pendingConnectPath
                 pendingConnectPath = null
-                val skipProbe = forced == VpnPath.Bypass ||
-                    shouldSkipConnectProbe(liveMode, bypassAllowed, kind)
                 val wifiAutoDirect = autoUsesDirectOnWifi(liveMode, kind)
                 val underlayUsable = readUnderlaySnapshot().availability == UnderlayAvailability.Usable
                 val whitelistScore = liveWhitelistEvidence()?.whitelistScoreAt(
                     recoverySnapshot.underlay.key,
                     recoverySnapshot.intent.profileId,
                 ) ?: 0
-                val whitelistBypass = autoMayUseBypass(liveMode, kind, bypassAllowed) &&
-                    RestrictionScore.likely(whitelistScore, alreadyBypass = false)
+                val probePreferred = snap.probe?.preselectedPath
+                val whitelistBypass = connectStartsBypassFromWhitelist(
+                    mode = liveMode,
+                    underlayKind = kind,
+                    bypassAllowed = bypassAllowed,
+                    whitelistScorePercent = maxOf(
+                        whitelistScore,
+                        snap.probe?.whitelistScorePercent ?: 0,
+                    ),
+                    probePreferred = probePreferred,
+                )
+                // Recovery StartDirect must not override a just-finished NeedBypass probe.
+                val forced = if (whitelistBypass && requestedPath == VpnPath.Direct) {
+                    AppLog.i(TAG, "Connect: overriding recovery Direct — whitelist probe selected Bypass")
+                    null
+                } else {
+                    requestedPath
+                }
+                val skipProbe = forced == VpnPath.Bypass ||
+                    shouldSkipConnectProbe(liveMode, bypassAllowed, kind) ||
+                    (whitelistBypass && forced != VpnPath.Direct)
                 val startDirectNow = (forced == VpnPath.Direct ||
                     shouldStartDirectWithoutDiagnostic(liveMode, kind, underlayUsable)) &&
                     forced != VpnPath.Bypass &&
@@ -1241,7 +1258,6 @@ class ConnectionManager(
                 val capturedMode = liveMode
                 val capturedKind = kind
                 val capturedProfileId = profile?.name
-                val probePreferred = snap.probe?.preselectedPath
                 val labelPreferred = when {
                     forced != null -> forced
                     liveMode == ConnPathMode.Direct -> VpnPath.Direct
@@ -2880,8 +2896,23 @@ class ConnectionManager(
         capturedNetworkKey: NetworkKey? = null,
         capturedProfileId: String? = null,
     ) {
-        val shown = displayedAutoProbe(pathMode, currentAutoUnderlayKind(), result)
-        val capturedKey = result.networkKey ?: capturedNetworkKey
+        val autoKind = currentAutoUnderlayKind()
+        val liveUnderlay = readUnderlaySnapshot()
+        if (!recoverySnapshot.intent.wantsConnected) {
+            synchronized(recoveryGate) {
+                recoverySnapshot = recoverySnapshot.copy(
+                    underlay = liveUnderlay,
+                    networkEpoch = liveUnderlay.networkEpoch,
+                )
+            }
+        }
+        val shown = displayedAutoProbe(pathMode, autoKind, result)
+        val capturedKey = measurementNetworkKeyForWhitelist(
+            capturedKey = result.networkKey ?: capturedNetworkKey,
+            liveKey = liveUnderlay.key,
+            liveKind = liveUnderlay.kind,
+            autoKind = autoKind,
+        )
         val profileId = capturedProfileId ?: recoverySnapshot.intent.profileId
         if (capturedProfileId != null &&
             recoverySnapshot.intent.profileId != null &&
@@ -2890,10 +2921,8 @@ class ConnectionManager(
             AppLog.v(TAG, "probe UI skipped — profile changed since capture")
             return
         }
-        if (capturedKey != null &&
-            recoverySnapshot.underlay.key != null &&
-            !capturedKey.samePhysicalNetwork(recoverySnapshot.underlay.key)
-        ) {
+        val snapshotKey = recoverySnapshot.underlay.key
+        if (!probeResultAppliesToSnapshot(capturedKey, snapshotKey)) {
             AppLog.v(TAG, "probe UI skipped — network changed since capture")
             return
         }
@@ -2916,7 +2945,12 @@ class ConnectionManager(
             restrictionReason = shown.restrictionReason,
             seriesId = shown.seriesId,
         )
-        val cellular = recoverySnapshot.underlay.kind == UnderlayKind.Cellular
+        val cellular = measurementIsCellularForWhitelist(
+            measurementKey = capturedKey,
+            liveKind = liveUnderlay.kind,
+            snapshotKind = recoverySnapshot.underlay.kind,
+            autoKind = autoKind,
+        )
         if (recoverySnapshot.intent.wantsConnected) {
             dispatchRecovery(
                 ConnectionEvent.ProbeFinished(
@@ -2939,15 +2973,28 @@ class ConnectionManager(
             return
         }
         val folded = foldReachabilityEvidence(
-            previous = recoverySnapshot.evidence,
+            previous = if (cellular) {
+                recoverySnapshot.cellularEvidence
+                    ?: recoverySnapshot.evidence?.takeIf { WhitelistDetection.appliesTo(it.networkKey) }
+            } else {
+                recoverySnapshot.evidence
+            },
             incoming = incoming,
             cellular = cellular,
             elapsedMs = now,
         )
-        recoverySnapshot = recoverySnapshot.copy(
-            evidence = folded,
-            cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
-        )
+        synchronized(recoveryGate) {
+            recoverySnapshot = recoverySnapshot.copy(
+                evidence = if (cellular && liveUnderlay.kind == UnderlayKind.Cellular) {
+                    folded
+                } else if (cellular) {
+                    recoverySnapshot.evidence
+                } else {
+                    folded
+                },
+                cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
+            )
+        }
         val overlay = shown.withWhitelistEvidence(folded, cellular)
         AppLog.i(
             TAG,

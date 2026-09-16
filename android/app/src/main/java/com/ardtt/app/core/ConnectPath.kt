@@ -117,6 +117,23 @@ fun shouldStartDirectWithoutDiagnostic(
 }
 
 /**
+ * The connect-wait probe already classified Bypass (score at enter, or
+ * preselectedPath=Bypass). [shouldStartDirectWithoutDiagnostic] must not
+ * throw that away and start Direct first.
+ */
+fun connectStartsBypassFromWhitelist(
+    mode: ConnPathMode,
+    underlayKind: UnderlayKind,
+    bypassAllowed: Boolean,
+    whitelistScorePercent: Int,
+    probePreferred: VpnPath?,
+): Boolean {
+    if (!autoMayUseBypass(mode, underlayKind, bypassAllowed)) return false
+    if (RestrictionScore.likely(whitelistScorePercent, alreadyBypass = false)) return true
+    return probePreferred == VpnPath.Bypass
+}
+
+/**
  * Auto moving onto cellular during a handover. Skipping the probe is only safe
  * when a same-operator whitelist measurement already exists — the pre-probe ran
  * on this SIM, or we were already here. Guessing Direct on an unmeasured cell

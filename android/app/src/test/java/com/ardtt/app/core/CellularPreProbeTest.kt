@@ -155,4 +155,46 @@ class CellularPreProbeTest {
         assertTrue(cellA.directConfirmedOn(cellBSameSim))
         assertTrue((null as NetworkKey?).directConfirmedOn(cellA))
     }
+
+    @Test
+    fun staleWifiSnapshotDoesNotStubACellularProbe() {
+        val liveCell = cellBSameSim
+        assertEquals(
+            liveCell,
+            measurementNetworkKeyForWhitelist(
+                capturedKey = wifi,
+                liveKey = liveCell,
+                liveKind = UnderlayKind.Cellular,
+                autoKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertEquals(
+            cellA,
+            measurementNetworkKeyForWhitelist(
+                capturedKey = cellA,
+                liveKey = wifi,
+                liveKind = UnderlayKind.Wifi,
+                autoKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertTrue(
+            measurementIsCellularForWhitelist(
+                measurementKey = cellA,
+                liveKind = UnderlayKind.Wifi,
+                snapshotKind = UnderlayKind.Wifi,
+                autoKind = UnderlayKind.Cellular,
+            ),
+        )
+        assertFalse(
+            measurementIsCellularForWhitelist(
+                measurementKey = wifi,
+                liveKind = UnderlayKind.Wifi,
+                snapshotKind = UnderlayKind.Wifi,
+                autoKind = UnderlayKind.Wifi,
+            ),
+        )
+        assertTrue(probeResultAppliesToSnapshot(cellA, wifi))
+        assertTrue(probeResultAppliesToSnapshot(cellA, cellBSameSim))
+        assertFalse(probeResultAppliesToSnapshot(wifi, cellA))
+    }
 }

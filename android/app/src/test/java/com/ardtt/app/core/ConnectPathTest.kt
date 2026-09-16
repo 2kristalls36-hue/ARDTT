@@ -448,4 +448,54 @@ class ConnectPathTest {
             ),
         )
     }
+
+    @Test
+    fun connectHonorsNeedBypassProbeInsteadOfDirectNow() {
+        assertTrue(
+            connectStartsBypassFromWhitelist(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                whitelistScorePercent = 80,
+                probePreferred = VpnPath.Bypass,
+            ),
+        )
+        // Ticket 23: probe classified Bypass, fold lagged at score 0.
+        assertTrue(
+            connectStartsBypassFromWhitelist(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                whitelistScorePercent = 0,
+                probePreferred = VpnPath.Bypass,
+            ),
+        )
+        assertFalse(
+            connectStartsBypassFromWhitelist(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                whitelistScorePercent = 0,
+                probePreferred = VpnPath.Direct,
+            ),
+        )
+        assertFalse(
+            connectStartsBypassFromWhitelist(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Wifi,
+                bypassAllowed = true,
+                whitelistScorePercent = 80,
+                probePreferred = VpnPath.Bypass,
+            ),
+        )
+        assertFalse(
+            connectStartsBypassFromWhitelist(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = false,
+                whitelistScorePercent = 80,
+                probePreferred = VpnPath.Bypass,
+            ),
+        )
+    }
 }

@@ -83,4 +83,48 @@ class SessionControlIntentTest {
             ),
         )
     }
+
+    @Test
+    fun bypassHandlePushFollowsTheLiveNetwork() {
+        assertTrue(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Bypass,
+                parkedRawAlive = false,
+                previousHandle = 11L,
+                currentHandle = 22L,
+            ),
+        )
+        assertFalse(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Bypass,
+                parkedRawAlive = false,
+                previousHandle = 22L,
+                currentHandle = 22L,
+            ),
+        )
+        assertTrue(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Direct,
+                parkedRawAlive = true,
+                previousHandle = null,
+                currentHandle = 22L,
+            ),
+        )
+        assertFalse(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Direct,
+                parkedRawAlive = false,
+                previousHandle = 11L,
+                currentHandle = 22L,
+            ),
+        )
+        assertFalse(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Bypass,
+                parkedRawAlive = false,
+                previousHandle = 11L,
+                currentHandle = 0L,
+            ),
+        )
+    }
 }
