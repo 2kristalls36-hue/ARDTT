@@ -109,6 +109,11 @@ fun DiagnosticsScreen(
             ArdttTabHeader(
                 title = DiagnosticsCopy.TITLE,
                 subtitle = DiagnosticsCopy.SUBTITLE,
+                actions = if (openTool == DiagnosticsTool.Logs) {
+                    { LogsJournalHeaderActions() }
+                } else {
+                    null
+                },
             )
         },
     ) { topPad ->

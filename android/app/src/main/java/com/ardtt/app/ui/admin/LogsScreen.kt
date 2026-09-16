@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -76,14 +77,13 @@ fun LogsScreen(
     val ui by conn.ui.collectAsStateWithLifecycle()
     val entries by AppLog.entries.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    val fmt = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
+    val fmt = remember { logsLineFormat() }
     val isDark = isDarkSurface()
     val terminalBg = terminalCardColor()
     val bottomReserve = ArdttBottomChrome.navigationReserve()
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var showClearConfirm by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(sessionUp, lifecycleOwner) {
         if (!sessionUp) return@LaunchedEffect
@@ -103,34 +103,6 @@ fun LogsScreen(
         if (entries.isNotEmpty()) {
             listState.scrollToItem(entries.lastIndex)
         }
-    }
-
-    fun dumpBody(): String =
-        entries.joinToString("\n") { it.displayLine(fmt) }.ifBlank { AppLog.dumpText() }
-
-    val logActions: @Composable RowScope.() -> Unit = {
-        ArdttButton(
-            onClick = { copyToClipboard(context, dumpBody(), "ARDTT logs") },
-            variant = ArdttButtonVariant.Icon,
-            icon = Icons.Default.ContentCopy,
-            contentDescription = "Копировать",
-            contentColor = MaterialTheme.colorScheme.primary,
-        )
-        ArdttButton(
-            onClick = { shareText(context, dumpBody(), "ARDTT logs", "Экспорт логов") },
-            variant = ArdttButtonVariant.Icon,
-            icon = Icons.Default.Share,
-            contentDescription = "Расшарить",
-            contentColor = MaterialTheme.colorScheme.primary,
-        )
-        ArdttButton(
-            onClick = { showClearConfirm = true },
-            variant = ArdttButtonVariant.Icon,
-            icon = Icons.Default.Delete,
-            contentDescription = LogsCopy.CLEAR,
-            enabled = entries.isNotEmpty(),
-            contentColor = MaterialTheme.colorScheme.primary,
-        )
     }
 
     @Composable
@@ -235,15 +207,7 @@ fun LogsScreen(
     }
 
     if (embedded) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-                content = logActions,
-            )
-            LogsBody(ArdttSpacing.None, ArdttSpacing.None)
-        }
+        LogsBody(ArdttSpacing.None, ArdttSpacing.None)
     } else {
         ArdttScrollChrome(
             header = {
@@ -255,14 +219,43 @@ fun LogsScreen(
                         "Краткие события туннеля"
                     },
                     onBack = onBack,
-                    actions = logActions,
+                    actions = { LogsJournalHeaderActions() },
                 )
             },
         ) { chromeTop ->
             LogsBody(chromeTop, bottomReserve)
         }
     }
+}
 
+/** Copy / Share / Delete for the journal page header (tab or Diagnostics). */
+@Composable
+internal fun RowScope.LogsJournalHeaderActions() {
+    val context = LocalContext.current
+    val entries by AppLog.entries.collectAsStateWithLifecycle()
+    val fmt = remember { logsLineFormat() }
+    var showClearConfirm by remember { mutableStateOf(false) }
+    val dump = { logsDumpBody(entries, fmt) }
+    logsHeaderActionOrder().forEach { label ->
+        when (label) {
+            LogsCopy.COPY -> LogsHeaderIconButton(
+                onClick = { copyToClipboard(context, dump(), "ARDTT logs") },
+                icon = Icons.Default.ContentCopy,
+                contentDescription = label,
+            )
+            LogsCopy.SHARE -> LogsHeaderIconButton(
+                onClick = { shareText(context, dump(), "ARDTT logs", "Экспорт логов") },
+                icon = Icons.Default.Share,
+                contentDescription = label,
+            )
+            LogsCopy.CLEAR -> LogsHeaderIconButton(
+                onClick = { showClearConfirm = true },
+                icon = Icons.Default.Delete,
+                contentDescription = label,
+                enabled = entries.isNotEmpty(),
+            )
+        }
+    }
     if (showClearConfirm) {
         ArdttConfirmDialog(
             title = LogsCopy.CLEAR_TITLE,
@@ -277,8 +270,27 @@ fun LogsScreen(
     }
 }
 
+@Composable
+private fun LogsHeaderIconButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String,
+    enabled: Boolean = true,
+) {
+    ArdttButton(
+        onClick = onClick,
+        variant = ArdttButtonVariant.Icon,
+        icon = icon,
+        contentDescription = contentDescription,
+        enabled = enabled,
+        contentColor = MaterialTheme.colorScheme.primary,
+    )
+}
+
 /** Strings of the Logs screen that are not derived from state. */
 internal object LogsCopy {
+    const val COPY = "Копировать"
+    const val SHARE = "Расшарить"
     const val CLEAR = "Удалить"
     const val CLEAR_TITLE = "Очистить журнал?"
     const val EMPTY_TITLE = "Пока пусто"
@@ -288,6 +300,16 @@ internal object LogsCopy {
     fun clearBody(count: Int): String =
         "Будет удалено записей: $count. Действие нельзя отменить; при необходимости сначала скопируйте или поделитесь журналом."
 }
+
+internal fun logsHeaderActionOrder(): List<String> =
+    listOf(LogsCopy.COPY, LogsCopy.SHARE, LogsCopy.CLEAR)
+
+internal fun logsShowsInlineActionRow(embedded: Boolean): Boolean = false
+
+internal fun logsDumpBody(entries: List<AppLog.Entry>, fmt: SimpleDateFormat): String =
+    entries.joinToString("\n") { it.displayLine(fmt) }.ifBlank { AppLog.dumpText() }
+
+private fun logsLineFormat(): SimpleDateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
 @Composable
 private fun LogEventRow(
