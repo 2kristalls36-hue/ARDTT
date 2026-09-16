@@ -67,4 +67,18 @@ class LogsCatalogTest {
         assertEquals(2, LogsCatalog.unseenCount(lastSeenId = 98, visible = visible))
         assertEquals(0, LogsCatalog.unseenCount(lastSeenId = 100, visible = visible))
     }
+
+    @Test
+    fun journalHeaderActionsAreCopyShareDelete() {
+        assertEquals(
+            listOf("Копировать", "Расшарить", "Удалить"),
+            logsHeaderActionOrder(),
+        )
+    }
+
+    @Test
+    fun journalActionsStayInThePageHeader() {
+        assertFalse(logsShowsInlineActionRow(embedded = true))
+        assertFalse(logsShowsInlineActionRow(embedded = false))
+    }
 }

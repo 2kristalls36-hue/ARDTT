@@ -318,6 +318,16 @@ internal fun serverOverviewDeployConfirmTitle(health: HealthUi?): String =
 internal fun serverOverviewDeployConfirmAction(health: HealthUi?): String =
     if (health is HealthUi.NotInstalled) "Установить" else "Обновить"
 
+internal fun serverOverviewHeaderSubtitle(): String? = null
+
+internal enum class ServerOverviewOverflowAnchor {
+    Header,
+    CardAfterOs,
+}
+
+internal fun serverOverviewOverflowAnchor(): ServerOverviewOverflowAnchor =
+    ServerOverviewOverflowAnchor.CardAfterOs
+
 internal fun serverOverviewDeployIsUpdate(health: HealthUi?): Boolean =
     health !is HealthUi.NotInstalled
 

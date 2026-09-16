@@ -11,7 +11,6 @@ package com.ardtt.app.ui.admin
 enum class DiagnosticsTool {
     Network,
     Logs,
-    Testing,
 }
 
 data class DiagnosticsAccordionState(
@@ -27,11 +26,16 @@ data class DiagnosticsAccordionLayout(
     val showsTool: Boolean get() = expanded != null
 }
 
-fun diagnosticsTools(testingVisible: Boolean): List<DiagnosticsTool> = buildList {
-    add(DiagnosticsTool.Network)
-    add(DiagnosticsTool.Logs)
-    if (testingVisible) add(DiagnosticsTool.Testing)
-}
+fun diagnosticsTools(): List<DiagnosticsTool> = listOf(
+    DiagnosticsTool.Network,
+    DiagnosticsTool.Logs,
+)
+
+internal fun diagnosticsInitialState(): DiagnosticsAccordionState =
+    DiagnosticsAccordionState(
+        expanded = DiagnosticsTool.Network,
+        selected = setOf(DiagnosticsTool.Network),
+    )
 
 fun DiagnosticsAccordionState.open(
     tool: DiagnosticsTool,

@@ -60,14 +60,12 @@ object ArdttNavPlan {
         AppDestination.Deploy.route -> AppDestination.Servers.route
         AppDestination.Network.route,
         AppDestination.Logs.route,
-        AppDestination.Testing.route,
         -> if (admin) {
             AppDestination.Diagnostics.route
-        } else if (currentRoute == AppDestination.Testing.route) {
-            AppDestination.Logs.route
         } else {
             currentRoute
         }
+        AppDestination.Testing.route -> AppDestination.Settings.route
         AppDestination.Exceptions.route -> if (admin) {
             AppDestination.Settings.route
         } else {
@@ -100,18 +98,23 @@ object ArdttNavPlan {
     /**
      * Where the system Back gesture leads from [currentRoute].
      *
-     * A nested route (Network, Logs / Testing under Diagnostics, Deploy under
-     * Servers, Exceptions under Settings for admin) returns to its parent tab —
-     * the same place as the header «Назад» — instead of falling through to
-     * Tunnel. Root tabs return `null`: default back-stack behaviour applies.
+     * A nested route (Network / Logs under Diagnostics, Testing under Settings,
+     * Deploy under Servers, Exceptions under Settings for admin) returns to
+     * its parent tab — the same place as the header «Назад» — instead of
+     * falling through to Tunnel. Root tabs return `null`: default back-stack
+     * behaviour applies.
      */
     fun backTarget(currentRoute: String, admin: Boolean): String? {
         val parent = parentTab(currentRoute, admin)
         return parent.takeIf { it != currentRoute }
     }
 
+    /**
+     * Recording badge sits on Settings: Testing is opened only from there,
+     * for both admin and user.
+     */
     fun navBadgeRoute(admin: Boolean, isRecording: Boolean): String? {
         if (!isRecording) return null
-        return if (admin) AppDestination.Diagnostics.route else AppDestination.Logs.route
+        return AppDestination.Settings.route
     }
 }

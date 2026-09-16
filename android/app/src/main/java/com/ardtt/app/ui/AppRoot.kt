@@ -452,8 +452,6 @@ fun AppRoot(
                         }
                         composable(AppDestination.Diagnostics.route) {
                             DiagnosticsScreen(
-                                testingVisible = testingTabVisible,
-                                isRecording = isRecording,
                                 settings = settings,
                                 profiles = profiles,
                                 serversRepo = serversRepo,
@@ -488,15 +486,7 @@ fun AppRoot(
                         composable(AppDestination.Testing.route) {
                             TestingScreen(
                                 profiles = profiles,
-                                onBack = {
-                                    navigateTab(
-                                        if (admin) {
-                                            AppDestination.Diagnostics.route
-                                        } else {
-                                            AppDestination.Logs.route
-                                        },
-                                    )
-                                },
+                                onBack = { navigateTab(AppDestination.Settings.route) },
                             )
                         }
                     }

@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /**
  * Bottom tabs (user): Tunnel → Profiles → Exceptions → Logs → Settings.
  * Bottom tabs (admin): Tunnel → Servers → Profiles → Diagnostics → Settings.
- * Network, Logs (admin), Testing, Exceptions (admin) and Deploy stay as routes.
+ * Network, Logs (admin), Testing (from Settings), Exceptions (admin) and Deploy stay as routes.
  */
 enum class AppDestination(
     val route: String,

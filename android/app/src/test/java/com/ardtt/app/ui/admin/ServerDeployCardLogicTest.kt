@@ -399,6 +399,15 @@ class ServerDeployCardLogicTest {
     }
 
     @Test
+    fun overviewChromeDropsManagementSubtitleAndMovesOverflowToCard() {
+        assertNull(serverOverviewHeaderSubtitle())
+        assertEquals(
+            ServerOverviewOverflowAnchor.CardAfterOs,
+            serverOverviewOverflowAnchor(),
+        )
+    }
+
+    @Test
     fun newCardActionDependsOnCascade() {
         assertEquals("Установить на VPS", serverDeployActionLabel(saved = false, cascadeEnabled = false))
         assertEquals("Установить каскад", serverDeployActionLabel(saved = false, cascadeEnabled = true))

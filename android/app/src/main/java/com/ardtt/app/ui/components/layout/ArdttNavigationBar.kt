@@ -3,6 +3,8 @@ package com.ardtt.app.ui.components.layout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,7 +31,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -80,6 +86,40 @@ private object NavBarDefaults {
     const val MaxBadgeCount = 99
 }
 
+internal data class NavTabPaint(
+    val color: Color,
+    val bold: Boolean,
+    val labelAlpha: Float,
+)
+
+internal fun navTabPaint(
+    selected: Boolean,
+    pending: Boolean,
+    pressed: Boolean,
+    emphasis: Float,
+    selectedColor: Color,
+    unselectedColor: Color,
+): NavTabPaint {
+    val highlighted = selected || pending || pressed
+    val visualEmphasis = if (highlighted) 1f else emphasis
+    return NavTabPaint(
+        color = if (highlighted) {
+            selectedColor
+        } else {
+            lerp(unselectedColor, selectedColor, emphasis)
+        },
+        bold = visualEmphasis > NavBarDefaults.BoldEmphasis,
+        labelAlpha = if (visualEmphasis > NavBarDefaults.OpaqueEmphasis) {
+            1f
+        } else {
+            NavBarDefaults.FadedLabelAlpha
+        },
+    )
+}
+
+internal fun navTabPendingRoute(currentRoute: String, clickedRoute: String): String? =
+    clickedRoute.takeIf { it != currentRoute }
+
 /** Floating pill bottom bar with a sliding selection indicator. */
 @Composable
 fun ArdttNavigationBar(
@@ -97,6 +137,12 @@ fun ArdttNavigationBar(
 
     val indicatorIndex = remember { Animatable(0f) }
     val selectedVisualIndex = items.indexOfFirst { it.route == selectedRoute }.coerceAtLeast(0)
+    var pendingRoute by remember { mutableStateOf<String?>(null) }
+    val selectTab = rememberUpdatedState(onSelect)
+
+    LaunchedEffect(selectedRoute) {
+        pendingRoute = null
+    }
 
     LaunchedEffect(selectedVisualIndex, items) {
         if (dragTargetIndex !in items.indices) {
@@ -168,9 +214,14 @@ fun ArdttNavigationBar(
                         NavBarTab(
                             item = item,
                             selected = item.route == selectedRoute,
+                            pending = item.route == pendingRoute,
                             emphasis = emphasis,
-                            iconColor = lerp(unselectedColor, selectedColor, emphasis),
-                            onSelect = { onSelect(item.route) },
+                            selectedColor = selectedColor,
+                            unselectedColor = unselectedColor,
+                            onSelect = {
+                                navTabPendingRoute(selectedRoute, item.route)?.let { pendingRoute = it }
+                                selectTab.value(item.route)
+                            },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -184,18 +235,32 @@ fun ArdttNavigationBar(
 private fun NavBarTab(
     item: ArdttNavItem,
     selected: Boolean,
+    pending: Boolean,
     emphasis: Float,
-    iconColor: Color,
+    selectedColor: Color,
+    unselectedColor: Color,
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val paint = navTabPaint(
+        selected = selected,
+        pending = pending,
+        pressed = pressed,
+        emphasis = emphasis,
+        selectedColor = selectedColor,
+        unselectedColor = unselectedColor,
+    )
     Column(
         modifier = modifier
             .fillMaxHeight()
             .selectable(
                 selected = selected,
-                onClick = onSelect,
+                interactionSource = interactionSource,
+                indication = null,
                 role = Role.Tab,
+                onClick = onSelect,
             )
             .semantics { this.selected = selected },
         verticalArrangement = Arrangement.Center,
@@ -206,7 +271,7 @@ private fun NavBarTab(
                 imageVector = item.icon,
                 contentDescription = null,
                 modifier = Modifier.size(ArdttSize.Icon),
-                tint = iconColor,
+                tint = paint.color,
             )
             if (item.badgeCount > 0) {
                 Badge(
@@ -233,18 +298,8 @@ private fun NavBarTab(
                     trim = LineHeightStyle.Trim.Both,
                 ),
             ),
-            fontWeight = if (emphasis > NavBarDefaults.BoldEmphasis) {
-                FontWeight.SemiBold
-            } else {
-                FontWeight.Normal
-            },
-            color = iconColor.copy(
-                alpha = if (emphasis > NavBarDefaults.OpaqueEmphasis) {
-                    1f
-                } else {
-                    NavBarDefaults.FadedLabelAlpha
-                },
-            ),
+            fontWeight = if (paint.bold) FontWeight.SemiBold else FontWeight.Normal,
+            color = paint.color.copy(alpha = paint.labelAlpha),
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,

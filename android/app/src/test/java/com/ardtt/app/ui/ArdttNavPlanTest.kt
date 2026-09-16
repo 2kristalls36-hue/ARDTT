@@ -70,7 +70,7 @@ class ArdttNavPlanTest {
             ArdttNavPlan.barSelectedRoute(AppDestination.Network.route, adminPrimary, admin = true),
         )
         assertEquals(
-            AppDestination.Diagnostics.route,
+            AppDestination.Settings.route,
             ArdttNavPlan.barSelectedRoute(AppDestination.Testing.route, adminPrimary, admin = true),
         )
         assertEquals(
@@ -83,7 +83,7 @@ class ArdttNavPlanTest {
         )
         val userPrimary = ArdttNavPlan.primary(admin = false, testingVisible = true)
         assertEquals(
-            AppDestination.Logs.route,
+            AppDestination.Settings.route,
             ArdttNavPlan.barSelectedRoute(AppDestination.Testing.route, userPrimary, admin = false),
         )
         assertEquals(
@@ -107,7 +107,7 @@ class ArdttNavPlanTest {
             ArdttNavPlan.backTarget(AppDestination.Logs.route, admin = true),
         )
         assertEquals(
-            AppDestination.Diagnostics.route,
+            AppDestination.Settings.route,
             ArdttNavPlan.backTarget(AppDestination.Testing.route, admin = true),
         )
         assertEquals(
@@ -115,7 +115,7 @@ class ArdttNavPlanTest {
             ArdttNavPlan.backTarget(AppDestination.Exceptions.route, admin = true),
         )
         assertEquals(
-            AppDestination.Logs.route,
+            AppDestination.Settings.route,
             ArdttNavPlan.backTarget(AppDestination.Testing.route, admin = false),
         )
     }
@@ -133,11 +133,11 @@ class ArdttNavPlanTest {
     @Test
     fun recordingBadgeLivesOnParentTab() {
         assertEquals(
-            AppDestination.Diagnostics.route,
+            AppDestination.Settings.route,
             ArdttNavPlan.navBadgeRoute(admin = true, isRecording = true),
         )
         assertEquals(
-            AppDestination.Logs.route,
+            AppDestination.Settings.route,
             ArdttNavPlan.navBadgeRoute(admin = false, isRecording = true),
         )
         assertNull(ArdttNavPlan.navBadgeRoute(admin = true, isRecording = false))

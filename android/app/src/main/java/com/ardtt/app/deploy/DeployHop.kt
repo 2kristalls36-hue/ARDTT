@@ -49,6 +49,13 @@ object DeployHop {
         return provisionUrl(exit, server.cascadeProvisionPort)
     }
 
+    /**
+     * CloudFlare / last-hop provision URL for Tunnel card and Network map.
+     * Card cascade port wins so both screens share one hop-cache key; live host is fallback.
+     */
+    fun warpExitProvisionUrl(server: DeployTarget?, liveExitHost: String? = null): String? =
+        exitProvisionUrl(server) ?: provisionUrl(liveExitHost)
+
     /** Public VPS addresses that must not be shown as the phone's provider IP. */
     fun knownPublicHosts(profileHost: String?, server: DeployTarget?): List<String> =
         listOfNotNull(

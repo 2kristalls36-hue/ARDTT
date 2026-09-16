@@ -71,6 +71,29 @@ class UnderlayAccessTest {
     }
 
     @Test
+    fun signalDbmFormatsMissingAsDash() {
+        assertEquals("—", formatUnderlaySignalDbm(null))
+        assertEquals("−67 дБм", formatUnderlaySignalDbm(-67))
+    }
+
+    @Test
+    fun wifiRssiRejectsInvalidSentinel() {
+        assertNull(usableWifiDbm(-127))
+        assertEquals(-67, usableWifiDbm(-67))
+        assertNull(usableCellularDbm(Int.MAX_VALUE))
+        assertEquals(-91, usableCellularDbm(-91))
+    }
+
+    @Test
+    fun signalEmphasisFollowsActiveUnderlay() {
+        assertTrue(underlaySignalWifiEmphasized(wifiConnected = true))
+        assertFalse(underlaySignalWifiEmphasized(wifiConnected = false))
+        assertFalse(underlaySignalCellularEmphasized(wifiConnected = true, cellularConnected = true))
+        assertTrue(underlaySignalCellularEmphasized(wifiConnected = false, cellularConnected = true))
+        assertFalse(underlaySignalCellularEmphasized(wifiConnected = false, cellularConnected = false))
+    }
+
+    @Test
     fun noUnderlay() {
         assertEquals(
             "Нет сети",

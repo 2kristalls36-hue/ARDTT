@@ -7,6 +7,9 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
@@ -35,6 +38,92 @@ fun formatUnderlayAccessLabel(
         }
     }
     return "Нет сети"
+}
+
+data class UnderlaySignalReading(
+    val wifiConnected: Boolean,
+    val wifiDbm: Int?,
+    val cellularConnected: Boolean,
+    val cellularDbm: Int?,
+)
+
+internal fun formatUnderlaySignalDbm(dbm: Int?): String = when {
+    dbm == null -> "—"
+    dbm < 0 -> "−${-dbm} дБм"
+    else -> "$dbm дБм"
+}
+
+internal fun usableWifiDbm(dbm: Int): Int? =
+    dbm.takeIf { it != -127 && it in -126..0 }
+
+internal fun usableCellularDbm(dbm: Int): Int? =
+    dbm.takeIf { it != Int.MAX_VALUE && it in -140..-1 }
+
+internal fun underlaySignalWifiEmphasized(wifiConnected: Boolean): Boolean = wifiConnected
+
+internal fun underlaySignalCellularEmphasized(
+    wifiConnected: Boolean,
+    cellularConnected: Boolean,
+): Boolean = cellularConnected && !wifiConnected
+
+fun readUnderlaySignal(context: Context): UnderlaySignalReading {
+    val app = context.applicationContext
+    val wifi = readConnectedWifiState(app, requireBackground = false)
+    val cellular = readCellularOperatorInfo(app)
+    return UnderlaySignalReading(
+        wifiConnected = wifi.connected,
+        wifiDbm = if (wifi.connected) readWifiDbm(app) else null,
+        cellularConnected = cellular.connected,
+        cellularDbm = if (cellular.connected) readCellularDbm(app, cellular.subscriptionId) else null,
+    )
+}
+
+@Suppress("DEPRECATION")
+private fun readWifiDbm(context: Context): Int? {
+    val fromTransport = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        runCatching {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return@runCatching null
+            cm.allNetworks.asSequence()
+                .mapNotNull { cm.getNetworkCapabilities(it) }
+                .firstOrNull {
+                    it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                        it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                }
+                ?.transportInfo
+                ?.let { it as? WifiInfo }
+                ?.rssi
+        }.getOrNull()
+    } else {
+        null
+    }
+    val fromManager = runCatching {
+        context.getSystemService(WifiManager::class.java)?.connectionInfo?.rssi
+    }.getOrNull()
+    return listOf(fromTransport, fromManager).firstNotNullOfOrNull { raw ->
+        raw?.let { usableWifiDbm(it) }
+    }
+}
+
+private fun readCellularDbm(context: Context, subId: Int): Int? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+    val granted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.READ_PHONE_STATE,
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!granted) return null
+    return runCatching {
+        val defaultTm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            ?: return@runCatching null
+        @Suppress("MissingPermission")
+        val tm = if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            runCatching { defaultTm.createForSubscriptionId(subId) }.getOrDefault(defaultTm)
+        } else {
+            defaultTm
+        }
+        val dbm = tm.signalStrength?.cellSignalStrengths?.firstOrNull()?.dbm ?: return@runCatching null
+        usableCellularDbm(dbm)
+    }.getOrNull()
 }
 
 fun cellularGenerationLabel(type: Int): String? = when (type) {
